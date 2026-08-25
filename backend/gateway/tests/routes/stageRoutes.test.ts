@@ -846,6 +846,313 @@ describe("stage routes", () => {
     );
   });
 
+  it("fills the omitted object target when the session possesses exactly one character", async () => {
+    const { dependencies, json } = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [{ action: "set_character_motion", clip_id: "walk" }],
+      },
+    });
+    dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: {
+          success: true,
+          result: {
+            project_revision: REVISION_A,
+            characters: [
+              {
+                id: "hero",
+                kind: "character",
+                agent_binding: { session_id: "dsh-possessed", profile_id: null, role_id: null, mode: "possess" },
+              },
+              { id: "villain", kind: "character" },
+            ],
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { updated: { object_ids: ["hero"] } } },
+      });
+
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      dependencies,
+    );
+
+    expect(dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    expect(dependencies.requestWorkbenchCommand).toHaveBeenNthCalledWith(
+      1,
+      { op: "observe", fields: ["counts", "characters"] },
+      undefined,
+      TARGET.token,
+    );
+    const forwarded = vi.mocked(dependencies.requestWorkbenchCommand).mock.calls[1]?.[0] as {
+      actions: Record<string, unknown>[];
+    };
+    expect(forwarded).toMatchObject({ op: "author", expected_revision: REVISION_A });
+    expect(forwarded.actions[0]).toEqual({ action: "set_character_motion", clip_id: "walk", object_id: "hero" });
+    expect(json).toHaveBeenLastCalledWith(expect.anything(), 200, expect.objectContaining({ success: true }));
+  });
+
+  it("rejects an omitted object target readably when the session possesses several characters", async () => {
+    const { dependencies, json } = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [{ action: "set_character_motion", clip_id: "walk" }],
+      },
+    });
+    dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue({
+      client: {},
+      target: TARGET,
+      response: {
+        success: true,
+        result: {
+          project_revision: REVISION_A,
+          characters: [
+            {
+              id: "hero",
+              kind: "character",
+              agent_binding: { session_id: "dsh-possessed", profile_id: null, role_id: null, mode: "possess" },
+            },
+            {
+              id: "sidekick",
+              kind: "character",
+              agent_binding: { session_id: "dsh-possessed", profile_id: null, role_id: null, mode: "possess" },
+            },
+          ],
+        },
+      },
+    });
+
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      dependencies,
+    );
+
+    expect(dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    const body = json.mock.calls.at(-1)?.[2] as Record<string, unknown>;
+    expect(json.mock.calls.at(-1)?.[1]).toBe(400);
+    expect(body.code).toBe("possession_target_ambiguous");
+    expect(String(body.error)).toContain('"hero"');
+    expect(String(body.error)).toContain('"sidekick"');
+    expect(String(body.error)).toContain("set_character_motion");
+  });
+
+  it("keeps the original validation error when an unpossessed session omits an object target", async () => {
+    const { dependencies, json } = createDependencies({
+      session_id: "dsh-free-director",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [{ action: "set_character_motion", clip_id: "walk" }],
+      },
+    });
+    dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue({
+      client: {},
+      target: TARGET,
+      response: {
+        success: true,
+        result: { project_revision: REVISION_A, characters: [{ id: "hero", kind: "character" }] },
+      },
+    });
+
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      dependencies,
+    );
+
+    expect(dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    const body = json.mock.calls.at(-1)?.[2] as Record<string, unknown>;
+    expect(json.mock.calls.at(-1)?.[1]).toBe(400);
+    expect(body.code).toBeUndefined();
+    expect(String(body.error)).toContain("object_id");
+  });
+
+  it("matches profile-only bindings through the envelope profile_id and fills the target", async () => {
+    const profileCharacters = [
+      {
+        id: "hero",
+        kind: "character",
+        agent_binding: { session_id: null, profile_id: "profile-a", role_id: null, mode: "possess" },
+      },
+      { id: "villain", kind: "character" },
+    ];
+    const preflight = {
+      client: {},
+      target: TARGET,
+      response: { success: true, result: { project_revision: REVISION_A, characters: profileCharacters } },
+    };
+
+    // The profile-bound caller can drive its character even with object_id omitted.
+    const fillIn = createDependencies({
+      session_id: "mcp-profile-caller",
+      profile_id: "profile-a",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [{ action: "orient_toward", target_id: "villain" }],
+      },
+    });
+    fillIn.dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce(preflight)
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { updated: { object_ids: ["hero"] } } },
+      });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      fillIn.dependencies,
+    );
+    expect(fillIn.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    const forwarded = vi.mocked(fillIn.dependencies.requestWorkbenchCommand).mock.calls[1]?.[0] as {
+      actions: Record<string, unknown>[];
+    };
+    expect(forwarded.actions[0]).toEqual({ action: "orient_toward", target_id: "villain", object_id: "hero" });
+    expect(fillIn.json).toHaveBeenLastCalledWith(expect.anything(), 200, expect.objectContaining({ success: true }));
+
+    // The same profile-bound caller cannot mutate an unpossessed character.
+    const crossCharacter = createDependencies({
+      session_id: "mcp-profile-caller",
+      profile_id: "profile-a",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [{ action: "set_character_motion", object_id: "villain", clip_id: "walk" }],
+      },
+    });
+    crossCharacter.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(preflight);
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      crossCharacter.dependencies,
+    );
+    expect(crossCharacter.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({ success: false, code: "possession_scope_violation" }),
+    );
+
+    // A caller without the bound profile keeps full stage-wide authoring.
+    const otherProfile = createDependencies({
+      session_id: "mcp-other-caller",
+      profile_id: "profile-b",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [{ action: "set_character_motion", object_id: "villain", clip_id: "walk" }],
+      },
+    });
+    otherProfile.dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce(preflight)
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { updated: { object_ids: ["villain"] } } },
+      });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      otherProfile.dependencies,
+    );
+    expect(otherProfile.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      200,
+      expect.objectContaining({ success: true }),
+    );
+  });
+
+  it("allows spatial actions that move the possessed character and rejects moving others", async () => {
+    const possessedCharacters = [
+      {
+        id: "hero",
+        kind: "character",
+        agent_binding: { session_id: "dsh-possessed", profile_id: null, role_id: null, mode: "possess" },
+      },
+      { id: "villain", kind: "character" },
+    ];
+    const preflight = {
+      client: {},
+      target: TARGET,
+      response: { success: true, result: { project_revision: REVISION_A, characters: possessedCharacters } },
+    };
+
+    const approach = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [
+          { action: "place_relative", object_id: "hero", anchor_id: "villain", relation: "front", orient: "target" },
+          { action: "orient_toward", object_id: "hero", target_id: "villain" },
+        ],
+      },
+    });
+    approach.dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce(preflight)
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { updated: { object_ids: ["hero"] } } },
+      });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      approach.dependencies,
+    );
+    expect(approach.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    expect(approach.json).toHaveBeenLastCalledWith(expect.anything(), 200, expect.objectContaining({ success: true }));
+
+    const moveOther = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [{ action: "place_relative", object_id: "villain", anchor_id: "hero", relation: "behind" }],
+      },
+    });
+    moveOther.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(preflight);
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      moveOther.dependencies,
+    );
+    expect(moveOther.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(moveOther.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({
+        success: false,
+        code: "possession_scope_violation",
+        error: expect.stringContaining('"villain"'),
+      }),
+    );
+  });
+
   it("resolves possession before dispatching a guard-carrying mutation", async () => {
     const { dependencies, json } = createDependencies({
       session_id: "dsh-possessed",
