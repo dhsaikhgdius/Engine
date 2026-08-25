@@ -21,11 +21,17 @@ import type {
   WorldEffectKind,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { EffectsLayerProps, LivingWorldFrameContext } from "../livingWorldContracts";
-import { getEffectParticleCount, getEffectRenderPasses, type EffectRenderPassSpec } from "./effectPresets";
+import {
+  getEffectParticleCount,
+  getEffectRenderPasses,
+  getWindTurbulenceMultiplier,
+  type EffectRenderPassSpec,
+} from "./effectPresets";
 import {
   buildEffectSystemConfig,
   buildParticleIndexArray,
   buildWeatherSystemConfig,
+  getEffectSystemSeedHash,
   type EffectSystemConfig,
 } from "./effectSystemConfig";
 import { buildEffectShaderSource } from "./effectShaders";
@@ -37,7 +43,9 @@ import {
   computeFireLightState,
   selectFireLightEffects,
   selectShadowCastingFireId,
+  type FireLightEnvironment,
 } from "./fireLights";
+import { evaluateFireBurnFactor } from "./fireSystem";
 import { evaluateEffectsSceneLighting, type EffectsSceneLighting } from "./sceneLighting";
 import { getSoftParticleTexture } from "./softParticleTexture";
 import {
@@ -91,7 +99,10 @@ interface EffectParticleUniforms {
   uIntensity: IUniform<number>;
   uSizeScale: IUniform<number>;
   uSpeedScale: IUniform<number>;
+  /** MEAN wind velocity x windInfluence; gusts are integrated in-shader. */
   uWind: IUniform<Vector3>;
+  /** Wind gustiness (0-1); drives the closed-form gust integral. */
+  uGustiness: IUniform<number>;
   uEmitterMode: IUniform<number>;
   uEmitterExtents: IUniform<Vector3>;
   uLifetime: IUniform<Vector2>;
@@ -103,7 +114,15 @@ interface EffectParticleUniforms {
   uSize: IUniform<Vector2>;
   uSpin: IUniform<number>;
   uStretch: IUniform<number>;
+  /** Max upright wobble (rad) for directional sprites; 0 = free rotation. */
+  uUpright: IUniform<number>;
   uPulse: IUniform<number>;
+  /** Fraction of particles rendered as ground splash rings (weather rain). */
+  uSplash: IUniform<number>;
+  /** Splash plane height (project space) for the ripple sub-mode. */
+  uGroundY: IUniform<number>;
+  /** Fire weather suppression factor (1 = dry burn); see fireSystem.ts. */
+  uBurn: IUniform<number>;
   uWrapExtents: IUniform<Vector3>;
   uTint: IUniform<Vector3>;
   uTintFlag: IUniform<number>;
@@ -157,6 +176,7 @@ function createEffectMaterialSet(kind: WorldEffectKind): EffectMaterialSet {
     uSizeScale: { value: 1 },
     uSpeedScale: { value: 1 },
     uWind: { value: new Vector3() },
+    uGustiness: { value: 0 },
     uEmitterMode: { value: 0 },
     uEmitterExtents: { value: new Vector3(0.1, 0.1, 0.1) },
     uLifetime: { value: new Vector2(1, 2) },
@@ -168,7 +188,11 @@ function createEffectMaterialSet(kind: WorldEffectKind): EffectMaterialSet {
     uSize: { value: new Vector2(0.1, 0.1) },
     uSpin: { value: 0 },
     uStretch: { value: 0 },
+    uUpright: { value: 0 },
     uPulse: { value: 0 },
+    uSplash: { value: 0 },
+    uGroundY: { value: 0 },
+    uBurn: { value: 1 },
     uWrapExtents: { value: new Vector3() },
     uTint: { value: new Vector3(1, 1, 1) },
     uTintFlag: { value: 0 },
@@ -214,27 +238,41 @@ function writeParticleUniforms(
   uniforms.uTime.value = context.worldSeconds;
   uniforms.uSeed.value.set(config.seed[0], config.seed[1]);
   if (origin) uniforms.uOrigin.value.set(origin[0], origin[1], origin[2]);
-  uniforms.uIntensity.value = config.intensity;
-  uniforms.uSizeScale.value = config.sizeScale;
+  // Fire-family systems couple to the weather: rain smothers flames and
+  // embers via the pure burn factor (see fireSystem.ts). Particle COUNT
+  // stays fixed so geometry never reallocates on a weather change; alpha
+  // (uIntensity) and sprite size carry the visible suppression.
+  const fireFamily = config.kind === "fire" || config.kind === "sparks";
+  const burn = fireFamily ? evaluateFireBurnFactor(context.settings.weather, config.seedHash, context.worldSeconds) : 1;
+  uniforms.uBurn.value = burn;
+  uniforms.uIntensity.value = config.intensity * burn;
+  uniforms.uSizeScale.value = config.kind === "fire" ? config.sizeScale * (0.55 + 0.45 * burn) : config.sizeScale;
   uniforms.uSpeedScale.value = config.speedScale;
-  const wind = context.windVector;
-  uniforms.uWind.value.set(
-    wind[0] * config.windInfluence,
-    wind[1] * config.windInfluence,
-    wind[2] * config.windInfluence,
-  );
+  // uWind carries the MEAN wind (gusts integrate in-shader in closed form,
+  // so a gust bends new trajectory segments without teleporting old ones).
+  const wind = context.settings.wind;
+  const windRadians = (wind.directionDegrees * Math.PI) / 180;
+  const meanWind = wind.speedMps * config.windInfluence;
+  uniforms.uWind.value.set(Math.sin(windRadians) * meanWind, 0, Math.cos(windRadians) * meanWind);
+  uniforms.uGustiness.value = wind.gustiness;
   uniforms.uEmitterMode.value = config.emitter.mode;
   uniforms.uEmitterExtents.value.set(config.emitter.extents[0], config.emitter.extents[1], config.emitter.extents[2]);
   uniforms.uLifetime.value.set(preset.lifetimeSeconds[0], preset.lifetimeSeconds[1]);
   uniforms.uVelocityBase.value.set(preset.velocityBase[0], preset.velocityBase[1], preset.velocityBase[2]);
   uniforms.uVelocitySpread.value.set(preset.velocitySpread[0], preset.velocitySpread[1], preset.velocitySpread[2]);
   uniforms.uGravity.value.set(preset.gravity[0], preset.gravity[1], preset.gravity[2]);
-  uniforms.uTurbulence.value = preset.turbulence;
+  // Gusty wind shakes wind-coupled media (smoke, dust, snow) harder.
+  const windSpeedNow = Math.hypot(context.windVector[0], context.windVector[2]);
+  uniforms.uTurbulence.value =
+    preset.turbulence * getWindTurbulenceMultiplier(wind.turbulence, windSpeedNow, config.windInfluence);
   uniforms.uTurbFrequency.value.set(preset.turbulenceFrequency[0], preset.turbulenceFrequency[1]);
   uniforms.uSize.value.set(preset.sizeRange[0], preset.sizeRange[1]);
   uniforms.uSpin.value = preset.spinRadPerSec;
   uniforms.uStretch.value = preset.velocityStretch;
+  uniforms.uUpright.value = preset.uprightWobbleRad;
   uniforms.uPulse.value = preset.pulseHz;
+  uniforms.uSplash.value = config.splashFraction;
+  uniforms.uGroundY.value = context.groundHeight;
   if (config.wrapExtents) {
     uniforms.uWrapExtents.value.set(config.wrapExtents[0], config.wrapExtents[1], config.wrapExtents[2]);
   } else {
@@ -419,6 +457,19 @@ function WeatherPrecipitation({
   );
 }
 
+/**
+ * Per-frame fire light environment: burn suppression from the weather block
+ * plus the evaluated wind speed for gutter deepening. Pure per frame — both
+ * inputs are deterministic functions of (settings, worldSeconds).
+ */
+function getFireLightEnvironment(effect: DirectorWorldEffect, context: LivingWorldFrameContext): FireLightEnvironment {
+  const seedHash = getEffectSystemSeedHash(context.seed, effect.seedOffset, effect.id);
+  return {
+    burnFactor: evaluateFireBurnFactor(context.settings.weather, seedHash, context.worldSeconds),
+    windSpeedMps: Math.hypot(context.windVector[0], context.windVector[2]),
+  };
+}
+
 function FireEffectLight({
   castShadow,
   context,
@@ -431,11 +482,22 @@ function FireEffectLight({
   effect: DirectorWorldEffect;
   origin: readonly [number, number, number];
 }) {
-  const state = computeFireLightState(effect, context.seed, context.worldSeconds);
+  const state = computeFireLightState(
+    effect,
+    context.seed,
+    context.worldSeconds,
+    getFireLightEnvironment(effect, context),
+  );
   const lightRef = useRef<PointLight>(null);
   useFrame(() => {
     const light = lightRef.current;
-    if (light) light.intensity = computeFireLightState(effect, context.seed, context.worldSeconds).intensity;
+    if (!light) return;
+    light.intensity = computeFireLightState(
+      effect,
+      context.seed,
+      context.worldSeconds,
+      getFireLightEnvironment(effect, context),
+    ).intensity;
   });
   // Shadow props are set unconditionally (every PointLight owns a shadow
   // object); only castShadow gates the six-face cube render, and the flag

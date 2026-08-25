@@ -60,6 +60,12 @@ export interface EffectSystemConfig {
   speedScale: number;
   /** CPU-side premultiplier for the global wind vector (can exceed 1 for storms). */
   windInfluence: number;
+  /**
+   * Fraction of particles rendered as ground splash rings instead of falling
+   * drops. Only the camera-following weather rain sets this; anchored
+   * emitters have no reliable splash plane and keep 0.
+   */
+  splashFraction: number;
   /** Optional RGB tint from the authored hex color, or null. */
   tint: readonly [number, number, number] | null;
   /** Blend mode for the main pass of this system. */
@@ -148,6 +154,7 @@ export function buildEffectSystemConfig(effect: DirectorWorldEffect, worldSeed: 
     sizeScale: effect.sizeScale,
     speedScale: effect.speedScale,
     windInfluence: effect.windInfluence,
+    splashFraction: 0,
     tint: effect.colorTint ? parseHexColor01(effect.colorTint) : null,
     blending: preset.blending,
     wrapExtents: null,
@@ -174,9 +181,10 @@ export function buildWeatherSystemConfig(weather: DirectorWorldWeather, worldSee
     seed: seedHashToGlslSeed(seedHash),
     emitter: { mode: EMITTER_MODE_BOX, extents: [width / 2, height / 2, depth / 2] },
     intensity: weather.intensity,
-    sizeScale: 1,
+    sizeScale: plan.sizeMultiplier,
     speedScale: plan.speedMultiplier,
     windInfluence: plan.windMultiplier,
+    splashFraction: plan.splashFraction,
     tint: null,
     blending: preset.blending,
     wrapExtents: WEATHER_PRECIPITATION_BOX_SIZE,
