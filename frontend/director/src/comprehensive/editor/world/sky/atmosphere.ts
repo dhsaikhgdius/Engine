@@ -1,4 +1,5 @@
 import type { DirectorWorldWeather } from "../../schema/directorProject";
+import { evaluateSkyWeatherMood } from "./skyWeather";
 
 /**
  * Nishita single-scattering atmosphere shared by the Living World sky dome,
@@ -185,41 +186,58 @@ export function evaluateSunRadiance(
   ];
 }
 
+/** How dark a fully wet surface goes relative to its dry albedo. */
+export const WET_GROUND_ALBEDO_FACTOR = 0.7;
+
 /**
  * Ground Lambertian albedo for the bounce solve. Snow weather lifts the
- * floor toward fresh snow; rain and storms darken it.
+ * floor toward fresh snow; rain and storms darken it, and surface wetness
+ * darkens every non-snow ground the way a rained-on street reads darker.
  */
 export function getAtmosphereGroundAlbedo(weather: DirectorWorldWeather): [number, number, number] {
   const cover = clamp01(weather.cloudCover);
   const intensity = clamp01(weather.intensity);
+  const wetness = clamp01(weather.wetness);
   if (weather.preset === "snow") {
-    return lerp3(DEFAULT_GROUND_ALBEDO, SNOW_GROUND_ALBEDO, lerp(0.72, 1, intensity));
+    // Wet, melting snow dulls only slightly; fresh snow stays near-white.
+    const snowAlbedo = lerp3(DEFAULT_GROUND_ALBEDO, SNOW_GROUND_ALBEDO, lerp(0.72, 1, intensity));
+    return lerp3(snowAlbedo, [snowAlbedo[0] * 0.88, snowAlbedo[1] * 0.88, snowAlbedo[2] * 0.88], wetness);
   }
+  const wetFactor = lerp(1, WET_GROUND_ALBEDO_FACTOR, wetness);
+  let albedo: [number, number, number];
   if (weather.preset === "rain") {
-    return lerp3(DEFAULT_GROUND_ALBEDO, [0.12, 0.14, 0.13], lerp(0.45, 0.85, intensity));
+    albedo = lerp3(DEFAULT_GROUND_ALBEDO, [0.12, 0.14, 0.13], lerp(0.45, 0.85, intensity));
+  } else if (weather.preset === "storm") {
+    albedo = lerp3(DEFAULT_GROUND_ALBEDO, [0.1, 0.11, 0.12], lerp(0.35, 0.8, intensity));
+  } else if (weather.preset === "overcast") {
+    albedo = lerp3(DEFAULT_GROUND_ALBEDO, [0.22, 0.24, 0.22], lerp(0.4, 0.75, cover));
+  } else {
+    albedo = [DEFAULT_GROUND_ALBEDO[0], DEFAULT_GROUND_ALBEDO[1], DEFAULT_GROUND_ALBEDO[2]];
   }
-  if (weather.preset === "storm") {
-    return lerp3(DEFAULT_GROUND_ALBEDO, [0.1, 0.11, 0.12], lerp(0.35, 0.8, intensity));
-  }
-  if (weather.preset === "overcast") {
-    return lerp3(DEFAULT_GROUND_ALBEDO, [0.22, 0.24, 0.22], lerp(0.4, 0.75, cover));
-  }
-  return [DEFAULT_GROUND_ALBEDO[0], DEFAULT_GROUND_ALBEDO[1], DEFAULT_GROUND_ALBEDO[2]];
+  return [albedo[0] * wetFactor, albedo[1] * wetFactor, albedo[2] * wetFactor];
 }
 
-/** Extra Mie optical depth from haze / cloud, relative to a clear day. */
+/**
+ * Extra Mie optical depth from haze / cloud, relative to a clear day.
+ *
+ * Preset haze scales with weather intensity so the five presets separate
+ * clearly (snow < overcast < rain < storm at any matched intensity), and the
+ * cover term uses the preset-floored effective cover so an overcast sky is
+ * hazy even when the authored cover slider sits low.
+ */
 export function getAtmosphereMieScale(weather: DirectorWorldWeather): number {
-  const cover = clamp01(weather.cloudCover);
+  const intensity = clamp01(weather.intensity);
+  const cover = evaluateSkyWeatherMood(weather).effectiveCloudCover;
   const extra =
     weather.preset === "clear"
       ? 0
-      : weather.preset === "overcast"
-        ? 1.6
-        : weather.preset === "snow"
-          ? 1.1
+      : weather.preset === "snow"
+        ? 0.9 + 1.0 * intensity
+        : weather.preset === "overcast"
+          ? 1.5 + 1.3 * intensity
           : weather.preset === "rain"
-            ? 1.8
-            : 2.4 + 1.2 * clamp01(weather.intensity);
+            ? 1.9 + 1.7 * intensity
+            : 3.0 + 2.4 * intensity;
   return 1 + 2.2 * cover + extra;
 }
 

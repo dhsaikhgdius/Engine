@@ -1,5 +1,6 @@
-import type { DirectorWorldWind } from "../../schema/directorProject";
+import type { DirectorWorldWeather, DirectorWorldWind } from "../../schema/directorProject";
 import { hashCombine, worldRandom01, worldStreamId } from "../worldRandom";
+import { evaluateSkyWeatherMood } from "./skyWeather";
 import { SKY_NOON_SUN_INTENSITY, type SkyLightingState } from "./solar";
 
 /**
@@ -181,13 +182,14 @@ export interface SkyCloudPalette {
  * Two-tone cloud shading derived from the sky lighting state: crowns blend
  * the ambient sky toward the key (sun/moon) color, bases stay on the ambient
  * term. `sunIntensity` already encodes twilight, night, cloud cover, and
- * storm darkening, so overcast and storm skies collapse both tones toward a
- * dim ambient grey without any extra weather branching here.
+ * storm darkening; passing the weather additionally applies the preset's
+ * cloud darkening so storm decks read slate-dark rather than merely unlit.
  */
-export function getSkyCloudPalette(lighting: SkyLightingState): SkyCloudPalette {
+export function getSkyCloudPalette(lighting: SkyLightingState, weather?: DirectorWorldWeather): SkyCloudPalette {
+  const darkening = weather ? evaluateSkyWeatherMood(weather).cloudShaderDarkening : 1;
   const direct = clamp01(lighting.sunIntensity / SKY_NOON_SUN_INTENSITY);
-  const litBrightness = 0.45 + 0.55 * direct;
-  const baseBrightness = 0.3 + 0.42 * direct;
+  const litBrightness = (0.45 + 0.55 * direct) * darkening;
+  const baseBrightness = (0.3 + 0.42 * direct) * darkening;
   return {
     top: [
       lerp(lighting.ambientColor[0], lighting.sunColor[0], 0.62) * litBrightness,

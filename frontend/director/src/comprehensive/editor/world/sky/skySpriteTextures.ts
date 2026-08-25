@@ -1,10 +1,11 @@
 import { CanvasTexture, DataTexture, type Texture } from "three";
 
 /**
- * Module-cached radial-gradient sprites for the sky layer (cloud puff, sun
- * disc, sun glow). Each texture is generated once per session from constants
- * only — no randomness, no wall clock — shared by every consumer, and never
- * disposed. All sprites are white; tinting happens in materials/shaders.
+ * Module-cached radial-gradient sprites for the sky layer. Each texture is
+ * generated once per session from constants only — no randomness, no wall
+ * clock — shared by every consumer, and never disposed. All sprites are
+ * white; tinting happens in materials/shaders. The sun disc and halo are
+ * drawn analytically inside the dome shader, not from sprites.
  */
 
 const TEXTURE_SIZE = 128;
@@ -46,31 +47,4 @@ export function getCloudSpriteTexture(): Texture {
     [1, 0],
   ]);
   return cloudSpriteTexture;
-}
-
-let sunDiscTexture: Texture | null = null;
-
-/** Near-solid core with a tight soft limb, so the disc reads crisp at 0.8°. */
-export function getSunDiscTexture(): Texture {
-  sunDiscTexture ??= createRadialSpriteTexture([
-    [0, 1],
-    [0.46, 1],
-    [0.6, 0.85],
-    [0.78, 0.12],
-    [1, 0],
-  ]);
-  return sunDiscTexture;
-}
-
-let sunGlowTexture: Texture | null = null;
-
-/** Long-tailed halo for the wide horizon-glow quad around the disc. */
-export function getSunGlowTexture(): Texture {
-  sunGlowTexture ??= createRadialSpriteTexture([
-    [0, 0.9],
-    [0.28, 0.4],
-    [0.62, 0.12],
-    [1, 0],
-  ]);
-  return sunGlowTexture;
 }
