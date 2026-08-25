@@ -208,7 +208,7 @@ Director(WorldEngine)的 TypeScript 网关控制平面。它提供项目与场�
 
 | 路径 | 用途 |
 |------|---------|
-| `multiAgent/productionRunOrchestrator.ts` | 生产运行编排器:按影片角色顺序执行多 Agent 生产管线(showrunner → screenwriter → … → generation-operator) |
+| `multiAgent/productionRunOrchestrator.ts` | 生产运行编排器:执行串行影片角色序列或可配置节点/边图(并行分支波次调度、`from_node_id` checkpoint resume) |
 | `multiAgent/multiAgentRunStore.ts` | 多 Agent 运行存储:持久化生产运行记录 |
 
 ### `production/` 文件清单
