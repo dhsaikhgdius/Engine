@@ -1,0 +1,26 @@
+{
+  "name": "Director / WorldEngine",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "user": "ubuntu",
+  "install": "sh .cursor/scripts/cloud-agent-install.sh",
+  "start": "sh .cursor/scripts/cloud-agent-start.sh",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "npm run dev"
+    }
+  ],
+  "ports": [
+    {
+      "name": "director-ui",
+      "port": 5175
+    },
+    {
+      "name": "director-gateway",
+      "port": 8787
+    }
+  ]
+}
