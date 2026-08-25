@@ -115,9 +115,9 @@ describe("Director DCC return contract", () => {
     };
     expect(directorDccReturnManifestSchema.safeParse(blenderManifest).success).toBe(true);
     // A Blender package cannot drop blenderVersion or claim the canonical stanza.
-    expect(
-      directorDccReturnManifestSchema.safeParse({ ...blenderManifest, blenderVersion: undefined }).success,
-    ).toBe(false);
+    expect(directorDccReturnManifestSchema.safeParse({ ...blenderManifest, blenderVersion: undefined }).success).toBe(
+      false,
+    );
     expect(
       directorDccReturnManifestSchema.safeParse({
         ...blenderManifest,

@@ -26,7 +26,7 @@ Gateway 也绝不解析它。
 ## 安装
 
 1. 将 `com.director.bridge` 复制到 `<你的工程>/Packages/com.director.bridge`
-  （或在 `Packages/manifest.json` 中作为本地包引用）。
+   （或在 `Packages/manifest.json` 中作为本地包引用）。
 2. 建议安装 `com.unity.cloud.gltfast`，GLB 资产可作为网格导入，而不是
    “警告并省略”的占位对象。
 3. 配置 Director Gateway 环境变量：

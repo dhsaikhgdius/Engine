@@ -1,12 +1,12 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
+import type { DirectorTransform } from "@director/project-schema";
 import {
   directorPointToEngine,
   directorTransformToCanonicalDcc,
   directorTransformToEngine,
   type DirectorDccTransform,
-  type DirectorTransform,
 } from "@director/dcc-protocol";
 
 const execFileAsync = promisify(execFile);
@@ -103,26 +103,23 @@ describe("engine connector coordinate math matches the protocol reference", () =
     expect(JSON.parse(stdout.trim())).toMatchObject({ ok: true });
   });
 
-  it.skipIf(!hasPython3)(
-    "Unreal connector Python conversion matches the matrix-conjugation reference",
-    async () => {
-      const canonicalInputs = SAMPLE_TRANSFORMS.map((sample) => directorTransformToCanonicalDcc(sample, SCENE));
-      const script = [
-        "import json, sys",
-        "sys.path.insert(0, '.')",
-        "import director_space",
-        "inputs = json.loads(sys.stdin.read())",
-        "print(json.dumps([director_space.director_transform_to_unreal(t) for t in inputs]))",
-      ].join("\n");
-      const child = execFileAsync("python3", ["-c", script], { cwd: unrealPythonDirectory, timeout: 30_000 });
-      child.child.stdin!.end(JSON.stringify(canonicalInputs));
-      const { stdout } = await child;
-      const converted = JSON.parse(stdout.trim()) as DirectorDccTransform[];
-      converted.forEach((pythonTransform, index) => {
-        expectTransformsClose(pythonTransform, directorTransformToEngine("unreal", SAMPLE_TRANSFORMS[index]!, SCENE));
-      });
-    },
-  );
+  it.skipIf(!hasPython3)("Unreal connector Python conversion matches the matrix-conjugation reference", async () => {
+    const canonicalInputs = SAMPLE_TRANSFORMS.map((sample) => directorTransformToCanonicalDcc(sample, SCENE));
+    const script = [
+      "import json, sys",
+      "sys.path.insert(0, '.')",
+      "import director_space",
+      "inputs = json.loads(sys.stdin.read())",
+      "print(json.dumps([director_space.director_transform_to_unreal(t) for t in inputs]))",
+    ].join("\n");
+    const child = execFileAsync("python3", ["-c", script], { cwd: unrealPythonDirectory, timeout: 30_000 });
+    child.child.stdin!.end(JSON.stringify(canonicalInputs));
+    const { stdout } = await child;
+    const converted = JSON.parse(stdout.trim()) as DirectorDccTransform[];
+    converted.forEach((pythonTransform, index) => {
+      expectTransformsClose(pythonTransform, directorTransformToEngine("unreal", SAMPLE_TRANSFORMS[index]!, SCENE));
+    });
+  });
 
   it.skipIf(!hasPython3)("Unreal connector world composition matches directorTransformToCanonicalDcc", async () => {
     const script = [

@@ -161,9 +161,11 @@ describe("Director DCC scene contract", () => {
   });
 
   it("scopes engine handoff operations to connector-backed engine providers", () => {
-    expect(
-      directorDccOperationSchema.parse({ op: "send_to_engine", provider: "godot", formats: ["glb"] }),
-    ).toEqual({ op: "send_to_engine", provider: "godot", formats: ["glb"] });
+    expect(directorDccOperationSchema.parse({ op: "send_to_engine", provider: "godot", formats: ["glb"] })).toEqual({
+      op: "send_to_engine",
+      provider: "godot",
+      formats: ["glb"],
+    });
     expect(
       directorDccOperationSchema.parse({ op: "send_to_engine", provider: "unreal", camera_id: "cam-1", frame: 12 }),
     ).toMatchObject({ provider: "unreal", camera_id: "cam-1", frame: 12 });

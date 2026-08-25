@@ -127,8 +127,8 @@ describe("Director DCC engine contract", () => {
       warnings: [],
     };
     expect(directorDccEngineSendResultSchema.parse(result)).toEqual(result);
-    expect(directorDccEngineSendResultSchema.safeParse({ ...result, report: { ...engineReport(), ok: false } }).success).toBe(
-      false,
-    );
+    expect(
+      directorDccEngineSendResultSchema.safeParse({ ...result, report: { ...engineReport(), ok: false } }).success,
+    ).toBe(false);
   });
 });

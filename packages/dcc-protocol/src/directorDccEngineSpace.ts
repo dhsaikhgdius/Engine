@@ -45,31 +45,29 @@ export interface DirectorDccEngineSpace {
  * - Unity: left-handed, Y-up, `+Z` forward, metres.
  * - Godot 4: right-handed, Y-up, `-Z` forward, metres (matches Director).
  */
-export const DIRECTOR_DCC_ENGINE_SPACES: Readonly<Record<DirectorDccEngineId, DirectorDccEngineSpace>> = Object.freeze(
-  {
-    unreal: {
-      handedness: "left",
-      upAxis: "Z",
-      forwardAxis: "+X",
-      unitsPerMeter: 100,
-      linearMap: "(x,y,z)->(-z*100,x*100,y*100)",
-    },
-    unity: {
-      handedness: "left",
-      upAxis: "Y",
-      forwardAxis: "+Z",
-      unitsPerMeter: 1,
-      linearMap: "(x,y,z)->(x,y,-z)",
-    },
-    godot: {
-      handedness: "right",
-      upAxis: "Y",
-      forwardAxis: "-Z",
-      unitsPerMeter: 1,
-      linearMap: "(x,y,z)->(x,y,z)",
-    },
+export const DIRECTOR_DCC_ENGINE_SPACES: Readonly<Record<DirectorDccEngineId, DirectorDccEngineSpace>> = Object.freeze({
+  unreal: {
+    handedness: "left",
+    upAxis: "Z",
+    forwardAxis: "+X",
+    unitsPerMeter: 100,
+    linearMap: "(x,y,z)->(-z*100,x*100,y*100)",
   },
-);
+  unity: {
+    handedness: "left",
+    upAxis: "Y",
+    forwardAxis: "+Z",
+    unitsPerMeter: 1,
+    linearMap: "(x,y,z)->(x,y,-z)",
+  },
+  godot: {
+    handedness: "right",
+    upAxis: "Y",
+    forwardAxis: "-Z",
+    unitsPerMeter: 1,
+    linearMap: "(x,y,z)->(x,y,z)",
+  },
+});
 
 // Signed-permutation part of each Director→engine basis change (no unit scale).
 // Chosen so Director right/up/forward map onto the engine's right/up/forward,

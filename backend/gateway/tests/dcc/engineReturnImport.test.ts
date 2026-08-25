@@ -2,13 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import type { DirectorProject } from "@director/project-schema";
+import type { DirectorProject, DirectorTransform } from "@director/project-schema";
 import { getDirectorProjectRevision } from "@director/project-schema";
 import {
   directorTransformToCanonicalDcc,
   directorWorldPointToCanonical,
   type DirectorDccReturnManifestV1,
-  type DirectorTransform,
 } from "@director/dcc-protocol";
 import { createTestDirectorProject } from "../fixtures/createTestDirectorProject";
 import { createDccReturnImporter } from "../../dcc/blenderReturnImport";
@@ -189,7 +188,9 @@ describe("engine return import (canonical wire space)", () => {
     const mergedPlan = await merged.importer.buildImportPlan(merged.packageDir, merged.project);
     expect(mergedPlan.ready).toBe(true);
     expect(mergedPlan.warnings.join("\n")).toMatch(/merges per stable director_id/i);
-    expect(mergedPlan.operations).toContainEqual(expect.objectContaining({ op: "update_transform", objectId: "table" }));
+    expect(mergedPlan.operations).toContainEqual(
+      expect.objectContaining({ op: "update_transform", objectId: "table" }),
+    );
   });
 
   it("conflicts only when the same entity changed in Director and in the engine", async () => {
@@ -215,7 +216,13 @@ describe("engine return import (canonical wire space)", () => {
     const plan = await setup.importer.buildImportPlan(setup.packageDir, setup.project);
     const applyAuthoring = vi.fn().mockResolvedValue({ success: true });
     const revision = getDirectorProjectRevision(setup.project);
-    const result = await setup.importer.applyImportPlan(plan, setup.project, revision, "engine-apply-1", applyAuthoring);
+    const result = await setup.importer.applyImportPlan(
+      plan,
+      setup.project,
+      revision,
+      "engine-apply-1",
+      applyAuthoring,
+    );
     expect(result.copiedAssets).toEqual([]);
     expect(applyAuthoring).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -25,7 +25,10 @@ const PROJECT_MARKERS: Record<DirectorDccEngineId, string[]> = {
 };
 
 const INSTALLED_CONNECTOR_FILES: Record<DirectorDccEngineId, string[]> = {
-  unreal: ["Plugins/DirectorBridge/DirectorBridge.uplugin", "Plugins/DirectorBridge/Content/Python/director_headless.py"],
+  unreal: [
+    "Plugins/DirectorBridge/DirectorBridge.uplugin",
+    "Plugins/DirectorBridge/Content/Python/director_headless.py",
+  ],
   unity: ["Packages/com.director.bridge/package.json"],
   godot: ["addons/director_bridge/plugin.cfg", "addons/director_bridge/director_headless.gd"],
 };
@@ -174,9 +177,7 @@ describe("DirectorDccEngineBridge", () => {
       const jobId = randomUUID();
       const packageDirectory = resolve(setup.dataDirectory, "dcc-jobs", "exchange", provider, jobId);
       await mkdir(packageDirectory, { recursive: true });
-      const exportPackage = vi
-        .fn()
-        .mockResolvedValue(fakeExchangeResult(provider, packageDirectory, jobId, REVISION));
+      const exportPackage = vi.fn().mockResolvedValue(fakeExchangeResult(provider, packageDirectory, jobId, REVISION));
       const observedArguments: string[][] = [];
       const runProcess = vi.fn(async (executable: string, args: string[]) => {
         observedArguments.push(args);
@@ -223,7 +224,9 @@ describe("DirectorDccEngineBridge", () => {
       expect(matchesFixedEntry(observedArguments[0]!)).toBe(true);
       expect(result.report.importedObjectCount).toBe(2);
       expect(result.returnPackagePath).toBe(resolve(bridge.jobRoot(provider), jobId, "return"));
-      expect(result.warnings).toEqual(expect.arrayContaining(["exchange fixture warning", "connector fixture warning"]));
+      expect(result.warnings).toEqual(
+        expect.arrayContaining(["exchange fixture warning", "connector fixture warning"]),
+      );
     },
   );
 

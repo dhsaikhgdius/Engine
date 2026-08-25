@@ -86,10 +86,7 @@ const DEFAULT_HEALTH_TTL_MS = 15_000;
 
 /** Machine-readable error codes for engine bridge failures. */
 export type DirectorDccEngineBridgeErrorCode =
-  | "engine_not_ready"
-  | "engine_job_failed"
-  | "engine_report_invalid"
-  | "engine_provider_invalid";
+  "engine_not_ready" | "engine_job_failed" | "engine_report_invalid" | "engine_provider_invalid";
 
 /**
  * An error thrown by the engine bridge, carrying an HTTP status, a
@@ -647,8 +644,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
         await diagnostics(provider),
       );
     }
-    const projectDirectory =
-      provider === "unreal" ? dirname(currentHealth.projectPath) : currentHealth.projectPath;
+    const projectDirectory = provider === "unreal" ? dirname(currentHealth.projectPath) : currentHealth.projectPath;
 
     const exchange = await options.exchangePackager.exportPackage(project, {
       provider,

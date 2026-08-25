@@ -117,7 +117,9 @@ describe("Director DCC engine space contract", () => {
     };
     for (const engine of ENGINES) {
       const engineTransform = directorTransformToEngine(engine, mirrored);
-      const engineDeterminantSign = Math.sign(engineTransform.scale[0] * engineTransform.scale[1] * engineTransform.scale[2]);
+      const engineDeterminantSign = Math.sign(
+        engineTransform.scale[0] * engineTransform.scale[1] * engineTransform.scale[2],
+      );
       expect(engineDeterminantSign).toBe(-1);
       const roundTripped = engineTransformToDirector(engine, engineTransform);
       const recoveredDeterminantSign = Math.sign(roundTripped.scale[0] * roundTripped.scale[1] * roundTripped.scale[2]);
@@ -125,7 +127,11 @@ describe("Director DCC engine space contract", () => {
       // A mirrored transform must keep mapping points identically after the round trip.
       const probe: [number, number, number] = [0.5, -1.5, 2.5];
       const applyTransform = (candidate: DirectorTransform, value: [number, number, number]) => {
-        const rotated = new Vector3(value[0] * candidate.scale[0], value[1] * candidate.scale[1], value[2] * candidate.scale[2])
+        const rotated = new Vector3(
+          value[0] * candidate.scale[0],
+          value[1] * candidate.scale[1],
+          value[2] * candidate.scale[2],
+        )
           .applyQuaternion(new Quaternion().setFromEuler(new Euler(...candidate.rotation, "XYZ")))
           .add(new Vector3(...candidate.position));
         return [rotated.x, rotated.y, rotated.z] as [number, number, number];

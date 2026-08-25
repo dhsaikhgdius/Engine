@@ -143,7 +143,8 @@ export function DccProviderBrowser({ onPackageExported, onEngineSendCompleted }:
       const sceneNote = result.report.scenePath ? ` · ${result.report.scenePath}` : "";
       setProviderMessages((current) => ({
         ...current,
-        [status.provider.id]: `${t("引擎已导入")} ${result.report.importedObjectCount + result.report.importedCameraCount} ${t("个实体")}${sceneNote}`,
+        [status.provider.id]:
+          `${t("引擎已导入")} ${result.report.importedObjectCount + result.report.importedCameraCount} ${t("个实体")}${sceneNote}`,
       }));
       onEngineSendCompleted?.(result);
     } catch (sendError) {
@@ -246,7 +247,9 @@ export function DccProviderBrowser({ onPackageExported, onEngineSendCompleted }:
                 <button
                   aria-label={`${t("为")} ${provider.label} ${t("生成")} ${portableFormat ? formatLabel(portableFormat) : ""} ${t("交换包")}`}
                   className="director-dcc-provider-export"
-                  disabled={!status.exchangeReady || !portableFormat || Boolean(exportingProvider) || Boolean(sendingProvider)}
+                  disabled={
+                    !status.exchangeReady || !portableFormat || Boolean(exportingProvider) || Boolean(sendingProvider)
+                  }
                   onClick={() => void exportPackage(status)}
                   type="button"
                 >
