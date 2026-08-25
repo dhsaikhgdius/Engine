@@ -22,6 +22,20 @@ export const directorCollaborationRoomSchema = z
   .max(DIRECTOR_COLLABORATION_MAX_ROOM_LENGTH)
   .regex(/^[\p{L}\p{N}._:@/-]+$/u);
 
+/** Capability role a collaboration invite grants inside one room. */
+export const directorCollaborationRoomRoleSchema = z.enum(["editor", "viewer"]);
+
+/** A parsed collaboration room capability role. */
+export type DirectorCollaborationRoomRole = z.infer<typeof directorCollaborationRoomRoleSchema>;
+
+/** Signed invite capability tokens are compact HMAC envelopes, never free-form user text. */
+export const directorCollaborationInviteTokenSchema = z
+  .string()
+  .trim()
+  .min(16)
+  .max(2_048)
+  .regex(/^[A-Za-z0-9._-]+$/);
+
 const routedPayloadSchema = z.strictObject({
   room: directorCollaborationRoomSchema,
   payload: base64PayloadSchema,
@@ -33,6 +47,8 @@ export const directorCollaborationGatewayClientMessageSchema = z.discriminatedUn
     type: z.literal("collab.join"),
     room: directorCollaborationRoomSchema,
     awareness_client_id: z.number().int().nonnegative().max(0xffff_ffff),
+    /** Required when the gateway runs with room auth enabled; ignored in local trust mode. */
+    invite_token: directorCollaborationInviteTokenSchema.optional(),
   }),
   z.strictObject({ type: z.literal("collab.leave"), room: directorCollaborationRoomSchema }),
   routedPayloadSchema.extend({ type: z.literal("collab.document-update") }).strict(),
@@ -45,6 +61,8 @@ export const directorCollaborationGatewayServerMessageSchema = z.discriminatedUn
   z.strictObject({
     type: z.literal("collab.ready"),
     room: directorCollaborationRoomSchema,
+    /** The capability role granted to this peer. Absent on legacy gateways. */
+    role: directorCollaborationRoomRoleSchema.optional(),
   }),
   routedPayloadSchema.extend({ type: z.literal("collab.document-update") }).strict(),
   routedPayloadSchema.extend({ type: z.literal("collab.awareness-update") }).strict(),
@@ -59,6 +77,8 @@ export const directorCollaborationGatewayServerMessageSchema = z.discriminatedUn
       "room_full",
       "client_id_conflict",
       "invalid_payload",
+      "unauthorized",
+      "forbidden",
     ]),
     message: z.string().trim().min(1).max(400),
   }),

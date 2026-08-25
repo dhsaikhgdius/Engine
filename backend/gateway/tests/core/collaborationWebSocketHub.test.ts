@@ -11,6 +11,7 @@ import {
   type DirectorCollaborationGatewayServerMessage,
 } from "../../../../packages/protocol/src/directorCollaborationGatewayProtocol";
 import { DirectorCollaborationWebSocketHub } from "../../collaborationWebSocketHub";
+import { createCollaborationRoomAuthorizer, mintCollaborationInviteToken } from "../../collaborationRoomAuth";
 
 type FakeSocket = WebSocket & { sent: string[] };
 
@@ -148,6 +149,116 @@ describe("DirectorCollaborationWebSocketHub", () => {
     attackerAwareness.destroy();
     attackerDoc.destroy();
     updateDoc.destroy();
+    hub.destroy();
+  });
+});
+
+describe("DirectorCollaborationWebSocketHub room authorization", () => {
+  const SECRET = "room-auth-hub-secret";
+
+  function inviteRequiredHub() {
+    return new DirectorCollaborationWebSocketHub({
+      authorizer: createCollaborationRoomAuthorizer({ secret: SECRET, mode: "required" }),
+    });
+  }
+
+  it("keeps the backward-compatible local trust mode when no authorizer is configured", () => {
+    const hub = new DirectorCollaborationWebSocketHub();
+    expect(hub.authMode).toBe("local-trust");
+    const client = socket();
+    hub.handle(client, { type: "collab.join", room: "trusted-room", awareness_client_id: 7 });
+    expect(messages(client)[0]).toMatchObject({ type: "collab.ready", room: "trusted-room", role: "editor" });
+    expect(hub.peerCount("trusted-room")).toBe(1);
+    hub.destroy();
+  });
+
+  it("rejects an unauthenticated join when invite auth is required", () => {
+    const hub = inviteRequiredHub();
+    expect(hub.authMode).toBe("invite-required");
+    const intruder = socket();
+    hub.handle(intruder, { type: "collab.join", room: "secure-room", awareness_client_id: 41 });
+    expect(messages(intruder)).toEqual([
+      {
+        type: "collab.error",
+        code: "unauthorized",
+        room: "secure-room",
+        message: "This gateway requires a collaboration invite token to join a room.",
+      },
+    ]);
+    expect(hub.peerCount("secure-room")).toBe(0);
+    expect(hub.roomCount).toBe(0);
+    hub.destroy();
+  });
+
+  it("rejects forged, expired, and wrong-room invite tokens", () => {
+    const hub = inviteRequiredHub();
+    const forged = socket();
+    hub.handle(forged, {
+      type: "collab.join",
+      room: "secure-room",
+      awareness_client_id: 42,
+      invite_token: mintCollaborationInviteToken({ secret: "wrong-secret", room: "secure-room", role: "editor" })
+        .token,
+    });
+    expect(messages(forged).at(-1)).toMatchObject({ type: "collab.error", code: "unauthorized" });
+
+    const wrongRoom = socket();
+    hub.handle(wrongRoom, {
+      type: "collab.join",
+      room: "secure-room",
+      awareness_client_id: 43,
+      invite_token: mintCollaborationInviteToken({ secret: SECRET, room: "another-room", role: "editor" }).token,
+    });
+    expect(messages(wrongRoom).at(-1)).toMatchObject({ type: "collab.error", code: "unauthorized" });
+    expect(hub.peerCount("secure-room")).toBe(0);
+    hub.destroy();
+  });
+
+  it("admits a valid invite, reports the granted role, and gates writes by capability", () => {
+    const hub = inviteRequiredHub();
+    const editor = socket();
+    const viewer = socket();
+    hub.handle(editor, {
+      type: "collab.join",
+      room: "secure-room",
+      awareness_client_id: 51,
+      invite_token: mintCollaborationInviteToken({ secret: SECRET, room: "secure-room", role: "editor" }).token,
+    });
+    hub.handle(viewer, {
+      type: "collab.join",
+      room: "secure-room",
+      awareness_client_id: 52,
+      invite_token: mintCollaborationInviteToken({ secret: SECRET, room: "secure-room", role: "viewer" }).token,
+    });
+    expect(messages(editor)[0]).toMatchObject({ type: "collab.ready", role: "editor" });
+    expect(messages(viewer)[0]).toMatchObject({ type: "collab.ready", role: "viewer" });
+    editor.sent.length = 0;
+    viewer.sent.length = 0;
+
+    // A viewer must not be able to mutate the shared document.
+    const viewerDoc = new Y.Doc();
+    viewerDoc.getMap("scene").set("hijacked", true);
+    hub.handle(viewer, binaryMessage("collab.document-update", "secure-room", Y.encodeStateAsUpdate(viewerDoc)));
+    expect(messages(viewer).at(-1)).toMatchObject({ type: "collab.error", code: "forbidden" });
+    expect(messages(editor)).toHaveLength(0);
+
+    // The editor writes and the viewer still receives the update.
+    viewer.sent.length = 0;
+    const editorDoc = new Y.Doc();
+    editorDoc.getMap("scene").set("title", "Secured shot");
+    hub.handle(editor, binaryMessage("collab.document-update", "secure-room", Y.encodeStateAsUpdate(editorDoc)));
+    const routed = messages(viewer).at(-1) as Extract<
+      DirectorCollaborationGatewayServerMessage,
+      { type: "collab.document-update" }
+    >;
+    expect(routed.type).toBe("collab.document-update");
+    const received = new Y.Doc();
+    Y.applyUpdate(received, decodeDirectorCollaborationGatewayPayload(routed.payload)!);
+    expect(received.getMap("scene").get("title")).toBe("Secured shot");
+
+    viewerDoc.destroy();
+    editorDoc.destroy();
+    received.destroy();
     hub.destroy();
   });
 });

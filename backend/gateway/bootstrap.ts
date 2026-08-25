@@ -36,6 +36,8 @@ import {
 import { RefSessionRegistry } from "./refSessions";
 import { TerminalSessionManager } from "./terminalSessionManager";
 import { DirectorCollaborationWebSocketHub } from "./collaborationWebSocketHub";
+import { createCollaborationRoomAuthorizer } from "./collaborationRoomAuth";
+import { CollaborationSnapshotStore } from "./collaboration/collaborationSnapshotStore";
 import { createBlenderBridge } from "./dcc/blenderBridge";
 import { createBlenderReturnImporter, createDccReturnImporter } from "./dcc/blenderReturnImport";
 import { createBlenderSceneImporter } from "./dcc/blenderSceneImport";
@@ -313,7 +315,14 @@ export async function createGatewayContext(): Promise<GatewayContext> {
   // ---- Services ----
   const refSessions = new RefSessionRegistry();
   const terminalSessions = new TerminalSessionManager(root);
-  const collaborationHub = new DirectorCollaborationWebSocketHub();
+  const collaborationSnapshotStore =
+    process.env.DIRECTOR_COLLAB_PERSISTENCE?.trim() === "1" ? new CollaborationSnapshotStore(dataDirectory) : null;
+  const collaborationHub = new DirectorCollaborationWebSocketHub({
+    authorizer: createCollaborationRoomAuthorizer({
+      secret: process.env.DIRECTOR_COLLAB_INVITE_SECRET?.trim() || gatewaySecret,
+    }),
+    ...(collaborationSnapshotStore ? { persistence: collaborationSnapshotStore } : {}),
+  });
   const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
   const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
   const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
