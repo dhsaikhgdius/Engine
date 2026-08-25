@@ -39,6 +39,7 @@ import { DirectorCollaborationWebSocketHub } from "./collaborationWebSocketHub";
 import { createBlenderBridge } from "./dcc/blenderBridge";
 import { createBlenderReturnImporter } from "./dcc/blenderReturnImport";
 import { createBlenderSceneImporter } from "./dcc/blenderSceneImport";
+import { createEngineSceneImporter } from "./dcc/engineSceneImport";
 import { createDirectorDccProviderRegistry, registerConfiguredDirectorDccProviders } from "./dcc/dccProviderRegistry";
 import { createDirectorDccExchangePackager } from "./dcc/dccExchangePackage";
 import { createBlenderNativeSession } from "./dcc/blenderNativeSession";
@@ -214,6 +215,8 @@ export interface GatewayContext {
   blenderReturnImporter: ReturnType<typeof createBlenderReturnImporter>;
   /** Importer for Blender scene files. */
   blenderSceneImporter: ReturnType<typeof createBlenderSceneImporter>;
+  /** Importer for Unreal / Unity engine scene packages. */
+  engineSceneImporter: ReturnType<typeof createEngineSceneImporter>;
   /** Registry of configured DCC providers. */
   dccProviders: ReturnType<typeof createDirectorDccProviderRegistry>;
   /** Packager for DCC exchange files. */
@@ -312,7 +315,8 @@ export async function createGatewayContext(): Promise<GatewayContext> {
   const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
   const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
   const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
-  const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge });
+  const engineSceneImporter = createEngineSceneImporter({ workspaceRoot: root, dataDirectory });
+  const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge, workspaceRoot: root });
   await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
   const dccExchangePackager = createDirectorDccExchangePackager({ workspaceRoot: root, dataDirectory });
   const blenderNativeSession = createBlenderNativeSession(controlPlaneConfig.dcc.blender);
@@ -449,6 +453,7 @@ export async function createGatewayContext(): Promise<GatewayContext> {
     blenderBridge,
     blenderReturnImporter,
     blenderSceneImporter,
+    engineSceneImporter,
     dccProviders,
     dccExchangePackager,
     blenderNativeSession,

@@ -1,5 +1,7 @@
-import { access, readFile, realpath, stat } from "node:fs/promises";
-import { delimiter, extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { access, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { delimiter, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { z } from "zod";
 import {
   DIRECTOR_DCC_PROVIDER_CONFIG_CONTRACT,
   DIRECTOR_DCC_PROVIDERS,
@@ -51,6 +53,8 @@ export interface CreateDirectorDccProviderRegistryOptions {
   blender: BlenderBridge;
   /** Optional environment override (defaults to `process.env`). */
   environment?: NodeJS.ProcessEnv;
+  /** Workspace root used to locate engine connector scripts (defaults to `process.cwd()`). */
+  workspaceRoot?: string;
 }
 
 /** Environment variable pointing to a JSON provider configuration file. */
@@ -72,6 +76,10 @@ type RuntimeProbe = {
   environmentVariable: string;
   commands: string[];
   paths: string[];
+  /** Probe paths relative to the current user's home directory. */
+  homePaths?: string[];
+  /** Version-manager roots scanned one level deep for `<root>/<version>/<suffix>`. */
+  scanRoots?: Array<{ root: string; homeRelative?: boolean; suffix: string }>;
 };
 
 const RUNTIME_PROBES: Partial<Record<DirectorDccProviderId, RuntimeProbe>> = {
@@ -86,8 +94,21 @@ const RUNTIME_PROBES: Partial<Record<DirectorDccProviderId, RuntimeProbe>> = {
   },
   unreal: {
     environmentVariable: "DIRECTOR_UNREAL_EDITOR_BIN",
-    commands: ["UnrealEditor", "UnrealEditor-Cmd"],
-    paths: [],
+    commands: ["UnrealEditor-Cmd", "UnrealEditor"],
+    paths: [
+      "/opt/director-dcc/unreal/Engine/Binaries/Linux/UnrealEditor-Cmd",
+      "/opt/director-dcc/unreal/Engine/Binaries/Linux/UnrealEditor",
+      "/opt/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd",
+      "/opt/UnrealEngine/Engine/Binaries/Linux/UnrealEditor",
+    ],
+    homePaths: [
+      "UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd",
+      "UnrealEngine/Engine/Binaries/Linux/UnrealEditor",
+    ],
+    scanRoots: [
+      { root: "/Users/Shared/Epic Games", suffix: "Engine/Binaries/Mac/UnrealEditor-Cmd" },
+      { root: "/Users/Shared/Epic Games", suffix: "Engine/Binaries/Mac/UnrealEditor" },
+    ],
   },
   houdini: {
     environmentVariable: "DIRECTOR_HOUDINI_BIN",
@@ -104,8 +125,13 @@ const RUNTIME_PROBES: Partial<Record<DirectorDccProviderId, RuntimeProbe>> = {
   },
   unity: {
     environmentVariable: "DIRECTOR_UNITY_BIN",
-    commands: ["Unity"],
-    paths: ["/Applications/Unity/Unity.app/Contents/MacOS/Unity"],
+    commands: ["Unity", "unity-editor"],
+    paths: ["/opt/director-dcc/unity/Editor/Unity", "/Applications/Unity/Unity.app/Contents/MacOS/Unity"],
+    scanRoots: [
+      { root: "/opt/director-dcc", suffix: "Editor/Unity" },
+      { root: "Unity/Hub/Editor", homeRelative: true, suffix: "Editor/Unity" },
+      { root: "/Applications/Unity/Hub/Editor", suffix: "Unity.app/Contents/MacOS/Unity" },
+    ],
   },
   "3dsmax": {
     environmentVariable: "DIRECTOR_3DSMAX_BIN",
@@ -118,6 +144,8 @@ const RUNTIME_PROBES: Partial<Record<DirectorDccProviderId, RuntimeProbe>> = {
     paths: ["/Applications/Godot.app/Contents/MacOS/Godot"],
   },
 };
+
+const MAX_SCAN_ROOT_ENTRIES = 32;
 
 async function isFile(path: string) {
   try {
@@ -138,32 +166,145 @@ async function discoverOnPath(commands: readonly string[], environment: NodeJS.P
   return null;
 }
 
+function probeHomeDirectory(environment: NodeJS.ProcessEnv) {
+  return environment.HOME?.trim() || homedir();
+}
+
+async function discoverInScanRoots(probe: RuntimeProbe, environment: NodeJS.ProcessEnv) {
+  for (const scan of probe.scanRoots ?? []) {
+    const root = scan.homeRelative ? resolve(probeHomeDirectory(environment), scan.root) : scan.root;
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => null);
+    if (!entries) continue;
+    const directories = entries
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))
+      .slice(0, MAX_SCAN_ROOT_ENTRIES);
+    for (const directory of directories) {
+      const candidate = resolve(root, directory, scan.suffix);
+      if (await isFile(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 async function discoverRuntime(probe: RuntimeProbe, environment: NodeJS.ProcessEnv) {
   const configured = environment[probe.environmentVariable]?.trim();
-  const candidates = [configured, ...probe.paths].filter((candidate): candidate is string => Boolean(candidate));
+  const home = probeHomeDirectory(environment);
+  const candidates = [
+    configured,
+    ...probe.paths,
+    ...(probe.homePaths ?? []).map((path) => resolve(home, path)),
+  ].filter((candidate): candidate is string => Boolean(candidate));
   for (const candidate of candidates) if (await isFile(candidate)) return candidate;
+  const scanned = await discoverInScanRoots(probe, environment);
+  if (scanned) return scanned;
   return discoverOnPath(probe.commands, environment);
 }
+
+/**
+ * Discovers the executable for a runtime-probed DCC provider by checking, in
+ * order: the provider's DIRECTOR_*_BIN environment variable, well-known
+ * absolute and home-relative install paths, version-manager roots (Unity Hub,
+ * Epic Games), and finally `$PATH`.
+ *
+ * @param provider - The provider id to probe (e.g. "unreal", "unity").
+ * @param environment - Optional environment override (defaults to `process.env`).
+ * @returns The absolute executable path, or null when nothing is installed.
+ */
+export async function discoverDccRuntimeExecutable(
+  provider: DirectorDccProviderId,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<string | null> {
+  const probe = RUNTIME_PROBES[directorDccProviderIdSchema.parse(provider)];
+  if (!probe) return null;
+  return discoverRuntime(probe, environment);
+}
+
+const UNITY_VERSION_PATTERN = /(\d+\.\d+\.\d+[abfp]\d+)/;
+
+const unrealBuildVersionSchema = z.looseObject({
+  MajorVersion: z.number().int().nonnegative(),
+  MinorVersion: z.number().int().nonnegative(),
+  PatchVersion: z.number().int().nonnegative(),
+});
+
+/**
+ * Reads the engine version for a discovered Unreal or Unity executable
+ * without spawning the engine: Unreal publishes Engine/Build/Build.version
+ * next to its binaries and Unity encodes the version in its install path.
+ *
+ * @param provider - The engine provider id ("unreal" or "unity").
+ * @param executable - The discovered executable path.
+ * @returns A semantic version string, or null when it cannot be determined.
+ */
+export async function readDccEngineVersion(
+  provider: DirectorDccProviderId,
+  executable: string,
+): Promise<string | null> {
+  try {
+    if (provider === "unreal") {
+      const canonical = await realpath(executable).catch(() => executable);
+      const buildVersionPath = resolve(dirname(canonical), "..", "..", "Build", "Build.version");
+      const parsed = unrealBuildVersionSchema.safeParse(JSON.parse(await readFile(buildVersionPath, "utf8")));
+      if (!parsed.success) return null;
+      return `${parsed.data.MajorVersion}.${parsed.data.MinorVersion}.${parsed.data.PatchVersion}`;
+    }
+    if (provider === "unity") {
+      const canonical = await realpath(executable).catch(() => executable);
+      return canonical.match(UNITY_VERSION_PATTERN)?.[1] ?? executable.match(UNITY_VERSION_PATTERN)?.[1] ?? null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const ENGINE_CONNECTOR_SCRIPTS: Partial<Record<DirectorDccProviderId, string>> = {
+  unreal: "integrations/unreal/interchange/director_scene_export.py",
+  unity: "integrations/unity/interchange/DirectorSceneExport.cs",
+};
 
 function exchangeAdapter(
   descriptor: DirectorDccProviderDescriptor,
   environment: NodeJS.ProcessEnv,
+  workspaceRoot: string,
 ): DirectorDccProviderAdapter {
+  const connectorScript = ENGINE_CONNECTOR_SCRIPTS[descriptor.id];
   return {
     descriptor,
     async status() {
       const probe = RUNTIME_PROBES[descriptor.id];
       const executable = probe ? await discoverRuntime(probe, environment) : null;
+      const version = executable ? await readDccEngineVersion(descriptor.id, executable) : null;
+      const connectorPath = connectorScript ? resolve(workspaceRoot, connectorScript) : null;
+      const connectorReady = connectorPath ? await isFile(connectorPath) : false;
+      const nativeReady = Boolean(executable) && connectorReady;
+      let reason: string;
+      if (connectorScript) {
+        if (nativeReady) {
+          reason =
+            descriptor.id === "unity"
+              ? `${descriptor.label} was detected with the Director scene-import connector. Headless export requires an activated Unity license; the portable director-engine-scene-v1 .zip upload works without one.`
+              : `${descriptor.label} was detected with the Director scene-import connector. Headless director-engine-scene-v1 export and portable .zip upload are both available.`;
+        } else if (executable) {
+          reason = `${descriptor.label} was detected, but its Director connector script is missing at ${connectorScript}.`;
+        } else {
+          reason = `${descriptor.label} was not detected. Set ${probe?.environmentVariable ?? "its DIRECTOR_*_BIN variable"} or install it; director-engine-scene-v1 .zip packages exported inside the engine can still be imported.`;
+        }
+      } else {
+        reason = executable
+          ? `${descriptor.label} was detected. Native automation requires its Director connector; portable ${descriptor.exchangeFormats.join("/")} exchange is ready.`
+          : `${descriptor.label} was not detected. Portable ${descriptor.exchangeFormats.join("/")} exchange can still be prepared.`;
+      }
       return directorDccProviderStatusSchema.parse({
         provider: descriptor,
         installed: Boolean(executable),
         executable,
-        version: null,
-        nativeReady: false,
+        version,
+        nativeReady,
         exchangeReady: true,
-        reason: executable
-          ? `${descriptor.label} was detected. Native automation requires its Director connector; portable ${descriptor.exchangeFormats.join("/")} exchange is ready.`
-          : `${descriptor.label} was not detected. Portable ${descriptor.exchangeFormats.join("/")} exchange can still be prepared.`,
+        reason,
       });
     },
   };
@@ -315,6 +456,7 @@ export function createDirectorDccProviderRegistry(
 ): DirectorDccProviderRegistry {
   const adapters = new Map<DirectorDccProviderId, DirectorDccProviderAdapter>();
   const environment = options.environment ?? process.env;
+  const workspaceRoot = resolve(options.workspaceRoot ?? process.cwd());
 
   async function readAdapterStatus(adapter: DirectorDccProviderAdapter) {
     const status = directorDccProviderStatusSchema.parse(await adapter.status());
@@ -369,7 +511,7 @@ export function createDirectorDccProviderRegistry(
   });
 
   for (const descriptor of DIRECTOR_DCC_PROVIDERS) {
-    if (descriptor.id !== "blender") registry.register(exchangeAdapter(descriptor, environment));
+    if (descriptor.id !== "blender") registry.register(exchangeAdapter(descriptor, environment, workspaceRoot));
   }
   return registry;
 }

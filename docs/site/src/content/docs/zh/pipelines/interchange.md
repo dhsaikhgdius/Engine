@@ -21,6 +21,8 @@ Director 使用 manifest-first 的交换契约。每个边界都声明身份、�
 | ASCII STL ZIP    | 导出      | 全部或选中的受支持 Stage 基础体、烘焙世界变换、稳定 ID solid 名、米制/Y-up manifest 与 SHA-256 文件回执  | 不含材质、贴图、层级、相机、灯光、动画或内嵌单位声明；完整解释必须保留 sidecar                    |
 | Blender `.blend` | 导入      | active scene 的 current-frame GLB 快照、选中静态透视相机、源时间审核元数据                               | 无深层可编辑层级、动画播放/时间线映射、实时同步或不可信文件安全处理；Blender 专属语义不支持或有损 |
 | Blender 往返     | 导出/回传 | 经过验证的场景/相机交接、clay 预览、按稳定 ID 回传 mesh/变换                                             | 仅接受 DCC job 根下带 hash 的受限 package；不自动导入 Blender 游离对象、光学与灯光修改            |
+| Unreal 场景      | 导入      | 关卡 GLB 包（几何、材质、骨骼网格）、类型化层级快照、Cine 相机光学、方向/点/聚光/矩形/天空光、稳定 actor ID | Sequencer 动画仅按名称清单化；裁剪面用 Director 默认值；回程 roundtrip 为 planned                 |
+| Unity 场景       | 导入      | 场景 GLB 包（几何、材质、蒙皮网格）、类型化层级快照、物理相机光学、方向/点/聚光/矩形灯 + Flat 环境光、`GlobalObjectId` 稳定 ID | 圆盘灯与 skybox 环境光记录为 gap；动画剪辑仅带时长清单化；回程 roundtrip 为 planned              |
 
 编辑器顶部 **Interchange** 菜单是人类入口。Stage OTIO 与 Video 工作区 OTIO 使用不同
 adapter，因为二者保留的 source model 不同。导入必须先校验，再替换或合并状态。
@@ -71,6 +73,28 @@ skin、morph、材质与内嵌 GLB 动画 clip 可以留在资产内部，但 Di
 这是一条可信本地操作。`--disable-autoexec` 能防止自动执行内嵌 Python/driver，但不能为
 Blender 原生文件解析器提供 OS/container sandbox。私有 job 路径、大小限制和进程超时只是
 约束措施，不是 sandbox。不可信 `.blend` 应先在容器或虚拟机中处理，再交给 Director。
+
+## 游戏引擎场景（Unreal / Unity）
+
+Unreal Engine 5 与 Unity 场景走与 `.blend` 相同的 preview/apply 纪律，但包格式不同：
+引擎内导出器（`integrations/unreal/interchange/director_scene_export.py`、
+`integrations/unity/interchange/DirectorSceneExport.cs`）自己负责坐标转换，写出
+`director-engine-scene-v1` 包，其中所有变换已是 Director 的右手 Y-up 米制约定。
+manifest 声明实际应用的线性映射（Unreal `(x,y,z)->(y,z,-x)*0.01`、Unity
+`(x,y,z)->(-x,y,z)`）、层级快照、相机、灯光、动画剪辑清单、警告与每个文件的 SHA-256。
+
+两条摄取路径产出同一种包。`director_dcc extract_engine_scene` 对本地工程 headless 运行
+已安装的引擎（Unreal 走 `UnrealEditor-Cmd -run=pythonscript`，Unity 走
+`-batchmode -executeMethod`；Unity 额外需要已激活的许可证）。把引擎内导出的 `.zip` 上传到
+`POST /api/dcc/engine-scene/uploads?provider=unreal|unity` 则完全不依赖引擎安装，是云环境
+可 headless 验证的路径。
+
+`preview_engine_scene_import` 生成服务端持久化的 `director-engine-scene-import-plan-v1`；
+`apply_engine_scene_import` 重新校验哈希、把 GLB 复制进内容寻址存储，并用 `plan_id`、
+`expected_revision` 与仅限重试的 `idempotency_key` 执行一次原子 authoring 变更。几何保持
+`modelNormalization: "preserve"`。可渲染几何依赖引擎侧 glTF 导出器（Unreal 的 glTF
+Exporter 插件、Unity 的 `com.unity.cloud.gltfast`）；缺失时包仍可导入相机、灯光与层级，
+并把几何缺口记录在案。回程 roundtrip 是声明为 `planned` 的能力，当前不可用。
 
 ## 坐标系统
 

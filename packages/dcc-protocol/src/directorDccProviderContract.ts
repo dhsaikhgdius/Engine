@@ -326,6 +326,41 @@ function exchangeProvider(
 }
 
 /**
+ * Builds the descriptor for a game engine with a Director scene-import
+ * connector (Unreal Engine, Unity). Scene, cameras, and lights import through
+ * the director-engine-scene-v1 package; animation clips, skins, and materials
+ * ride embedded inside its GLB bundle; the connector scripts run headless.
+ * Stable-ID return merge (roundtrip) and live link remain planned.
+ */
+function engineImportProvider(
+  id: DirectorDccProviderId,
+  label: string,
+  preferredFormat: Exclude<DirectorDccExchangeFormat, "blend">,
+  exchangeFormats: Array<Exclude<DirectorDccExchangeFormat, "blend">>,
+): DirectorDccProviderDescriptor {
+  return directorDccProviderDescriptorSchema.parse({
+    id,
+    label,
+    category: "engine",
+    integration: "exchange-package",
+    preferredFormat,
+    exchangeFormats,
+    capabilities: [
+      { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "animation", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+      { id: "skeleton", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+      { id: "materials", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+      { id: "stable_ids", level: "exchange", layer: "director-manifest" },
+      { id: "roundtrip", level: "planned", layer: "connector" },
+      { id: "headless", level: "native", layer: "connector" },
+      { id: "live_link", level: "planned", layer: "connector" },
+    ],
+    connectorDirectory: `integrations/${id}`,
+  });
+}
+
+/**
  * Product capability catalog. Runtime installation state is deliberately kept
  * out of this table and is supplied by the gateway registry.
  */
@@ -351,10 +386,10 @@ export const DIRECTOR_DCC_PROVIDERS: readonly DirectorDccProviderDescriptor[] = 
     connectorDirectory: "integrations/blender",
   }),
   exchangeProvider("maya", "Autodesk Maya", "dcc", "usda", ["usda", "glb"]),
-  exchangeProvider("unreal", "Unreal Engine", "engine", "usda", ["usda", "glb"]),
+  engineImportProvider("unreal", "Unreal Engine", "usda", ["usda", "glb"]),
   exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
-  exchangeProvider("unity", "Unity", "engine", "glb", ["glb", "usda"]),
+  engineImportProvider("unity", "Unity", "glb", ["glb", "usda"]),
   exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("godot", "Godot", "engine", "glb", ["glb"]),
 ]);

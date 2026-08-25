@@ -15,6 +15,8 @@ Python file lives.
 | --- | --- |
 | `blender/live/` | Headless live modeling kernel. `BLENDER_USER_SCRIPTS` points here so Blender loads `addons/worldengine_studio/`. Start with `npm run blender`. |
 | `blender/interchange/` | Trusted `.blend` import and Director scene round-trip (`director_bridge.py`, `director_scene_export.py`, `director_return_export.py`). |
+| `unreal/interchange/` | Unreal Engine 5 → Director scene import: in-engine Python exporter producing `director-engine-scene-v1` packages. See `unreal/README.md`. |
+| `unity/interchange/` | Unity → Director scene import: Editor-only C# exporter producing `director-engine-scene-v1` packages. See `unity/README.md`. |
 | `plugins/director-workbench/` | Portable Agent/MCP plugin built from the same workbench contracts. Do **not** hand-edit generated `mcp/server.mjs`. |
 | `dcc-providers.example.json` | Template for the declarative exchange-only DCC provider catalog. Copy it beside itself (e.g. `integrations/dcc-providers.json`) and point `DIRECTOR_DCC_PROVIDER_CONFIG` at the copy. |
 
@@ -44,6 +46,18 @@ Python file lives.
 | `director_signature.py` | Shared mesh-content fingerprint (SHA-256) used by both bridge and return-export for byte-identical digests. |
 | `director_scene_export.test.ts` | vitest tests for the scene export script. |
 | `director_return_export.test.ts` | vitest tests for the return export script. |
+
+### `unreal/interchange/`
+
+| Path | Purpose |
+| --- | --- |
+| `director_scene_export.py` | In-engine (UE5) exporter: converts the loaded level into a `director-engine-scene-v1` package (manifest + GLB via the glTF Exporter plugin), headless-capable. |
+
+### `unity/interchange/`
+
+| Path | Purpose |
+| --- | --- |
+| `DirectorSceneExport.cs` | Editor-only exporter: converts the open scene into a `director-engine-scene-v1` package (manifest + GLB via `com.unity.cloud.gltfast`), batch-mode-capable. The gateway copies it into `Assets/Editor/DirectorInterchange/` for `extract_engine_scene`. |
 
 ### `plugins/director-workbench/`
 

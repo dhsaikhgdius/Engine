@@ -82,6 +82,7 @@ import { handleAssistantRoute } from "./routes/assistantRoutes";
 import { createBlenderBridge } from "./dcc/blenderBridge";
 import { createBlenderReturnImporter } from "./dcc/blenderReturnImport";
 import { createBlenderSceneImporter } from "./dcc/blenderSceneImport";
+import { createEngineSceneImporter } from "./dcc/engineSceneImport";
 import { handleDccRoute } from "./routes/dccRoutes";
 import { createDirectorDccProviderRegistry, registerConfiguredDirectorDccProviders } from "./dcc/dccProviderRegistry";
 import { createDirectorDccExchangePackager } from "./dcc/dccExchangePackage";
@@ -248,7 +249,8 @@ const collaborationHub = new DirectorCollaborationWebSocketHub();
 const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
 const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
 const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
-const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge });
+const engineSceneImporter = createEngineSceneImporter({ workspaceRoot: root, dataDirectory });
+const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge, workspaceRoot: root });
 await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
 const dccExchangePackager = createDirectorDccExchangePackager({ workspaceRoot: root, dataDirectory });
 const blenderNativeSession = createBlenderNativeSession(controlPlaneConfig.dcc.blender);
@@ -2132,6 +2134,7 @@ const server = createServer(async (request, response) => {
         providers: dccProviders,
         exchangePackager: dccExchangePackager,
         sceneImporter: blenderSceneImporter,
+        engineImporter: engineSceneImporter,
         returnImporter: blenderReturnImporter,
         applyAuthoring: async (operation) => {
           const remote = await requestWorkbenchCommand(operation);

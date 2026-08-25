@@ -84,6 +84,7 @@ describe("Director DCC provider contract", () => {
   });
 
   it("separates portable layout, Director manifest, and provider connector capabilities", () => {
+    const engineImportProviders = new Set(["unreal", "unity"]);
     for (const descriptor of DIRECTOR_DCC_PROVIDERS.filter(({ id }) => id !== "blender")) {
       const byId = new Map(descriptor.capabilities.map((capability) => [capability.id, capability]));
 
@@ -100,8 +101,21 @@ describe("Director DCC provider contract", () => {
         level: "exchange",
         layer: "director-manifest",
       });
-      for (const id of ["animation", "skeleton", "materials", "roundtrip", "headless", "live_link"] as const) {
-        expect(byId.get(id)).toEqual({ id, level: "planned", layer: "connector" });
+      if (engineImportProviders.has(descriptor.id)) {
+        // Engine import providers (director-engine-scene-v1): animation clips,
+        // skins, and materials ride inside the GLB bundle; the connector
+        // scripts run headless; return merge and live link remain planned.
+        for (const id of ["animation", "skeleton", "materials"] as const) {
+          expect(byId.get(id)).toEqual({ id, level: "exchange", layer: "exchange-format", formats: ["glb"] });
+        }
+        expect(byId.get("headless")).toEqual({ id: "headless", level: "native", layer: "connector" });
+        for (const id of ["roundtrip", "live_link"] as const) {
+          expect(byId.get(id)).toEqual({ id, level: "planned", layer: "connector" });
+        }
+      } else {
+        for (const id of ["animation", "skeleton", "materials", "roundtrip", "headless", "live_link"] as const) {
+          expect(byId.get(id)).toEqual({ id, level: "planned", layer: "connector" });
+        }
       }
     }
   });
