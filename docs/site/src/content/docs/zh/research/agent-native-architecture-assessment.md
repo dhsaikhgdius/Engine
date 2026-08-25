@@ -50,8 +50,8 @@ Director 文档明确自定位为 **Agent-native，而非「可被 Agent 控制�
 **缺口：**
 
 - **Interchange** 与 **Collaboration** 已 **部分** 暴露为 `director_creative` JSON 操作。已交付：interchange `capabilities` / `plan-export` / `export`；collaboration `observe` / `list-comments` / `add-comment` / `list-versions` / `compare`。剩余：interchange **导入** 仍是 human-file-picker-only；collaboration **写操作** 仍缺 comment resolve 与 version create/restore
-- UI 大量操作仍 **直连 Zustand store**（`frontend/director/src/comprehensive/editor/store/directorStore.ts`），Agent 走 `directorWorkbenchExecutor` → `applyDirectorAuthoringActions`，**调用路径分叉**
-- 视口拖拽、pilot 等交互式操控缺少完整 semantic 等价物
+- Stage 的单次项目 mutator（对象、相机、角色/姿态/IK/motion、灯光、世界、场景、Storyboard、实体动画）已与 Agent 共用 `dispatchDirectorAuthoringActions` → `applyDirectorAuthoringActions`。其余 Stage 写入（timeline 音频、标注/测量、图层、材质/颜色、资产流程、编组、多选批量、剪贴板粘贴）与 **Canvas/Video UI store** 仍 **直连 state** — 每个 mutator 的状态见 [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/)（核验于 2026-08-25）
+- 视口拖拽、pilot 等交互式操控缺少完整 semantic 等价物；滑块/gizmo 撤销批次有意保留轻量直接写入
 
 **评级：3.5/5**
 
@@ -223,7 +223,7 @@ agent-gateway.ts (composition root)
 
 ## 主要差距
 
-1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除与单次变换开始经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring。其余 store mutator（相机面板、姿态/IK、时间线、世界、Canvas/Video）仍在分批收敛
+1. **UI parity 进行中**（核验于 2026-08-25）— interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 的对象、相机、角色/姿态/IK/motion、灯光、世界、场景、Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring（35/87 个 Stage 项目 mutator — 见 [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/)）。其余 Stage store mutator（timeline 音频、标注/测量、图层、材质/颜色、资产导入与新建流程、composite/list 编组、多选批量、剪贴板粘贴）与 Canvas/Video UI store 仍在分批收敛
 2. **Governance 入口未完全统一** — MCP、本地 harness 与托管 adapter 已共享 `filmRoleToolPolicy`；原始 HTTP 与人类 UI 仍绕过 film role，审计也未跨入口统一
 3. **Protocol breadth** — MCP 强，无标准 A2A；multi-agent 为自定义串行 graph
 4. **Dual surface 遗留** — `stage_*` 兼容层 vs `director_workbench` 完整模型仍并存

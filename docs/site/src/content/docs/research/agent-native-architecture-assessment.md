@@ -59,8 +59,8 @@ Conclusion: Director is an **agent-native product architecture, not bolt-on AI**
 **Gaps:**
 
 - **Interchange** and **Collaboration** are **partially** exposed as `director_creative` JSON operations. Shipped: interchange `capabilities` / `plan-export` / `export`; collaboration `observe` / `list-comments` / `add-comment` / `list-versions` / `compare`. Remaining: interchange **import** stays human-file-picker-only; collaboration **writes** still lack comment resolve and version create/restore
-- Many UI operations still **mutate the Zustand store directly** (`frontend/director/src/comprehensive/editor/store/directorStore.ts`) while agents route through `directorWorkbenchExecutor` → `applyDirectorAuthoringActions`
-- Viewport drag, pilot, and other interactive controls lack full semantic equivalents
+- Stage one-shot project mutators (objects, cameras, characters/pose/IK/motion, lights, world, scene, storyboard, entity animation) now share `dispatchDirectorAuthoringActions` → `applyDirectorAuthoringActions` with agents. The remaining Stage writers (timeline audio, annotations/measurements, layers, materials/colors, asset flows, grouping, multi-select batches, clipboard paste) and the **Canvas/Video UI stores** still **mutate state directly** — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/) (verified 2026-08-25)
+- Viewport drag, pilot, and other interactive controls lack full semantic equivalents; slider/gizmo undo batches intentionally keep the lightweight direct writer
 
 **Rating: 3.5/5**
 
@@ -254,7 +254,7 @@ agent-gateway.ts (composition root)
 
 ## Main gaps
 
-1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes and many one-shot transforms now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining store mutators (camera panel, pose/IK, timeline, world, Canvas/Video) are still migrating in batches
+1. **UI parity in progress** (verified 2026-08-25) — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage one-shot project mutators for objects, cameras, characters/pose/IK/motion, lights, world, scene, storyboard, and entity animation now go through `dispatchDirectorAuthoringActions` shared with Agent authoring (35/87 Stage project mutators — see the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)). Remaining Stage store mutators (timeline audio, annotations/measurements, layers, materials/colors, asset import and add flows, composite/list grouping, multi-select batches, clipboard paste) and the Canvas/Video UI stores are still migrating in batches
 2. **Incomplete governance surfaces** — MCP, local harness, and hosted adapter share `filmRoleToolPolicy`; raw HTTP and human UI still bypass film roles, and audit is not unified across entry points
 3. **Protocol breadth** — MCP is strong; no standard A2A; multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model

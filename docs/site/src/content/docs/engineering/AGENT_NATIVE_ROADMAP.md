@@ -64,8 +64,8 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 
 | Phase  | Theme                      | Status      | Main outputs                                                                                 | Depends on              |
 | ------ | -------------------------- | ----------- | -------------------------------------------------------------------------------------------- | ----------------------- |
-| **M0** | Baseline & metrics         | Planned     | UI/agent parity inventory, parity harness                                                    | —                       |
-| **M1** | Shared action registry     | Planned     | High-traffic UI paths via `applyDirectorAuthoringActions`                                    | M0                      |
+| **M0** | Baseline & metrics         | **Partial** | Stage inventory + parity tests + Feature Status row shipped; generator and `stage_*` map open | —                       |
+| **M1** | Shared action registry     | **Partial** | Stage one-shot mutators share `applyDirectorAuthoringActions`; Canvas/Video (1e/1f) open      | M0                      |
 | **M2** | Remove human-only surfaces | **Partial** | Interchange export + collab observe/comment shipped; import and remaining collab writes open | M1 (partially parallel) |
 | **M3** | Unified gateway governance | **Partial** | Shared `filmRoleToolPolicy` on MCP / local / hosted; raw HTTP/UI and unified audit open      | M1                      |
 | **M4** | In-product workspace       | Planned     | SQL-backed instructions / skills / memory                                                    | M3                      |
@@ -89,56 +89,72 @@ flowchart LR
 
 ## Milestone 0 — Baseline & metrics
 
+**Status: Partial** (verified 2026-08-25).
+
 **Goal:** make parity work measurable and regression-testable.
 
-### Work
+### Shipped
 
-- Audit all `directorStore` mutation entry points; produce a **UI mutation inventory**.
-- Map against `directorAuthoringActionSchema`; label **parity gaps** (high / medium / low).
-- Add a **parity harness** test suite:
-  - given authoring actions → UI executor and agent executor produce the same revision;
-  - failures emit diffs, not only boolean assertions.
-- Add **Agent UI parity coverage** to Feature Status (percentage + link to inventory).
+- [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/) covers every Stage
+  `directorStore` mutation entry point with mutator, file, semantic action, and
+  `shared` / `ui-only` / `human-only-interactive` status (35 / 87 project mutators shared, ~40%).
+- Parity tests in `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` assert
+  that store mutators and direct `applyDirectorAuthoringActions` produce the same
+  `getDirectorProjectRevision` for deletes, transforms, camera update/add/activate, character
+  motion set/clear, and light add/update/delete.
+- Feature Status carries an **Agent UI parity coverage** row linking the inventory.
+
+### Remaining work
+
+- Extend the inventory to the top Canvas/Video mutation paths (currently a documented
+  out-of-scope note, not per-mutator rows).
+- Parity harness failures should emit revision **diffs**, not only boolean assertions.
+- Optional inventory generator (`tools/scripts/auditUiMutations.ts`) so the doc cannot drift.
 - Document `stage_*` → `director_workbench` **migration map** (op mapping, deprecation timeline).
 
 ### Acceptance
 
-- Inventory covers top 20 mutation paths across Stage, Canvas, and Video.
+- Inventory covers top 20 mutation paths across Stage, Canvas, and Video (Stage is exhaustive
+  today; Canvas/Video rows are open).
 - Parity harness passes for the current `directorAuthoring` action set.
 - No runtime behavior changes.
-
-### Suggested PR order
-
-1. Inventory doc + optional generator (`tools/scripts/auditUiMutations.ts`)
-2. Parity harness framework + 5 seed cases
-3. Feature Status and assessment cross-links
 
 ---
 
 ## Milestone 1 — Shared action registry
 
+**Status: Partial** (verified 2026-08-25). Stage one-shot project mutators for objects, cameras,
+characters/motion/IK, lights, world, scene, storyboard, and entity animation now route through
+`dispatchDirectorAuthoringActions` (batches 1a–1c plus lights/world; see the
+[parity inventory](/engineering/ui-agent-parity-inventory/) for the exact per-mutator status and
+legacy fallbacks). Timeline audio, annotations/measurements, layers, materials, asset flows, and
+the whole of Canvas/Video (1e/1f) still patch state directly, so M1 is **not complete**.
+
 **Goal:** UI and agents share one mutation path; eliminate dual writes.
 
 ### Work
 
-#### 1.1 UI dispatch layer
+#### 1.1 UI dispatch layer — shipped for Stage
 
-- Add `dispatchDirectorAuthoringActions(actions, context)` — thin UI wrapper that:
+- `dispatchDirectorAuthoringActions(actions, context)`
+  (`frontend/director/src/agent/dispatchDirectorAuthoringActions.ts`) — thin UI wrapper that:
   - fills `expected_revision` / `idempotency_key`;
   - hooks unified error toasts and undo;
   - calls `applyDirectorAuthoringActions` internally.
-- Same pattern for Canvas/Video via `creativeWorkspaceAgentContract`.
+- UI patch → action compilers live in
+  `frontend/director/src/agent/compileDirectorUiAuthoringActions.ts`.
+- Same pattern for Canvas/Video via `creativeWorkspaceAgentContract` — **open**.
 
 #### 1.2 Migrate UI mutations in batches
 
-| Batch  | Scope                   | Typical actions                                   |
-| ------ | ----------------------- | ------------------------------------------------- |
-| **1a** | Object CRUD, transforms | `create_object`, `update_object`, `delete_object` |
-| **1b** | Cameras and shots       | `create_camera`, `update_camera`, `frame_camera`  |
-| **1c** | Characters and motion   | `assign_motion`, `update_character_pose`          |
-| **1d** | Timeline / coverage     | `create_coverage`, `assign_take`                  |
-| **1e** | Canvas nodes / edges    | creative `author` batches                         |
-| **1f** | Video tracks / clips    | creative `author` batches                         |
+| Batch  | Scope                   | Typical actions                                        | Status                                            |
+| ------ | ----------------------- | ------------------------------------------------------ | ------------------------------------------------- |
+| **1a** | Object CRUD, transforms | `add_object`, `update_object`, `delete_objects`        | Shared for delete/one-shot transform/toggle; add flows and multi-select batches open |
+| **1b** | Cameras and shots       | `add_camera`, `update_camera`, `set_active_camera`     | Shared                                            |
+| **1c** | Characters and motion   | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | Shared                          |
+| **1d** | Timeline / coverage     | `add_coverage_shot`, `add_performance_take`, timeline audio | Storyboard + entity animation shared; timeline audio open |
+| **1e** | Canvas nodes / edges    | creative `author` batches                              | Open                                              |
+| **1f** | Video tracks / clips    | creative `author` batches                              | Open                                              |
 
 #### 1.3 Semantic equivalents for interactive controls
 
@@ -154,7 +170,8 @@ flowchart LR
 
 ### Acceptance
 
-- Parity harness covers batches **1a–1d** with matching revisions on UI and agent paths.
+- Parity harness covers batches **1a–1d** with matching revisions on UI and agent paths
+  (1a–1c plus lights/world/storyboard covered today; timeline audio open).
 - No new high-priority "UI-only, no agent twin" gaps.
 - Existing MCP / HTTP / CLI integration tests pass.
 
