@@ -2,8 +2,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { directorDccOperationSchema, type DirectorDccEngineId } from "@director/dcc-protocol";
 import { safeParseDirectorProject } from "@director/project-schema";
+import { directorEngineSceneProviderSchema } from "@director/dcc-protocol";
 import type { BlenderBridge } from "../dcc/blenderBridge";
 import { DirectorBlendSceneImportError, type BlenderSceneImporter } from "../dcc/blenderSceneImport";
+import { DirectorEngineSceneImportError, type EngineSceneImporter } from "../dcc/engineSceneImport";
 import {
   DirectorDccImportError,
   type DccReturnImporter,
@@ -63,6 +65,7 @@ export interface DccRouteDependencies {
   providers?: DirectorDccProviderRegistry;
   exchangePackager?: DirectorDccExchangePackager;
   sceneImporter?: BlenderSceneImporter;
+  engineImporter?: EngineSceneImporter;
   returnImporter?: DccReturnImporter;
   /** Headless engine connector bridge for Unreal/Unity/Godot send jobs. */
   engineBridge?: DirectorDccEngineBridge;
@@ -86,6 +89,7 @@ export async function handleDccRoute(
     providers,
     exchangePackager,
     sceneImporter,
+    engineImporter,
     returnImporter,
     engineBridge,
     engineReturnImporters,
@@ -173,6 +177,68 @@ export async function handleDccRoute(
       json(response, 200, { success: true, result });
     } catch (error) {
       if (error instanceof DirectorBlendSceneImportError) {
+        json(response, error.status, {
+          success: false,
+          code: error.code,
+          error: error.message,
+          recovery: error.recovery,
+        });
+      } else {
+        json(response, 500, { success: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return true;
+  }
+  if (url.pathname === "/api/dcc/engine-scene/uploads") {
+    if (request.method !== "POST") {
+      json(response, 405, { success: false, error: "Engine scene uploads require POST." });
+      return true;
+    }
+    if (!engineImporter) {
+      json(response, 503, {
+        success: false,
+        code: "engine_scene_import_unavailable",
+        error: "Engine scene importer is not configured.",
+      });
+      return true;
+    }
+    const contentType = String(request.headers["content-type"] ?? "")
+      .split(";", 1)[0]
+      ?.trim()
+      .toLowerCase();
+    if (contentType !== "application/zip" && contentType !== "application/octet-stream") {
+      json(response, 415, { success: false, error: "Engine scene upload must use application/zip." });
+      return true;
+    }
+    const providerParameter = directorEngineSceneProviderSchema.safeParse(url.searchParams.get("provider") ?? "");
+    if (!providerParameter.success) {
+      json(response, 400, {
+        success: false,
+        error: "Engine scene upload requires a provider query parameter of unreal or unity.",
+      });
+      return true;
+    }
+    const fileName = url.searchParams.get("filename")?.trim();
+    if (!fileName) {
+      json(response, 400, { success: false, error: "Engine scene upload requires a filename query parameter." });
+      return true;
+    }
+    const project = await liveProject();
+    if (!project) return true;
+    const contentLengthHeader = request.headers["content-length"];
+    const declaredBytes =
+      typeof contentLengthHeader === "string" && contentLengthHeader.trim() ? Number(contentLengthHeader) : undefined;
+    try {
+      const result = await engineImporter.ingestUpload(
+        providerParameter.data,
+        fileName,
+        request,
+        project,
+        declaredBytes,
+      );
+      json(response, 200, { success: true, result });
+    } catch (error) {
+      if (error instanceof DirectorEngineSceneImportError) {
         json(response, error.status, {
           success: false,
           code: error.code,
@@ -383,6 +449,57 @@ export async function handleDccRoute(
       json(response, 200, { success: true, result });
       return true;
     }
+    if (
+      parsed.data.op === "preview_engine_scene_import" ||
+      parsed.data.op === "apply_engine_scene_import" ||
+      parsed.data.op === "extract_engine_scene"
+    ) {
+      if (!engineImporter) {
+        json(response, 503, {
+          success: false,
+          code: "engine_scene_import_unavailable",
+          error: "Engine scene importer is not configured.",
+        });
+        return true;
+      }
+      if (parsed.data.op === "preview_engine_scene_import") {
+        const plan = await engineImporter.buildImportPlan(
+          parsed.data.provider,
+          parsed.data.package_dir,
+          project,
+          parsed.data.selection,
+        );
+        json(response, plan.ready ? 200 : 409, { success: plan.ready, result: { plan } });
+        return true;
+      }
+      if (parsed.data.op === "extract_engine_scene") {
+        const result = await engineImporter.ingestProject(
+          parsed.data.provider,
+          parsed.data.project_dir,
+          project,
+          parsed.data.scene,
+        );
+        json(response, 200, { success: true, result });
+        return true;
+      }
+      if (!applyAuthoring) {
+        json(response, 503, {
+          success: false,
+          code: "browser_target_unavailable",
+          error: "No Director authoring transport is configured for applying the engine scene.",
+        });
+        return true;
+      }
+      const result = await engineImporter.applyImportPlan(
+        parsed.data.plan_id,
+        project,
+        parsed.data.expected_revision,
+        parsed.data.idempotency_key,
+        applyAuthoring,
+      );
+      json(response, 200, { success: true, result });
+      return true;
+    }
     if (parsed.data.op === "import_return_package") {
       if (!returnImporter) {
         json(response, 503, {
@@ -467,6 +584,15 @@ export async function handleDccRoute(
       return true;
     }
     if (error instanceof DirectorBlendSceneImportError) {
+      json(response, error.status, {
+        success: false,
+        code: error.code,
+        error: error.message,
+        recovery: error.recovery,
+      });
+      return true;
+    }
+    if (error instanceof DirectorEngineSceneImportError) {
       json(response, error.status, {
         success: false,
         code: error.code,

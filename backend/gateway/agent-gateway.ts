@@ -82,6 +82,7 @@ import { createBlenderBridge } from "./dcc/blenderBridge";
 import { createBlenderReturnImporter, createDccReturnImporter } from "./dcc/blenderReturnImport";
 import { createBlenderSceneImporter } from "./dcc/blenderSceneImport";
 import { createDirectorDccEngineBridge } from "./dcc/engineBridge";
+import { createEngineSceneImporter } from "./dcc/engineSceneImport";
 import { handleDccRoute } from "./routes/dccRoutes";
 import { createDirectorDccProviderRegistry, registerConfiguredDirectorDccProviders } from "./dcc/dccProviderRegistry";
 import { createDirectorDccExchangePackager } from "./dcc/dccExchangePackage";
@@ -252,6 +253,7 @@ const collaborationHub = new DirectorCollaborationWebSocketHub();
 const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
 const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
 const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
+const engineSceneImporter = createEngineSceneImporter({ workspaceRoot: root, dataDirectory });
 const dccExchangePackager = createDirectorDccExchangePackager({ workspaceRoot: root, dataDirectory });
 const dccEngineBridge = createDirectorDccEngineBridge({
   workspaceRoot: root,
@@ -263,7 +265,11 @@ const dccEngineReturnImporters = {
   unity: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "unity" }),
   godot: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "godot" }),
 };
-const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge, engines: dccEngineBridge });
+const dccProviders = createDirectorDccProviderRegistry({
+  blender: blenderBridge,
+  engines: dccEngineBridge,
+  workspaceRoot: root,
+});
 await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
 const blenderNativeSession = createBlenderNativeSession(controlPlaneConfig.dcc.blender);
 
@@ -2127,6 +2133,7 @@ const server = createServer(async (request, response) => {
         providers: dccProviders,
         exchangePackager: dccExchangePackager,
         sceneImporter: blenderSceneImporter,
+        engineImporter: engineSceneImporter,
         returnImporter: blenderReturnImporter,
         engineBridge: dccEngineBridge,
         engineReturnImporters: dccEngineReturnImporters,

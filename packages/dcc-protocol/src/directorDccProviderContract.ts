@@ -333,43 +333,6 @@ function exchangeProvider(
   });
 }
 
-function engineProvider(
-  id: DirectorDccProviderId,
-  label: string,
-  preferredFormat: Exclude<DirectorDccExchangeFormat, "blend">,
-  exchangeFormats: Array<Exclude<DirectorDccExchangeFormat, "blend">>,
-): DirectorDccProviderDescriptor {
-  return directorDccProviderDescriptorSchema.parse({
-    id,
-    label,
-    category: "engine",
-    integration: "engine-headless",
-    preferredFormat,
-    exchangeFormats,
-    capabilities: [
-      // Scene layout and cameras still travel through the portable package;
-      // the connector performs the host-side import but the format carries them.
-      { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
-      { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
-      // Animation, skeletons, and materials stay planned until a version-tested
-      // acceptance suite validates the host-side work end to end.
-      { id: "animation", level: "planned", layer: "connector" },
-      { id: "skeleton", level: "planned", layer: "connector" },
-      { id: "materials", level: "planned", layer: "connector" },
-      // The Director manifest and connector preserve stable director:id
-      // metadata on both directions of the handoff.
-      { id: "stable_ids", level: "native", layer: "director-manifest" },
-      // Headless import/return round trip is performed by the Director-authored
-      // connector; runtime availability is still gated by nativeReady.
-      { id: "roundtrip", level: "native", layer: "connector" },
-      { id: "headless", level: "native", layer: "connector" },
-      // No live preview transport ships yet; see MULTI_DCC_INTEGRATION.md.
-      { id: "live_link", level: "planned", layer: "connector" },
-    ],
-    connectorDirectory: `integrations/${id}`,
-  });
-}
-
 /**
  * Unreal Engine descriptor. Split from the shared `engineProvider()` literal
  * because the Unreal connector ships deeper host-side coverage than the other

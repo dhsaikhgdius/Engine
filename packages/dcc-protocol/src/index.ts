@@ -8,6 +8,7 @@ export * from "./directorBlendSceneImportContract";
 export * from "./directorDccContract";
 export * from "./directorDccEngineContract";
 export * from "./directorDccEngineSpace";
+export * from "./directorEngineSceneImportContract";
 export * from "./directorDccExchangePackageContract";
 export * from "./directorDccProviderContract";
 export * from "./directorDccReturnContract";

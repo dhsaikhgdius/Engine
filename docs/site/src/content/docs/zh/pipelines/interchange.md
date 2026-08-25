@@ -22,6 +22,8 @@ Director 使用 manifest-first 的交换契约。每个边界都声明身份、�
 | Blender `.blend` | 导入      | active scene 的 current-frame GLB 快照、选中静态透视相机、源时间审核元数据                               | 无深层可编辑层级、动画播放/时间线映射、实时同步或不可信文件安全处理；Blender 专属语义不支持或有损 |
 | Blender 往返     | 导出/回传 | 经过验证的场景/相机/灯光交接、clay 预览、按稳定 ID 回传 mesh、变换、机位光学、`director_id` 灯光与可移植 pose control | 仅接受 DCC job 根下带 hash 的受限 package；不自动导入 Blender 游离对象，直接编辑 armature 骨骼只警告、不 reconcile |
 | 引擎交接（Unreal/Unity/Godot） | 发送/回传 | 无头连接器导入场景布局、相机与镜头范围并写入 `director:id`；以 canonical 空间回传变换。Unreal 额外将 Gateway 烘焙的变换/相机动画写入 Sequencer（有理帧率、SMPTE 起始时间码），把带蒙皮 GLB 以绑定姿态导入为骨骼网格，并将 Director PBR 参数应用为材质实例。Unity 额外把 Director 动画烘焙到 Timeline、从蒙皮 GLB 构建 Avatar，并应用 PBR 材质回退与灯光。Godot 4 额外导入基于有理时基的 Gateway 烘焙 `AnimationPlayer` 动画、绑定姿态的蒙皮 GLB 骨架、带哈希外置纹理的 `StandardMaterial3D` 材质，以及 Omni/Spot/Directional 灯光 | 需要用户引擎工程中已安装 Director 官方连接器（`nativeReady`）；Unreal 预览 live link 为 native（永不改写项目），`clean_frame` 为尽力而为；Unity 与 Godot 不宣称 live link；Unreal 的 Control Rig 姿态、动作片段与贴图以警告省略处理；Godot 的绑定姿态通道与环境光/面光警告省略 |
+| Unreal 场景      | 导入      | 关卡 GLB 包（几何、材质、骨骼网格）、类型化层级快照、Cine 相机光学、方向/点/聚光/矩形/天空光、稳定 actor ID | Sequencer 动画仅按名称清单化；裁剪面用 Director 默认值；回程 roundtrip 为 planned                 |
+| Unity 场景       | 导入      | 场景 GLB 包（几何、材质、蒙皮网格）、类型化层级快照、物理相机光学、方向/点/聚光/矩形灯 + Flat 环境光、`GlobalObjectId` 稳定 ID | 圆盘灯与 skybox 环境光记录为 gap；动画剪辑仅带时长清单化；回程 roundtrip 为 planned              |
 
 编辑器顶部 **Interchange** 菜单是人类入口。Stage OTIO 与 Video 工作区 OTIO 使用不同
 adapter，因为二者保留的 source model 不同。导入必须先校验，再替换或合并状态。
@@ -72,6 +74,28 @@ skin、morph、材质与内嵌 GLB 动画 clip 可以留在资产内部，但 Di
 这是一条可信本地操作。`--disable-autoexec` 能防止自动执行内嵌 Python/driver，但不能为
 Blender 原生文件解析器提供 OS/container sandbox。私有 job 路径、大小限制和进程超时只是
 约束措施，不是 sandbox。不可信 `.blend` 应先在容器或虚拟机中处理，再交给 Director。
+
+## 游戏引擎场景（Unreal / Unity）
+
+Unreal Engine 5 与 Unity 场景走与 `.blend` 相同的 preview/apply 纪律，但包格式不同：
+引擎内导出器（`integrations/unreal/interchange/director_scene_export.py`、
+`integrations/unity/interchange/DirectorSceneExport.cs`）自己负责坐标转换，写出
+`director-engine-scene-v1` 包，其中所有变换已是 Director 的右手 Y-up 米制约定。
+manifest 声明实际应用的线性映射（Unreal `(x,y,z)->(y,z,-x)*0.01`、Unity
+`(x,y,z)->(-x,y,z)`）、层级快照、相机、灯光、动画剪辑清单、警告与每个文件的 SHA-256。
+
+两条摄取路径产出同一种包。`director_dcc extract_engine_scene` 对本地工程 headless 运行
+已安装的引擎（Unreal 走 `UnrealEditor-Cmd -run=pythonscript`，Unity 走
+`-batchmode -executeMethod`；Unity 额外需要已激活的许可证）。把引擎内导出的 `.zip` 上传到
+`POST /api/dcc/engine-scene/uploads?provider=unreal|unity` 则完全不依赖引擎安装，是云环境
+可 headless 验证的路径。
+
+`preview_engine_scene_import` 生成服务端持久化的 `director-engine-scene-import-plan-v1`；
+`apply_engine_scene_import` 重新校验哈希、把 GLB 复制进内容寻址存储，并用 `plan_id`、
+`expected_revision` 与仅限重试的 `idempotency_key` 执行一次原子 authoring 变更。几何保持
+`modelNormalization: "preserve"`。可渲染几何依赖引擎侧 glTF 导出器（Unreal 的 glTF
+Exporter 插件、Unity 的 `com.unity.cloud.gltfast`）；缺失时包仍可导入相机、灯光与层级，
+并把几何缺口记录在案。回程 roundtrip 是声明为 `planned` 的能力，当前不可用。
 
 ## 坐标系统
 
