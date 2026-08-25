@@ -41,7 +41,13 @@ Node server 负责：
 - Agent session、红acted conversation event 和 role policy；
 - native OpenAI、Anthropic Messages 与 OpenAI-compatible model driver；
 - 多 Agent production graph、job manifest、provider adapter 和恢复；
-- 对外 HTTP、WebSocket、CLI、MCP 与 browser API 的统一 tool loop。
+- 对外 HTTP、WebSocket、CLI、MCP 与 browser API 的统一 tool loop；
+- 只读发现面：`GET /api/control-plane/capabilities`（脱敏配置）、
+  `GET /api/control-plane/tool-manifest`（机器可读 `director-tool-manifest-v1` 工具
+  catalog：surface、op 枚举、HTTP 绑定、legacy `stage_*` 标记；绝不包含 secret）与
+  `GET /api/control-plane/a2a-agent-card`（ADR 0004 决定的 discovery-only
+  `director-a2a-agent-card-v1` 卡片：无 live A2A endpoint，指向 MCP 与 tool manifest；
+  绝不包含 secret）。
 
 Canonical tool loop 是：校验请求 → 检查 role policy → 执行 exact target tool → 持久化
 redacted event → 返回结构化结果。

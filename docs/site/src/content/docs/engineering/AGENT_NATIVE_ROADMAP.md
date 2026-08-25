@@ -9,7 +9,7 @@ into shippable milestones. The goal is to move Director from "agent-native on co
 "full parity plus unified governance" without replacing Stage, Canvas, Video, or Agent stores in
 one migration.
 
-Drafted: **2026-08-02**. Last verified: **2026-08-13**.
+Drafted: **2026-08-02**. Last verified: **2026-08-25**.
 
 ## Completed foundation — naive caller boundary
 
@@ -66,12 +66,12 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 | ------ | -------------------------- | ----------- | -------------------------------------------------------------------------------------------- | ----------------------- |
 | **M0** | Baseline & metrics         | Planned     | UI/agent parity inventory, parity harness                                                    | —                       |
 | **M1** | Shared action registry     | Planned     | High-traffic UI paths via `applyDirectorAuthoringActions`                                    | M0                      |
-| **M2** | Remove human-only surfaces | **Partial** | Interchange export + collab observe/comment shipped; import and remaining collab writes open | M1 (partially parallel) |
+| **M2** | Remove human-only surfaces | **Implemented** | Interchange export + import (`plan-import`/`import`) and full collab comment/version writes shipped as JSON; human file picker remains an optional local-file convenience | M1 (partially parallel) |
 | **M3** | Unified gateway governance | **Partial** | Shared `filmRoleToolPolicy` on MCP / local / hosted; raw HTTP/UI and unified audit open      | M1                      |
 | **M4** | In-product workspace       | Planned     | SQL-backed instructions / skills / memory                                                    | M3                      |
 | **M5** | Observability              | Planned     | Traces, cost, long-running progress                                                          | M3                      |
 | **M6** | Team readiness             | Planned     | Collaboration auth, multi-agent enhancements                                                 | M3, M5                  |
-| **M7** | Ecosystem protocols        | Planned     | OpenAPI manifest, A2A spike                                                                  | M2, M3                  |
+| **M7** | Ecosystem protocols        | **Implemented** | Tool manifest, A2A go/no-go concluded in ADR 0004 (runtime no-go; discovery-only card served), cross-app receipt recipe. A2A runtime not shipped | M2, M3                  |
 
 ```mermaid
 flowchart LR
@@ -169,44 +169,32 @@ flowchart LR
 
 ## Milestone 2 — Remove human-only surfaces
 
-**Status: Partial** (verified 2026-08-13).
+**Status: Implemented** (verified 2026-08-25).
 
 **Goal:** Interchange, Collaboration, and Media are reachable through JSON operations with plan/receipt.
 
 ### Shipped
 
-`director_creative` already exposes:
+`director_creative` exposes the full JSON surface:
 
-| Surface                          | Actions                                                               | Evidence                                                                                                           |
-| -------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Interchange export               | `capabilities`, `plan-export`, `export`                               | `packages/protocol/src/creativeWorkspaceProtocol.ts`, Creative Agent tests, [Interchange](/pipelines/interchange/) |
-| Collaboration read + add comment | `observe`, `list-comments`, `add-comment`, `list-versions`, `compare` | same protocol + semantic-operation tests                                                                           |
-| Gallery / media mutations        | `gallery.media.*`, `media.proxy.attach`, and related execute ops      | Feature Status Gallery **Implemented**; persistent media **Limited**                                               |
+| Surface                        | Actions                                                                                                                                                             | Evidence                                                                                                                                                                                                                             |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Interchange export             | `capabilities`, `plan-export`, `export`                                                                                                                              | `packages/protocol/src/creativeWorkspaceProtocol.ts`, Creative Agent tests, [Interchange](/pipelines/interchange/)                                                                                                                   |
+| Interchange import             | `plan-import` (source `inline`, Gallery `media_id`, or `workspace_path`), then `import` (`plan_id` + `expected_guard_fingerprint` + `confirm:true`)                  | same protocol, `frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts`, `frontend/director/tests/agent/creativeWorkspaceAgentContract.test.ts`                                                                          |
+| Collaboration comments         | `observe`, `list-comments`, `add-comment`, `resolve-comment`, `reopen-comment`, `update-comment`, `delete-comment` (fingerprint guard + idempotency; delete confirms) | same protocol, `frontend/director/tests/agent/creativeWorkspaceSemanticOperations.test.ts` (resolve-comment)                                                                                                                          |
+| Collaboration versions         | `list-versions`, `compare`, `create-version`, `restore-version`, `delete-version` (restore/delete require `confirm:true`)                                            | same protocol + semantic-operation tests (create-version, restore-version)                                                                                                                                                           |
+| Gallery / media mutations      | `gallery.media.*`, `media.proxy.attach`, and related execute ops                                                                                                     | Feature Status Gallery **Implemented**; persistent media **Limited**                                                                                                                                                                 |
 
-Import stays human-file-picker-only: an Agent does not fabricate a browser file handle.
+The browser file picker remains available as an optional convenience for local files a human already
+has open; it is no longer the only import path and no longer blocks agent automation. Format
+boundaries are unchanged: Feature Status keeps Fountain / OTIO / glTF / USD **Limited** for the
+documented subsets (FBX export and rich rig/animation round trip are still out of scope), and large
+media bytes still never enter Yjs.
 
-### Remaining
+### Leftover (non-blocking)
 
-#### 2.1 Interchange import
-
-- `import_plan` / `import_apply` (or an equivalent host-adapter path) with `expected_revision` + idempotency
-- Align with [ADR 0003 import/export receipts](/engineering/adr/0003-import-export-receipts/)
-- Keep Feature Status **Limited** Fountain / OTIO / glTF / USD subset boundaries
-
-#### 2.2 Remaining collaboration writes
-
-| op                                   | Purpose                           |
-| ------------------------------------ | --------------------------------- |
-| comment resolve                      | Close or resolve a review comment |
-| `version_create` / `version_restore` | Named versions                    |
-
-Large media bytes still never enter Yjs.
-
-### Acceptance (remaining)
-
-- Each remaining op has a Zod schema, executor, MCP exposure, and at least one integration test.
-- Skills and capabilities list JSON as the execution surface, with import still explicit as human-file-picker-only until it ships.
-- Verified-shot tutorial can complete OTIO import + version snapshot **via agent only** (optional human review).
+- The verified-shot tutorial has not yet been re-recorded as an agent-only OTIO import + version
+  snapshot walkthrough; the JSON operations it needs all exist.
 
 ---
 
@@ -318,18 +306,28 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
 
 ## Milestone 7 — Ecosystem protocols
 
+**Status: Implemented** (verified 2026-08-25; the full A2A runtime is intentionally not shipped).
+
 **Goal:** interoperate with other agent-native apps.
 
-### Work
+### Shipped
 
-- **OpenAPI / tool manifest export** from Zod schemas.
-- **A2A spike**: evaluate wrapping the gateway as an A2A agent card; record go/no-go ADR.
-- **Cross-app recipe**: document receipt handoff (e.g. Director deliver → external video post).
-
-### Acceptance
-
-- `GET /api/control-plane/tool-manifest` returns a machine-readable tool catalog.
-- A2A spike produces a written conclusion; implementation is optional.
+- **Tool manifest export**: `GET /api/control-plane/tool-manifest` returns the machine-readable
+  `director-tool-manifest-v1` catalog derived from the same Zod schemas that validate execution —
+  surfaces (`mcp` / `http` / `both`), wire `op` enums, HTTP bindings, and `legacy` flags on the
+  HTTP-only `stage_*` compatibility tools. Evidence: `backend/gateway/controlPlane/toolManifest.ts`,
+  `backend/gateway/routes/controlPlaneRoutes.ts`, and their tests.
+- **A2A spike conclusion**: [ADR 0004](/engineering/adr/0004-a2a-gateway-spike/) records the
+  written go/no-go — **no-go** for a live A2A JSON-RPC runtime (auth mismatch with the
+  loopback-only, process-token gateway; it would be a second execution protocol; exact-target and
+  revision guards have no native A2A slot), **go** for a discovery-only agent card.
+  `GET /api/control-plane/a2a-agent-card` serves that card: `discovery_only: true`, a `null` A2A
+  endpoint, loopback URLs only, and skills mirroring the live tool manifest. Full A2A stays
+  deferred unless a partner product concretely requires it.
+- **Cross-app recipe**: [Control surfaces — cross-app receipt handoff](/agents/control-surfaces/#cross-app-receipt-handoff)
+  documents how an external app consumes `deliver` and interchange `export` receipts —
+  `plan_id` / `receipt_id`, guard fingerprints, and per-file SHA-256 verification — per
+  [ADR 0003](/engineering/adr/0003-import-export-receipts/).
 
 ---
 
@@ -356,7 +354,7 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 - Replacing Zustand with a remote CRDT primary store
 - Full SaaS multi-tenant billing
-- Complete A2A implementation (spike only unless M7 go)
+- Complete A2A implementation (ADR 0004: runtime no-go; discovery-only card only, unless a partner requires more)
 - Removing `stage_*` tools (freeze expansion only)
 - Finishing LTX / UE pipelines (see [Pipeline roadmap](/engineering/pipeline_implementation_roadmap/))
 
@@ -364,18 +362,18 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 ## Success metrics
 
-| Metric                          | Today (2026-08-13)               | After remaining M2/M3          | After M4 |
-| ------------------------------- | -------------------------------- | ------------------------------ | -------- |
-| Parity coverage (top mutations) | ~60%                             | ≥85%                           | ≥95%     |
-| Documented human-only classes   | Import + remaining collab writes | Import explicit until it ships | 0        |
-| Consistent gateway policy       | Partial (MCP / local / hosted)   | Yes, including raw HTTP/UI     | Yes      |
-| In-product workspace            | No                               | No                             | Yes      |
-| Agent-native self-score         | 4.0                              | 4.2                            | 4.5      |
+| Metric                          | Today (2026-08-25)                                                        | After remaining M3         | After M4 |
+| ------------------------------- | ------------------------------------------------------------------------- | -------------------------- | -------- |
+| Parity coverage (top mutations) | ~60%                                                                       | ≥85%                       | ≥95%     |
+| Documented human-only classes   | 0 required (file picker stays an optional local-file import convenience)  | 0 required                 | 0        |
+| Consistent gateway policy       | Partial (MCP / local / hosted)                                             | Yes, including raw HTTP/UI | Yes      |
+| In-product workspace            | No                                                                         | No                         | Yes      |
+| Agent-native self-score         | 4.0 (M2 JSON gaps closed; UI parity and governance still open)             | 4.2                        | 4.5      |
 
 ---
 
 ## Immediate next steps
 
-1. Finish remaining M2: interchange import JSON, then collaboration comment resolve and version create/restore
-2. Finish remaining M3: apply `filmRoleToolPolicy` to raw HTTP/UI, then unify the audit trail
-3. Keep [Feature Status](/reference/feature-status/) and the [architecture assessment](/research/agent-native-architecture-assessment/) in the same change when those land
+1. Finish remaining M3: apply `filmRoleToolPolicy` to raw HTTP/UI, then unify the audit trail
+2. Keep [Feature Status](/reference/feature-status/) and the [architecture assessment](/research/agent-native-architecture-assessment/) in the same change when those land
+3. M7 leftovers landed: ADR 0004 concluded the A2A spike (runtime no-go; discovery-only card served) and the cross-app receipt recipe is documented in Control surfaces

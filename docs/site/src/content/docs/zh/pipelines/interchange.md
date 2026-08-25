@@ -146,13 +146,17 @@ RGB、可见像素数、画面占比与以左上角为原点的像素边界；�
 ## Agent 边界
 
 `director_creative interchange` 为有界 OTIO/OTIOZ、Fountain、glTF/GLB、USD/USDZ、OBJ
-和 STL 传输提供 `capabilities`、`plan-export` 与 `export`。每个计划绑定精确 Stage revision
-或 creative-workspace fingerprint。导出返回 UTF-8 或 base64 payload、archive SHA-256、
-字节数、兼容性警告和稳定回执；inline 传输上限是 8 MiB。OBJ/STL 计划可携带精确
-`object_ids`，并把它写入计划身份和 ZIP manifest。
+和 STL 传输提供 `capabilities`、`plan-export`、`export`、`plan-import` 与 `import`。每个计划
+绑定精确 Stage revision 或 creative-workspace fingerprint。导出返回 UTF-8 或 base64 payload、
+archive SHA-256、字节数、兼容性警告和稳定回执；inline 传输上限是 8 MiB。OBJ/STL 计划可携带
+精确 `object_ids`，并把它写入计划身份和 ZIP manifest。
 
-导入仍是 human-file-picker-only，因为 Agent 不会伪造浏览器文件句柄。请使用 Interchange
-菜单或对应可信 host adapter；没有真实用户选中文件和校验结果时，不得宣称完成导入。
+导入沿用同一套 plan/receipt 纪律，分两个 JSON 步骤完成。`plan-import` 校验一个 source —
+有界 `inline` payload、已存在的 Gallery `media_id`，或可读的 `workspace_path` — 并返回绑定
+当前 guard fingerprint 的计划；`import` 随后精确应用该 `plan_id`，携带
+`expected_guard_fingerprint` 与 `confirm:true`，fingerprint 过期时必须重新生成计划。浏览器
+文件选择器仍作为便捷入口保留（针对人类本地已打开的文件），但不再是唯一导入路径。没有已
+校验的计划和回执时，不得宣称完成导入。
 
 Stage 验收与 provider-neutral 证据使用 `director_workbench` 的 `shot_ir`、`shot_package` 或
 `deliver`。Blender 与引擎连接器先发现并调用 `director_dcc`：`discover`/`status` 如实报告就绪状态，
