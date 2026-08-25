@@ -8,6 +8,7 @@ import {
 } from "../../../packages/protocol/src/creativeWorkspaceProtocol";
 import { parseDirectorWorkbenchInput, type DirectorWorkbenchOperation } from "@director/agent-engine";
 import { describeDirectorWorkbenchTarget } from "@director/agent-engine";
+import { collectPossessedObjectIds, evaluateDirectorPossessionScope } from "@director/agent-engine";
 import {
   createStageFeedback,
   type AgentBoundaryReceipt,
@@ -183,6 +184,11 @@ function record(value: unknown): Record<string, unknown> | null {
 function observedWorkbenchRevision(value: unknown) {
   const revision = record(value)?.project_revision;
   return typeof revision === "string" && revision.trim() ? revision : null;
+}
+
+function observedWorkbenchCharacters(value: unknown) {
+  const characters = record(value)?.characters;
+  return Array.isArray(characters) ? characters : undefined;
 }
 
 function observedProductionRevision(value: unknown) {
@@ -703,6 +709,12 @@ export async function handleStageRoute(
       const targetRequired =
         !["capabilities", "catalog", "observe", "describe"].includes(parsedInput.operation.op) &&
         !(parsedInput.operation.op === "inspect" && parsedInput.operation.entity === "catalog_asset");
+      // Mutation discovery also reads character summaries so the possession
+      // scope check below reuses the same preflight round trip.
+      const discoveryObserve: DirectorWorkbenchOperation = {
+        op: "observe",
+        fields: isWorkbenchMutation(parsedInput.operation) ? ["counts", "characters"] : ["counts"],
+      };
       let discovery: WorkbenchRemote | null = null;
       if (targetRequired && !targetToken) {
         // Session stickiness: an untargeted caller keeps addressing the tab that
@@ -711,11 +723,7 @@ export async function handleStageRoute(
         const rememberedTarget = recallAgentSessionTarget("director_workbench", sessionId);
         if (rememberedTarget) {
           try {
-            discovery = await requestWorkbenchCommand(
-              { op: "observe", fields: ["counts"] },
-              undefined,
-              rememberedTarget,
-            );
+            discovery = await requestWorkbenchCommand(discoveryObserve, undefined, rememberedTarget);
           } catch (error) {
             if (writeBrowserCommandTimeout(response, respond, error, scene)) return true;
             throw error;
@@ -725,7 +733,7 @@ export async function handleStageRoute(
         }
         if (!targetToken) {
           try {
-            discovery = await requestWorkbenchCommand({ op: "observe", fields: ["counts"] });
+            discovery = await requestWorkbenchCommand(discoveryObserve);
           } catch (error) {
             if (writeBrowserCommandTimeout(response, respond, error, scene)) return true;
             throw error;
@@ -789,6 +797,7 @@ export async function handleStageRoute(
       } else if (isWorkbenchMutation(workbenchOperation)) {
         const prepared = prepareAgentMutation({ tool: "director_workbench", operation: workbenchOperation }, sessionId);
         let secured = prepared;
+        let possessionCharacters = observedWorkbenchCharacters(discovery?.response.result);
         if (prepared.needsObservation) {
           let observation: WorkbenchRemote | null;
           try {
@@ -800,7 +809,11 @@ export async function handleStageRoute(
                     targetToken,
                   )
                 : (discovery ??
-                  (await requestWorkbenchCommand({ op: "observe", fields: ["counts"] }, undefined, targetToken)));
+                  (await requestWorkbenchCommand(
+                    { op: "observe", fields: ["counts", "characters"] },
+                    undefined,
+                    targetToken,
+                  )));
           } catch (error) {
             if (writeBrowserCommandTimeout(response, respond, error, scene)) return true;
             throw error;
@@ -831,7 +844,51 @@ export async function handleStageRoute(
             });
             return true;
           }
+          possessionCharacters ??= observedWorkbenchCharacters(observation.response.result);
           secured = applyObservedAgentGuard(prepared, sessionId, revision);
+        }
+        // Possession scope: a session bound to characters (mode=possess) may
+        // only mutate those characters. Guard-carrying mutations that skipped
+        // the revision preflight still resolve the binding set before dispatch.
+        if (!possessionCharacters) {
+          let bindingProbe: WorkbenchRemote | null;
+          try {
+            bindingProbe = await requestWorkbenchCommand(
+              { op: "observe", fields: ["characters"] },
+              undefined,
+              targetToken,
+            );
+          } catch (error) {
+            if (writeBrowserCommandTimeout(response, respond, error, scene)) return true;
+            throw error;
+          }
+          if (!bindingProbe || bindingProbe.target.token !== targetToken) {
+            respond(response, 409, {
+              scene,
+              success: false,
+              code: bindingProbe ? "target_mismatch" : "target_unavailable",
+              error: "The exact Workbench target changed during the possession preflight. No mutation was sent.",
+            });
+            return true;
+          }
+          possessionCharacters = observedWorkbenchCharacters(bindingProbe.response.result) ?? [];
+        }
+        const possessedObjectIds = collectPossessedObjectIds(possessionCharacters, sessionId);
+        if (possessedObjectIds.length) {
+          const verdict = evaluateDirectorPossessionScope({
+            operation: secured.mutation.operation as DirectorWorkbenchOperation,
+            sessionId,
+            possessedObjectIds,
+          });
+          if (!verdict.allowed) {
+            respond(response, 403, {
+              scene,
+              success: false,
+              code: "possession_scope_violation",
+              error: verdict.error,
+            });
+            return true;
+          }
         }
         workbenchOperation = secured.mutation.operation as typeof workbenchOperation;
         agentBoundary = secured.receipt;

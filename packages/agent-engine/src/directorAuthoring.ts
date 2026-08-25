@@ -689,6 +689,21 @@ export const directorAuthoringActionSchema = z
       effector: characterIkEffector.optional(),
       force: z.boolean().optional(),
     }),
+    strictAction("bind_character_agent", {
+      object_id: id,
+      /** Durable Agent session id (e.g. dsh-<harness session id>). */
+      session_id: z.string().trim().min(1).max(160).optional(),
+      /** Agent profile id; allows attaching before a live session exists. */
+      profile_id: z.string().trim().min(1).max(160).optional(),
+      role_id: z.string().trim().min(1).max(160).optional(),
+      /** Only possess exists today: the bound Agent drives this character. */
+      mode: z.literal("possess").optional(),
+      force: z.boolean().optional(),
+    }),
+    strictAction("unbind_character_agent", {
+      object_id: id,
+      force: z.boolean().optional(),
+    }),
     strictAction("delete_objects", {
       object_ids: z.array(id).min(1).max(256),
       cascade: z.boolean().optional(),
@@ -878,6 +893,16 @@ export const directorAuthoringActionSchema = z
     if (action.action === "upsert_asset") {
       const error = catalogAssetIdentityError(action.asset);
       if (error) context.addIssue({ code: "custom", path: ["asset"], message: error });
+      return;
+    }
+    if (action.action === "bind_character_agent") {
+      if (!action.session_id && !action.profile_id) {
+        context.addIssue({
+          code: "custom",
+          path: ["session_id"],
+          message: "bind_character_agent requires session_id or profile_id",
+        });
+      }
       return;
     }
     if (action.action !== "add_object") return;
@@ -2147,6 +2172,37 @@ export function applyDirectorAuthoringActions(
           delete object.characterRig.ik[item.effector];
           if (!Object.keys(object.characterRig.ik).length) delete object.characterRig.ik;
         }
+        addUnique(result.updated.object_ids, object.id);
+        break;
+      }
+      case "bind_character_agent": {
+        const object = requireEditableCharacter(project, item.object_id, item.force, "an agent binding");
+        const previous = object.agentBinding;
+        // Last write wins: one character carries at most one binding, and a
+        // rebind replaces it atomically under the normal revision guard.
+        object.agentBinding = {
+          mode: "possess",
+          ...(item.session_id ? { sessionId: item.session_id } : {}),
+          ...(item.profile_id ? { profileId: item.profile_id } : {}),
+          ...(item.role_id ? { roleId: item.role_id } : {}),
+        };
+        if (previous) {
+          result.notes.push(
+            `Character "${object.id}" was rebound from ${previous.sessionId ?? previous.profileId ?? "unknown"} to ${
+              item.session_id ?? item.profile_id
+            }.`,
+          );
+        }
+        addUnique(result.updated.object_ids, object.id);
+        break;
+      }
+      case "unbind_character_agent": {
+        const object = requireEditableCharacter(project, item.object_id, item.force, "an agent binding");
+        if (!object.agentBinding) {
+          result.notes.push(`Character "${object.id}" had no agent binding; unbind_character_agent left it unchanged.`);
+          break;
+        }
+        delete object.agentBinding;
         addUnique(result.updated.object_ids, object.id);
         break;
       }

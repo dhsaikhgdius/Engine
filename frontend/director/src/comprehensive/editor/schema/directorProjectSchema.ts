@@ -570,6 +570,28 @@ export const directorToggleTransformInteractionSchema = z.strictObject({
   openTransform: directorTransformSchema,
 });
 
+/**
+ * A character's live Agent attachment. One character carries at most one
+ * binding; several characters may bind the same Agent session. `possess`
+ * means the bound Agent drives this character's motion, pose, IK, and
+ * transform, and Workbench mutations from that session are scoped to its
+ * possessed characters at the public Agent boundary.
+ */
+export const directorCharacterAgentBindingSchema = z
+  .strictObject({
+    /** Durable Agent session id (e.g. `dsh-<harness session id>`). */
+    sessionId: z.string().trim().min(1).max(160).optional(),
+    /** Agent profile id, so a character can be attached before a session exists. */
+    profileId: z.string().trim().min(1).max(160).nullable().optional(),
+    /** Optional film role carried for prompts and audits. */
+    roleId: z.string().trim().min(1).max(160).nullable().optional(),
+    mode: z.literal("possess"),
+  })
+  .refine((binding) => Boolean(binding.sessionId || binding.profileId), {
+    message: "agentBinding requires sessionId or profileId",
+    path: ["sessionId"],
+  });
+
 export const directorObjectSchema = z.strictObject({
   id: z.string(),
   name: z.string(),
@@ -614,6 +636,8 @@ export const directorObjectSchema = z.strictObject({
   vehicle: directorVehicleProfileSchema.optional(),
   /** Optional proximity interaction consumed by the live player session. */
   interaction: directorToggleTransformInteractionSchema.optional(),
+  /** Optional Agent attachment; only kind=character objects may carry one. */
+  agentBinding: directorCharacterAgentBindingSchema.optional(),
 });
 
 export const directorCameraActionSchema = z.discriminatedUnion("mode", [
@@ -866,6 +890,16 @@ function addDirectorProjectStructuralIssues(project: DirectorProjectShape, conte
     proceduralRecipeIds.add(recipe.id);
   });
 
+  project.objects.forEach((object, objectIndex) => {
+    if (object.agentBinding && object.kind !== "character") {
+      context.addIssue({
+        code: "custom",
+        path: ["objects", objectIndex, "agentBinding"],
+        message: `agentBinding 只能用于 character 对象；"${object.id}" 是 ${object.kind}`,
+      });
+    }
+  });
+
   const storyboardGenerationJobIds = new Set<string>();
   project.storyboard?.shots.forEach((shot, shotIndex) => {
     shot.generation?.outputs.forEach((output, outputIndex) => {
@@ -1039,6 +1073,7 @@ export type DirectorNativeObjectSource = z.infer<typeof directorNativeObjectSour
 export type CharacterRigState = NonNullable<z.infer<typeof directorObjectSchema>["characterRig"]>;
 /** A proximity-based toggle interaction that switches between two transforms. */
 export type DirectorToggleTransformInteraction = z.infer<typeof directorToggleTransformInteractionSchema>;
+export type DirectorCharacterAgentBinding = z.infer<typeof directorCharacterAgentBindingSchema>;
 /** A scene object with its transform, material, animation, and rig state. */
 export type DirectorObject = z.infer<typeof directorObjectSchema>;
 type ParsedDirectorCameraAction = z.infer<typeof directorCameraActionSchema>;

@@ -71,6 +71,8 @@
     "clear_character_motion",
     "set_character_ik",
     "clear_character_ik",
+    "bind_character_agent",
+    "unbind_character_agent",
     "delete_objects",
     "add_light",
     "update_light",
@@ -353,6 +355,14 @@
     "write_actions": ["set_character_motion", "clear_character_motion", "set_animation"],
     "timeline_blocks": "set_animation.animation.motionBlocks authors non-overlapping catalog clips on exact inclusive frame ranges; one author request may replace the complete block list atomically.",
     "layering": "active timeline motion block -> legacy trajectory gait -> semantic pose offsets -> hand/foot IK"
+  },
+  "character_agent_contract": {
+    "write_actions": ["bind_character_agent", "unbind_character_agent"],
+    "binding": "Only kind=character objects carry an agentBinding (session_id and/or profile_id, optional role_id, mode=possess). One character holds at most one binding; several characters may bind the same Agent. Rebinding replaces the previous binding atomically under the normal revision guard, and locked characters require force:true.",
+    "identity": "DSH harness sessions reach this tool with session_id dsh-<harness session id>; the Director MCP server uses DIRECTOR_MCP_SESSION_ID. Bind the exact session_id that will drive the character, or bind a profile_id before a live session exists.",
+    "control": "A bound Agent drives its character with the existing actions: set_character_motion, set_character_pose_controls, set_character_ik (+clear variants), update_object transform patches, and set_animation. There is no separate movement API.",
+    "possession_scope": "When the calling session_id is bound to characters with mode=possess, the gateway limits that session's workbench mutations to those characters: only character-scoped author actions (update_object, batch_update_objects, reset_transforms, align_objects, distribute_objects, focus_objects, set_object_pivot, set_object_interaction/clear_object_interaction, character pose/motion/IK actions, object-targeted set_animation/apply_animation_recipe, bind/unbind_character_agent) whose every target id is a possessed character are dispatched. Stage-wide mutations (start_scene, replace_project, patch, undo, run_macro, correct, delete_objects, production edits, storyboard artifacts, generated_3d promotion) are rejected with a readable error. Sessions that possess no character keep full stage-wide authoring, and reads plus durable generation/transcription job commands stay available to everyone.",
+    "explicit_object_id": "Character actions always require an explicit object_id, even when the session possesses exactly one character."
   },
   "catalog_contract": {
     "catalogs": [],
