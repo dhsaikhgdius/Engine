@@ -1736,8 +1736,10 @@ describe("executeBlenderNativeTool", () => {
     );
     expect(session.snapshot).toHaveBeenCalledTimes(1);
     // Without a project loader, the datablock reports Blender-only ownership.
-    expect(result.inspection).toMatchObject({
-      kernel_ownership: { kernel: "blender", source: "blender_native", blender_object_id: "cube-a" },
+    expect(result).toMatchObject({
+      inspection: {
+        kernel_ownership: { kernel: "blender", source: "blender_native", blender_object_id: "cube-a" },
+      },
     });
   });
 
@@ -1789,13 +1791,15 @@ describe("executeBlenderNativeTool", () => {
       loadDirectorProject: async () => project,
     });
 
-    expect(result.inspection).toMatchObject({
-      kernel_ownership: {
-        kernel: "blender",
-        source: "blender_native",
-        blender_object_id: "native-mesh-1",
-        stage_patchable_fields: ["name", "visible", "locked", "transform"],
-        stage_entity: { entity: "object", id: mirrored.id },
+    expect(result).toMatchObject({
+      inspection: {
+        kernel_ownership: {
+          kernel: "blender",
+          source: "blender_native",
+          blender_object_id: "native-mesh-1",
+          stage_patchable_fields: ["name", "visible", "locked", "transform"],
+          stage_entity: { entity: "object", id: mirrored.id },
+        },
       },
     });
   });
