@@ -47,7 +47,7 @@
     "assets:install": "node tools/scripts/director-assets.mjs install",
     "assets:verify": "node tools/scripts/director-assets.mjs verify --required-only",
     "assets:release-check": "node tools/scripts/director-assets.mjs release-check",
-    "repo:check": "node tools/scripts/check-open-source-boundary.mjs && node tools/scripts/check-native-agent-integration.mjs",
+    "repo:check": "node tools/scripts/check-open-source-boundary.mjs && node tools/scripts/check-native-agent-integration.mjs && node tools/scripts/check-doc-gateway-paths.mjs",
     "sync:skills": "node tools/scripts/sync-agent-skills.mjs",
     "sync:blender-operations": "node tools/scripts/sync-blender-operation-manifest.mjs",
     "lint": "NODE_OPTIONS='--max-old-space-size=4096' eslint --config tools/eslint.config.js frontend/director/src frontend/director/tests backend/gateway tools/scripts packages/protocol/src packages/protocol/tests packages/dsh-plugin-workbench/src packages/dsh-plugin-workbench/tests tools/vite.config.ts tools/vitest.config.ts && tsx tools/scripts/checkServerImportBoundaries.ts",

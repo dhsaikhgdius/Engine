@@ -206,13 +206,12 @@ media bytes still never enter Yjs.
 
 ### Shipped
 
-Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP, the local Agent harness, and the hosted API adapter share it:
+Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP and the Multi-Agent production runner share it:
 
-| Surface        | Binding                                                                        |
-| -------------- | ------------------------------------------------------------------------------ |
-| MCP            | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                        |
-| Local harness  | `agentAdapters.ts` prompt + `filmRoleToolPolicyRejection` before tool dispatch |
-| Hosted adapter | `openAiCompatibleAdapter.ts` visibility + rejection                            |
+| Surface               | Binding                                                                          |
+| --------------------- | -------------------------------------------------------------------------------- |
+| MCP                   | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                          |
+| Multi-Agent runs      | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` and its run routes   |
 
 ### Remaining
 

@@ -38,7 +38,7 @@ and subagent tools alongside Director domain tools.
 - `npm run test:e2e` — Playwright end-to-end tests.
 - `npm run lint` — ESLint plus server import-boundary check. `npm run format:check` for Prettier.
 - `npm run build` — typecheck, Vite build, chunk budget, and the portable MCP plugin.
-- `npm run repo:check` — open-source boundary plus native agent integration checks (CI runs this).
+- `npm run repo:check` — open-source boundary, native agent integration, and documentation truth checks (documented `backend/gateway/**` paths must exist; removed-module and unwired-capability language is rejected). CI runs this.
 - `npm run --silent stage -- director_workbench '{"op":"observe"}'` — gateway smoke test through the Stage CLI. Prefer MCP `director_workbench` when that server is connected; `npm run --silent stage -- --help` lists tools. Legacy `stage_*` names are HTTP-compatible only. `npm run stage --` prints an npm banner that breaks `JSON.parse`; use `--silent` or `node tools/scripts/stage-cli.mjs`.
 - `npm run eval` — agent golden-task evals against an isolated gateway + headless workbench tab (see `tools/evals/README.md`).
 - `npm run dsh` — prepare the Director workbench overlay and launch the pinned DeepSeek Harness Web profile on `:3080`.
@@ -72,6 +72,11 @@ semantic operation exists.
 ## Conventions
 
 - TypeScript is strict; validate untrusted data with Zod at system boundaries.
+- The four agent teaching channels are ranked (declared in the skill's "Canonical source order"):
+  `capabilities`/`describe` are the only canonical vocabulary; the workbench skill and the DSH
+  system guidance teach principles and pointers; tool descriptions stay short routing envelopes;
+  rejection messages carry the corrective call. Do not add a fifth teaching channel; do not grow
+  prose channels into a second parameter reference.
 - Frontend tests live in `frontend/director/tests/` (mirroring `src/`). Gateway tests live in
   `backend/gateway/tests/` grouped by domain (mirroring gateway source; shared fixtures in
   `tests/fixtures/`). Shared npm packages under `packages/`
