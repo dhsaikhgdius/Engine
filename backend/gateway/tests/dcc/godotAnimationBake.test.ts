@@ -40,7 +40,7 @@ function animatedObject(id: string, endX: number) {
       scale: [1, 1, 1] as [number, number, number],
     },
     animation: {
-      version: 1,
+      version: 1 as const,
       keyframes: [
         {
           frame: 0,

@@ -1792,6 +1792,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(scene(5, [cube("native-mesh-1")])),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
