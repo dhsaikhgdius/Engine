@@ -90,9 +90,9 @@ describe("Director DSH workbench plugin catalog", () => {
     expect(blender.properties?.operations).toBeDefined();
     expect(blender.properties?.query).toBeDefined();
     expect(blender.properties?.assetType).toBeDefined();
-    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({ op: "polyhaven_search", query: "chair" }).success).toBe(
-      true,
-    );
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({ op: "polyhaven_search", query: "chair" }).success,
+    ).toBe(true);
     expect(
       DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({
         op: "capture_render",
@@ -113,5 +113,54 @@ describe("Director DSH workbench plugin catalog", () => {
         operations: [{ op: "polyhaven_import", assetId: "chair" }],
       }).success,
     ).toBe(true);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({
+        op: "query_objects",
+        name_pattern: "门",
+        kind: "prop",
+        max_results: 20,
+      }).success,
+    ).toBe(true);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({
+        op: "inspect",
+        entity: "object",
+        id: "door-1",
+      }).success,
+    ).toBe(true);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({
+        op: "observe",
+        fields: ["objects"],
+        since_revision: "rev-1",
+        object_mode: "hierarchy",
+        max_objects: 200,
+      }).success,
+    ).toBe(true);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({
+        op: "author",
+        actions: [{ action: "update_object", object_id: "hero", patch: { name: "Hero" } }],
+        evidence: {},
+      }).success,
+    ).toBe(true);
+    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.stage_video.safeParse({ op: "status", job_id: "job-1" }).success).toBe(true);
+  });
+
+  it("exposes describe/query_objects/inspect fields on the DSH compact envelope", () => {
+    const schema = pluginTool("director_workbench").dshParameters as {
+      properties?: {
+        target?: unknown;
+        name_pattern?: unknown;
+        entity?: unknown;
+        since_revision?: unknown;
+        evidence?: unknown;
+      };
+    };
+    expect(schema.properties?.target).toBeDefined();
+    expect(schema.properties?.name_pattern).toBeDefined();
+    expect(schema.properties?.entity).toBeDefined();
+    expect(schema.properties?.since_revision).toBeDefined();
+    expect(schema.properties?.evidence).toBeDefined();
   });
 });

@@ -23,4 +23,6 @@ overlay，并在 `http://127.0.0.1:3080` 启动固定版本的官方 DSH。Gatew
 先启动（`npm run dev:gateway`），插件才能操作实时导演台、画布和视频编辑器。只有需要
 生成 overlay 而不启动 Web profile 时才使用 `npm run dsh:prepare`。
 
-通用编码、网页、todo、子代理和 job 工具留在 DeepSeek Harness，不要写进这个插件。
+通用编码、网页、todo、子代理、job、skill、goal 和 plan 工具留在 DeepSeek Harness，不要写进这个插件。
+Agent 应先用 DSH 的 `skill` 工具加载 `.dsh/skills/director-workbench`，再把这些 Harness
+工具和 Director 领域工具一起用。

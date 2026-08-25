@@ -13,7 +13,7 @@ every coding agent; per-agent rule files only point back here.
 | `backend/gateway/`               | TypeScript Gateway, jobs, media, collaboration, and tool HTTP for DSH / MCP                                                                    |
 | `packages/`                      | Shared npm workspaces: protocol, agent-engine, dsh-plugin-workbench, project-schema, stage-protocol, dcc-*, model-provider, di, scene-pipeline |
 | `packages/dsh-plugin-workbench/` | Director Stage / Canvas / Video / Blender tools as a DeepSeek Harness plugin                                                                   |
-| `vendor/`                        | Official third-party Git submodules: DeepSeek Harness, LTX-2, Hunyuan3D-2, TRELLIS, ARDY. Do not fork them in-tree.             |
+| `vendor/`                        | Official third-party Git submodules: DeepSeek Harness, LTX-2, Hunyuan3D-2, TRELLIS, ARDY. Do not fork them in-tree.                            |
 | `integrations/`                  | Blender live kernel, `.blend` interchange, portable Agent plugin                                                                               |
 | `assets/`                        | Asset catalogs, manifests, provenance, and license metadata                                                                                    |
 | `docs/site/`                     | Product and engineering documentation site                                                                                                     |
@@ -27,7 +27,9 @@ Generated scenes, build trees, and local checkpoints live under the ignored `.ru
 The Agent harness is DeepSeek Harness (`vendor/deepseek-harness`). Director-specific
 Stage, Canvas, Video Editor, and Blender operations live in
 `packages/dsh-plugin-workbench`. Do not add another in-tree tool loop, session
-store fork, or focused copy of DSH workspace/web/job tools.
+store fork, or focused copy of DSH workspace/web/job tools. In DSH, load the
+`director-workbench` skill, then use Harness `todo_write`, `job_*`, `web_*`, `bash`,
+and subagent tools alongside Director domain tools.
 
 ## Commands
 

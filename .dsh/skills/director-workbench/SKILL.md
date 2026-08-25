@@ -20,6 +20,22 @@ Use `director_workbench` for the 3D Stage and `director_creative` for Canvas, Vi
 
 Do not add review passes, acceptance gates, or recovery branches unless the user asks for them or a tool returns an error that requires them.
 
+## DeepSeek Harness tools
+
+Director does not own the agent loop. This process is DeepSeek Harness. Load project skills and use Harness tools directly; do not rebuild them, and do not wrap Director tools in `code`.
+
+- Call `skill` to catalog then load `director-workbench` before Stage, Canvas, or Blender work. Project skills live at `<git-root>/.dsh/skills`.
+- `todo_write` tracks multi-step productions. Do not mark a creative todo complete until the typed mutation receipt and any requested audit or capture succeeded.
+- Goals: `get_goal({})` / `set_goal`. Omitting the argument is not lossless JSON.
+- Plan mode is for large scenes. A plan is not mutation evidence.
+- `job_list`, `job_output`, `job_kill` are Harness background jobs (bash, subagent). Do not busy-poll; keep working, then `job_output`. Set `wait: true` only when blocked. Director video/image jobs are different: poll `stage_video` `status` or `director_creative` pipeline `get`.
+- `web_search` / `web_fetch` research references; then Director `catalog` for asset ids. Never guess ids. If search reports a missing credential, do not repeat the same call.
+- `bash`, `read`, `write`, `edit`, `glob`, `grep` are repository files only. Never mutate the 3D scene through the shell.
+- Subagents inherit this provider/model when those fields are omitted. Call `director_model_routes` only to copy an exact registered pair. Children must not `start_scene`, `replace_project`, or edit objects they did not create. Use unique id prefixes for parallel sessions.
+- DSH workflows are not the Canvas production DAG. Canvas pipelines use `director_creative`.
+- Code Mode: `await tools.director_workbench({...})`, `await tools.blender_native({...})`, `await tools.director_model_routes({})`. Zero-argument tools need `{}`.
+- Oversized `observe` / catalog results arrive summarized (`counts`, id samples, `retrieval_hint`). Use `fields`, `inspect`, or `query_objects` instead of asking for the full dump.
+
 ## 3D Stage
 
 - Prefer one `author` request containing all actions for a single intent.
