@@ -10,6 +10,7 @@ import type { DirectorWorldWeather } from "../../../../../../../packages/protoco
 import {
   computeEffectiveWorldSnowCover,
   computeEffectiveWorldWetness,
+  computeWorldPuddleAmount,
   computeWorldVegetationWindStrength,
   isWorldVegetationName,
 } from "./worldSurfaceResponse";
@@ -38,10 +39,18 @@ export interface WorldSurfaceUniforms {
   uWorldWetness: { value: number };
   /** Upward-face snow cover factor [0, 1]; blends to white. */
   uWorldSnowCover: { value: number };
+  /** Low-lying puddle accumulation [0, 1]; placement is seeded spatial noise. */
+  uWorldPuddle: { value: number };
   /** World-space horizontal wind direction (unit-length XY). */
   uWorldWindDir: { value: Vector2 };
   /** Wind sway amplitude scale for vegetation. */
   uWorldWindStrength: { value: number };
+  /** Authored wind gustiness [0, 1]; scales the travelling gust wave. */
+  uWorldWindGust: { value: number };
+  /** Authored wind turbulence [0, 1]; drives cross-wind foliage flutter. */
+  uWorldWindTurbulence: { value: number };
+  /** World seed folded to a small float; offsets every spatial hash. */
+  uWorldSeed: { value: number };
   /** World time in seconds for phase-based effects. */
   uWorldTime: { value: number };
 }
@@ -51,10 +60,32 @@ export function createWorldSurfaceUniforms(): WorldSurfaceUniforms {
   return {
     uWorldWetness: { value: 0 },
     uWorldSnowCover: { value: 0 },
+    uWorldPuddle: { value: 0 },
     uWorldWindDir: { value: new Vector2(1, 0) },
     uWorldWindStrength: { value: 0 },
+    uWorldWindGust: { value: 0 },
+    uWorldWindTurbulence: { value: 0 },
+    uWorldSeed: { value: 0 },
     uWorldTime: { value: 0 },
   };
+}
+
+/** Optional wind character block for {@link writeWorldSurfaceUniforms}. */
+export interface WorldSurfaceWindDetail {
+  /** World seed; folded into a float32-exact spatial hash offset. */
+  seed: number;
+  /** Authored gustiness [0, 1]. */
+  gustiness: number;
+  /** Authored turbulence [0, 1]. */
+  turbulence: number;
+}
+
+/**
+ * Folds the 32-bit world seed into a small float that is exact in float32,
+ * so the GLSL spatial hash sees the same offset on every GPU.
+ */
+export function foldWorldSurfaceSeed(seed: number): number {
+  return (seed >>> 0) % 2048;
 }
 
 /**
@@ -66,6 +97,7 @@ export function createWorldSurfaceUniforms(): WorldSurfaceUniforms {
  * @param windX - World-space wind X component.
  * @param windZ - World-space wind Z component.
  * @param worldSeconds - Current world time in seconds.
+ * @param detail - Optional seed + gust character; omitted keeps zero defaults.
  */
 export function writeWorldSurfaceUniforms(
   uniforms: WorldSurfaceUniforms,
@@ -73,18 +105,28 @@ export function writeWorldSurfaceUniforms(
   windX: number,
   windZ: number,
   worldSeconds: number,
+  detail?: WorldSurfaceWindDetail,
 ): void {
   uniforms.uWorldWetness.value = computeEffectiveWorldWetness(weather);
   uniforms.uWorldSnowCover.value = computeEffectiveWorldSnowCover(weather);
+  uniforms.uWorldPuddle.value = computeWorldPuddleAmount(weather);
   const speed = Math.hypot(windX, windZ);
   const length = Math.max(speed, 1e-5);
   uniforms.uWorldWindDir.value.set(windX / length, windZ / length);
   uniforms.uWorldWindStrength.value = computeWorldVegetationWindStrength(speed);
   uniforms.uWorldTime.value = worldSeconds;
+  if (detail) {
+    uniforms.uWorldWindGust.value = Math.min(1, Math.max(0, detail.gustiness));
+    uniforms.uWorldWindTurbulence.value = Math.min(1, Math.max(0, detail.turbulence));
+    uniforms.uWorldSeed.value = foldWorldSurfaceSeed(detail.seed);
+  }
 }
 
+// living-world-road- is skipped because TrafficLayer owns the asphalt's
+// weather appearance (wet darkening + snow) explicitly; patching it here too
+// would apply the wetness model twice. Traffic vehicles stay patchable.
 const SKIP_SURFACE_MESH_NAME =
-  /transformcontrols|viewport-ground-grid|panorama-backdrop|camera-frustum|frame-trajectory-overlay|drop-preview|living-world-effects|living-world-sky|living-world-water|director-living-world-water|director-water-|living-world-river|living-world-surface|world-effect-/i;
+  /transformcontrols|viewport-ground-grid|panorama-backdrop|camera-frustum|frame-trajectory-overlay|drop-preview|living-world-effects|living-world-sky|living-world-water|director-living-world-water|director-water-|living-world-river|living-world-road-|living-world-surface|world-effect-/i;
 
 /**
  * Returns true when a mesh should be excluded from surface patching —
@@ -140,57 +182,136 @@ uniform float uWorldWetness;
 uniform float uWorldSnowCover;
 uniform vec2 uWorldWindDir;
 uniform float uWorldWindStrength;
+uniform float uWorldWindGust;
+uniform float uWorldWindTurbulence;
+uniform float uWorldSeed;
 uniform float uWorldTime;
 varying float vWorldUpDot;
+varying vec2 vWorldSurfaceXZ;
 `;
 
+/**
+ * Fragment uniforms plus the seeded spatial hash shared by puddles and the
+ * snow-cover edge. Pure functions of (seed, world coords): never time-random,
+ * so still frames and scrubbed exports replay identically.
+ */
 const WORLD_SURFACE_FRAGMENT_UNIFORMS = /* glsl */ `
 uniform float uWorldWetness;
 uniform float uWorldSnowCover;
+uniform float uWorldPuddle;
+uniform float uWorldSeed;
 varying float vWorldUpDot;
+varying vec2 vWorldSurfaceXZ;
+float directorWorldHash21(vec2 p) {
+  p = fract(p * vec2(0.3183099, 0.3678794) + uWorldSeed * 0.0173);
+  p += dot(p, p.yx + 19.19);
+  return fract(p.x * p.y * 43.5453);
+}
+float directorWorldValueNoise(vec2 p) {
+  vec2 cell = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = directorWorldHash21(cell);
+  float b = directorWorldHash21(cell + vec2(1.0, 0.0));
+  float c = directorWorldHash21(cell + vec2(0.0, 1.0));
+  float d = directorWorldHash21(cell + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
 `;
 
 const WORLD_SURFACE_NORMAL_CHUNK = /* glsl */ `
 vWorldUpDot = inverseTransformDirection(transformedNormal, viewMatrix).y;
 `;
 
-/** GLSL chunk that displaces vertex XZ by wind direction and strength, scaled by height. */
-export const WORLD_SURFACE_VEGETATION_SWAY_CHUNK = /* glsl */ `
+/** GLSL chunk that forwards the world-space XZ of the vertex for spatial noise. */
+export const WORLD_SURFACE_WORLD_POS_CHUNK = /* glsl */ `
 {
-  float height = max(transformed.y, 0.0);
-  float phase = uWorldTime * 1.6 + modelMatrix[3][0] * 0.21 + modelMatrix[3][2] * 0.19;
+  vec4 directorSurfaceWorld = vec4(transformed, 1.0);
 #ifdef USE_INSTANCING
-  phase += instanceMatrix[3][0] * 0.21 + instanceMatrix[3][2] * 0.19;
+  directorSurfaceWorld = instanceMatrix * directorSurfaceWorld;
 #endif
-  float gust = sin(phase) * 0.62 + sin(phase * 2.31 + 1.7) * 0.38;
-  transformed.xz += uWorldWindDir * (uWorldWindStrength * height * 0.055 * gust);
+#ifdef USE_BATCHING
+  directorSurfaceWorld = batchingMatrix * directorSurfaceWorld;
+#endif
+  directorSurfaceWorld = modelMatrix * directorSurfaceWorld;
+  vWorldSurfaceXZ = directorSurfaceWorld.xz;
 }
 `;
 
-/** GLSL chunk that darkens diffuse colour by wetness and blends snow on upward-facing surfaces. */
+/**
+ * GLSL chunk that displaces vertex XZ along the FULL wind vector, scaled by
+ * height. Three layers: a steady down-wind lean (direction reads in a still
+ * frame), a gust wave travelling down-wind (direction reads in motion), and a
+ * turbulence-scaled cross-wind flutter. All phases derive from uWorldTime and
+ * a seeded per-plant hash of the world anchor — never the wall clock.
+ */
+export const WORLD_SURFACE_VEGETATION_SWAY_CHUNK = /* glsl */ `
+{
+  float height = max(transformed.y, 0.0);
+  vec2 anchor = modelMatrix[3].xz;
+#ifdef USE_INSTANCING
+  anchor += instanceMatrix[3].xz;
+#endif
+  float plantPhase = fract(sin(dot(anchor, vec2(127.1, 311.7)) + uWorldSeed * 1.618) * 43758.5453) * 6.2831853;
+  float along = dot(anchor, uWorldWindDir);
+  float gustWave = sin(uWorldTime * 1.6 - along * 0.35 + plantPhase) * 0.62
+    + sin(uWorldTime * 2.31 - along * 0.22 + plantPhase + 1.7) * 0.38;
+  float sway = 0.45 + (0.35 + 0.55 * uWorldWindGust) * gustWave;
+  vec2 crossDir = vec2(-uWorldWindDir.y, uWorldWindDir.x);
+  float flutter = uWorldWindTurbulence
+    * (sin(uWorldTime * 6.3 + plantPhase * 3.1 + transformed.y * 2.0) * 0.7
+      + sin(uWorldTime * 9.7 + plantPhase * 5.3 + 2.1) * 0.3);
+  vec2 swayOffset = uWorldWindDir * sway + crossDir * (flutter * 0.35);
+  transformed.xz += swayOffset * (uWorldWindStrength * height * 0.055);
+}
+`;
+
+/**
+ * GLSL chunk that darkens diffuse colour by wetness (porosity model), pools
+ * seeded low-lying puddles on near-horizontal faces, and blends snow on
+ * upward-facing surfaces with a noise-broken cover edge.
+ */
 export const WORLD_SURFACE_COLOR_CHUNK = /* glsl */ `
 {
   float wet = clamp(uWorldWetness, 0.0, 1.0);
   float porosity = mix(0.55, 0.08, clamp(metalness, 0.0, 1.0));
   diffuseColor.rgb *= mix(1.0, mix(0.55, 0.78, porosity), wet);
-  float snow = clamp(uWorldSnowCover, 0.0, 1.0) * smoothstep(0.28, 0.72, vWorldUpDot);
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.9, 0.94), snow * 0.92);
+  float puddleMask = 1.0;
+  float basin = directorWorldValueNoise(vWorldSurfaceXZ * 0.45);
+  float puddle = clamp(uWorldPuddle, 0.0, 1.0) * puddleMask
+    * smoothstep(0.86, 0.97, vWorldUpDot)
+    * smoothstep(0.6, 0.82, basin);
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.42 + vec3(0.015, 0.02, 0.028), puddle);
+  float snowAmount = clamp(uWorldSnowCover, 0.0, 1.0);
+  float snowNoise = directorWorldValueNoise(vWorldSurfaceXZ * 1.7 + 31.7);
+  float snow = snowAmount * smoothstep(0.28, 0.72, vWorldUpDot)
+    * min(1.0, 0.75 + 0.5 * smoothstep(0.35, 0.75, snowNoise + 0.3 * snowAmount));
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.9, 0.94), min(snow, 1.0) * 0.92);
 }
 `;
 
-/** GLSL chunk that reduces roughness based on wetness and metalness (porosity model). */
+/** GLSL chunk that reduces roughness by wetness (porosity model) and glazes puddles. */
 export const WORLD_SURFACE_ROUGHNESS_CHUNK = /* glsl */ `
 {
   float wet = clamp(uWorldWetness, 0.0, 1.0);
   float porosity = mix(0.55, 0.08, clamp(metalnessFactor, 0.0, 1.0));
   roughnessFactor *= mix(1.0, mix(0.22, 0.42, porosity), wet);
+  float puddleMask = 1.0;
+  float basin = directorWorldValueNoise(vWorldSurfaceXZ * 0.45);
+  float puddle = clamp(uWorldPuddle, 0.0, 1.0) * puddleMask
+    * smoothstep(0.86, 0.97, vWorldUpDot)
+    * smoothstep(0.6, 0.82, basin);
+  roughnessFactor = mix(roughnessFactor, 0.04, puddle);
 }
 `;
 
 /**
- * Injects world-surface GLSL chunks (wetness, snow, roughness, and optional
- * vegetation sway) into the vertex and fragment shaders. Anchors on standard
- * ShaderLib includes; missing anchors no-op the matching replace.
+ * Injects world-surface GLSL chunks (wetness, snow, puddles, roughness, and
+ * optional vegetation sway) into the vertex and fragment shaders. Anchors on
+ * standard ShaderLib includes; missing anchors no-op the matching replace.
+ *
+ * Vegetation variants pin porosity at 0.85 and disable puddles (water films
+ * do not pool on leaves).
  *
  * @param vertexShader - The original vertex shader source.
  * @param fragmentShader - The original fragment shader source.
@@ -202,20 +323,24 @@ export function injectWorldSurfaceShaders(
   fragmentShader: string,
   vegetation: boolean,
 ): { vertexShader: string; fragmentShader: string } {
-  let nextVertex = vertexShader
+  const beginVertexChunk = vegetation
+    ? `#include <begin_vertex>\n${WORLD_SURFACE_VEGETATION_SWAY_CHUNK}\n${WORLD_SURFACE_WORLD_POS_CHUNK}`
+    : `#include <begin_vertex>\n${WORLD_SURFACE_WORLD_POS_CHUNK}`;
+  const nextVertex = vertexShader
     .replace("#include <common>", `#include <common>\n${WORLD_SURFACE_VERTEX_UNIFORMS}`)
-    .replace("#include <defaultnormal_vertex>", `#include <defaultnormal_vertex>\n${WORLD_SURFACE_NORMAL_CHUNK}`);
-  if (vegetation) {
-    nextVertex = nextVertex.replace(
-      "#include <begin_vertex>",
-      `#include <begin_vertex>\n${WORLD_SURFACE_VEGETATION_SWAY_CHUNK}`,
-    );
-  }
+    .replace("#include <defaultnormal_vertex>", `#include <defaultnormal_vertex>\n${WORLD_SURFACE_NORMAL_CHUNK}`)
+    .replace("#include <begin_vertex>", beginVertexChunk);
   const colorChunk = vegetation
-    ? WORLD_SURFACE_COLOR_CHUNK.replace("mix(0.55, 0.08, clamp(metalness, 0.0, 1.0))", "0.85")
+    ? WORLD_SURFACE_COLOR_CHUNK.replace("mix(0.55, 0.08, clamp(metalness, 0.0, 1.0))", "0.85").replace(
+        "float puddleMask = 1.0;",
+        "float puddleMask = 0.0;",
+      )
     : WORLD_SURFACE_COLOR_CHUNK;
   const roughnessChunk = vegetation
-    ? WORLD_SURFACE_ROUGHNESS_CHUNK.replace("mix(0.55, 0.08, clamp(metalnessFactor, 0.0, 1.0))", "0.85")
+    ? WORLD_SURFACE_ROUGHNESS_CHUNK.replace("mix(0.55, 0.08, clamp(metalnessFactor, 0.0, 1.0))", "0.85").replace(
+        "float puddleMask = 1.0;",
+        "float puddleMask = 0.0;",
+      )
     : WORLD_SURFACE_ROUGHNESS_CHUNK;
   const nextFragment = fragmentShader
     .replace("#include <common>", `#include <common>\n${WORLD_SURFACE_FRAGMENT_UNIFORMS}`)
@@ -257,8 +382,12 @@ export function patchWorldSurfaceMaterial(
     previousOnBeforeCompile.call(material, parameters, renderer);
     parameters.uniforms.uWorldWetness = uniforms.uWorldWetness;
     parameters.uniforms.uWorldSnowCover = uniforms.uWorldSnowCover;
+    parameters.uniforms.uWorldPuddle = uniforms.uWorldPuddle;
     parameters.uniforms.uWorldWindDir = uniforms.uWorldWindDir;
     parameters.uniforms.uWorldWindStrength = uniforms.uWorldWindStrength;
+    parameters.uniforms.uWorldWindGust = uniforms.uWorldWindGust;
+    parameters.uniforms.uWorldWindTurbulence = uniforms.uWorldWindTurbulence;
+    parameters.uniforms.uWorldSeed = uniforms.uWorldSeed;
     parameters.uniforms.uWorldTime = uniforms.uWorldTime;
     const injected = injectWorldSurfaceShaders(parameters.vertexShader, parameters.fragmentShader, vegetation);
     parameters.vertexShader = injected.vertexShader;
@@ -266,7 +395,7 @@ export function patchWorldSurfaceMaterial(
   };
   material.customProgramCacheKey = () => {
     const previous = previousCacheKey.call(material);
-    return `${previous}|director-world-surface-v1|veg=${vegetation ? 1 : 0}`;
+    return `${previous}|director-world-surface-v2|veg=${vegetation ? 1 : 0}`;
   };
   material.needsUpdate = true;
   material.userData[PATCH_USERDATA_KEY] = {

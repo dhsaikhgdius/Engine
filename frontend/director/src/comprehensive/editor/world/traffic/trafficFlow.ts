@@ -85,11 +85,17 @@ export function roadTrafficSeed(worldSeed: number, road: Pick<TrafficRoadInput, 
  * Derives the per-vehicle streams for one road. Lane split: the first
  * ceil(count/2) vehicles travel forward (+1), the rest backward (-1), so both
  * directions stay populated for any vehicleCount.
+ *
+ * `laneSpeedScale` is a UNIFORM multiplier applied on top of the hashed
+ * 0.85..1.15 lane band — weather slowdowns (storm, snow) scale the whole
+ * lane at once, so same-lane relative speeds stay zero and the no-overtake
+ * guarantee (see module header) is untouched. Per-car scales are forbidden.
  */
 export function buildRoadTrafficStreams(
   road: TrafficRoadInput,
   worldSeed: number,
   totalLengthM: number,
+  laneSpeedScale = 1,
 ): RoadTrafficStreams {
   const count = road.vehicleCount;
   const directions = new Int8Array(count);
@@ -101,7 +107,8 @@ export function buildRoadTrafficStreams(
   const seed = roadTrafficSeed(worldSeed, road);
   const forwardCount = Math.ceil(count / 2);
   const laneCounts = [forwardCount, count - forwardCount] as const;
-  const baseSpeedMps = road.speedKph * KPH_TO_MPS;
+  const safeLaneSpeedScale = Math.max(0, laneSpeedScale);
+  const baseSpeedMps = road.speedKph * KPH_TO_MPS * safeLaneSpeedScale;
 
   for (let index = 0; index < count; index += 1) {
     const lane = index < forwardCount ? 0 : 1;

@@ -92,6 +92,11 @@ export default function WorldSurfaceLayer({
         context.windVector[0],
         context.windVector[2],
         context.worldSeconds,
+        {
+          seed: context.seed,
+          gustiness: context.settings.wind.gustiness,
+          turbulence: context.settings.wind.turbulence,
+        },
       );
       if (renderer && camera) {
         heightMapRef.current?.handleBeforeRender(renderer, scene, camera, context.worldSeconds);
