@@ -8,7 +8,11 @@ import { DIRECTOR_CAMERA_SENSOR_FORMATS } from "../../../frontend/director/src/c
 import { DIRECTOR_CAMERA_OPTICS_LIMITS } from "../../../frontend/director/src/comprehensive/editor/schema/cameraGeometry";
 import { CHARACTER_POSE_CONTROL_KEYS } from "../../../frontend/director/src/comprehensive/editor/schema/poseSchema";
 import { strictKind, strictOperation } from "@director/protocol/strictProtocolVariant";
-import { directorDccFiniteSchema, directorDccTransformSchema, directorDccVec3Schema } from "./directorDccSharedContract";
+import {
+  directorDccFiniteSchema,
+  directorDccTransformSchema,
+  directorDccVec3Schema,
+} from "./directorDccSharedContract";
 import { directorDccConnectorProviderIdSchema } from "./directorDccEngineSpace";
 
 /** Contract identifier for the DCC return manifest. */
@@ -72,12 +76,13 @@ export const directorDccReturnLightPropertiesSchema = z
 const poseControlKeySchema = z.enum(CHARACTER_POSE_CONTROL_KEYS);
 
 /**
- * A full sample of Director's portable humanoid pose controls. Keys must be
- * portable control keys; unknown keys are rejected at the schema boundary so
- * a DCC-side typo cannot silently produce a no-op pose.
+ * A sample of Director's portable humanoid pose controls. Keys must be
+ * portable control keys (a partial record: exporters send the controls they
+ * track); unknown keys are rejected at the schema boundary so a DCC-side typo
+ * cannot silently produce a no-op pose.
  */
 export const directorDccReturnPoseControlsSchema = z
-  .record(poseControlKeySchema, z.number().finite())
+  .partialRecord(poseControlKeySchema, z.number().finite())
   .refine((controls) => Object.keys(controls).length > 0, { message: "pose update cannot be empty" })
   .refine((controls) => Object.keys(controls).length <= CHARACTER_POSE_CONTROL_KEYS.length, {
     message: "pose update exceeds the portable control set",
