@@ -43,6 +43,17 @@ import {
   selectFireLightEffects,
   selectShadowCastingFireId,
 } from "./fireLights";
+import {
+  FIRE_PROPAGATION_MAX_SYSTEMS,
+  FIRE_VIEW_MAX_EMITTERS,
+  createFirePropagationSim,
+  firePropagationConfigKey,
+  isFirePropagationEffect,
+  toFireWaterRects,
+  type FireBurningCell,
+  type FirePropagationSim,
+  type FireWaterRect,
+} from "./firePropagationSim";
 import { evaluateEffectsSceneLighting, type EffectsSceneLighting } from "./sceneLighting";
 import { getSoftParticleTexture } from "./softParticleTexture";
 import {
@@ -476,6 +487,164 @@ function WeatherPrecipitation({
   );
 }
 
+/** Spread-cell fire scaled from the source effect; capped previz values. */
+function buildFireCellEffect(
+  effect: DirectorWorldEffect,
+  cell: FireBurningCell,
+  cellSizeM: number,
+): DirectorWorldEffect {
+  return {
+    id: `${effect.id}~cell-${cell.cellIndex}@${cell.ignitionTick}`,
+    name: `${effect.name}-spread`,
+    kind: "fire",
+    anchor: { position: [cell.x, 0, cell.z] },
+    shape: { type: "disc", radius: Math.max(0.3, cellSizeM * 0.45) },
+    // Spread cells burn smaller than the authored source; clamp so a hot
+    // source (intensity 3) cannot triple the per-cell particle budget.
+    intensity: Math.min(1, Math.max(0.3, effect.intensity * 0.55)),
+    sizeScale: Math.min(10, Math.max(0.1, effect.sizeScale * 0.85)),
+    speedScale: effect.speedScale,
+    ...(effect.colorTint ? { colorTint: effect.colorTint } : {}),
+    windInfluence: Math.max(effect.windInfluence, 0.3),
+    seedOffset: effect.seedOffset,
+    visible: true,
+    locked: false,
+    createdAt: effect.createdAt,
+  };
+}
+
+/**
+ * One stateless particle emitter keyed by (cell, ignitionTick). The emitter's
+ * fade (ignition flare-up, burn-out, rain extinguish) is read from the live
+ * sim each frame as instanceCount + uIntensity writes — never React state.
+ */
+function FireCellEmitter({
+  cell,
+  cellSizeM,
+  context,
+  effect,
+  getLighting,
+  getSim,
+}: {
+  cell: FireBurningCell;
+  cellSizeM: number;
+  context: LivingWorldFrameContext;
+  effect: DirectorWorldEffect;
+  getLighting: () => EffectsSceneLighting;
+  getSim: () => FirePropagationSim;
+}) {
+  // Ground probe is View-tier only: it snaps the emitter pose and never
+  // enters the checkpointed simulation state.
+  const origin = useMemo<readonly [number, number, number]>(() => {
+    const y = context.sampleGroundHeight?.(cell.x, cell.z) ?? context.groundHeight;
+    return [cell.x, y, cell.z];
+  }, [cell, context]);
+  const config = useMemo(
+    () => buildEffectSystemConfig(buildFireCellEffect(effect, cell, cellSizeM), context.seed),
+    [cell, cellSizeM, context.seed, effect],
+  );
+
+  const writeFrameOverrides = useCallback<ParticleFrameWriter>(
+    (uniforms, geometry) => {
+      const sim = getSim();
+      sim.stepTo(context.worldSeconds);
+      const life = sim.readCellLife(cell.cellIndex);
+      // 1.2 s flare-up after ignition; the last quarter of the fuel dies down.
+      const fade =
+        life > 0 ? Math.min(1, sim.readCellAgeSeconds(cell.cellIndex) / 1.2) * Math.min(1, life / 0.25) : 0;
+      geometry.instanceCount = Math.round(config.count * fade);
+      uniforms.uIntensity.value = config.intensity * fade;
+    },
+    [cell, config, context, getSim],
+  );
+
+  if (config.count <= 0) return null;
+  return (
+    <ParticleSystemMesh
+      config={config}
+      context={context}
+      getLighting={getLighting}
+      origin={origin}
+      renderOrder={EFFECT_RENDER_ORDER}
+      writeFrameOverrides={writeFrameOverrides}
+    />
+  );
+}
+
+/** Source cells (ignitionTick 0) are already covered by the authored emitter. */
+function selectFireViewCells(sim: FirePropagationSim): FireBurningCell[] {
+  const cells = sim
+    .getBurningCells(FIRE_VIEW_MAX_EMITTERS + 9)
+    .filter((cell) => cell.ignitionTick > 0);
+  if (cells.length > FIRE_VIEW_MAX_EMITTERS) cells.length = FIRE_VIEW_MAX_EMITTERS;
+  return cells;
+}
+
+function fireViewCellsKey(cells: readonly FireBurningCell[]): string {
+  let key = "";
+  for (const cell of cells) key += `${cell.cellIndex}@${cell.ignitionTick}|`;
+  return key;
+}
+
+/**
+ * Runs the deterministic fire CA for one propagating fire effect and mounts a
+ * stateless emitter per burning cell. The burning-cell set changes outside
+ * React while the ambient clock runs, so a useFrame watcher forces the
+ * mount/unmount re-render exactly when the set changes (same pattern as
+ * WeatherPrecipitation's kind swap).
+ */
+function FirePropagationSystem({
+  context,
+  effect,
+  getLighting,
+  waterRects,
+}: {
+  context: LivingWorldFrameContext;
+  effect: DirectorWorldEffect;
+  getLighting: () => EffectsSceneLighting;
+  waterRects: FireWaterRect[];
+}) {
+  const [, setCellsNonce] = useState(0);
+  const simRef = useRef<FirePropagationSim | null>(null);
+  const getSim = useCallback(() => {
+    const key = firePropagationConfigKey(effect, context.settings, waterRects);
+    if (!simRef.current || simRef.current.configKey !== key) {
+      simRef.current = createFirePropagationSim(effect, context.settings, waterRects);
+    }
+    return simRef.current;
+  }, [context, effect, waterRects]);
+
+  const sim = getSim();
+  sim.stepTo(context.worldSeconds);
+  const cells = selectFireViewCells(sim);
+  const cellsKeyRef = useRef("");
+  cellsKeyRef.current = fireViewCellsKey(cells);
+
+  useFrame(() => {
+    const live = getSim();
+    live.stepTo(context.worldSeconds);
+    if (fireViewCellsKey(selectFireViewCells(live)) !== cellsKeyRef.current) {
+      setCellsNonce((nonce) => nonce + 1);
+    }
+  });
+
+  return (
+    <>
+      {cells.map((cell) => (
+        <FireCellEmitter
+          key={`${cell.cellIndex}@${cell.ignitionTick}`}
+          cell={cell}
+          cellSizeM={sim.cellSizeM}
+          context={context}
+          effect={effect}
+          getLighting={getLighting}
+          getSim={getSim}
+        />
+      ))}
+    </>
+  );
+}
+
 function FireEffectLight({
   castShadow,
   context,
@@ -517,7 +686,7 @@ function FireEffectLight({
   );
 }
 
-export default function EffectsLayer({ context, effects }: EffectsLayerProps) {
+export default function EffectsLayer({ context, effects, waterBodies }: EffectsLayerProps) {
   const invalidate = useThree((state) => state.invalidate);
 
   // Demand-frameloop safety net: uniform mutation is invisible to R3F, so a
@@ -532,6 +701,15 @@ export default function EffectsLayer({ context, effects }: EffectsLayerProps) {
   );
   const fireLights = useMemo(() => selectFireLightEffects(effects), [effects]);
   const shadowFireId = useMemo(() => selectShadowCastingFireId(effects), [effects]);
+  const fireSpreadEffects = useMemo(
+    () =>
+      effects
+        .filter((entry) => entry.effect.intensity > 0 && isFirePropagationEffect(entry.effect))
+        .slice(0, FIRE_PROPAGATION_MAX_SYSTEMS)
+        .map((entry) => entry.effect),
+    [effects],
+  );
+  const fireWaterRects = useMemo(() => toFireWaterRects(waterBodies ?? []), [waterBodies]);
   const lightingCacheRef = useRef({
     lighting: evaluateEffectsSceneLighting(context.settings, context.worldSeconds, context.climate),
     settings: context.settings,
@@ -568,6 +746,15 @@ export default function EffectsLayer({ context, effects }: EffectsLayerProps) {
           context={context}
           effect={entry.effect}
           origin={entry.origin}
+        />
+      ))}
+      {fireSpreadEffects.map((effect) => (
+        <FirePropagationSystem
+          key={`spread-${effect.id}`}
+          context={context}
+          effect={effect}
+          getLighting={getLighting}
+          waterRects={fireWaterRects}
         />
       ))}
       <WeatherPrecipitation context={context} getLighting={getLighting} />

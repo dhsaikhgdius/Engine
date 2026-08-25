@@ -132,7 +132,7 @@ export function LivingWorldLayer({
       </Suspense>
       {resolvedEffects.length > 0 || weatherEvolving || context.settings.weather.preset !== "clear" ? (
         <Suspense fallback={null}>
-          <EffectsLayer context={context} effects={resolvedEffects} />
+          <EffectsLayer context={context} effects={resolvedEffects} waterBodies={visibleWaterBodies} />
         </Suspense>
       ) : null}
       {visibleWaterBodies.length > 0 ? (

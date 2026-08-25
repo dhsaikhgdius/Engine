@@ -67,6 +67,12 @@ export interface ResolvedWorldEffect {
 export interface EffectsLayerProps {
   context: LivingWorldFrameContext;
   effects: ResolvedWorldEffect[];
+  /**
+   * Visible rectangular water basins; the fire-propagation substrate marks
+   * the cells they cover as non-flammable (authored rectangles only — never
+   * GPU depth reads, see the System/View determinism contract).
+   */
+  waterBodies?: DirectorWorldWaterBody[];
 }
 
 /** Props for the water-body rendering layer. */
