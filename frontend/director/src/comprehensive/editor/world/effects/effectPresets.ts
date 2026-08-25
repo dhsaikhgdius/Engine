@@ -261,6 +261,42 @@ export interface WeatherPrecipitationPlan {
 }
 
 /**
+ * Climate-vector precipitation plan: particle counts ramp continuously with
+ * the evaluated rain/snow levels, and storm shear/speed scale with the
+ * evaluated storm factor. A static climate reproduces
+ * {@link getWeatherPrecipitationPlan} exactly (locked by tests).
+ */
+export function getClimatePrecipitationPlan(climate: {
+  rainLevel: number;
+  snowLevel: number;
+  stormFactor: number;
+}): WeatherPrecipitationPlan | null {
+  const rain = Number.isFinite(climate.rainLevel) ? Math.max(0, climate.rainLevel) : 0;
+  const snow = Number.isFinite(climate.snowLevel) ? Math.max(0, climate.snowLevel) : 0;
+  const storm = Math.min(1, Math.max(0, climate.stormFactor));
+  if (rain <= 0 && snow <= 0) return null;
+  let plan: WeatherPrecipitationPlan;
+  if (rain >= snow) {
+    const densityMultiplier = storm >= 1 ? STORM_DENSITY_MULTIPLIER : 1 + (STORM_DENSITY_MULTIPLIER - 1) * storm;
+    plan = {
+      kind: "rain",
+      count: Math.round(EFFECT_PRESETS.rain.baseCount * densityMultiplier * rain),
+      windMultiplier: storm >= 1 ? STORM_WIND_MULTIPLIER : 1 + (STORM_WIND_MULTIPLIER - 1) * storm,
+      speedMultiplier: storm >= 1 ? STORM_SPEED_MULTIPLIER : 1 + (STORM_SPEED_MULTIPLIER - 1) * storm,
+    };
+  } else {
+    plan = {
+      kind: "snow",
+      count: Math.round(EFFECT_PRESETS.snow.baseCount * snow),
+      windMultiplier: 1,
+      speedMultiplier: 1,
+    };
+  }
+  if (plan.count <= 0) return null;
+  return plan;
+}
+
+/**
  * Global weather -> precipitation plan. Returns null when nothing should
  * render (clear/overcast, or the density rounds to zero particles).
  */

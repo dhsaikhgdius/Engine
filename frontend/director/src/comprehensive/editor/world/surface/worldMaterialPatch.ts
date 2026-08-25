@@ -7,7 +7,10 @@ import {
   type WebGLProgramParametersWithUniforms,
 } from "three";
 import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
+import type { WorldClimateState } from "../worldClimate";
 import {
+  computeClimateSnowCover,
+  computeClimateSurfaceWetness,
   computeEffectiveWorldSnowCover,
   computeEffectiveWorldWetness,
   computeWorldVegetationWindStrength,
@@ -63,9 +66,11 @@ export function createWorldSurfaceUniforms(): WorldSurfaceUniforms {
  *
  * @param uniforms - The uniform block to write into.
  * @param weather - Current weather preset and intensity.
- * @param windX - World-space wind X component.
- * @param windZ - World-space wind Z component.
+ * @param windX - World-space wind X component (climate wind gain included).
+ * @param windZ - World-space wind Z component (climate wind gain included).
  * @param worldSeconds - Current world time in seconds.
+ * @param climate - Optional evaluated climate; evolving mode reads the
+ *   integrated wetness and continuous snow cover instead of the preset gate.
  */
 export function writeWorldSurfaceUniforms(
   uniforms: WorldSurfaceUniforms,
@@ -73,9 +78,15 @@ export function writeWorldSurfaceUniforms(
   windX: number,
   windZ: number,
   worldSeconds: number,
+  climate?: WorldClimateState,
 ): void {
-  uniforms.uWorldWetness.value = computeEffectiveWorldWetness(weather);
-  uniforms.uWorldSnowCover.value = computeEffectiveWorldSnowCover(weather);
+  if (climate?.evolving) {
+    uniforms.uWorldWetness.value = computeClimateSurfaceWetness(climate);
+    uniforms.uWorldSnowCover.value = computeClimateSnowCover(climate);
+  } else {
+    uniforms.uWorldWetness.value = computeEffectiveWorldWetness(weather);
+    uniforms.uWorldSnowCover.value = computeEffectiveWorldSnowCover(weather);
+  }
   const speed = Math.hypot(windX, windZ);
   const length = Math.max(speed, 1e-5);
   uniforms.uWorldWindDir.value.set(windX / length, windZ / length);

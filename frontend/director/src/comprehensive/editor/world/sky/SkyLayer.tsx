@@ -11,6 +11,7 @@ import {
 import type { DirectorProject } from "../../schema/directorProject";
 import { useDirectorStore } from "../../store/directorStore";
 import type { SkyLayerProps } from "../livingWorldContracts";
+import { isWorldWeatherEvolving } from "../worldClimate";
 import WorldAmbientClockDriver from "../worldClock";
 import { evaluateLightningState } from "./lightning";
 import { AtmosphereSky } from "./AtmosphereSky";
@@ -48,8 +49,11 @@ export default function SkyLayer({ context }: SkyLayerProps) {
   const authoredLitLightCount = useDirectorStore(selectAuthoredLitLightCount);
   const skyLightScale = getWorldSkyLightScale(authoredLitLightCount);
 
-  const lighting = evaluateSkyLighting(settings, worldSeconds);
-  const lightning = evaluateLightningState(seed, worldSeconds, settings.weather);
+  // Weather comes from the evaluated climate: static mode reads the authored
+  // block verbatim, an evolving cycle blends the lighting tables and gates
+  // lightning on the evaluated storm segment.
+  const lighting = evaluateSkyLighting(settings, worldSeconds, context.climate);
+  const lightning = evaluateLightningState(seed, worldSeconds, context.climate.weather);
 
   const drivesSky = settings.timeOfDay.drivesSky;
   const showSkyDome = drivesSky && !panoramaBackdropActive;
@@ -63,8 +67,8 @@ export default function SkyLayer({ context }: SkyLayerProps) {
   const lightningKeyRef = useRef<DirectionalLight>(null);
 
   const syncSkyFrame = () => {
-    const frameLighting = evaluateSkyLighting(settings, context.worldSeconds);
-    const frameLightning = evaluateLightningState(seed, context.worldSeconds, settings.weather);
+    const frameLighting = evaluateSkyLighting(settings, context.worldSeconds, context.climate);
+    const frameLightning = evaluateLightningState(seed, context.worldSeconds, context.climate.weather);
 
     if (starFieldRef.current) starFieldRef.current.visible = frameLighting.starsOpacity > 0.02;
     if (starMaterialRef.current) starMaterialRef.current.opacity = frameLighting.starsOpacity;
@@ -154,7 +158,7 @@ export default function SkyLayer({ context }: SkyLayerProps) {
           />
         </>
       ) : null}
-      {settings.weather.preset === "storm" ? (
+      {settings.weather.preset === "storm" || isWorldWeatherEvolving(settings) ? (
         <>
           <ambientLight
             ref={lightningFillRef}

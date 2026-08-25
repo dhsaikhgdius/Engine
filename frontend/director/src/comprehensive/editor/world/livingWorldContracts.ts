@@ -5,6 +5,7 @@ import type {
   DirectorWorldWaterBody,
   DirectorWorldWildlifeGroup,
 } from "../schema/directorProject";
+import type { WorldClimateState } from "./worldClimate";
 
 /**
  * Per-frame evaluation context shared by every Living World sub-layer.
@@ -28,7 +29,17 @@ export interface LivingWorldFrameContext {
   seed: number;
   /** The current world settings block (time-of-day, weather, wind). */
   settings: DirectorWorldSettings;
-  /** Evaluated wind velocity at `worldSeconds`, metres/second, world space. */
+  /**
+   * Evaluated climate at `worldSeconds` — the single weather truth every
+   * layer must read instead of re-deriving from `settings.weather`. Computed
+   * once per frame by the orchestrator (see worldClimate.ts). In `static`
+   * evolution mode `climate.weather` is the authored block by reference.
+   */
+  climate: WorldClimateState;
+  /**
+   * Evaluated wind velocity at `worldSeconds`, metres/second, world space.
+   * Already includes the climate wind gain (storms blow harder).
+   */
   windVector: [number, number, number];
   /** Scene ground plane height (metres) for grounded systems. */
   groundHeight: number;

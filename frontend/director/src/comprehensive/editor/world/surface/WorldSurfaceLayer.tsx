@@ -88,10 +88,11 @@ export default function WorldSurfaceLayer({
     (renderer?: WebGLRenderer, camera?: Camera) => {
       writeWorldSurfaceUniforms(
         uniforms,
-        context.settings.weather,
+        context.climate.weather,
         context.windVector[0],
         context.windVector[2],
         context.worldSeconds,
+        context.climate,
       );
       if (renderer && camera) {
         heightMapRef.current?.handleBeforeRender(renderer, scene, camera, context.worldSeconds);
@@ -147,7 +148,7 @@ export default function WorldSurfaceLayer({
         raycast={disableRaycast}
         renderOrder={-1000}
       />
-      <WorldAmbientAudio seed={context.seed} weather={context.settings.weather} windVector={context.windVector} />
+      <WorldAmbientAudio context={context} />
     </group>
   );
 }

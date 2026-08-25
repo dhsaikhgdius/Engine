@@ -309,6 +309,9 @@ export function writeRiverFrameUniforms(
   const uniforms = material.uniforms;
   const hours = evaluateWorldTimeOfDayHours(context.settings.timeOfDay, context.worldSeconds);
   const windSpeed = Math.hypot(...context.windVector);
+  // Weather comes from the evaluated climate (authored block in static mode).
+  const climate = context.climate;
+  const weather = climate.weather;
   uniforms.uTime.value = context.worldSeconds;
   uniforms.uFlowSpeed.value = body.flowSpeedMps;
   uniforms.uWaveAmplitude.value = body.waveAmplitude;
@@ -317,15 +320,15 @@ export function writeRiverFrameUniforms(
   uniforms.uColorShallow.value.set(body.colorShallow);
   uniforms.uColorDeep.value.set(body.colorDeep);
   uniforms.uWindRoughness.value = Math.min(1, windSpeed / 9);
-  uniforms.uRainAgitation.value = computeWaterRainAgitation(context.settings.weather);
+  uniforms.uRainAgitation.value = computeWaterRainAgitation(weather, climate);
   uniforms.uPhase.value = computeWaterDetailPhase(context.seed, body.id);
   uniforms.uTroughLift.value = computeWaterTroughLift(
     riverSurfaceMinY(body),
     body.waveAmplitude * RIVER_WAVE_TROUGH_FACTOR,
     occluderHeight,
   );
-  computeWaterSkyReflectionInto(uniforms.uSkyHorizon.value, uniforms.uSkyZenith.value, hours, context.settings.weather);
+  computeWaterSkyReflectionInto(uniforms.uSkyHorizon.value, uniforms.uSkyZenith.value, hours, weather, climate);
   computeWaterSunDirectionInto(uniforms.uSunDirection.value, hours);
   computeWaterSunColorInto(uniforms.uSunColor.value, hours);
-  uniforms.uSunIntensity.value = computeWaterSunIntensity(hours, context.settings.weather.cloudCover);
+  uniforms.uSunIntensity.value = computeWaterSunIntensity(hours, weather.cloudCover);
 }

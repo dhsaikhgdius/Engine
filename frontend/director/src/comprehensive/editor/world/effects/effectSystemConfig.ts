@@ -7,6 +7,7 @@ import type {
 import { hashCombine, worldStreamId } from "../worldRandom";
 import {
   EFFECT_PRESETS,
+  STORM_DENSITY_MULTIPLIER,
   WEATHER_PRECIPITATION_BOX_SIZE,
   getEffectParticleCount,
   getWeatherPrecipitationPlan,
@@ -177,6 +178,46 @@ export function buildWeatherSystemConfig(weather: DirectorWorldWeather, worldSee
     sizeScale: 1,
     speedScale: plan.speedMultiplier,
     windInfluence: plan.windMultiplier,
+    tint: null,
+    blending: preset.blending,
+    wrapExtents: WEATHER_PRECIPITATION_BOX_SIZE,
+    preset,
+  };
+}
+
+/** Largest instance count the climate weather system can ever need per kind. */
+export function getClimateWeatherMaxCount(kind: Extract<WorldEffectKind, "rain" | "snow">): number {
+  if (kind === "rain") return Math.round(EFFECT_PRESETS.rain.baseCount * STORM_DENSITY_MULTIPLIER);
+  return EFFECT_PRESETS.snow.baseCount;
+}
+
+/**
+ * Climate-driven precipitation config. Geometry is allocated once at the
+ * maximum count for the kind; the per-frame plan (count, intensity, wind,
+ * speed) is applied as `instanceCount` + uniform writes by the effects layer,
+ * so an evolving weather ramp never rebuilds geometry. Drawing the first
+ * `plan.count` of the max-count instance set renders exactly the same
+ * particles the legacy fixed-count config drew (same seed hash, same
+ * ascending `aParticleIndex`).
+ */
+export function buildClimateWeatherSystemConfig(
+  kind: Extract<WorldEffectKind, "rain" | "snow">,
+  worldSeed: number,
+): EffectSystemConfig {
+  const preset = EFFECT_PRESETS[kind];
+  const seedHash = hashCombine(worldSeed, worldStreamId(WEATHER_SYSTEM_ID));
+  const [width, height, depth] = WEATHER_PRECIPITATION_BOX_SIZE;
+  return {
+    id: WEATHER_SYSTEM_ID,
+    kind,
+    count: getClimateWeatherMaxCount(kind),
+    seedHash,
+    seed: seedHashToGlslSeed(seedHash),
+    emitter: { mode: EMITTER_MODE_BOX, extents: [width / 2, height / 2, depth / 2] },
+    intensity: 1,
+    sizeScale: 1,
+    speedScale: 1,
+    windInfluence: 1,
     tint: null,
     blending: preset.blending,
     wrapExtents: WEATHER_PRECIPITATION_BOX_SIZE,

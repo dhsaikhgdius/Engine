@@ -10,10 +10,10 @@
 
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { useStageViewportAudioEnabled } from "../../audio/stageViewportAudio";
+import type { LivingWorldFrameContext } from "../livingWorldContracts";
 import { isWorldAmbientClockSuspended, useWorldClockStore } from "../worldClock";
-import { computeWorldAmbientAudioGains } from "./worldSurfaceResponse";
+import { computeClimateAmbientAudioGains, computeWorldAmbientAudioGains } from "./worldSurfaceResponse";
 
 /**
  * Fills a Float32Array with deterministic unit noise via an LCG, so the same
@@ -57,25 +57,19 @@ function createLoopSource(context: AudioContext, seed: number, durationSeconds: 
 
 /**
  * React component that drives a procedural ambient audio bed (wind rumble,
- * rain hiss, snow hush) from the current world seed, weather, and wind vector.
+ * rain hiss, snow hush) from the shared Living World frame context.
  *
  * The graph is muted while the ambient clock is suspended or the Stage sound
- * toggle is off. Gains update every frame via {@link computeWorldAmbientAudioGains}.
+ * toggle is off. Gains update every frame from the evaluated climate (see
+ * {@link computeClimateAmbientAudioGains}): the rain bed fades in and out
+ * with the evolving precipitation instead of stepping on the preset gate.
+ * Static mode reproduces {@link computeWorldAmbientAudioGains} exactly.
  *
- * @param seed - World seed that deterministically seeds the three noise loops.
- * @param weather - Current weather preset and intensity.
- * @param windVector - World-space wind direction and magnitude.
+ * @param context - The Living World frame context (seed, climate, wind).
  * @returns null — this component renders nothing; it owns the Web Audio graph.
  */
-export default function WorldAmbientAudio({
-  seed,
-  weather,
-  windVector,
-}: {
-  seed: number;
-  weather: DirectorWorldWeather;
-  windVector: readonly [number, number, number];
-}) {
+export default function WorldAmbientAudio({ context }: { context: LivingWorldFrameContext }) {
+  const seed = context.seed;
   const audioEnabled = useStageViewportAudioEnabled();
   const suspended = useWorldClockStore((state) => state.suspended);
   const masterRef = useRef<GainNode | null>(null);
@@ -147,8 +141,11 @@ export default function WorldAmbientAudio({
   }, [audioEnabled, seed]);
 
   const syncAudioGains = () => {
-    const windSpeedMps = Math.hypot(windVector[0], windVector[2]);
-    const gains = computeWorldAmbientAudioGains(weather, windSpeedMps);
+    const windSpeedMps = Math.hypot(context.windVector[0], context.windVector[2]);
+    const climate = context.climate;
+    const gains = climate.evolving
+      ? computeClimateAmbientAudioGains(climate, windSpeedMps)
+      : computeWorldAmbientAudioGains(climate.weather, windSpeedMps);
     if (windGainRef.current) windGainRef.current.gain.value = gains.wind;
     // Rain and snow are attenuated relative to the computed gains so the
     // composite never clips even when multiple presets contribute at once.

@@ -88,7 +88,7 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
   const { scene } = useThree();
   const { settings } = context;
   const lutTexture = useMemo(() => {
-    const solution = evaluateSkyAtmosphere(settings, context.worldSeconds);
+    const solution = evaluateSkyAtmosphere(settings, context.worldSeconds, context.climate);
     lastSolutionRef.current = solution;
     return createAtmosphereEnvironmentTexture(solution);
     // First bake only; later sun/weather changes rewrite the same texture in sync().
@@ -109,8 +109,9 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
   );
 
   const sync = (seconds: number) => {
-    const lighting = evaluateSkyLighting(settings, seconds);
-    const solution = evaluateSkyAtmosphere(settings, seconds);
+    const climate = context.climate;
+    const lighting = evaluateSkyLighting(settings, seconds, climate);
+    const solution = evaluateSkyAtmosphere(settings, seconds, climate);
     if (lastSolutionRef.current !== solution) {
       uploadLut(lutTexture, solution);
       lastSolutionRef.current = solution;
@@ -122,7 +123,7 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
     sunDir.set(trueSun[0], trueSun[1], trueSun[2]);
     sunColor.set(solution.sunColor[0], solution.sunColor[1], solution.sunColor[2]);
     material.uniforms.sunIntensity.value = Math.max(lighting.sunIntensity, 0.08);
-    material.uniforms.cloudAmount.value = atmosphereSkyCloudAmount(settings.weather.cloudCover);
+    material.uniforms.cloudAmount.value = atmosphereSkyCloudAmount(climate.cloudCover);
     material.uniforms.time.value = seconds;
     const windRadians = (settings.wind.directionDegrees * Math.PI) / 180;
     windDir.set(Math.sin(windRadians), Math.cos(windRadians));

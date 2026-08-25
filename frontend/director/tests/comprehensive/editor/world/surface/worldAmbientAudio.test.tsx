@@ -2,6 +2,8 @@ import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { setStageViewportAudioEnabled } from "../../../../../src/comprehensive/editor/audio/stageViewportAudio";
+import type { LivingWorldFrameContext } from "../../../../../src/comprehensive/editor/world/livingWorldContracts";
+import { evaluateWorldClimate } from "../../../../../src/comprehensive/editor/world/worldClimate";
 import WorldAmbientAudio, { fillSeededUnitNoise } from "../../../../../src/comprehensive/editor/world/surface/worldAmbientAudio";
 
 const fiberMocks = vi.hoisted(() => ({ frame: null as null | (() => void) }));
@@ -23,6 +25,27 @@ function weather(overrides: Partial<DirectorWorldWeather> = {}): DirectorWorldWe
     wetness: 0.4,
     cloudCover: 0.6,
     ...overrides,
+  };
+}
+
+function createContext(windVector: [number, number, number]): LivingWorldFrameContext {
+  const settings = {
+    enabled: true,
+    seed: 1,
+    wind: { directionDegrees: 0, speedMps: 8, gustiness: 0, turbulence: 0 },
+    timeOfDay: { mode: "fixed" as const, hours: 12, cycleMinutes: 12, drivesSky: false },
+    weather: weather(),
+  };
+  return {
+    worldSeconds: 0,
+    frame: 0,
+    fps: 24,
+    isPlaying: false,
+    seed: 1,
+    settings,
+    climate: evaluateWorldClimate(settings, 0),
+    windVector,
+    groundHeight: 0,
   };
 }
 
@@ -111,14 +134,14 @@ describe("WorldAmbientAudio preference", () => {
   it("does not open an AudioContext when stage sound is muted", () => {
     vi.stubGlobal("AudioContext", FakeAudioContext as unknown as typeof AudioContext);
     setStageViewportAudioEnabled(false);
-    const { unmount } = render(<WorldAmbientAudio seed={1} weather={weather()} windVector={[8, 0, 0]} />);
+    const { unmount } = render(<WorldAmbientAudio context={createContext([8, 0, 0])} />);
     expect(FakeAudioContext.instances).toHaveLength(0);
     unmount();
   });
 
   it("opens an AudioContext while stage sound is enabled", () => {
     vi.stubGlobal("AudioContext", FakeAudioContext as unknown as typeof AudioContext);
-    const { unmount } = render(<WorldAmbientAudio seed={1} weather={weather()} windVector={[8, 0, 0]} />);
+    const { unmount } = render(<WorldAmbientAudio context={createContext([8, 0, 0])} />);
     expect(FakeAudioContext.instances).toHaveLength(1);
     unmount();
     expect(FakeAudioContext.instances[0]!.state).toBe("closed");
@@ -127,7 +150,7 @@ describe("WorldAmbientAudio preference", () => {
   it("tracks mutable gust speed in the frame loop without a React rerender", () => {
     vi.stubGlobal("AudioContext", FakeAudioContext as unknown as typeof AudioContext);
     const windVector: [number, number, number] = [0, 0, 0];
-    const { unmount } = render(<WorldAmbientAudio seed={1} weather={weather()} windVector={windVector} />);
+    const { unmount } = render(<WorldAmbientAudio context={createContext(windVector)} />);
     const context = FakeAudioContext.instances[0]!;
 
     windVector[0] = 14;

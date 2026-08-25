@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
   AdditiveBlending,
@@ -21,11 +21,16 @@ import type {
   WorldEffectKind,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { EffectsLayerProps, LivingWorldFrameContext } from "../livingWorldContracts";
-import { getEffectParticleCount, getEffectRenderPasses, type EffectRenderPassSpec } from "./effectPresets";
 import {
+  getClimatePrecipitationPlan,
+  getEffectParticleCount,
+  getEffectRenderPasses,
+  type EffectRenderPassSpec,
+} from "./effectPresets";
+import {
+  buildClimateWeatherSystemConfig,
   buildEffectSystemConfig,
   buildParticleIndexArray,
-  buildWeatherSystemConfig,
   type EffectSystemConfig,
 } from "./effectSystemConfig";
 import { buildEffectShaderSource } from "./effectShaders";
@@ -326,12 +331,20 @@ function ParticlePassMesh({
   );
 }
 
+/**
+ * Per-frame override hook for systems whose live parameters come from the
+ * evaluated climate rather than the static config (weather precipitation).
+ * Runs after the base uniform write inside every sync.
+ */
+type ParticleFrameWriter = (uniforms: EffectParticleUniforms, geometry: InstancedBufferGeometry) => void;
+
 function ParticleSystemMesh({
   config,
   context,
   getLighting,
   origin,
   renderOrder,
+  writeFrameOverrides,
 }: {
   config: EffectSystemConfig;
   context: LivingWorldFrameContext;
@@ -339,6 +352,7 @@ function ParticleSystemMesh({
   /** null = follow the render camera (weather precipitation). */
   origin: readonly [number, number, number] | null;
   renderOrder: number;
+  writeFrameOverrides?: ParticleFrameWriter;
 }) {
   const geometry = useMemo(() => createParticleGeometry(config.count), [config.count]);
   useEffect(() => () => geometry.dispose(), [geometry]);
@@ -348,7 +362,8 @@ function ParticleSystemMesh({
 
   const syncUniforms = useCallback(() => {
     writeParticleUniforms(uniforms, config, context, getLighting(), origin);
-  }, [config, context, getLighting, origin, uniforms]);
+    writeFrameOverrides?.(uniforms, geometry);
+  }, [config, context, geometry, getLighting, origin, uniforms, writeFrameOverrides]);
   syncUniforms();
   useFrame(syncUniforms);
 
@@ -396,6 +411,17 @@ function WorldEffectParticles({
   );
 }
 
+/**
+ * Camera-following precipitation driven by the evaluated climate.
+ *
+ * The kind (rain vs snow) selects geometry + shader, so a kind flip needs a
+ * React re-render; `context.climate` mutates outside React while the ambient
+ * clock runs, so a useFrame watcher forces that swap. Everything else the
+ * plan changes (count, storm shear, fall speed, intensity fade) is applied
+ * per frame as `instanceCount` + uniform writes on a max-count geometry —
+ * a weather ramp never rebuilds buffers. In `static` evolution mode the plan
+ * is constant and reproduces the legacy preset-driven system exactly.
+ */
 function WeatherPrecipitation({
   context,
   getLighting,
@@ -403,10 +429,40 @@ function WeatherPrecipitation({
   context: LivingWorldFrameContext;
   getLighting: () => EffectsSceneLighting;
 }) {
-  const config = useMemo(
-    () => buildWeatherSystemConfig(context.settings.weather, context.seed),
-    [context.settings.weather, context.seed],
+  const [, setKindNonce] = useState(0);
+  const kind = getClimatePrecipitationPlan(context.climate)?.kind ?? null;
+  const kindRef = useRef(kind);
+  kindRef.current = kind;
+
+  useFrame(() => {
+    const nextKind = getClimatePrecipitationPlan(context.climate)?.kind ?? null;
+    if (nextKind !== kindRef.current) setKindNonce((nonce) => nonce + 1);
+  });
+
+  const config = useMemo(() => (kind ? buildClimateWeatherSystemConfig(kind, context.seed) : null), [kind, context.seed]);
+
+  const writeFrameOverrides = useCallback<ParticleFrameWriter>(
+    (uniforms, geometry) => {
+      if (!config) return;
+      const plan = getClimatePrecipitationPlan(context.climate);
+      if (!plan || plan.kind !== config.kind) {
+        // Kind flipped between the watcher and this draw: hide until remount.
+        geometry.instanceCount = 0;
+        return;
+      }
+      geometry.instanceCount = Math.min(config.count, plan.count);
+      uniforms.uIntensity.value = context.climate.weather.intensity;
+      uniforms.uSpeedScale.value = plan.speedMultiplier;
+      const wind = context.windVector;
+      uniforms.uWind.value.set(
+        wind[0] * plan.windMultiplier,
+        wind[1] * plan.windMultiplier,
+        wind[2] * plan.windMultiplier,
+      );
+    },
+    [config, context],
   );
+
   if (!config) return null;
   return (
     <ParticleSystemMesh
@@ -415,6 +471,7 @@ function WeatherPrecipitation({
       getLighting={getLighting}
       origin={null}
       renderOrder={WEATHER_RENDER_ORDER}
+      writeFrameOverrides={writeFrameOverrides}
     />
   );
 }
@@ -476,17 +533,19 @@ export default function EffectsLayer({ context, effects }: EffectsLayerProps) {
   const fireLights = useMemo(() => selectFireLightEffects(effects), [effects]);
   const shadowFireId = useMemo(() => selectShadowCastingFireId(effects), [effects]);
   const lightingCacheRef = useRef({
-    lighting: evaluateEffectsSceneLighting(context.settings, context.worldSeconds),
+    lighting: evaluateEffectsSceneLighting(context.settings, context.worldSeconds, context.climate),
     settings: context.settings,
     worldSeconds: context.worldSeconds,
   });
   // One solar evaluation per frame, lazily shared by every particle pass.
+  // (settings, worldSeconds) fully determine the climate, so the cache key
+  // stays valid for the evolving path too.
   const getLighting = useCallback(() => {
     const cache = lightingCacheRef.current;
     if (cache.settings !== context.settings || cache.worldSeconds !== context.worldSeconds) {
       cache.settings = context.settings;
       cache.worldSeconds = context.worldSeconds;
-      cache.lighting = evaluateEffectsSceneLighting(context.settings, context.worldSeconds);
+      cache.lighting = evaluateEffectsSceneLighting(context.settings, context.worldSeconds, context.climate);
     }
     return cache.lighting;
   }, [context]);

@@ -540,13 +540,16 @@ export function writeWaterFrameUniforms(uniforms: WaterSurfaceUniforms, frame: W
   uniforms.uDetailScrollA.value.set(flowX * scrollA, flowZ * scrollA);
   uniforms.uDetailScrollB.value.set(flowX * scrollB, flowZ * scrollB);
 
-  const weather = context.settings.weather;
+  // Weather comes from the evaluated climate: identical to the authored
+  // block in static mode, continuously ramped while a weather cycle runs.
+  const climate = context.climate;
+  const weather = climate.weather;
   const hours = evaluateWorldTimeOfDayHours(context.settings.timeOfDay, context.worldSeconds);
   computeWaterSunDirectionInto(uniforms.uSunDirection.value, hours);
   uniforms.uSunIntensity.value = computeWaterSunIntensity(hours, weather.cloudCover);
   computeWaterSunColorInto(uniforms.uSunColor.value, hours);
-  computeWaterSkyReflectionInto(uniforms.uSkyHorizonColor.value, uniforms.uSkyZenithColor.value, hours, weather);
-  uniforms.uBodyLight.value = computeWaterBodyLightLevel(hours, weather);
+  computeWaterSkyReflectionInto(uniforms.uSkyHorizonColor.value, uniforms.uSkyZenithColor.value, hours, weather, climate);
+  uniforms.uBodyLight.value = computeWaterBodyLightLevel(hours, weather, climate);
   uniforms.uMicroRipple.value = computeWaterMicroRippleStrength(windSpeedMps);
-  uniforms.uRainAgitation.value = computeWaterRainAgitation(weather);
+  uniforms.uRainAgitation.value = computeWaterRainAgitation(weather, climate);
 }
