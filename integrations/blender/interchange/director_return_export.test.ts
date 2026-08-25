@@ -243,7 +243,9 @@ print(json.dumps(result["changes"]))
     // Lights: concrete Blender datablocks with the deterministic energy already
     // computed by the scene package builder, plus a diffable baseline.
     expect(bridge).toContain("def add_light(");
-    expect(bridge).toContain('BLENDER_LIGHT_TYPES = {"directional": "SUN", "point": "POINT", "spot": "SPOT", "rect-area": "AREA"}');
+    expect(bridge).toContain(
+      'BLENDER_LIGHT_TYPES = {"directional": "SUN", "point": "POINT", "spot": "SPOT", "rect-area": "AREA"}',
+    );
     expect(bridge).toContain("light_object[SOURCE_LIGHT_PROPERTY]");
     // Director sends the authored lights; the default previz rig must not double-light them.
     expect(bridge).toMatch(/if payload\.get\("lights"\):\n[^\n]*\n[^\n]*\n\s+return/);

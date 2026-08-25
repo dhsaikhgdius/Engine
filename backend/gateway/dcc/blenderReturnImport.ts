@@ -392,7 +392,12 @@ function directorSideDivergence(
       light.target !== undefined &&
       snapshot.target !== undefined &&
       !vectorsClose(space.worldPointFromDirector(light.target, world), snapshot.target);
-    if (positionMoved || targetMoved || light.color !== snapshot.color || !scalarsClose(light.intensity, snapshot.intensity)) {
+    if (
+      positionMoved ||
+      targetMoved ||
+      light.color !== snapshot.color ||
+      !scalarsClose(light.intensity, snapshot.intensity)
+    ) {
       return `Light ${change.directorId} changed in Director after the export, and the return package also updates it.`;
     }
     return null;

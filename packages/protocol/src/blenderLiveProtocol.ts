@@ -826,9 +826,7 @@ function nameQueryFromText(value: string) {
 
 function liftQueryList(value: unknown): unknown[] | undefined {
   if (Array.isArray(value) && value.length > 0) {
-    return value.map((item) =>
-      typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item,
-    );
+    return value.map((item) => (typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item));
   }
   if (value && typeof value === "object" && !Array.isArray(value)) return [value];
   return undefined;
@@ -844,9 +842,7 @@ export function liftBlenderNativeToolRequest(input: unknown): unknown {
   if (record.op !== "query") return input;
   const next = { ...record };
   const namedPattern =
-    asNonEmptyString(next.name_pattern) ??
-    asNonEmptyString(next.namePattern) ??
-    asNonEmptyString(next.query);
+    asNonEmptyString(next.name_pattern) ?? asNonEmptyString(next.namePattern) ?? asNonEmptyString(next.query);
   const queries =
     liftQueryList(next.queries) ??
     liftQueryList(typeof next.query === "string" ? undefined : next.query) ??

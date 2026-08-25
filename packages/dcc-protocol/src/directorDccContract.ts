@@ -159,7 +159,10 @@ const directorDccLightSchema = z.strictObject({
   /** The deterministic factor used to invert energy back to Director intensity. */
   wattsPerIntensity: finite.positive(),
   /** Spot half-angle in radians (Director convention; Blender spot_size is 2×). */
-  angleRad: finite.positive().max(Math.PI / 2).optional(),
+  angleRad: finite
+    .positive()
+    .max(Math.PI / 2)
+    .optional(),
   penumbra: finite.min(0).max(1).optional(),
   /** Rect-area gate in metres. */
   widthM: finite.positive().optional(),
@@ -492,9 +495,7 @@ function buildDccObject(
   const asset = object.assetRefId ? assetById.get(object.assetRefId) : undefined;
   const sourcePath = asset?.sourcePath;
   const poseControls =
-    object.kind === "character" && object.characterRig
-      ? resolveCharacterPoseControls(object.characterRig)
-      : undefined;
+    object.kind === "character" && object.characterRig ? resolveCharacterPoseControls(object.characterRig) : undefined;
   return {
     id: object.id,
     name: object.name,
