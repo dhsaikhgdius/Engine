@@ -48,6 +48,7 @@ query string 中的 `browser_token`，但 header 不会把凭据泄漏到 URL �
 | `GET`  | `/health`                          | 无需鉴权的进程状态与 browser 数     |
 | `GET`  | `/api/control-plane/capabilities`  | 已脱敏的 Agent 与视频配置           |
 | `GET`  | `/api/control-plane/tool-manifest` | 机器可读的 Director tool catalog    |
+| `GET`  | `/api/control-plane/a2a-agent-card` | 仅用于发现的 A2A 风格 agent card   |
 | `GET`  | `/api/agent/providers`             | 本地/API session provider 可用性    |
 | `GET`  | `/api/agent/profiles`              | Profile 公开元数据与模型 capability |
 | `GET`  | `/api/video/providers`             | 视频 provider 的实时 capability     |
@@ -73,6 +74,13 @@ HTTP 面是各自的 domain 路由（`/api/film/runs`、`/api/production/*`）�
 curl -fsS "$BASE/api/control-plane/tool-manifest" \
   -H "X-Director-Browser-Token: $TOKEN" | jq '.tools[] | {name, surface, legacy}'
 ```
+
+`GET /api/control-plane/a2a-agent-card` 返回 [ADR 0004](/zh/engineering/adr/0004-a2a-gateway-spike/)
+决定的 `director-a2a-agent-card-v1` 卡片。它**仅用于发现**：Director 不运行 A2A JSON-RPC
+server（`a2a.jsonrpc_endpoint` 为 `null`；streaming 与 push notification 均为 `false`），`url`
+是 loopback gateway origin 而非公网 A2A 服务，skills 镜像实时 tool manifest 中的
+`director_workbench`、`director_creative`、`blender_native` 与 `stage_video`。执行请走 MCP 或
+`POST /api/tools/{tool}`，而不是 A2A。
 
 Capture 结果可能返回带有进程周期 `preview_token` 的 URL。它是仅允许读取 preview 路由的
 capability，使浏览器与可读取图像的 Agent 无需获得 gateway 主 token 也能显示图像；gateway

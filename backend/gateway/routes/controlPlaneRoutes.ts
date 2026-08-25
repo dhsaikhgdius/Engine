@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { buildDirectorA2aAgentCard } from "../controlPlane/a2aAgentCard";
 import { publicControlPlaneCapabilities, type DirectorControlPlaneConfig } from "../controlPlane/controlPlaneConfig";
 import { buildDirectorToolManifest } from "../controlPlane/toolManifest";
 
@@ -25,6 +26,12 @@ export async function handleControlPlaneRoute(
   }
   if (url.pathname === "/api/control-plane/tool-manifest") {
     dependencies.json(response, 200, buildDirectorToolManifest());
+    return true;
+  }
+  if (url.pathname === "/api/control-plane/a2a-agent-card") {
+    const { host, port } = dependencies.config.http;
+    const gatewayBaseUrl = `http://${host.includes(":") ? `[${host}]` : host}:${port}`;
+    dependencies.json(response, 200, buildDirectorA2aAgentCard(gatewayBaseUrl));
     return true;
   }
   if (url.pathname === "/api/agent/profiles") {

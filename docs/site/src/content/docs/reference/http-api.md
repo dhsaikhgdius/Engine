@@ -49,6 +49,7 @@ The process token authenticates the client to the gateway. It is separate from t
 | `GET`  | `/health`                          | Unauthenticated process health and browser count |
 | `GET`  | `/api/control-plane/capabilities`  | Redacted Agent and video configuration           |
 | `GET`  | `/api/control-plane/tool-manifest` | Machine-readable Director tool catalog           |
+| `GET`  | `/api/control-plane/a2a-agent-card` | Discovery-only A2A-style agent card             |
 | `GET`  | `/api/agent/providers`             | Local/API session-provider availability          |
 | `GET`  | `/api/agent/profiles`              | Public Profile metadata and model capabilities   |
 | `GET`  | `/api/video/providers`             | Live video-provider capability report            |
@@ -76,6 +77,13 @@ operation for exact per-operation JSON Schemas; the manifest deliberately stays 
 curl -fsS "$BASE/api/control-plane/tool-manifest" \
   -H "X-Director-Browser-Token: $TOKEN" | jq '.tools[] | {name, surface, legacy}'
 ```
+
+`GET /api/control-plane/a2a-agent-card` returns the `director-a2a-agent-card-v1` card decided by
+[ADR 0004](/engineering/adr/0004-a2a-gateway-spike/). It is **discovery-only**: Director does not
+run an A2A JSON-RPC server (`a2a.jsonrpc_endpoint` is `null`; streaming and push notifications are
+`false`), its `url` is the loopback gateway origin rather than a public A2A service, and its skills
+mirror `director_workbench`, `director_creative`, `blender_native`, and `stage_video` from the live
+tool manifest. Execute work over MCP or `POST /api/tools/{tool}`, not A2A.
 
 Capture results may include a process-epoch `preview_token` URL. It is a read-only capability for that
 preview route, allowing browsers and vision-capable Agents to render the image without receiving the
