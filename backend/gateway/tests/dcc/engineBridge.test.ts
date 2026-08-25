@@ -23,9 +23,11 @@ const ENGINE_IDS: DirectorDccEngineId[] = ["unreal", "unity", "godot"];
 const CONNECTOR_VERSIONS = Object.fromEntries(
   ENGINE_IDS.map((provider) => [
     provider,
-    (JSON.parse(readFileSync(resolve(repositoryRoot, "integrations", provider, "connector.json"), "utf8")) as {
-      version: string;
-    }).version,
+    (
+      JSON.parse(readFileSync(resolve(repositoryRoot, "integrations", provider, "connector.json"), "utf8")) as {
+        version: string;
+      }
+    ).version,
   ]),
 ) as Record<DirectorDccEngineId, string>;
 

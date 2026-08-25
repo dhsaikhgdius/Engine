@@ -102,10 +102,51 @@ function buildFixtureProject(): DirectorProject {
     },
   ];
   project.lights = [
-    { id: "light-key", name: "Key", type: "point", visible: true, locked: false, color: "#ffffff", intensity: 2, position: [3, 4, 2], distance: 30, decay: 2 },
-    { id: "light-spot", name: "Spot", type: "spot", visible: true, locked: false, color: "#ffddaa", intensity: 3, position: [0, 5, 0], target: [0, 0, 0], angle: 0.6, penumbra: 0.4 },
-    { id: "light-sun", name: "Sun", type: "directional", visible: true, locked: false, color: "#fff4e0", intensity: 1.2, position: [10, 10, 10], target: [0, 0, 0] },
-    { id: "light-amb", name: "Ambient", type: "ambient", visible: true, locked: false, color: "#334455", intensity: 0.4 },
+    {
+      id: "light-key",
+      name: "Key",
+      type: "point",
+      visible: true,
+      locked: false,
+      color: "#ffffff",
+      intensity: 2,
+      position: [3, 4, 2],
+      distance: 30,
+      decay: 2,
+    },
+    {
+      id: "light-spot",
+      name: "Spot",
+      type: "spot",
+      visible: true,
+      locked: false,
+      color: "#ffddaa",
+      intensity: 3,
+      position: [0, 5, 0],
+      target: [0, 0, 0],
+      angle: 0.6,
+      penumbra: 0.4,
+    },
+    {
+      id: "light-sun",
+      name: "Sun",
+      type: "directional",
+      visible: true,
+      locked: false,
+      color: "#fff4e0",
+      intensity: 1.2,
+      position: [10, 10, 10],
+      target: [0, 0, 0],
+    },
+    {
+      id: "light-amb",
+      name: "Ambient",
+      type: "ambient",
+      visible: true,
+      locked: false,
+      color: "#334455",
+      intensity: 0.4,
+    },
   ];
   return project;
 }
@@ -125,7 +166,12 @@ async function writeManifest(packageDirectory: string, project: DirectorProject,
     project,
     formats: [],
     assets: [
-      { assetRefId: "asset-fixture", relativePath: "assets/box.glb", sha256: sha256(glbBytes), byteLength: glbBytes.byteLength },
+      {
+        assetRefId: "asset-fixture",
+        relativePath: "assets/box.glb",
+        sha256: sha256(glbBytes),
+        byteLength: glbBytes.byteLength,
+      },
     ],
     warnings: [],
   });
@@ -149,7 +195,15 @@ function expectMatrixClose(actual: Matrix4, expected: Matrix4, tolerance = 1e-4)
 async function runGodot(projectDirectory: string, userArgs: string[]) {
   return execFileAsync(
     godotBin!,
-    ["--headless", "--path", projectDirectory, "--script", "res://addons/director_bridge/director_headless.gd", "--", ...userArgs],
+    [
+      "--headless",
+      "--path",
+      projectDirectory,
+      "--script",
+      "res://addons/director_bridge/director_headless.gd",
+      "--",
+      ...userArgs,
+    ],
     { timeout: 120_000 },
   );
 }
@@ -198,7 +252,16 @@ describe.skipIf(!hasGodot)("Godot headless roundtrip (set DIRECTOR_GODOT_BIN to 
     const glbPath = resolve(packageDirectory, "assets", "box.glb");
     await execFileAsync(
       godotBin!,
-      ["--headless", "--path", projectDirectory, "--script", "res://fixtures/generate_fixture_glb.gd", "--", "--output", glbPath],
+      [
+        "--headless",
+        "--path",
+        projectDirectory,
+        "--script",
+        "res://fixtures/generate_fixture_glb.gd",
+        "--",
+        "--output",
+        glbPath,
+      ],
       { timeout: 120_000 },
     );
     const glbBytes = await readFile(glbPath);
@@ -217,146 +280,130 @@ describe.skipIf(!hasGodot)("Godot headless roundtrip (set DIRECTOR_GODOT_BIN to 
     expect(JSON.parse(line!)).toMatchObject({ ok: true, provider: "godot", connectorVersion: "0.2.0" });
   }, 120_000);
 
-  it(
-    "imports scene, hierarchy, lights, materials, skeleton, and baked animation with an honest receipt",
-    async () => {
-      await runGodot(projectDirectory, [
-        "--mode",
-        "import",
-        "--package",
-        packageDirectory,
-        "--report",
-        reportPath,
-        "--return-dir",
-        returnDirectory,
-        "--animation",
-        bakePath,
-        "--animation-sha256",
-        bakeSha256,
-      ]);
-      const report = directorDccEngineReportSchema.parse(JSON.parse(await readFile(reportPath, "utf8")));
-      expect(report.provider).toBe("godot");
-      expect(report.packageId).toBe(PACKAGE_ID);
-      expect(report.importedObjectCount).toBe(2);
-      expect(report.importedCameraCount).toBe(1);
+  it("imports scene, hierarchy, lights, materials, skeleton, and baked animation with an honest receipt", async () => {
+    await runGodot(projectDirectory, [
+      "--mode",
+      "import",
+      "--package",
+      packageDirectory,
+      "--report",
+      reportPath,
+      "--return-dir",
+      returnDirectory,
+      "--animation",
+      bakePath,
+      "--animation-sha256",
+      bakeSha256,
+    ]);
+    const report = directorDccEngineReportSchema.parse(JSON.parse(await readFile(reportPath, "utf8")));
+    expect(report.provider).toBe("godot");
+    expect(report.packageId).toBe(PACKAGE_ID);
+    expect(report.importedObjectCount).toBe(2);
+    expect(report.importedCameraCount).toBe(1);
 
-      const receipt = report.godot!;
-      expect(receipt).toBeDefined();
-      expect(receipt.importedLightCount).toBe(3);
-      expect(receipt.importedSkeletonCount).toBe(1);
-      expect(receipt.appliedMaterialCount).toBe(1);
-      expect(receipt.payloadAnimationPlayerCount).toBe(1);
-      expect(receipt.externalizedTextureCount).toBeGreaterThanOrEqual(1);
-      expect(receipt.transformTrackCount).toBe(2);
-      expect(receipt.fovTrackCount).toBe(1);
-      // 25 frames x 3 transform keys x 2 entities + 25 fov keys.
-      expect(receipt.bakedKeyCount).toBe(175);
-      expect(receipt.animationLibrary).toBe("director");
-      expect(receipt.displayRate).toBe("24000/1001");
-      expect(receipt.animationPlayerPath).toBe(report.scenePath);
+    const receipt = report.godot!;
+    expect(receipt).toBeDefined();
+    expect(receipt.importedLightCount).toBe(3);
+    expect(receipt.importedSkeletonCount).toBe(1);
+    expect(receipt.appliedMaterialCount).toBe(1);
+    expect(receipt.payloadAnimationPlayerCount).toBe(1);
+    expect(receipt.externalizedTextureCount).toBeGreaterThanOrEqual(1);
+    expect(receipt.transformTrackCount).toBe(2);
+    expect(receipt.fovTrackCount).toBe(1);
+    // 25 frames x 3 transform keys x 2 entities + 25 fov keys.
+    expect(receipt.bakedKeyCount).toBe(175);
+    expect(receipt.animationLibrary).toBe("director");
+    expect(receipt.displayRate).toBe("24000/1001");
+    expect(receipt.animationPlayerPath).toBe(report.scenePath);
 
-      // Warn-and-omit honesty: unsupported light and material channels warn.
-      expect(report.warnings.join("\n")).toMatch(/type ambient/);
-      expect(report.warnings.join("\n")).toMatch(/transmission/);
+    // Warn-and-omit honesty: unsupported light and material channels warn.
+    expect(report.warnings.join("\n")).toMatch(/type ambient/);
+    expect(report.warnings.join("\n")).toMatch(/transmission/);
 
-      const scenePath = report.scenePath!.replace("res://", `${projectDirectory}/`);
-      const sceneText = await readFile(scenePath, "utf8");
-      expect(sceneText).toContain("DirectorAnimationPlayer");
-      expect(sceneText).toContain("res://director/textures/");
-      expect(sceneText).toContain("Skeleton3D");
-    },
-    240_000,
-  );
+    const scenePath = report.scenePath!.replace("res://", `${projectDirectory}/`);
+    const sceneText = await readFile(scenePath, "utf8");
+    expect(sceneText).toContain("DirectorAnimationPlayer");
+    expect(sceneText).toContain("res://director/textures/");
+    expect(sceneText).toContain("Skeleton3D");
+  }, 240_000);
 
-  it(
-    "echo return package reproduces the mirrored child's world matrix in canonical space",
-    async () => {
-      const returned = directorDccReturnManifestSchema.parse(
-        JSON.parse(await readFile(resolve(returnDirectory, "manifest.json"), "utf8")),
-      );
-      expect(returned.provider).toBe("godot");
-      const child = returned.changes.find((change) => change.directorId === "obj-child");
-      expect(child).toBeDefined();
-      expect(child!.kind).toBe("transform_update");
-      const expected = directorTransformToCanonicalDcc(CHILD_TRANSFORM, {
-        position: [...project.scene.position] as [number, number, number],
-        rotation: [...project.scene.rotation] as [number, number, number],
-        scale: [project.scene.scale, project.scene.scale, project.scene.scale],
-      });
-      // Godot decomposes mirrored transforms differently from three.js
-      // (determinant sign spread across all scale axes), so the roundtrip
-      // contract is matrix-level equality, not component equality.
-      expectMatrixClose(matrixOf((child as { transform: DirectorDccTransform }).transform), matrixOf(expected));
-    },
-    120_000,
-  );
+  it("echo return package reproduces the mirrored child's world matrix in canonical space", async () => {
+    const returned = directorDccReturnManifestSchema.parse(
+      JSON.parse(await readFile(resolve(returnDirectory, "manifest.json"), "utf8")),
+    );
+    expect(returned.provider).toBe("godot");
+    const child = returned.changes.find((change) => change.directorId === "obj-child");
+    expect(child).toBeDefined();
+    expect(child!.kind).toBe("transform_update");
+    const expected = directorTransformToCanonicalDcc(CHILD_TRANSFORM, {
+      position: [...project.scene.position] as [number, number, number],
+      rotation: [...project.scene.rotation] as [number, number, number],
+      scale: [project.scene.scale, project.scene.scale, project.scene.scale],
+    });
+    // Godot decomposes mirrored transforms differently from three.js
+    // (determinant sign spread across all scale axes), so the roundtrip
+    // contract is matrix-level equality, not component equality.
+    expectMatrixClose(matrixOf((child as { transform: DirectorDccTransform }).transform), matrixOf(expected));
+  }, 120_000);
 
-  it(
-    "export detects baseline drift for objects only and skips skeleton/light tags",
-    async () => {
-      const movedProject = structuredClone(project);
-      movedProject.objects[0]!.transform.position = [5, 0, 0];
-      const movedPackageDirectory = resolve(jobDirectory, "moved-package");
-      await mkdir(resolve(movedPackageDirectory, "assets"), { recursive: true });
-      const glbBytes = await readFile(resolve(packageDirectory, "assets", "box.glb"));
-      await writeFile(resolve(movedPackageDirectory, "assets", "box.glb"), glbBytes);
-      await writeManifest(movedPackageDirectory, movedProject, glbBytes);
+  it("export detects baseline drift for objects only and skips skeleton/light tags", async () => {
+    const movedProject = structuredClone(project);
+    movedProject.objects[0]!.transform.position = [5, 0, 0];
+    const movedPackageDirectory = resolve(jobDirectory, "moved-package");
+    await mkdir(resolve(movedPackageDirectory, "assets"), { recursive: true });
+    const glbBytes = await readFile(resolve(packageDirectory, "assets", "box.glb"));
+    await writeFile(resolve(movedPackageDirectory, "assets", "box.glb"), glbBytes);
+    await writeManifest(movedPackageDirectory, movedProject, glbBytes);
 
-      const exportReturnDirectory = resolve(jobDirectory, "export-return");
-      const exportReportPath = resolve(jobDirectory, "export-report.json");
-      await runGodot(projectDirectory, [
-        "--mode",
-        "export",
-        "--package",
-        movedPackageDirectory,
-        "--report",
-        exportReportPath,
-        "--return-dir",
-        exportReturnDirectory,
-      ]);
-      const returned = directorDccReturnManifestSchema.parse(
-        JSON.parse(await readFile(resolve(exportReturnDirectory, "manifest.json"), "utf8")),
-      );
-      // Only obj-box drifted from the moved baseline; the scene still holds
-      // the original import. Skeleton and light tags never produce changes.
-      expect(returned.changes.map((change) => change.directorId)).toEqual(["obj-box"]);
-      const drifted = returned.changes[0] as { transform: DirectorDccTransform };
-      const originalWorld = directorTransformToCanonicalDcc(project.objects[0]!.transform, {
-        position: [0, 0, 0],
-        rotation: [0, 0, 0],
-        scale: [1, 1, 1],
-      });
-      expectMatrixClose(matrixOf(drifted.transform), matrixOf(originalWorld));
-      expect(returned.warnings.join("\n")).not.toMatch(/unknown director_id/);
-    },
-    240_000,
-  );
+    const exportReturnDirectory = resolve(jobDirectory, "export-return");
+    const exportReportPath = resolve(jobDirectory, "export-report.json");
+    await runGodot(projectDirectory, [
+      "--mode",
+      "export",
+      "--package",
+      movedPackageDirectory,
+      "--report",
+      exportReportPath,
+      "--return-dir",
+      exportReturnDirectory,
+    ]);
+    const returned = directorDccReturnManifestSchema.parse(
+      JSON.parse(await readFile(resolve(exportReturnDirectory, "manifest.json"), "utf8")),
+    );
+    // Only obj-box drifted from the moved baseline; the scene still holds
+    // the original import. Skeleton and light tags never produce changes.
+    expect(returned.changes.map((change) => change.directorId)).toEqual(["obj-box"]);
+    const drifted = returned.changes[0] as { transform: DirectorDccTransform };
+    const originalWorld = directorTransformToCanonicalDcc(project.objects[0]!.transform, {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+    });
+    expectMatrixClose(matrixOf(drifted.transform), matrixOf(originalWorld));
+    expect(returned.warnings.join("\n")).not.toMatch(/unknown director_id/);
+  }, 240_000);
 
-  it(
-    "refuses a tampered animation sidecar",
-    async () => {
-      const tamperedReport = resolve(jobDirectory, "tampered-report.json");
-      const failure = await runGodot(projectDirectory, [
-        "--mode",
-        "import",
-        "--package",
-        packageDirectory,
-        "--report",
-        tamperedReport,
-        "--return-dir",
-        resolve(jobDirectory, "tampered-return"),
-        "--animation",
-        bakePath,
-        "--animation-sha256",
-        "0".repeat(64),
-      ])
-        .then(() => null)
-        .catch((error: unknown) => error);
-      expect(failure).not.toBeNull();
-      const report = JSON.parse(await readFile(tamperedReport, "utf8")) as { ok: boolean; error: string };
-      expect(report.ok).toBe(false);
-      expect(report.error).toMatch(/SHA-256 mismatch/);
-    },
-    240_000,
-  );
+  it("refuses a tampered animation sidecar", async () => {
+    const tamperedReport = resolve(jobDirectory, "tampered-report.json");
+    const failure = await runGodot(projectDirectory, [
+      "--mode",
+      "import",
+      "--package",
+      packageDirectory,
+      "--report",
+      tamperedReport,
+      "--return-dir",
+      resolve(jobDirectory, "tampered-return"),
+      "--animation",
+      bakePath,
+      "--animation-sha256",
+      "0".repeat(64),
+    ])
+      .then(() => null)
+      .catch((error: unknown) => error);
+    expect(failure).not.toBeNull();
+    const report = JSON.parse(await readFile(tamperedReport, "utf8")) as { ok: boolean; error: string };
+    expect(report.ok).toBe(false);
+    expect(report.error).toMatch(/SHA-256 mismatch/);
+  }, 240_000);
 });

@@ -125,9 +125,9 @@ describe("director-godot-animation-bake-v1", () => {
       "motion_blocks",
       "character_rig",
     ]);
-    expect(
-      directorGodotBakedEntitySchema.safeParse({ ...entity, omittedChannels: ["shader_graph"] }).success,
-    ).toBe(false);
+    expect(directorGodotBakedEntitySchema.safeParse({ ...entity, omittedChannels: ["shader_graph"] }).success).toBe(
+      false,
+    );
   });
 
   it("validates SMPTE timecodes in drop and non-drop form", () => {
@@ -170,12 +170,8 @@ describe("Godot import receipt and connector health", () => {
       externalizedTextureCount: 0,
     };
     expect(directorGodotImportReceiptSchema.parse(staticReceipt).bakedKeyCount).toBe(0);
-    expect(
-      directorGodotImportReceiptSchema.safeParse({ ...staticReceipt, displayRate: "23.976" }).success,
-    ).toBe(false);
-    expect(
-      directorGodotImportReceiptSchema.safeParse({ ...staticReceipt, bakedKeyCount: -1 }).success,
-    ).toBe(false);
+    expect(directorGodotImportReceiptSchema.safeParse({ ...staticReceipt, displayRate: "23.976" }).success).toBe(false);
+    expect(directorGodotImportReceiptSchema.safeParse({ ...staticReceipt, bakedKeyCount: -1 }).success).toBe(false);
   });
 
   it("only accepts an ok Godot health line for provider godot", () => {

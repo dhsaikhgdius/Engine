@@ -274,15 +274,15 @@ The matrix below separates the current Director claim from upstream official
 capability. Upstream support makes an adapter feasible; it does not make the
 Director adapter implemented.
 
-| Provider         | Current Director maturity                          | Preferred portable path | Official automation surface                        | Native/live target                                                 | Priority |
-| ---------------- | -------------------------------------------------- | ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------ | -------- |
-| Blender          | **Implemented native subset**                      | `.blend` + GLB/USDA     | Background CLI and Python API                      | Existing reviewed round trip; interactive live link proposed       | P0       |
-| Autodesk Maya    | **Exchange**                                       | USDA, then GLB          | `mayapy`, `maya.standalone`, Python API 2.0        | Headless export/import plus authenticated in-host connector        | P0       |
-| Unreal Engine    | **Implemented headless connector (scene/cameras)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer camera cuts implemented; Live Link preview still planned | P0       |
-| SideFX Houdini   | **Exchange**                                       | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional         | P1       |
-| Cinema 4D        | **Exchange**                                       | USDA, then GLB          | Python SDK and `c4dpy`                             | Headless bake/export plus authenticated in-host connector          | P1       |
-| Unity            | **Implemented headless connector (scene/cameras)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline shot mapping implemented; preview transport still planned | P2       |
-| Autodesk 3ds Max | **Exchange**                                       | USDA, then GLB          | `3dsmaxbatch`, Python, MAXScript                   | Windows headless adapter and optional in-host plug-in              | P2       |
+| Provider         | Current Director maturity                          | Preferred portable path | Official automation surface                        | Native/live target                                                                    | Priority |
+| ---------------- | -------------------------------------------------- | ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------- | -------- |
+| Blender          | **Implemented native subset**                      | `.blend` + GLB/USDA     | Background CLI and Python API                      | Existing reviewed round trip; interactive live link proposed                          | P0       |
+| Autodesk Maya    | **Exchange**                                       | USDA, then GLB          | `mayapy`, `maya.standalone`, Python API 2.0        | Headless export/import plus authenticated in-host connector                           | P0       |
+| Unreal Engine    | **Implemented headless connector (scene/cameras)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer camera cuts implemented; Live Link preview still planned                    | P0       |
+| SideFX Houdini   | **Exchange**                                       | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional                            | P1       |
+| Cinema 4D        | **Exchange**                                       | USDA, then GLB          | Python SDK and `c4dpy`                             | Headless bake/export plus authenticated in-host connector                             | P1       |
+| Unity            | **Implemented headless connector (scene/cameras)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline shot mapping implemented; preview transport still planned                    | P2       |
+| Autodesk 3ds Max | **Exchange**                                       | USDA, then GLB          | `3dsmaxbatch`, Python, MAXScript                   | Windows headless adapter and optional in-host plug-in                                 | P2       |
 | Godot 4          | **Implemented headless connector (deep)**          | GLB                     | `godot --headless`, GDScript editor plug-ins       | Baked animation, skeletons, materials, lights implemented; live preview still planned | P2       |
 
 "Implemented headless connector" means the Director-authored connector performs

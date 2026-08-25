@@ -66,7 +66,11 @@ function expectMatrixClose(actual: Matrix4, expected: Matrix4, tolerance = 1e-9)
   });
 }
 
-const SCENE = { position: [1, 0, -2] as [number, number, number], rotation: [0, Math.PI / 6, 0.4] as [number, number, number], scale: 2 };
+const SCENE = {
+  position: [1, 0, -2] as [number, number, number],
+  rotation: [0, Math.PI / 6, 0.4] as [number, number, number],
+  scale: 2,
+};
 
 const SAMPLE_TRANSFORMS: DirectorTransform[] = [
   { position: [1.5, 2, -3], rotation: [0.2, -0.7, 1.1], scale: [1, 2, 0.5] },

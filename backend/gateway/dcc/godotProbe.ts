@@ -1,9 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import {
-  directorGodotConnectorHealthSchema,
-  type DirectorGodotConnectorHealth,
-} from "@director/dcc-protocol";
+import { directorGodotConnectorHealthSchema, type DirectorGodotConnectorHealth } from "@director/dcc-protocol";
 
 /**
  * Godot-namespaced probe helpers for the provider-neutral engine bridge.
@@ -202,5 +199,9 @@ export async function probeGodotConnectorHealth(options: {
       health,
     };
   }
-  return { ok: true, detail: `Connector health OK (${health.hostVersion}, connector ${health.connectorVersion}).`, health };
+  return {
+    ok: true,
+    detail: `Connector health OK (${health.hostVersion}, connector ${health.connectorVersion}).`,
+    health,
+  };
 }
