@@ -131,9 +131,19 @@ export async function dispatchDirectorWorkbenchTool(
   if (!sessionId) throw new Error("Director tools require the current DeepSeek Harness session id");
   const omitScene = config.omitScene ?? (tool === "director_workbench" || tool === "director_creative");
   const fetchImpl = config.fetchImpl ?? fetch;
+  // A confirm token confirms one destructive/publish operation (deliver,
+  // interchange export, …). It rides the envelope, not the strict tool input.
+  const inputRecord = asRecord(input);
+  const rawConfirmToken = inputRecord?.confirm_token;
+  const confirmToken = typeof rawConfirmToken === "string" && rawConfirmToken.trim() ? rawConfirmToken : undefined;
+  const effectiveInput =
+    confirmToken && inputRecord
+      ? Object.fromEntries(Object.entries(inputRecord).filter(([key]) => key !== "confirm_token"))
+      : input;
   const body = JSON.stringify({
-    input,
+    input: effectiveInput,
     session_id: `dsh-${sessionId}`,
+    ...(confirmToken ? { confirm_token: confirmToken } : {}),
     ...(targetToken ? { target_token: targetToken } : {}),
     ...(omitScene ? { omit_scene: true } : {}),
   });

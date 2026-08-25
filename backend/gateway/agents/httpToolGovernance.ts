@@ -7,12 +7,15 @@ import {
   type AgentToolAuditStore,
   type AgentToolSource,
 } from "../agentToolAuditStore";
+import { DEFAULT_CONFIRM_TOKEN_TTL_MS, type AgentConfirmTokenStore } from "../agentConfirmTokenStore";
 import { directorToolPolicyRejection, filmRoleFromEnvironment } from "./filmRoleToolPolicy";
 
 /** Request header carrying the caller's Director film role. */
 export const DIRECTOR_FILM_ROLE_HEADER = "x-director-film-role";
 /** Request header tagging the tool entry point (`ui | mcp | http | cli`). */
 export const DIRECTOR_TOOL_SOURCE_HEADER = "x-director-tool-source";
+/** Request header carrying a single-use confirm token for a destructive operation. */
+export const DIRECTOR_CONFIRM_TOKEN_HEADER = "x-director-confirm-token";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -28,6 +31,8 @@ export type HttpToolGovernanceDependencies = {
   planMode?: boolean;
   /** Unified tool-invocation audit trail. Omit to skip audit writes. */
   auditStore?: AgentToolAuditStore;
+  /** Single-use confirm tokens for destructive/publish operations. */
+  confirmTokens?: AgentConfirmTokenStore;
 };
 
 /** The outcome of evaluating the shared film-role/plan-mode policy for one HTTP tool call. */
@@ -38,7 +43,7 @@ export type HttpToolGovernanceDecision =
       status: 400 | 403;
       roleId: FilmRoleId | null;
       source: AgentToolSource;
-      body: { success: false; code: string; error: string };
+      body: { success: false; code: string; error: string; confirm?: Record<string, unknown> };
     };
 
 function headerValue(request: IncomingMessage, name: string): string | undefined {
@@ -62,6 +67,34 @@ export function resolveHttpToolSource(request: IncomingMessage, sessionId?: stri
   if (sessionId?.startsWith("mcp-") || sessionId?.startsWith("dsh-")) return "mcp";
   if (sessionId?.startsWith("cli-")) return "cli";
   return "http";
+}
+
+/**
+ * Resolves the effective Director film role for one HTTP request, first match
+ * wins: the `x-director-film-role` header when it names a valid film role (an
+ * invalid header fails closed), then the injected `filmRoleId` dependency,
+ * then the gateway's `DIRECTOR_FILM_ROLE` environment. An unset role stays
+ * unrestricted (`null`).
+ *
+ * Shared by the tool governance evaluation and the confirm-token issuer so a
+ * token is always bound to the same role the eventual tool call resolves.
+ */
+export function resolveHttpFilmRole(
+  request: IncomingMessage,
+  dependencies?: Pick<HttpToolGovernanceDependencies, "filmRoleId">,
+): { ok: true; roleId: FilmRoleId | null } | { ok: false; error: string } {
+  const headerRole = headerValue(request, DIRECTOR_FILM_ROLE_HEADER);
+  if (headerRole !== undefined) {
+    if (!isFilmRoleId(headerRole)) return { ok: false, error: `Unknown Director film role: ${headerRole}` };
+    return { ok: true, roleId: headerRole };
+  }
+  if (dependencies?.filmRoleId !== undefined) return { ok: true, roleId: dependencies.filmRoleId };
+  try {
+    return { ok: true, roleId: filmRoleFromEnvironment(process.env.DIRECTOR_FILM_ROLE) };
+  } catch (error) {
+    // A malformed environment role fails closed instead of silently running unrestricted.
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /**
@@ -89,47 +122,188 @@ export function evaluateHttpToolGovernance(input: {
   dependencies?: HttpToolGovernanceDependencies;
 }): HttpToolGovernanceDecision {
   const source = resolveHttpToolSource(input.request, input.sessionId);
-  const headerRole = headerValue(input.request, DIRECTOR_FILM_ROLE_HEADER);
-  let roleId: FilmRoleId | null;
-  if (headerRole !== undefined) {
-    if (!isFilmRoleId(headerRole)) {
-      return {
-        allowed: false,
-        status: 400,
-        roleId: null,
-        source,
-        body: {
-          success: false,
-          code: "invalid_film_role",
-          error: `Unknown Director film role: ${headerRole}`,
-        },
-      };
-    }
-    roleId = headerRole;
-  } else if (input.dependencies?.filmRoleId !== undefined) {
-    roleId = input.dependencies.filmRoleId;
-  } else {
-    try {
-      roleId = filmRoleFromEnvironment(process.env.DIRECTOR_FILM_ROLE);
-    } catch (error) {
-      // A malformed environment role fails closed instead of silently running unrestricted.
-      return {
-        allowed: false,
-        status: 400,
-        roleId: null,
-        source,
-        body: {
-          success: false,
-          code: "invalid_film_role",
-          error: error instanceof Error ? error.message : String(error),
-        },
-      };
-    }
+  const resolvedRole = resolveHttpFilmRole(input.request, input.dependencies);
+  if (!resolvedRole.ok) {
+    return {
+      allowed: false,
+      status: 400,
+      roleId: null,
+      source,
+      body: { success: false, code: "invalid_film_role", error: resolvedRole.error },
+    };
   }
+  const roleId = resolvedRole.roleId;
   const planMode = input.dependencies?.planMode ?? process.env.DIRECTOR_PLAN_MODE?.trim() === "1";
   const rejection = directorToolPolicyRejection(roleId, planMode, input.tool, input.toolInput);
   if (rejection) return { allowed: false, status: 403, roleId, source, body: rejection };
   return { allowed: true, roleId, source };
+}
+
+/**
+ * Closed list of destructive / publish tool operations that require explicit
+ * confirmation on every non-UI entry point (HTTP, MCP, CLI).
+ *
+ * Keys are `<tool>` → confirmable operation keys as produced by
+ * {@link confirmableToolOperation}. Operations whose protocol schema already
+ * carries a `confirm: true` literal (interchange import, collaboration
+ * restore/delete, gallery purge) are satisfied by that literal; `deliver` and
+ * interchange `export` have no protocol literal, so they always need a
+ * gateway-issued `confirm_token`.
+ */
+export const CONFIRMABLE_TOOL_OPERATIONS: Readonly<Record<string, readonly string[]>> = {
+  director_workbench: ["deliver"],
+  director_creative: [
+    "interchange.export",
+    "interchange.import",
+    "collaboration.restore-version",
+    "collaboration.delete-version",
+    "collaboration.delete-comment",
+    "gallery.media.purge",
+  ],
+};
+
+const CONFIRMABLE_COLLABORATION_ACTIONS = new Set(["restore-version", "delete-version", "delete-comment"]);
+const CONFIRMABLE_INTERCHANGE_ACTIONS = new Set(["export", "import"]);
+
+function executeBatchSteps(values: Record<string, unknown> | null): Record<string, unknown>[] {
+  if (!Array.isArray(values?.steps)) return [];
+  return values.steps.map((step) => record(record(step)?.operation)).filter((step): step is Record<string, unknown> => Boolean(step));
+}
+
+/**
+ * Returns the confirmable operation key for a tool input when it is on the
+ * closed destructive/publish list, or `null` for every other operation.
+ *
+ * @param tool - The tool name from the route path.
+ * @param input - The effective tool input (before strict schema validation).
+ */
+export function confirmableToolOperation(tool: string, input: unknown): string | null {
+  const values = record(input);
+  const operation = typeof values?.op === "string" ? values.op : "";
+  if (tool === "director_workbench") return operation === "deliver" ? "deliver" : null;
+  if (tool !== "director_creative") return null;
+  if (operation === "interchange" || operation === "collaboration") {
+    const action = record(values?.request)?.action;
+    if (typeof action !== "string") return null;
+    if (operation === "interchange" && CONFIRMABLE_INTERCHANGE_ACTIONS.has(action)) return `interchange.${action}`;
+    if (operation === "collaboration" && CONFIRMABLE_COLLABORATION_ACTIONS.has(action)) {
+      return `collaboration.${action}`;
+    }
+    return null;
+  }
+  if (operation === "execute") {
+    return record(values?.operation)?.op === "gallery.media.purge" ? "gallery.media.purge" : null;
+  }
+  if (operation === "execute_batch") {
+    return executeBatchSteps(values).some((step) => step.op === "gallery.media.purge")
+      ? "gallery.media.purge"
+      : null;
+  }
+  return null;
+}
+
+/**
+ * Returns whether the tool input already carries the protocol-level
+ * `confirm: true` literal for its confirmable operation. Existing UI modals
+ * (import, restore-version, delete-version, delete-comment, gallery purge)
+ * pass this literal today and stay valid without a token.
+ */
+export function toolInputCarriesProtocolConfirm(tool: string, input: unknown, operation: string): boolean {
+  if (tool !== "director_creative") return false;
+  const values = record(input);
+  if (operation.startsWith("interchange.") || operation.startsWith("collaboration.")) {
+    if (operation === "interchange.export") return false; // export has no protocol confirm literal
+    return record(values?.request)?.confirm === true;
+  }
+  if (operation !== "gallery.media.purge") return false;
+  if (values?.op === "execute") return record(values.operation)?.confirm === true;
+  const purgeSteps = executeBatchSteps(values).filter((step) => step.op === "gallery.media.purge");
+  return purgeSteps.length > 0 && purgeSteps.every((step) => step.confirm === true);
+}
+
+/** The confirmation-rejection subtype of {@link HttpToolGovernanceDecision}. */
+export type HttpToolConfirmationRejection = Extract<HttpToolGovernanceDecision, { allowed: false }>;
+
+/**
+ * Applies the shared confirmation boundary to one admitted tool call, after
+ * the role/plan policy allowed it (policy stays first — a role that cannot
+ * execute the operation is rejected before any token is looked at).
+ *
+ * A destructive/publish operation from the closed
+ * {@link CONFIRMABLE_TOOL_OPERATIONS} list executes only when the input
+ * carries its protocol `confirm: true` literal, or the caller presents a
+ * valid single-use gateway-issued `confirm_token` (top-level body field or
+ * `x-director-confirm-token` header) bound to the same tool + operation +
+ * role + session. Everything else returns `null` (no confirmation needed).
+ *
+ * The rejection body uses the stable code `confirm_required` and includes a
+ * `confirm` payload describing how to obtain a token and retry. The call is
+ * never executed on rejection.
+ *
+ * @returns `null` when the call may proceed, or a 403 rejection to write.
+ */
+export async function evaluateHttpToolConfirmation(input: {
+  request: IncomingMessage;
+  tool: string;
+  toolInput: unknown;
+  roleId: FilmRoleId | null;
+  source: AgentToolSource;
+  sessionId?: string;
+  /** Top-level `confirm_token` envelope field, when the transport carries one. */
+  confirmToken?: string;
+  dependencies?: HttpToolGovernanceDependencies;
+}): Promise<HttpToolConfirmationRejection | null> {
+  const operation = confirmableToolOperation(input.tool, input.toolInput);
+  if (!operation) return null;
+  if (toolInputCarriesProtocolConfirm(input.tool, input.toolInput, operation)) return null;
+  const binding = {
+    tool: input.tool,
+    operation,
+    role: input.roleId,
+    sessionId: input.sessionId ?? null,
+  };
+  const token = input.confirmToken ?? headerValue(input.request, DIRECTOR_CONFIRM_TOKEN_HEADER);
+  const store = input.dependencies?.confirmTokens;
+  let refusal = "no confirm token was provided";
+  if (token && store) {
+    const consumed = await store.consume(token, binding);
+    if (consumed.ok) return null;
+    refusal = `the confirm token was refused (${consumed.reason})`;
+  } else if (token) {
+    refusal = "this gateway has no confirm-token store configured";
+  }
+  const ttlMs = store?.ttlMs ?? DEFAULT_CONFIRM_TOKEN_TTL_MS;
+  return {
+    allowed: false,
+    status: 403,
+    roleId: input.roleId,
+    source: input.source,
+    body: {
+      success: false,
+      code: "confirm_required",
+      error: `${input.tool} ${operation} is a destructive/publish operation and requires explicit confirmation; ${refusal}. The call was not executed.`,
+      confirm: {
+        tool: input.tool,
+        operation,
+        issue_endpoint: "POST /api/agent/confirm-token",
+        issue_body: {
+          tool: input.tool,
+          operation,
+          ...(input.sessionId ? { session_id: input.sessionId } : {}),
+        },
+        retry_with: "confirm_token (top-level request body field) or the x-director-confirm-token header",
+        token_ttl_ms: ttlMs,
+        single_use: true,
+        ...(toolSupportsProtocolConfirm(operation)
+          ? { protocol_confirm: "This operation also accepts the protocol-level confirm: true field on its request." }
+          : {}),
+      },
+    },
+  };
+}
+
+function toolSupportsProtocolConfirm(operation: string) {
+  return operation !== "deliver" && operation !== "interchange.export";
 }
 
 /**

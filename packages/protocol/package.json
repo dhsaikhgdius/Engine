@@ -15,6 +15,7 @@
     "./production-job": "./src/productionJobProtocol.ts",
     "./film-pipeline": "./src/filmPipelineProtocol.ts",
     "./film-roles": "./src/filmRoles.ts",
+    "./film-role-tool-policy": "./src/filmRoleToolPolicy.ts",
     "./world-systems": "./src/worldSystemsProtocol.ts",
     "./blender-live": "./src/blenderLiveProtocol.ts",
     "./vehicle": "./src/vehicleProtocol.ts",

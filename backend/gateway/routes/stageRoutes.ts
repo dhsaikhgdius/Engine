@@ -45,6 +45,7 @@ import {
   type DisconnectedWorkbenchSources,
 } from "../workbenchDisconnectedReads";
 import {
+  evaluateHttpToolConfirmation,
   evaluateHttpToolGovernance,
   recordRejectedHttpToolCall,
   withHttpToolAudit,
@@ -59,6 +60,8 @@ const toolEnvelopeSchema = z.looseObject({
   session_id: z.string().trim().min(1).max(160).optional(),
   target_token: z.string().trim().min(1).max(240).optional(),
   omit_scene: z.boolean().optional(),
+  /** Single-use gateway-issued token confirming one destructive/publish operation. */
+  confirm_token: z.string().trim().min(1).max(240).optional(),
   input: z.unknown().optional(),
 });
 
@@ -278,11 +281,11 @@ export type StageRouteDependencies = {
   governance?: HttpToolGovernanceDependencies;
 };
 
+const TOOL_ENVELOPE_KEYS = new Set(["session_id", "target_token", "omit_scene", "confirm_token"]);
+
 function directToolInput(payload: z.infer<typeof toolEnvelopeSchema>) {
   if (Object.prototype.hasOwnProperty.call(payload, "input")) return payload.input ?? {};
-  return Object.fromEntries(
-    Object.entries(payload).filter(([key]) => key !== "session_id" && key !== "target_token" && key !== "omit_scene"),
-  );
+  return Object.fromEntries(Object.entries(payload).filter(([key]) => !TOOL_ENVELOPE_KEYS.has(key)));
 }
 
 async function acquireScheduledLease(
@@ -467,6 +470,24 @@ export async function handleStageRoute(
   if (!governance.allowed) {
     recordRejectedHttpToolCall(governance, auditContext);
     json(response, governance.status, governance.body);
+    return true;
+  }
+  // Confirmation boundary after the role/plan policy: destructive/publish
+  // operations execute only with the protocol confirm literal or a valid
+  // single-use gateway-issued confirm_token.
+  const confirmation = await evaluateHttpToolConfirmation({
+    request,
+    tool,
+    toolInput,
+    roleId: governance.roleId,
+    source: governance.source,
+    sessionId: payload.session_id,
+    confirmToken: payload.confirm_token,
+    dependencies: dependencies.governance,
+  });
+  if (confirmation) {
+    recordRejectedHttpToolCall(confirmation, auditContext);
+    json(response, confirmation.status, confirmation.body);
     return true;
   }
   json = withHttpToolAudit(json, auditContext);

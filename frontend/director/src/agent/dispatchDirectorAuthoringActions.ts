@@ -12,8 +12,13 @@ import {
   type DirectorAuthoringResult,
 } from "@director/agent-engine/authoring";
 import { getDirectorProjectRevision, type DirectorProject } from "@director/project-schema";
+import { isFilmRoleId } from "@director/protocol/film-roles";
 import { directorControlPlaneFetch } from "../comprehensive/editor/api/directorControlPlaneClient";
+import { directorFilmRole, stageAuthoringAllowed } from "../comprehensive/editor/api/filmRoleGate";
 import { useDirectorStore } from "../comprehensive/editor/store/directorStore";
+
+/** UI copy shown when a read-only film role tries to author the Stage. */
+export const READ_ONLY_FILM_ROLE_AUTHORING_ERROR = "当前 Director 角色为只读，禁止修改场景。";
 
 /**
  * Fire-and-forget ingest of one UI-dispatched authoring apply into the
@@ -35,7 +40,7 @@ function recordUiAuthoringAudit(entry: {
         tool: "director_workbench",
         operation: "author",
         source: "ui",
-        role: null,
+        role: isFilmRoleId(directorFilmRole()) ? directorFilmRole() : null,
         outcome: entry.outcome,
         revision_before: entry.revisionBefore,
         ...(entry.revisionAfter ? { revision_after: entry.revisionAfter } : {}),
@@ -120,6 +125,21 @@ export function dispatchDirectorAuthoringActions(
   const before = store.project;
   const projectRevisionBefore = getDirectorProjectRevision(before);
   const idempotencyKey = options.idempotencyKey ?? `ui-author:${crypto.randomUUID()}`;
+  // Same roleAllowsTool gate the gateway applies to director_workbench author:
+  // a read-only film role (e.g. visual-critic) cannot author through the UI.
+  if (!stageAuthoringAllowed()) {
+    recordUiAuthoringAudit({
+      outcome: "error",
+      code: "tool_policy_rejected",
+      idempotencyKey,
+      revisionBefore: projectRevisionBefore,
+    });
+    return {
+      ok: false,
+      error: `${READ_ONLY_FILM_ROLE_AUTHORING_ERROR}（${directorFilmRole() ?? "unknown"}）`,
+      project_revision_before: projectRevisionBefore,
+    };
+  }
   if (options.expectedRevision && options.expectedRevision !== projectRevisionBefore) {
     recordUiAuthoringAudit({
       outcome: "error",
