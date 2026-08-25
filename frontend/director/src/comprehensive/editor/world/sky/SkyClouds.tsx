@@ -32,7 +32,7 @@ import { evaluateSkyLighting } from "./solar";
  * thin deterministic view of `(seed, settings, worldSeconds)`.
  */
 
-/** Above stars (0) and the sun sprites (2/3), well below precipitation (22). */
+/** Above stars (0), well below the lightning bolt (6) and precipitation (22). */
 const SKY_CLOUDS_RENDER_ORDER = 4;
 
 /** Base opacity of a full-weight quad; per-quad weights scale it down. */
@@ -161,7 +161,10 @@ export default function SkyClouds({ context }: SkyCloudsProps) {
       const palette = getSkyCloudPalette(evaluateSkyLighting(settings, context.worldSeconds), settings.weather);
       (material.uniforms.uTopColor.value as Color).setRGB(...palette.top);
       (material.uniforms.uBottomColor.value as Color).setRGB(...palette.bottom);
-      material.uniforms.uOpacity.value = Math.min(SKY_CLOUD_MAX_OPACITY, SKY_CLOUD_BASE_OPACITY * mood.cloudOpacityScale);
+      material.uniforms.uOpacity.value = Math.min(
+        SKY_CLOUD_MAX_OPACITY,
+        SKY_CLOUD_BASE_OPACITY * mood.cloudOpacityScale,
+      );
 
       const driftSampleSeconds =
         Math.floor(context.worldSeconds / SKY_CLOUD_DRIFT_BUCKET_SECONDS) * SKY_CLOUD_DRIFT_BUCKET_SECONDS;

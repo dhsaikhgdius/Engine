@@ -17,7 +17,7 @@ import { evaluateSkyLighting } from "./solar";
  * at noon and under heavy cloud cover.
  */
 
-/** Below the sun sprites (2/3) and clouds (4). */
+/** Below the clouds (4) and the lightning bolt (6). */
 const SKY_STARS_RENDER_ORDER = 0;
 
 /** Point size of the brightest star, in pixels (size attenuation off). */

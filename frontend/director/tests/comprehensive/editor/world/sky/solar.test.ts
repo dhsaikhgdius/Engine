@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultDirectorWorldSettings } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
-import type { DirectorWorldSettings, DirectorWorldWeather } from "../../../../../src/comprehensive/editor/schema/directorProject";
+import type {
+  DirectorWorldSettings,
+  DirectorWorldWeather,
+} from "../../../../../src/comprehensive/editor/schema/directorProject";
 import {
   evaluateSkyLighting,
   evaluateSunDiscState,
@@ -105,7 +108,10 @@ describe("evaluateSkyLighting", () => {
   });
 
   it("hides stars on an overcast night even when the authored cover slider is low", () => {
-    const overcastNight = evaluateSkyLighting(settingsAt(0, { preset: "overcast", intensity: 0.6, cloudCover: 0.1 }), 0);
+    const overcastNight = evaluateSkyLighting(
+      settingsAt(0, { preset: "overcast", intensity: 0.6, cloudCover: 0.1 }),
+      0,
+    );
     expect(overcastNight.starsOpacity).toBeLessThan(0.05);
   });
 

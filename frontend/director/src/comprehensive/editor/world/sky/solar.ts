@@ -222,9 +222,7 @@ export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSecond
   // Golden hour: the closer the sun sits to the horizon the more of the
   // air-mass-reddened atmosphere tint the key light takes on.
   const sunWarmthBlend = lerp(0.7, 0.96, horizonWarmth);
-  const sunColor = sunUp
-    ? lerpColor(SUN_COLOR_NOON, atmosphere.sunColor, sunWarmthBlend)
-    : [...MOON_COLOR];
+  const sunColor = sunUp ? lerpColor(SUN_COLOR_NOON, atmosphere.sunColor, sunWarmthBlend) : [...MOON_COLOR];
 
   const cloudLift = 1 + 0.3 * cloudCover * daylight;
   const ambientIntensity = lerp(0.14, 0.85, daylight) * cloudLift * mood.ambientScale;
@@ -234,11 +232,7 @@ export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSecond
     AMBIENT_COLOR_OVERCAST,
     cloudCover * daylight,
   );
-  const groundColor: [number, number, number] = [
-    ambientColor[0] * 0.35,
-    ambientColor[1] * 0.33,
-    ambientColor[2] * 0.3,
-  ];
+  const groundColor: [number, number, number] = [ambientColor[0] * 0.35, ambientColor[1] * 0.33, ambientColor[2] * 0.3];
   const aerialFogColor = chromaticityOf(lerpColor(atmosphere.aerialNearColor, atmosphere.horizonColor, 0.35));
   const aerialFogDensity =
     PRESET_AERIAL_FOG_DENSITY[weather.preset] *

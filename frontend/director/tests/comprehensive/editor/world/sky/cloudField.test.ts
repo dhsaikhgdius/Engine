@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultDirectorWorldSettings } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
-import type { DirectorWorldWeather, DirectorWorldWind } from "../../../../../src/comprehensive/editor/schema/directorProject";
+import type {
+  DirectorWorldWeather,
+  DirectorWorldWind,
+} from "../../../../../src/comprehensive/editor/schema/directorProject";
 import {
   createSkyCloudPlacements,
   getSkyCloudClusterCount,

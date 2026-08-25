@@ -32,9 +32,7 @@ describe("evaluateSkyWeatherMood", () => {
   });
 
   it("orders direct light and ambient from clear down to storm", () => {
-    const [clear, overcast, rain, snow, storm] = PRESETS.map((preset) =>
-      evaluateSkyWeatherMood(weather({ preset })),
-    );
+    const [clear, overcast, rain, snow, storm] = PRESETS.map((preset) => evaluateSkyWeatherMood(weather({ preset })));
     expect(clear.directTransmission).toBeGreaterThan(overcast.directTransmission);
     expect(overcast.directTransmission).toBeGreaterThan(rain.directTransmission);
     expect(snow.directTransmission).toBeGreaterThan(rain.directTransmission);
@@ -70,9 +68,7 @@ describe("evaluateSkyWeatherMood", () => {
         (cloudCover) => evaluateSkyWeatherMood(weather({ preset, cloudCover, intensity: 0 })).directTransmission,
       );
       for (let index = 1; index < transmissions.length; index += 1) {
-        expect(transmissions[index], `${preset} cover ${covers[index]}`).toBeLessThanOrEqual(
-          transmissions[index - 1]!,
-        );
+        expect(transmissions[index], `${preset} cover ${covers[index]}`).toBeLessThanOrEqual(transmissions[index - 1]!);
       }
       // On a clear sky the slider must strictly darken; heavy presets may
       // already sit at their coverage floor for low slider values.
