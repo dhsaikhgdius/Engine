@@ -44,7 +44,12 @@ Node server 负责：
 - 对外 HTTP、WebSocket、CLI、MCP 与 browser API 的统一 tool loop。
 
 Canonical tool loop 是：校验请求 → 检查 role policy → 执行 exact target tool → 持久化
-redacted event → 返回结构化结果。
+redacted event → 返回结构化结果。自 2026-08-25 起，role policy 也在 gateway 工具边界本身
+生效：`backend/gateway/agents/httpToolPolicy.ts` 在每条 `/api/tools/*` 路由上应用共享的
+电影角色策略（`DIRECTOR_FILM_ROLE` + `DIRECTOR_PLAN_MODE`，403 拒绝体与 MCP 一致），原始
+HTTP、Stage CLI 与 DSH plugin 无法绕过；每次调用都追加到按 source 标记的审计轨迹
+（`backend/gateway/agents/toolInvocationAuditStore.ts`，经鉴权的 `GET /api/agent/audit`
+可查询）。
 
 Hosted Agent 的前台委派仍由同一个控制面负责。`subagent` 让 `AgentHarness` 创建一个继承
 父级 Profile、角色、工作区与精确浏览器目标的 `api` 子 Session，但把它标记为隔离上下文，

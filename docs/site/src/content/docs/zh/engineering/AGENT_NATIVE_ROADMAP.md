@@ -61,7 +61,7 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 | **M0** | 基线与度量             | Planned     | UI/Agent parity 清单、parity harness                                             | 无               |
 | **M1** | Shared action registry | Planned     | UI 高频路径经 `applyDirectorAuthoringActions`                                    | M0               |
 | **M2** | Human-only 面消除      | **Partial** | Interchange 导出 + collab observe/comment 已交付；导入与剩余 collab 写操作未完成 | M1（部分可并行） |
-| **M3** | Gateway 统一治理       | **Partial** | MCP / 本地 / 托管已共享 `filmRoleToolPolicy`；原始 HTTP/UI 与统一审计未完成      | M1               |
+| **M3** | Gateway 统一治理       | **Implemented** | MCP / 本地 / 托管 / 原始 HTTP+CLI 共享 `filmRoleToolPolicy`；`/api/tools/*` 按 source 标记统一审计 | M1               |
 | **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
 | **M5** | 可观测性               | Planned     | Trace、cost、长任务进度                                                          | M3               |
 | **M6** | 团队就绪               | Planned     | Collaboration auth、multi-agent 增强                                             | M3、M5           |
@@ -206,31 +206,37 @@ flowchart LR
 
 ## Milestone 3 — Gateway 统一治理
 
-**状态：Partial**（核验于 2026-08-13）。
+**状态：Implemented**（核验于 2026-08-25）。可选的 UI 权限门控与确认边界作为后续项继续推进。
 
 **目标：** 任意控制面入口受同一 permission 与 audit 策略约束。
 
 ### 已交付
 
-角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP、本地 Agent harness 与托管 API adapter 共用：
+角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP、本地 Agent harness、托管 API adapter 与原始 gateway HTTP 工具边界共用：
 
-| 入口         | 绑定                                                                  |
-| ------------ | --------------------------------------------------------------------- |
-| MCP          | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`             |
-| 本地 harness | `agentAdapters.ts` 的 prompt + 派发前的 `filmRoleToolPolicyRejection` |
-| 托管 adapter | `openAiCompatibleAdapter.ts` 的可见性与拒绝                           |
+| 入口           | 绑定                                                                                                                                                                                          |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP            | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`                                                                                                                                     |
+| 本地 harness   | `agentAdapters.ts` 的 prompt + 派发前的 `filmRoleToolPolicyRejection`                                                                                                                         |
+| 托管 adapter   | `openAiCompatibleAdapter.ts` 的可见性与拒绝                                                                                                                                                   |
+| 原始 HTTP / CLI | `backend/gateway/agents/httpToolPolicy.ts` 应用于每条 `/api/tools/*` 路由（`DIRECTOR_FILM_ROLE` + `DIRECTOR_PLAN_MODE`，403 拒绝体与 MCP 一致；Stage CLI 与 DSH plugin 走同一批路由，因此同样被覆盖） |
+
+#### 3.1 原始 HTTP 与 CLI 权限（已交付）
+
+- `filmRoleToolPolicy` 已通过共享的 `httpToolPolicyRejection` helper 接到原始 `POST /api/tools/{tool-name}`（因此也覆盖 CLI 与 DSH plugin），且在任何浏览器目标执行之前生效。
+- 未知的 `DIRECTOR_FILM_ROLE` 会以同样的结构化拒绝体 fail closed。
+
+#### 3.2 统一 audit trail（已交付）
+
+- 每次 `/api/tools/*` 调用都追加到 gateway 本地审计日志（`backend/gateway/agents/toolInvocationAuditStore.ts`，控制面数据目录下的 JSONL），按 payload `session_id` 前缀标记 `source: ui | mcp | http | cli | dsh | unknown`。
+- 结构化字段：`tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `session_id`, `outcome`, `http_status`，以及脱敏后的错误码/错误信息。
+- `GET /api/agent/audit`（gateway 鉴权）支持 `session_id` / `source` / `tool` 过滤与 `after` 游标。
 
 ### 剩余项
 
-#### 3.1 原始 HTTP 与 UI 权限
+#### 3.1b 可选 UI 权限门控
 
-- 把 `filmRoleToolPolicy` 接到原始 `POST /api/tools/{tool-name}`（因此也覆盖 CLI）。
-- 可选：只读 mode、role 限制下的 UI 禁用 — 与 policy 同源。
-
-#### 3.2 统一 audit trail
-
-- 所有 tool invocation 写入 `agentSessionStore`（含 UI-dispatched author，标记 `source: ui | mcp | http | cli`）。
-- 结构化字段：`tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`。
+- 可选：只读 mode、role 限制下的 UI 禁用 — 与 policy 同源。UI-dispatched author 操作尚未写入统一审计轨迹。
 
 #### 3.3 确认边界（governed execution）
 
@@ -238,11 +244,11 @@ flowchart LR
 - Agent 路径：harness approval 或 explicit `confirm_token`；
 - UI 路径：现有 modal；两者共享同一 `confirm_token` 生成逻辑。
 
-### 验收（剩余项）
+### 验收
 
-- 同一 role 下，MCP 被拒绝的 op 在原始 HTTP/CLI 也被拒绝。
-- Audit log 可跨入口还原一次完整 author 会话的 tool 链。
-- 新增 governance integration test 覆盖 HTTP 与 UI 绕过路径。
+- 同一 role 下，MCP 被拒绝的 op 在原始 HTTP/CLI 也被拒绝 — 已完成（`backend/gateway/tests/routes/httpToolPolicyRoutes.test.ts`）。
+- Audit log 可通过 `GET /api/agent/audit` 跨 HTTP/CLI/MCP/DSH 入口还原 tool 链 — 已完成（`backend/gateway/tests/routes/agentAuditRoutes.test.ts`）；UI-dispatched author 操作待 UI 门控落地后纳入。
+- Governance 测试已覆盖 HTTP 绕过路径；UI 绕过路径随 3.1b 继续。
 
 ---
 
@@ -371,5 +377,5 @@ flowchart LR
 ## 下一步行动
 
 1. 完成剩余 M2：interchange 导入 JSON，然后是 collaboration comment resolve 与 version create/restore
-2. 完成剩余 M3：把 `filmRoleToolPolicy` 接到原始 HTTP/UI，然后统一审计轨迹
+2. M3 后续项：可选的 role 门控 UI 禁用（3.1b）与确认边界（3.3）；HTTP/CLI 策略闸与统一审计轨迹已于 2026-08-25 交付
 3. 落地时在同一变更中更新 [Feature Status](/zh/reference/feature-status/) 与[架构符合性评估](/zh/research/agent-native-architecture-assessment/)

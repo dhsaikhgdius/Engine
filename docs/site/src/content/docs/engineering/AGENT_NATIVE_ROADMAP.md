@@ -62,16 +62,16 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 
 ## Phase overview
 
-| Phase  | Theme                      | Status      | Main outputs                                                                                 | Depends on              |
-| ------ | -------------------------- | ----------- | -------------------------------------------------------------------------------------------- | ----------------------- |
-| **M0** | Baseline & metrics         | Planned     | UI/agent parity inventory, parity harness                                                    | —                       |
-| **M1** | Shared action registry     | Planned     | High-traffic UI paths via `applyDirectorAuthoringActions`                                    | M0                      |
-| **M2** | Remove human-only surfaces | **Partial** | Interchange export + collab observe/comment shipped; import and remaining collab writes open | M1 (partially parallel) |
-| **M3** | Unified gateway governance | **Partial** | Shared `filmRoleToolPolicy` on MCP / local / hosted; raw HTTP/UI and unified audit open      | M1                      |
-| **M4** | In-product workspace       | Planned     | SQL-backed instructions / skills / memory                                                    | M3                      |
-| **M5** | Observability              | Planned     | Traces, cost, long-running progress                                                          | M3                      |
-| **M6** | Team readiness             | Planned     | Collaboration auth, multi-agent enhancements                                                 | M3, M5                  |
-| **M7** | Ecosystem protocols        | Planned     | OpenAPI manifest, A2A spike                                                                  | M2, M3                  |
+| Phase  | Theme                      | Status          | Main outputs                                                                                                 | Depends on              |
+| ------ | -------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| **M0** | Baseline & metrics         | Planned         | UI/agent parity inventory, parity harness                                                                    | —                       |
+| **M1** | Shared action registry     | Planned         | High-traffic UI paths via `applyDirectorAuthoringActions`                                                    | M0                      |
+| **M2** | Remove human-only surfaces | **Partial**     | Interchange export + collab observe/comment shipped; import and remaining collab writes open                 | M1 (partially parallel) |
+| **M3** | Unified gateway governance | **Implemented** | Shared `filmRoleToolPolicy` on MCP / local / hosted / raw HTTP+CLI; source-tagged `/api/tools/*` audit trail | M1                      |
+| **M4** | In-product workspace       | Planned         | SQL-backed instructions / skills / memory                                                                    | M3                      |
+| **M5** | Observability              | Planned         | Traces, cost, long-running progress                                                                          | M3                      |
+| **M6** | Team readiness             | Planned         | Collaboration auth, multi-agent enhancements                                                                 | M3, M5                  |
+| **M7** | Ecosystem protocols        | Planned         | OpenAPI manifest, A2A spike                                                                                  | M2, M3                  |
 
 ```mermaid
 flowchart LR
@@ -212,31 +212,37 @@ Large media bytes still never enter Yjs.
 
 ## Milestone 3 — Unified gateway governance
 
-**Status: Partial** (verified 2026-08-13).
+**Status: Implemented** (verified 2026-08-25). Optional UI permission gating and confirmation boundaries continue as follow-ups.
 
 **Goal:** every control surface obeys the same permission and audit policy.
 
 ### Shipped
 
-Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP, the local Agent harness, and the hosted API adapter share it:
+Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP, the local Agent harness, the hosted API adapter, and the raw gateway HTTP tool boundary share it:
 
-| Surface        | Binding                                                                        |
-| -------------- | ------------------------------------------------------------------------------ |
-| MCP            | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                        |
-| Local harness  | `agentAdapters.ts` prompt + `filmRoleToolPolicyRejection` before tool dispatch |
-| Hosted adapter | `openAiCompatibleAdapter.ts` visibility + rejection                            |
+| Surface        | Binding                                                                                                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| MCP            | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                                                                                                                                                                        |
+| Local harness  | `agentAdapters.ts` prompt + `filmRoleToolPolicyRejection` before tool dispatch                                                                                                                                                 |
+| Hosted adapter | `openAiCompatibleAdapter.ts` visibility + rejection                                                                                                                                                                            |
+| Raw HTTP / CLI | `backend/gateway/agents/httpToolPolicy.ts` on every `/api/tools/*` route (`DIRECTOR_FILM_ROLE` + `DIRECTOR_PLAN_MODE`, same 403 rejection body as MCP; covers the Stage CLI and the DSH plugin, which POST to the same routes) |
+
+#### 3.1 Raw HTTP and CLI permissions (shipped)
+
+- `filmRoleToolPolicy` now gates raw `POST /api/tools/{tool-name}` (and therefore the CLI and DSH plugin) through the shared `httpToolPolicyRejection` helper, before any browser-target execution.
+- An unknown `DIRECTOR_FILM_ROLE` fails closed with the same structured rejection.
+
+#### 3.2 Unified audit trail (shipped)
+
+- Every `/api/tools/*` invocation is appended to a gateway-local audit log (`backend/gateway/agents/toolInvocationAuditStore.ts`, JSONL under the control-plane data directory), tagged `source: ui | mcp | http | cli | dsh | unknown` derived from the payload `session_id` prefix.
+- Structured fields: `tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `session_id`, `outcome`, `http_status`, redacted error code/message.
+- `GET /api/agent/audit` (gateway-authorized) lists records with `session_id` / `source` / `tool` filters and an `after` cursor.
 
 ### Remaining
 
-#### 3.1 Raw HTTP and UI permissions
+#### 3.1b Optional UI permission gating
 
-- Apply `filmRoleToolPolicy` to raw `POST /api/tools/{tool-name}` (and therefore CLI).
-- Optional: read-only mode and role-gated UI disable from the same policy source.
-
-#### 3.2 Unified audit trail
-
-- Log all tool invocations to `agentSessionStore` (including UI-dispatched author, tagged `source: ui | mcp | http | cli`).
-- Structured fields: `tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`.
+- Optional: read-only mode and role-gated UI disable from the same policy source. UI-dispatched author actions are not yet written to the unified audit trail.
 
 #### 3.3 Confirmation boundaries
 
@@ -244,11 +250,11 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
 - Agent path: harness approval or explicit `confirm_token`.
 - UI path: existing modals; shared `confirm_token` generation.
 
-### Acceptance (remaining)
+### Acceptance
 
-- Denied MCP ops are also denied on raw HTTP/CLI for the same role.
-- Audit log reconstructs a full author session tool chain across entry points.
-- New governance integration test suite covers HTTP and UI bypass cases.
+- Denied MCP ops are also denied on raw HTTP/CLI for the same role — done (`backend/gateway/tests/routes/httpToolPolicyRoutes.test.ts`).
+- Audit log reconstructs a tool chain across HTTP/CLI/MCP/DSH entry points via `GET /api/agent/audit` — done (`backend/gateway/tests/routes/agentAuditRoutes.test.ts`). UI-dispatched author actions remain out of scope until UI gating lands.
+- Governance tests cover HTTP bypass cases — done; UI bypass cases remain with 3.1b.
 
 ---
 
@@ -377,5 +383,5 @@ At **~2 weeks per milestone** (adjust for capacity):
 ## Immediate next steps
 
 1. Finish remaining M2: interchange import JSON, then collaboration comment resolve and version create/restore
-2. Finish remaining M3: apply `filmRoleToolPolicy` to raw HTTP/UI, then unify the audit trail
+2. M3 follow-ups: optional role-gated UI disable (3.1b) and confirmation boundaries (3.3); the HTTP/CLI policy gate and unified audit trail shipped 2026-08-25
 3. Keep [Feature Status](/reference/feature-status/) and the [architecture assessment](/research/agent-native-architecture-assessment/) in the same change when those land

@@ -129,21 +129,21 @@ MCP 工具全部转发 gateway，无重复业务逻辑。可分发插件含 `.mc
 
 **评级：4/5**
 
-### 5. Governed Execution — 审计强 ✅，原始 HTTP/UI 仍未设闸 ⚠️
+### 5. Governed Execution — gateway 边界已设闸 ✅，UI 门控仍未完成 ⚠️
 
-**符合：**
+**符合**（核验于 2026-08-25）：
 
 - Production audit（spatial、grounding、graph issues）— `packages/agent-engine/src/directorAudit.ts`
 - `deliver` 机器验收边界
 - Revision / idempotency / exact target fail-closed（428 / 409）
 - Agent event store、structured MCP receipts、credential redaction
 - 共享的电影角色工具策略（如 visual-critic 只读）— `backend/gateway/agents/filmRoleToolPolicy.ts`，由 MCP（`DIRECTOR_FILM_ROLE`）、本地 Agent harness 与托管 API adapter 共用
+- 原始 HTTP `POST /api/tools/{tool-name}`（因此也覆盖 CLI 与 DSH plugin）经 `backend/gateway/agents/httpToolPolicy.ts` 应用同一策略，在浏览器目标执行之前拒绝，403 结构化拒绝体与 MCP 一致
+- 统一 gateway 审计轨迹：每次 `/api/tools/*` 调用都追加到 `backend/gateway/agents/toolInvocationAuditStore.ts`，按 `source: ui | mcp | http | cli | dsh | unknown` 标记（由 payload `session_id` 前缀推导；Stage CLI 的 `STAGE_AGENT_SESSION` 默认 `cli-default`），可经鉴权的 `GET /api/agent/audit` 查询
 
 **缺口：**
 
-- 原始 HTTP `POST /api/tools/{tool-name}` 以及走该路径的 CLI **不应用** `filmRoleToolPolicy`
-- Human UI 操作无等价 permission gate
-- 工具调用尚未形成按 `source: ui | mcp | http | cli` 标记的 **统一审计轨迹**
+- Human UI 操作无等价 permission gate，UI-dispatched author 操作尚未写入统一审计轨迹
 - Collaboration 生产房间鉴权、公网部署加固仍 **Limited**
 
 **评级：4/5**
