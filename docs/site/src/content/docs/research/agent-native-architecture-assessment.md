@@ -124,7 +124,7 @@ All control surfaces converge on the same gateway execution and validation layer
 
 **Rating: 4.5/5**
 
-### 4. Protocol-ready by design — MCP strong ✅, A2A weak ⚠️
+### 4. Protocol-ready by design — MCP strong ✅, A2A evaluated: runtime no-go ⚠️
 
 **Aligned:**
 
@@ -141,10 +141,13 @@ MCP tools forward to the gateway without duplicating business logic. Distributab
 `GET /api/control-plane/tool-manifest` publishes the machine-readable `director-tool-manifest-v1`
 catalog (surfaces, op enums, HTTP bindings, legacy `stage_*` flags) derived from the same Zod
 schemas (`backend/gateway/controlPlane/toolManifest.ts`).
+`GET /api/control-plane/a2a-agent-card` serves a discovery-only A2A-style agent card that points
+A2A-aware clients at MCP and the tool manifest — no remote A2A endpoint
+(`backend/gateway/controlPlane/a2aAgentCard.ts`).
 
 **Gaps:**
 
-- No standard **A2A (agent-to-agent)** protocol; the optional spike is deferred until a concrete cross-app consumer exists
+- No standard **A2A (agent-to-agent)** runtime, by decision: [ADR 0004](/engineering/adr/0004-a2a-gateway-spike/) evaluated wrapping the gateway as a live A2A agent and concluded **no-go** (loopback/process-token auth mismatch, second execution protocol, no guard mapping); only the discovery-only card is served
 - Multi-agent orchestration is a fixed serial DAG, status **Experimental**
 
 **Rating: 4/5**
@@ -261,7 +264,7 @@ agent-gateway.ts (composition root)
 
 1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes and many one-shot transforms now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining store mutators (camera panel, pose/IK, timeline, world, Canvas/Video) are still migrating in batches
 2. **Incomplete governance surfaces** — MCP, local harness, and hosted adapter share `filmRoleToolPolicy`; raw HTTP and human UI still bypass film roles, and audit is not unified across entry points
-3. **Protocol breadth** — MCP is strong and the HTTP tool manifest is published; no standard A2A (spike deferred); multi-agent is a custom serial graph
+3. **Protocol breadth** — MCP is strong and the HTTP tool manifest is published; A2A evaluated and rejected for a runtime (ADR 0004; discovery-only card served); multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
 5. **Runtime workspace** — no in-product SQL-backed AGENTS.md / LEARNINGS.md pattern described in the article
 
@@ -276,7 +279,7 @@ See the full phased plan in [Agent-Native Optimization Roadmap](/engineering/age
 1. **Keep routing UI mutators through shared authoring dispatch** — camera / pose / timeline / Canvas·Video still dual-write
 2. **Apply the shared role policy to raw HTTP and UI, and unify the audit trail** — MCP / local / hosted already share `filmRoleToolPolicy.ts`
 3. **Strengthen team/observability layers** — collaboration auth, agent trace/cost dashboard
-4. **Cross-app orchestration** — the tool manifest export shipped (`GET /api/control-plane/tool-manifest`); the A2A spike stays deferred until a concrete peer product appears
+4. **Cross-app orchestration** — the tool manifest export shipped (`GET /api/control-plane/tool-manifest`); the A2A spike concluded in ADR 0004 (runtime no-go; discovery-only card at `GET /api/control-plane/a2a-agent-card`); revisit only if a partner requires A2A task execution
 
 ---
 

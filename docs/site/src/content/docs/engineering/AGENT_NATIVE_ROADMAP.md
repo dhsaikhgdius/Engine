@@ -71,7 +71,7 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 | **M4** | In-product workspace       | Planned     | SQL-backed instructions / skills / memory                                                    | M3                      |
 | **M5** | Observability              | Planned     | Traces, cost, long-running progress                                                          | M3                      |
 | **M6** | Team readiness             | Planned     | Collaboration auth, multi-agent enhancements                                                 | M3, M5                  |
-| **M7** | Ecosystem protocols        | **Partial** | Tool manifest shipped (`GET /api/control-plane/tool-manifest`); A2A optional spike not done  | M2, M3                  |
+| **M7** | Ecosystem protocols        | **Implemented** | Tool manifest, A2A go/no-go concluded in ADR 0004 (runtime no-go; discovery-only card served), cross-app receipt recipe. A2A runtime not shipped | M2, M3                  |
 
 ```mermaid
 flowchart LR
@@ -306,7 +306,7 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
 
 ## Milestone 7 — Ecosystem protocols
 
-**Status: Partial** (verified 2026-08-25).
+**Status: Implemented** (verified 2026-08-25; the full A2A runtime is intentionally not shipped).
 
 **Goal:** interoperate with other agent-native apps.
 
@@ -317,14 +317,17 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
   surfaces (`mcp` / `http` / `both`), wire `op` enums, HTTP bindings, and `legacy` flags on the
   HTTP-only `stage_*` compatibility tools. Evidence: `backend/gateway/controlPlane/toolManifest.ts`,
   `backend/gateway/routes/controlPlaneRoutes.ts`, and their tests.
-
-### Remaining
-
-- **A2A spike**: deferred, effectively no-go for now. Director's exact-target, revision-guarded
-  execution model has no obvious mapping onto A2A agent cards and no concrete cross-app consumer
-  exists yet; the optional go/no-go ADR stays open until one appears. This does not block any other
-  milestone.
-- **Cross-app recipe**: document receipt handoff (e.g. Director deliver → external video post).
+- **A2A spike conclusion**: [ADR 0004](/engineering/adr/0004-a2a-gateway-spike/) records the
+  written go/no-go — **no-go** for a live A2A JSON-RPC runtime (auth mismatch with the
+  loopback-only, process-token gateway; it would be a second execution protocol; exact-target and
+  revision guards have no native A2A slot), **go** for a discovery-only agent card.
+  `GET /api/control-plane/a2a-agent-card` serves that card: `discovery_only: true`, a `null` A2A
+  endpoint, loopback URLs only, and skills mirroring the live tool manifest. Full A2A stays
+  deferred unless a partner product concretely requires it.
+- **Cross-app recipe**: [Control surfaces — cross-app receipt handoff](/agents/control-surfaces/#cross-app-receipt-handoff)
+  documents how an external app consumes `deliver` and interchange `export` receipts —
+  `plan_id` / `receipt_id`, guard fingerprints, and per-file SHA-256 verification — per
+  [ADR 0003](/engineering/adr/0003-import-export-receipts/).
 
 ---
 
@@ -351,7 +354,7 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 - Replacing Zustand with a remote CRDT primary store
 - Full SaaS multi-tenant billing
-- Complete A2A implementation (spike only unless M7 go)
+- Complete A2A implementation (ADR 0004: runtime no-go; discovery-only card only, unless a partner requires more)
 - Removing `stage_*` tools (freeze expansion only)
 - Finishing LTX / UE pipelines (see [Pipeline roadmap](/engineering/pipeline_implementation_roadmap/))
 
@@ -373,4 +376,4 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 1. Finish remaining M3: apply `filmRoleToolPolicy` to raw HTTP/UI, then unify the audit trail
 2. Keep [Feature Status](/reference/feature-status/) and the [architecture assessment](/research/agent-native-architecture-assessment/) in the same change when those land
-3. Optional M7 leftovers: the A2A go/no-go ADR (deferred, see Milestone 7) and the cross-app receipt recipe
+3. M7 leftovers landed: ADR 0004 concluded the A2A spike (runtime no-go; discovery-only card served) and the cross-app receipt recipe is documented in Control surfaces

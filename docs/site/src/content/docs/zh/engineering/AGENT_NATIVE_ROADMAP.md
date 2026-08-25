@@ -65,7 +65,7 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 | **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
 | **M5** | 可观测性               | Planned     | Trace、cost、长任务进度                                                          | M3               |
 | **M6** | 团队就绪               | Planned     | Collaboration auth、multi-agent 增强                                             | M3、M5           |
-| **M7** | 生态协议               | **Partial** | Tool manifest 已交付（`GET /api/control-plane/tool-manifest`）；A2A 可选 spike 未做 | M2、M3           |
+| **M7** | 生态协议               | **Implemented** | Tool manifest、A2A go/no-go 已在 ADR 0004 得出结论（runtime no-go；提供 discovery-only card）、cross-app 回执 recipe。A2A runtime 未交付 | M2、M3           |
 
 ```mermaid
 flowchart LR
@@ -297,7 +297,7 @@ flowchart LR
 
 ## Milestone 7 — 生态协议
 
-**状态：Partial**（核验于 2026-08-25）。
+**状态：Implemented**（核验于 2026-08-25；完整 A2A runtime 有意未交付）。
 
 **目标：** 与其他 agent-native app 互操作。
 
@@ -308,13 +308,16 @@ flowchart LR
   surface（`mcp` / `http` / `both`）、wire `op` 枚举、HTTP 绑定，以及 HTTP-only
   `stage_*` 兼容工具上的 `legacy` 标记。证据：`backend/gateway/controlPlane/toolManifest.ts`、
   `backend/gateway/routes/controlPlaneRoutes.ts` 及对应测试。
-
-### 剩余项
-
-- **A2A spike**：推迟，目前实际为 no-go。Director 的 exact-target、revision-guarded 执行模型
-  没有到 A2A agent card 的明显映射，也还没有具体的跨 app 消费方；可选的 go/no-go ADR 在出现
-  实际对端产品之前保持开放。该项不阻塞任何其他里程碑。
-- **Cross-app recipe**：文档化「Director deliver → 外部 video post」的 receipt handoff 格式。
+- **A2A spike 结论**：[ADR 0004](/zh/engineering/adr/0004-a2a-gateway-spike/) 给出书面
+  go/no-go —— live A2A JSON-RPC runtime 为 **no-go**（与 loopback-only、进程 token 的
+  gateway 鉴权不匹配；会形成第二套执行协议；exact-target 与 revision 守卫没有 A2A 原生
+  字段），discovery-only agent card 为 **go**。`GET /api/control-plane/a2a-agent-card`
+  提供该卡片：`discovery_only: true`、A2A endpoint 为 `null`、只含 loopback URL，skills
+  镜像实时 tool manifest。完整 A2A 持续推迟，除非合作产品具体需要。
+- **Cross-app recipe**：[Control surfaces — 跨 app 回执交接](/zh/agents/control-surfaces/#跨-app-回执交接)
+  文档化外部 app 如何消费 `deliver` 与 interchange `export` 回执 ——
+  `plan_id` / `receipt_id`、guard fingerprint 与逐文件 SHA-256 校验 —— 依照
+  [ADR 0003](/zh/engineering/adr/0003-import-export-receipts/)。
 
 ---
 
@@ -341,7 +344,7 @@ flowchart LR
 
 - 替换 Zustand 为远程 CRDT 主 store
 - 完整 SaaS 多租户 billing
-- 标准 A2A 完整实现（仅 spike，除非 M7 go）
+- 标准 A2A 完整实现（ADR 0004：runtime no-go；仅 discovery-only card，除非合作方有更多需求）
 - 移除 `stage_*` 工具（仅冻结扩展）
 - LTX / UE pipeline 完成（见 [Pipeline roadmap](/zh/engineering/pipeline_implementation_roadmap/)）
 
@@ -363,4 +366,4 @@ flowchart LR
 
 1. 完成剩余 M3：把 `filmRoleToolPolicy` 接到原始 HTTP/UI，然后统一审计轨迹
 2. 落地时在同一变更中更新 [Feature Status](/zh/reference/feature-status/) 与[架构符合性评估](/zh/research/agent-native-architecture-assessment/)
-3. 可选 M7 遗留：A2A go/no-go ADR（已推迟，见 Milestone 7）与 cross-app receipt recipe
+3. M7 遗留已落地：ADR 0004 完成 A2A spike 结论（runtime no-go；已提供 discovery-only card），cross-app 回执 recipe 已写入 Control surfaces

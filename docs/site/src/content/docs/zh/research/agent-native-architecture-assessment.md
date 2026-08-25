@@ -111,7 +111,7 @@ Director 文档明确自定位为 **Agent-native，而非「可被 Agent 控制�
 
 **评级：4.5/5**
 
-### 4. Protocol-Ready by Design — MCP 强 ✅，A2A 弱 ⚠️
+### 4. Protocol-Ready by Design — MCP 强 ✅，A2A 已评估：runtime no-go ⚠️
 
 **符合：**
 
@@ -126,10 +126,13 @@ MCP 工具全部转发 gateway，无重复业务逻辑。可分发插件含 `.mc
 `GET /api/control-plane/tool-manifest` 发布机器可读的 `director-tool-manifest-v1` catalog
 （surface、op 枚举、HTTP 绑定、legacy `stage_*` 标记），由与执行校验相同的 Zod schema 派生
 （`backend/gateway/controlPlane/toolManifest.ts`）。
+`GET /api/control-plane/a2a-agent-card` 提供 discovery-only 的 A2A 风格 agent card，把
+A2A-aware 客户端指向 MCP 与 tool manifest —— 没有远程 A2A endpoint
+（`backend/gateway/controlPlane/a2aAgentCard.ts`）。
 
 **缺口：**
 
-- 无标准 **A2A（Agent-to-Agent）** 协议；可选 spike 推迟到出现具体跨 app 消费方为止
+- 无标准 **A2A（Agent-to-Agent）** runtime，且是明确决策：[ADR 0004](/zh/engineering/adr/0004-a2a-gateway-spike/) 评估了把 gateway 包装为 live A2A agent，结论为 **no-go**（loopback/进程 token 鉴权不匹配、第二套执行协议、守卫无法映射）；仅提供 discovery-only card
 - Multi-agent 为固定串行 DAG，状态 **Experimental**
 
 **评级：4/5**
@@ -230,7 +233,7 @@ agent-gateway.ts (composition root)
 
 1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除与单次变换开始经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring。其余 store mutator（相机面板、姿态/IK、时间线、世界、Canvas/Video）仍在分批收敛
 2. **Governance 入口未完全统一** — MCP、本地 harness 与托管 adapter 已共享 `filmRoleToolPolicy`；原始 HTTP 与人类 UI 仍绕过 film role，审计也未跨入口统一
-3. **Protocol breadth** — MCP 强且已发布 HTTP tool manifest；无标准 A2A（spike 已推迟）；multi-agent 为自定义串行 graph
+3. **Protocol breadth** — MCP 强且已发布 HTTP tool manifest；A2A 已评估并拒绝 runtime（ADR 0004；提供 discovery-only card）；multi-agent 为自定义串行 graph
 4. **Dual surface 遗留** — `stage_*` 兼容层 vs `director_workbench` 完整模型仍并存
 5. **Runtime workspace** — 无文章描述的 SQL-backed AGENTS.md / LEARNINGS.md 等产品内 workspace
 
@@ -243,7 +246,7 @@ agent-gateway.ts (composition root)
 1. **继续把 UI mutator 收敛到 shared authoring dispatch** — 相机 / 姿态 / 时间线 / Canvas·Video 仍有双写
 2. **把共享角色策略接到原始 HTTP 与 UI，并统一审计轨迹** — MCP / 本地 / 托管已共用 `filmRoleToolPolicy.ts`
 3. **补 team/observability 层** — collaboration auth、agent trace/cost dashboard
-4. **跨 app 编排** — tool manifest 导出已交付（`GET /api/control-plane/tool-manifest`）；A2A spike 在出现具体对端产品之前保持推迟
+4. **跨 app 编排** — tool manifest 导出已交付（`GET /api/control-plane/tool-manifest`）；A2A spike 已在 ADR 0004 得出结论（runtime no-go；discovery-only card 位于 `GET /api/control-plane/a2a-agent-card`）；仅当合作方需要 A2A task 执行时重启
 
 ---
 
