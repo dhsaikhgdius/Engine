@@ -459,10 +459,7 @@ describe("Blender native mesh editor", () => {
     };
 
     expect(findPreferredBlenderMeshId(snapshot, "asset-root")).toBe("mesh-b");
-    expect(findBlenderMeshesForObject(snapshot, "asset-root").map((mesh) => mesh.id)).toEqual([
-      "mesh-a",
-      "mesh-b",
-    ]);
+    expect(findBlenderMeshesForObject(snapshot, "asset-root").map((mesh) => mesh.id)).toEqual(["mesh-a", "mesh-b"]);
   });
 
   it("keeps object editing and creation inside the current Director project", async () => {
@@ -1011,6 +1008,25 @@ describe("Blender native mesh editor", () => {
     expect(within(header).getByText("已连接")).toBeTruthy();
     expect(within(header).getByText("Blender 5.1.2 · rev 4")).toBeTruthy();
     expect(within(header).getByRole("button", { name: "刷新" })).toBeTruthy();
+  });
+
+  it("shows the preview-only live-link sequence when the kernel reports the feed", async () => {
+    useBlenderRuntimeStore.getState().publishStatus({
+      available: true,
+      ok: true,
+      contract: BLENDER_LIVE_CONTRACT,
+      blenderVersion: "5.1.2",
+      revision: 4,
+      sceneEpoch,
+      busy: false,
+      liveLink: { seq: 42, bufferedFrames: 3, capacity: 256 },
+    });
+    useBlenderRuntimeStore.getState().publishSnapshot(sceneSnapshot(4));
+
+    render(<BlenderLivePanel />);
+
+    const header = await screen.findByRole("group", { name: "Blender 连接状态" });
+    expect(within(header).getByText("Blender 5.1.2 · rev 4 · 实时链路 #42")).toBeTruthy();
   });
 
   it("distinguishes success and error notices by tone", async () => {

@@ -1,9 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import {
-  assertBlenderKernelPolicy,
-  BlenderKernelPolicyError,
-} from "../../../packages/protocol/src/blenderKernel";
+import { assertBlenderKernelPolicy, BlenderKernelPolicyError } from "../../../packages/protocol/src/blenderKernel";
 import {
   BLENDER_LIVE_CONTRACT,
   BLENDER_NATIVE_DESCRIBE_XOR_MESSAGE,
@@ -34,9 +31,7 @@ import {
 } from "@director/agent-engine/kernel-ownership";
 import { BlenderNativeSessionError, type BlenderNativeSession } from "./blenderNativeSession";
 
-function isBlenderNativeCaptureOp(
-  op: BlenderNativeToolRequest["op"],
-): op is "capture" | "capture_render" {
+function isBlenderNativeCaptureOp(op: BlenderNativeToolRequest["op"]): op is "capture" | "capture_render" {
   return op === "capture" || op === "capture_render";
 }
 
@@ -303,11 +298,7 @@ async function waitForNativeJob(
       );
     }
     if (Date.now() >= deadline) {
-      throw new BlenderNativeSessionError(
-        "Blender native edit is still running.",
-        504,
-        "blender_timeout",
-      );
+      throw new BlenderNativeSessionError("Blender native edit is still running.", 504, "blender_timeout");
     }
     await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
     pollDelayMs = Math.min(50, pollDelayMs * 2);
@@ -483,11 +474,7 @@ function operationEffectTrait(operation: BlenderLiveOperation): OperationEffectT
   return "content";
 }
 
-function operationSelection(
-  operation: BlenderLiveOperation,
-  result: unknown,
-  scene: BlenderLiveSceneSnapshot,
-) {
+function operationSelection(operation: BlenderLiveOperation, result: unknown, scene: BlenderLiveSceneSnapshot) {
   const resultRecord =
     result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>) : null;
   const context = "context" in operation && operation.context ? operation.context : null;
@@ -515,7 +502,12 @@ function collectResultWarning(result: unknown, warnings: string[]) {
 }
 
 function isSkippedOperationResult(result: unknown) {
-  return Boolean(result && typeof result === "object" && !Array.isArray(result) && (result as { skipped?: unknown }).skipped === true);
+  return Boolean(
+    result &&
+    typeof result === "object" &&
+    !Array.isArray(result) &&
+    (result as { skipped?: unknown }).skipped === true,
+  );
 }
 
 function declaredOperationEffect(operation: BlenderLiveOperation, result: unknown) {
@@ -746,7 +738,7 @@ function focusedEvidence(scene: BlenderLiveSceneSnapshot, dirtyObjectIds: string
   });
 }
 
-function nativeRequest(input: Exclude<BlenderNativeToolRequest, { op: "status" | "scene" }>): {
+function nativeRequest(input: Exclude<BlenderNativeToolRequest, { op: "status" | "scene" | "live_link" }>): {
   operations: BlenderLiveOperation[];
   expectedSceneEpoch?: string;
   expectedRevision?: number;
@@ -839,7 +831,7 @@ function nativeRequest(input: Exclude<BlenderNativeToolRequest, { op: "status" |
  * containing only the objects, cameras, and lights that changed.
  *
  * @param session - The Blender native session client.
- * @param input - The tool request (status, scene, catalog, describe, inspect, capture, capture_render, query, or apply).
+ * @param input - The tool request (status, scene, catalog, describe, inspect, capture, capture_render, query, live_link, or apply).
  * @param options - Optional dependencies; `loadDirectorProject` resolves the
  *   persisted Director project so inspect results carry kernel ownership.
  * @returns A typed result depending on the operation kind.
@@ -852,6 +844,16 @@ export async function executeBlenderNativeTool(
 ) {
   if (input.op === "status") return session.status();
   if (input.op === "scene") return session.snapshot();
+  if (input.op === "live_link") {
+    // Preview-only delta feed: served straight from the kernel buffer and
+    // never authoritative. Consumers resync from `scene` on epoch changes,
+    // gaps, or evicted history.
+    return session.liveLink(
+      input.sceneEpoch !== undefined && input.since !== undefined
+        ? { sceneEpoch: input.sceneEpoch, since: input.since }
+        : undefined,
+    );
+  }
   if (input.op === "describe" && input.target) {
     const described = describeBlenderNativeTarget(input.target);
     if (!described.success) {
@@ -968,11 +970,7 @@ export async function executeBlenderNativeTool(
     }
     const capture = result as Record<string, unknown>;
     if (typeof capture.dataBase64 !== "string" || typeof capture.mimeType !== "string") {
-      throw new BlenderNativeSessionError(
-        "Blender capture returned an invalid image.",
-        502,
-        "blender_capture_invalid",
-      );
+      throw new BlenderNativeSessionError("Blender capture returned an invalid image.", 502, "blender_capture_invalid");
     }
     const { dataBase64: _dataBase64, ...captureResult } = capture;
     return { result: captureResult, capture };

@@ -37,6 +37,7 @@ export * from "./vehicleProtocol";
 export * from "./videoGenerationProtocol";
 export * from "./worldSystemsProtocol";
 export * from "./blenderKernel";
+export * from "./blenderLiveLinkProtocol";
 export * from "./blenderLiveProtocol";
 export * from "./blenderNativeDescribe";
 export * from "./blenderOperationManifest";

@@ -452,6 +452,58 @@ it("previews Blender return conflicts before enabling Apply", async () => {
   expect(dccReturnClient.previewDirectorDccReturnPackage).toHaveBeenCalledWith("job-1/return-package", "blender");
 });
 
+it("summarizes rich Blender return plans (camera optics, lights, poses) and lists bake warnings", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(dccReturnClient, "previewDirectorDccReturnPackage").mockResolvedValue({
+    ready: true,
+    dry_run: true,
+    summary: { operation_count: 4, skipped_count: 0, conflict_count: 0, warning_count: 1 },
+    plan: {
+      contract: "director-dcc-import-plan-v1",
+      ready: true,
+      packageId: "return-rich-1",
+      packageDir: "job-1/return-package",
+      manifestHash: "a".repeat(64),
+      sourceRevision: `director-project-revision:v1:sha256:${"b".repeat(64)}`,
+      targetRevision: `director-project-revision:v1:sha256:${"b".repeat(64)}`,
+      operations: [
+        {
+          op: "update_transform",
+          entityType: "camera",
+          objectId: "cam-1",
+          transform: { position: [0, 2, 6], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        },
+        { op: "update_camera_optics", objectId: "cam-1", optics: { focal_length_mm: 200 } },
+        { op: "update_light", lightId: "light-1", patch: { intensity: 60, color: "#00ff88" } },
+        {
+          op: "set_character_pose",
+          objectId: "hero",
+          controls: [{ control: "head.yaw", value: 45 }],
+        },
+      ],
+      conflicts: [],
+      warnings: ["cam-1: focalLengthMm 400 clamped to 200."],
+    },
+  });
+  render(
+    <LanguageProvider>
+      <DirectorInterchangeMenu />
+    </LanguageProvider>,
+  );
+  await user.click(screen.getByRole("button", { name: "交换" }));
+  await user.type(screen.getByLabelText("回传包路径"), "job-1/return-package");
+  await user.click(screen.getByRole("button", { name: "预览差异" }));
+  await waitFor(() =>
+    expect(
+      screen.getByText("0 个资产 · 1 个变换 · 1 个相机光学 · 1 个灯光更新 · 1 个角色姿态 · 1 条提示"),
+    ).toBeInTheDocument(),
+  );
+  expect(screen.getByRole("list", { name: "DCC 回传提示" })).toHaveTextContent(
+    "cam-1: focalLengthMm 400 clamped to 200.",
+  );
+  expect(screen.getByRole("button", { name: "应用 DCC 回传" })).toBeEnabled();
+});
+
 it("routes engine return previews through the selected connector provider", async () => {
   const user = userEvent.setup();
   const preview = vi.spyOn(dccReturnClient, "previewDirectorDccReturnPackage").mockResolvedValue({
