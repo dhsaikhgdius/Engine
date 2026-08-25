@@ -206,7 +206,7 @@ describe("Director DSH workbench plugin gateway client", () => {
       expect.objectContaining({
         name: "director:workbench",
         text: expect.stringMatching(
-          /Load the project skill first[\s\S]*Canonical source order[\s\S]*skill: catalog then load[\s\S]*todo_write[\s\S]*job_list[\s\S]*workflow result of null.*child failed[\s\S]*Shell output.*never mutation evidence[\s\S]*Never claim a workspace was changed[\s\S]*image_attached=false/,
+          /Load the project skill first[\s\S]*Canonical source order[\s\S]*skill: catalog then load[\s\S]*todo_write[\s\S]*job_list[\s\S]*Shell output.*never mutation evidence[\s\S]*Never claim a workspace was changed[\s\S]*image_attached=false[\s\S]*workflow result of null.*child failed/,
         ),
       }),
     );

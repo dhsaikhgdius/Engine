@@ -409,6 +409,15 @@ export function compileDirectorWorldEffectUpsertAction(
         ...(effect.colorTint !== undefined ? { color_tint: effect.colorTint } : {}),
         wind_influence: effect.windInfluence,
         seed_offset: effect.seedOffset,
+        ...(effect.propagation
+          ? {
+              propagation: {
+                enabled: effect.propagation.enabled,
+                radius_m: effect.propagation.radiusM,
+                spread_rate: effect.propagation.spreadRate,
+              },
+            }
+          : {}),
       },
     };
   }
@@ -426,6 +435,15 @@ export function compileDirectorWorldEffectUpsertAction(
   if (!jsonEqual(existing.colorTint, effect.colorTint)) patch.color_tint = effect.colorTint ?? null;
   if (existing.windInfluence !== effect.windInfluence) patch.wind_influence = effect.windInfluence;
   if (existing.seedOffset !== effect.seedOffset) patch.seed_offset = effect.seedOffset;
+  if (!jsonEqual(existing.propagation, effect.propagation)) {
+    patch.propagation = effect.propagation
+      ? {
+          enabled: effect.propagation.enabled,
+          radius_m: effect.propagation.radiusM,
+          spread_rate: effect.propagation.spreadRate,
+        }
+      : null;
+  }
   if (existing.visible !== effect.visible) patch.visible = effect.visible;
   if (existing.locked !== effect.locked) patch.locked = effect.locked;
   const guard = guardWorldEntryUpsert(existing, effect, patch);

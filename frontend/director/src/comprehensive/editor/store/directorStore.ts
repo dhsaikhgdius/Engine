@@ -1445,7 +1445,17 @@ function resolveWorldUpsertMode(
 }
 
 /** Snake_case authoring fields shared by add_world_effect / update_world_effect. */
+function worldFirePropagationAuthoring(propagation: DirectorWorldEffect["propagation"]) {
+  if (!propagation) return undefined;
+  return {
+    enabled: propagation.enabled,
+    radius_m: propagation.radiusM,
+    spread_rate: propagation.spreadRate,
+  };
+}
+
 function worldEffectAuthoringFields(effect: DirectorWorldEffect) {
+  const propagation = worldFirePropagationAuthoring(effect.propagation);
   return {
     name: effect.name,
     kind: effect.kind,
@@ -1459,6 +1469,7 @@ function worldEffectAuthoringFields(effect: DirectorWorldEffect) {
     speed_scale: effect.speedScale,
     wind_influence: effect.windInfluence,
     seed_offset: effect.seedOffset,
+    ...(propagation ? { propagation } : {}),
   };
 }
 
