@@ -58,6 +58,18 @@ describe("Director DSH workbench plugin catalog", () => {
     expect(JSON.stringify(schema)).not.toMatch(/\"\$schema\"|\"minLength\"|\"maximum\"|\"prefixItems\"/);
   });
 
+  it("keeps the white-box blockout path discoverable on the blender_native envelope", () => {
+    const blender = pluginTool("blender_native");
+    expect(blender.description).toContain("create_blockout");
+    expect(blender.description).toContain("create_opening");
+    expect(blender.description).toContain("floor/wall/room/corridor/stairs");
+    const operations = (blender.dshParameters as { properties?: { operations?: { description?: string } } }).properties
+      ?.operations;
+    expect(operations?.description).toContain("create_blockout");
+    expect(operations?.description).toContain("create_opening");
+    expect(pluginTool("director_workbench").description).toContain("geometry_type");
+  });
+
   it("rejects catalog calls that omit the catalog id before dispatch", () => {
     expect(DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({ op: "catalog" }).success).toBe(false);
     expect(DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({ op: "catalog", catalog: "assets" }).success).toBe(
@@ -90,9 +102,9 @@ describe("Director DSH workbench plugin catalog", () => {
     expect(blender.properties?.operations).toBeDefined();
     expect(blender.properties?.query).toBeDefined();
     expect(blender.properties?.assetType).toBeDefined();
-    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({ op: "polyhaven_search", query: "chair" }).success).toBe(
-      true,
-    );
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({ op: "polyhaven_search", query: "chair" }).success,
+    ).toBe(true);
     expect(
       DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({
         op: "capture_render",

@@ -5,6 +5,7 @@ import {
 } from "./catalog";
 import { dispatchDirectorWorkbenchTool, type DirectorWorkbenchGatewayConfig } from "./gatewayClient";
 import { flattenDirectorToolResult } from "./flattenToolResult";
+import { projectOversizedDirectorAgentToolEnvelope, stripEncodedMediaPayloads } from "./toolResultProjection";
 
 type DirectorImageRef = {
   attachmentId: string;
@@ -105,6 +106,8 @@ const DIRECTOR_AGENT_GUIDANCE = `Use Director's typed tools for Stage, Canvas, V
 - Claim a mutation only when its typed Director or Blender tool returned success in the current run. Shell output, including echo, todo status, plans, and intended calls are never mutation evidence. Report failed calls even when a later retry succeeds.
 - Do not mark a creative todo complete until its mutation receipt and requested audit or capture have succeeded. Never claim a workspace was changed without calling its typed operation.
 - Stage geometry comes from catalog meshes, blender_native, or generated_3d. Public director_workbench author calls that set geometry_type are rejected; do not assemble a location from Stage boxes.
+- White-box is a metric clay look with readable silhouettes, not a modeling method and not a pile of primitives. Search the catalog first and place matches with author.add_object (imported architecture keeps modelNormalization "preserve"). Model missing architecture with blender_native create_blockout (presets floor/wall/room/corridor/stairs, metres, wallThickness; stable ids "<idPrefix>:1..n"); cut doors/windows with create_opening or a BOOLEAN modifier, never a darker box on a wall. In create_primitive, dimensions is the only metric size and grounded:true sets the floor pivot.
+- Judge white-box appearance through a named 35-65mm camera at roughly 1.8x subject height distance (pitch under ~15 degrees) with capture or author.evidence, checking massing hierarchy, openings, and ground contact.
 - For a new Blender edit, send blender_native apply with operations only; the Gateway supplies the scene epoch, revision, and intent id.
 - Prefer typed blender_native ops. {"op":"query","query":"清华"} finds Blender objects by name. polyhaven_search then apply polyhaven_import for CC0 HDRIs, textures, and models. sketchfab_search/sketchfab_import need SKETCHFAB_API_TOKEN. Native stills are blender_native {"op":"capture"} or {"op":"capture_render"}. invoke_operator covers most Blender RNA including import/export/render. execute_code runs Python in the live scene when a typed op or operator is not enough. Do not wrap blender_native inside the code tool. Do not quit Blender.
 - Blender is the modeling kernel of the same Director project. Its successful edits synchronize back automatically. Never export GLB/base64 and re-import it through director_creative interchange to "return" Blender work to Director.
@@ -118,20 +121,6 @@ const DIRECTOR_AGENT_GUIDANCE = `Use Director's typed tools for Stage, Canvas, V
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
-}
-
-function stripEncodedMediaPayloads(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripEncodedMediaPayloads);
-  const candidate = record(value);
-  if (!candidate) return value;
-  const encodedMedia =
-    typeof candidate.mimeType === "string" &&
-    (typeof candidate.data === "string" || typeof candidate.dataBase64 === "string");
-  return Object.fromEntries(
-    Object.entries(candidate).flatMap(([key, nested]) =>
-      encodedMedia && (key === "data" || key === "dataBase64") ? [] : [[key, stripEncodedMediaPayloads(nested)]],
-    ),
-  );
 }
 
 function imageRef(value: unknown): DirectorImageRef | undefined {
@@ -169,12 +158,19 @@ async function routeAcceptsImages(context: DirectorWorkbenchPluginContext, exec?
 
 async function prepareDirectorResult(
   context: DirectorWorkbenchPluginContext,
+  tool: string,
   body: Record<string, unknown>,
   exec?: DirectorToolExecution,
 ): Promise<Record<string, unknown>> {
   const capture = record(body.capture);
   const encoded = typeof capture?.data === "string" ? capture.data : capture?.dataBase64;
-  const sanitizedBody = stripEncodedMediaPayloads(body) as Record<string, unknown>;
+  // Media payloads travel through the attachment channel, and an oversized
+  // result (full-project observe, heavy catalog page) is summarized before it
+  // reaches the model; retrieval hints point at bounded re-queries instead.
+  const sanitizedBody = projectOversizedDirectorAgentToolEnvelope(
+    tool,
+    stripEncodedMediaPayloads(body) as Record<string, unknown>,
+  );
   if (!capture || typeof encoded !== "string" || typeof capture.mimeType !== "string") {
     return flattenDirectorToolResult(sanitizedBody);
   }
@@ -348,7 +344,7 @@ export function registerDirectorWorkbenchPlugin(
                 : `Director ${tool.name} failed with HTTP ${result.status}`,
             );
           }
-          return prepareDirectorResult(context, result.body, exec);
+          return prepareDirectorResult(context, tool.name, result.body, exec);
         },
       }),
     );

@@ -1,0 +1,110 @@
+{
+  "name": "whitebox-blockout-workflow",
+  "description": "Verify the white-box guardrails: geometry_type assembly is rejected with the blockout path, misrouted native apply points at blender_native, blockout and opening contracts reflect without a live kernel, and a 50mm review camera captures a clean acceptance frame.",
+  "steps": [
+    {
+      "label": "geometry_type assembly is rejected with the blockout path",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_object",
+            "id": "eval-fake-building",
+            "name": "Fake building",
+            "kind": "prop",
+            "geometry_type": "box",
+            "placement_mode": "grounded",
+            "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [4, 12, 4] }
+          }
+        ]
+      },
+      "expect": { "success": false, "error_includes": "create_blockout" }
+    },
+    {
+      "label": "opening faked by patching geometry_type is rejected",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "update_object",
+            "object_id": "eval-fake-building",
+            "patch": { "geometry_type": "box", "color": "#222222" }
+          }
+        ]
+      },
+      "expect": { "success": false, "error_includes": "create_opening" }
+    },
+    {
+      "label": "misrouted native apply points at blender_native blockout",
+      "tool": "director_workbench",
+      "input": {
+        "op": "apply",
+        "operations": [{ "op": "create_primitive", "id": "eval-misrouted", "primitive": "cube" }]
+      },
+      "expect": { "success": false, "error_includes": "create_blockout" }
+    },
+    {
+      "label": "describe create_blockout without a live kernel",
+      "tool": "blender_native",
+      "input": { "op": "describe", "target": "create_blockout" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.described.json_schema", "result.described.note"]
+      }
+    },
+    {
+      "label": "describe create_opening without a live kernel",
+      "tool": "blender_native",
+      "input": { "op": "describe", "target": "create_opening" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.described.json_schema", "result.described.note"]
+      }
+    },
+    {
+      "label": "boolean_difference alias resolves to the modifier flow",
+      "tool": "blender_native",
+      "input": { "op": "describe", "target": "boolean_difference" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.described.json_schema", "result.described.note"]
+      }
+    },
+    {
+      "label": "add white-box review camera at 50mm",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_camera",
+            "id": "eval-whitebox-cam",
+            "name": "White-box review",
+            "position": [14, 6, 18],
+            "target": [0, 2, 0],
+            "focal_length_mm": 50,
+            "aperture_f_stop": 2.8,
+            "focus_distance_m": 22,
+            "activate": true
+          }
+        ]
+      },
+      "expect": { "success": true, "result_paths": ["result.project_revision"] }
+    },
+    {
+      "label": "capture clean acceptance frame",
+      "tool": "director_workbench",
+      "input": {
+        "op": "capture",
+        "frame": 0,
+        "render_pass": "clean",
+        "width": 640,
+        "height": 360,
+        "depth_of_field": false
+      },
+      "expect": { "success": true }
+    }
+  ]
+}

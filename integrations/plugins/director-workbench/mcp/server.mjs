@@ -55368,14 +55368,16 @@ var agentOperationSchemas = [
   }),
   external_exports.strictObject({
     op: external_exports.literal("create_opening"),
-    id: identifier,
-    targetId: identifier,
+    id: identifier.describe("Stable id for the created cutter object."),
+    targetId: identifier.describe(
+      "Existing mesh wall to cut. A create_blockout room returns walls as <idPrefix>:2..5."
+    ),
     kind: openingKindSchema.default("door"),
     name: external_exports.string().trim().min(1).max(240).optional(),
-    width: finite6.positive().default(0.9),
-    height: finite6.positive().default(2.1),
-    sillHeight: finite6.nonnegative().default(0),
-    offset: finite6.default(0)
+    width: finite6.positive().default(0.9).describe("Opening width in metres."),
+    height: finite6.positive().default(2.1).describe("Opening height in metres."),
+    sillHeight: finite6.nonnegative().default(0).describe("Bottom of the opening above the wall base in metres. Doors keep 0; windows are typically 0.9-1.1."),
+    offset: finite6.default(0).describe("Horizontal offset from the wall centre in metres.")
   }),
   external_exports.strictObject({
     op: external_exports.literal("move_to_collection"),
@@ -55402,14 +55404,18 @@ var agentOperationSchemas = [
   }),
   external_exports.strictObject({
     op: external_exports.literal("create_blockout"),
-    preset: blockoutPresetSchema,
-    idPrefix: identifier,
-    origin: vec36.default([0, 0, 0]),
-    width: finite6.positive().min(0.05).max(1e4).default(8),
-    depth: finite6.positive().min(0.05).max(1e4).default(6),
-    height: finite6.positive().min(0.05).max(1e4).default(3),
-    wallThickness: finite6.positive().min(0.01).max(10).default(0.18),
-    stepCount: external_exports.number().int().min(1).max(256).default(12)
+    preset: blockoutPresetSchema.describe(
+      "room = floor + 4 walls, corridor = floor + 2 parallel walls, stairs = one flight, wall/floor = a single slab. All clay-material white-box shells."
+    ),
+    idPrefix: identifier.describe(
+      'Created objects get stable ids "<idPrefix>:1..n" (room: 1 floor, then north/south/east/west walls). Use one as the batch probe.'
+    ),
+    origin: vec36.default([0, 0, 0]).describe("Floor-level origin in metres (Director Y-up)."),
+    width: finite6.positive().min(0.05).max(1e4).default(8).describe("Metres. Stairs preset: flight width."),
+    depth: finite6.positive().min(0.05).max(1e4).default(6).describe("Metres. Corridor preset: length. Stairs preset: total run."),
+    height: finite6.positive().min(0.05).max(1e4).default(3).describe("Metres. Stairs preset: total rise."),
+    wallThickness: finite6.positive().min(0.01).max(10).default(0.18).describe("Wall and floor slab thickness in metres."),
+    stepCount: external_exports.number().int().min(1).max(256).default(12).describe("Step count for the stairs preset.")
   }),
   external_exports.strictObject({
     op: external_exports.literal("discover_operators"),
@@ -55795,10 +55801,7 @@ function nameQueryFromText(value) {
 }
 function liftQueryList(value) {
   if (Array.isArray(value) && value.length > 0) {
-    return value.map(
-      (item) => typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item
-    );
-  }
+    return value.map((item) => typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item);  }
   if (value && typeof value === "object" && !Array.isArray(value)) return [value];
   return void 0;
 }
@@ -134919,10 +134922,7 @@ var directorWorkbenchWireSchema = compactWireSchema(
   catalog: directorWorkbenchCatalogIdSchema.optional().describe('Required for op="catalog". Use catalog, never target, collection, source, or catalog_type.'),
   spatial: directorObjectSpatialQuerySchema.optional().describe('Selector for op="query_objects".'),
   max_results: external_exports.number().int().min(1).max(200).optional().describe('Result bound for op="query_objects".'),
-  actions: external_exports.array(external_exports.looseObject({ action: external_exports.string().min(1) })).optional().describe(
-    'Required for op="author". Deletion is delete_objects with object_ids (remove_object + id is accepted).'
-  ),
-  fields: external_exports.array(external_exports.string()).optional().describe("Optional observe fields, e.g. counts, ui, objects."),
+  actions: external_exports.array(external_exports.looseObject({ action: external_exports.string().min(1) })).optional().describe('Required for op="author". Deletion is delete_objects with object_ids (remove_object + id is accepted).'),  fields: external_exports.array(external_exports.string()).optional().describe("Optional observe fields, e.g. counts, ui, objects."),
   object_id: external_exports.string().optional().describe("Object id for inspect or a single-object author action."),
   id: external_exports.string().optional(),
   camera_id: external_exports.string().optional(),
@@ -134957,11 +134957,14 @@ var DIRECTOR_AGENT_WIRE_SCHEMAS = {
     blenderNativeToolRequestSchema,
     'Operation. apply executes typed ops including polyhaven_import and sketchfab_import; {"op":"query","query":"\u6E05\u534E"} finds Blender objects by name; polyhaven_search/sketchfab_search list CC0 or Sketchfab models; capture and capture_render take a native still; scene reads native state; {"op":"describe","target":"create_primitive"} reflects typed apply schemas without a live kernel.'
   ).extend({
-    operations: external_exports.array(external_exports.looseObject({ op: external_exports.string().min(1) })).optional().describe('Required for op="apply". Typed ops include create_primitive, polyhaven_import, sketchfab_import, execute_code.'),
+    operations: external_exports.array(external_exports.looseObject({ op: external_exports.string().min(1) })).optional().describe(
+      'Required for op="apply". Typed ops include create_blockout (white-box shells: presets floor/wall/room/corridor/stairs, metres), create_opening (door/window holes), create_primitive (dimensions + grounded), polyhaven_import, sketchfab_import, execute_code.'
+    ),
     operator: external_exports.string().optional().describe('RNA id for op="describe", e.g. mesh.bevel.'),
     target: external_exports.string().optional().describe('Typed apply op for op="describe", e.g. create_primitive or polyhaven_import.'),
-    query: external_exports.string().optional().describe('When op="query", Blender object name substring (e.g. "\u6E05\u534E"). Also search text for catalog, polyhaven_search, and sketchfab_search.'),
-    queries: external_exports.array(external_exports.looseObject({ kind: external_exports.string().min(1) })).optional().describe('Spatial or NAME queries for op="query". Prefer query:"\u6E05\u534E" for a name search.'),
+    query: external_exports.string().optional().describe(
+      'When op="query", Blender object name substring (e.g. "\u6E05\u534E"). Also search text for catalog, polyhaven_search, and sketchfab_search.'
+    ),    queries: external_exports.array(external_exports.looseObject({ kind: external_exports.string().min(1) })).optional().describe('Spatial or NAME queries for op="query". Prefer query:"\u6E05\u534E" for a name search.'),
     id: external_exports.string().optional().describe('Object id for op="inspect".'),
     cameraId: external_exports.string().optional().describe('Camera id for op="capture" or capture_render.'),
     width: external_exports.number().int().optional(),
@@ -134995,8 +134998,7 @@ var DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
   {
     type: "function",
     name: "blender_native",
-    description: `Operate Blender's native modeling and rig surface in the same Director project. Use this for unique architecture and set pieces that are not in the catalog; successful edits synchronize automatically, never via GLB re-import. Call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search","assetType":"models","query":"chair"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Native stills are {"op":"capture"} or the alias {"op":"capture_render"}. Describe typed apply ops with {"op":"describe","target":"create_primitive"} when a field is unknown. invoke_operator covers most Blender RNA; execute_code runs Python when that is not enough. Missing scene epoch, revision, and intent id are filled by the gateway.`,
-    inputSchema: external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native),
+    description: `Operate Blender's native modeling and rig surface in the same Director project. Use this for unique architecture and set pieces that are not in the catalog; successful edits synchronize automatically, never via GLB re-import. White-box shells use apply create_blockout (presets floor/wall/room/corridor/stairs, metric metres, stable ids "<idPrefix>:1..n"); door/window holes use create_opening on the wall, never a darker box. Call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search","assetType":"models","query":"chair"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Native stills are {"op":"capture"} or the alias {"op":"capture_render"}. Describe typed apply ops with {"op":"describe","target":"create_blockout"} when a field is unknown. invoke_operator covers most Blender RNA; execute_code runs Python when that is not enough. Missing scene epoch, revision, and intent id are filled by the gateway.`,    inputSchema: external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native),
     dshParameters: dshToolParameters(external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native))
   }
 ];
@@ -135132,13 +135134,11 @@ var descriptions = {
     `Control Director's 3D scene, objects, characters, cameras, production scenes, timeline, storyboard, capture, and UI. Ops: ${directorWorkbenchOperationNames.join(", ")}.`,
     'describe returns the exact JSON Schema of one operation or author action on demand (target "<op>" or "author.<action>").',
     "Use catalog or a selective observe only when you need current IDs or state, then send one direct authoring operation.",
-    "Reuse catalog IDs and URLs exactly. Do not assemble scenes from geometry_type primitives; instance catalog meshes, model with blender_native, or generate with generated_3d.",
-    "After an edit, one targeted inspect is enough when confirmation is useful. Use audit, correct, trace, capture, or deliver only when the user asks for diagnosis or an output artifact."
+    "Reuse catalog IDs and URLs exactly. Do not assemble scenes from geometry_type primitives; instance catalog meshes, model with blender_native (create_blockout shells, create_opening doors/windows), or generate with generated_3d.",    "After an edit, one targeted inspect is enough when confirmation is useful. Use audit, correct, trace, capture, or deliver only when the user asks for diagnosis or an output artifact."
   ].join(" "),
   director_creative: `Control the live Director Canvas, multimodal generation graph, Video Editor, interchange export, and collaboration comments. Use capabilities or observe when current IDs are needed, then execute one direct operation or batch. Pipeline actions are start, status, and cancel; interchange uses plan-export followed by export. Preview and audit are optional diagnostics, not required steps. Edit operations: ${creativeWorkspaceAgentOperationNames.join(", ")}.`,
   stage_video: "Discover providers and prepare, submit, inspect, or cancel durable image-to-video jobs from the current validated 3D white-box scene. Ops: capabilities, prepare, render, submit, status, cancel. LTX-2.3 uses the isolated Python GPU worker; ComfyUI remains an optional workflow provider; minimax-h3 renders through the hosted MiniMax H3 multimodal API.",
-  blender_native: `Operate Blender's native modeling and rig surface. Use typed apply directly; call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Describe typed apply ops with {"op":"describe","target":"create_primitive"} when a field is unknown. catalog/describe with operator discover Blender RNA for invoke_operator. execute_code runs Python when a typed op or operator is not enough. Native stills use {"op":"capture"} or {"op":"capture_render"}. Do not quit Blender. Missing scene epoch, revision, and intent id are filled by the gateway. inspect and capture are optional checks. status, scene, catalog, describe, inspect, capture, capture_render, polyhaven_search, and sketchfab_search are read-only.`
-};
+  blender_native: `Operate Blender's native modeling and rig surface. Use typed apply directly; call scene when object IDs are unknown. White-box shells use create_blockout (presets floor/wall/room/corridor/stairs, metres); door/window holes use create_opening. Search CC0 assets with {"op":"polyhaven_search"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Describe typed apply ops with {"op":"describe","target":"create_blockout"} when a field is unknown. catalog/describe with operator discover Blender RNA for invoke_operator. execute_code runs Python when a typed op or operator is not enough. Native stills use {"op":"capture"} or {"op":"capture_render"}. Do not quit Blender. Missing scene epoch, revision, and intent id are filled by the gateway. inspect and capture are optional checks. status, scene, catalog, describe, inspect, capture, capture_render, polyhaven_search, and sketchfab_search are read-only.`};
 function targetDescriptorFromEnvironment() {
   const source = process.env.DIRECTOR_TARGET_DESCRIPTOR?.trim();
   if (!source) return void 0;

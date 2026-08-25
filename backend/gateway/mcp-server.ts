@@ -36,6 +36,10 @@ import {
   rememberDirectorAgentToolCall,
 } from "./agents/agentToolMemory";
 import { compactWireSchema, DIRECTOR_AGENT_WIRE_SCHEMAS, dynamicToolTimeoutMs } from "./agents/agentToolRegistry";
+import {
+  projectOversizedDirectorAgentToolEnvelope,
+  stripEncodedMediaPayloads,
+} from "./agents/agentToolResultProjection";
 
 const gatewayUrl = process.env.STAGE_GATEWAY_URL ?? "http://127.0.0.1:8787";
 const sessionId = process.env.DIRECTOR_MCP_SESSION_ID?.trim() || `mcp-${process.pid}-${crypto.randomUUID()}`;
@@ -182,14 +186,14 @@ const descriptions: Record<Exclude<AgentToolName, StageCommandToolName>, string>
     `Control Director's 3D scene, objects, characters, cameras, production scenes, timeline, storyboard, capture, and UI. Ops: ${directorWorkbenchOperationNames.join(", ")}.`,
     'describe returns the exact JSON Schema of one operation or author action on demand (target "<op>" or "author.<action>").',
     "Use catalog or a selective observe only when you need current IDs or state, then send one direct authoring operation.",
-    "Reuse catalog IDs and URLs exactly. Do not assemble scenes from geometry_type primitives; instance catalog meshes, model with blender_native, or generate with generated_3d.",
+    "Reuse catalog IDs and URLs exactly. Do not assemble scenes from geometry_type primitives; instance catalog meshes, model with blender_native (create_blockout shells, create_opening doors/windows), or generate with generated_3d.",
     "After an edit, one targeted inspect is enough when confirmation is useful. Use audit, correct, trace, capture, or deliver only when the user asks for diagnosis or an output artifact.",
   ].join(" "),
   director_creative: `Control the live Director Canvas, multimodal generation graph, Video Editor, interchange export, and collaboration comments. Use capabilities or observe when current IDs are needed, then execute one direct operation or batch. Pipeline actions are start, status, and cancel; interchange uses plan-export followed by export. Preview and audit are optional diagnostics, not required steps. Edit operations: ${creativeWorkspaceAgentOperationNames.join(", ")}.`,
   stage_video:
     "Discover providers and prepare, submit, inspect, or cancel durable image-to-video jobs from the current validated 3D white-box scene. Ops: capabilities, prepare, render, submit, status, cancel. LTX-2.3 uses the isolated Python GPU worker; ComfyUI remains an optional workflow provider; minimax-h3 renders through the hosted MiniMax H3 multimodal API.",
   blender_native:
-    'Operate Blender\'s native modeling and rig surface. Use typed apply directly; call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Describe typed apply ops with {"op":"describe","target":"create_primitive"} when a field is unknown. catalog/describe with operator discover Blender RNA for invoke_operator. execute_code runs Python when a typed op or operator is not enough. Native stills use {"op":"capture"} or {"op":"capture_render"}. Do not quit Blender. Missing scene epoch, revision, and intent id are filled by the gateway. inspect and capture are optional checks. status, scene, catalog, describe, inspect, capture, capture_render, polyhaven_search, and sketchfab_search are read-only.',
+    'Operate Blender\'s native modeling and rig surface. Use typed apply directly; call scene when object IDs are unknown. White-box shells use create_blockout (presets floor/wall/room/corridor/stairs, metres); door/window holes use create_opening. Search CC0 assets with {"op":"polyhaven_search"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Describe typed apply ops with {"op":"describe","target":"create_blockout"} when a field is unknown. catalog/describe with operator discover Blender RNA for invoke_operator. execute_code runs Python when a typed op or operator is not enough. Native stills use {"op":"capture"} or {"op":"capture_render"}. Do not quit Blender. Missing scene epoch, revision, and intent id are filled by the gateway. inspect and capture are optional checks. status, scene, catalog, describe, inspect, capture, capture_render, polyhaven_search, and sketchfab_search are read-only.',
 };
 
 function targetDescriptorFromEnvironment(): DirectorAgentTargetWire | undefined {
@@ -314,7 +318,7 @@ for (const tool of AGENT_TOOL_NAMES.filter(
       if (rejection) return rejection;
       try {
         const result = await callGateway(tool, input as Record<string, unknown>);
-        return createMcpToolResponse(result);
+        return createMcpToolResponse(result, tool);
       } catch (error) {
         return {
           content: [
@@ -366,6 +370,13 @@ registerVisibleTool("blender_native", () => {
               ? capture.data
               : null;
         const mimeType = typeof capture?.mimeType === "string" ? capture.mimeType : null;
+        // The capture travels once, as the image block below. Base64 payloads
+        // are stripped from the text/structured views, and an oversized native
+        // result (full scene dumps, giant receipts) is summarized for the model.
+        const modelPayload = projectOversizedDirectorAgentToolEnvelope(
+          "blender_native",
+          stripEncodedMediaPayloads(payload) as Record<string, unknown>,
+        );
         const content: Array<
           | { type: "text"; text: string }
           | {
@@ -374,7 +385,7 @@ registerVisibleTool("blender_native", () => {
               mimeType: string;
               annotations: { audience: ["assistant"]; priority: number };
             }
-        > = [{ type: "text", text: JSON.stringify(payload) }];
+        > = [{ type: "text", text: JSON.stringify(modelPayload) }];
         if (imageData && mimeType) {
           content.push({
             type: "image",
@@ -385,7 +396,7 @@ registerVisibleTool("blender_native", () => {
         }
         return {
           content,
-          structuredContent: payload,
+          structuredContent: modelPayload,
           isError: !response.ok || payload.success === false,
         };
       } catch (error) {
