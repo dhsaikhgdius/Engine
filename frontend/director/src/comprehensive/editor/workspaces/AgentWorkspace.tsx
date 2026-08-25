@@ -95,13 +95,21 @@ export function AgentWorkspace() {
       {status === "unavailable" ? (
         <section className="director-agent-workspace-guide">
           <h1>{t("用 DeepSeek Harness 驱动导演台")}</h1>
+          <p>
+            {t(
+              "嵌入的 DeepSeek Harness 自带 skill、todo、后台任务、网页与 bash 等内置工具；Director 导演台工具由 overlay 插件加载。",
+            )}
+          </p>
           <ol>
             <li>
+              {t("启动 Gateway：")}
               <code>npm run dev:gateway</code>
             </li>
             <li>
+              {t("在仓库根目录运行：")}
               <code>npm run dsh</code>
             </li>
+            <li>{t("本页会自动重连；也可以手动刷新。")}</li>
           </ol>
         </section>
       ) : null}
@@ -109,6 +117,7 @@ export function AgentWorkspace() {
         <section className="director-agent-workspace-guide">
           <h1>{t("DeepSeek Harness 未加载 Director 插件")}</h1>
           <p>{t("当前运行的 Agent 无法可靠操作导演台，请停止它并从项目根目录重新启动。")}</p>
+          <p>{t("从仓库根目录启动才会加载 Director overlay 插件与 director-workbench 技能。")}</p>
           <code>npm run dsh</code>
         </section>
       ) : null}
