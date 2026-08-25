@@ -528,10 +528,15 @@ async function readCodexPlannerOutput(path: string, fallback: string) {
  *
  * @param command - The executable to spawn.
  * @param args - Command-line arguments for the executable.
- * @param timeoutMs - Hard deadline in milliseconds; defaults to {@link AGENT_PLAN_TIMEOUT_MS}.
+ * @param options - Optional stdin payload and hard deadline (defaults to {@link AGENT_PLAN_TIMEOUT_MS}).
  * @returns A {@link PlannerRunResult} capturing stdout, stderr, and termination flags.
  */
-function runProcess(command: string, args: string[], timeoutMs = AGENT_PLAN_TIMEOUT_MS): Promise<PlannerRunResult> {
+function runProcess(
+  command: string,
+  args: string[],
+  options: { stdinInput?: string; timeoutMs?: number } = {},
+): Promise<PlannerRunResult> {
+  const { stdinInput, timeoutMs = AGENT_PLAN_TIMEOUT_MS } = options;
   return new Promise((resolveRun) => {
     const output = new BoundedTextBuffer(
       AGENT_PLAN_STDOUT_MAX_BYTES,
@@ -557,12 +562,19 @@ function runProcess(command: string, args: string[], timeoutMs = AGENT_PLAN_TIME
       child = spawn(command, args, {
         cwd: root,
         env: process.env,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: [stdinInput === undefined ? "ignore" : "pipe", "pipe", "pipe"],
         detached: SPAWN_IN_OWN_PROCESS_GROUP,
       });
     } catch (error) {
       finish({ output: "", error: error instanceof Error ? error.message : String(error) });
       return;
+    }
+    if (stdinInput !== undefined && child.stdin) {
+      // The planner may exit before consuming the whole prompt; a surfaced
+      // EPIPE here would crash the gateway, so the close handler owns the
+      // failure report instead.
+      child.stdin.on("error", () => {});
+      child.stdin.end(stdinInput);
     }
     const terminate = () => {
       if (termination) return;
@@ -659,20 +671,28 @@ async function runAgentPlanner(
     const temporaryDirectory = await mkdtemp(resolve(tmpdir(), "director-codex-plan-"));
     const outputPath = resolve(temporaryDirectory, "plan.json");
     try {
-      const result = await runProcess("codex", [
-        "exec",
-        "--sandbox",
-        "read-only",
-        "--ephemeral",
-        "--skip-git-repo-check",
-        "--output-schema",
-        agentPlanSchemaPath,
-        "--output-last-message",
-        outputPath,
-        "--cd",
-        root,
-        prompt,
-      ]);
+      // The prompt embeds full authoring/creative JSON schemas plus live
+      // observations, which can exceed the OS single-argument limit
+      // (Linux MAX_ARG_STRLEN, 128 KiB) and fail spawn with E2BIG. The "-"
+      // sentinel makes codex exec read the whole prompt from stdin instead.
+      const result = await runProcess(
+        "codex",
+        [
+          "exec",
+          "--sandbox",
+          "read-only",
+          "--ephemeral",
+          "--skip-git-repo-check",
+          "--output-schema",
+          agentPlanSchemaPath,
+          "--output-last-message",
+          outputPath,
+          "--cd",
+          root,
+          "-",
+        ],
+        { stdinInput: prompt },
+      );
       if (result.outputLimitExceeded) {
         return outputLimitFailure(agent, `Codex stdout exceeded the safety limit\nretained_tail=${result.output}`);
       }
@@ -704,24 +724,29 @@ async function runAgentPlanner(
     }
   }
 
-  const result = await runProcess("claude", [
-    "--print",
-    "--permission-mode",
-    "plan",
-    "--no-session-persistence",
-    "--effort",
-    "low",
-    "--output-format",
-    "json",
-    "--json-schema",
-    JSON.stringify(AGENT_PLAN_SCHEMA),
-    // Claude treats --tools as a variadic option. The -- delimiter keeps the
-    // planner prompt from being consumed as another tool name.
-    "--tools",
-    "",
-    "--",
-    prompt,
-  ]);
+  // The prompt is piped through stdin: claude --print reads it there when no
+  // positional prompt is given, and stdin has no OS argument-length limit
+  // (the argv form can fail spawn with E2BIG once schemas plus observations
+  // pass Linux MAX_ARG_STRLEN). This also keeps the variadic --tools option
+  // from consuming the prompt as another tool name.
+  const result = await runProcess(
+    "claude",
+    [
+      "--print",
+      "--permission-mode",
+      "plan",
+      "--no-session-persistence",
+      "--effort",
+      "low",
+      "--output-format",
+      "json",
+      "--json-schema",
+      JSON.stringify(AGENT_PLAN_SCHEMA),
+      "--tools",
+      "",
+    ],
+    { stdinInput: prompt },
+  );
   if (result.outputLimitExceeded) {
     return outputLimitFailure(agent, `Claude stdout exceeded the safety limit\nretained_tail=${result.output}`);
   }

@@ -88,7 +88,11 @@ describe("agent gateway HTTP boundary", () => {
     const fakePlanner = `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
-const prompt = args.at(-1) || "";
+// Real codex reads the prompt from stdin for a "-" positional, and claude
+// --print reads stdin when no positional prompt is given. The gateway pipes
+// the prompt this way because it can exceed the OS argument limit (E2BIG).
+const positional = args.at(-1) || "";
+const prompt = positional === "-" || positional === "" ? fs.readFileSync(0, "utf8") : positional;
 const outputIndex = args.indexOf("--output-last-message");
 const outputPath = outputIndex >= 0 ? args[outputIndex + 1] : null;
 if (prompt.includes("DRAFT_DECODER_TEST")) {
