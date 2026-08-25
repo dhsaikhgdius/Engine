@@ -340,7 +340,11 @@ World actions ride in a normal `author` batch. The first one creates `project.wo
       "action": "set_world_settings",
       "settings": {
         "wind": { "direction_degrees": 210, "speed_mps": 6 },
-        "weather": { "preset": "rain", "intensity": 0.7 },
+        "weather": {
+          "preset": "rain",
+          "intensity": 0.7,
+          "evolution": { "mode": "cycle", "period_seconds": 300 }
+        },
         "time_of_day": { "mode": "fixed", "hours": 19.5 }
       }
     },
@@ -350,6 +354,13 @@ World actions ride in a normal `author` batch. The first one creates `project.wo
       "anchor": { "object_id": "campfire-logs", "position": [0, 0.4, 0] },
       "intensity": 1.4,
       "color_tint": "#ff7733"
+    },
+    {
+      "action": "add_world_effect",
+      "kind": "fire",
+      "anchor": { "position": [24, 0, -14] },
+      "intensity": 1,
+      "propagation": { "enabled": true, "radius_m": 16, "spread_rate": 1 }
     },
     {
       "action": "add_world_water_body",
