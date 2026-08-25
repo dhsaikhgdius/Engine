@@ -72,7 +72,8 @@ Sibling directories under `tools/`:
 | `sync-agent-skills.mjs` | Copies `.claude/skills/director-workbench/` to the plugin tree, and writes per-agent MCP/instruction adapters from `agent-integrations.mjs` |
 | `agent-integrations.mjs` | Single definition for Director MCP launch plus generated adapters (`.cursor/mcp.json`, `.codex/config.toml`, `CLAUDE.md`, …); `repo:check` requires those files to match |
 | `agent-integrations.test.mjs` | Vitest test suite for `agent-integrations.mjs` |
-| `dsh-director.mjs` | Write the Director overlay and launch the pinned DeepSeek Harness Web profile (`npm run dsh`) |
+| `dsh-director.mjs` | Write the Director overlay and launch the pinned official DeepSeek Harness Web profile (`@deepseek-ai/dsh@0.1.0-rc.6`) from the repository root so `.dsh/skills/director-workbench` is discovered; passes `STAGE_GATEWAY_URL` / `DIRECTOR_GATEWAY_TOKEN` / `DIRECTOR_TARGET_TOKEN` through when set and adds `--no-open` for `CI` / `DIRECTOR_DSH_NO_OPEN=1` (`npm run dsh`) |
+| `dsh-director.test.mjs` | Vitest test suite for `dsh-director.mjs` (overlay patch shape, headless `--no-open`, env passthrough) |
 
 ### Miscellaneous
 
