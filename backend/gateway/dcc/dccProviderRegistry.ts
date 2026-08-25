@@ -19,6 +19,7 @@ import {
 } from "@director/dcc-protocol";
 import type { BlenderBridge } from "./blenderBridge";
 import type { DirectorDccEngineBridge } from "./engineBridge";
+import { UNITY_STATIC_EDITOR_PATHS } from "./unityProbe";
 
 /**
  * A pluggable adapter that vends a DCC provider's descriptor and live status.
@@ -113,8 +114,10 @@ const RUNTIME_PROBES: Partial<Record<DirectorDccProviderId, RuntimeProbe>> = {
   },
   unity: {
     environmentVariable: "DIRECTOR_UNITY_BIN",
-    commands: ["Unity"],
-    paths: ["/Applications/Unity/Unity.app/Contents/MacOS/Unity"],
+    commands: ["Unity", "Unity.exe"],
+    // Exchange-fallback detection only; the engine bridge performs the full
+    // per-platform Unity Hub scan through unityProbe.ts.
+    paths: Object.values(UNITY_STATIC_EDITOR_PATHS).flat(),
   },
   "3dsmax": {
     environmentVariable: "DIRECTOR_3DSMAX_BIN",

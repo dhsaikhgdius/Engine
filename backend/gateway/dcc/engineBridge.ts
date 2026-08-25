@@ -21,6 +21,7 @@ import {
 } from "@director/dcc-protocol";
 import type { DirectorProject } from "@director/project-schema";
 import type { DirectorDccExchangePackager } from "./dccExchangePackage";
+import { discoverUnityEditorExecutableCandidates } from "./unityProbe";
 
 /** Environment variable naming the engine editor binary, per engine. */
 export const DIRECTOR_ENGINE_BINARY_ENV: Record<DirectorDccEngineId, string> = {
@@ -51,8 +52,10 @@ const ENGINE_RUNTIME_PROBES: Record<DirectorDccEngineId, EngineRuntimeProbe> = {
     ],
   },
   unity: {
-    commands: ["Unity", "unity", "unityhub-editor"],
-    defaultPaths: ["/Applications/Unity/Unity.app/Contents/MacOS/Unity"],
+    commands: ["Unity", "unity", "Unity.exe", "unityhub-editor"],
+    // Unity default paths are produced per-platform by unityProbe.ts
+    // (Unity Hub per-version installs plus legacy/containerized layouts).
+    defaultPaths: [],
   },
   godot: {
     commands: ["godot", "godot4", "godot4.4", "godot4.3"],
@@ -246,7 +249,9 @@ async function discoverOnPath(commands: readonly string[], environment: NodeJS.P
 async function discoverEngineExecutable(provider: DirectorDccEngineId, environment: NodeJS.ProcessEnv) {
   const configured = environment[DIRECTOR_ENGINE_BINARY_ENV[provider]]?.trim();
   const probe = ENGINE_RUNTIME_PROBES[provider];
-  const candidates = [configured, ...probe.defaultPaths].filter((candidate): candidate is string => Boolean(candidate));
+  const defaultPaths =
+    provider === "unity" ? await discoverUnityEditorExecutableCandidates({ environment }) : probe.defaultPaths;
+  const candidates = [configured, ...defaultPaths].filter((candidate): candidate is string => Boolean(candidate));
   for (const candidate of candidates) if (await isFile(candidate)) return candidate;
   return discoverOnPath(probe.commands, environment);
 }
