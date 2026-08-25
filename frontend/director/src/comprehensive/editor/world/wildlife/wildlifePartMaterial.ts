@@ -1,4 +1,4 @@
-import { MeshDepthMaterial, MeshStandardMaterial, RGBADepthPacking } from "three";
+import { FrontSide, MeshDepthMaterial, MeshStandardMaterial, RGBADepthPacking, type Side } from "three";
 
 /**
  * Vertex-shader part articulation for the herd placeholder InstancedMesh.
@@ -26,6 +26,8 @@ export const WILDLIFE_PART_ANGLES_ATTRIBUTE_1 = "aPartAngles1";
 /**
  * GLSL attribute declarations plus helper functions, injected after
  * `#include <common>` in the standard MeshStandardMaterial vertex shader.
+ * Slot 7 (`aPartAngles1.w`) is not an angle: it carries the per-agent 0..1
+ * shade written by the render layer, forwarded through `vWildlifeShade`.
  */
 export const WILDLIFE_PART_VERTEX_PRELUDE = /* glsl */ `
 attribute float aPartId;
@@ -33,6 +35,7 @@ attribute vec3 aPartPivot;
 attribute vec3 aPartAxis;
 attribute vec4 aPartAngles0;
 attribute vec4 aPartAngles1;
+varying float vWildlifeShade;
 
 float wildlifePick4(vec4 v, float id) {
   return mix(mix(v.x, v.y, step(0.5, id)), mix(v.z, v.w, step(2.5, id)), step(1.5, id));
@@ -50,14 +53,32 @@ vec3 wildlifeRotateAboutAxis(vec3 p, vec3 axis, float angleRad) {
 `;
 
 /**
- * Rotates the vertex position about its part pivot, injected after
- * `#include <begin_vertex>`.
+ * Rotates the vertex position about its part pivot and forwards the shade
+ * varying, injected after `#include <begin_vertex>`.
  */
 export const WILDLIFE_PART_POSITION_CHUNK = /* glsl */ `
 {
   float wildlifePositionAngle = wildlifePartAngleRad();
   transformed = aPartPivot + wildlifeRotateAboutAxis(transformed - aPartPivot, aPartAxis, wildlifePositionAngle);
+  vWildlifeShade = aPartAngles1.w;
 }
+`;
+
+/**
+ * Fragment-stage declarations injected after `#include <common>` in the
+ * standard fragment shader (color pass only; the depth pass ignores shade).
+ */
+export const WILDLIFE_PART_FRAGMENT_PRELUDE = /* glsl */ `
+varying float vWildlifeShade;
+`;
+
+/**
+ * Per-agent albedo variation injected after `#include <color_fragment>`:
+ * maps shade 0..1 to a subtle 0.85–1.12 brightness factor so herd members
+ * read as individuals instead of identical clones.
+ */
+export const WILDLIFE_PART_SHADE_CHUNK = /* glsl */ `
+diffuseColor.rgb *= (0.85 + 0.27 * vWildlifeShade);
 `;
 
 /**
@@ -79,20 +100,33 @@ export function injectWildlifePartVertexShader(vertexShader: string): string {
     .replace("#include <begin_vertex>", `#include <begin_vertex>\n${WILDLIFE_PART_POSITION_CHUNK}`);
 }
 
+/** Fragment counterpart: declares the shade varying and applies it to albedo. */
+export function injectWildlifePartFragmentShader(fragmentShader: string): string {
+  return fragmentShader
+    .replace("#include <common>", `#include <common>\n${WILDLIFE_PART_FRAGMENT_PRELUDE}`)
+    .replace("#include <color_fragment>", `#include <color_fragment>\n${WILDLIFE_PART_SHADE_CHUNK}`);
+}
+
 /**
- * Tinted standard material with the part-articulation vertex stage. All herd
- * materials share one program (constant cache key; the tint is a uniform).
+ * Tinted standard material with the part-articulation vertex stage and the
+ * per-agent shade fragment stage. All materials with the same `side` share
+ * one program (the custom cache key is constant and the tint is a uniform;
+ * three folds `side` into its own program parameters). Herd boxes render
+ * front-side; birds pass DoubleSide because their wing parts are single
+ * triangles.
  */
-export function createWildlifePartMaterial(tintHex: number): MeshStandardMaterial {
+export function createWildlifePartMaterial(tintHex: number, side: Side = FrontSide): MeshStandardMaterial {
   const material = new MeshStandardMaterial({
     color: tintHex,
     roughness: 0.9,
     metalness: 0,
+    side,
   });
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = injectWildlifePartVertexShader(shader.vertexShader);
+    shader.fragmentShader = injectWildlifePartFragmentShader(shader.fragmentShader);
   };
-  material.customProgramCacheKey = () => "wildlife-part-v1";
+  material.customProgramCacheKey = () => "wildlife-part-v2";
   return material;
 }
 

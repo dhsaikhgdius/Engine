@@ -26,19 +26,30 @@ const HERD_PART_NAMES: WildlifePartName[] = [
   "tail",
 ];
 
-/** Locked layout: 36 vertices per box; changing a silhouette must be deliberate. */
+/**
+ * Locked layout: 36 vertices per box; changing a silhouette must be
+ * deliberate. Golden update (wildlife ecology track): birds gained a tail
+ * fan (+2 tris) and fish gained dorsal + pectoral fins (+3 tris) so the two
+ * species read correctly at silhouette distance instead of as darts.
+ */
 const EXPECTED_VERTEX_COUNTS: Record<WorldWildlifeSpecies, number> = {
-  birds: 24, // 6 fuselage tris + 2 wing tris
+  birds: 30, // 6 fuselage tris + 2 wing tris + 2 tail-fan tris
   butterflies: 30, // 6 fuselage tris + 4 wing tris
-  fish: 27, // 8 body tris + 1 tail fin tri
+  fish: 36, // 8 body tris + 1 tail fin + 1 dorsal fin + 2 pectoral fins
   deer: 432, // 12 boxes: body, neck, head, 2×(antler beam + fork), tail, 4 legs
   rabbits: 360, // 10 boxes: body, haunches, head, 2 ears, tail, 4 legs
   wolves: 360, // 10 boxes: body, head, snout, 2 ears, tail, 4 legs
   sheep: 288, // 8 boxes: body, wool hump, head, tail, 4 legs
 };
 
+/**
+ * Golden update (wildlife polish track): birds went from 1 inert part to 3
+ * (body + two wing parts on the front-leg slots) so the part shader can beat
+ * real wings in flap-glide cycles instead of rocking the whole body — the
+ * motion signature that separates birds from butterflies on camera.
+ */
 const EXPECTED_PART_COUNTS: Record<WorldWildlifeSpecies, number> = {
-  birds: 1,
+  birds: 3,
   butterflies: 1,
   fish: 1,
   deer: 7,
@@ -118,9 +129,52 @@ describe("placeholder geometry builders", () => {
       expect(seenSlots.size).toBe(EXPECTED_PART_COUNTS[species]); // every part owns vertices
       geometry.dispose();
     }
-    // Flock/school species carry inert all-body metadata.
+    // Birds tag exactly their two wing triangles; butterflies and fish stay
+    // inert all-body.
     const birdIds = attributeArray("birds", 1, WILDLIFE_PART_ID_ATTRIBUTE);
-    expect(new Set(birdIds)).toEqual(new Set([WILDLIFE_PART_SLOTS.body]));
+    expect(new Set(birdIds)).toEqual(
+      new Set([WILDLIFE_PART_SLOTS.body, WILDLIFE_PART_SLOTS.legFrontLeft, WILDLIFE_PART_SLOTS.legFrontRight]),
+    );
+    expect(birdIds.filter((id) => id === WILDLIFE_PART_SLOTS.legFrontRight)).toHaveLength(3); // one triangle
+    expect(birdIds.filter((id) => id === WILDLIFE_PART_SLOTS.legFrontLeft)).toHaveLength(3);
+    for (const species of ["butterflies", "fish"] as const) {
+      expect(new Set(attributeArray(species, 1, WILDLIFE_PART_ID_ATTRIBUTE))).toEqual(
+        new Set([WILDLIFE_PART_SLOTS.body]),
+      );
+    }
+  });
+
+  it("mirrors the bird wing parts: ±X pivots on the fuselage edge, ±Z axes", () => {
+    const { geometry, parts } = buildWildlifeModel("birds", 1);
+    const rightWing = parts.find((part) => part.name === "legFrontRight");
+    const leftWing = parts.find((part) => part.name === "legFrontLeft");
+    expect(rightWing).toBeDefined();
+    expect(leftWing).toBeDefined();
+    if (!rightWing || !leftWing) return;
+    // Mirrored pivots at the wing roots (one flap angle drives both wings
+    // through the mirrored axes; see wildlifeGait.writeWildlifeBirdPartAngles).
+    expect(rightWing.pivot[0]).toBeGreaterThan(0);
+    expect(leftWing.pivot[0]).toBeCloseTo(-rightWing.pivot[0], 10);
+    expect(leftWing.pivot[1]).toBe(rightWing.pivot[1]);
+    expect(leftWing.pivot[2]).toBe(rightWing.pivot[2]);
+    expect(rightWing.axis).toEqual([0, 0, 1]);
+    expect(leftWing.axis).toEqual([0, 0, -1]);
+    geometry.dispose();
+  });
+
+  it("keeps every species tint distinct — birds cool blue vs wolves warm brown", () => {
+    const channels = (hex: number): [number, number, number] => [(hex >> 16) & 0xff, (hex >> 8) & 0xff, hex & 0xff];
+    const tints = WORLD_WILDLIFE_SPECIES.map((species) => WILDLIFE_RENDER_PROFILES[species].tintHex);
+    expect(new Set(tints).size).toBe(WORLD_WILDLIFE_SPECIES.length);
+    // The two darks must live in different color families so a previz camera
+    // cannot confuse them: birds blue-dominant (b > r), wolves warm (r > b),
+    // and a healthy channel distance between them.
+    const [birdR, birdG, birdB] = channels(WILDLIFE_RENDER_PROFILES.birds.tintHex);
+    const [wolfR, wolfG, wolfB] = channels(WILDLIFE_RENDER_PROFILES.wolves.tintHex);
+    expect(birdB).toBeGreaterThan(birdR);
+    expect(wolfR).toBeGreaterThan(wolfB);
+    const distance = Math.abs(birdR - wolfR) + Math.abs(birdG - wolfG) + Math.abs(birdB - wolfB);
+    expect(distance).toBeGreaterThanOrEqual(48);
   });
 
   it("places pivots anatomically: legs below the body, head ahead, tail behind", () => {
