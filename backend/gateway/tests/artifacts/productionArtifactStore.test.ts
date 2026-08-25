@@ -18,6 +18,14 @@ import {
 } from "../../artifacts/productionArtifactStore";
 
 const now = "2026-08-03T00:00:00.000Z";
+const LIVE_PROJECT: ProductionApprovalFingerprint = {
+  kind: "project",
+  value: `director-project-revision:v1:sha256:${"c".repeat(64)}`,
+};
+
+function bindLiveProject(fingerprints: readonly ProductionApprovalFingerprint[]): ProductionApprovalFingerprint[] {
+  return [...fingerprints, LIVE_PROJECT].sort((left, right) => left.kind.localeCompare(right.kind));
+}
 
 function versionInput(id = "artifact-version:shot/unsafe:1", ordinal = 1): ProductionArtifactVersionInput {
   return {
@@ -275,7 +283,9 @@ describe("ProductionArtifactStore", () => {
   it("requires fingerprint-current approval when policy demands it", async () => {
     const { store } = await createStore();
     const { version } = await store.putVersion(versionInput());
-    const bindings: ProductionApprovalFingerprint[] = [{ kind: "artifact", value: version.recordFingerprint }];
+    const bindings: ProductionApprovalFingerprint[] = bindLiveProject([
+      { kind: "artifact", value: version.recordFingerprint },
+    ]);
     const { approval } = await store.putApproval({
       contract: "director-production-approval-v1",
       approvalId: "approval-1",
@@ -293,7 +303,9 @@ describe("ProductionArtifactStore", () => {
         versionId: version.versionId,
         expectedPreviousVersionId: null,
         approvalIds: [approval.approvalId],
-        observedFingerprints: [{ kind: "artifact", value: `artifact-version:v1:sha256:${"9".repeat(64)}` }],
+        observedFingerprints: bindLiveProject([
+          { kind: "artifact", value: `artifact-version:v1:sha256:${"9".repeat(64)}` },
+        ]),
         promotedAt: now,
         promotedBy: "agent:producer",
         requireCurrentApproval: true,
@@ -322,7 +334,7 @@ describe("ProductionArtifactStore", () => {
       approvalId: "approval-original",
       scope: { kind: "artifact-version", versionId: version.versionId },
       decision: "approved",
-      fingerprints: [{ kind: "artifact", value: version.recordFingerprint }],
+      fingerprints: bindLiveProject([{ kind: "artifact", value: version.recordFingerprint }]),
       reviewerId: "reviewer-1",
       checklist: [],
       decidedAt: now,
@@ -411,5 +423,67 @@ describe("ProductionArtifactStore", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("rejects new approvals that omit a live project revision fingerprint", async () => {
+    const { store } = await createStore();
+    const { version } = await store.putVersion(versionInput());
+    await expect(
+      store.putApproval({
+        contract: "director-production-approval-v1",
+        approvalId: "approval-unbound",
+        scope: { kind: "artifact-version", versionId: version.versionId },
+        decision: "approved",
+        fingerprints: [{ kind: "artifact", value: version.recordFingerprint }],
+        reviewerId: "reviewer-1",
+        checklist: [],
+        decidedAt: now,
+      }),
+    ).rejects.toBeInstanceOf(ProductionArtifactValidationError);
+  });
+
+  it("treats a changed live project revision as a stale approval", async () => {
+    const { store } = await createStore();
+    const { version } = await store.putVersion(versionInput());
+    const bindings = bindLiveProject([{ kind: "artifact", value: version.recordFingerprint }]);
+    const { approval } = await store.putApproval({
+      contract: "director-production-approval-v1",
+      approvalId: "approval-live-project",
+      scope: { kind: "artifact-version", versionId: version.versionId },
+      decision: "approved",
+      fingerprints: bindings,
+      reviewerId: "reviewer-1",
+      checklist: [],
+      decidedAt: now,
+    });
+    await expect(
+      store.promote({
+        promotionId: "promotion-stale-project",
+        target: { workspace: "delivery", ownerId: "delivery-stale-project", slot: "master" },
+        versionId: version.versionId,
+        expectedPreviousVersionId: null,
+        approvalIds: [approval.approvalId],
+        observedFingerprints: bindLiveProject([{ kind: "artifact", value: version.recordFingerprint }]).map(
+          (fingerprint) =>
+            fingerprint.kind === "project"
+              ? { kind: "project" as const, value: `director-project-revision:v1:sha256:${"d".repeat(64)}` }
+              : fingerprint,
+        ),
+        promotedAt: now,
+        promotedBy: "agent:producer",
+      }),
+    ).rejects.toThrow(/No approval matches|stale|project/);
+    await expect(
+      store.promote({
+        promotionId: "promotion-current-project",
+        target: { workspace: "delivery", ownerId: "delivery-current-project", slot: "master" },
+        versionId: version.versionId,
+        expectedPreviousVersionId: null,
+        approvalIds: [approval.approvalId],
+        observedFingerprints: bindings,
+        promotedAt: now,
+        promotedBy: "agent:producer",
+      }),
+    ).resolves.toMatchObject({ replayed: false });
   });
 });

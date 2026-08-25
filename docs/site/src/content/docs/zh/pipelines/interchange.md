@@ -178,7 +178,8 @@ archive SHA-256、字节数、兼容性警告和稳定回执；inline 传输上�
 导入沿用同一套 plan/receipt 纪律，分两个 JSON 步骤完成。`plan-import` 校验一个 source —
 有界 `inline` payload、已存在的 Gallery `media_id`，或可读的 `workspace_path` — 并返回绑定
 当前 guard fingerprint 的计划；`import` 随后精确应用该 `plan_id`，携带
-`expected_guard_fingerprint` 与 `confirm:true`，fingerprint 过期时必须重新生成计划。浏览器
+`expected_guard_fingerprint` 与 `confirm:true`，fingerprint 过期时必须重新生成计划。OBJ/STL
+仍是只导出格式；文档所列 **Limited** 格式子集边界不变。浏览器
 文件选择器仍作为便捷入口保留（针对人类本地已打开的文件），但不再是唯一导入路径。没有已
 校验的计划和回执时，不得宣称完成导入。
 

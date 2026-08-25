@@ -451,6 +451,7 @@ async function callProductionEvidence(input: ProductionEvidenceRequest): Promise
         "promotion is append-only and optimistic-concurrency guarded",
         "promotion_id is required and binds exact retries to one immutable promotion request",
         "fingerprint-bound approvals become stale when observed evidence changes",
+        "new approvals must bind a live director-project-revision fingerprint",
       ],
     };
   }

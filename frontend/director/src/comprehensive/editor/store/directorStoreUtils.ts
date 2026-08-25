@@ -39,6 +39,7 @@ import {
   migrateDirectorProduction,
   reconcileDirectorProduction,
 } from "../schema/directorProduction";
+import { persistProductionGraphIdentities } from "../productionGraph/productionGraphMigration";
 import { createDefaultDirectorFrameTimeline } from "../timeline/frameTime";
 import { backfillDirectorAssetMetricScale } from "./directorScaleMigration";
 import {
@@ -149,10 +150,7 @@ export function getInitialDirectorScenePersistenceScopeId() {
   }
 }
 
-export function getDirectorSceneStorageKey(
-  scopeId: string | null | undefined,
-  persistenceScopeId: string | null,
-) {
+export function getDirectorSceneStorageKey(scopeId: string | null | undefined, persistenceScopeId: string | null) {
   const normalizedScopeId = normalizeDirectorScenePersistenceScopeId(scopeId ?? persistenceScopeId);
   return normalizedScopeId ? `${DIRECTOR_SCENE_STORAGE_KEY_PREFIX}${normalizedScopeId}` : DIRECTOR_SCENE_STORAGE_KEY;
 }
@@ -248,7 +246,10 @@ export function removePersistedLocalModelAsset(assetId: string) {
   writePersistedLocalModelAssets(readPersistedLocalModelAssets().filter((asset) => asset.id !== assetId));
 }
 
-export function withPersistedLocalAssets(project: DirectorProject, includePersistedLocalAssets = false): DirectorProject {
+export function withPersistedLocalAssets(
+  project: DirectorProject,
+  includePersistedLocalAssets = false,
+): DirectorProject {
   if (!includePersistedLocalAssets) return project;
   const persistedAssets = readPersistedLocalModelAssets();
   if (!persistedAssets.length) return project;
@@ -375,7 +376,7 @@ export function migrateDirectorProject(project: DirectorProject): DirectorProjec
       ? { ...object, nativeSource: { engine: "blender" as const, objectId: object.id, provisioned: false } }
       : object,
   );
-  return migrateDirectorProduction(migratedProject);
+  return persistProductionGraphIdentities(migrateDirectorProduction(migratedProject));
 }
 
 export function withReconciledProduction(project: DirectorProject): DirectorProject {

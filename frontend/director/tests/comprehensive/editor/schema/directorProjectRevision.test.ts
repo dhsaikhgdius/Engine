@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
-import type { DirectorAssetRef, DirectorObject, DirectorProject } from "../../../../src/comprehensive/editor/schema/directorProject";
+import type {
+  DirectorAssetRef,
+  DirectorObject,
+  DirectorProject,
+} from "../../../../src/comprehensive/editor/schema/directorProject";
 import {
   canonicalizeDirectorProjectForRevision,
   DIRECTOR_PROJECT_REVISION_CONTRACT,
@@ -178,5 +182,14 @@ describe("DirectorProject deterministic revision", () => {
 
     expect(() => getDirectorProjectRevision(project)).toThrow("cannot canonicalize a circular reference");
     delete circular.self;
+  });
+
+  it("omits persisted ProductionGraph identities from the project revision", () => {
+    const project = createDefaultDirectorProject();
+    expect(project.productionGraphIdentities?.entries.length).toBeGreaterThan(0);
+    const withoutIdentities = structuredClone(project);
+    delete withoutIdentities.productionGraphIdentities;
+    expect(getDirectorProjectRevision(withoutIdentities)).toBe(getDirectorProjectRevision(project));
+    expect(canonicalizeDirectorProjectForRevision(project)).not.toContain("productionGraphIdentities");
   });
 });

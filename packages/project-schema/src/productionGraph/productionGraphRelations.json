@@ -1,0 +1,61 @@
+{
+  "contains": [
+    ["production", "scene"],
+    ["production", "asset"],
+    ["production", "take"],
+    ["production", "coverage"],
+    ["production", "artifact"],
+    ["production", "job"],
+    ["production", "review"],
+    ["production", "approval"],
+    ["scene", "object"],
+    ["scene", "camera"],
+    ["scene", "shot"]
+  ],
+  "uses": [
+    ["scene", "asset"],
+    ["object", "asset"],
+    ["shot", "camera"],
+    ["take", "object"],
+    ["coverage", "camera"],
+    ["coverage", "take"],
+    ["job", "asset"],
+    ["job", "object"],
+    ["job", "camera"],
+    ["job", "shot"],
+    ["job", "take"],
+    ["job", "coverage"]
+  ],
+  "derived_from": [
+    ["artifact", "asset"],
+    ["artifact", "object"],
+    ["artifact", "shot"],
+    ["artifact", "take"],
+    ["artifact", "coverage"],
+    ["artifact", "artifact"],
+    ["job", "job"]
+  ],
+  "renders": [["job", "artifact"]],
+  "references": [
+    ["scene", "asset"],
+    ["scene", "camera"],
+    ["object", "object"],
+    ["object", "camera"],
+    ["camera", "object"],
+    ["coverage", "shot"],
+    ["review", "artifact"],
+    ["review", "job"],
+    ["review", "shot"],
+    ["review", "coverage"],
+    ["approval", "review"],
+    ["approval", "artifact"]
+  ],
+  "promoted_to": [["artifact", "artifact"]],
+  "reviewed_by": [
+    ["artifact", "review"],
+    ["job", "review"],
+    ["shot", "review"],
+    ["take", "review"],
+    ["coverage", "review"]
+  ]
+}

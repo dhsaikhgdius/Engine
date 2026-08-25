@@ -3,6 +3,13 @@ title: ADR 0003：互操作计划、清单与回执
 description: 将外部导入导出拆成可审查的计划、manifest 和 commit receipt。
 ---
 
+- **状态：** 对已交付 adapter 为 Accepted（核验于 2026-08-25）—— creative interchange
+  `plan-import` → `import` 与 `plan-export` → `export`（Fountain、OTIO/OTIOZ、glTF/GLB、
+  USD/USDZ；OBJ/STL 导出带 SHA-256 文件回执）即运行时的 plan/receipt 路径
+  （`frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts` + 导入/导出测试）；
+  Blender `.blend` 导入使用服务端持久化 plan 与受守卫的原子 apply。未列出的 adapter
+  路径仍为 Proposed。
+
 ## 背景
 
 导入导出同时涉及 schema、资产、坐标系、时间基准、媒体二进制和外部工具能力。直接

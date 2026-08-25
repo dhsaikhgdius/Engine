@@ -3,6 +3,8 @@ title: ADR 0001：项目级 ProductionGraph
 description: 在现有编辑器模型之上增加稳定的制作身份与 lineage graph。
 ---
 
+**状态：** Accepted。只读投影与 `director_workbench` observe 字段 `production_graph` 已落地；编辑器模型仍是详细状态的权威来源。
+
 ## 背景
 
 Canvas、Stage、Video、生成任务和 DCC 目前各自拥有稳定的局部 ID，但没有一个跨

@@ -2,9 +2,17 @@
 title: "ADR 0002: unified durable ProductionJob state machine"
 ---
 
-- **Status:** Proposed
+- **Status:** Accepted (verified 2026-08-25)
 - **Decision owners:** Director gateway and pipeline maintainers
 - **Related:** `PIPELINE_SYSTEM_DESIGN.md`, `PIPELINE_IMPLEMENTATION_ROADMAP.md`
+- **Evidence:** `ProductionJobStore` (`backend/gateway/jobs/productionJobStore.ts`) plus the
+  `transitionProductionJob` state machine in `packages/protocol/src/productionJobProtocol.ts`
+  (statuses `queued` / `running` / `succeeded` / `failed` / `cancelled` / `outcome_unknown` /
+  `reconciling`; kinds spanning canvas, image/video/model/audio generation, media proxy /
+  transcribe / transcode, scene reconstruction, DCC export/import, and episode packaging).
+  `backend/gateway/tests/jobs/productionJobStore.test.ts` covers invalid-transition rejection,
+  exact idempotent dedupe with changed-reuse rejection, restart recovery to `outcome_unknown`,
+  and reconciliation before retry with earlier attempts preserved.
 
 ## Context
 

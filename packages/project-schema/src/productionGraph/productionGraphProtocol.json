@@ -1,0 +1,40 @@
+{
+  "nodeKinds": {
+    "production": true,
+    "scene": true,
+    "asset": true,
+    "object": true,
+    "camera": true,
+    "shot": true,
+    "take": true,
+    "coverage": true,
+    "artifact": true,
+    "job": true,
+    "review": true,
+    "approval": true
+  },
+  "edgeKinds": {
+    "contains": true,
+    "uses": true,
+    "derived_from": true,
+    "renders": true,
+    "references": true,
+    "promoted_to": true,
+    "reviewed_by": true
+  },
+  "integrityIssueCodes": {
+    "schema": true,
+    "duplicate-node": true,
+    "duplicate-edge-id": true,
+    "duplicate-edge": true,
+    "node-id-mismatch": true,
+    "edge-id-mismatch": true,
+    "dangling-edge-source": true,
+    "dangling-edge-target": true,
+    "invalid-edge-relation": true,
+    "invalid-frame-range": true,
+    "missing-production-node": true,
+    "multiple-production-nodes": true,
+    "production-id-mismatch": true
+  }
+}

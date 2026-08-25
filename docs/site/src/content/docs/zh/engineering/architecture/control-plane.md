@@ -51,7 +51,11 @@ Node server 负责：
 Agent 循环与会话归 DeepSeek Harness（`vendor/deepseek-harness`）所有；Director 侧只有
 Cordis 插件 `packages/dsh-plugin-workbench/`，它注册领域工具并把每次调用分发到 Gateway。
 Canonical 工具路径是：校验请求 → 检查 role policy → 调度（写独占、幂等重放）→ 执行
-exact target tool → 返回结构化结果。
+exact target tool → 返回结构化结果。自 2026-08-25 起，role policy 也在 gateway 工具边界本身
+生效：`backend/gateway/agents/httpToolGovernance.ts` 在每条 `/api/tools/*` 路由上应用共享的
+电影角色策略（`DIRECTOR_FILM_ROLE` + `DIRECTOR_PLAN_MODE`，403 拒绝体与 MCP 一致），原始
+HTTP、Stage CLI 与 DSH plugin 无法绕过；每次调用都追加到按 source 标记的审计轨迹
+（`backend/gateway/agentToolAuditStore.ts`，经鉴权的 `GET /api/agent/audit` 可查询）。
 
 委派归 DSH：`subagent` 与 job 工具负责创建、跟踪子会话。Director 不复制这套生命周期；
 被委派的子级只能经由与父级相同的 typed tool HTTP 触达 Director 状态。

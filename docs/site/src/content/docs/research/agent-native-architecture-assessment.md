@@ -61,8 +61,8 @@ Conclusion: Director is an **agent-native product architecture, not bolt-on AI**
 
 **Gaps:**
 
-- Most `directorStore` mutators (camera panel, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, storyboard) now route through `dispatchDirectorAuthoringActions` shared with Agent authoring; remaining direct-store paths are creation flows (asset drop, preset characters, crowds, camera shots), UI-only grouping (object lists, crowd labels), gizmo/slider drag batches, and the Canvas/Video stores
-- Viewport drag, pilot, and other interactive controls lack full semantic equivalents
+- Most `directorStore` mutators (camera panel, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, storyboard) now route through `dispatchDirectorAuthoringActions` shared with Agent authoring; remaining direct-store paths are creation flows (asset drop, preset characters, crowds, camera shots), UI-only grouping (object lists, crowd labels), gizmo/slider drag batches, and the Canvas/Video stores — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)
+- Viewport drag, pilot, and other interactive controls lack full semantic equivalents; slider/gizmo undo batches intentionally keep the lightweight direct writer
 
 **Rating: 3.5/5**
 
@@ -133,6 +133,7 @@ All control surfaces converge on the same gateway execution and validation layer
 | ------------- | -------------------------------------------- | --------------------------------------------------------------------------- |
 | **MCP**       | stdio server, structured output              | `backend/gateway/mcp-server.ts`, `integrations/plugins/director-workbench/` |
 | **HTTP**      | `POST /api/tools/{tool-name}`                | `backend/gateway/routes/stageRoutes.ts`                                     |
+| **Tool manifest** | `GET /api/control-plane/tool-manifest` (generated from Zod schemas) | `backend/gateway/controlPlane/toolManifest.ts`                        |
 | **WebSocket** | Browser target binding and command responses | `frontend/director/src/agent/gatewayClient.ts`, `backend/gateway/agent-gateway.ts` |
 | **CLI**       | `npm run stage --`                           | [Control surfaces](/agents/control-surfaces/)                               |
 
@@ -154,13 +155,15 @@ A2A-aware clients at MCP and the tool manifest — no remote A2A endpoint
 
 ### 5. Governed execution — audit strong ✅, human UI still ungated ⚠️
 
-**Aligned:**
+**Aligned** (verified 2026-08-25):
 
 - Production audit (spatial, grounding, graph issues) — `packages/agent-engine/src/directorAudit.ts`
 - `deliver` machine acceptance boundary
 - Revision / idempotency / exact target fail-closed (428 / 409)
 - Agent event store, structured MCP receipts, credential redaction
 - Shared film-role tool policy (e.g. visual-critic read-only) — `backend/gateway/agents/filmRoleToolPolicy.ts`, used by MCP (`DIRECTOR_FILM_ROLE`), the local Agent harness, and the hosted API adapter
+- Raw HTTP `POST /api/tools/{tool-name}` (and therefore the CLI and DSH plugin) applies the same policy through `backend/gateway/agents/httpToolPolicy.ts`, rejecting before browser-target execution with the same structured 403 body as MCP
+- Unified gateway audit trail: every `/api/tools/*` invocation is appended to `backend/gateway/agents/toolInvocationAuditStore.ts` tagged `source: ui | mcp | http | cli | dsh | unknown` (derived from the payload `session_id` prefix; the Stage CLI's `STAGE_AGENT_SESSION` defaults to `cli-default`), queryable via authorized `GET /api/agent/audit`
 
 **Gaps:**
 
@@ -260,7 +263,7 @@ agent-gateway.ts (composition root)
 
 ## Main gaps
 
-1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, gizmo drag batches, and the Canvas/Video stores
+1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, gizmo drag batches, and the Canvas/Video stores — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)
 2. **Incomplete governance surfaces** — MCP, local harness, hosted adapter, and (since 2026-08-25) raw HTTP/CLI share `filmRoleToolPolicy` with a unified per-source audit trail; human UI actions still bypass film roles
 3. **Protocol breadth** — MCP is strong and the HTTP tool manifest is published; A2A evaluated and rejected for a runtime (ADR 0004; discovery-only card served); multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
@@ -277,7 +280,7 @@ See the full phased plan in [Agent-Native Optimization Roadmap](/engineering/age
 1. **Keep routing UI mutators through shared authoring dispatch** — camera / pose / timeline / Canvas·Video still dual-write
 2. **Finish remaining governance on human UI and the optional read-only mode** — raw HTTP/CLI already share `filmRoleToolPolicy.ts` with a unified audit trail
 3. **Strengthen team/observability layers** — collaboration auth, agent trace/cost dashboard
-4. **Cross-app orchestration** — the tool manifest export shipped (`GET /api/control-plane/tool-manifest`); the A2A spike concluded in ADR 0004 (runtime no-go; discovery-only card at `GET /api/control-plane/a2a-agent-card`); revisit only if a partner requires A2A task execution
+4. **Cross-app orchestration** — the tool manifest export shipped (`GET /api/control-plane/tool-manifest`); the A2A spike concluded in ADR 0004 (runtime no-go; discovery-only card at `GET /api/control-plane/a2a-agent-card`); revisit only if a partner requires A2A task execution; the cross-app receipt handoff recipe remains
 
 ---
 
