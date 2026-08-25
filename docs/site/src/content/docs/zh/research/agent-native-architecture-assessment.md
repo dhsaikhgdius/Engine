@@ -147,8 +147,8 @@ A2A-aware 客户端指向 MCP 与 tool manifest —— 没有远程 A2A endpoint
 - Revision / idempotency / exact target fail-closed（428 / 409）
 - Agent event store、structured MCP receipts、credential redaction
 - 共享的电影角色工具策略（如 visual-critic 只读）— `backend/gateway/agents/filmRoleToolPolicy.ts`，由 MCP（`DIRECTOR_FILM_ROLE`）、本地 Agent harness 与托管 API adapter 共用
-- 原始 HTTP `POST /api/tools/{tool-name}`（因此也覆盖 CLI 与 DSH plugin）经 `backend/gateway/agents/httpToolPolicy.ts` 应用同一策略，在浏览器目标执行之前拒绝，403 结构化拒绝体与 MCP 一致
-- 统一 gateway 审计轨迹：每次 `/api/tools/*` 调用都追加到 `backend/gateway/agents/toolInvocationAuditStore.ts`，按 `source: ui | mcp | http | cli | dsh | unknown` 标记（由 payload `session_id` 前缀推导；Stage CLI 的 `STAGE_AGENT_SESSION` 默认 `cli-default`），可经鉴权的 `GET /api/agent/audit` 查询
+- 原始 HTTP `POST /api/tools/{tool-name}`（因此也覆盖 CLI 与 DSH plugin）经 `backend/gateway/agents/httpToolGovernance.ts` 应用同一策略，在浏览器目标执行之前拒绝，403 结构化拒绝体与 MCP 一致
+- 统一 gateway 审计轨迹：每次 `/api/tools/*` 调用都追加到 `backend/gateway/agentToolAuditStore.ts`，按 `source: ui | mcp | http | cli | dsh | unknown` 标记（由 payload `session_id` 前缀推导；Stage CLI 的 `STAGE_AGENT_SESSION` 默认 `cli-default`），可经鉴权的 `GET /api/agent/audit` 查询
 
 **缺口：**
 

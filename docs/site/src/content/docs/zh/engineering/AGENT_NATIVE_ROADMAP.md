@@ -240,8 +240,8 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
 
 ### 验收
 
-- 同一 role 下，MCP 被拒绝的 op 在原始 HTTP/CLI 也被拒绝 — 已完成（`backend/gateway/tests/routes/httpToolPolicyRoutes.test.ts`）。
-- Audit log 可通过 `GET /api/agent/audit` 跨 HTTP/CLI/MCP/DSH 入口还原 tool 链 — 已完成（`backend/gateway/tests/routes/agentAuditRoutes.test.ts`）；UI-dispatched author 操作待 UI 门控落地后纳入。
+- 同一 role 下，MCP 被拒绝的 op 在原始 HTTP/CLI 也被拒绝 — 已完成（`backend/gateway/tests/routes/httpToolPolicy.test.ts`）。
+- Audit log 可通过 `GET /api/agent/audit` 跨 HTTP/CLI/MCP/DSH 入口还原 tool 链 — 已完成（`backend/gateway/tests/routes/agentToolAuditRoutes.test.ts`）；UI-dispatched author 操作待 UI 门控落地后纳入。
 - Governance 测试已覆盖 HTTP 绕过路径；UI 绕过路径随 3.1b 继续。
 
 ---
