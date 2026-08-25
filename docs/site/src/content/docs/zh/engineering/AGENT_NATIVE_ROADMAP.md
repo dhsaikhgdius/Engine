@@ -212,13 +212,12 @@ flowchart LR
 
 ### 已交付
 
-角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP、本地 Agent harness 与托管 API adapter 共用：
+角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP 与 Multi-Agent production runner 共用：
 
-| 入口         | 绑定                                                                  |
-| ------------ | --------------------------------------------------------------------- |
-| MCP          | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`             |
-| 本地 harness | `agentAdapters.ts` 的 prompt + 派发前的 `filmRoleToolPolicyRejection` |
-| 托管 adapter | `openAiCompatibleAdapter.ts` 的可见性与拒绝                           |
+| 入口            | 绑定                                                                |
+| --------------- | -------------------------------------------------------------------- |
+| MCP             | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`            |
+| Multi-Agent run | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` 及其路由 |
 
 ### 剩余项
 
@@ -229,7 +228,7 @@ flowchart LR
 
 #### 3.2 统一 audit trail
 
-- 所有 tool invocation 写入 `agentSessionStore`（含 UI-dispatched author，标记 `source: ui | mcp | http | cli`）。
+- 所有 tool invocation 在 Gateway 的 `POST /api/tools/:name` 统一派发点写入一份持久 audit trail（含 UI-dispatched author，标记 `source: ui | mcp | http | cli`）；agent 对话历史仍归 DeepSeek Harness。
 - 结构化字段：`tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`。
 
 #### 3.3 确认边界（governed execution）

@@ -218,13 +218,12 @@ Large media bytes still never enter Yjs.
 
 ### Shipped
 
-Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP, the local Agent harness, and the hosted API adapter share it:
+Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP and the Multi-Agent production runner share it:
 
-| Surface        | Binding                                                                        |
-| -------------- | ------------------------------------------------------------------------------ |
-| MCP            | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                        |
-| Local harness  | `agentAdapters.ts` prompt + `filmRoleToolPolicyRejection` before tool dispatch |
-| Hosted adapter | `openAiCompatibleAdapter.ts` visibility + rejection                            |
+| Surface               | Binding                                                                          |
+| --------------------- | -------------------------------------------------------------------------------- |
+| MCP                   | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                          |
+| Multi-Agent runs      | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` and its run routes   |
 
 ### Remaining
 
@@ -235,7 +234,7 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
 
 #### 3.2 Unified audit trail
 
-- Log all tool invocations to `agentSessionStore` (including UI-dispatched author, tagged `source: ui | mcp | http | cli`).
+- Log all tool invocations in one durable Gateway audit trail at the `POST /api/tools/:name` dispatch point (including UI-dispatched author, tagged `source: ui | mcp | http | cli`); agent conversation history stays in DeepSeek Harness.
 - Structured fields: `tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`.
 
 #### 3.3 Confirmation boundaries
