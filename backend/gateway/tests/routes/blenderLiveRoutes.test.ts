@@ -265,6 +265,121 @@ describe("Blender live routes", () => {
     });
   });
 
+  it("serves the preview-only live-link feed without a cursor as first contact", async () => {
+    const context = harness();
+    const resync: Awaited<ReturnType<BlenderNativeSession["liveLink"]>> = {
+      kind: "resync",
+      contract: BLENDER_LIVE_CONTRACT,
+      sceneEpoch,
+      seq: 4,
+      reason: "initial",
+    };
+    vi.mocked(context.session.liveLink).mockResolvedValue(resync);
+
+    expect(
+      await handleBlenderLiveRoute(
+        context.request("GET"),
+        context.response,
+        new URL("http://director.test/api/dcc/blender/live-link"),
+        context.dependencies,
+      ),
+    ).toBe(true);
+
+    expect(context.session.liveLink).toHaveBeenCalledWith(undefined);
+    expect(context.writes.at(-1)).toEqual({ status: 200, body: { success: true, result: resync } });
+  });
+
+  it("forwards a live-link cursor and returns the contiguous delta frames", async () => {
+    const context = harness();
+    const frames: Awaited<ReturnType<BlenderNativeSession["liveLink"]>> = {
+      kind: "frames",
+      contract: BLENDER_LIVE_CONTRACT,
+      sceneEpoch,
+      seq: 6,
+      frames: [
+        {
+          seq: 6,
+          kind: "transform",
+          revision: 6,
+          frame: 1,
+          objects: [{ id: "chair", position: [1, 0, 2], rotation: [0, 0.5, 0], scale: [1, 1, 1] }],
+          cameras: [],
+          lights: [],
+        },
+      ],
+    };
+    vi.mocked(context.session.liveLink).mockResolvedValue(frames);
+
+    await handleBlenderLiveRoute(
+      context.request("GET"),
+      context.response,
+      new URL(`http://director.test/api/dcc/blender/live-link?epoch=${sceneEpoch}&since=5`),
+      context.dependencies,
+    );
+
+    expect(context.session.liveLink).toHaveBeenCalledWith({ sceneEpoch, since: 5 });
+    expect(context.writes.at(-1)).toEqual({ status: 200, body: { success: true, result: frames } });
+  });
+
+  it.each([
+    [`epoch=${sceneEpoch}`],
+    ["since=5"],
+    ["epoch=not-a-uuid&since=5"],
+    [`epoch=${sceneEpoch}&since=-1`],
+    [`epoch=${sceneEpoch}&since=1.5`],
+  ])("rejects the partial or malformed live-link cursor ?%s", async (query) => {
+    const context = harness();
+
+    await handleBlenderLiveRoute(
+      context.request("GET"),
+      context.response,
+      new URL(`http://director.test/api/dcc/blender/live-link?${query}`),
+      context.dependencies,
+    );
+
+    expect(context.session.liveLink).not.toHaveBeenCalled();
+    expect(context.writes.at(-1)).toMatchObject({
+      status: 400,
+      body: { success: false, code: "blender_live_link_cursor_invalid" },
+    });
+  });
+
+  it("rejects non-GET live-link requests", async () => {
+    const context = harness();
+
+    await handleBlenderLiveRoute(
+      context.request("POST"),
+      context.response,
+      new URL("http://director.test/api/dcc/blender/live-link"),
+      context.dependencies,
+    );
+
+    expect(context.session.liveLink).not.toHaveBeenCalled();
+    expect(context.writes.at(-1)).toMatchObject({
+      status: 405,
+      body: { success: false, code: "blender_method_not_allowed" },
+    });
+  });
+
+  it("reports live-link unavailability as a session error instead of crashing", async () => {
+    const context = harness();
+    vi.mocked(context.session.liveLink).mockRejectedValue(
+      new BlenderNativeSessionError("Blender live kernel is not running.", 503, "blender_unavailable"),
+    );
+
+    await handleBlenderLiveRoute(
+      context.request("GET"),
+      context.response,
+      new URL("http://director.test/api/dcc/blender/live-link"),
+      context.dependencies,
+    );
+
+    expect(context.writes.at(-1)).toMatchObject({
+      status: 503,
+      body: { success: false, code: "blender_unavailable", error: "Blender live kernel is not running." },
+    });
+  });
+
   it("validates and forwards a deterministic blockout transaction", async () => {
     const context = harness({
       contract: BLENDER_LIVE_CONTRACT,

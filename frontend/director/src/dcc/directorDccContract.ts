@@ -280,6 +280,12 @@ export const directorDccOperationSchema = z.discriminatedUnion("op", [
   strictOperation("import_return_package", {
     package_dir: z.string().trim().min(1).max(2_048),
     dry_run: z.boolean().optional().default(true),
+    /**
+     * Opt in to planning `object_addition` changes (objects that gained a
+     * fresh director_id in the DCC after the export snapshot). Off by
+     * default: Director never auto-imports new DCC objects without review.
+     */
+    include_new_objects: z.boolean().optional().default(false),
   }),
   strictOperation("apply_import_plan", {
     plan: directorDccImportPlanSchema,

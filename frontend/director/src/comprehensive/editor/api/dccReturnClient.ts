@@ -80,15 +80,24 @@ function throwGatewayError(response: Response, body: unknown): never {
  *
  * @param packageDir - The gateway-side package directory path.
  * @param provider - The connector that produced the package (defaults to Blender).
+ * @param options - Blender-only: opt in to planning `object_addition` changes
+ *   (objects that gained a fresh director_id in Blender). Off by default so
+ *   Director never auto-imports new DCC objects without review.
  * @returns The preview result with the import plan and summary.
  */
 export async function previewDirectorDccReturnPackage(
   packageDir: string,
   provider: DirectorDccConnectorProviderId = "blender",
+  options: { includeNewObjects?: boolean } = {},
 ) {
   const input =
     provider === "blender"
-      ? { op: "import_return_package", package_dir: packageDir, dry_run: true }
+      ? {
+          op: "import_return_package",
+          package_dir: packageDir,
+          dry_run: true,
+          ...(options.includeNewObjects ? { include_new_objects: true } : {}),
+        }
       : { op: "receive_from_engine", provider, package_dir: packageDir, dry_run: true };
   const response = await directorControlPlaneFetch("/api/tools/director_dcc", {
     method: "POST",

@@ -449,7 +449,54 @@ it("previews Blender return conflicts before enabling Apply", async () => {
   await waitFor(() => expect(screen.getByText("回传计划存在冲突 · 1 项冲突")).toBeInTheDocument());
   expect(screen.getByText("Stable ID no longer exists.")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "应用 DCC 回传" })).toBeDisabled();
-  expect(dccReturnClient.previewDirectorDccReturnPackage).toHaveBeenCalledWith("job-1/return-package", "blender");
+  expect(dccReturnClient.previewDirectorDccReturnPackage).toHaveBeenCalledWith("job-1/return-package", "blender", {
+    includeNewObjects: false,
+  });
+});
+
+it("opts in to reviewed Blender object additions and summarizes them as new objects", async () => {
+  const user = userEvent.setup();
+  const preview = vi.spyOn(dccReturnClient, "previewDirectorDccReturnPackage").mockResolvedValue({
+    ready: true,
+    dry_run: true,
+    summary: { operation_count: 1, skipped_count: 0, conflict_count: 0, warning_count: 1 },
+    plan: {
+      contract: "director-dcc-import-plan-v1",
+      ready: true,
+      packageId: "return-addition-1",
+      packageDir: "job-1/return-package",
+      manifestHash: "a".repeat(64),
+      sourceRevision: `director-project-revision:v1:sha256:${"b".repeat(64)}`,
+      targetRevision: `director-project-revision:v1:sha256:${"b".repeat(64)}`,
+      operations: [
+        {
+          op: "create_prop",
+          objectId: "shelf",
+          name: "Bookshelf",
+          assetId: "dcc-addition-shelf",
+          assetLabel: "Bookshelf",
+          glbPath: "meshes/shelf.glb",
+          hash: "d".repeat(64),
+          transform: { position: [1, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        },
+      ],
+      conflicts: [],
+      warnings: ["shelf: 新对象已按 director_id 纳入审阅导入。"],
+    },
+  });
+  render(
+    <LanguageProvider>
+      <DirectorInterchangeMenu />
+    </LanguageProvider>,
+  );
+  await user.click(screen.getByRole("button", { name: "交换" }));
+  await user.type(screen.getByLabelText("回传包路径"), "job-1/return-package");
+  await user.click(screen.getByRole("checkbox", { name: "纳入 Blender 新建对象（经审阅后作为道具导入）" }));
+  await user.click(screen.getByRole("button", { name: "预览差异" }));
+  await waitFor(() => expect(screen.getByText("回传计划可应用 · 1 项更新")).toBeInTheDocument());
+  expect(preview).toHaveBeenCalledWith("job-1/return-package", "blender", { includeNewObjects: true });
+  expect(screen.getByText("0 个资产 · 0 个变换 · 1 个新增对象 · 1 条提示")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "应用 DCC 回传" })).toBeEnabled();
 });
 
 it("summarizes rich Blender return plans (camera optics, lights, poses) and lists bake warnings", async () => {
@@ -540,7 +587,9 @@ it("routes engine return previews through the selected connector provider", asyn
   await user.type(screen.getByLabelText("回传包路径"), "job-godot/return-package");
   await user.click(screen.getByRole("button", { name: "预览差异" }));
   await waitFor(() => expect(screen.getByText("回传计划可应用 · 1 项更新")).toBeInTheDocument());
-  expect(preview).toHaveBeenCalledWith("job-godot/return-package", "godot");
+  expect(preview).toHaveBeenCalledWith("job-godot/return-package", "godot", { includeNewObjects: false });
+  // The reviewed new-object opt-in is a Blender-only surface.
+  expect(screen.queryByRole("checkbox", { name: "纳入 Blender 新建对象（经审阅后作为道具导入）" })).toBeNull();
   expect(screen.getByRole("button", { name: "应用 DCC 回传" })).toBeEnabled();
 });
 

@@ -86,6 +86,50 @@ describe("Director DCC return contract", () => {
     expect(directorDccReturnManifestSchema.safeParse({ ...valid, fileHashes: {} }).success).toBe(false);
   });
 
+  it("requires a SHA-256 for object_addition meshes and keeps new-object import opt-in", () => {
+    const base = {
+      schemaVersion: 1,
+      contract: "director-dcc-return-v1",
+      packageId: "return-additions-1",
+      sourcePackageId: "source-1",
+      sourceRevision: "director-project-revision:v1:sha256:" + "a".repeat(64),
+      exportedAt: "2026-08-25T10:00:00.000Z",
+      blenderVersion: "4.5.0",
+      coordinateSystem: {
+        source: "right-handed-z-up-negative-z-camera-forward",
+        destination: "right-handed-y-up-negative-z-forward",
+        unit: "meter",
+        linearMap: "(x,y,z)->(x,z,-y)",
+      },
+      changes: [
+        {
+          kind: "object_addition",
+          directorId: "lamp-new",
+          entityType: "object",
+          name: "Desk Lamp",
+          meshFile: "meshes/lamp-new.glb",
+          transform: { location: [0, 0, 0], rotationQuaternion: [0, 0, 0, 1], scale: [1, 1, 1] },
+          assetLabel: "Desk Lamp (Blender)",
+        },
+      ],
+      warnings: [],
+      fileHashes: { "meshes/lamp-new.glb": "b".repeat(64) },
+    };
+    expect(directorDccReturnManifestSchema.safeParse(base).success).toBe(true);
+    expect(directorDccReturnManifestSchema.safeParse({ ...base, fileHashes: {} }).success).toBe(false);
+    // Opting into new-object import is an explicit request flag, never a default.
+    expect(
+      directorDccOperationSchema.parse({ op: "import_return_package", package_dir: "job-1/return-package" }),
+    ).toMatchObject({ include_new_objects: false });
+    expect(
+      directorDccOperationSchema.parse({
+        op: "import_return_package",
+        package_dir: "job-1/return-package",
+        include_new_objects: true,
+      }),
+    ).toMatchObject({ include_new_objects: true });
+  });
+
   it("keeps Blender manifests honest about their producer and coordinate stanza", () => {
     const project = createDefaultDirectorProject();
     const blenderManifest = {

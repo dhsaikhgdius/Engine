@@ -3,18 +3,21 @@
 > 语言：**中文** · [English](README.md)
 
 `integrations/blender/interchange/` 包含 Director 与 Blender 之间的文件级交换脚本。
-四个 Python 模块 + 两个 vitest 测试文件，用于导入 `.blend` 场景和实现 Director 往返工作流。
+六个 Python 模块 + 三个 vitest 测试文件，用于导入 `.blend` 场景和实现 Director 往返工作流。
 
 ## 文件级清单
 
 | 路径 | 中文用途 |
 | --- | --- |
-| `director_bridge.py` | 将经验证的 Director DCC 场景包导入 Blender：解析 `director-dcc-scene-v1` manifest，创建/更新携带 `director_id` 自定义属性的对象，写入 `director_source_transform` 与 `director_source_mesh_signature` 属性，显式仅接受数据、不执行任何包内代码。 |
+| `director_bridge.py` | 将经验证的 Director DCC 场景包导入 Blender：解析 `director-dcc-scene-v1` manifest，创建/更新携带 `director_id` 自定义属性的对象，写入 `director_source_transform` 与 `director_source_mesh_signature` 属性，并为角色写入 Director 骨骼角色映射与按角色的 pose-bone 基线；显式仅接受数据、不执行任何包内代码。 |
 | `director_scene_export.py` | 从已打开的 `.blend` 提取场景为 Director 导入包：导出 `director-blend-scene-v1` 包，包含 `manifest.json`（源/产物 SHA-256 收据、警告、不支持特性）、`assets/scene.glb`（米制 Y-up、保留层级/材质/蒙皮/形态键/动画）、相机参数、帧范围/帧率元数据。网关以 `--factory-startup --disable-autoexec` 启动 Blender 后运行此脚本。 |
-| `director_return_export.py` | 从精修后的 `.blend` 导出 `director-dcc-return-v1` 返回包：仅导出携带 `director_id` 自定义属性的对象；生成 `meshes/*.glb`（保留 `extras.director.stableId`）；未修改的 `.blend` 返回空变更集；网格指纹排除 Director 包装变换；每个输出文件附带 SHA-256 收据；无 `director_id` 的顶层对象仅作警告。 |
+| `director_return_export.py` | 从精修后的 `.blend` 导出 `director-dcc-return-v1` 返回包：仅导出携带 `director_id` 自定义属性的对象；生成 `meshes/*.glb`（保留 `extras.director.stableId`）；未修改的 `.blend` 返回空变更集；网格指纹排除 Director 包装变换；每个输出文件附带 SHA-256 收据；艺术家 stamp 了全新 `director_id` 的新建根对象会成为带 hash 的 `object_addition` 条目并附诚实警告；已映射 pose bone 上的旋转编辑 reconcile 为 `director_pose.*` control 增量；无 `director_id` 的顶层对象仅作警告。 |
 | `director_signature.py` | 共享的网格内容指纹模块（SHA-256）：`director_bridge.py` 在导出时写入签名，`director_return_export.py` 在返回时重新计算。两端必须传入字节级一致的数据——更改任何哈希字节会使所有先前标记的场景失效。 |
+| `director_properties.py` | Director 往返共享的 Blender 自定义属性名（源变换、网格签名、姿态指纹、骨骼映射与 pose-bone 基线）。 |
+| `director_pose_bones.py` | 不依赖 `bpy` 的 Blender pose bone 与 Director 可移植 pose control 映射模块：Mixamo 骨骼角色别名、骨骼名规范化、四元数增量分解，以及带未映射编辑警告的增量到 control 的 reconcile。 |
 | `director_scene_export.test.ts` | 场景导出脚本的 vitest 单元测试（TypeScript，通过 vitest/jsdom 运行）。 |
 | `director_return_export.test.ts` | 返回导出脚本的 vitest 单元测试（TypeScript，通过 vitest/jsdom 运行）。 |
+| `director_pose_bones.test.ts` | pose-bone 映射的免主机 vitest 测试：与前端别名表同步校验、规范名一致性，以及经前端 rig adapter 与 three.js 的 control 增量往返。 |
 
 ## 两个工作流
 
