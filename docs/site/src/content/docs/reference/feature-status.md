@@ -69,6 +69,16 @@ format feature, browser, or remote deployment topology is supported.
 - `tools/scripts/checkServerImportBoundaries.ts` enforces the browser → TypeScript control plane →
   Python inference separation. Every temporary migration exception is an explicit importer/target/reason
   tuple; a new exception is a regression unless it replaces or narrows an existing one.
+- `npm run repo:check` includes the i18n completeness gate
+  (`tools/scripts/check-i18n-completeness.mjs`): every Chinese UI string in `frontend/director/src`
+  must be covered by `en-US.json` or a phrase rule. Known gaps live in
+  `tools/scripts/i18n-missing-baseline.json` and may only shrink over time.
+- `npm run test:e2e` covers user journeys per workspace: Stage authoring
+  (`stage-authoring.spec.ts`), Canvas dependency graph (`canvas-dag.spec.ts`), media library and
+  Gallery (`gallery-media.spec.ts`), plus the Video Editor suites and render goldens.
+- `npm run eval` replays golden Agent tasks against the public HTTP boundary, including world
+  systems observation, DCC discover/handoff, the transcription job contract, and the core
+  observe/author/undo loop (`tools/evals/tasks/`).
 
 ## Catalog counts
 
@@ -76,13 +86,13 @@ These numbers are documentation snapshots of packaged catalogs. After assets are
 the live `catalog` response is authoritative. Other product pages should link here instead of
 restating a new count.
 
-| Catalog | Snapshot | Source |
-| ------- | -------- | ------ |
-| Mixamo characters | 108 | `assets/library/mixamo-characters/catalog.json` |
-| Mixamo motion clips | 14 | `assets/library/mixamo-animations/catalog.json` |
-| Mirrored Stage prop metadata | 1,426 | `assets/library/flick-stage-props/catalog.json` |
-| Workbench tool entries | 117 | generated from runtime Zod schemas (`directorToolCatalog.ts`) |
-| Packaged workflow skills | 10 | generated with the tool catalog |
+| Catalog                      | Snapshot | Source                                                        |
+| ---------------------------- | -------- | ------------------------------------------------------------- |
+| Mixamo characters            | 108      | `assets/library/mixamo-characters/catalog.json`               |
+| Mixamo motion clips          | 14       | `assets/library/mixamo-animations/catalog.json`               |
+| Mirrored Stage prop metadata | 1,426    | `assets/library/flick-stage-props/catalog.json`               |
+| Workbench tool entries       | 117      | generated from runtime Zod schemas (`directorToolCatalog.ts`) |
+| Packaged workflow skills     | 10       | generated with the tool catalog                               |
 
 Update this table in the same change that updates a catalog or the tool registry. Last verified
 with the status matrix above.

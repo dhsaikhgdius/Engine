@@ -1,0 +1,30 @@
+{
+  "name": "dcc-discover-and-handoff",
+  "description": "Verify the DCC provider catalog, per-provider handoff readiness, and the unknown-provider failure taxonomy through the public director_dcc tool.",
+  "steps": [
+    {
+      "label": "discover provider catalog",
+      "tool": "director_dcc",
+      "input": { "op": "discover" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.contract", "result.providers.0.provider.id", "result.providers.0.exchangeReady"]
+      }
+    },
+    {
+      "label": "blender handoff status",
+      "tool": "director_dcc",
+      "input": { "op": "status", "provider": "blender" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.provider.id", "result.installed", "result.exchangeReady"]
+      }
+    },
+    {
+      "label": "unknown provider is rejected",
+      "tool": "director_dcc",
+      "input": { "op": "status", "provider": "nonexistent-engine" },
+      "expect": { "success": false, "code": "dcc_provider_unknown" }
+    }
+  ]
+}

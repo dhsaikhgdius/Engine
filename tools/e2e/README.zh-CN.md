@@ -26,6 +26,9 @@ npm run test:e2e
 | `timeline-editing.spec.ts` | 拖动剪辑、刮擦播放头定位、S 键分割、撤销操作 |
 | `media-drag-drop.spec.ts` | 真实浏览器拖放：将素材卡拖到时间线轨道上落轨（Drag and Drop） |
 | `export-dialog.spec.ts` | 打开导出对话框，查看输出摘要信息，Escape 关闭 |
+| `stage-authoring.spec.ts` | 3D 片场编辑：通过对象树重命名对象、快捷键复制粘贴，并逐一撤销 |
+| `canvas-dag.spec.ts` | 画布依赖图：添加便签节点、自动排列、连接依赖边、拒绝循环、删除边并撤销 |
+| `gallery-media.spec.ts` | 素材库/画廊：在画布工作区导入 PNG，验证画布节点生成、搜索与分类筛选 |
 | `render-golden.spec.ts` | 3D 舞台像素级回归快照：导入固定项目，采样多种监视器模式与视口像素 |
 
 ## 辅助模块
