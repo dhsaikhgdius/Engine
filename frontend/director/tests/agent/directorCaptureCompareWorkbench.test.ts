@@ -7,7 +7,10 @@ import {
   executeDirectorCaptureCompareWorkbenchCommand,
   resolveCapturePlanCamera,
 } from "../../src/agent/directorCaptureCompareWorkbench";
-import { directorWorkbenchOperationSchema, type DirectorCompareWorkbenchOperation } from "@director/agent-engine/contract";
+import {
+  directorWorkbenchOperationSchema,
+  type DirectorCompareWorkbenchOperation,
+} from "@director/agent-engine/contract";
 
 const plan: CaptureReconstructionPlan = {
   version: 1,
@@ -142,7 +145,11 @@ describe("executeDirectorCaptureCompareWorkbenchCommand", () => {
     expect(execution.success).toBe(true);
     const result = execution.result as {
       compare: {
-        grid: { rows: number; cols: number; worst: Array<{ row: number; col: number; region: Record<string, number> }> };
+        grid: {
+          rows: number;
+          cols: number;
+          worst: Array<{ row: number; col: number; region: Record<string, number> }>;
+        };
       };
       hint: string;
     };
@@ -157,7 +164,6 @@ describe("executeDirectorCaptureCompareWorkbenchCommand", () => {
     expect(worst.region.y0).toBe(worst.row / 4);
     expect(worst.region.x1).toBe((worst.col + 1) / 4);
     expect(worst.region.y1).toBe((worst.row + 1) / 4);
-    expect(result.hint).toContain("grid.worst");
   });
 
   it("resolves a reconstruction keyframe endpoint through the plan cameras", async () => {

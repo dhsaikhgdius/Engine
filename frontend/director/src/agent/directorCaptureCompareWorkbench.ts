@@ -265,7 +265,9 @@ export async function executeDirectorCaptureCompareWorkbenchCommand(
       success: false,
       error: error instanceof Error ? error.message : String(error),
       result: {
-        code: error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "compare_failed",
+        // Name-based detection stays correct when the abort reason comes from
+        // a different realm than the ambient DOMException constructor.
+        code: error instanceof Error && error.name === "AbortError" ? "cancelled" : "compare_failed",
       },
     };
   }
