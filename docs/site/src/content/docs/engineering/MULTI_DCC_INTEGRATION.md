@@ -285,7 +285,7 @@ Director adapter implemented.
 | ---------------- | -------------------------------------------------- | ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------ | -------- |
 | Blender          | **Implemented native subset**                      | `.blend` + GLB/USDA     | Background CLI and Python API                      | Reviewed round trip plus preview-only live-link delta feed         | P0       |
 | Autodesk Maya    | **Exchange**                                       | USDA, then GLB          | `mayapy`, `maya.standalone`, Python API 2.0        | Headless export/import plus authenticated in-host connector        | P0       |
-| Unreal Engine    | **Implemented headless connector (scene/cameras/animation/skeleton/materials)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer tracks, timecode, skeletal import, and material instances implemented; Live Link preview still planned | P0       |
+| Unreal Engine    | **Implemented headless connector (scene/cameras/animation/skeleton/materials/preview live link)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer tracks, timecode, skeletal import, material instances, preview-only live link, and clean-frame render receipts implemented | P0       |
 | SideFX Houdini   | **Exchange**                                       | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional         | P1       |
 | Cinema 4D        | **Exchange**                                       | USDA, then GLB          | Python SDK and `c4dpy`                             | Headless bake/export plus authenticated in-host connector          | P1       |
 | Unity            | **Implemented headless connector (scene/cameras/animation/avatars/materials)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline animation baking, Avatars, lights, and PBR fallback implemented; preview transport still planned | P2       |
@@ -296,16 +296,19 @@ Director adapter implemented.
 the headless scene/camera import and transform-level return round trip verified
 by Director's host-free tests. The Unreal connector claims exactly the deeper
 subset its fixtures verify: Gateway-baked transform/camera animation into
-Sequencer, skinned-GLB skeletal mesh import, and PBR material instances — not
-lossless USD animation, Control Rig transfer, or texture translation. Unity
+Sequencer, skinned-GLB skeletal mesh import, PBR material instances, a
+preview-only live-link camera transport, and best-effort clean-frame render
+receipts — not lossless USD animation, Control Rig transfer, or texture
+translation. Unity
 bakes Director animation onto Timeline, builds Humanoid/Generic Avatars from
 skinned GLB, and translates PBR materials, pinned by the in-package EditMode
 suite plus the host-free Unity golden tests. Godot 4 ships Gateway-baked
 `AnimationPlayer` animation, skinned GLB `Skeleton3D` import,
 `StandardMaterial3D` translation with hashed external textures, and
 Omni/Spot/Directional lights, backed by host-free goldens plus a skip-if-missing
-real headless roundtrip. All three remain warned, bounded subsets, and live link
-remains `planned` for every engine.
+real headless roundtrip. All three remain warned, bounded subsets. Unreal
+preview live link is `native`; Unity and Godot live link remain `planned`.
+Blender also ships a preview-only native live-link delta feed.
 
 The table does not promise complete USD or glTF fidelity. Director only claims the
 subset covered by its schemas, fixtures, validators, and provider acceptance tests.

@@ -16,6 +16,7 @@ from typing import Dict, List, Optional
 EXCHANGE_CONTRACT = "director-dcc-exchange-package-v1"
 RETURN_CONTRACT = "director-dcc-return-v1"
 REPORT_CONTRACT = "director-dcc-engine-report-v1"
+CLEAN_FRAME_CONTRACT = "director-unreal-clean-frame-v1"
 
 CANONICAL_COORDINATE_SYSTEM = {
     "source": "right-handed-y-up-negative-z-forward",
@@ -186,4 +187,58 @@ def write_failure_report(report_path: str, error: str) -> None:
     os.makedirs(os.path.dirname(report_path) or ".", exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as handle:
         json.dump({"ok": False, "error": error}, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def write_clean_frame_receipt(
+    receipt_path: str,
+    *,
+    skip_reason: Optional[str] = None,
+    package_id: Optional[str] = None,
+    source_revision: Optional[str] = None,
+    level_path: Optional[str] = None,
+    camera_director_id: Optional[str] = None,
+    frame: Optional[int] = None,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    image_path: Optional[str] = None,
+    image_sha256: Optional[str] = None,
+    host_version: Optional[str] = None,
+    warnings: Optional[List[str]] = None,
+) -> None:
+    """Write a ``director-unreal-clean-frame-v1`` receipt (rendered or skipped).
+
+    A truthy ``skip_reason`` writes the skipped variant; otherwise every
+    rendered field is required by the Gateway schema. ``image_path`` must be
+    relative to the receipt file inside the private job directory. The clean
+    frame is best-effort by contract: skipping is a valid outcome, never an
+    ``ok:false`` failure.
+    """
+    receipt: dict = {
+        "contract": CLEAN_FRAME_CONTRACT,
+        "provider": "unreal",
+        "warnings": [str(warning) for warning in (warnings or [])],
+    }
+    if skip_reason:
+        receipt.update({"status": "skipped", "skipReason": skip_reason})
+    else:
+        receipt.update(
+            {
+                "status": "rendered",
+                "packageId": package_id,
+                "sourceRevision": source_revision,
+                "levelPath": level_path,
+                "cameraDirectorId": camera_director_id,
+                "frame": frame,
+                "width": width,
+                "height": height,
+                "imagePath": image_path,
+                "imageSha256": image_sha256,
+                "method": "offscreen_high_res_screenshot",
+                "hostVersion": host_version,
+            }
+        )
+    os.makedirs(os.path.dirname(receipt_path) or ".", exist_ok=True)
+    with open(receipt_path, "w", encoding="utf-8") as handle:
+        json.dump(receipt, handle, indent=2, sort_keys=True)
         handle.write("\n")

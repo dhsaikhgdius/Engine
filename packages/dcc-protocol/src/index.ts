@@ -12,5 +12,7 @@ export * from "./directorDccExchangePackageContract";
 export * from "./directorDccProviderContract";
 export * from "./directorDccReturnContract";
 export * from "./directorDccSharedContract";
+export * from "./directorUnrealCleanFrameContract";
+export * from "./directorUnrealLivePreviewContract";
 export * from "./directorUnrealSequencerContract";
 export * from "./directorGodotAnimationContract";

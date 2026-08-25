@@ -1,9 +1,10 @@
 import { execFile, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
+import { directorUnrealCleanFrameReceiptSchema } from "@director/dcc-protocol";
 
 const execFileAsync = promisify(execFile);
 
@@ -527,6 +528,48 @@ describe.skipIf(!pythonAvailable)(
         const truncated = await runModule("director_gltf", [truncatedPath]);
         expect(truncated.output.ok).toBe(false);
         expect(String(truncated.output.error)).toMatch(/truncated/i);
+      });
+    });
+
+    describe("director_package clean-frame receipt writer (host-free)", () => {
+      it("writes rendered and skipped receipts that pass the Gateway schema", async () => {
+        const directory = await mkdtemp(resolve(tmpdir(), "director-unreal-clean-receipt-"));
+        const renderedPath = resolve(directory, "rendered.json");
+        const skippedPath = resolve(directory, "skipped.json");
+        const revision = `director-project-revision:v1:sha256:${"d".repeat(64)}`;
+        const script = [
+          "import sys",
+          `sys.path.insert(0, ${JSON.stringify(CONNECTOR_PYTHON_DIR)})`,
+          "import director_package as dpkg",
+          "dpkg.write_clean_frame_receipt(",
+          `    ${JSON.stringify(renderedPath)},`,
+          '    package_id="pkg-fixture-1",',
+          `    source_revision=${JSON.stringify(revision)},`,
+          '    level_path="/Game/Director/Levels/Director_fixture",',
+          '    camera_director_id="main-camera",',
+          "    frame=12,",
+          "    width=1920,",
+          "    height=1080,",
+          '    image_path="clean-frame.png",',
+          `    image_sha256="${"a".repeat(64)}",`,
+          '    host_version="Unreal Engine 5.6.1",',
+          '    warnings=["fixture warning"],',
+          ")",
+          `dpkg.write_clean_frame_receipt(${JSON.stringify(skippedPath)}, skip_reason="No RHI is available.")`,
+        ].join("\n");
+        await execFileAsync("python3", ["-c", script]);
+
+        const rendered = directorUnrealCleanFrameReceiptSchema.parse(JSON.parse(await readFile(renderedPath, "utf8")));
+        expect(rendered).toMatchObject({
+          status: "rendered",
+          cameraDirectorId: "main-camera",
+          frame: 12,
+          method: "offscreen_high_res_screenshot",
+          warnings: ["fixture warning"],
+        });
+
+        const skipped = directorUnrealCleanFrameReceiptSchema.parse(JSON.parse(await readFile(skippedPath, "utf8")));
+        expect(skipped).toMatchObject({ status: "skipped", skipReason: "No RHI is available." });
       });
     });
 

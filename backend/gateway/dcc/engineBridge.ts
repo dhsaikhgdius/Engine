@@ -21,6 +21,7 @@ import {
 } from "@director/dcc-protocol";
 import type { DirectorProject } from "@director/project-schema";
 import type { DirectorDccExchangePackager } from "./dccExchangePackage";
+import { runUnrealCleanFrame } from "./unrealCleanFrame";
 import { writeUnrealSequencerBake, type UnrealSequencerBakeFile } from "./unrealSequencerBake";
 import { writeGodotAnimationBake, type GodotAnimationBakeFile } from "./godotAnimationBake";
 import {
@@ -51,13 +52,23 @@ type EngineRuntimeProbe = {
   defaultPaths: string[];
 };
 
+/** Epic Games Launcher versions probed at their per-platform default roots. */
+const UNREAL_LAUNCHER_VERSIONS = ["5.6", "5.5", "5.4"] as const;
+
 const ENGINE_RUNTIME_PROBES: Record<DirectorDccEngineId, EngineRuntimeProbe> = {
   unreal: {
-    commands: ["UnrealEditor-Cmd", "UnrealEditor"],
+    // Windows PATH entries resolve the .exe names; POSIX resolves the bare ones.
+    commands: ["UnrealEditor-Cmd", "UnrealEditor", "UnrealEditor-Cmd.exe", "UnrealEditor.exe"],
     defaultPaths: [
-      "/Users/Shared/Epic Games/UE_5.6/Engine/Binaries/Mac/UnrealEditor-Cmd",
-      "/Users/Shared/Epic Games/UE_5.5/Engine/Binaries/Mac/UnrealEditor-Cmd",
-      "/Users/Shared/Epic Games/UE_5.4/Engine/Binaries/Mac/UnrealEditor-Cmd",
+      // Epic Games Launcher installs (macOS and Windows).
+      ...UNREAL_LAUNCHER_VERSIONS.flatMap((version) => [
+        `/Users/Shared/Epic Games/UE_${version}/Engine/Binaries/Mac/UnrealEditor-Cmd`,
+        `C:\\Program Files\\Epic Games\\UE_${version}\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe`,
+      ]),
+      // Linux has no launcher; probe the conventional binary-drop / source-build roots.
+      "/opt/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd",
+      "/opt/unreal-engine/Engine/Binaries/Linux/UnrealEditor-Cmd",
+      "/usr/local/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd",
     ],
   },
   unity: {
@@ -122,6 +133,12 @@ export interface DirectorDccEngineSendOptions {
   formats?: DirectorDccPortableExchangeFormat[];
   cameraId?: string;
   frame?: number;
+  /**
+   * Unreal-only: after a successful import, render one optional clean still
+   * (no gizmos/labels) and attach its receipt. Render problems degrade to a
+   * `skipped` receipt with a reason; they never fail the handoff.
+   */
+  cleanFrame?: boolean;
 }
 
 /**
@@ -846,6 +863,53 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       }
     }
 
+    const sendWarnings: string[] = [];
+
+    // Structured warn-and-omit: pose/rig channels the bake could not carry are
+    // reported from the Gateway's own sidecar, so an outdated connector can
+    // never silently flatten them out of the result.
+    const omittedAnimationChannels = (unrealBake?.bake.entities ?? [])
+      .filter((entity) => entity.omittedChannels?.length)
+      .map((entity) => ({
+        directorId: entity.directorId,
+        entityType: entity.entityType,
+        channels: entity.omittedChannels!,
+      }));
+    if (omittedAnimationChannels.length > 0) {
+      sendWarnings.push(
+        `${omittedAnimationChannels.length} baked entity/entities carry pose or rig channels the Sequencer bake cannot transfer; only world transforms were baked (warn-and-omit, see omittedAnimationChannels).`,
+      );
+    }
+
+    // Unreal-only optional clean frame: a second offscreen invocation (never
+    // -nullrhi) whose receipt degrades to skipped-with-reason on any failure.
+    let cleanFrame: Awaited<ReturnType<typeof runUnrealCleanFrame>> | undefined;
+    if (sendOptions.cleanFrame) {
+      if (provider === "unreal") {
+        cleanFrame = await runUnrealCleanFrame(
+          {
+            executable: currentHealth.executable,
+            projectPath: currentHealth.projectPath,
+            scriptPath: resolve(projectDirectory, UNREAL_HEADLESS_ENTRY),
+            packageDirectory: exchange.packagePath,
+            jobDirectory,
+            expectedPackageId: exchange.jobId,
+            expectedSourceRevision: exchange.sourceRevision,
+            runProcess,
+            timeoutMs: jobTimeoutMs,
+          },
+          { cameraId: sendOptions.cameraId, frame: sendOptions.frame },
+        );
+        if (cleanFrame.status === "skipped") {
+          sendWarnings.push(`Clean-frame render was skipped: ${cleanFrame.skipReason}`);
+        }
+      } else {
+        sendWarnings.push(
+          `clean_frame was ignored: only the unreal connector renders clean frames (provider: ${provider}).`,
+        );
+      }
+    }
+
     return directorDccEngineSendResultSchema.parse({
       contract: DIRECTOR_DCC_ENGINE_SEND_CONTRACT,
       jobId: exchange.jobId,
@@ -858,7 +922,9 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       reportPath,
       report,
       returnPackagePath,
-      warnings: [...exchange.warnings, ...bakeWarnings, ...report.warnings],
+      ...(omittedAnimationChannels.length > 0 ? { omittedAnimationChannels } : {}),
+      ...(cleanFrame ? { cleanFrame } : {}),
+      warnings: [...exchange.warnings, ...bakeWarnings, ...report.warnings, ...sendWarnings],
     });
   }
 

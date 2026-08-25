@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../comprehensive/editor/schema/directorProjectRevision";
 import { directorDccEngineIdSchema } from "./directorDccEngineSpace";
+import { directorUnrealCleanFrameReceiptSchema } from "./directorUnrealCleanFrameContract";
 import { directorUnrealSequencerReceiptSchema } from "./directorUnrealSequencerContract";
 import { directorGodotImportReceiptSchema } from "./directorGodotAnimationContract";
 
@@ -85,6 +86,24 @@ export const directorDccUnityEngineReportDetailsSchema = z.strictObject({
 export type DirectorDccUnityEngineReportDetails = z.infer<typeof directorDccUnityEngineReportDetailsSchema>;
 
 /**
+ * One structured warn-and-omit record for animation channels the Unreal
+ * Sequencer bake cannot carry (Control-Rig-style pose values, motion clips,
+ * character rig state). World transforms are still baked; these channels are
+ * reported instead of being silently flattened.
+ */
+export const directorUnrealOmittedAnimationChannelsSchema = z.strictObject({
+  directorId: z.string().trim().min(1).max(200),
+  entityType: z.enum(["object", "camera"]),
+  channels: z
+    .array(z.enum(["pose_values", "motion_blocks", "character_rig"]))
+    .min(1)
+    .max(8),
+});
+
+/** A validated structured omitted-channel record. */
+export type DirectorUnrealOmittedAnimationChannels = z.infer<typeof directorUnrealOmittedAnimationChannelsSchema>;
+
+/**
  * The receipt an engine connector writes after a headless import run. The
  * gateway schema-validates this file; a malformed or `ok:false` report fails
  * the job with structured diagnostics.
@@ -112,6 +131,8 @@ export const directorDccEngineReportSchema = z
     importedSkeletalMeshCount: z.number().int().nonnegative().optional(),
     /** Unreal-only: number of Director PBR materials applied as material instances. */
     appliedMaterialCount: z.number().int().nonnegative().optional(),
+    /** Unreal-only: pose/rig channels the bake omitted, echoed from the verified sidecar. */
+    omittedAnimationChannels: z.array(directorUnrealOmittedAnimationChannelsSchema).max(2_048).optional(),
     /** Unity connector details; only the unity provider may write this block. */
     unity: directorDccUnityEngineReportDetailsSchema.optional(),
     /** Godot-only: import receipt read back from the saved scene and animation resources. */
@@ -217,6 +238,14 @@ export const directorDccEngineSendResultSchema = z.strictObject({
   report: directorDccEngineReportSchema,
   /** Absolute path of the echoed return package directory, when produced. */
   returnPackagePath: z.string().nullable(),
+  /**
+   * Unreal-only: pose/rig channels the Gateway bake omitted (warn-and-omit),
+   * computed from the Gateway's own sidecar so an outdated connector can never
+   * silently flatten them out of the result.
+   */
+  omittedAnimationChannels: z.array(directorUnrealOmittedAnimationChannelsSchema).max(2_048).optional(),
+  /** Unreal-only: the optional clean-frame render receipt (rendered or skipped with reason). */
+  cleanFrame: directorUnrealCleanFrameReceiptSchema.optional(),
   warnings: z.array(z.string().max(2_000)),
 });
 

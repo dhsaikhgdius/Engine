@@ -10,9 +10,10 @@ messages carrying monotonically increasing sequence numbers. The session
 - never touches scene assets: this is a viewport preview channel only. The
   durable scene channel remains the hash-verified exchange/return package.
 
-The capability catalog keeps ``live_link`` at ``planned`` because no gateway
-transport ships yet; this module exists so the host-side preview mode has
-tested reorder/disconnect semantics before any promotion is considered.
+The Gateway side of this protocol lives in
+``backend/gateway/dcc/unrealLivePreview.ts`` with matching
+disconnect/reorder/duplicate tests; the ``live_link`` capability is
+``native`` as a preview-only channel and is never the durable scene channel.
 Verified host-free by ``backend/gateway/tests/dcc/unrealConnectorModules.test.ts``.
 """
 

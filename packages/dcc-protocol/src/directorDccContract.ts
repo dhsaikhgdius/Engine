@@ -263,6 +263,8 @@ export const directorDccOperationSchema = z.discriminatedUnion("op", [
     formats: z.array(directorDccPortableExchangeFormatSchema).min(1).max(2).optional(),
     camera_id: z.string().trim().min(1).max(160).optional(),
     frame: z.number().finite().nonnegative().optional(),
+    /** Unreal-only: also render one clean still (no gizmos/labels) and attach its receipt. */
+    clean_frame: z.boolean().optional(),
   }),
   strictOperation("receive_from_engine", {
     provider: directorDccEngineIdSchema,
