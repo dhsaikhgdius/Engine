@@ -127,18 +127,18 @@ flowchart LR
   - fills `expected_revision` / `idempotency_key`;
   - hooks unified error toasts and undo;
   - calls `applyDirectorAuthoringActions` internally.
-- Same pattern for Canvas/Video via `creativeWorkspaceAgentContract`.
+- Same pattern for Canvas/Video — shipped as `dispatchCreativeWorkspaceOperations`, which fills the snapshot-fingerprint guard and idempotency key and executes the same `creativeWorkspaceAgentContract` envelope agents use.
 
 #### 1.2 Migrate UI mutations in batches
 
-| Batch  | Scope                   | Typical actions                                   |
-| ------ | ----------------------- | ------------------------------------------------- |
-| **1a** | Object CRUD, transforms | `create_object`, `update_object`, `delete_object` |
-| **1b** | Cameras and shots       | `create_camera`, `update_camera`, `frame_camera`  |
-| **1c** | Characters and motion   | `assign_motion`, `update_character_pose`          |
-| **1d** | Timeline / coverage     | `create_coverage`, `assign_take`                  |
-| **1e** | Canvas nodes / edges    | creative `author` batches                         |
-| **1f** | Video tracks / clips    | creative `author` batches                         |
+| Batch  | Scope                   | Typical actions                                                                                                 |
+| ------ | ----------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **1a** | Object CRUD, transforms | `create_object`, `update_object`, `delete_object`                                                               |
+| **1b** | Cameras and shots       | `create_camera`, `update_camera`, `frame_camera`                                                                |
+| **1c** | Characters and motion   | `assign_motion`, `update_character_pose`                                                                        |
+| **1d** | Timeline / coverage     | `create_coverage`, `assign_take`                                                                                |
+| **1e** | Canvas nodes / edges    | **Shipped** — `canvas.node.*` / `canvas.edge.*` / `canvas.dag.layout` via `dispatchCreativeWorkspaceOperations` |
+| **1f** | Video tracks / clips    | **Shipped** — `edit.clip.*` / `edit.track.*` / `edit.settings.update` via `dispatchCreativeWorkspaceOperations` |
 
 #### 1.3 Semantic equivalents for interactive controls
 
@@ -154,7 +154,7 @@ flowchart LR
 
 ### Acceptance
 
-- Parity harness covers batches **1a–1d** with matching revisions on UI and agent paths.
+- Parity harness covers batches **1a–1d** with matching revisions on UI and agent paths; batches **1e–1f** are covered by `frontend/director/tests/agent/dispatchCreativeWorkspaceOperations.test.ts`, which diffs normalized snapshots between the UI dispatch and the agent envelope.
 - No new high-priority "UI-only, no agent twin" gaps.
 - Existing MCP / HTTP / CLI integration tests pass.
 

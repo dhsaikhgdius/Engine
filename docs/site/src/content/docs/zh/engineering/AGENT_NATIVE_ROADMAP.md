@@ -121,7 +121,7 @@ flowchart LR
   - 自动填充 `expected_revision` / `idempotency_key`；
   - 统一错误 toast / undo 挂钩；
   - 内部仍调用 `applyDirectorAuthoringActions`。
-- Canvas / Video 同理：Creative workspace 经 `creativeWorkspaceAgentContract` 执行，UI 不再直接 patch snapshot。
+- Canvas / Video 同理 — 已交付 `dispatchCreativeWorkspaceOperations`：自动填充 snapshot-fingerprint guard 与 idempotency key，执行 Agent 同一份 `creativeWorkspaceAgentContract` envelope。
 
 #### 1.2 分批迁移 UI mutation（按 inventory 优先级）
 
@@ -131,8 +131,8 @@ flowchart LR
 | **1b** | 相机与镜头           | `create_camera`, `update_camera`, `frame_camera`  |
 | **1c** | 角色与 motion        | `assign_motion`, `update_character_pose`          |
 | **1d** | Timeline / coverage  | `create_coverage`, `assign_take`                  |
-| **1e** | Canvas nodes / edges | creative `author` batch                           |
-| **1f** | Video tracks / clips | creative `author` batch                           |
+| **1e** | Canvas nodes / edges | **已交付** — `canvas.node.*` / `canvas.edge.*` / `canvas.dag.layout` 经 `dispatchCreativeWorkspaceOperations` |
+| **1f** | Video tracks / clips | **已交付** — `edit.clip.*` / `edit.track.*` / `edit.settings.update` 经 `dispatchCreativeWorkspaceOperations` |
 
 #### 1.3 交互式操控的 semantic 等价物
 
@@ -148,7 +148,7 @@ flowchart LR
 
 ### 验收
 
-- Parity harness 覆盖 **1a–1d** 批次，UI 与 Agent 路径 revision 一致。
+- Parity harness 覆盖 **1a–1d** 批次，UI 与 Agent 路径 revision 一致；**1e–1f** 由 `frontend/director/tests/agent/dispatchCreativeWorkspaceOperations.test.ts` 覆盖，对 UI dispatch 与 Agent envelope 的归一化 snapshot 做 diff。
 - 无新增「UI 直连 store、Agent 无等价」的高优先级 gap。
 - 现有 MCP / HTTP / CLI 集成测试全部通过。
 

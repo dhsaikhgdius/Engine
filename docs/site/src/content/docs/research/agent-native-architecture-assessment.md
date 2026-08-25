@@ -59,7 +59,7 @@ Conclusion: Director is an **agent-native product architecture, not bolt-on AI**
 **Gaps:**
 
 - **Interchange** and **Collaboration** are **partially** exposed as `director_creative` JSON operations. Shipped: interchange `capabilities` / `plan-export` / `export`; collaboration `observe` / `list-comments` / `add-comment` / `list-versions` / `compare`. Remaining: interchange **import** stays human-file-picker-only; collaboration **writes** still lack comment resolve and version create/restore
-- Most `directorStore` mutators (camera panel, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, storyboard) now route through `dispatchDirectorAuthoringActions` shared with Agent authoring; remaining direct-store paths are creation flows (asset drop, preset characters, crowds, camera shots), UI-only grouping (object lists, crowd labels), gizmo/slider drag batches, and the Canvas/Video stores
+- Most `directorStore` mutators (camera panel, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, storyboard) now route through `dispatchDirectorAuthoringActions` shared with Agent authoring, and discrete Canvas/Video mutators (node add/remove, edge connect/remove, DAG layout, clip split/remove/transition, track management, edit settings) dispatch through `dispatchCreativeWorkspaceOperations` over the same `creativeWorkspaceAgentContract` agents use; remaining direct-store paths are creation flows (asset drop, preset characters, crowds, camera shots), UI-only grouping (object lists, crowd labels), and gizmo/slider/trim drag streams
 - Viewport drag, pilot, and other interactive controls lack full semantic equivalents
 
 **Rating: 3.5/5**
@@ -254,7 +254,7 @@ agent-gateway.ts (composition root)
 
 ## Main gaps
 
-1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, gizmo drag batches, and the Canvas/Video stores
+1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring, and discrete Canvas/Video mutators go through `dispatchCreativeWorkspaceOperations` over the shared creative contract. Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, and gizmo/trim/slider drag streams
 2. **Incomplete governance surfaces** — MCP, local harness, and hosted adapter share `filmRoleToolPolicy`; raw HTTP and human UI still bypass film roles, and audit is not unified across entry points
 3. **Protocol breadth** — MCP is strong; no standard A2A; multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
@@ -268,7 +268,7 @@ agent-gateway.ts (composition root)
 
 See the full phased plan in [Agent-Native Optimization Roadmap](/engineering/agent_native_roadmap/).
 
-1. **Keep routing UI mutators through shared authoring dispatch** — camera / pose / timeline / Canvas·Video still dual-write
+1. **Keep routing UI mutators through shared authoring dispatch** — creation flows and continuous drag streams still write the stores directly; camera / pose / timeline / discrete Canvas·Video paths already share dispatch
 2. **Apply the shared role policy to raw HTTP and UI, and unify the audit trail** — MCP / local / hosted already share `filmRoleToolPolicy.ts`
 3. **Strengthen team/observability layers** — collaboration auth, agent trace/cost dashboard
 4. **Evaluate A2A or OpenAPI tool manifest export** — enable cross-app agent orchestration
