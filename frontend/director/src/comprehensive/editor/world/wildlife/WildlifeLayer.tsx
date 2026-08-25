@@ -178,8 +178,7 @@ function composeGroupMatrices(
         // speed the butterfly flap up and every flier banks into the
         // crosswind component (windVector is pure in worldSeconds, so this
         // stays scrub/export-stable).
-        roll =
-          Math.sin(seconds * TWO_PI * profile.flapHz + agentPhase) * profile.flapAmplitudeRad * flapWindGain;
+        roll = Math.sin(seconds * TWO_PI * profile.flapHz + agentPhase) * profile.flapAmplitudeRad * flapWindGain;
         const crosswind = windX * Math.cos(yaw) - windZ * Math.sin(yaw);
         roll += Math.min(Math.max(crosswind * 0.015, -0.2), 0.2);
         if (butterflyLiftReferenceY !== null && groundSample) {
