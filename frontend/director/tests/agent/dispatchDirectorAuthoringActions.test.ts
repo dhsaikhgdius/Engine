@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyDirectorAuthoringActions } from "@director/agent-engine/authoring";
 import { getDirectorProjectRevision } from "@director/project-schema";
-import {
-  createInitialDirectorState,
-  useDirectorStore,
-} from "../../src/comprehensive/editor/store/directorStore";
+import { createInitialDirectorState, useDirectorStore } from "../../src/comprehensive/editor/store/directorStore";
 import {
   compileDirectorDeleteObjectActions,
   dispatchDirectorAuthoringActions,

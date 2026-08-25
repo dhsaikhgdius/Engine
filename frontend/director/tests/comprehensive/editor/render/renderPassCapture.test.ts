@@ -25,7 +25,10 @@ import {
   type WebGLRenderer,
 } from "three";
 import type { DirectorShotRenderPassId } from "../../../../src/comprehensive/editor/shot/shotPackage";
-import { captureDirectorRenderPass, createDirectorObjectIdColorMap } from "../../../../src/comprehensive/editor/render/renderPassCapture";
+import {
+  captureDirectorRenderPass,
+  createDirectorObjectIdColorMap,
+} from "../../../../src/comprehensive/editor/render/renderPassCapture";
 import { DIRECTOR_SEMANTIC_PALETTE } from "../../../../src/comprehensive/editor/render/semanticPalette";
 
 function expectStandardMaterial(material: unknown): MeshStandardMaterial {
@@ -341,11 +344,7 @@ describe("captureDirectorRenderPass", () => {
         expect(ownerMaterials).toHaveLength(2);
         renderedRgb.set(
           "owner-a",
-          ownerMaterials[0]!.color.toArray().map((value) => Math.round(value * 255)) as [
-            number,
-            number,
-            number,
-          ],
+          ownerMaterials[0]!.color.toArray().map((value) => Math.round(value * 255)) as [number, number, number],
         );
         renderedRgb.set(
           "owner-b",

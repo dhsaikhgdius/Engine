@@ -76,10 +76,18 @@ function normalizeFilmstripRequest(request: DirectorClipFilmstripRequest): Direc
     timelineDurationSec: Math.max(0, finiteOr(request.timelineDurationSec, 0)),
     playbackRate: playbackRate > 0 ? playbackRate : 1,
     tileWidth: Math.round(
-      clamp(finiteOr(request.tileWidth, DIRECTOR_CLIP_FILMSTRIP_MIN_TILE_EDGE), DIRECTOR_CLIP_FILMSTRIP_MIN_TILE_EDGE, DIRECTOR_CLIP_FILMSTRIP_MAX_TILE_EDGE),
+      clamp(
+        finiteOr(request.tileWidth, DIRECTOR_CLIP_FILMSTRIP_MIN_TILE_EDGE),
+        DIRECTOR_CLIP_FILMSTRIP_MIN_TILE_EDGE,
+        DIRECTOR_CLIP_FILMSTRIP_MAX_TILE_EDGE,
+      ),
     ),
     tileHeight: Math.round(
-      clamp(finiteOr(request.tileHeight, DIRECTOR_CLIP_FILMSTRIP_MIN_TILE_EDGE), DIRECTOR_CLIP_FILMSTRIP_MIN_TILE_EDGE, DIRECTOR_CLIP_FILMSTRIP_MAX_TILE_EDGE),
+      clamp(
+        finiteOr(request.tileHeight, DIRECTOR_CLIP_FILMSTRIP_MIN_TILE_EDGE),
+        DIRECTOR_CLIP_FILMSTRIP_MIN_TILE_EDGE,
+        DIRECTOR_CLIP_FILMSTRIP_MAX_TILE_EDGE,
+      ),
     ),
     tileCount: Math.round(clamp(finiteOr(request.tileCount, 1), 1, DIRECTOR_CLIP_FILMSTRIP_MAX_TILES)),
   };
@@ -259,8 +267,7 @@ async function runFilmstripTask(task: FilmstripTask) {
     } catch {
       // jsdom's load() is not implemented; the loadeddata wait still governs.
     }
-    const loadResult =
-      video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA ? ("ok" as const) : await loaded;
+    const loadResult = video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA ? ("ok" as const) : await loaded;
     if (task.cancelled) return;
     if (loadResult !== "ok") {
       // Undecodable or unreachable source: finish the strip with null tiles so
@@ -373,9 +380,7 @@ export function clearDirectorClipFilmstripCache() {
  * object only changes when a new tile lands, so useSyncExternalStore never
  * loops. A null request renders nothing and subscribes to nothing meaningful.
  */
-export function useDirectorClipFilmstrip(
-  request: DirectorClipFilmstripRequest | null,
-): DirectorClipFilmstrip | null {
+export function useDirectorClipFilmstrip(request: DirectorClipFilmstripRequest | null): DirectorClipFilmstrip | null {
   const key = request ? filmstripKeyOf(normalizeFilmstripRequest(request)) : null;
   const requestRef = useRef(request);
   requestRef.current = request;

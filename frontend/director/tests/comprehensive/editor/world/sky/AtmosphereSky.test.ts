@@ -10,7 +10,10 @@ import {
   atmosphereSkyRidgeAmplitude,
   createAtmosphereEnvironmentTexture,
 } from "../../../../../src/comprehensive/editor/world/sky/AtmosphereSky";
-import { ATMOSPHERE_SKY_FRAGMENT_SHADER, ATMOSPHERE_SKY_VERTEX_SHADER } from "../../../../../src/comprehensive/editor/world/sky/atmosphereSkyShaders";
+import {
+  ATMOSPHERE_SKY_FRAGMENT_SHADER,
+  ATMOSPHERE_SKY_VERTEX_SHADER,
+} from "../../../../../src/comprehensive/editor/world/sky/atmosphereSkyShaders";
 
 describe("atmosphere sky film-set defaults", () => {
   it("does not flip the CPU zenith row and does not draw a default mountain matte", () => {

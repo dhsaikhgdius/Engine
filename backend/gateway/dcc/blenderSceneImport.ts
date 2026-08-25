@@ -5,20 +5,11 @@ import { access, chmod, copyFile, lstat, mkdir, open, readFile, realpath, rename
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Quaternion, Vector3 } from "three";
 import { z } from "zod";
-import {
-  applyDirectorAuthoringActions,
-  type DirectorAuthoringAction,
-} from "@director/agent-engine";
-import {
-  directorWorkbenchOperationSchema,
-  type DirectorWorkbenchOperation,
-} from "@director/agent-engine";
+import { applyDirectorAuthoringActions, type DirectorAuthoringAction } from "@director/agent-engine";
+import { directorWorkbenchOperationSchema, type DirectorWorkbenchOperation } from "@director/agent-engine";
 import type { DirectorProject } from "@director/project-schema";
 import { directorProjectSchema } from "@director/project-schema";
-import {
-  DIRECTOR_PROJECT_REVISION_PATTERN,
-  getDirectorProjectRevision,
-} from "@director/project-schema";
+import { DIRECTOR_PROJECT_REVISION_PATTERN, getDirectorProjectRevision } from "@director/project-schema";
 import {
   DIRECTOR_CAMERA_ASPECT_RATIO_OPTIONS,
   DIRECTOR_CAMERA_SENSOR_FORMAT_OPTIONS,
@@ -518,13 +509,7 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
   const jobRoot = resolve(options.dataDirectory, "dcc-jobs", "blender-import");
   const applyLedgerRoot = resolve(options.dataDirectory, "dcc-ledgers", "blender-scene-import");
   const generatedImportRoot = resolve(workspaceRoot, "assets", "generated", "dcc-import");
-  const extractorPath = resolve(
-    workspaceRoot,
-    "integrations",
-    "blender",
-    "interchange",
-    "director_scene_export.py",
-  );
+  const extractorPath = resolve(workspaceRoot, "integrations", "blender", "interchange", "director_scene_export.py");
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maximumBytes = options.maxUploadBytes ?? MAX_BLEND_BYTES;
   const maximumExtractedBytes = options.maxExtractedBytes ?? MAX_EXTRACTED_PACKAGE_BYTES;

@@ -11,7 +11,9 @@ vi.mock("../../../../src/comprehensive/editor/modelLibrary/flickPublicCatalog", 
   loadLocalFlickStageCatalog: (...args: unknown[]) => mockLoadLocalFlickStageCatalog(...args),
 }));
 vi.mock("../../../../src/comprehensive/editor/modelLibrary/mixamoCharacterCatalog", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../../src/comprehensive/editor/modelLibrary/mixamoCharacterCatalog")>()),
+  ...(await importOriginal<
+    typeof import("../../../../src/comprehensive/editor/modelLibrary/mixamoCharacterCatalog")
+  >()),
   loadLocalMixamoCharacterCatalog: (...args: unknown[]) => mockLoadLocalMixamoCharacterCatalog(...args),
 }));
 

@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { clearDirectorDeskHostBridge, initDirectorDeskHostBridge, postDirectorDeskVideoToHost } from "../../../../src/comprehensive/editor/io/hostBridge";
+import {
+  clearDirectorDeskHostBridge,
+  initDirectorDeskHostBridge,
+  postDirectorDeskVideoToHost,
+} from "../../../../src/comprehensive/editor/io/hostBridge";
 import { createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
-import { clearViewportCaptureHandler, setViewportCaptureHandler } from "../../../../src/comprehensive/editor/io/captureBridge";
+import {
+  clearViewportCaptureHandler,
+  setViewportCaptureHandler,
+} from "../../../../src/comprehensive/editor/io/captureBridge";
 import { getDirectorSessionRuntime } from "../../../../src/comprehensive/editor/session/directorSessionRuntime";
 
 function createMemoryStorage(): Storage {

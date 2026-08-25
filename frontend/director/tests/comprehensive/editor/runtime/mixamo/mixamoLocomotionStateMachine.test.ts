@@ -181,9 +181,7 @@ describe("Mixamo locomotion state machine", () => {
     expect(step({ frame: 1, timestampS: 0.15, speedMps: 1 }).mode).toBe("walk");
 
     // Two 60 fps frames of lost contact on a step-down seam stay in the gait.
-    expect(step({ frame: 2, timestampS: 0.2, speedMps: 1, grounded: false, verticalSpeedMps: -0.5 }).mode).toBe(
-      "walk",
-    );
+    expect(step({ frame: 2, timestampS: 0.2, speedMps: 1, grounded: false, verticalSpeedMps: -0.5 }).mode).toBe("walk");
     expect(step({ frame: 3, timestampS: 0.216, speedMps: 1, grounded: false, verticalSpeedMps: -0.5 }).mode).toBe(
       "walk",
     );

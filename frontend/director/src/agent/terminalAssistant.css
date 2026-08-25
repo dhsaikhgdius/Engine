@@ -481,8 +481,10 @@
 
 /* Failure states spell themselves out in the embedded toolbar; give the
  * label back its warning pill so it reads at a glance. */
-.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-process-state[data-state="error"]:not(.is-compact),
-.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-process-state[data-state="exited"]:not(.is-compact) {
+.director-agent-terminal-toolbar.is-embedded
+  .director-agent-terminal-process-state[data-state="error"]:not(.is-compact),
+.director-agent-terminal-toolbar.is-embedded
+  .director-agent-terminal-process-state[data-state="exited"]:not(.is-compact) {
   height: 24px;
   border-color: rgb(214 91 82 / 0.24);
   background: rgb(214 91 82 / 0.08);

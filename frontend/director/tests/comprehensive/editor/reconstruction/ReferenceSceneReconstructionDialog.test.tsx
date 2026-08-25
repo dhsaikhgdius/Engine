@@ -2,7 +2,10 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import { createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
-import { resetViewportChromeSuppression, useViewportChromeSuppressionStore } from "../../../../src/comprehensive/editor/canvas/viewportChromeSuppression";
+import {
+  resetViewportChromeSuppression,
+  useViewportChromeSuppressionStore,
+} from "../../../../src/comprehensive/editor/canvas/viewportChromeSuppression";
 import { ReferenceSceneReconstructionDialog } from "../../../../src/comprehensive/editor/reconstruction/ReferenceSceneReconstructionDialog";
 
 const mocks = vi.hoisted(() => ({
@@ -11,10 +14,17 @@ const mocks = vi.hoisted(() => ({
   profiles: vi.fn(),
 }));
 
-vi.mock("../../../../src/comprehensive/editor/assistant/agentProfilesClient", () => ({ listAgentProfiles: mocks.profiles }));
-vi.mock("../../../../src/comprehensive/editor/reconstruction/referenceImageAnalysis", () => ({ prepareDirectorReferenceImage: mocks.prepare }));
+vi.mock("../../../../src/comprehensive/editor/assistant/agentProfilesClient", () => ({
+  listAgentProfiles: mocks.profiles,
+}));
+vi.mock("../../../../src/comprehensive/editor/reconstruction/referenceImageAnalysis", () => ({
+  prepareDirectorReferenceImage: mocks.prepare,
+}));
 vi.mock("../../../../src/comprehensive/editor/reconstruction/referenceSceneReconstruction", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../../../../src/comprehensive/editor/reconstruction/referenceSceneReconstruction")>();
+  const original =
+    await importOriginal<
+      typeof import("../../../../src/comprehensive/editor/reconstruction/referenceSceneReconstruction")
+    >();
   return { ...original, requestReferenceSceneAnalysis: mocks.analyze };
 });
 

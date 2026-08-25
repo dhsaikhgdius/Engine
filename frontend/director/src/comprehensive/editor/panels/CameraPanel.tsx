@@ -979,9 +979,7 @@ export function CameraPanel() {
                 }
                 className={confirmingActionKey === `recording:${recording.id}` ? "is-confirming" : undefined}
                 onBlur={() => resetConfirmingAction(`recording:${recording.id}`)}
-                onClick={() =>
-                  confirmThenRun(`recording:${recording.id}`, () => removeRecording(recording.id))
-                }
+                onClick={() => confirmThenRun(`recording:${recording.id}`, () => removeRecording(recording.id))}
                 type="button"
               >
                 <Trash2 aria-hidden size={14} />

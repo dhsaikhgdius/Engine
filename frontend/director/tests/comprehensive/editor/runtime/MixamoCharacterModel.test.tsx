@@ -6,7 +6,10 @@ import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { localAssetIt } from "../../../../../../packages/protocol/tests/localAssetTest";
 import { MixamoCharacterModel } from "../../../../src/comprehensive/editor/runtime/MixamoCharacterModel";
-import { collectMixamoBones, resolveMixamoBones } from "../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
+import {
+  collectMixamoBones,
+  resolveMixamoBones,
+} from "../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
 import { configureDirectorGLTFLoader } from "../../../../src/comprehensive/editor/runtime/gltfLoader";
 import type { DirectorCharacterLocomotionRuntimeState } from "../../../../src/comprehensive/editor/runtime/mixamo/mixamoLocomotionRuntime";
 import type { DirectorCharacterMotionState } from "../../../../src/comprehensive/editor/schema/directorProject";
@@ -32,7 +35,10 @@ vi.mock("../../../../src/comprehensive/editor/runtime/gltfLoader", async (import
 });
 
 vi.mock("../../../../src/comprehensive/editor/runtime/mixamo/mixamoLocomotionRuntime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../src/comprehensive/editor/runtime/mixamo/mixamoLocomotionRuntime")>();
+  const actual =
+    await importOriginal<
+      typeof import("../../../../src/comprehensive/editor/runtime/mixamo/mixamoLocomotionRuntime")
+    >();
   return {
     ...actual,
     readDirectorCharacterLocomotionRuntimeState: () => runtimeState.current,
@@ -40,7 +46,8 @@ vi.mock("../../../../src/comprehensive/editor/runtime/mixamo/mixamoLocomotionRun
 });
 
 vi.mock("../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion")>();
+  const actual =
+    await importOriginal<typeof import("../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion")>();
   return {
     ...actual,
     applyDirectorCharacterWeightedMotionFrame: applyWeightedMotionFrame,

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorWorldWeather } from "../../../../../src/comprehensive/editor/schema/directorProject";
-import { evaluateLightningState, LIGHTNING_WINDOW_SECONDS } from "../../../../../src/comprehensive/editor/world/sky/lightning";
+import {
+  evaluateLightningState,
+  LIGHTNING_WINDOW_SECONDS,
+} from "../../../../../src/comprehensive/editor/world/sky/lightning";
 
 function weather(preset: DirectorWorldWeather["preset"], intensity: number): DirectorWorldWeather {
   return { preset, intensity, wetness: 0.5, cloudCover: 0.8 };

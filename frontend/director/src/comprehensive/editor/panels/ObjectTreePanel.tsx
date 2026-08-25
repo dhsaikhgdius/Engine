@@ -611,7 +611,9 @@ export function ObjectTreePanel() {
       const path = collectSceneTreeRevealPath(group.items, { crowdId: selectedCrowdId, objectId });
       if (!path) continue;
       revealedSelectionKeyRef.current = selectionKey;
-      setCollapsedGroupKeys((current) => (current.includes(group.key) ? current.filter((key) => key !== group.key) : current));
+      setCollapsedGroupKeys((current) =>
+        current.includes(group.key) ? current.filter((key) => key !== group.key) : current,
+      );
       if (path.ancestors.length) {
         setExpandedListIds((current) => {
           const next = new Set(current);

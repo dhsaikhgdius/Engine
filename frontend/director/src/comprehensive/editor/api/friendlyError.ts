@@ -45,7 +45,9 @@ function extractMessage(error: unknown): string {
 
 function matchHttpStatus(message: string): number | null {
   const match =
-    message.match(/\(\s*(\d{3})\s*\)/) ?? message.match(/\bHTTP[\s/]*(\d{3})\b/i) ?? message.match(/\bstatus\s*(?:code\s*)?[:=]?\s*(\d{3})\b/i);
+    message.match(/\(\s*(\d{3})\s*\)/) ??
+    message.match(/\bHTTP[\s/]*(\d{3})\b/i) ??
+    message.match(/\bstatus\s*(?:code\s*)?[:=]?\s*(\d{3})\b/i);
   if (!match) return null;
   const status = Number(match[1]);
   return status >= 400 && status <= 599 ? status : null;

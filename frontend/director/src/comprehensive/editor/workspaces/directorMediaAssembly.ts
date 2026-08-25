@@ -71,11 +71,7 @@ function mediaName(mediaId: string, names: ReadonlyMap<string, string>, fallback
   return names.get(mediaId) || fallback;
 }
 
-function neighborsOf(
-  edges: readonly AssemblyBoardEdge[],
-  nodeId: string,
-  direction: "incoming" | "outgoing",
-) {
+function neighborsOf(edges: readonly AssemblyBoardEdge[], nodeId: string, direction: "incoming" | "outgoing") {
   return edges.flatMap((edge) => {
     if (direction === "outgoing" && edge.sourceNodeId === nodeId) return [edge.targetNodeId];
     if (direction === "incoming" && edge.targetNodeId === nodeId) return [edge.sourceNodeId];
@@ -155,8 +151,9 @@ export function describeDirectorMediaAssemblyChain(
   selfName: string,
 ): string | null {
   if (!isDirectorMediaAssembled(record) && record.inputs.length === 0 && record.outputs.length === 0) return null;
-  const unique = (links: readonly DirectorMediaAssemblyLink[]) =>
-    [...new Set(links.map((link) => link.name).filter((name) => name && name !== selfName))];
+  const unique = (links: readonly DirectorMediaAssemblyLink[]) => [
+    ...new Set(links.map((link) => link.name).filter((name) => name && name !== selfName)),
+  ];
   const inputs = unique(record.inputs);
   const outputs = unique(record.outputs);
   const parts: string[] = [];
@@ -340,10 +337,10 @@ export function indexDirectorMediaAssembly(
   });
 
   records.forEach((record) => {
-    record.canvasNodes.sort((left, right) => compareText(left.title, right.title) || compareText(left.nodeId, right.nodeId));
-    record.timelineClips.sort(
-      (left, right) => left.startSec - right.startSec || compareText(left.name, right.name),
+    record.canvasNodes.sort(
+      (left, right) => compareText(left.title, right.title) || compareText(left.nodeId, right.nodeId),
     );
+    record.timelineClips.sort((left, right) => left.startSec - right.startSec || compareText(left.name, right.name));
     const inputKeys = new Set<string>();
     record.inputs = record.inputs.filter((link) => {
       const key = `${link.mediaId}:${link.viaNodeId}`;

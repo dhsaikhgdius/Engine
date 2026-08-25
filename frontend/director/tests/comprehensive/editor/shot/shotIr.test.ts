@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { DirectorCameraShot, DirectorObject, DirectorProject } from "../../../../src/comprehensive/editor/schema/directorProject";
+import type {
+  DirectorCameraShot,
+  DirectorObject,
+  DirectorProject,
+} from "../../../../src/comprehensive/editor/schema/directorProject";
 import { buildDirectorShotIr } from "../../../../src/comprehensive/editor/shot/shotIr";
 
 function createCamera(): DirectorCameraShot {

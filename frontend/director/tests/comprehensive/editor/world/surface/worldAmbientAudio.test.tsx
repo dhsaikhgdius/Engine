@@ -2,7 +2,9 @@ import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { setStageViewportAudioEnabled } from "../../../../../src/comprehensive/editor/audio/stageViewportAudio";
-import WorldAmbientAudio, { fillSeededUnitNoise } from "../../../../../src/comprehensive/editor/world/surface/worldAmbientAudio";
+import WorldAmbientAudio, {
+  fillSeededUnitNoise,
+} from "../../../../../src/comprehensive/editor/world/surface/worldAmbientAudio";
 
 const fiberMocks = vi.hoisted(() => ({ frame: null as null | (() => void) }));
 

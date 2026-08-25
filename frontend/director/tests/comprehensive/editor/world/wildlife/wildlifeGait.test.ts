@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { WILDLIFE_PART_ANGLE_SLOTS, WILDLIFE_PART_SLOTS } from "../../../../../src/comprehensive/editor/world/wildlife/placeholderModels";
+import {
+  WILDLIFE_PART_ANGLE_SLOTS,
+  WILDLIFE_PART_SLOTS,
+} from "../../../../../src/comprehensive/editor/world/wildlife/placeholderModels";
 import {
   resolveWildlifeGaitProfile,
   WILDLIFE_GAIT_PROFILES,

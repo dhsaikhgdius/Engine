@@ -70,17 +70,13 @@ it("allows scene and world RNA writes, including render filepaths", () => {
 });
 
 it("rejects only denylisted long-tail operators before they reach Blender", () => {
+  expect(() => assertBlenderKernelPolicy([{ op: "invoke_operator", operator: "wm.quit_blender" }])).toThrow(
+    /outside the Director modeling kernel/,
+  );
   expect(() =>
-    assertBlenderKernelPolicy([{ op: "invoke_operator", operator: "wm.quit_blender" }]),
-  ).toThrow(/outside the Director modeling kernel/);
-  expect(() =>
-    assertBlenderKernelPolicy([
-      { op: "set_rna_property", target: { kind: "data_block" }, path: ["name"] },
-    ]),
+    assertBlenderKernelPolicy([{ op: "set_rna_property", target: { kind: "data_block" }, path: ["name"] }]),
   ).toThrow(/RNA writes are limited/);
-  expect(() =>
-    assertBlenderKernelPolicy([{ op: "invoke_operator", operator: "wm.save_as_mainfile" }]),
-  ).not.toThrow();
+  expect(() => assertBlenderKernelPolicy([{ op: "invoke_operator", operator: "wm.save_as_mainfile" }])).not.toThrow();
   expect(() => assertBlenderKernelPolicy([{ op: "invoke_operator", operator: "mesh.bevel" }])).not.toThrow();
   expect(() =>
     assertBlenderKernelPolicy([{ op: "execute_code", code: "import bpy\nprint(len(bpy.data.objects))\n" }]),
@@ -91,9 +87,7 @@ it("allows clipboard and import operators that previously required a closed allo
   expect(isAllowedBlenderOperator("view3d.copybuffer")).toBe(true);
   expect(isAllowedBlenderOperator("view3d.pastebuffer")).toBe(true);
   expect(isAllowedBlenderOperator("view3d.snap_selected_to_cursor")).toBe(true);
-  expect(() =>
-    assertBlenderKernelPolicy([{ op: "invoke_operator", operator: "view3d.copybuffer" }]),
-  ).not.toThrow();
+  expect(() => assertBlenderKernelPolicy([{ op: "invoke_operator", operator: "view3d.copybuffer" }])).not.toThrow();
 });
 
 it("allows file-path operator properties used for import and export", () => {
@@ -119,9 +113,7 @@ it("allows file-path operator properties used for import and export", () => {
     ]),
   ).not.toThrow();
   expect(() =>
-    assertBlenderKernelPolicy([
-      { op: "invoke_operator", operator: "mesh.subdivide", properties: { number_cuts: 2 } },
-    ]),
+    assertBlenderKernelPolicy([{ op: "invoke_operator", operator: "mesh.subdivide", properties: { number_cuts: 2 } }]),
   ).not.toThrow();
 });
 
@@ -140,10 +132,6 @@ it("keeps the Python kernel policy sets in sync with the TS constants", () => {
     }
     return [...literal[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]).sort();
   };
-  expect(pythonSetMembers("OPERATOR_CATEGORY_DENYLIST")).toEqual(
-    [...BLENDER_INVOKE_OPERATOR_CATEGORY_DENYLIST].sort(),
-  );
-  expect(pythonSetMembers("OPERATOR_ID_DENYLIST")).toEqual(
-    [...BLENDER_INVOKE_OPERATOR_ID_DENYLIST].sort(),
-  );
+  expect(pythonSetMembers("OPERATOR_CATEGORY_DENYLIST")).toEqual([...BLENDER_INVOKE_OPERATOR_CATEGORY_DENYLIST].sort());
+  expect(pythonSetMembers("OPERATOR_ID_DENYLIST")).toEqual([...BLENDER_INVOKE_OPERATOR_ID_DENYLIST].sort());
 });

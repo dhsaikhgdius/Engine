@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createDefaultDirectorProject,
-  useDirectorStore,
-} from "../../src/comprehensive/editor/store/directorStore";
+import { createDefaultDirectorProject, useDirectorStore } from "../../src/comprehensive/editor/store/directorStore";
 import { getCameraViewSnapshotFromShot, getDirectorProjectRevision } from "@director/project-schema";
 import { getDirectorAgentCatalogAsset } from "@director/agent-engine/asset-catalog";
 import { directorAuthoringActionSchema } from "@director/agent-engine/authoring";

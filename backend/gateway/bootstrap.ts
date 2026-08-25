@@ -327,10 +327,7 @@ export async function createGatewayContext(): Promise<GatewayContext> {
   await mkdir(dataDirectory, { recursive: true });
   await writeJsonAtomic(agentPlanSchemaPath, AGENT_PLAN_SCHEMA, { space: 0 });
 
-  const agentProfileRegistry = new AgentProfileRegistry(
-    controlPlaneConfig,
-    probeLocalAgentCliAvailability(),
-  );
+  const agentProfileRegistry = new AgentProfileRegistry(controlPlaneConfig, probeLocalAgentCliAvailability());
   const referenceSceneAnalyzer = createReferenceSceneAnalyzer({ profiles: agentProfileRegistry });
 
   // filmPipeline needs workbenchExecute which requires requestWorkbenchCommand — inject later

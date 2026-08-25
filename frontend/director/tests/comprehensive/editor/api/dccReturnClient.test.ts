@@ -1,9 +1,14 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 const transport = vi.hoisted(() => ({ fetch: vi.fn() }));
-vi.mock("../../../../src/comprehensive/editor/api/directorControlPlaneClient", () => ({ directorControlPlaneFetch: transport.fetch }));
+vi.mock("../../../../src/comprehensive/editor/api/directorControlPlaneClient", () => ({
+  directorControlPlaneFetch: transport.fetch,
+}));
 
-import { applyDirectorDccImportPlan, previewDirectorDccReturnPackage } from "../../../../src/comprehensive/editor/api/dccReturnClient";
+import {
+  applyDirectorDccImportPlan,
+  previewDirectorDccReturnPackage,
+} from "../../../../src/comprehensive/editor/api/dccReturnClient";
 
 const plan = {
   contract: "director-dcc-import-plan-v1" as const,

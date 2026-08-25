@@ -1,7 +1,4 @@
-import type {
-  CaptureReconstructionPlan,
-  CaptureSourceKind,
-} from "@director/protocol/captureReconstructionProtocol";
+import type { CaptureReconstructionPlan, CaptureSourceKind } from "@director/protocol/captureReconstructionProtocol";
 import type { ProductionJobRecord } from "@director/protocol/productionJobProtocol";
 import { uploadBlenderModelAsset } from "../comprehensive/editor/api/blenderLiveClient";
 import {
@@ -305,7 +302,9 @@ export async function executeDirectorCaptureReconstructionWorkbenchCommand(
             ? plan.cameras.find((candidate) => candidate.viewId === command.view_id)
             : plan.cameras[0];
         if (!camera) {
-          throw new Error("This reconstruction plan has no matching capture-view camera; confirm view_id / camera_id first.");
+          throw new Error(
+            "This reconstruction plan has no matching capture-view camera; confirm view_id / camera_id first.",
+          );
         }
         const project = dependencies.getStore().project;
         if (!project.cameras.some((candidate) => candidate.id === camera.id)) {

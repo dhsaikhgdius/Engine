@@ -75,8 +75,7 @@ export default tseslint.config(
           patterns: [
             {
               group: ["**/frontend/director/**", "../../../frontend/**"],
-              message:
-                "Agent-engine must stay store-free. Browser execution belongs in frontend/director/src/agent/.",
+              message: "Agent-engine must stay store-free. Browser execution belongs in frontend/director/src/agent/.",
             },
           ],
         },

@@ -9,10 +9,7 @@ import {
   type DirectorDccScenePackage,
   type DirectorDccAssetResolution,
 } from "@director/dcc-protocol";
-import type {
-  DirectorAssetRef,
-  DirectorProject,
-} from "@director/project-schema";
+import type { DirectorAssetRef, DirectorProject } from "@director/project-schema";
 import { prepareGltfForBlender } from "./gltfPrepare";
 
 const blenderReportSchema = z.strictObject({

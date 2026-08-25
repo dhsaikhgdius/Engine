@@ -4,10 +4,7 @@ import type { DirectorShotIr } from "./shotIr";
 import { normalizeDirectorTimebase, serializeDirectorFrameRate } from "../timeline/frameRate";
 import { formatDirectorTimelineTimecode } from "../timeline/timecode";
 import defaultRenderPasses from "./defaultRenderPasses.json";
-import {
-  DIRECTOR_SHOT_RENDER_PASS_IDS,
-  type DirectorShotRenderPassId,
-} from "@director/protocol/workbench-ui";
+import { DIRECTOR_SHOT_RENDER_PASS_IDS, type DirectorShotRenderPassId } from "@director/protocol/workbench-ui";
 
 export { DIRECTOR_SHOT_RENDER_PASS_IDS, type DirectorShotRenderPassId };
 

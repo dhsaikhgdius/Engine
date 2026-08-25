@@ -130,7 +130,7 @@ function dialogueMarkupError(text: string): string | null {
   const tagCount = (text.match(DIALOGUE_TAG_RE) ?? []).length;
   const wellFormedCount = (text.match(DIALOGUE_WELL_FORMED_RE) ?? []).length;
   if (tagCount !== wellFormedCount * 2) {
-    return 'dialogue markup must be exactly <d>[Language] spoken words</d> with matching tags and no nesting';
+    return "dialogue markup must be exactly <d>[Language] spoken words</d> with matching tags and no nesting";
   }
   return null;
 }
@@ -141,10 +141,7 @@ function h3ResponseSchema(durationSeconds: number) {
       shots: z
         .array(
           z.object({
-            start_time: z
-              .string()
-              .regex(TIMECODE_RE, 'start_time must be "MM:SS.mmm"')
-              .nullable(),
+            start_time: z.string().regex(TIMECODE_RE, 'start_time must be "MM:SS.mmm"').nullable(),
             description: z.string().trim().min(1).max(1_500),
           }),
         )
@@ -206,9 +203,7 @@ function h3ResponseSchema(durationSeconds: number) {
     });
 }
 
-export function renderH3Shots(
-  shots: ReadonlyArray<{ start_time: string | null; description: string }>,
-): string {
+export function renderH3Shots(shots: ReadonlyArray<{ start_time: string | null; description: string }>): string {
   return shots
     .map((shot, index) => {
       const label = `[Shot ${index + 1}]`;

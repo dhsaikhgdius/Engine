@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
-import type { DirectorAssetRef, DirectorObject, DirectorProject } from "../../../../src/comprehensive/editor/schema/directorProject";
+import type {
+  DirectorAssetRef,
+  DirectorObject,
+  DirectorProject,
+} from "../../../../src/comprehensive/editor/schema/directorProject";
 import {
   canonicalizeDirectorProjectForRevision,
   DIRECTOR_PROJECT_REVISION_CONTRACT,

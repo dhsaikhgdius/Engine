@@ -17,7 +17,11 @@ import {
   writeWaterFrameUniforms,
   type WaterFrameState,
 } from "../../../../../src/comprehensive/editor/world/water/waterMaterial";
-import { WATER_FOAM_CREST_END, WATER_FOAM_CREST_START, computeWaterTroughLift } from "../../../../../src/comprehensive/editor/world/water/waterParams";
+import {
+  WATER_FOAM_CREST_END,
+  WATER_FOAM_CREST_START,
+  computeWaterTroughLift,
+} from "../../../../../src/comprehensive/editor/world/water/waterParams";
 
 function createBody(overrides: Partial<DirectorWorldWaterBody> = {}): DirectorWorldWaterBody {
   return {

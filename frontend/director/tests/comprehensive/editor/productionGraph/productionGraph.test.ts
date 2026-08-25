@@ -11,7 +11,10 @@ import {
   queryProductionGraphEdges,
 } from "../../../../src/comprehensive/editor/productionGraph/productionGraph";
 import { validateProductionGraphIntegrity } from "../../../../src/comprehensive/editor/productionGraph/productionGraphIntegrity";
-import { safeParseProductionGraph, type ProductionGraphV1 } from "../../../../src/comprehensive/editor/productionGraph/productionGraphSchema";
+import {
+  safeParseProductionGraph,
+  type ProductionGraphV1,
+} from "../../../../src/comprehensive/editor/productionGraph/productionGraphSchema";
 
 function createProject(): DirectorProject {
   return {

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createDeterministicZipArchive, directorZipCrc32 } from "../../../../src/comprehensive/editor/video/deterministicZip";
+import {
+  createDeterministicZipArchive,
+  directorZipCrc32,
+} from "../../../../src/comprehensive/editor/video/deterministicZip";
 
 function uint32(bytes: Uint8Array, offset: number) {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(offset, true);

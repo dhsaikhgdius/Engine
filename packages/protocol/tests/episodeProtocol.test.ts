@@ -98,7 +98,13 @@ function actionTrackInput(overrides: Partial<ActionTrackInput> = {}): ActionTrac
     rawControl: rawControlInput(),
     cameraPose: cameraPoseInput(),
     semanticEvents: [
-      { frame: 1, type: "object-picked", subjectId: "agent:player", objectId: "object:crate", payload: { hand: "right" } },
+      {
+        frame: 1,
+        type: "object-picked",
+        subjectId: "agent:player",
+        objectId: "object:crate",
+        payload: { hand: "right" },
+      },
       { frame: 1, type: "camera-cut" },
       { frame: 3, type: "episode-end" },
     ],
@@ -155,12 +161,12 @@ describe("episodeProtocol", () => {
 
   it("rejects structural manifest violations at the schema boundary", () => {
     const duplicatePath = manifestInput().artifacts[0];
-    expect(() => parseManifest(manifestInput({ artifacts: [duplicatePath, { ...duplicatePath, kind: "metadata" }] }))).toThrow(
-      /artifact paths must be unique/,
-    );
     expect(() =>
-      parseManifest(manifestInput({ artifacts: [{ ...duplicatePath, path: "../escape.mp4" }] })),
-    ).toThrow(/episode-relative/);
+      parseManifest(manifestInput({ artifacts: [duplicatePath, { ...duplicatePath, kind: "metadata" }] })),
+    ).toThrow(/artifact paths must be unique/);
+    expect(() => parseManifest(manifestInput({ artifacts: [{ ...duplicatePath, path: "../escape.mp4" }] }))).toThrow(
+      /episode-relative/,
+    );
     const asset = { assetId: "asset:crate", sha256: hex("c") };
     expect(() =>
       parseManifest(
@@ -181,7 +187,11 @@ describe("episodeProtocol", () => {
     expect(
       episodeManifestSchema.safeParse(
         manifestInput({
-          timebase: { frameRate: { numerator: 24, denominator: 1 }, frameCount: FRAME_COUNT, startTimecode: "0:00:00:00" },
+          timebase: {
+            frameRate: { numerator: 24, denominator: 1 },
+            frameCount: FRAME_COUNT,
+            startTimecode: "0:00:00:00",
+          },
         }),
       ).success,
     ).toBe(false);
@@ -203,7 +213,15 @@ describe("episodeProtocol", () => {
     ).toThrow(/one flag per key/);
     expect(
       episodeActionTrackSchema.safeParse(
-        actionTrackInput({ rawControl: { ...rawControlInput(), axes: [{ id: "x", values: [0] }, { id: "x", values: [1] }] } }),
+        actionTrackInput({
+          rawControl: {
+            ...rawControlInput(),
+            axes: [
+              { id: "x", values: [0] },
+              { id: "x", values: [1] },
+            ],
+          },
+        }),
       ).success,
     ).toBe(false);
     // Multi-hot flags must be 0 or 1.
@@ -243,7 +261,9 @@ describe("episodeProtocol", () => {
   it("accepts a consistent episode triple and a manifest on its own", () => {
     const manifest = parseManifest(manifestInput());
     expect(validateEpisodeIntegrity(manifest)).toEqual([]);
-    expect(validateEpisodeIntegrity(manifest, parseTrack(actionTrackInput()), parseCaptions(captionsInput()))).toEqual([]);
+    expect(validateEpisodeIntegrity(manifest, parseTrack(actionTrackInput()), parseCaptions(captionsInput()))).toEqual(
+      [],
+    );
   });
 
   it("reports per-frame arrays that do not match the manifest frame count", () => {
@@ -256,7 +276,13 @@ describe("episodeProtocol", () => {
             [1, 0],
             [0, 1],
           ],
-          pointerDelta: [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]],
+          pointerDelta: [
+            [0, 0],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+          ],
           axes: [{ id: "gamepad-left-x", values: [0] }],
         },
         cameraPose: {
@@ -354,7 +380,15 @@ describe("episodeProtocol", () => {
     const pose = cameraPoseInput();
     const denormalized = parseTrack(
       actionTrackInput({
-        cameraPose: { ...pose, rotations: [[0, 0, 0, 0.5], [0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1]] },
+        cameraPose: {
+          ...pose,
+          rotations: [
+            [0, 0, 0, 0.5],
+            [0, 0, 0, 1],
+            [0, 0, 0, 1],
+            [0, 0, 0, 1],
+          ],
+        },
       }),
     );
     expect(validateEpisodeIntegrity(manifest, denormalized)).toEqual([
@@ -366,7 +400,15 @@ describe("episodeProtocol", () => {
 
     const withinTolerance = parseTrack(
       actionTrackInput({
-        cameraPose: { ...pose, rotations: [[0, 0, 0, 1.0005], [0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 0.9995]] },
+        cameraPose: {
+          ...pose,
+          rotations: [
+            [0, 0, 0, 1.0005],
+            [0, 0, 0, 1],
+            [0, 0, 0, 1],
+            [0, 0, 0, 0.9995],
+          ],
+        },
       }),
     );
     expect(validateEpisodeIntegrity(manifest, withinTolerance)).toEqual([]);

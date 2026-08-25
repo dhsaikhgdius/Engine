@@ -5,10 +5,7 @@ import { Euler, Quaternion, Vector3 } from "three";
 import { z } from "zod";
 import type { DirectorAuthoringAction } from "@director/agent-engine";
 import type { DirectorWorkbenchOperation } from "@director/agent-engine";
-import type {
-  DirectorProject,
-  DirectorTransform,
-} from "@director/project-schema";
+import type { DirectorProject, DirectorTransform } from "@director/project-schema";
 import { getDirectorProjectRevision } from "@director/project-schema";
 import {
   blenderTransformToDirector,

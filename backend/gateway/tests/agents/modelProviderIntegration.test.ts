@@ -1,6 +1,10 @@
 import { expect, it } from "vitest";
 import { ModelProviderRegistry } from "@director/model-provider";
-import { BUILTIN_PROVIDER_IDS, registerBuiltinProviders, resolveModelProvider } from "../../agents/modelProviderIntegration";
+import {
+  BUILTIN_PROVIDER_IDS,
+  registerBuiltinProviders,
+  resolveModelProvider,
+} from "../../agents/modelProviderIntegration";
 
 it("registers and resolves providers from canonical built-in profiles", () => {
   const registry = new ModelProviderRegistry();

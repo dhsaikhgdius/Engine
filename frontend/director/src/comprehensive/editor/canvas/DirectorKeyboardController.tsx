@@ -2,10 +2,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { MathUtils, Spherical, Vector3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import {
-  DEFAULT_VIEWPORT_ROTATE_SENSITIVITY,
-  normalizeViewportSensitivity,
-} from "../schema/viewportNavigation";
+import { DEFAULT_VIEWPORT_ROTATE_SENSITIVITY, normalizeViewportSensitivity } from "../schema/viewportNavigation";
 
 const MAX_FRAME_DELTA = 0.05;
 const HORIZONTAL_EPSILON = 1e-8;

@@ -4,7 +4,10 @@ import {
   resetDirectorWorkbenchRuntimeForTests,
 } from "../../../../src/agent/directorWorkbenchExecutor";
 import type { DirectorWorkbenchOperation } from "@director/agent-engine";
-import { createDefaultDirectorProject, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
+import {
+  createDefaultDirectorProject,
+  useDirectorStore,
+} from "../../../../src/comprehensive/editor/store/directorStore";
 import { useTimelineRuntimeStore } from "../../../../src/comprehensive/editor/runtime/timelineRuntimeStore";
 import {
   captureDirectorWorkbenchSnapshot,
@@ -120,9 +123,7 @@ describe("Director session recorder and deterministic replay", () => {
     expect(semantic.at(-1)!.postFingerprint).toBe(record.finalFingerprint);
     expect(record.finalFingerprint).not.toBe(record.initialFingerprint);
 
-    const cameraPoses = record.records.filter(
-      (entry): entry is SessionCameraPoseEntry => entry.kind === "camera-pose",
-    );
+    const cameraPoses = record.records.filter((entry): entry is SessionCameraPoseEntry => entry.kind === "camera-pose");
     expect(cameraPoses).toHaveLength(1);
     expect(cameraPoses[0]).toMatchObject({ cameraId: "cam_1", fovDegrees: expect.any(Number) });
     // The rig/view round-trip is deterministic but not bit-exact to the input.

@@ -21,17 +21,7 @@ function CubeShadow() {
   return <ellipse cx="12" cy="22.85" fill="rgba(0,0,0,0.34)" rx="7.1" ry="1.2" />;
 }
 
-function CubeFaces({
-  highlight,
-  left,
-  right,
-  top,
-}: {
-  highlight?: string;
-  left: string;
-  right: string;
-  top: string;
-}) {
+function CubeFaces({ highlight, left, right, top }: { highlight?: string; left: string; right: string; top: string }) {
   return (
     <>
       <CubeShadow />
@@ -43,17 +33,9 @@ function CubeFaces({
   );
 }
 
-function CameraPreviewModeGlyphArt({
-  mode,
-  uid,
-}: {
-  mode: DirectorCameraPreviewMode;
-  uid: string;
-}) {
+function CameraPreviewModeGlyphArt({ mode, uid }: { mode: DirectorCameraPreviewMode; uid: string }) {
   if (mode === "previz") {
-    return (
-      <CubeFaces highlight="rgba(255,255,255,0.28)" left="#c4ae97" right="#a89076" top="#e6d5c4" />
-    );
+    return <CubeFaces highlight="rgba(255,255,255,0.28)" left="#c4ae97" right="#a89076" top="#e6d5c4" />;
   }
 
   if (mode === "rgb") {

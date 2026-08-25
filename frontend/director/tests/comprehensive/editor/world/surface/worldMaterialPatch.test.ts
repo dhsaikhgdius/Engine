@@ -107,13 +107,7 @@ describe("world surface material patch", () => {
 
   it("writes weather uniforms as a pure function of wind and weather", () => {
     const uniforms = createWorldSurfaceUniforms();
-    writeWorldSurfaceUniforms(
-      uniforms,
-      { preset: "rain", intensity: 1, wetness: 0, cloudCover: 0.6 },
-      3,
-      4,
-      12.5,
-    );
+    writeWorldSurfaceUniforms(uniforms, { preset: "rain", intensity: 1, wetness: 0, cloudCover: 0.6 }, 3, 4, 12.5);
     expect(uniforms.uWorldWetness.value).toBeGreaterThan(0.9);
     expect(uniforms.uWorldSnowCover.value).toBe(0);
     expect(uniforms.uWorldWindDir.value.length()).toBeCloseTo(1, 10);

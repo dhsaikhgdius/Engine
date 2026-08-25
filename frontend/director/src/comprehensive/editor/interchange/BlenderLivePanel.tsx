@@ -15,10 +15,7 @@ import type {
 } from "../../../../../../packages/protocol/src/blenderLiveProtocol";
 import { useLanguage } from "../../i18n/language";
 import { useBlenderRuntimeStore } from "../runtime/blenderRuntimeStore";
-import {
-  applyBlenderRuntimeBatch,
-  applyBlenderRuntimeOperations,
-} from "../runtime/blenderRuntimeTransactions";
+import { applyBlenderRuntimeBatch, applyBlenderRuntimeOperations } from "../runtime/blenderRuntimeTransactions";
 import { useDirectorStore } from "../store/directorStore";
 import {
   createBlenderBlockoutBatch,
@@ -277,10 +274,7 @@ export function BlenderLivePanel({ objectOnly = false }: { objectOnly?: boolean 
     setWallId((current) => (walls.some((wall) => wall.id === current) ? current : (walls[0]?.id ?? "")));
   }, [scene]);
 
-  async function apply(
-    label: string,
-    createBatch: (revision: number, sceneEpoch: string) => BlenderLiveCommandBatch,
-  ) {
+  async function apply(label: string, createBatch: (revision: number, sceneEpoch: string) => BlenderLiveCommandBatch) {
     if (!scene) return;
     const currentVersion = commandVersionRef.current;
     const commandVersion =
@@ -290,9 +284,7 @@ export function BlenderLivePanel({ objectOnly = false }: { objectOnly?: boolean 
     setBusy(true);
     setNotice({ tone: "busy", text: `${label}…` });
     try {
-      const result = await applyBlenderRuntimeBatch(
-        createBatch(commandVersion.revision, commandVersion.sceneEpoch),
-      );
+      const result = await applyBlenderRuntimeBatch(createBatch(commandVersion.revision, commandVersion.sceneEpoch));
       commandVersionRef.current = {
         sceneEpoch: result.receipt.sceneEpoch,
         revision: result.receipt.revisionAfter,

@@ -1,7 +1,10 @@
 import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
-import { buildDirectorAiControlPackageArchive, createDirectorAiControlPackage } from "../../../../src/comprehensive/editor/shot/shotControlPackageExport";
+import {
+  buildDirectorAiControlPackageArchive,
+  createDirectorAiControlPackage,
+} from "../../../../src/comprehensive/editor/shot/shotControlPackageExport";
 
 function pngDataUrl(text: string) {
   return `data:image/png;base64,${btoa(text)}`;

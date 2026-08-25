@@ -44,26 +44,26 @@ npm run dev
 npm run blender
 ```
 
-| 界面       | 地址                             | 用途                            |
-| ---------- | -------------------------------- | ------------------------------- |
-| Director   | <http://127.0.0.1:5175>          | 完整 UI：独立运行或与 Blender 集成 |
-| Gateway    | <http://127.0.0.1:8787/health>   | Agent、制作、DCC 与生成的控制平面 |
-| Docs       | <http://127.0.0.1:4321>          | 使用 `npm run docs:dev` 单独运行 |
+| 界面     | 地址                           | 用途                               |
+| -------- | ------------------------------ | ---------------------------------- |
+| Director | <http://127.0.0.1:5175>        | 完整 UI：独立运行或与 Blender 集成 |
+| Gateway  | <http://127.0.0.1:8787/health> | Agent、制作、DCC 与生成的控制平面  |
+| Docs     | <http://127.0.0.1:4321>        | 使用 `npm run docs:dev` 单独运行   |
 
 打开 `/?workspace=stage`、`/?workspace=canvas`、`/?workspace=video` 或 `/?workspace=gallery`
 来选择工作区。
 
 ## 亮点
 
-| 领域                     | 内容                                                                                                                                   |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **3D Stage**             | 目录网格、Blender 原生几何或已提升的生成式 3D；Mixamo 角色；pose/IK；物理摄像机；动画轨道；故事板覆盖；干净捕获与诊断渲染通道 |
-| **Canvas 与 Video 编辑器** | 图形创作与持久的多模态制作 DAG、画面/音频/字幕轨道、有理帧率、SMPTE 时间码、波形显示、代理选择与离线重链                         |
-| **Agent 控制平面**       | 精确目标令牌、revision/fingerprint 守卫、幂等键、audit/correct/deliver 循环、持久会话与 role-to-model Profile 路由                     |
-| **制作自动化**           | 一条从规划到视觉评审、修复、生成与剪辑报告的持久串行多 Agent 图                                                                        |
-| **交换**                 | 经过测试的 Director 子集：Fountain、OTIO/OTIOZ、glTF/GLB、USDA/USDZ，以及可审阅的 `.blend` 导入和受 revision 守卫的 Blender 往返     |
-| **生成式制作**           | 持久的 ComfyUI 图像/视频/音频任务、Meshy/Tripo 3D 任务、转录/字幕、Shot IR 与经过验证的 Shot Package，以及可选的 LTX-2.3 Python worker |
-| **协作**                 | Yjs 同步、presence、锚定审阅评论、命名版本、对比与恢复                                                                                |
+| 领域                       | 内容                                                                                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **3D Stage**               | 目录网格、Blender 原生几何或已提升的生成式 3D；Mixamo 角色；pose/IK；物理摄像机；动画轨道；故事板覆盖；干净捕获与诊断渲染通道          |
+| **Canvas 与 Video 编辑器** | 图形创作与持久的多模态制作 DAG、画面/音频/字幕轨道、有理帧率、SMPTE 时间码、波形显示、代理选择与离线重链                               |
+| **Agent 控制平面**         | 精确目标令牌、revision/fingerprint 守卫、幂等键、audit/correct/deliver 循环、持久会话与 role-to-model Profile 路由                     |
+| **制作自动化**             | 一条从规划到视觉评审、修复、生成与剪辑报告的持久串行多 Agent 图                                                                        |
+| **交换**                   | 经过测试的 Director 子集：Fountain、OTIO/OTIOZ、glTF/GLB、USDA/USDZ，以及可审阅的 `.blend` 导入和受 revision 守卫的 Blender 往返       |
+| **生成式制作**             | 持久的 ComfyUI 图像/视频/音频任务、Meshy/Tripo 3D 任务、转录/字幕、Shot IR 与经过验证的 Shot Package，以及可选的 LTX-2.3 Python worker |
+| **协作**                   | Yjs 同步、presence、锚定审阅评论、命名版本、对比与恢复                                                                                 |
 
 [功能状态矩阵](./docs/site/src/content/docs/reference/feature-status.md)区分 stable、experimental、limited
 与 planned。「支持的交换」并不意味着对外部格式的每一个特性都无损。
@@ -91,41 +91,41 @@ Director 保留规范的制作与角色语义。兼容的角色 Action/Pose 状�
 
 ### 仓库布局
 
-| 路径                             | 职责                                                                                          |
-| -------------------------------- | --------------------------------------------------------------------------------------------- |
-| `frontend/director/`             | React Director 产品与浏览器工作区                                                             |
-| `backend/gateway/`               | TypeScript 网关、任务、媒体、协作，以及 DSH / MCP 的工具 HTTP                                 |
-| `packages/`                      | 共享 npm workspaces：protocol、agent-engine、dsh-plugin-workbench、project-schema 等          |
-| `packages/dsh-plugin-workbench/` | Director Stage / Canvas / Video / Blender 工具，作为 DeepSeek Harness 插件                    |
-| `vendor/`                        | 官方第三方 Git 子模块：DeepSeek Harness、LTX-2、Hunyuan3D-2、TRELLIS、ARDY。不要在仓库内再分叉一份 |
-| `integrations/blender/live/`     | Blender 实时建模内核（`worldengine_studio`）                                                  |
-| `integrations/blender/interchange/` | 受信任的 `.blend` 导入与 Director 场景往返                                                 |
-| `integrations/plugins/`          | 基于同一套 workbench 契约构建的可移植 Agent/MCP 插件                                          |
-| `assets/`                        | 资产目录、清单、provenance 与许可元数据                                                       |
-| `data/`                          | 可变运行时状态；仅 JSON Schema 与 README 留在 Git                                             |
-| `docs/site/`                     | 产品与工程文档站                                                                              |
-| `docs/research/`                 | 论文草稿、文献综述与研究笔记                                                                  |
-| `tools/`                         | Vite、Vitest、ESLint、TypeScript、PostCSS/Tailwind 配置；脚本、Playwright、评测               |
+| 路径                                | 职责                                                                                               |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `frontend/director/`                | React Director 产品与浏览器工作区                                                                  |
+| `backend/gateway/`                  | TypeScript 网关、任务、媒体、协作，以及 DSH / MCP 的工具 HTTP                                      |
+| `packages/`                         | 共享 npm workspaces：protocol、agent-engine、dsh-plugin-workbench、project-schema 等               |
+| `packages/dsh-plugin-workbench/`    | Director Stage / Canvas / Video / Blender 工具，作为 DeepSeek Harness 插件                         |
+| `vendor/`                           | 官方第三方 Git 子模块：DeepSeek Harness、LTX-2、Hunyuan3D-2、TRELLIS、ARDY。不要在仓库内再分叉一份 |
+| `integrations/blender/live/`        | Blender 实时建模内核（`worldengine_studio`）                                                       |
+| `integrations/blender/interchange/` | 受信任的 `.blend` 导入与 Director 场景往返                                                         |
+| `integrations/plugins/`             | 基于同一套 workbench 契约构建的可移植 Agent/MCP 插件                                               |
+| `assets/`                           | 资产目录、清单、provenance 与许可元数据                                                            |
+| `data/`                             | 可变运行时状态；仅 JSON Schema 与 README 留在 Git                                                  |
+| `docs/site/`                        | 产品与工程文档站                                                                                   |
+| `docs/research/`                    | 论文草稿、文献综述与研究笔记                                                                       |
+| `tools/`                            | Vite、Vitest、ESLint、TypeScript、PostCSS/Tailwind 配置；脚本、Playwright、评测                    |
 
 生成的场景、构建树与本地检查点放在被忽略的 `.runtime/` 目录下。
 
 ## 各部分 README 索引
 
-| README | 作用 |
-| --- | --- |
+| README                                                | 作用                                                       |
+| ----------------------------------------------------- | ---------------------------------------------------------- |
 | [`frontend/director/`](./frontend/director/README.md) | React + R3F 浏览器产品与 Stage/Canvas/Video/Gallery 工作区 |
-| [`backend/`](./backend/README.md) | 后端分层总览（gateway；官方模型源码在 `vendor/`） |
-| [`backend/gateway/`](./backend/gateway/README.md) | TypeScript 网关：任务、媒体、协作、HTTP/MCP |
-| [`vendor/`](./vendor/README.md) | 官方第三方 Git 子模块与 lock 文件 |
-| [`packages/`](./packages/README.md) | 共享传输契约与运行时包 |
-| [`integrations/`](./integrations/README.md) | Blender 实时内核、交换与可移植 Agent 插件 |
-| [`assets/`](./assets/README.md) | 资产目录、清单与许可元数据 |
-| [`tools/`](./tools/README.md) | Vite、Vitest、ESLint、TypeScript 与 PostCSS/Tailwind 配置 |
-| [`tools/scripts/`](./tools/scripts/README.md) | 仓库自动化、本地启动器与检查 |
-| [`tools/evals/`](./tools/evals/README.md) | Agent 黄金任务评测 |
-| [`tools/e2e/`](./tools/e2e/README.md) | Playwright 端到端测试 |
-| [`docs/site/`](./docs/site/README.md) | Astro/Starlight 双语文档站 |
-| [`data/`](./data/README.md) | 可变运行时状态（仅 schema 与 README 进 Git） |
+| [`backend/`](./backend/README.md)                     | 后端分层总览（gateway；官方模型源码在 `vendor/`）          |
+| [`backend/gateway/`](./backend/gateway/README.md)     | TypeScript 网关：任务、媒体、协作、HTTP/MCP                |
+| [`vendor/`](./vendor/README.md)                       | 官方第三方 Git 子模块与 lock 文件                          |
+| [`packages/`](./packages/README.md)                   | 共享传输契约与运行时包                                     |
+| [`integrations/`](./integrations/README.md)           | Blender 实时内核、交换与可移植 Agent 插件                  |
+| [`assets/`](./assets/README.md)                       | 资产目录、清单与许可元数据                                 |
+| [`tools/`](./tools/README.md)                         | Vite、Vitest、ESLint、TypeScript 与 PostCSS/Tailwind 配置  |
+| [`tools/scripts/`](./tools/scripts/README.md)         | 仓库自动化、本地启动器与检查                               |
+| [`tools/evals/`](./tools/evals/README.md)             | Agent 黄金任务评测                                         |
+| [`tools/e2e/`](./tools/e2e/README.md)                 | Playwright 端到端测试                                      |
+| [`docs/site/`](./docs/site/README.md)                 | Astro/Starlight 双语文档站                                 |
+| [`data/`](./data/README.md)                           | 可变运行时状态（仅 schema 与 README 进 Git）               |
 
 ## Agent 原生工作流
 
@@ -211,20 +211,20 @@ npm --prefix docs/site install
 npm run docs:dev
 ```
 
-| 目标                 | 指南                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------ |
-| 安装与验证           | [安装与运行](./docs/site/src/content/docs/getting-started/install.md)                 |
-| 制作首个被接受的镜头 | [端到端验证镜头](./docs/site/src/content/docs/tutorials/verified-shot.md)             |
-| 操作 3D Stage        | [3D 编辑器](./docs/site/src/content/docs/editor/index.md)                             |
-| 为角色摆 pose、IK 与动画 | [角色](./docs/site/src/content/docs/editor/characters.md)                         |
-| 连接 Agent           | [Agent 控制](./docs/site/src/content/docs/agents/index.md)                            |
-| 将角色路由到不同模型 | [多 Agent 制作](./docs/site/src/content/docs/agents/multi-agent.md)                   |
-| 让 Agent 选择真实资产 | [资产发现](./docs/site/src/content/docs/agents/assets.md)                            |
-| 还原外部运行时资产   | [开源资产](./docs/site/src/content/docs/development/open-source-assets.md)           |
-| 集成 HTTP            | [网关 HTTP API](./docs/site/src/content/docs/reference/http-api.md)                  |
-| 与 DCC/剪辑工具交换  | [交换](./docs/site/src/content/docs/pipelines/interchange.md)                        |
-| 理解成熟度与限制     | [功能状态](./docs/site/src/content/docs/reference/feature-status.md)                 |
-| 安全贡献             | [开发指南](./docs/site/src/content/docs/development/index.md)                        |
+| 目标                     | 指南                                                                       |
+| ------------------------ | -------------------------------------------------------------------------- |
+| 安装与验证               | [安装与运行](./docs/site/src/content/docs/getting-started/install.md)      |
+| 制作首个被接受的镜头     | [端到端验证镜头](./docs/site/src/content/docs/tutorials/verified-shot.md)  |
+| 操作 3D Stage            | [3D 编辑器](./docs/site/src/content/docs/editor/index.md)                  |
+| 为角色摆 pose、IK 与动画 | [角色](./docs/site/src/content/docs/editor/characters.md)                  |
+| 连接 Agent               | [Agent 控制](./docs/site/src/content/docs/agents/index.md)                 |
+| 将角色路由到不同模型     | [多 Agent 制作](./docs/site/src/content/docs/agents/multi-agent.md)        |
+| 让 Agent 选择真实资产    | [资产发现](./docs/site/src/content/docs/agents/assets.md)                  |
+| 还原外部运行时资产       | [开源资产](./docs/site/src/content/docs/development/open-source-assets.md) |
+| 集成 HTTP                | [网关 HTTP API](./docs/site/src/content/docs/reference/http-api.md)        |
+| 与 DCC/剪辑工具交换      | [交换](./docs/site/src/content/docs/pipelines/interchange.md)              |
+| 理解成熟度与限制         | [功能状态](./docs/site/src/content/docs/reference/feature-status.md)       |
+| 安全贡献                 | [开发指南](./docs/site/src/content/docs/development/index.md)              |
 
 深度 schema 与工程笔记保留在
 [`docs/site/src/content/docs/engineering/`](./docs/site/src/content/docs/engineering/)。

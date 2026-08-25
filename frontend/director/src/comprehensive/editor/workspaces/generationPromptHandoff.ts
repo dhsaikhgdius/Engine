@@ -8,14 +8,7 @@ const GENERATION_PROMPT_HANDOFF_KEY = "director.gallery-generation.prompt-handof
 const MAX_PROMPT_LENGTH = 40_000;
 
 /** Supported generative model targets that the Gallery can route a handoff prompt to. */
-export type DirectorGenerationTargetModel =
-  | "generic"
-  | "flux"
-  | "sdxl"
-  | "midjourney"
-  | "wan"
-  | "ltx"
-  | "runway";
+export type DirectorGenerationTargetModel = "generic" | "flux" | "sdxl" | "midjourney" | "wan" | "ltx" | "runway";
 
 /**
  * Snapshot of a generation prompt prepared by the Storyboard workspace and

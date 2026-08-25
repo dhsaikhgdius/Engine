@@ -76,9 +76,7 @@ const EVENT_TYPE_PHRASES: Record<string, (event: EpisodeSemanticEvent) => string
   "workbench.playback": () => "playback is issued",
   "timeline.playhead": (event) => {
     const playhead = asRecord(event.payload)?.playheadFrame;
-    return typeof playhead === "number"
-      ? `the playhead is set to frame ${playhead}`
-      : "the playhead is set";
+    return typeof playhead === "number" ? `the playhead is set to frame ${playhead}` : "the playhead is set";
   },
   "authoring.add_object": (event) => `object ${entityName(event)} is added`,
   "authoring.update_object": (event) => `object ${entityName(event)} is updated`,
@@ -252,10 +250,12 @@ function describeNarrative(sceneStatic: string, clusterCaptions: readonly string
 export function composeEpisodeCaptions(input: ComposeEpisodeCaptionsInput): EpisodeCaptions {
   const language = input.language ?? "en";
   const sceneStaticText = describeSceneStatic(input.project);
-  const orderedEvents = input.events.map((event, index) => ({ event, index })).sort((left, right) => {
-    const frameOrder = left.event.frame - right.event.frame;
-    return frameOrder !== 0 ? frameOrder : left.index - right.index;
-  });
+  const orderedEvents = input.events
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) => {
+      const frameOrder = left.event.frame - right.event.frame;
+      return frameOrder !== 0 ? frameOrder : left.index - right.index;
+    });
   const clusters = clusterEvents(
     orderedEvents.map((item) => item.event),
     input.timebase.frameCount,

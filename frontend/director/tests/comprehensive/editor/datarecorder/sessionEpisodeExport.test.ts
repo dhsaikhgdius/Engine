@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { stableLexicalJson } from "@director/protocol/stable-json";
-import {
-  EPISODE_MANIFEST_CONTRACT,
-  type EpisodeSemanticEvent,
-} from "@director/protocol/episode";
+import { EPISODE_MANIFEST_CONTRACT, type EpisodeSemanticEvent } from "@director/protocol/episode";
 import type { DirectorWorkbenchOperation } from "@director/agent-engine";
-import type { SessionRecord, SessionRecordEntry } from "../../../../src/comprehensive/editor/datarecorder/sessionRecordTypes";
+import type {
+  SessionRecord,
+  SessionRecordEntry,
+} from "../../../../src/comprehensive/editor/datarecorder/sessionRecordTypes";
 import {
   SessionEpisodeExportError,
   buildEpisodeManifest,

@@ -281,10 +281,13 @@ export class Ltx23SpawnProvider implements VideoProvider {
     });
     tracked.child = child;
 
-    const timeout = setTimeout(() => {
-      killGroup(child);
-      this.fail(tracked, `LTX-2.3 generation exceeded ${this.options.timeoutMs ?? 60 * 60_000}ms and was terminated`);
-    }, this.options.timeoutMs ?? 60 * 60_000);
+    const timeout = setTimeout(
+      () => {
+        killGroup(child);
+        this.fail(tracked, `LTX-2.3 generation exceeded ${this.options.timeoutMs ?? 60 * 60_000}ms and was terminated`);
+      },
+      this.options.timeoutMs ?? 60 * 60_000,
+    );
     const onAbort = () => {
       void this.cancel(tracked.job.id);
     };

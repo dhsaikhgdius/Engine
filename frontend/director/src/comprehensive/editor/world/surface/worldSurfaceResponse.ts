@@ -31,9 +31,7 @@ export function isWorldVegetationName(name: string): boolean {
 }
 
 /** Object ids whose authored names should wind-sway when instanced in a batch. */
-export function collectWorldVegetationObjectIds(
-  objects: ReadonlyArray<{ id: string; name: string }>,
-): Set<string> {
+export function collectWorldVegetationObjectIds(objects: ReadonlyArray<{ id: string; name: string }>): Set<string> {
   const ids = new Set<string>();
   for (const object of objects) {
     if (isWorldVegetationName(object.name)) ids.add(object.id);

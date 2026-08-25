@@ -51,7 +51,9 @@ export function compileDirectorDeleteObjectActions(
   if (!requested.length) return [];
   const requestedSet = new Set(requested);
   const detachChildren: DirectorAuthoringAction[] = project.objects
-    .filter((object) => object.parentObjectId && requestedSet.has(object.parentObjectId) && !requestedSet.has(object.id))
+    .filter(
+      (object) => object.parentObjectId && requestedSet.has(object.parentObjectId) && !requestedSet.has(object.id),
+    )
     .map((object) => ({
       action: "update_object" as const,
       object_id: object.id,

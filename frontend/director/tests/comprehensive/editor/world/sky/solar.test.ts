@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultDirectorWorldSettings } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
-import type { DirectorWorldSettings, DirectorWorldWeather } from "../../../../../src/comprehensive/editor/schema/directorProject";
+import type {
+  DirectorWorldSettings,
+  DirectorWorldWeather,
+} from "../../../../../src/comprehensive/editor/schema/directorProject";
 import {
   evaluateSkyLighting,
   evaluateSunDiscState,

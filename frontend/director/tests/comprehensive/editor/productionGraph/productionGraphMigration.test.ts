@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
-import { createProductionGraphIdentityMap, migrateProductionGraphIdentities } from "../../../../src/comprehensive/editor/productionGraph/productionGraphMigration";
+import {
+  createProductionGraphIdentityMap,
+  migrateProductionGraphIdentities,
+} from "../../../../src/comprehensive/editor/productionGraph/productionGraphMigration";
 
 const migratedAt = "2026-08-03T00:00:00.000Z";
 

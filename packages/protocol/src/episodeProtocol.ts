@@ -62,10 +62,7 @@ export const episodeTimebaseSchema = z.strictObject({
  * revisions are monotonic non-negative integers; an episode binds whichever
  * document owned the captured scene.
  */
-export const episodeSceneRevisionSchema = z.union([
-  z.string().trim().min(1).max(240),
-  z.number().int().nonnegative(),
-]);
+export const episodeSceneRevisionSchema = z.union([z.string().trim().min(1).max(240), z.number().int().nonnegative()]);
 
 /** The renderer configuration used to produce the episode: backend, version, resolution, and color space. */
 export const episodeRendererSchema = z.strictObject({

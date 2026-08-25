@@ -21,8 +21,14 @@ import {
   type MixamoResolvedBones,
   type MixamoRestPose,
 } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
-import { configureDirectorCharacterMotionAction, retargetMixamoAnimationClip } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion";
-import { applyMixamoFootGrounding, createMixamoFootGroundingState } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootGrounding";
+import {
+  configureDirectorCharacterMotionAction,
+  retargetMixamoAnimationClip,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion";
+import {
+  applyMixamoFootGrounding,
+  createMixamoFootGroundingState,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootGrounding";
 
 /**
  * Cross-character smoke matrix. All runtime calibration (grounding clearance,
@@ -259,7 +265,9 @@ localAssetIt.each([...MATRIX_CHARACTER_FILES])(
   90_000,
 );
 
-localAssetIt.each(MATRIX_CHARACTER_FILES.flatMap((character) => RETARGET_CLIP_FILES.map((clip) => [character, clip] as const)))(
+localAssetIt.each(
+  MATRIX_CHARACTER_FILES.flatMap((character) => RETARGET_CLIP_FILES.map((clip) => [character, clip] as const)),
+)(
   "retargets %s x %s in place with finite bones and no planar hip drift",
   async (fileName, clipFileName) => {
     const gltf = await loadPackagedMixamoCharacter(fileName);

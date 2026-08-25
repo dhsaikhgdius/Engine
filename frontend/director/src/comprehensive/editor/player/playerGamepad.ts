@@ -221,9 +221,8 @@ export function selectActivePlayerGamepad(gamepads: readonly (GamepadLike | null
 export function pollPlayerGamepad(tracker: PlayerGamepadTracker, out?: PlayerGamepadFrame): PlayerGamepadFrame {
   let gamepad: GamepadLike | null = null;
   try {
-    const gamepads = typeof navigator !== "undefined" && typeof navigator.getGamepads === "function"
-      ? navigator.getGamepads()
-      : [];
+    const gamepads =
+      typeof navigator !== "undefined" && typeof navigator.getGamepads === "function" ? navigator.getGamepads() : [];
     gamepad = selectActivePlayerGamepad(gamepads as readonly (GamepadLike | null)[]);
   } catch {
     gamepad = null;

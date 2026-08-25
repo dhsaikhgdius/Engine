@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { compareLuminanceImages, luminanceFromRgba, resampleLuminance, type LuminanceImage } from "../../../../src/comprehensive/editor/reconstruction/captureCompare";
+import {
+  compareLuminanceImages,
+  luminanceFromRgba,
+  resampleLuminance,
+  type LuminanceImage,
+} from "../../../../src/comprehensive/editor/reconstruction/captureCompare";
 
 function gradientImage(width: number, height: number, phase = 0): LuminanceImage {
   const data = new Float32Array(width * height);

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createTimelineRecordingSettings, normalizeTimelineRecordingSettings } from "../../../../src/comprehensive/editor/timeline/timelineRecording";
+import {
+  createTimelineRecordingSettings,
+  normalizeTimelineRecordingSettings,
+} from "../../../../src/comprehensive/editor/timeline/timelineRecording";
 
 describe("timeline recording ranges", () => {
   it("starts the IN/OUT export and the manual recording marker at the timeline start", () => {

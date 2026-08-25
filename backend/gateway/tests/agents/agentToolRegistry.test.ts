@@ -61,7 +61,9 @@ describe("Director Agent tool registry", () => {
     expect(domainTool("director_workbench").description).toContain("max_results");
     expect(domainTool("director_workbench").description).toContain('"mode":"frustum"');
     expect(domainTool("director_workbench").description).toContain("copy result.counts verbatim");
-    expect(domainTool("director_workbench").description).toContain("call describe when an action's exact fields are unknown");
+    expect(domainTool("director_workbench").description).toContain(
+      "call describe when an action's exact fields are unknown",
+    );
     expect(domainTool("director_workbench").description).toContain("describe author.evidence");
     expect(domainTool("director_creative").description).toContain('exactly {"op":"observe"}');
     expect(domainTool("director_creative").description).toContain("does not accept fields");

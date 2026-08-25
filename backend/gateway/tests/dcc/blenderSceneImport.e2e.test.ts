@@ -50,12 +50,7 @@ blenderTest(
       const workspaceRoot = resolve(temporaryRoot, "workspace");
       const dataDirectory = resolve(temporaryRoot, "data");
       const sourceBlend = resolve(temporaryRoot, "cinematic-set.blend");
-      const temporaryExtractorDirectory = resolve(
-        workspaceRoot,
-        "integrations",
-        "blender",
-        "interchange",
-      );
+      const temporaryExtractorDirectory = resolve(workspaceRoot, "integrations", "blender", "interchange");
       await mkdir(temporaryExtractorDirectory, { recursive: true });
       await copyFile(
         resolve(repositoryRoot, "integrations", "blender", "interchange", "director_scene_export.py"),

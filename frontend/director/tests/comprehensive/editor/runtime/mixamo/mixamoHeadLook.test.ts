@@ -130,11 +130,7 @@ function measureDirectorLocalGaze(directorSpace: Group, headBefore: Quaternion, 
 
 /** Independent expectation: the camera-view parameterization used by the player. */
 function expectedDirectorLocalGaze(yawRad: number, pitchRad: number) {
-  return new Vector3(
-    Math.sin(yawRad) * Math.cos(pitchRad),
-    Math.sin(pitchRad),
-    Math.cos(yawRad) * Math.cos(pitchRad),
-  );
+  return new Vector3(Math.sin(yawRad) * Math.cos(pitchRad), Math.sin(pitchRad), Math.cos(yawRad) * Math.cos(pitchRad));
 }
 
 function quaternionAngle(quaternion: Quaternion) {
@@ -285,7 +281,9 @@ describe("applyMixamoHeadLookPose", () => {
     const headDeltaAngle = quaternionAngle(
       bones.head!.getWorldQuaternion(new Quaternion()).multiply(headBefore.clone().invert()),
     );
-    const neckDeltaAngle = quaternionAngle(neck!.getWorldQuaternion(new Quaternion()).multiply(neckBefore.clone().invert()));
+    const neckDeltaAngle = quaternionAngle(
+      neck!.getWorldQuaternion(new Quaternion()).multiply(neckBefore.clone().invert()),
+    );
     expect(neckDeltaAngle).toBeCloseTo(headDeltaAngle * MIXAMO_HEAD_LOOK_NECK_SHARE, 3);
   });
 
@@ -432,7 +430,9 @@ localAssetIt("aims a prepared X Bot's real neck and head without disturbing hand
   const headDeltaAngle = quaternionAngle(
     bones.head!.getWorldQuaternion(new Quaternion()).multiply(headBefore.clone().invert()),
   );
-  const neckDeltaAngle = quaternionAngle(neck!.getWorldQuaternion(new Quaternion()).multiply(neckBefore.clone().invert()));
+  const neckDeltaAngle = quaternionAngle(
+    neck!.getWorldQuaternion(new Quaternion()).multiply(neckBefore.clone().invert()),
+  );
   expect(neckDeltaAngle / headDeltaAngle).toBeGreaterThan(MIXAMO_HEAD_LOOK_NECK_SHARE - 0.02);
   expect(neckDeltaAngle / headDeltaAngle).toBeLessThan(MIXAMO_HEAD_LOOK_NECK_SHARE + 0.02);
 

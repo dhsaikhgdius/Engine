@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDefaultDirectorProject, useDirectorStore } from "../../src/comprehensive/editor/store/directorStore";
 import { getDirectorProjectRevision } from "@director/project-schema";
-import { DirectorProjectRevisionConflictError, runWithDirectorProjectRevision } from "../../src/agent/directorRevisionBoundCapture";
+import {
+  DirectorProjectRevisionConflictError,
+  runWithDirectorProjectRevision,
+} from "../../src/agent/directorRevisionBoundCapture";
 
 describe("revision-bound Director capture", () => {
   beforeEach(() => {

@@ -1,9 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import type {
-  DirectorBlendSceneImportPlanV1,
-  DirectorBlendSceneManifestV1,
-} from "@director/dcc-protocol";
+import type { DirectorBlendSceneImportPlanV1, DirectorBlendSceneManifestV1 } from "@director/dcc-protocol";
 import type { BlenderBridge } from "../../dcc/blenderBridge";
 import type { BlenderSceneImporter } from "../../dcc/blenderSceneImport";
 import type { BlenderReturnImporter } from "../../dcc/blenderReturnImport";

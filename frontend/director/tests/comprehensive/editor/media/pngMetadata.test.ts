@@ -1,5 +1,8 @@
 import { expect, it } from "vitest";
-import { extractDirectorPngMetadata, summarizeDirectorComfyMetadata } from "../../../../src/comprehensive/editor/media/pngMetadata";
+import {
+  extractDirectorPngMetadata,
+  summarizeDirectorComfyMetadata,
+} from "../../../../src/comprehensive/editor/media/pngMetadata";
 
 function uint32(value: number) {
   return new Uint8Array([(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255]);

@@ -2,15 +2,16 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import type {
-  DirectorProject,
-  DirectorTransform,
-} from "@director/project-schema";
+import type { DirectorProject, DirectorTransform } from "@director/project-schema";
 import { getDirectorProjectRevision } from "@director/project-schema";
 import { createTestDirectorProject } from "../fixtures/createTestDirectorProject";
 import { directorTransformToBlender } from "@director/dcc-protocol";
 import type { DirectorDccReturnManifestV1 } from "@director/dcc-protocol";
-import { DirectorDccImportError, buildDirectorDccImportPlan, createBlenderReturnImporter } from "../../dcc/blenderReturnImport";
+import {
+  DirectorDccImportError,
+  buildDirectorDccImportPlan,
+  createBlenderReturnImporter,
+} from "../../dcc/blenderReturnImport";
 
 function digest(value: Uint8Array | string) {
   return createHash("sha256").update(value).digest("hex");
@@ -152,9 +153,27 @@ async function fixture(options: FixtureOptions = {}) {
       packageId: "source-package-1",
       sourceRevision: exportRevision,
       objects: [
-        { id: "chair", name: "Chair", kind: "prop", visible: true, assetRefId: "asset-chair", transform: chairBlender, animation: [] },
+        {
+          id: "chair",
+          name: "Chair",
+          kind: "prop",
+          visible: true,
+          assetRefId: "asset-chair",
+          transform: chairBlender,
+          animation: [],
+        },
         ...(tableBlender
-          ? [{ id: "table", name: "Table", kind: "prop", visible: true, geometryType: "box", transform: tableBlender, animation: [] }]
+          ? [
+              {
+                id: "table",
+                name: "Table",
+                kind: "prop",
+                visible: true,
+                geometryType: "box",
+                transform: tableBlender,
+                animation: [],
+              },
+            ]
           : []),
       ],
       cameras: [],
