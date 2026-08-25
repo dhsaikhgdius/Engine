@@ -69,7 +69,10 @@ export class DirectorUnrealLivePreviewSession {
 
   private constructor(socket: Socket, options: DirectorUnrealLivePreviewOptions) {
     this.socket = socket;
-    this.staleTimeoutMs = Math.max(100, options.staleTimeoutMs ?? DIRECTOR_UNREAL_LIVE_PREVIEW_DEFAULT_STALE_TIMEOUT_MS);
+    this.staleTimeoutMs = Math.max(
+      100,
+      options.staleTimeoutMs ?? DIRECTOR_UNREAL_LIVE_PREVIEW_DEFAULT_STALE_TIMEOUT_MS,
+    );
     this.now = options.now ?? Date.now;
     this.lastActivityMs = this.now();
     // The preview channel is one-way: inbound bytes are counted and dropped,

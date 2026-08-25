@@ -65,7 +65,10 @@ export type DirectorDccConnectorManifest = z.infer<typeof directorDccConnectorMa
 export const directorUnrealOmittedAnimationChannelsSchema = z.strictObject({
   directorId: z.string().trim().min(1).max(200),
   entityType: z.enum(["object", "camera"]),
-  channels: z.array(z.enum(["pose_values", "motion_blocks", "character_rig"])).min(1).max(8),
+  channels: z
+    .array(z.enum(["pose_values", "motion_blocks", "character_rig"]))
+    .min(1)
+    .max(8),
 });
 
 /** A validated structured omitted-channel record. */

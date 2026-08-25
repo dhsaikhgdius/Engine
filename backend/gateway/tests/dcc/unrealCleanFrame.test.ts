@@ -2,15 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import {
-  DIRECTOR_UNREAL_CLEAN_FRAME_CONTRACT,
-  directorUnrealCleanFrameReceiptSchema,
-} from "@director/dcc-protocol";
-import {
-  runUnrealCleanFrame,
-  skippedUnrealCleanFrame,
-  type UnrealCleanFrameContext,
-} from "../../dcc/unrealCleanFrame";
+import { DIRECTOR_UNREAL_CLEAN_FRAME_CONTRACT, directorUnrealCleanFrameReceiptSchema } from "@director/dcc-protocol";
+import { runUnrealCleanFrame, skippedUnrealCleanFrame, type UnrealCleanFrameContext } from "../../dcc/unrealCleanFrame";
 
 const REVISION = `director-project-revision:v1:sha256:${"c".repeat(64)}`;
 

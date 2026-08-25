@@ -78,9 +78,7 @@ export const directorUnrealLivePreviewDisconnectReasonSchema = z.enum([
 ]);
 
 /** A validated disconnect reason. */
-export type DirectorUnrealLivePreviewDisconnectReason = z.infer<
-  typeof directorUnrealLivePreviewDisconnectReasonSchema
->;
+export type DirectorUnrealLivePreviewDisconnectReason = z.infer<typeof directorUnrealLivePreviewDisconnectReasonSchema>;
 
 /**
  * The Gateway-side session summary. Deliberately preview-shaped: it carries

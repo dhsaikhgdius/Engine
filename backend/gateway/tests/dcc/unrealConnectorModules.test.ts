@@ -559,9 +559,7 @@ describe.skipIf(!pythonAvailable)(
         ].join("\n");
         await execFileAsync("python3", ["-c", script]);
 
-        const rendered = directorUnrealCleanFrameReceiptSchema.parse(
-          JSON.parse(await readFile(renderedPath, "utf8")),
-        );
+        const rendered = directorUnrealCleanFrameReceiptSchema.parse(JSON.parse(await readFile(renderedPath, "utf8")));
         expect(rendered).toMatchObject({
           status: "rendered",
           cameraDirectorId: "main-camera",
