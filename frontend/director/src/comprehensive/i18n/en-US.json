@@ -3307,5 +3307,20 @@
   "冰川冠": "Glacial Crown",
   "特效已暂停 · 编辑器仍生效": "Effects paused · editor still live",
   "瞄准中 · 左键施放 · 右键取消": "Aiming · LMB to cast · RMB to cancel",
-  "5–0 武装 · 左键施放 · G 编辑器 · P 暂停 · B 清除": "5–0 to arm · LMB to cast · G editor · P pause · B clear"
+  "5–0 武装 · 左键施放 · G 编辑器 · P 暂停 · B 清除": "5–0 to arm · LMB to cast · G editor · P pause · B clear",
+  "绑定 Agent": "Bind agent",
+  "Agent 接管中": "Agent possessed",
+  "Agent 接管状态": "Agent possession status",
+  "此人物已被 Agent 接管": "This character is possessed by an agent",
+  "当前绑定": "Current binding",
+  "解除绑定": "Unbind",
+  "解除 Agent 绑定": "Unbind the agent",
+  "暂不选择 Profile": "No profile",
+  "绑定 Agent Profile": "Agent profile to bind",
+  "绑定 Agent Session ID": "Agent session ID to bind",
+  "绑定 Agent 到该角色": "Bind an agent to this character",
+  "绑定": "Bind",
+  "请先选择 Agent Profile 或填写 Session ID。": "Select an agent profile or enter a session ID first.",
+  "填写驱动该角色的 Agent Session ID（如 dsh-abc123），或选择 Profile 提前接上。": "Enter the agent session ID that drives this character (e.g. dsh-abc123), or attach a profile ahead of time.",
+  "群组选择暂不支持绑定 Agent；请选择单个角色后再绑定。": "Group selections cannot bind an agent yet; select a single character first."
 }

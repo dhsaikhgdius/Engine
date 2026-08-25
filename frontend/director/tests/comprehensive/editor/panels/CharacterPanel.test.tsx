@@ -1,9 +1,24 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach } from "vitest";
+import { beforeEach, vi } from "vitest";
 import { createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
 import { useBlenderRuntimeStore } from "../../../../src/comprehensive/editor/runtime/blenderRuntimeStore";
 import { CharacterPanel } from "../../../../src/comprehensive/editor/panels/CharacterPanel";
+
+vi.mock("../../../../src/comprehensive/editor/assistant/agentProfilesClient", () => ({
+  listAgentProfiles: vi.fn().mockResolvedValue([
+    {
+      id: "profile-claude",
+      label: "Claude Harness",
+      runtime: "claude-agent",
+      model: "claude",
+      endpointHost: null,
+      credentialConfigured: true,
+      available: true,
+      capabilities: { vision: true, video: false },
+    },
+  ]),
+}));
 
 beforeEach(() => {
   useBlenderRuntimeStore.getState().reset();
@@ -35,7 +50,21 @@ it("keeps character creation-only body type controls out of the role property pa
     (item) => item.textContent?.trim(),
   );
 
-  expect(labels).toEqual(["基本信息", "名称", "变换", "位置", "旋转", "缩放", "放置", "外观", "统一缩放", "颜色"]);
+  expect(labels).toEqual([
+    "基本信息",
+    "名称",
+    "变换",
+    "位置",
+    "旋转",
+    "缩放",
+    "放置",
+    "外观",
+    "统一缩放",
+    "颜色",
+    "绑定 Agent",
+    "Agent Profile",
+    "Session ID",
+  ]);
   expect(screen.queryByText("体型")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "二头身" })).not.toBeInTheDocument();
 });
@@ -366,4 +395,59 @@ it("applies pose presets to every member in a selected crowd group", async () =>
   expect(new Set(crowdMembers.map((item) => item.characterRig?.controls["leftShoulder.spread"]))).toEqual(
     new Set([-70]),
   );
+});
+
+function selectedCharacter() {
+  return useDirectorStore.getState().project.objects.find((item) => item.id === "char_default_a");
+}
+
+it("requires an agent identity before binding the selected character", async () => {
+  const user = userEvent.setup();
+  render(<CharacterPanel />);
+
+  await user.click(screen.getByRole("button", { name: "绑定 Agent 到该角色" }));
+
+  expect(screen.getByText("请先选择 Agent Profile 或填写 Session ID。")).toBeInTheDocument();
+  expect(selectedCharacter()?.agentBinding).toBeUndefined();
+});
+
+it("binds and unbinds an agent session through the shared authoring path", async () => {
+  const user = userEvent.setup();
+  render(<CharacterPanel />);
+
+  await user.type(screen.getByLabelText("绑定 Agent Session ID"), "dsh-session-42");
+  await user.click(screen.getByRole("button", { name: "绑定 Agent 到该角色" }));
+
+  expect(selectedCharacter()?.agentBinding).toEqual({ mode: "possess", sessionId: "dsh-session-42" });
+  expect(screen.getByText("此人物已被 Agent 接管")).toBeInTheDocument();
+  expect(screen.getByLabelText("Agent 接管状态")).toHaveTextContent("Agent 接管中");
+  expect(screen.getByText("dsh-session-42")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "解除 Agent 绑定" }));
+
+  expect(selectedCharacter()?.agentBinding).toBeUndefined();
+  expect(screen.queryByText("此人物已被 Agent 接管")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "绑定 Agent 到该角色" })).toBeInTheDocument();
+});
+
+it("binds through a listed agent profile before a session exists", async () => {
+  const user = userEvent.setup();
+  render(<CharacterPanel />);
+
+  await user.click(screen.getByRole("button", { name: "绑定 Agent Profile" }));
+  await user.click(await screen.findByRole("option", { name: "Claude Harness" }));
+  await user.click(screen.getByRole("button", { name: "绑定 Agent 到该角色" }));
+
+  expect(selectedCharacter()?.agentBinding).toEqual({ mode: "possess", profileId: "profile-claude" });
+  expect(screen.getByText("此人物已被 Agent 接管")).toBeInTheDocument();
+});
+
+it("explains that crowd selections cannot bind an agent", () => {
+  useDirectorStore.getState().addCrowdCharacters({ rows: 2, columns: 2, spacing: 1.2 });
+  useDirectorStore.getState().selectCrowd("crowd_1");
+
+  render(<CharacterPanel />);
+
+  expect(screen.getByText("群组选择暂不支持绑定 Agent；请选择单个角色后再绑定。")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "绑定 Agent 到该角色" })).not.toBeInTheDocument();
 });

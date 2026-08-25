@@ -4,9 +4,12 @@
  * @module CharacterPanel
  */
 
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { replaceTupleAxis as replaceAxis } from "../../../../../../packages/protocol/src/primitives";
 import { ArrowDownToLine, PersonStanding, UsersRound } from "lucide-react";
+import type { PublicAgentProfile } from "@director/agent-engine";
+import { listAgentProfiles } from "../assistant/agentProfilesClient";
+import { dispatchDirectorAuthoringActions } from "../../../agent/dispatchDirectorAuthoringActions";
 import characterPoseGroups from "./characterPoseGroups.json";
 import {
   InspectorAxisGroup,
@@ -126,9 +129,126 @@ const CharacterSelectionSummary = memo(function CharacterSelectionSummary({
       <span className="character-selection-copy">
         <strong>{selection.name}</strong>
         <small>{selection.mode === "crowd" ? "角色群组" : "单个角色"}</small>
+        {selection.mode === "single" && selection.role.agentBinding ? (
+          <small aria-label="Agent 接管状态" className="character-agent-badge">
+            Agent 接管中
+          </small>
+        ) : null}
       </span>
       <span aria-hidden="true" className="character-selection-color" style={{ backgroundColor: selection.color }} />
     </div>
+  );
+});
+
+/**
+ * "绑定 Agent" inspector block: attach an Agent session or profile to the
+ * selected character so that Agent drives its motion, pose, IK, and transform.
+ * All mutations dispatch through the shared authoring path (revision guarded,
+ * undoable); the panel never writes the store directly.
+ */
+const CharacterAgentBindingSection = memo(function CharacterAgentBindingSection({
+  selection,
+}: {
+  selection: CharacterSelection;
+}) {
+  const role = selection.role;
+  const isCrowd = selection.mode === "crowd";
+  const binding = role.agentBinding;
+  const [profiles, setProfiles] = useState<PublicAgentProfile[]>([]);
+  const [profileDraft, setProfileDraft] = useState("");
+  const [sessionDraft, setSessionDraft] = useState("");
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isCrowd) return;
+    let cancelled = false;
+    listAgentProfiles()
+      .then((available) => {
+        if (!cancelled) setProfiles(available);
+      })
+      .catch(() => {
+        // Offline gateway: manual session ids keep working without profiles.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCrowd]);
+
+  const bindAgent = useCallback(() => {
+    const sessionId = sessionDraft.trim();
+    const profileId = profileDraft.trim();
+    if (!sessionId && !profileId) {
+      setFeedback("请先选择 Agent Profile 或填写 Session ID。");
+      return;
+    }
+    const receipt = dispatchDirectorAuthoringActions([
+      {
+        action: "bind_character_agent",
+        object_id: role.id,
+        ...(sessionId ? { session_id: sessionId } : {}),
+        ...(profileId ? { profile_id: profileId } : {}),
+      },
+    ]);
+    setFeedback(receipt.ok ? null : receipt.error);
+  }, [profileDraft, role.id, sessionDraft]);
+
+  const unbindAgent = useCallback(() => {
+    const receipt = dispatchDirectorAuthoringActions([{ action: "unbind_character_agent", object_id: role.id }]);
+    setFeedback(receipt.ok ? null : receipt.error);
+  }, [role.id]);
+
+  if (isCrowd) {
+    return (
+      <InspectorSection title="绑定 Agent" className="character-agent-section">
+        <p className="character-ik-note">群组选择暂不支持绑定 Agent；请选择单个角色后再绑定。</p>
+      </InspectorSection>
+    );
+  }
+
+  return (
+    <InspectorSection title="绑定 Agent" className="character-agent-section">
+      {binding ? (
+        <>
+          <p aria-live="polite" className="character-agent-status">
+            此人物已被 Agent 接管
+          </p>
+          <p className="character-ik-note">
+            <span>当前绑定</span>：<code>{binding.sessionId ?? binding.profileId ?? ""}</code>
+          </p>
+          <button aria-label="解除 Agent 绑定" className="inspector-action-button" type="button" onClick={unbindAgent}>
+            解除绑定
+          </button>
+        </>
+      ) : (
+        <>
+          <InspectorSelectField
+            label="Agent Profile"
+            ariaLabel="绑定 Agent Profile"
+            value={profileDraft}
+            onChange={setProfileDraft}
+            options={[
+              { value: "", label: "暂不选择 Profile" },
+              ...profiles.map((profile) => ({ value: profile.id, label: profile.label })),
+            ]}
+          />
+          <InspectorTextField
+            label="Session ID"
+            ariaLabel="绑定 Agent Session ID"
+            value={sessionDraft}
+            onChange={setSessionDraft}
+          />
+          <p className="character-ik-note">填写驱动该角色的 Agent Session ID（如 dsh-abc123），或选择 Profile 提前接上。</p>
+          <button aria-label="绑定 Agent 到该角色" className="inspector-action-button" type="button" onClick={bindAgent}>
+            绑定
+          </button>
+        </>
+      )}
+      {feedback ? (
+        <p aria-live="polite" className="character-agent-feedback" role="alert">
+          {feedback}
+        </p>
+      ) : null}
+    </InspectorSection>
   );
 });
 
@@ -227,6 +347,7 @@ const CharacterPropertiesTab = memo(function CharacterPropertiesTab({ selection 
           }
         />
       </InspectorSection>
+      <CharacterAgentBindingSection selection={selection} />
     </>
   );
 });
