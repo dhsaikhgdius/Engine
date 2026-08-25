@@ -86,7 +86,11 @@ const MAX_REMEMBERED_GUARDS = 2_048;
 // Session-sticky browser targets: an untargeted caller keeps addressing the tab
 // that served its previous call, so an author→capture sequence cannot fork
 // across divergent tabs. Process-epoch memory, like the guard cache below.
-const rememberedTargets = new Map<string, string>();
+// The last-active timestamp doubles as the gateway's only record of "which
+// agent sessions recently drove this tool", surfaced read-only through
+// GET /api/agent/sessions for the character-binding picker.
+type RememberedSessionTarget = { sessionId: string; targetToken: string; lastActiveAtMs: number };
+const rememberedTargets = new Map<string, RememberedSessionTarget>();
 const MAX_REMEMBERED_TARGETS = 512;
 
 function memoryKey(tool: AgentMutation["tool"], sessionId: string, key: string) {
@@ -110,7 +114,7 @@ function targetMemoryKey(tool: AgentMutation["tool"], sessionId: string) {
 export function rememberAgentSessionTarget(tool: AgentMutation["tool"], sessionId: string, targetToken: string) {
   const key = targetMemoryKey(tool, sessionId);
   rememberedTargets.delete(key);
-  rememberedTargets.set(key, targetToken);
+  rememberedTargets.set(key, { sessionId, targetToken, lastActiveAtMs: Date.now() });
   while (rememberedTargets.size > MAX_REMEMBERED_TARGETS) {
     rememberedTargets.delete(rememberedTargets.keys().next().value!);
   }
@@ -121,7 +125,27 @@ export function rememberAgentSessionTarget(tool: AgentMutation["tool"], sessionI
  * pair, or `undefined` if none was stored.
  */
 export function recallAgentSessionTarget(tool: AgentMutation["tool"], sessionId: string) {
-  return rememberedTargets.get(targetMemoryKey(tool, sessionId));
+  return rememberedTargets.get(targetMemoryKey(tool, sessionId))?.targetToken;
+}
+
+/**
+ * Read-only snapshot of the agent sessions that recently drove the given tool,
+ * newest activity first. This is the same process-epoch memory that powers
+ * session-sticky target routing — no second session store exists.
+ *
+ * @param tool - The public tool whose sessions to list.
+ * @returns Session ids with their last successful tool-call timestamp.
+ */
+export function listAgentSessionTargets(
+  tool: AgentMutation["tool"],
+): Array<{ sessionId: string; lastActiveAtMs: number }> {
+  const prefix = `${tool}\u0000`;
+  const sessions: Array<{ sessionId: string; lastActiveAtMs: number }> = [];
+  for (const [key, record] of rememberedTargets) {
+    if (!key.startsWith(prefix)) continue;
+    sessions.push({ sessionId: record.sessionId, lastActiveAtMs: record.lastActiveAtMs });
+  }
+  return sessions.sort((a, b) => b.lastActiveAtMs - a.lastActiveAtMs);
 }
 
 /**
