@@ -10,10 +10,7 @@
  */
 
 import { z } from "zod";
-import {
-  isTerminalProductionJobStatus,
-  type ProductionJobRecord,
-} from "./productionJobProtocol";
+import { isTerminalProductionJobStatus, type ProductionJobRecord } from "./productionJobProtocol";
 import type { FilmRun } from "./filmPipelineProtocol";
 
 const nonEmptyText = (maximum: number) => z.string().trim().min(1).max(maximum);
@@ -43,8 +40,7 @@ export function parseAgentTraceSource(value: unknown): AgentTraceSource {
 
 // ---- Redaction ----
 
-const SENSITIVE_KEY_PATTERN =
-  "(?:api[_-]?key|apikey|token|secret|password|credential|authorization|bearer)";
+const SENSITIVE_KEY_PATTERN = "(?:api[_-]?key|apikey|token|secret|password|credential|authorization|bearer)";
 
 /**
  * Redacts credential-shaped content from free text before it is stored in a
@@ -327,7 +323,11 @@ export function productionJobToUnifiedProgress(job: ProductionJobRecord): Unifie
     id: job.id,
     label: job.kind,
     state,
-    progress: isTerminalProductionJobStatus(job.status) ? (job.status === "succeeded" ? 1 : job.progress) : job.progress,
+    progress: isTerminalProductionJobStatus(job.status)
+      ? job.status === "succeeded"
+        ? 1
+        : job.progress
+      : job.progress,
     message: job.message ?? null,
     source_status: job.status,
     created_at: job.createdAt,

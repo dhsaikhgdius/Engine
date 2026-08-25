@@ -1711,4 +1711,51 @@ describe("agent boundary hardening", () => {
     );
     return json.mock.calls.at(-1)?.[2] as Record<string, unknown>;
   }
+
+  it("records one trace event per tool call, tagged with the declared entry surface", async () => {
+    const { dependencies } = createDependencies({ session_id: "traced-session", input: { op: "scene_state" } });
+    const recordTrace = vi.fn();
+    dependencies.recordTrace = recordTrace;
+    const handled = await handleStageRoute(
+      { method: "POST", headers: { "x-director-trace-source": "cli" } } as unknown as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/stage_read"),
+      dependencies,
+    );
+
+    expect(handled).toBe(true);
+    expect(recordTrace).toHaveBeenCalledTimes(1);
+    expect(recordTrace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool: "stage_read",
+        session_id: "traced-session",
+        source: "cli",
+        operation: "scene_state",
+        outcome: "success",
+        status_code: 200,
+      }),
+    );
+  });
+
+  it("defaults the trace source to http and classifies workbench-unavailable responses as errors", async () => {
+    const { dependencies } = createDependencies({ input: { op: "author", operations: [] } });
+    const recordTrace = vi.fn();
+    dependencies.recordTrace = recordTrace;
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      dependencies,
+    );
+
+    expect(recordTrace).toHaveBeenCalledTimes(1);
+    expect(recordTrace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool: "director_workbench",
+        source: "http",
+        operation: "author",
+        outcome: "error",
+      }),
+    );
+  });
 });

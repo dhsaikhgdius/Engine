@@ -284,7 +284,12 @@ analysis status 为 `degraded`、mode 为 `local` 的计划。完整信任边界
 | Production state  | `/te-man/director/productions/{id}` 及其 `/scenes`；`/scenes/{id}/project`    |
 | DCC               | `GET /api/dcc/status`，以及 bridge 文档中记录的版本化 DCC job 操作            |
 | 参考图重建        | `POST /api/reconstruction/reference-scene/analyze`                            |
+| 可观测性          | `GET /api/agent/traces`、`GET /api/agent/traces/summary`、`GET /api/agent/usage`、`GET /api/agent/progress` |
 | 旧版 Stage        | `GET /api/stage`、`PUT /api/stage`                                            |
+
+可观测性路由返回经 redaction 的执行回执、模型用量聚合，以及生产任务、multi-agent run 与 film run
+共用的统一 progress。工具调用可通过 `x-director-trace-source: ui|mcp|http|cli` 头自报入口来源；
+未知或缺失的值记录为 `http`。轨迹回执从不包含提示词、工具载荷或密钥。
 
 优先使用结构化工具而不是直接 `PUT /api/stage`：Workbench 操作会参与 revision、idempotency、精确
 target、quality、asset、audit 和 evidence contract。

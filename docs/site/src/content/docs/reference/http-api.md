@@ -295,7 +295,13 @@ whose analysis status is `degraded` and mode is `local`. See
 | Production state  | `/te-man/director/productions/{id}` and nested `/scenes`; `/scenes/{id}/project`     |
 | DCC               | `GET /api/dcc/status` plus the versioned DCC job operations documented by the bridge |
 | Reconstruction    | `POST /api/reconstruction/reference-scene/analyze`                                   |
+| Observability     | `GET /api/agent/traces`, `GET /api/agent/traces/summary`, `GET /api/agent/usage`, `GET /api/agent/progress` |
 | Legacy Stage      | `GET /api/stage`, `PUT /api/stage`                                                   |
+
+Observability routes return redacted execution receipts, model-usage aggregates, and one unified
+progress shape for production jobs, multi-agent runs, and film runs. Tool calls may self-identify
+their entry surface with the `x-director-trace-source: ui|mcp|http|cli` header; unknown or missing
+values are recorded as `http`. Trace receipts never contain prompts, tool payloads, or credentials.
 
 Prefer structured tools over raw `PUT /api/stage`: Workbench operations participate in revision,
 idempotency, exact-target, quality, asset, audit, and evidence contracts.
