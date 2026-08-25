@@ -97,7 +97,7 @@ export DIRECTOR_GODOT_PROJECT=/path/to/YourProject
 ## 能力诚实性
 
 已实现且有版本校验（由 host-free 黄金用例加缺失即跳过的真实无头往返测试
-`backend/gateway/tests/dcc/godot*.test.ts` 背书）：无头导入/导出、稳定
+`backend/gateway/tests/dcc/godotHeadlessRoundtrip.test.ts` 背书）：无头导入/导出、稳定
 `director_id` 往返、含负缩放与镜像变换的场景层级、带垂直视场角动画的相机、
 基于有理时基的 Gateway 烘焙变换动画、分镜镜头区间映射为 `Camera3D.current`
 相机切换轨道、绑定姿态的蒙皮 GLB 骨架、带哈希外置纹理的 `StandardMaterial3D`
