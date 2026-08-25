@@ -19,8 +19,11 @@ _INTERCHANGE_DIR = str(Path(__file__).resolve().parent)
 if _INTERCHANGE_DIR not in sys.path:
     sys.path.insert(0, _INTERCHANGE_DIR)
 
+from director_pose_bones import resolve_pose_bone_roles
 from director_properties import (
     CAMERA_TARGET_PROPERTY,
+    POSE_BONE_BASELINE_PROPERTY,
+    POSE_BONE_MAP_PROPERTY,
     POSE_CONTROL_PREFIX,
     POSE_CONTROLS_BASELINE_PROPERTY,
     SOURCE_CAMERA_OPTICS_PROPERTY,
@@ -28,6 +31,7 @@ from director_properties import (
     SOURCE_MESH_SIGNATURE_PROPERTY,
     SOURCE_POSE_FINGERPRINT_PROPERTY,
     SOURCE_TRANSFORM_PROPERTY,
+    SOURCE_UNMAPPED_POSE_FINGERPRINT_PROPERTY,
 )
 from director_signature import armature_pose_fingerprint, mesh_content_signature
 
@@ -127,6 +131,49 @@ def camera_optics_state(camera_object: Any, sensor_format: str | None) -> dict[s
     return state
 
 
+def stamp_pose_bone_baselines(root: Any) -> None:
+    """Stamp the Director bone-role map plus per-bone baselines for the return trip.
+
+    Only bones stamped here reconcile direct pose edits back into portable
+    ``director_pose.*`` control values; the exporter warns about and omits
+    everything else. When several armatures sit under one root, the one that
+    resolves the most Director roles is mapped and the rest stay covered by
+    the unmapped-bone fingerprint.
+    """
+    armatures = sorted(
+        (item for item in [root, *list(root.children_recursive)] if item.type == "ARMATURE"),
+        key=lambda item: item.name,
+    )
+    best: tuple[Any, dict[str, str]] | None = None
+    for armature in armatures:
+        resolved = resolve_pose_bone_roles(bone.name for bone in armature.pose.bones)
+        if resolved and (best is None or len(resolved) > len(best[1])):
+            best = (armature, resolved)
+    if best is None:
+        return
+    armature, resolved = best
+    baselines: dict[str, dict[str, list[float]]] = {}
+    for role, bone_name in resolved.items():
+        bone = armature.pose.bones.get(bone_name)
+        if bone is None:
+            continue
+        location, rotation, scale = bone.matrix_basis.decompose()
+        baselines[role] = {
+            "rotation": [float(rotation.w), float(rotation.x), float(rotation.y), float(rotation.z)],
+            "location": [float(location.x), float(location.y), float(location.z)],
+            "scale": [float(scale.x), float(scale.y), float(scale.z)],
+        }
+    root[POSE_BONE_MAP_PROPERTY] = json.dumps(
+        {"armature": armature.name, "bones": resolved}, separators=(",", ":"), sort_keys=True
+    )
+    root[POSE_BONE_BASELINE_PROPERTY] = json.dumps(baselines, separators=(",", ":"), sort_keys=True)
+    unmapped_fingerprint = armature_pose_fingerprint(
+        root, exclude={(armature.name, bone_name) for bone_name in resolved.values()}
+    )
+    if unmapped_fingerprint is not None:
+        root[SOURCE_UNMAPPED_POSE_FINGERPRINT_PROPERTY] = unmapped_fingerprint
+
+
 def stamp_source_baselines(payload: dict[str, Any]) -> None:
     """Persist evaluated import baselines after Blender has returned to currentFrame."""
     object_ids = {item["id"] for item in payload["objects"]}
@@ -142,6 +189,7 @@ def stamp_source_baselines(payload: dict[str, Any]) -> None:
             pose_fingerprint = armature_pose_fingerprint(root)
             if pose_fingerprint is not None:
                 root[SOURCE_POSE_FINGERPRINT_PROPERTY] = pose_fingerprint
+                stamp_pose_bone_baselines(root)
         camera_item = camera_items.get(director_id)
         if camera_item is not None:
             root[CAMERA_TARGET_PROPERTY] = json.dumps(camera_item["target"], separators=(",", ":"))

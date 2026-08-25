@@ -38,6 +38,20 @@ POSE_CONTROLS_BASELINE_PROPERTY = "director_pose_controls"
 POSE_CONTROL_PREFIX = "director_pose."
 
 # Fingerprint of descendant armature pose-bone basis matrices at import time.
-# Direct pose-bone edits are detected (and warned about), never reconciled:
-# only the portable director_pose.* controls round-trip to Director.
+# When it differs on return, mapped bones reconcile through the stamped bone
+# map below; everything else stays warn-and-omit.
 SOURCE_POSE_FINGERPRINT_PROPERTY = "director_source_pose_bones"
+
+# Director bone-role map of the character armature stamped at import time
+# (JSON: {"armature": name, "bones": {role: bone name}}). Only bones in this
+# map reconcile direct pose edits back into portable director_pose.* controls.
+POSE_BONE_MAP_PROPERTY = "director_pose_bone_map"
+
+# Per-role pose-bone baseline captured at import time (JSON: role ->
+# {"rotation": [w,x,y,z], "location": [x,y,z], "scale": [x,y,z]} from
+# matrix_basis). The return exporter diffs live bones against this baseline.
+POSE_BONE_BASELINE_PROPERTY = "director_pose_bone_baseline"
+
+# Fingerprint restricted to pose bones OUTSIDE the stamped bone map. When it
+# changes, the return exporter warns that unmapped bone edits were omitted.
+SOURCE_UNMAPPED_POSE_FINGERPRINT_PROPERTY = "director_source_unmapped_pose_bones"
