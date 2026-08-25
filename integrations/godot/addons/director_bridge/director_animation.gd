@@ -7,7 +7,9 @@
 ## world sample into the owning node's local space (respecting the restored
 ## Director parent hierarchy), and keys position/rotation/scale tracks plus
 ## camera `fov` value tracks into an AnimationPlayer/AnimationLibrary on the
-## scene root. Key times come from the rational timebase
+## scene root. Storyboard shot ranges carried by the bake become discrete
+## `Camera3D.current` camera-cut keys in the same timeline animation (see
+## director_shots.gd). Key times come from the rational timebase
 ## (`seconds = frame * denominator / numerator`), never from a pre-rounded
 ## fps float.
 ##
@@ -15,6 +17,7 @@
 ## global class cache, so every module is referenced through `preload`.
 
 const DirectorSpace := preload("res://addons/director_bridge/director_space.gd")
+const DirectorShots := preload("res://addons/director_bridge/director_shots.gd")
 
 const BAKE_CONTRACT := "director-godot-animation-bake-v1"
 const PLAYER_NAME := "DirectorAnimationPlayer"
@@ -83,12 +86,15 @@ static func build_animation(
 		"bakedKeyCount": 0,
 		"transformTrackCount": 0,
 		"fovTrackCount": 0,
+		"shotCutTrackCount": 0,
+		"mappedShotCount": 0,
 	}
 	for bake_warning in bake.get("warnings", []):
 		warnings.append("animation bake: %s" % bake_warning)
 
 	var entities: Array = bake.get("entities", [])
-	if entities.is_empty():
+	var shots: Array = bake.get("shots", [])
+	if entities.is_empty() and shots.is_empty():
 		return receipt
 
 	var rate: Dictionary = bake["timebase"]["rate"]
@@ -161,7 +167,15 @@ static func build_animation(
 				baked_keys += 1
 			fov_tracks += 1
 
-	if transform_tracks == 0:
+	# Storyboard camera cuts share the timeline animation so transforms and
+	# cuts play together; shot ranges were clamped into the playback window
+	# by the Gateway, so every cut key lands inside the animation length.
+	var shot_receipt := DirectorShots.add_camera_cut_tracks(
+		animation, root, shots, by_director_id, frame_start, numerator, denominator, warnings
+	)
+	baked_keys += int(shot_receipt["shotCutKeyCount"])
+
+	if transform_tracks == 0 and int(shot_receipt["shotCutTrackCount"]) == 0:
 		return receipt
 
 	var library := AnimationLibrary.new()
@@ -176,6 +190,8 @@ static func build_animation(
 	receipt["bakedKeyCount"] = baked_keys
 	receipt["transformTrackCount"] = transform_tracks
 	receipt["fovTrackCount"] = fov_tracks
+	receipt["shotCutTrackCount"] = int(shot_receipt["shotCutTrackCount"])
+	receipt["mappedShotCount"] = int(shot_receipt["mappedShotCount"])
 	return receipt
 
 

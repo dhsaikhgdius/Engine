@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -22,6 +22,11 @@ const execFileAsync = promisify(execFile);
 const repositoryRoot = resolve(__dirname, "..", "..", "..", "..");
 const addonSource = resolve(repositoryRoot, "integrations", "godot", "addons");
 const fixtureGeneratorSource = resolve(repositoryRoot, "backend", "gateway", "tests", "fixtures", "godot");
+const CONNECTOR_VERSION = (
+  JSON.parse(readFileSync(resolve(repositoryRoot, "integrations", "godot", "connector.json"), "utf8")) as {
+    version: string;
+  }
+).version;
 
 /**
  * Real host roundtrip: runs the committed connector inside an actual Godot 4
@@ -147,7 +152,46 @@ function buildFixtureProject(): DirectorProject {
       color: "#334455",
       intensity: 0.4,
     },
+    {
+      id: "light-rect",
+      name: "Rect fill",
+      type: "rect-area",
+      visible: true,
+      locked: false,
+      color: "#ffffff",
+      intensity: 1,
+      position: [0, 2, -3],
+      width: 2,
+      height: 1,
+    },
   ];
+  project.storyboard = {
+    version: 1,
+    title: "Fixture board",
+    logline: "Camera cuts for the roundtrip fixture.",
+    shots: [
+      {
+        id: "shot-1",
+        title: "Opening",
+        cameraId: "cam-main",
+        frameStart: 0,
+        frameEnd: 12,
+        shotSize: "wide",
+        movement: "static",
+        action: "Box slides in.",
+      },
+      {
+        id: "shot-2",
+        title: "Unbound",
+        cameraId: null,
+        frameStart: 12,
+        frameEnd: 24,
+        shotSize: "medium",
+        movement: "static",
+        action: "No camera bound; must warn-and-omit.",
+      },
+    ],
+  };
   return project;
 }
 
@@ -277,7 +321,7 @@ describe.skipIf(!hasGodot)("Godot headless roundtrip (set DIRECTOR_GODOT_BIN to 
     const { stdout } = await runGodot(projectDirectory, ["--mode", "health"]);
     const line = stdout.split(/\r?\n/).find((candidate) => candidate.trim().startsWith("{"));
     expect(line).toBeDefined();
-    expect(JSON.parse(line!)).toMatchObject({ ok: true, provider: "godot", connectorVersion: "0.2.0" });
+    expect(JSON.parse(line!)).toMatchObject({ ok: true, provider: "godot", connectorVersion: CONNECTOR_VERSION });
   }, 120_000);
 
   it("imports scene, hierarchy, lights, materials, skeleton, and baked animation with an honest receipt", async () => {
@@ -304,25 +348,32 @@ describe.skipIf(!hasGodot)("Godot headless roundtrip (set DIRECTOR_GODOT_BIN to 
     const receipt = report.godot!;
     expect(receipt).toBeDefined();
     expect(receipt.importedLightCount).toBe(3);
+    expect(receipt.worldEnvironmentAmbient).toBe(true);
+    expect(receipt.omittedLightCount).toBe(1);
     expect(receipt.importedSkeletonCount).toBe(1);
     expect(receipt.appliedMaterialCount).toBe(1);
     expect(receipt.payloadAnimationPlayerCount).toBe(1);
     expect(receipt.externalizedTextureCount).toBeGreaterThanOrEqual(1);
     expect(receipt.transformTrackCount).toBe(2);
     expect(receipt.fovTrackCount).toBe(1);
-    // 25 frames x 3 transform keys x 2 entities + 25 fov keys.
-    expect(receipt.bakedKeyCount).toBe(175);
+    expect(receipt.shotCutTrackCount).toBe(1);
+    expect(receipt.mappedShotCount).toBe(1);
+    // 25 frames x 3 transform keys x 2 entities + 25 fov keys + 1 camera cut.
+    expect(receipt.bakedKeyCount).toBe(176);
     expect(receipt.animationLibrary).toBe("director");
     expect(receipt.displayRate).toBe("24000/1001");
     expect(receipt.animationPlayerPath).toBe(report.scenePath);
 
-    // Warn-and-omit honesty: unsupported light and material channels warn.
-    expect(report.warnings.join("\n")).toMatch(/type ambient/);
+    // Warn-and-omit honesty: unsupported light, shot, and material channels
+    // warn with structured codes.
+    expect(report.warnings.join("\n")).toMatch(/light_rect_area_unsupported/);
+    expect(report.warnings.join("\n")).toMatch(/shot_no_camera_binding/);
     expect(report.warnings.join("\n")).toMatch(/transmission/);
 
     const scenePath = report.scenePath!.replace("res://", `${projectDirectory}/`);
     const sceneText = await readFile(scenePath, "utf8");
     expect(sceneText).toContain("DirectorAnimationPlayer");
+    expect(sceneText).toContain("DirectorWorldEnvironment");
     expect(sceneText).toContain("res://director/textures/");
     expect(sceneText).toContain("Skeleton3D");
   }, 240_000);

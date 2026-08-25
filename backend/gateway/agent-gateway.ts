@@ -83,6 +83,7 @@ import { createBlenderReturnImporter, createDccReturnImporter } from "./dcc/blen
 import { createBlenderSceneImporter } from "./dcc/blenderSceneImport";
 import { createDirectorDccEngineBridge } from "./dcc/engineBridge";
 import { createEngineSceneImporter } from "./dcc/engineSceneImport";
+import { createGodotLiveLinkHub } from "./dcc/godotLiveLink";
 import { handleDccRoute } from "./routes/dccRoutes";
 import { createDirectorDccProviderRegistry, registerConfiguredDirectorDccProviders } from "./dcc/dccProviderRegistry";
 import { createUnityLiveLinkHub } from "./dcc/unityLiveLink";
@@ -267,6 +268,10 @@ const dccEngineBridge = createDirectorDccEngineBridge({
   dataDirectory,
   exchangePackager: dccExchangePackager,
 });
+// Outbound-only Godot preview transport: the connector pushes ephemeral
+// ordered frames to these token-guarded routes; nothing here can mutate the
+// Director project.
+const godotLiveLinkHub = createGodotLiveLinkHub();
 const dccEngineReturnImporters = {
   unreal: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "unreal" }),
   unity: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "unity" }),
@@ -2229,6 +2234,7 @@ const server = createServer(async (request, response) => {
         engineBridge: dccEngineBridge,
         engineReturnImporters: dccEngineReturnImporters,
         unityLiveLink: unityLiveLinkHub,
+        godotLiveLink: godotLiveLinkHub,
         applyAuthoring: async (operation) => {
           const remote = await requestWorkbenchCommand(operation);
           return remote

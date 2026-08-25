@@ -73,6 +73,57 @@ function strictlyIncreasingFrames(samples: ReadonlyArray<{ frame: number }>) {
 }
 
 /**
+ * One Director storyboard shot range the connector maps onto a discrete
+ * `Camera3D.current` camera-cut key inside the Director timeline animation.
+ * The Gateway clamps ranges into the bake playback window and sorts them by
+ * `frameStart`; shots without a usable camera binding still travel (with
+ * `cameraDirectorId: null`) so the connector can warn-and-omit them with a
+ * structured code instead of silently dropping editorial data.
+ */
+export const directorGodotShotRangeSchema = z
+  .strictObject({
+    shotId: nonEmpty.max(200),
+    title: z.string().max(240),
+    /** Director camera id bound to the shot, or null when the shot has no camera. */
+    cameraDirectorId: nonEmpty.max(200).nullable(),
+    frameStart: z.number().int().min(-1_000_000).max(75_000_000_000),
+    frameEnd: z.number().int().min(-1_000_000).max(75_000_000_000),
+  })
+  .refine((shot) => shot.frameEnd >= shot.frameStart, {
+    message: "frameEnd must be at or after frameStart",
+    path: ["frameEnd"],
+  });
+
+/** One baked storyboard shot range. */
+export type DirectorGodotShotRange = z.infer<typeof directorGodotShotRangeSchema>;
+
+/**
+ * Structured detail about animation channels the bake could not carry.
+ * Control and clip lists are capped samples; the counts are authoritative.
+ */
+export const directorGodotOmittedChannelDetailSchema = z.strictObject({
+  /** Total distinct rig pose control names present in authored keyframes. */
+  poseControlCount: z.number().int().nonnegative().max(100_000),
+  /** Sorted sample of omitted pose control names (capped at 32). */
+  poseControls: z.array(nonEmpty.max(160)).max(32),
+  /** Total character motion clips authored on the entity. */
+  motionClipCount: z.number().int().nonnegative().max(100_000),
+  /** Sample of omitted motion clip ranges (capped at 32). */
+  motionClips: z
+    .array(
+      z.strictObject({
+        id: nonEmpty.max(120),
+        frameStart: z.number().int().min(-1_000_000).max(1_000_000),
+        frameEnd: z.number().int().min(-1_000_000).max(1_000_000),
+      }),
+    )
+    .max(32),
+});
+
+/** Structured warn-and-omit detail for one baked entity. */
+export type DirectorGodotOmittedChannelDetail = z.infer<typeof directorGodotOmittedChannelDetailSchema>;
+
+/**
  * One baked entity track. Transforms are Director canonical-space world
  * transforms (right-handed, Y-up, metres, camera forward -Z); Godot's basis
  * is identical, so the connector applies them through `director_space.gd`
@@ -91,6 +142,8 @@ export const directorGodotBakedEntitySchema = z
       .array(z.enum(["pose_values", "motion_blocks", "character_rig"]))
       .max(8)
       .optional(),
+    /** Structured detail (control names, clip ranges) behind `omittedChannels`. */
+    omittedDetail: directorGodotOmittedChannelDetailSchema.optional(),
     warnings: z.array(z.string().max(2_000)).max(200),
   })
   .superRefine((entity, context) => {
@@ -149,6 +202,11 @@ export const directorGodotAnimationBakeSchema = z
     /** Sampling stride in frames; 1 unless the sample budget forced downsampling. */
     frameStride: z.number().int().positive().max(1_000),
     entities: z.array(directorGodotBakedEntitySchema).max(2_048),
+    /**
+     * Storyboard shot ranges clamped into the playback window and sorted by
+     * `frameStart`, for the connector's `Camera3D.current` camera-cut track.
+     */
+    shots: z.array(directorGodotShotRangeSchema).max(512).optional(),
     warnings: z.array(z.string().max(2_000)).max(2_000),
   })
   .superRefine((bake, context) => {
@@ -162,6 +220,25 @@ export const directorGodotAnimationBakeSchema = z
         });
       }
       seen.add(entity.directorId);
+    });
+    const seenShots = new Set<string>();
+    (bake.shots ?? []).forEach((shot, index) => {
+      if (seenShots.has(shot.shotId)) {
+        context.addIssue({
+          code: "custom",
+          path: ["shots", index, "shotId"],
+          message: `duplicate shot ${shot.shotId}`,
+        });
+      }
+      seenShots.add(shot.shotId);
+      const previous = bake.shots![index - 1];
+      if (previous && shot.frameStart < previous.frameStart) {
+        context.addIssue({
+          code: "custom",
+          path: ["shots", index, "frameStart"],
+          message: "shots must be sorted by frameStart",
+        });
+      }
     });
   });
 
@@ -188,12 +265,20 @@ export const directorGodotImportReceiptSchema = z.strictObject({
   transformTrackCount: z.number().int().nonnegative().max(100_000),
   /** Number of camera fov property tracks keyed. */
   fovTrackCount: z.number().int().nonnegative().max(100_000),
+  /** Discrete `Camera3D.current` camera-cut value tracks keyed from storyboard shots. */
+  shotCutTrackCount: z.number().int().nonnegative().max(100_000),
+  /** Storyboard shots that produced a camera-cut key (unmappable shots warn-and-omit). */
+  mappedShotCount: z.number().int().nonnegative().max(100_000),
   /** glTF payload animations preserved from GLB assets (AnimationPlayer count). */
   payloadAnimationPlayerCount: z.number().int().nonnegative().max(100_000),
   /** Skinned payloads whose Skeleton3D was found, tagged, and left in bind pose. */
   importedSkeletonCount: z.number().int().nonnegative().max(100_000),
   /** Lights imported as OmniLight3D/SpotLight3D/DirectionalLight3D nodes. */
   importedLightCount: z.number().int().nonnegative().max(100_000),
+  /** Whether an ambient/hemisphere light was baked into a WorldEnvironment ambient term. */
+  worldEnvironmentAmbient: z.boolean(),
+  /** Lights omitted with a structured warn-and-omit code (rect-area, duplicate ambient, …). */
+  omittedLightCount: z.number().int().nonnegative().max(100_000),
   /** Director PBR materials applied to imported payload meshes. */
   appliedMaterialCount: z.number().int().nonnegative().max(100_000),
   /** Payload textures externalized to hashed `res://director/textures/` resources. */

@@ -27,12 +27,20 @@ export const directorGodotImportReceiptSchema = z.strictObject({
   transformTrackCount: z.number().int().nonnegative().max(100_000),
   /** Number of camera fov property tracks keyed. */
   fovTrackCount: z.number().int().nonnegative().max(100_000),
+  /** Discrete `Camera3D.current` camera-cut value tracks keyed from storyboard shots. */
+  shotCutTrackCount: z.number().int().nonnegative().max(100_000),
+  /** Storyboard shots that produced a camera-cut key (unmappable shots warn-and-omit). */
+  mappedShotCount: z.number().int().nonnegative().max(100_000),
   /** glTF payload animations preserved from GLB assets (AnimationPlayer count). */
   payloadAnimationPlayerCount: z.number().int().nonnegative().max(100_000),
   /** Skinned payloads whose Skeleton3D was found, tagged, and left in bind pose. */
   importedSkeletonCount: z.number().int().nonnegative().max(100_000),
   /** Lights imported as OmniLight3D/SpotLight3D/DirectionalLight3D nodes. */
   importedLightCount: z.number().int().nonnegative().max(100_000),
+  /** Whether an ambient/hemisphere light was baked into a WorldEnvironment ambient term. */
+  worldEnvironmentAmbient: z.boolean(),
+  /** Lights omitted with a structured warn-and-omit code (rect-area, duplicate ambient, …). */
+  omittedLightCount: z.number().int().nonnegative().max(100_000),
   /** Director PBR materials applied to imported payload meshes. */
   appliedMaterialCount: z.number().int().nonnegative().max(100_000),
   /** Payload textures externalized to hashed `res://director/textures/` resources. */

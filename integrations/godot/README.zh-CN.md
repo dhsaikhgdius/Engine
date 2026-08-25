@@ -18,7 +18,10 @@ Godot 4 的世界基（右手、Y-up、米制、相机朝向 -Z）与 Director �
   - 恢复 Director 父子层级（本地变换按 `parent_world^-1 * child_world` 重建，
     在负缩放与镜像变换下依然精确），并做环路检测；
   - Director 灯光映射为 `OmniLight3D` / `SpotLight3D` / `DirectionalLight3D`
-    节点并带 `director_id`；环境光/半球光/面光警告省略；
+    节点并带 `director_id`；第一个可见的环境光/半球光烘焙为 `WorldEnvironment`
+    的环境光项（半球光的天空/地面渐变会被拍平为混合色并带近似码）；面光与
+    重复的环境光带结构化代码警告省略（`light_rect_area_unsupported`、
+    `light_ambient_duplicate`）；
   - glTF PBR 载荷材质导入为 `StandardMaterial3D`，再叠加 Director PBR 覆写；
     不支持的通道（如 transmission）与自定义 `ShaderMaterial` 警告省略；
   - 内嵌载荷纹理外置为内容哈希命名的 `res://director/textures/` 资源，保存的
@@ -29,11 +32,15 @@ Godot 4 的世界基（右手、Y-up、米制、相机朝向 -Z）与 Director �
     根上按有理时基（`秒 = 帧 * 分母 / 分子`）从哈希校验后的边车文件写出
     `AnimationPlayer`/`AnimationLibrary` 关键帧；glTF 载荷动画保留为各自的
     AnimationPlayer；
-  - 分镜以 `director_shots` 元数据形式保留在场景根节点上（Godot 没有内置镜头
-    时间线；宁可警告省略，绝不静默拍平）；
+  - 哈希固定烘焙中的分镜镜头区间映射为时间线动画内离散的 `Camera3D.current`
+    切换轨道（播放该动画即执行分镜的相机切换），原始分镜同时以
+    `director_shots` 元数据保留；无法映射相机的镜头带结构化代码警告省略
+    （`shot_no_camera_binding`、`shot_camera_not_imported`、
+    `shot_target_not_camera`）；
   - 写出 `director-dcc-engine-report-v1` 回执，其中的 Godot 专属 `godot` 字段
-    （轨道/关键帧数、灯光/骨架/材质/纹理计数）全部从已保存的场景读回，并回写
-    一个规范空间的返回包。
+    （轨道/关键帧/镜头切换计数、灯光/骨架/材质/纹理计数、
+    `worldEnvironmentAmbient`、`omittedLightCount`）全部从已保存的场景读回，
+    并回写一个规范空间的返回包。
 - **导出**（`--mode export`）：重新加载 Director 场景，仅导出相对交换包基线发生
   变化的 `director_id` 物体/相机节点的规范空间变换，写出
   `director-dcc-return-v1` 返回包。漂移在矩阵层级判定，因此镜像变换不会产生
@@ -76,16 +83,29 @@ export DIRECTOR_GODOT_PROJECT=/path/to/YourProject
 连接器模块全部通过 `preload` 引用，从不依赖全局 `class_name` 查找：从未在编辑器
 中打开过的全新工程没有全局类缓存，而无头入口必须在这种工程上照常工作。
 
+## 实时预览（仅出站）
+
+编辑器插件的 **Director: Toggle Live Preview** 工具菜单项会把
+`director_id` 标记节点的临时、带序号的预览帧推送到 Director Gateway 的
+令牌保护实时链接路由（`director-godot-live-link-v1`：hello → frame… → bye）。
+传输严格出站——Godot 绝不监听端口、绝不暴露脚本端点——且预览帧永不具备
+权威性：持久变更仍只经由受审的 `director-dcc-return-v1` 返回包路径。过期或
+重放的序号会被 Gateway 拒绝；连接中断（未发 bye）由 Gateway 的空闲超时清扫，
+不会触碰最后一次提交的 Director 修订。通过 `DIRECTOR_GATEWAY_URL` 与
+`DIRECTOR_GATEWAY_TOKEN` 配置目标。
+
 ## 能力诚实性
 
 已实现且有版本校验（由 host-free 黄金用例加缺失即跳过的真实无头往返测试
 `backend/gateway/tests/dcc/godot*.test.ts` 背书）：无头导入/导出、稳定
 `director_id` 往返、含负缩放与镜像变换的场景层级、带垂直视场角动画的相机、
-基于有理时基的 Gateway 烘焙变换动画、绑定姿态的蒙皮 GLB 骨架、带哈希外置纹理的
-`StandardMaterial3D` 材质转换，以及 Omni/Spot/Directional 灯光。
+基于有理时基的 Gateway 烘焙变换动画、分镜镜头区间映射为 `Camera3D.current`
+相机切换轨道、绑定姿态的蒙皮 GLB 骨架、带哈希外置纹理的 `StandardMaterial3D`
+材质转换、Omni/Spot/Directional 灯光加 `WorldEnvironment` 环境光烘焙，以及
+仅出站的实时预览链接（序号/重放/断连黄金用例见
+`backend/gateway/tests/dcc/godotLiveLink.test.ts`）。
 
-仍为规划中（宁可警告省略，绝不静默拍平）：元数据之外的镜头时间线映射、绑定
-姿态通道与角色动作片段（仅烘焙世界变换）、环境光/半球光/面光、自定义着色器
-转换、实时链接（live link）。未来的实时预览传输必须仅由连接器向 Director 出站
-——绝不开放未鉴权的脚本端口——且在 `live_link` 能力从 `planned` 升级之前必须
-具备断连测试。
+仍为警告省略（绝不静默拍平）：绑定姿态通道与角色动作片段（仅烘焙世界变换，
+烘焙中携带结构化 `omittedDetail`，列出受影响的姿态控制器与片段）、面光、
+重复的环境光源、自定义着色器转换。每个省略都带结构化代码，方便代理据此行动
+而不是解析散文。

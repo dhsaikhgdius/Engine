@@ -17,3 +17,4 @@ export * from "./directorUnrealCleanFrameContract";
 export * from "./directorUnrealLivePreviewContract";
 export * from "./directorUnrealSequencerContract";
 export * from "./directorGodotAnimationContract";
+export * from "./directorGodotLiveLinkContract";

@@ -146,10 +146,9 @@ describe("Director DCC provider contract", () => {
       for (const id of ["animation", "skeleton", "materials"] as const) {
         expect(byId.get(id)).toEqual({ id, level: "native", layer: "connector" });
       }
-      // Unreal and Unity ship tested preview-only live links (never the durable
-      // scene channel). Godot stays planned.
-      const livePreviewLevel = descriptor.id === "unreal" || descriptor.id === "unity" ? "native" : "planned";
-      expect(byId.get("live_link")).toEqual({ id: "live_link", level: livePreviewLevel, layer: "connector" });
+      // Unreal, Unity, and Godot all ship tested preview-only live links
+      // (never the durable scene channel).
+      expect(byId.get("live_link")).toEqual({ id: "live_link", level: "native", layer: "connector" });
     }
   });
 

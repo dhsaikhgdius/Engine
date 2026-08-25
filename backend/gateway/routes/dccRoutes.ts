@@ -23,6 +23,7 @@ import {
   type HttpToolGovernanceDependencies,
 } from "../agents/httpToolGovernance";
 import { UnityLiveLinkError, unityLiveLinkEventPayloadSchema, type UnityLiveLinkHub } from "../dcc/unityLiveLink";
+import { DirectorGodotLiveLinkError, type GodotLiveLinkHub } from "../dcc/godotLiveLink";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -81,6 +82,8 @@ export interface DccRouteDependencies {
   engineReturnImporters?: Partial<Record<DirectorDccEngineId, DccReturnImporter>>;
   /** Director → Unity live preview hub (outbound-only polling, never authoritative). */
   unityLiveLink?: UnityLiveLinkHub;
+  /** In-memory Godot live-link preview hub (outbound-only transport, never authoritative). */
+  godotLiveLink?: GodotLiveLinkHub;
   applyAuthoring?: (operation: DirectorWorkbenchOperation) => Promise<DirectorDccAuthoringResponse | null>;
   /** Film-role/plan-mode policy overrides plus the audit trail for POST /api/tools. */
   governance?: HttpToolGovernanceDependencies;
@@ -254,6 +257,7 @@ export async function handleDccRoute(
     engineBridge,
     engineReturnImporters,
     unityLiveLink,
+    godotLiveLink,
     applyAuthoring,
   } = dependencies;
   // Reassigned with an audit-recording wrapper once a governed tool call is admitted.
@@ -283,6 +287,48 @@ export async function handleDccRoute(
       return true;
     }
     json(response, 200, { success: true, result: await providers.discover() });
+    return true;
+  }
+  // Godot live-link preview transport. Godot never listens on a port: the
+  // connector opens authenticated requests against these token-guarded routes
+  // (outbound to Director only). Frames are ephemeral and never authoritative;
+  // durable changes still travel through the reviewed return-package path.
+  const liveLinkMatch = url.pathname.match(/^\/api\/dcc\/live-link\/godot\/(hello|frame|bye|preview)$/);
+  if (liveLinkMatch) {
+    if (!godotLiveLink) {
+      json(response, 503, {
+        success: false,
+        code: "live_link_unavailable",
+        error: "The Godot live-link hub is not configured on this gateway.",
+      });
+      return true;
+    }
+    const liveLinkOperation = liveLinkMatch[1] as "hello" | "frame" | "bye" | "preview";
+    const expectedMethod = liveLinkOperation === "preview" ? "GET" : "POST";
+    if (request.method !== expectedMethod) {
+      json(response, 405, { success: false, error: `live-link ${liveLinkOperation} requires ${expectedMethod}.` });
+      return true;
+    }
+    try {
+      if (liveLinkOperation === "preview") {
+        json(response, 200, { success: true, result: godotLiveLink.preview() });
+        return true;
+      }
+      const liveLinkBody = await readBody(request);
+      const result =
+        liveLinkOperation === "hello"
+          ? godotLiveLink.hello(liveLinkBody)
+          : liveLinkOperation === "frame"
+            ? godotLiveLink.frame(liveLinkBody)
+            : godotLiveLink.bye(liveLinkBody);
+      json(response, 200, { success: true, result });
+    } catch (error) {
+      if (error instanceof DirectorGodotLiveLinkError) {
+        json(response, error.status, { success: false, code: error.code, error: error.message });
+      } else {
+        json(response, 500, { success: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
     return true;
   }
   const providerStatusMatch = url.pathname.match(/^\/api\/dcc\/providers\/([^/]+)\/status$/);

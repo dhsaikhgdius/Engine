@@ -40,7 +40,7 @@ function animatedObject(id: string, endX: number) {
       scale: [1, 1, 1] as [number, number, number],
     },
     animation: {
-      version: 1,
+      version: 1 as const,
       keyframes: [
         {
           frame: 0,
@@ -146,6 +146,129 @@ describe("buildGodotAnimationBake", () => {
     const bake = buildGodotAnimationBake(project, PACKAGE_ID, REVISION);
     expect(bake.entities[0]!.omittedChannels).toEqual(["pose_values"]);
     expect(bake.entities[0]!.warnings.join("\n")).toMatch(/warn-and-omit/);
+  });
+
+  it("carries structured omitted detail for pose controls and motion clips", () => {
+    const project = withTimeline(createTestDirectorProject(), 24);
+    const object = animatedObject("obj-rigged", 4);
+    object.animation.keyframes[0] = {
+      ...object.animation.keyframes[0]!,
+      poseValues: { arm_l: 0.5, head: 0.2 },
+    } as (typeof object.animation.keyframes)[number];
+    object.animation.keyframes[1] = {
+      ...object.animation.keyframes[1]!,
+      poseValues: { arm_r: 1 },
+    } as (typeof object.animation.keyframes)[number];
+    (object.animation as { motionBlocks?: unknown[] }).motionBlocks = [
+      {
+        id: "clip-walk",
+        clipId: "mixamo-walk",
+        enabled: true,
+        loop: "repeat",
+        speed: 1,
+        weight: 1,
+        blendInS: 0.2,
+        blendOutS: 0.2,
+        rootMotion: "in-place",
+        frameStart: 0,
+        frameEnd: 20,
+      },
+    ];
+    project.objects = [object];
+    const bake = buildGodotAnimationBake(project, PACKAGE_ID, REVISION);
+    const entity = bake.entities[0]!;
+    expect(entity.omittedChannels).toEqual(["pose_values", "motion_blocks"]);
+    expect(entity.omittedDetail).toEqual({
+      poseControlCount: 3,
+      poseControls: ["arm_l", "arm_r", "head"],
+      motionClipCount: 1,
+      motionClips: [{ id: "clip-walk", frameStart: 0, frameEnd: 20 }],
+    });
+    const warningText = entity.warnings.join("\n");
+    expect(warningText).toMatch(/warn-and-omit code: pose_values/);
+    expect(warningText).toMatch(/warn-and-omit code: motion_blocks/);
+    // Motion clips are in-place; the honest claim is that the root path is baked.
+    expect(warningText).toMatch(/root path is baked/);
+    expect(warningText).toMatch(/3 pose controls affected/);
+  });
+
+  it("bakes storyboard shot ranges sorted, clamped, and warn-and-omitted honestly", () => {
+    const project = withTimeline(createTestDirectorProject(), 24);
+    project.objects = [animatedObject("obj-anim", 4)];
+    project.cameras = [
+      {
+        id: "cam-main",
+        name: "Main",
+        fov: 40,
+        transform: { position: [0, 2, 8], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        targetMode: "manual",
+        target: [0, 1, 0],
+      },
+    ];
+    project.storyboard = {
+      version: 1,
+      title: "Board",
+      logline: "Fixture",
+      shots: [
+        {
+          id: "shot-late",
+          title: "Late",
+          cameraId: "cam-main",
+          frameStart: 12,
+          frameEnd: 40,
+          shotSize: "medium",
+          movement: "static",
+          action: "Clamped into the window.",
+        },
+        {
+          id: "shot-early",
+          title: "Early",
+          cameraId: "cam-missing",
+          frameStart: 0,
+          frameEnd: 10,
+          shotSize: "wide",
+          movement: "static",
+          action: "Unknown camera warns.",
+        },
+        {
+          id: "shot-out",
+          title: "Outside",
+          cameraId: "cam-main",
+          frameStart: 90,
+          frameEnd: 120,
+          shotSize: "insert",
+          movement: "static",
+          action: "Fully outside the window.",
+        },
+        {
+          id: "shot-early",
+          title: "Duplicate",
+          cameraId: "cam-main",
+          frameStart: 5,
+          frameEnd: 6,
+          shotSize: "wide",
+          movement: "static",
+          action: "Duplicate id is skipped.",
+        },
+      ],
+    };
+    const bake = buildGodotAnimationBake(project, PACKAGE_ID, REVISION);
+    expect(bake.shots).toEqual([
+      { shotId: "shot-early", title: "Early", cameraDirectorId: "cam-missing", frameStart: 0, frameEnd: 10 },
+      { shotId: "shot-late", title: "Late", cameraDirectorId: "cam-main", frameStart: 12, frameEnd: 24 },
+    ]);
+    const warningText = bake.warnings.join("\n");
+    expect(warningText).toMatch(/shot-late was clamped/);
+    expect(warningText).toMatch(/shot_outside_playback/);
+    expect(warningText).toMatch(/shot_camera_not_imported/);
+    expect(warningText).toMatch(/shot-early appears more than once/);
+  });
+
+  it("omits the shots block entirely when the storyboard is empty", () => {
+    const project = withTimeline(createTestDirectorProject(), 24);
+    project.objects = [animatedObject("obj-anim", 4)];
+    const bake = buildGodotAnimationBake(project, PACKAGE_ID, REVISION);
+    expect(bake.shots).toBeUndefined();
   });
 
   it("widens the frame stride with a warning instead of blowing the sample budget", () => {
