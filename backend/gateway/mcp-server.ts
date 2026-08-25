@@ -80,6 +80,9 @@ async function authenticatedGatewayFetch(path: string, init: RequestInit, retryU
   const token = await getGatewayAuthToken();
   const headers = new Headers(init.headers);
   headers.set("x-director-browser-token", token);
+  // Observability (M5): mark every MCP-originated call so gateway traces
+  // attribute the tool chain to the right entry surface.
+  headers.set("x-director-trace-source", "mcp");
   let response: Response;
   try {
     response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });

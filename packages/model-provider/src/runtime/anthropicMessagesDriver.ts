@@ -123,6 +123,8 @@ export type AnthropicMessagesDriverConfig = {
   defaultHeaders?: Record<string, string>;
   /** Maximum number of retries for 429/5xx errors (default 2). */
   maxRetries?: number;
+  /** Called once per retry attempt, so callers can meter retry counts. */
+  onRetry?: () => void;
   /** Custom fetch implementation for testing. */
   fetch?: FetchImplementation;
 };
@@ -447,6 +449,7 @@ export class AnthropicMessagesDriver implements ModelDriver {
       providerId: this.id,
       secrets: [this.config.apiKey],
       maxRetries: this.config.maxRetries,
+      onRetry: this.config.onRetry,
       signal: request.signal,
       init: {
         method: "POST",

@@ -8,6 +8,7 @@
  */
 
 export * from "./agentGatewayProtocol";
+export * from "./agentObservabilityProtocol";
 export * from "./agentTools";
 export * from "./assetCatalogProtocol";
 export * from "./captureReconstructionProtocol";

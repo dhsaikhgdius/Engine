@@ -328,7 +328,12 @@ try {
   const call = (requestInput, requestTargetToken) =>
     fetch(`${gatewayUrl}/api/tools/${tool}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-director-browser-token": gatewayToken },
+      headers: {
+        "content-type": "application/json",
+        "x-director-browser-token": gatewayToken,
+        // Observability (M5): attribute this call to the CLI entry surface.
+        "x-director-trace-source": "cli",
+      },
       body: JSON.stringify({
         input: requestInput,
         session_id: sessionId,
