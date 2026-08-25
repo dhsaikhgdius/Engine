@@ -94,7 +94,8 @@ export function directorToolManifest(): DirectorToolManifest {
   }));
   const legacyStageTools: DirectorToolManifestEntry[] = STAGE_COMMAND_TOOL_NAMES.map((tool) => ({
     name: tool,
-    description: "Legacy compact Stage surface (HTTP-compatible only). Frozen; use director_workbench for new automation.",
+    description:
+      "Legacy compact Stage surface (HTTP-compatible only). Frozen; use director_workbench for new automation.",
     input_schema: jsonSchemaRecord(stageCommandOperationSchemas[tool]),
     operations: stageCommandOperationNames(tool),
     legacy: true,
