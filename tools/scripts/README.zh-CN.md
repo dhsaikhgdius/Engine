@@ -55,6 +55,8 @@
 |---|---|
 | `check-open-source-boundary.mjs` | 开源边界检查：禁止二进制大文件（`.glb`、`.fbx`、`.onnx`、`.safetensors` 等）和无许可文件进入源代码树，限制源码文件大小上限（5MB） |
 | `check-native-agent-integration.mjs` | 原生 Agent 集成检查：验证技能目录为真实目录（非符号链接）、`sync-agent-skills` 同步状态、Agent MCP 配置一致性 |
+| `check-i18n-completeness.mjs` | i18n 完整性门禁：当 `frontend/director/src` 出现新的未翻译中文 UI 字符串（`en-US.json` 与短语规则均未覆盖）时失败；已知缺口记录在 `i18n-missing-baseline.json`，只允许收缩（`--update-baseline` 用于有意刷新） |
+| `i18n-completeness.mjs` | i18n 门禁的库实现：基于 TypeScript AST 提取中文字符串字面量/JSX 文本并检查覆盖；单元测试见 `i18n-completeness.test.ts` |
 | `check-build-chunk-budget.mjs` | Vite 构建产物 chunk 大小预算检查：应用 chunk 超出 800KB 时警告（非硬性阻断，用于增长信号监测） |
 | `checkServerImportBoundaries.ts` | 服务端导入边界检查：通过 TypeScript AST 解析，确保 Gateway 代码不导入仅限浏览器的 React/Three.js 包，验证纯 Agent/Stage/DCC 模块隔离 |
 
@@ -103,7 +105,7 @@
 | `npm run setup:ardy` | `tools/scripts/bootstrap-inference-source.mjs vendor/ardy.lock.json` |
 | `npm run stage` | `tools/scripts/stage-cli.mjs` |
 | `npm run lint` | `tools/scripts/checkServerImportBoundaries.ts`（在 ESLint 之后） |
-| `npm run repo:check` | `tools/scripts/check-open-source-boundary.mjs` + `tools/scripts/check-native-agent-integration.mjs` |
+| `npm run repo:check` | `tools/scripts/check-open-source-boundary.mjs` + `tools/scripts/check-native-agent-integration.mjs` + `tools/scripts/check-i18n-completeness.mjs` |
 | `npm run sync:skills` | `tools/scripts/sync-agent-skills.mjs` |
 | `npm run sync:blender-operations` | `tools/scripts/sync-blender-operation-manifest.mjs` |
 | `npm run dsh` | `tools/scripts/dsh-director.mjs` |

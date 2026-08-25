@@ -55,6 +55,8 @@ Sibling directories under `tools/`:
 |---|---|
 | `check-open-source-boundary.mjs` | Open-source boundary check: forbids binary blobs (`.glb`, `.fbx`, `.onnx`, `.safetensors`, etc.) and unlicensed files in the source tree, enforces max source file size (5MB) |
 | `check-native-agent-integration.mjs` | Native Agent integration check: verifies skill directories are real (not symlinks), `sync-agent-skills` sync status, and Agent MCP config consistency |
+| `check-i18n-completeness.mjs` | i18n completeness gate: fails when a new untranslated Chinese UI string appears in `frontend/director/src` (not covered by `en-US.json` or a phrase rule); known gaps live in `i18n-missing-baseline.json` and may only shrink (`--update-baseline` refreshes intentionally) |
+| `i18n-completeness.mjs` | Library behind the i18n gate: TypeScript-AST extraction of Chinese string literals/JSX text plus coverage checks; unit-tested in `i18n-completeness.test.ts` |
 | `check-build-chunk-budget.mjs` | Vite build chunk budget check: warns when application chunks exceed 800KB (not enforced, a growth signal monitor) |
 | `checkServerImportBoundaries.ts` | Server import boundary check: parses TypeScript AST to prevent Gateway code from importing browser-only React/Three.js packages, validates pure Agent/Stage/DCC module isolation |
 
@@ -103,7 +105,7 @@ The following `package.json` scripts directly invoke files in `tools/scripts/`:
 | `npm run setup:ardy` | `tools/scripts/bootstrap-inference-source.mjs vendor/ardy.lock.json` |
 | `npm run stage` | `tools/scripts/stage-cli.mjs` |
 | `npm run lint` | `tools/scripts/checkServerImportBoundaries.ts` (after ESLint) |
-| `npm run repo:check` | `tools/scripts/check-open-source-boundary.mjs` + `tools/scripts/check-native-agent-integration.mjs` |
+| `npm run repo:check` | `tools/scripts/check-open-source-boundary.mjs` + `tools/scripts/check-native-agent-integration.mjs` + `tools/scripts/check-i18n-completeness.mjs` |
 | `npm run sync:skills` | `tools/scripts/sync-agent-skills.mjs` |
 | `npm run sync:blender-operations` | `tools/scripts/sync-blender-operation-manifest.mjs` |
 | `npm run dsh` | `tools/scripts/dsh-director.mjs` |
