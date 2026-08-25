@@ -32,19 +32,19 @@ DSH 会话(vendor/deepseek-harness,循环 + 会话 + 提示词)
 
 ## 主要模块
 
-| 模块                                                    | 职责                                                       |
-| ------------------------------------------------------- | ---------------------------------------------------------- |
-| `vendor/deepseek-harness`                                | 工具循环、会话存储、提示词组装、workspace/web/job 工具     |
-| `packages/dsh-plugin-workbench/src/register.ts`          | Director 工具注册与 `DIRECTOR_AGENT_GUIDANCE`              |
-| `packages/dsh-plugin-workbench/src/catalog.ts`           | 从 `packages/protocol` Zod 投影出的模型侧工具 Schema       |
-| `packages/dsh-plugin-workbench/src/toolResultProjection.ts` | 规范的超大结果摘要与媒体剥离实现                       |
-| `backend/gateway/routes/stageRoutes.ts`                  | 所有表面共用的 `POST /api/tools/:name` 执行                |
-| `backend/gateway/agents/agentToolRegistry.ts`            | 统一紧凑 wire schema、定义、超时与读/写模式                |
-| `backend/gateway/agents/agentToolScheduler.ts`           | 有序调用窗口与进程级精确目标屏障                           |
-| `backend/gateway/agents/agentToolMemory.ts`              | 按 `idempotency_key` 的幂等重放                            |
-| `backend/gateway/agents/agentToolOutcomes.ts`            | 结果归一化(`completed` / `failed` / `stale_revision` …)  |
-| `backend/gateway/agents/filmRoleToolPolicy.ts`           | 按角色限制工具与操作                                       |
-| `backend/gateway/mcp-server.ts`                          | 编码 Agent 的 MCP 表面(Cursor / Claude Code / Codex)     |
+| 模块                                                        | 职责                                                    |
+| ----------------------------------------------------------- | ------------------------------------------------------- |
+| `vendor/deepseek-harness`                                   | 工具循环、会话存储、提示词组装、workspace/web/job 工具  |
+| `packages/dsh-plugin-workbench/src/register.ts`             | Director 工具注册与 `DIRECTOR_AGENT_GUIDANCE`           |
+| `packages/dsh-plugin-workbench/src/catalog.ts`              | 从 `packages/protocol` Zod 投影出的模型侧工具 Schema    |
+| `packages/dsh-plugin-workbench/src/toolResultProjection.ts` | 规范的超大结果摘要与媒体剥离实现                        |
+| `backend/gateway/routes/stageRoutes.ts`                     | 所有表面共用的 `POST /api/tools/:name` 执行             |
+| `backend/gateway/agents/agentToolRegistry.ts`               | 统一紧凑 wire schema、定义、超时与读/写模式             |
+| `backend/gateway/agents/agentToolScheduler.ts`              | 有序调用窗口与进程级精确目标屏障                        |
+| `backend/gateway/agents/agentToolMemory.ts`                 | 按 `idempotency_key` 的幂等重放                         |
+| `backend/gateway/agents/agentToolOutcomes.ts`               | 结果归一化(`completed` / `failed` / `stale_revision` …) |
+| `backend/gateway/agents/filmRoleToolPolicy.ts`              | 按角色限制工具与操作                                    |
+| `backend/gateway/mcp-server.ts`                             | 编码 Agent 的 MCP 表面(Cursor / Claude Code / Codex)    |
 
 `npm run dsh` 准备 Director workbench overlay 并在 `:3080` 启动固定版本的 DSH Web;`npm run mcp` 启动面向编码 Agent 的 MCP 服务器,对接 `:8787` 的 Gateway。
 

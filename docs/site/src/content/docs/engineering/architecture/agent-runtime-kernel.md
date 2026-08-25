@@ -32,19 +32,19 @@ Coding agents (Cursor, Claude Code, Codex) reach the same Gateway contracts thro
 
 ## Main modules
 
-| Module                                                 | Responsibility                                                     |
-| ------------------------------------------------------ | ------------------------------------------------------------------ |
-| `vendor/deepseek-harness`                               | Tool loop, session store, prompt assembly, workspace/web/job tools |
-| `packages/dsh-plugin-workbench/src/register.ts`         | Director tool registration and `DIRECTOR_AGENT_GUIDANCE`           |
-| `packages/dsh-plugin-workbench/src/catalog.ts`          | Model-facing tool schemas projected from `packages/protocol` Zod   |
-| `packages/dsh-plugin-workbench/src/toolResultProjection.ts` | Canonical oversized-result summarization and media stripping   |
-| `backend/gateway/routes/stageRoutes.ts`                 | `POST /api/tools/:name` execution for every surface                |
-| `backend/gateway/agents/agentToolRegistry.ts`           | Canonical compact wire schemas, definitions, timeouts, modes       |
-| `backend/gateway/agents/agentToolScheduler.ts`          | Ordered call windows and process-wide exact-target barriers        |
-| `backend/gateway/agents/agentToolMemory.ts`             | Idempotency replay keyed by `idempotency_key`                      |
-| `backend/gateway/agents/agentToolOutcomes.ts`           | Outcome normalization (`completed` / `failed` / `stale_revision` …) |
-| `backend/gateway/agents/filmRoleToolPolicy.ts`          | Role-scoped tool and operation restrictions                        |
-| `backend/gateway/mcp-server.ts`                         | MCP surface for coding agents (Cursor / Claude Code / Codex)       |
+| Module                                                      | Responsibility                                                      |
+| ----------------------------------------------------------- | ------------------------------------------------------------------- |
+| `vendor/deepseek-harness`                                   | Tool loop, session store, prompt assembly, workspace/web/job tools  |
+| `packages/dsh-plugin-workbench/src/register.ts`             | Director tool registration and `DIRECTOR_AGENT_GUIDANCE`            |
+| `packages/dsh-plugin-workbench/src/catalog.ts`              | Model-facing tool schemas projected from `packages/protocol` Zod    |
+| `packages/dsh-plugin-workbench/src/toolResultProjection.ts` | Canonical oversized-result summarization and media stripping        |
+| `backend/gateway/routes/stageRoutes.ts`                     | `POST /api/tools/:name` execution for every surface                 |
+| `backend/gateway/agents/agentToolRegistry.ts`               | Canonical compact wire schemas, definitions, timeouts, modes        |
+| `backend/gateway/agents/agentToolScheduler.ts`              | Ordered call windows and process-wide exact-target barriers         |
+| `backend/gateway/agents/agentToolMemory.ts`                 | Idempotency replay keyed by `idempotency_key`                       |
+| `backend/gateway/agents/agentToolOutcomes.ts`               | Outcome normalization (`completed` / `failed` / `stale_revision` …) |
+| `backend/gateway/agents/filmRoleToolPolicy.ts`              | Role-scoped tool and operation restrictions                         |
+| `backend/gateway/mcp-server.ts`                             | MCP surface for coding agents (Cursor / Claude Code / Codex)        |
 
 `npm run dsh` prepares the Director workbench overlay and launches the pinned DSH Web profile on `:3080`. `npm run mcp` starts the MCP server for coding agents against the Gateway on `:8787`.
 
