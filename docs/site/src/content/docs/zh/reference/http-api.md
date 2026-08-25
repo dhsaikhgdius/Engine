@@ -239,6 +239,12 @@ curl -sS -X POST "$BASE/api/tools/director_dcc" \
 `ready`、`warnings`、`recovery`），而不是裸失败。按 recovery 步骤设置 `DIRECTOR_GODOT_BIN` /
 `DIRECTOR_GODOT_PROJECT` 并安装插件，或回退到 `export_exchange_package`。
 
+当 `provider: "unreal"` 时，Gateway 还会把项目动画逐帧采样为私有作业目录内哈希锁定的
+`director-unreal-sequencer-bake-v1` sidecar。连接器据此为 LevelSequence 打关键帧，返回的报告可携带
+Unreal 专有字段：`sequencer` 回执（从已创作资产回读的显示帧率、tick 分辨率、起始时间码、播放范围、
+轨道与关键帧数量）以及 `importedSkeletalMeshCount` 与 `appliedMaterialCount`。烘焙失败会降级为带警告
+的静态导入；sidecar 被篡改则任务失败。
+
 把引擎侧编辑带回来时，使用与 Blender 回传相同的预览再 Apply 协议。引擎回传包携带 canonical
 Director 空间变换，因此必须显式传入产生该包的提供商：
 
