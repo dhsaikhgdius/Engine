@@ -6,6 +6,7 @@ import {
   type WorldWildlifeSpecies,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { hashCombine, hashUint32, worldStreamId } from "../worldRandom";
+import { createWildlifeSpatialHash } from "./wildlifeSpatialHash";
 
 /**
  * Pure wildlife simulation core (no three.js imports).
@@ -20,8 +21,11 @@ import { hashCombine, hashUint32, worldStreamId } from "../worldRandom";
  * on bit-identical restored state, so results match continuous stepping.
  *
  * All per-agent state lives in preallocated SoA typed arrays; stepping
- * performs zero allocations. Neighbor queries are O(N^2) with squared-distance
- * early-outs, which is fine at N <= 256.
+ * performs zero allocations. Neighbor queries run through a preallocated
+ * spatial hash (see wildlifeSpatialHash.ts) instead of an O(N²) pair scan;
+ * candidate order is a pure function of agent positions, so replay stays
+ * bit-identical even though float accumulation order differs from the old
+ * naive scan.
  */
 
 const HZ = DIRECTOR_WORLD_SIMULATION_HZ;
@@ -380,7 +384,7 @@ export function createWildlifeSim(
   const grazeBlend = new Float32Array(n);
   const phase = new Float32Array(n); // immutable after spawn — excluded from checkpoints
 
-  // Scratch accumulators (Float64 to keep pair sums in double precision).
+  // Scratch accumulators (Float64 to keep neighbor sums in double precision).
   const accSepX = new Float64Array(n);
   const accSepY = new Float64Array(n);
   const accSepZ = new Float64Array(n);
@@ -391,6 +395,17 @@ export function createWildlifeSim(
   const accCohY = new Float64Array(n);
   const accCohZ = new Float64Array(n);
   const neighborCount = new Float64Array(n);
+
+  // Spatial hash + candidate scratch, preallocated so stepping never
+  // allocates. Cell size equals the largest interaction radius, so a
+  // one-cell neighborhood always covers every in-range candidate.
+  const spatialHash = createWildlifeSpatialHash(
+    n,
+    config.archetype === "herd"
+      ? config.herdSeparationRadius
+      : Math.max(config.neighborRadius, config.separationRadius),
+  );
+  const neighborScratch = new Int32Array(n);
 
   // Previous-tick copies exposed to the render layer for interpolation.
   const prevPosX = new Float32Array(n);
@@ -548,54 +563,58 @@ export function createWildlifeSim(
     const bandEdge = Math.max((config.bandMaxY - config.bandMinY) * 0.2, 0.1);
     const stateSeconds = simTick * DT;
 
-    for (let i = 0; i < n; i += 1) {
-      accSepX[i] = 0;
-      accSepY[i] = 0;
-      accSepZ[i] = 0;
-      accAliX[i] = 0;
-      accAliY[i] = 0;
-      accAliZ[i] = 0;
-      accCohX[i] = 0;
-      accCohY[i] = 0;
-      accCohZ[i] = 0;
-      neighborCount[i] = 0;
-    }
-
-    // Phase 1: symmetric pair accumulation against the pre-step snapshot.
+    // Phase 1: per-agent neighbor gather against the pre-step snapshot. The
+    // spatial hash is rebuilt from pre-step positions and every agent's
+    // accumulators are filled before any integration, so the update stays
+    // synchronous (reads never observe this tick's writes).
+    spatialHash.rebuild(posX, posY, posZ, n);
     for (let i = 0; i < n; i += 1) {
       const pix = posX[i];
       const piy = posY[i];
       const piz = posZ[i];
-      for (let j = i + 1; j < n; j += 1) {
+      let sepX = 0;
+      let sepY = 0;
+      let sepZ = 0;
+      let aliX = 0;
+      let aliY = 0;
+      let aliZ = 0;
+      let cohX = 0;
+      let cohY = 0;
+      let cohZ = 0;
+      let neighbors = 0;
+      const candidates = spatialHash.collectNeighbors(pix, piy, piz, neighborScratch);
+      for (let c = 0; c < candidates; c += 1) {
+        const j = neighborScratch[c];
+        if (j === i) continue;
         const dx = posX[j] - pix;
         const dy = posY[j] - piy;
         const dz = posZ[j] - piz;
         const d2 = dx * dx + dy * dy + dz * dz;
         if (d2 > neighborR2) continue;
-        accAliX[i] += velX[j];
-        accAliY[i] += velY[j];
-        accAliZ[i] += velZ[j];
-        accAliX[j] += velX[i];
-        accAliY[j] += velY[i];
-        accAliZ[j] += velZ[i];
-        accCohX[i] += posX[j];
-        accCohY[i] += posY[j];
-        accCohZ[i] += posZ[j];
-        accCohX[j] += pix;
-        accCohY[j] += piy;
-        accCohZ[j] += piz;
-        neighborCount[i] += 1;
-        neighborCount[j] += 1;
+        aliX += velX[j];
+        aliY += velY[j];
+        aliZ += velZ[j];
+        cohX += posX[j];
+        cohY += posY[j];
+        cohZ += posZ[j];
+        neighbors += 1;
         if (d2 < separationR2 && d2 > 1e-9) {
           const inv = 1 / d2;
-          accSepX[i] -= dx * inv;
-          accSepY[i] -= dy * inv;
-          accSepZ[i] -= dz * inv;
-          accSepX[j] += dx * inv;
-          accSepY[j] += dy * inv;
-          accSepZ[j] += dz * inv;
+          sepX -= dx * inv;
+          sepY -= dy * inv;
+          sepZ -= dz * inv;
         }
       }
+      accSepX[i] = sepX;
+      accSepY[i] = sepY;
+      accSepZ[i] = sepZ;
+      accAliX[i] = aliX;
+      accAliY[i] = aliY;
+      accAliZ[i] = aliZ;
+      accCohX[i] = cohX;
+      accCohY[i] = cohY;
+      accCohZ[i] = cohZ;
+      neighborCount[i] = neighbors;
     }
 
     // Phase 2: integrate.
@@ -773,24 +792,29 @@ export function createWildlifeSim(
     const containTrigger2 = radius * 0.95 * (radius * 0.95);
     const regroupDone2 = radius * 0.4 * (radius * 0.4);
 
-    for (let i = 0; i < n; i += 1) {
-      accSepX[i] = 0;
-      accSepZ[i] = 0;
-    }
+    // Separation gather via the 2D spatial hash (herds live on the ground
+    // plane, so agents hash on (x, z) only). All accumulators fill before the
+    // integration loop below mutates positions — synchronous update.
+    spatialHash.rebuild(posX, null, posZ, n);
     for (let i = 0; i < n; i += 1) {
       const pix = posX[i];
       const piz = posZ[i];
-      for (let j = i + 1; j < n; j += 1) {
+      let sepX = 0;
+      let sepZ = 0;
+      const candidates = spatialHash.collectNeighbors(pix, 0, piz, neighborScratch);
+      for (let c = 0; c < candidates; c += 1) {
+        const j = neighborScratch[c];
+        if (j === i) continue;
         const dx = posX[j] - pix;
         const dz = posZ[j] - piz;
         const d2 = dx * dx + dz * dz;
         if (d2 > separationR2 || d2 < 1e-9) continue;
         const inv = 1 / d2;
-        accSepX[i] -= dx * inv;
-        accSepZ[i] -= dz * inv;
-        accSepX[j] += dx * inv;
-        accSepZ[j] += dz * inv;
+        sepX -= dx * inv;
+        sepZ -= dz * inv;
       }
+      accSepX[i] = sepX;
+      accSepZ[i] = sepZ;
     }
 
     for (let i = 0; i < n; i += 1) {
