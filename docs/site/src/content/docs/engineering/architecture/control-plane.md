@@ -227,7 +227,7 @@ Read-only Workbench operations are `capabilities`, `observe`, `catalog`, `audit`
 The visual critic additionally receives `capture`, `shot_package`, and `deliver` so it can inspect
 real helper-free pixels and hashes, while authoring operations remain rejected.
 
-This exact tool filter is presently enforced by the native API adapter. Local Codex/Claude adapters share the structured Director tools and receive the assigned role, but should not yet be described as having the same adapter-level role-policy proof. Moving policy enforcement below every adapter, at the gateway tool boundary, remains a hardening task.
+This exact tool filter is enforced by the native API adapter, and since 2026-08-25 also below every adapter at the gateway tool boundary: `backend/gateway/agents/httpToolPolicy.ts` applies the shared film-role policy (`DIRECTOR_FILM_ROLE` + `DIRECTOR_PLAN_MODE`, same 403 rejection body as MCP) on every `/api/tools/*` route before browser-target execution, so raw HTTP, the Stage CLI, and the DSH plugin cannot bypass it. Each invocation is also appended to a source-tagged audit trail (`backend/gateway/agents/toolInvocationAuditStore.ts`, queryable via authorized `GET /api/agent/audit`). Local Codex/Claude adapters share the structured Director tools and receive the assigned role; their tool calls now pass through the same gateway-boundary gate.
 
 ## Video generation and LTX-2.3
 

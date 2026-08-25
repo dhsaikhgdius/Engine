@@ -44,6 +44,8 @@ import {
   canServeDisconnectedWorkbenchRead,
   type DisconnectedWorkbenchSources,
 } from "../workbenchDisconnectedReads";
+import { httpToolPolicyRejection, resolveHttpToolPolicyContext } from "../agents/httpToolPolicy";
+import { buildToolInvocationAuditEntry, type ToolInvocationAuditEntry } from "../agents/toolInvocationAuditStore";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -268,6 +270,8 @@ export type StageRouteDependencies = {
   executeVideoModel: (scene: StageScene, input: unknown) => Promise<ToolExecution>;
   /** Coordinates calls that address the same exact Director browser target. */
   targetScheduler?: DirectorAgentTargetScheduler;
+  /** Appends one tool invocation to the gateway audit trail. */
+  recordToolInvocation?: (entry: ToolInvocationAuditEntry) => void;
 };
 
 function directToolInput(payload: z.infer<typeof toolEnvelopeSchema>) {
@@ -373,7 +377,7 @@ export async function handleStageRoute(
   const {
     readBody,
     headers,
-    json,
+    json: writeJson,
     getScene,
     replaceScene,
     persistScene,
@@ -393,7 +397,21 @@ export async function handleStageRoute(
     loadDisconnectedWorkbenchSources,
     executeVideoModel,
     targetScheduler,
+    recordToolInvocation,
   } = dependencies;
+
+  // Every response written after the tool envelope parses is mirrored into
+  // the gateway audit trail; failures there never affect the tool response.
+  let auditContext: { tool: string; toolInput: unknown; sessionId: string; role: string | null } | null = null;
+  const json: JsonWriter = (jsonResponse, status, body) => {
+    writeJson(jsonResponse, status, body);
+    if (!auditContext || !recordToolInvocation) return;
+    try {
+      recordToolInvocation(buildToolInvocationAuditEntry({ ...auditContext, httpStatus: status, body }));
+    } catch (error) {
+      console.warn(`Tool invocation audit failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
 
   if (request.method === "GET" && url.pathname === "/api/stage") {
     json(response, 200, getScene());
@@ -438,6 +456,16 @@ export async function handleStageRoute(
   const sessionId = payload.session_id ?? "http-default";
   let targetToken = payload.target_token;
   const toolInput = directToolInput(payload);
+  const policyContext = resolveHttpToolPolicyContext();
+  auditContext = { tool, toolInput, sessionId, role: policyContext.invalidRole ? null : policyContext.role };
+  // The shared film-role/plan-mode gate runs before any target discovery or
+  // browser execution, so rejected calls never require a live tab and MCP,
+  // CLI, DSH plugin, and raw HTTP callers share one policy contract.
+  const policyRejection = httpToolPolicyRejection(tool, toolInput);
+  if (policyRejection) {
+    json(response, policyRejection.status, policyRejection.body);
+    return true;
+  }
   let scene = getScene();
   // Token-conscious direct HTTP callers can opt out of the embedded scene; the
   // MCP server never sends the flag because it requires scene in every response.

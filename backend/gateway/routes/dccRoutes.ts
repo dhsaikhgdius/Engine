@@ -13,11 +13,14 @@ import type { DirectorWorkbenchOperation } from "@director/agent-engine";
 import { directorDccProviderIdSchema } from "@director/dcc-protocol";
 import type { DirectorDccProviderRegistry } from "../dcc/dccProviderRegistry";
 import { DirectorDccExchangePackageError, type DirectorDccExchangePackager } from "../dcc/dccExchangePackage";
+import { httpToolPolicyRejection, resolveHttpToolPolicyContext } from "../agents/httpToolPolicy";
+import { buildToolInvocationAuditEntry, type ToolInvocationAuditEntry } from "../agents/toolInvocationAuditStore";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
 const envelopeSchema = z.looseObject({
   input: z.unknown().optional(),
+  session_id: z.string().trim().min(1).max(160).optional(),
 });
 
 const skipDirectorIdsSchema = z.array(z.string().trim().min(1).max(200)).max(20_000);
@@ -61,6 +64,8 @@ export interface DccRouteDependencies {
   sceneImporter?: BlenderSceneImporter;
   returnImporter?: BlenderReturnImporter;
   applyAuthoring?: (operation: DirectorWorkbenchOperation) => Promise<DirectorDccAuthoringResponse | null>;
+  /** Appends one tool invocation to the gateway audit trail. */
+  recordToolInvocation?: (entry: ToolInvocationAuditEntry) => void;
 }
 
 /** Agent-native DCC route. Blender execution remains server-side and path constrained. */
@@ -72,7 +77,7 @@ export async function handleDccRoute(
 ): Promise<boolean> {
   const {
     readBody,
-    json,
+    json: writeJson,
     getProject,
     blender,
     providers,
@@ -80,7 +85,21 @@ export async function handleDccRoute(
     sceneImporter,
     returnImporter,
     applyAuthoring,
+    recordToolInvocation,
   } = dependencies;
+
+  // Only the director_dcc tool branch arms this hook; every response written
+  // for that invocation is then mirrored into the gateway audit trail.
+  let auditContext: { tool: string; toolInput: unknown; sessionId: string | null; role: string | null } | null = null;
+  const json: JsonWriter = (jsonResponse, status, body) => {
+    writeJson(jsonResponse, status, body);
+    if (!auditContext || !recordToolInvocation) return;
+    try {
+      recordToolInvocation(buildToolInvocationAuditEntry({ ...auditContext, httpStatus: status, body }));
+    } catch (error) {
+      console.warn(`Tool invocation audit failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
 
   async function liveProject() {
     const parsed = safeParseDirectorProject(await getProject());
@@ -185,6 +204,20 @@ export async function handleDccRoute(
   }
   const input = Object.prototype.hasOwnProperty.call(body.data, "input") ? body.data.input : body.data;
   const { operationInput, skipDirectorIds, error: skipError } = extractSkipDirectorIds(input);
+  const policyContext = resolveHttpToolPolicyContext();
+  auditContext = {
+    tool: "director_dcc",
+    toolInput: operationInput,
+    sessionId: body.data.session_id ?? null,
+    role: policyContext.invalidRole ? null : policyContext.role,
+  };
+  // Shared film-role/plan-mode gate: covers /api/tools/director_dcc and the
+  // legacy /api/dcc/blender alias before any Blender or importer work runs.
+  const policyRejection = httpToolPolicyRejection("director_dcc", operationInput);
+  if (policyRejection) {
+    json(response, policyRejection.status, policyRejection.body);
+    return true;
+  }
   if (skipError) {
     json(response, 400, { success: false, error: skipError });
     return true;
