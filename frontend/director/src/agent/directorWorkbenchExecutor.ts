@@ -1,6 +1,11 @@
 import {
+  DIRECTOR_CAMERA_MOVE_IDS,
   DIRECTOR_CHARACTER_MOTION_LOOPS,
   DIRECTOR_PLACEMENT_MODES,
+  DIRECTOR_SHOT_LEVEL_IDS,
+  DIRECTOR_SHOT_SIDE_IDS,
+  DIRECTOR_SHOT_SIZE_IDS,
+  DIRECTOR_SHOT_VIEW_IDS,
   type DirectorProject,
 } from "@director/project-schema";
 import { getDirectorProjectRevision } from "@director/project-schema";
@@ -38,6 +43,7 @@ import {
   saveDirectorMacro,
 } from "@director/agent-engine/automation";
 import { auditDirectorProject, type DirectorAuditIssue } from "@director/agent-engine/audit";
+import { describeDirectorCameraMoveFromProject } from "@director/agent-engine/framing";
 import { describeDirectorWorkbenchTarget } from "@director/agent-engine/describe";
 import { buildDirectorRevisionDiff } from "@director/agent-engine/revision-diff";
 import { directorProjectObservationCounts, observeDirectorProject } from "@director/agent-engine/observe";
@@ -173,6 +179,14 @@ function createDirectorWorkbenchCapabilities() {
       catalogs: [...directorWorkbenchCatalogIdSchema.options],
       project_asset_sources: [...directorWorkbenchProjectAssetSourceSchema.options],
       asset_count: DIRECTOR_AGENT_ASSET_CATALOG.length,
+    },
+    framing_contract: {
+      ...capabilities.framing_contract,
+      sizes: [...DIRECTOR_SHOT_SIZE_IDS],
+      views: [...DIRECTOR_SHOT_VIEW_IDS],
+      sides: [...DIRECTOR_SHOT_SIDE_IDS],
+      levels: [...DIRECTOR_SHOT_LEVEL_IDS],
+      moves: [...DIRECTOR_CAMERA_MOVE_IDS],
     },
     world_contract: {
       ...capabilities.world_contract,
@@ -1482,6 +1496,17 @@ function executeDirectorWorkbenchOperationCore(
             takeId: operation.take_id,
             coverageShotId: operation.coverage_shot_id,
             frame: operation.frame,
+          }),
+        };
+      // -- Name the camera move the marked animation track proves --
+      case "describe_camera_move":
+        return {
+          success: true,
+          result: describeDirectorCameraMoveFromProject(store.project, {
+            camera_id: operation.camera_id,
+            subject_object_id: operation.subject_object_id,
+            from_frame: operation.from_frame,
+            to_frame: operation.to_frame,
           }),
         };
       // -- Preflight check: audit + quality gates before render capture --

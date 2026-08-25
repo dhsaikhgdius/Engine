@@ -673,6 +673,19 @@ export const directorWorkbenchOperationSchema = z.discriminatedUnion("op", [
     coverage_shot_id: nonEmptyText(200).optional(),
     frame: z.number().int().nonnegative().optional(),
   }),
+  /**
+   * Names the camera move a marked animation track geometrically proves
+   * between two frames — pure project math, so it also serves disconnected.
+   */
+  strictOperation("describe_camera_move", {
+    camera_id: nonEmptyText(200),
+    subject_object_id: nonEmptyText(200),
+    from_frame: z.number().int().min(0).max(1_000_000).optional(),
+    to_frame: z.number().int().min(0).max(1_000_000).optional(),
+  }).refine(
+    (value) => value.from_frame === undefined || value.to_frame === undefined || value.from_frame < value.to_frame,
+    { message: "from_frame must be before to_frame", path: ["from_frame"] },
+  ),
   strictOperation("generation", { command: directorGenerationCommandSchema }),
   strictOperation("transcription", { command: directorTranscriptionCommandSchema }),
   strictOperation("generated_3d", { command: directorGenerated3DCommandSchema }),

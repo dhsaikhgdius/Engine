@@ -70,6 +70,40 @@ describe("Agent stage command engine", () => {
     expect(result.result).toMatchObject({ aspect: "2.39:1" });
   });
 
+  it("reports occlusion and visible-fraction facts for the requested subject", () => {
+    const scene = createDefaultScene();
+    const clear = executeStageTool(scene, "stage_read", {
+      op: "critique",
+      camera_id: "camera-1",
+      subject_id: "human-1",
+    });
+    expect(clear.result).toMatchObject({
+      objects: [expect.objectContaining({ id: "human-1", occluded_by: [], visible_fraction: expect.any(Number) })],
+    });
+    expect((clear.result as { issues: Array<{ code: string }> }).issues).not.toContainEqual(
+      expect.objectContaining({ code: "subject_occluded" }),
+    );
+
+    scene.objects["blocker-1"] = {
+      kind: "cube",
+      name: "遮挡墙",
+      position: [-0.63, 0, -0.215],
+      rotation: [0, 0, 0],
+      scale: [2, 2, 0.4],
+    };
+    const blocked = executeStageTool(scene, "stage_read", {
+      op: "critique",
+      camera_id: "camera-1",
+      subject_id: "human-1",
+    });
+    expect(blocked.result).toMatchObject({
+      objects: [expect.objectContaining({ id: "human-1", occluded_by: ["blocker-1"] })],
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: "subject_occluded", message: expect.stringContaining("遮挡墙") }),
+      ]),
+    });
+  });
+
   it("checks the complete subject bounds instead of accepting an in-frame centre point", () => {
     const scene = createDefaultScene();
     scene.objects["human-1"].scale = [5, 5, 5];

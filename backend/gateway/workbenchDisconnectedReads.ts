@@ -7,6 +7,7 @@ import {
   type DirectorWorkbenchObserveField,
   type DirectorWorkbenchOperation,
 } from "@director/agent-engine/contract";
+import { describeDirectorCameraMoveFromProject } from "@director/agent-engine/framing";
 import { directorProjectObservationCounts, observeDirectorProject } from "@director/agent-engine/observe";
 import {
   describeDirectorCameraKernelOwnership,
@@ -139,7 +140,8 @@ export function canServeDisconnectedWorkbenchRead(operation: DirectorWorkbenchOp
     operation.op === "capabilities" ||
     operation.op === "audit" ||
     operation.op === "query_objects" ||
-    operation.op === "inspect"
+    operation.op === "inspect" ||
+    operation.op === "describe_camera_move"
   );
 }
 
@@ -253,6 +255,30 @@ export function executeDisconnectedWorkbenchRead(
       };
     }
     return { handled: false };
+  }
+
+  if (operation.op === "describe_camera_move" && sources.project) {
+    try {
+      return {
+        handled: true,
+        success: true,
+        result: {
+          ...describeDirectorCameraMoveFromProject(sources.project, {
+            camera_id: operation.camera_id,
+            subject_object_id: operation.subject_object_id,
+            from_frame: operation.from_frame,
+            to_frame: operation.to_frame,
+          }),
+          ...disconnectedMeta(sources, "persisted_project"),
+        },
+      };
+    } catch (error) {
+      return {
+        handled: true,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   if (operation.op === "query_objects" && sources.project) {

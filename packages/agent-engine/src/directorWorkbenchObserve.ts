@@ -1,5 +1,6 @@
 import type { DirectorProject } from "@director/project-schema";
 import { getCameraViewSnapshotFromShot, normalizeDirectorCameraOptics } from "@director/project-schema";
+import { directorCameraShotLanguageReport } from "./directorFraming";
 import { getDirectorProjectGraphIssues } from "./directorProjectGraph";
 import { buildDirectorObjectHierarchy } from "./directorObjectHierarchy";
 import type { DirectorWorkbenchObserveField } from "./directorWorkbenchContract";
@@ -99,6 +100,7 @@ function observeDirectorObjects(project: DirectorProject) {
 function observeDirectorCameras(project: DirectorProject) {
   return project.cameras.map((camera) => {
     const optics = normalizeDirectorCameraOptics(camera);
+    const framing = directorCameraShotLanguageReport(project, camera);
     return {
       id: camera.id,
       name: camera.name,
@@ -118,6 +120,9 @@ function observeDirectorCameras(project: DirectorProject) {
       action: camera.action?.mode ?? "still",
       target_object_id: camera.targetObjectId ?? null,
       animation_keyframe_count: camera.animation?.keyframes.length ?? 0,
+      // The shared film-language reading of this camera against its subject,
+      // so agents and the Stage viewfinder can never disagree on the framing.
+      framing,
     };
   });
 }

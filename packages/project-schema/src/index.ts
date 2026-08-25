@@ -28,3 +28,5 @@ export * from "./primitiveGeometry";
 export * from "./characterBodyAnchors";
 export * from "./directorLighting";
 export * from "./animationRecipes";
+export * from "./filmLanguage";
+export * from "./cameraMoveLanguage";

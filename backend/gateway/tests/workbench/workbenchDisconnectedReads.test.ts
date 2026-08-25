@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { applyDirectorAuthoringActions } from "@director/agent-engine/authoring";
 import { createDefaultDirectorProject } from "@director/agent-engine/default-project";
 import { parseDirectorWorkbenchInput } from "@director/agent-engine/contract";
 import {
@@ -90,6 +91,57 @@ describe("executeDisconnectedWorkbenchRead", () => {
     expect(result.result.issues).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: "workbench_disconnected_kernel_ahead" })]),
     );
+  });
+
+  it("names a marked camera move from the persisted project without a Stage tab", () => {
+    const staged = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      { action: "start_scene" },
+      { action: "add_object", id: "hero", name: "主角", kind: "character", placement_mode: "grounded" },
+      {
+        action: "add_camera",
+        id: "cam-move",
+        object_id: "cam-move-rig",
+        name: "运动机位",
+        position: [0, 1.6, 8],
+        target: [0, 1.2, 0],
+      },
+      {
+        action: "frame_shot",
+        camera_id: "cam-move",
+        subject_object_id: "hero",
+        size: "full",
+        view: "front-quarter",
+        side: "right",
+        focal_length_mm: 35,
+      },
+      { action: "mark_camera_move", camera_id: "cam-move", frame: 0 },
+      {
+        action: "frame_shot",
+        camera_id: "cam-move",
+        subject_object_id: "hero",
+        size: "close-up",
+        view: "front-quarter",
+        side: "right",
+        focal_length_mm: 35,
+      },
+      { action: "mark_camera_move", camera_id: "cam-move", frame: 48 },
+    ] as Parameters<typeof applyDirectorAuthoringActions>[1]).project;
+
+    const result = executeDisconnectedWorkbenchRead(
+      parsed({ op: "describe_camera_move", camera_id: "cam-move", subject_object_id: "hero" }),
+      { project: staged, blenderScene: null },
+    );
+    expect(result).toMatchObject({
+      handled: true,
+      success: true,
+      result: { move: "push-in", workbench_connected: false, source: "persisted_project" },
+    });
+
+    const missingMarks = executeDisconnectedWorkbenchRead(
+      parsed({ op: "describe_camera_move", camera_id: "cam-move", subject_object_id: "ghost" }),
+      { project: staged, blenderScene: null },
+    );
+    expect(missingMarks).toMatchObject({ handled: true, success: false });
   });
 
   it("does not serve mutations or capture without a Stage tab", () => {

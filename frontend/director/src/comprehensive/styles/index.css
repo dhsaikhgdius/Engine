@@ -1470,6 +1470,12 @@ textarea:focus-visible {
   line-height: 14px;
 }
 
+.camera-picture-in-picture__meta .camera-picture-in-picture__slate {
+  color: rgb(255 224 130 / 0.92);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
 .camera-viewport-properties {
   position: absolute;
   top: 18px;

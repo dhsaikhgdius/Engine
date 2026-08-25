@@ -873,6 +873,60 @@ describe("director workbench contract", () => {
     expect(parseDirectorWorkbenchInput({ op: "shot_ir", format: "prompt" })).toMatchObject({ success: false });
   });
 
+  it("validates film-language framing actions and the camera move read", () => {
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "author",
+        actions: [
+          {
+            action: "frame_shot",
+            camera_id: "cam-main",
+            subject_object_id: "hero",
+            size: "medium-close-up",
+            view: "profile",
+            side: "left",
+            level: "knee",
+            activate: true,
+          },
+          { action: "mark_camera_move", camera_id: "cam-main", frame: 0 },
+        ],
+      }),
+    ).toMatchObject({ success: true });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "author",
+        actions: [{ action: "frame_shot", camera_id: "cam-main", subject_object_id: "hero", size: "huge" }],
+      }),
+    ).toMatchObject({ success: false });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "author",
+        actions: [{ action: "mark_camera_move", camera_id: "cam-main", frame: -1 }],
+      }),
+    ).toMatchObject({ success: false });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "describe_camera_move",
+        camera_id: "cam-main",
+        subject_object_id: "hero",
+        from_frame: 0,
+        to_frame: 48,
+      }),
+    ).toMatchObject({ success: true });
+    expect(parseDirectorWorkbenchInput({ op: "describe_camera_move", camera_id: "cam-main" })).toMatchObject({
+      success: false,
+    });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "describe_camera_move",
+        camera_id: "cam-main",
+        subject_object_id: "hero",
+        from_frame: 48,
+        to_frame: 0,
+      }),
+    ).toMatchObject({ success: false, error: expect.stringContaining("from_frame must be before to_frame") });
+  });
+
   it("validates exact-frame clean and auxiliary capture requests", () => {
     expect(
       parseDirectorWorkbenchInput({

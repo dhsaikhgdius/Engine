@@ -17,6 +17,7 @@
     "frame-native skeletal motion clips",
     "crowds",
     "cameras",
+    "film-language framing: intent-driven camera placement, camera-move marks, and geometric move naming",
     "timeline animations",
     "editable orbit, wave, and bounce animation recipes",
     "storyboard",
@@ -109,6 +110,8 @@
     "set_vehicle_profile",
     "clear_vehicle_profile",
     "compose_blocking",
+    "frame_shot",
+    "mark_camera_move",
     "place_relative",
     "arrange_group",
     "arrange_facing_pair",
@@ -304,6 +307,18 @@
       ],
       "contract": "Every operation is bounded and deterministic; seeded operations persist the exact recipe and output IDs. fragment-scaffold and primitive terrain/L-system results are explicit blocking approximations, not production boolean meshes."
     }
+  },
+  "framing_contract": {
+    "author_actions": ["frame_shot", "mark_camera_move"],
+    "read_operation": "describe_camera_move",
+    "sizes": [],
+    "views": [],
+    "sides": [],
+    "levels": [],
+    "moves": [],
+    "framing": "frame_shot aims an existing camera at a subject object from crew vocabulary (size/view/side/level/lens) and reports the derived slate in the result notes. A physically impossible request lengthens the lens along the prime ladder or flattens the level and says so instead of failing silently.",
+    "moves_contract": "mark_camera_move pins the camera's current framing (rig transform, aim, fov) as one keyframe on the camera's own animation track; a move is authored by framing twice and marking twice. describe_camera_move names the move the marked track geometrically proves between two frames and returns a prompt-ready phrase plus per-segment slates.",
+    "shared_language": "The same film-language module derives shot vocabulary for the Stage HUD, observe, audit, and generation prompts, so UI and agents cannot disagree about what a framing is."
   },
   "world_contract": {
     "author_actions": [

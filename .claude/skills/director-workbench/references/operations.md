@@ -333,6 +333,52 @@ For a multi-character scene, prefer one semantic blocking action:
 }
 ```
 
+## Film-language framing and camera moves
+
+`frame_shot` aims an existing camera from crew vocabulary; the result notes carry
+the derived slate, and any physically forced lens or level adjustment is reported:
+
+```json
+{
+  "op": "author",
+  "actions": [
+    {
+      "action": "frame_shot",
+      "camera_id": "camera-main",
+      "subject_object_id": "hero",
+      "size": "medium-close-up",
+      "view": "profile",
+      "side": "left",
+      "level": "eye",
+      "activate": true
+    }
+  ]
+}
+```
+
+Author a move by framing twice and marking twice, then name what the marked
+track geometrically proves:
+
+```json
+{
+  "op": "author",
+  "actions": [
+    { "action": "frame_shot", "camera_id": "camera-main", "subject_object_id": "hero", "size": "full", "view": "front-quarter", "side": "right", "focal_length_mm": 35 },
+    { "action": "mark_camera_move", "camera_id": "camera-main", "frame": 0 },
+    { "action": "frame_shot", "camera_id": "camera-main", "subject_object_id": "hero", "size": "close-up", "view": "front-quarter", "side": "right", "focal_length_mm": 35 },
+    { "action": "mark_camera_move", "camera_id": "camera-main", "frame": 48 }
+  ]
+}
+```
+
+```json
+{ "op": "describe_camera_move", "camera_id": "camera-main", "subject_object_id": "hero", "from_frame": 0, "to_frame": 48 }
+```
+
+The read is disconnected-safe and returns the named move (`push-in` here), a
+prompt-ready phrase, and per-segment slates. Every `observe` camera already
+carries the same `framing` report the viewfinder slate shows.
+
 ## Author the living world
 
 World actions ride in a normal `author` batch. The first one creates `project.world` (enabled, seeded defaults) on demand and reports that in the result `notes`:
