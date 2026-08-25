@@ -11,12 +11,18 @@ import type {
   WorldWildlifeSpecies,
 } from "../schema/directorProject";
 import {
+  DIRECTOR_WORLD_WEATHER_DEFAULT_PERIOD_SECONDS,
   WORLD_EFFECT_KINDS,
   WORLD_WEATHER_PRESETS,
   WORLD_WILDLIFE_SPECIES,
   createDefaultDirectorWorldSettings,
+  type WorldWeatherEvolutionMode,
   type WorldWeatherPreset,
 } from "../../../../../../packages/protocol/src/worldSystemsProtocol";
+import { useTimelineRuntimeStore } from "../runtime/timelineRuntimeStore";
+import { evaluateWorldClimate, isWorldWeatherEvolving } from "../world/worldClimate";
+import { getWorldSecondsForFrame } from "../world/worldTime";
+import { getWorldAmbientOffsetSeconds } from "../world/worldClock";
 
 const WORLD_EFFECT_KIND_LABELS: Record<WorldEffectKind, string> = {
   fire: "火焰",
@@ -227,8 +233,18 @@ export function SceneWorldSection() {
   const [newSpecies, setNewSpecies] = useState<WorldWildlifeSpecies>("birds");
   const [activeTab, setActiveTab] = useState<WorldPanelTab>("climate");
 
+  const fps = useDirectorStore((state) => state.project.scene.timeline?.fps ?? 24);
+  // Quantized playhead (~4 Hz at 24 fps): the live climate readout stays
+  // current during playback without re-rendering the panel every frame.
+  const readoutFrame = useTimelineRuntimeStore((state) => Math.floor(state.playheadFrame / 6) * 6);
+
   const settings = world?.settings ?? createDefaultDirectorWorldSettings();
   const enabled = world?.settings.enabled === true;
+  const weatherEvolving = isWorldWeatherEvolving(settings);
+  const climateReadout =
+    enabled && weatherEvolving
+      ? evaluateWorldClimate(settings, getWorldSecondsForFrame(readoutFrame, fps) + getWorldAmbientOffsetSeconds())
+      : null;
   const effects = world?.effects ?? [];
   const waterBodies = world?.waterBodies ?? [];
   const wildlife = world?.wildlife ?? [];
@@ -393,6 +409,58 @@ export function SceneWorldSection() {
                   value={settings.weather.wetness}
                   onValueChange={(value) => updateWorldSettings({ weather: { wetness: Number(value) } })}
                 />
+                <InspectorSelectField
+                  label="天气演化"
+                  ariaLabel="天气演化模式"
+                  value={settings.weather.evolution?.mode ?? "static"}
+                  options={[
+                    { value: "static", label: "静态（固定预设）" },
+                    { value: "cycle", label: "种子循环" },
+                  ]}
+                  onChange={(value) =>
+                    updateWorldSettings({
+                      weather: {
+                        evolution: {
+                          mode: value as WorldWeatherEvolutionMode,
+                          periodSeconds:
+                            settings.weather.evolution?.periodSeconds ??
+                            DIRECTOR_WORLD_WEATHER_DEFAULT_PERIOD_SECONDS,
+                        },
+                      },
+                    })
+                  }
+                />
+                {weatherEvolving ? (
+                  <InspectorRangeNumberField
+                    label="演化周期（秒）"
+                    rangeAriaLabel="演化周期滑杆"
+                    numberAriaLabel="演化周期"
+                    max="3600"
+                    min="60"
+                    step="30"
+                    value={settings.weather.evolution?.periodSeconds ?? DIRECTOR_WORLD_WEATHER_DEFAULT_PERIOD_SECONDS}
+                    onValueChange={(value) =>
+                      updateWorldSettings({
+                        weather: { evolution: { mode: "cycle", periodSeconds: Number(value) } },
+                      })
+                    }
+                  />
+                ) : null}
+                {climateReadout ? (
+                  <div aria-label="气候实时读数" className="scene-world-climate-readout" role="status">
+                    <span>
+                      当前天气：{WORLD_WEATHER_PRESET_LABELS[climateReadout.preset]}
+                      {climateReadout.blend < 1 ? (
+                        <>
+                          （{WORLD_WEATHER_PRESET_LABELS[climateReadout.fromPreset]}→
+                          {WORLD_WEATHER_PRESET_LABELS[climateReadout.toPreset]}）
+                        </>
+                      ) : null}
+                    </span>
+                    <span>实时湿度：{Math.round(climateReadout.wetness * 100)}%</span>
+                    <span>实时云量：{Math.round(climateReadout.cloudCover * 100)}%</span>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -427,6 +495,64 @@ export function SceneWorldSection() {
                       value={effect.intensity}
                       onValueChange={(value) => upsertWorldEffect({ ...effect, intensity: Number(value) })}
                     />
+                    {effect.kind === "fire" && effect.anchor.objectId === null ? (
+                      <>
+                        <div
+                          className="inspector-toggle-stack"
+                          role="group"
+                          aria-label={`${effect.name}蔓延开关`}
+                        >
+                          <WorldToggleRow
+                            label="火势蔓延"
+                            checked={effect.propagation?.enabled === true}
+                            onChange={(checked) =>
+                              upsertWorldEffect({
+                                ...effect,
+                                propagation: {
+                                  enabled: checked,
+                                  radiusM: effect.propagation?.radiusM ?? 12,
+                                  spreadRate: effect.propagation?.spreadRate ?? 1,
+                                },
+                              })
+                            }
+                          />
+                        </div>
+                        {effect.propagation?.enabled ? (
+                          <>
+                            <InspectorRangeNumberField
+                              label="蔓延半径"
+                              rangeAriaLabel={`${effect.name}蔓延半径滑杆`}
+                              numberAriaLabel={`${effect.name}蔓延半径`}
+                              max="64"
+                              min="2"
+                              step="1"
+                              value={effect.propagation.radiusM}
+                              onValueChange={(value) =>
+                                upsertWorldEffect({
+                                  ...effect,
+                                  propagation: { ...effect.propagation!, radiusM: Number(value) },
+                                })
+                              }
+                            />
+                            <InspectorRangeNumberField
+                              label="蔓延速率"
+                              rangeAriaLabel={`${effect.name}蔓延速率滑杆`}
+                              numberAriaLabel={`${effect.name}蔓延速率`}
+                              max="3"
+                              min="0.1"
+                              step="0.05"
+                              value={effect.propagation.spreadRate}
+                              onValueChange={(value) =>
+                                upsertWorldEffect({
+                                  ...effect,
+                                  propagation: { ...effect.propagation!, spreadRate: Number(value) },
+                                })
+                              }
+                            />
+                          </>
+                        ) : null}
+                      </>
+                    ) : null}
                     <div className="inspector-toggle-stack" role="group" aria-label={`${effect.name}可见性`}>
                       <WorldToggleRow
                         label="可见"

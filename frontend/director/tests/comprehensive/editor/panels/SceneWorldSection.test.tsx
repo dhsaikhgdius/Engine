@@ -70,6 +70,60 @@ it("updates weather settings through partial patches", async () => {
   expect(screen.getByText("湿润")).toBeInTheDocument();
 });
 
+it("toggles seeded weather evolution and shows the live climate readout", async () => {
+  const user = userEvent.setup();
+  render(<SceneWorldSection />);
+
+  await expandSection(user);
+  await user.click(screen.getByLabelText("启用世界系统"));
+
+  // Default is static: no period slider, no readout.
+  expect(screen.queryByLabelText("演化周期")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("气候实时读数")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "天气演化模式" }));
+  await user.click(screen.getByRole("option", { name: "种子循环" }));
+
+  const world = useDirectorStore.getState().project.world;
+  expect(world?.settings.weather.evolution).toEqual({ mode: "cycle", periodSeconds: 300 });
+  expect(screen.getByLabelText("演化周期")).toBeInTheDocument();
+  expect(screen.getByLabelText("气候实时读数")).toBeInTheDocument();
+  expect(screen.getByText(/实时湿度/)).toBeInTheDocument();
+
+  // Switching back to static keeps the period for the next toggle.
+  await user.click(screen.getByRole("button", { name: "天气演化模式" }));
+  await user.click(screen.getByRole("option", { name: "静态（固定预设）" }));
+  expect(useDirectorStore.getState().project.world?.settings.weather.evolution).toEqual({
+    mode: "static",
+    periodSeconds: 300,
+  });
+  expect(screen.queryByLabelText("气候实时读数")).not.toBeInTheDocument();
+});
+
+it("authors fire propagation from the effects tab", async () => {
+  const user = userEvent.setup();
+  render(<SceneWorldSection />);
+
+  await expandSection(user);
+  await user.click(screen.getByLabelText("启用世界系统"));
+  await user.click(screen.getByRole("tab", { name: "效果" }));
+  await user.click(screen.getByRole("button", { name: "添加效果" }));
+
+  const effect = useDirectorStore.getState().project.world!.effects[0]!;
+  expect(effect.kind).toBe("fire");
+  expect(effect.propagation).toBeUndefined();
+
+  await user.click(screen.getByLabelText("火势蔓延"));
+  const enabled = useDirectorStore.getState().project.world!.effects[0]!;
+  expect(enabled.propagation).toEqual({ enabled: true, radiusM: 12, spreadRate: 1 });
+  expect(screen.getByLabelText(`${effect.name}蔓延半径`)).toBeInTheDocument();
+  expect(screen.getByLabelText(`${effect.name}蔓延速率`)).toBeInTheDocument();
+
+  await user.click(screen.getByLabelText("火势蔓延"));
+  const disabled = useDirectorStore.getState().project.world!.effects[0]!;
+  expect(disabled.propagation).toEqual({ enabled: false, radiusM: 12, spreadRate: 1 });
+});
+
 it("adds a river water body with a spline and channel width control", async () => {
   const user = userEvent.setup();
   render(<SceneWorldSection />);
