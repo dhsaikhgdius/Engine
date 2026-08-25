@@ -323,10 +323,15 @@ export function getClimatePrecipitationPlan(climate: {
   rainLevel: number;
   snowLevel: number;
   stormFactor: number;
+  intensity: number;
 }): WeatherPrecipitationPlan | null {
   const rain = Number.isFinite(climate.rainLevel) ? Math.max(0, climate.rainLevel) : 0;
   const snow = Number.isFinite(climate.snowLevel) ? Math.max(0, climate.snowLevel) : 0;
   const storm = Math.min(1, Math.max(0, climate.stormFactor));
+  // Shear/speed/size ramp with BOTH the storm presence and the evaluated
+  // intensity, mirroring the legacy plan's intensity-continuous storm
+  // multipliers (a fading storm relaxes toward calm rain).
+  const stormEffect = storm * Math.min(1, Math.max(0, climate.intensity));
   if (rain <= 0 && snow <= 0) return null;
   let plan: WeatherPrecipitationPlan;
   if (rain >= snow) {
@@ -334,9 +339,9 @@ export function getClimatePrecipitationPlan(climate: {
     plan = {
       kind: "rain",
       count: Math.round(EFFECT_PRESETS.rain.baseCount * densityMultiplier * rain),
-      windMultiplier: storm >= 1 ? STORM_WIND_MULTIPLIER : 1 + (STORM_WIND_MULTIPLIER - 1) * storm,
-      speedMultiplier: storm >= 1 ? STORM_SPEED_MULTIPLIER : 1 + (STORM_SPEED_MULTIPLIER - 1) * storm,
-      sizeMultiplier: storm >= 1 ? STORM_SIZE_MULTIPLIER : 1 + (STORM_SIZE_MULTIPLIER - 1) * storm,
+      windMultiplier: scaleWithIntensity(STORM_WIND_MULTIPLIER, stormEffect),
+      speedMultiplier: scaleWithIntensity(STORM_SPEED_MULTIPLIER, stormEffect),
+      sizeMultiplier: scaleWithIntensity(STORM_SIZE_MULTIPLIER, stormEffect),
       splashFraction: RAIN_SPLASH_FRACTION + (STORM_SPLASH_FRACTION - RAIN_SPLASH_FRACTION) * storm,
     };
   } else {

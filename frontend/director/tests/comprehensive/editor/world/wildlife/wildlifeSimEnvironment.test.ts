@@ -173,9 +173,18 @@ describe("environment determinism", () => {
 });
 
 describe("wind and storm coupling", () => {
-  function meanDrift(sim: WildlifeSim, seconds: number): number {
-    sim.stepTo(seconds);
-    return meanOf(sim.readState(), sim.readState().posX);
+  // Time-averaged mean X: a contained flock under a constant downwind bias
+  // orbits against the soft containment edge, so a single instant is noisy —
+  // the average over the window is the stable downwind signal.
+  function meanDrift(sim: WildlifeSim): number {
+    let sum = 0;
+    let samples = 0;
+    for (let t = 5; t <= 30; t += 0.5) {
+      sim.stepTo(t);
+      sum += meanOf(sim.readState(), sim.readState().posX);
+      samples += 1;
+    }
+    return sum / samples;
   }
 
   it("wind drifts birds downwind", () => {
@@ -185,7 +194,7 @@ describe("wind and storm coupling", () => {
       settings: makeSettings({ wind: { directionDegrees: 90, speedMps: 12, gustiness: 0, turbulence: 0 } }),
     });
     // Wind blows toward +X; the windy flock's mean X sits farther downwind.
-    expect(meanDrift(windy, 20)).toBeGreaterThan(meanDrift(calm, 20) + 1);
+    expect(meanDrift(windy)).toBeGreaterThan(meanDrift(calm) + 5);
   });
 
   it("storms press flocks toward the bottom of their altitude band", () => {

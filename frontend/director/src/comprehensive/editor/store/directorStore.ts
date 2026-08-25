@@ -1424,6 +1424,17 @@ function worldEffectAuthoringFields(effect: DirectorWorldEffect) {
   };
 }
 
+/** Snake_case fire propagation block for the authoring actions, or null. */
+function worldEffectPropagationAuthoringField(effect: DirectorWorldEffect) {
+  return effect.propagation
+    ? {
+        enabled: effect.propagation.enabled,
+        radius_m: effect.propagation.radiusM,
+        spread_rate: effect.propagation.spreadRate,
+      }
+    : null;
+}
+
 /** Snake_case authoring fields shared by add_world_water_body / update_world_water_body. */
 function worldWaterBodyAuthoringFields(body: DirectorWorldWaterBody) {
   return {
@@ -3275,6 +3286,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
                 patch: {
                   ...worldEffectAuthoringFields(effect),
                   color_tint: effect.colorTint ?? null,
+                  propagation: worldEffectPropagationAuthoringField(effect),
                   visible: effect.visible,
                   locked: effect.locked,
                 },
@@ -3291,6 +3303,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
                 id: effect.id,
                 ...worldEffectAuthoringFields(effect),
                 ...(effect.colorTint ? { color_tint: effect.colorTint } : {}),
+                ...(effect.propagation ? { propagation: worldEffectPropagationAuthoringField(effect)! } : {}),
               },
             ],
             `ui-world-effect:${effect.id}`,

@@ -1102,9 +1102,13 @@ export function createWildlifeSim(
 
     // Downwind steering bias: the shared gust model evaluated at the tick's
     // own time, so replay from a checkpoint sees the identical wind history.
+    // Only the legacy wind+weather environment path uses it — a settings-
+    // backed environment owns the wind response through the per-tick climate
+    // couplings (drift/heading) above, and applying both would double-count
+    // the same authored wind.
     let windAx = 0;
     let windAz = 0;
-    if (windBiasAccel > 0) {
+    if (windBiasAccel > 0 && !needsWind) {
       writeWorldWindVector(windScratch, authoredEnvironment.wind, stateSeconds);
       windAx = windScratch[0] * windBiasAccel;
       windAz = windScratch[2] * windBiasAccel;
