@@ -112,7 +112,7 @@ with `DIRECTOR_GATEWAY_URL` and `DIRECTOR_GATEWAY_TOKEN`.
 ## Capability honesty
 
 Implemented and versioned (backed by host-free goldens plus a skip-if-missing
-real headless roundtrip in `backend/gateway/tests/dcc/godot*.test.ts`): headless
+real headless roundtrip in `backend/gateway/tests/dcc/godotHeadlessRoundtrip.test.ts`): headless
 import/export, stable `director_id` round trip, scene hierarchy including
 negative scale and mirrored transforms, cameras with animated vertical fov,
 Gateway-baked transform animation on a rational timebase, storyboard shot

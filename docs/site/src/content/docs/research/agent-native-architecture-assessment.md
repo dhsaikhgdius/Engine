@@ -162,8 +162,8 @@ A2A-aware clients at MCP and the tool manifest — no remote A2A endpoint
 - Revision / idempotency / exact target fail-closed (428 / 409)
 - Agent event store, structured MCP receipts, credential redaction
 - Shared film-role tool policy (e.g. visual-critic read-only) — `backend/gateway/agents/filmRoleToolPolicy.ts`, used by MCP (`DIRECTOR_FILM_ROLE`), the local Agent harness, and the hosted API adapter
-- Raw HTTP `POST /api/tools/{tool-name}` (and therefore the CLI and DSH plugin) applies the same policy through `backend/gateway/agents/httpToolPolicy.ts`, rejecting before browser-target execution with the same structured 403 body as MCP
-- Unified gateway audit trail: every `/api/tools/*` invocation is appended to `backend/gateway/agents/toolInvocationAuditStore.ts` tagged `source: ui | mcp | http | cli | dsh | unknown` (derived from the payload `session_id` prefix; the Stage CLI's `STAGE_AGENT_SESSION` defaults to `cli-default`), queryable via authorized `GET /api/agent/audit`
+- Raw HTTP `POST /api/tools/{tool-name}` (and therefore the CLI and DSH plugin) applies the same policy through `backend/gateway/agents/httpToolGovernance.ts`, rejecting before browser-target execution with the same structured 403 body as MCP
+- Unified gateway audit trail: every `/api/tools/*` invocation is appended to `backend/gateway/agentToolAuditStore.ts` tagged `source: ui | mcp | http | cli | dsh | unknown` (derived from the payload `session_id` prefix; the Stage CLI's `STAGE_AGENT_SESSION` defaults to `cli-default`), queryable via authorized `GET /api/agent/audit`
 
 **Gaps:**
 
