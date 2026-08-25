@@ -55,9 +55,7 @@ export type DirectorCameraShotPatch = Partial<DirectorCameraShot> & {
 
 /** Tri-state result for upsert compilers: dispatch, skip (no change), or keep the legacy writer. */
 export type DirectorUiUpsertCompilation =
-  | { kind: "dispatch"; action: DirectorAuthoringAction }
-  | { kind: "noop" }
-  | { kind: "legacy" };
+  { kind: "dispatch"; action: DirectorAuthoringAction } | { kind: "noop" } | { kind: "legacy" };
 
 const LEGACY: DirectorUiUpsertCompilation = { kind: "legacy" };
 const NOOP: DirectorUiUpsertCompilation = { kind: "noop" };
@@ -318,9 +316,7 @@ export function compileDirectorLightUpdateAction(
   light: DirectorLight,
   patch: Partial<Omit<DirectorLight, "id">>,
 ): DirectorAuthoringAction | null {
-  const definedKeys = Object.keys(patch).filter(
-    (key) => patch[key as keyof Omit<DirectorLight, "id">] !== undefined,
-  );
+  const definedKeys = Object.keys(patch).filter((key) => patch[key as keyof Omit<DirectorLight, "id">] !== undefined);
   if (!definedKeys.length) return null;
   if (definedKeys.some((key) => !LIGHT_UPDATE_SUPPORTED_KEYS.has(key))) return null;
   if (patch.type !== undefined && patch.type !== light.type) return null;
