@@ -1,0 +1,19 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Director Bridge",
+  "Description": "Imports Director exchange packages into a level with stable director_id tags and exports director-dcc-return-v1 packages back to Director. Source-only connector; uses the licensed Unreal Engine installation on this machine.",
+  "Category": "Director",
+  "CreatedBy": "Director (WorldEngine)",
+  "CreatedByURL": "",
+  "CanContainContent": true,
+  "IsBetaVersion": true,
+  "Installed": true,
+  "EnabledByDefault": true,
+  "Plugins": [
+    { "Name": "PythonScriptPlugin", "Enabled": true },
+    { "Name": "EditorScriptingUtilities", "Enabled": true },
+    { "Name": "LevelSequenceEditor", "Enabled": true }
+  ]
+}
