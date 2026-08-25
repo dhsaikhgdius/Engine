@@ -135,6 +135,8 @@ import {
 } from "../schema/viewportNavigation";
 
 import { createDefaultDirectorProject as createCanonicalDefaultDirectorProject } from "@director/agent-engine/default-project";
+import { isDirectorCharacterMotionId } from "@director/agent-engine/character-motions";
+import type { DirectorAuthoringAction } from "@director/agent-engine/authoring";
 import {
   compileDirectorDeleteObjectActions,
   dispatchDirectorAuthoringActions,
@@ -1385,6 +1387,194 @@ function upsertWorldCollectionEntry<T extends { id: string }>(
   return { entries: [...entries, entry], applied: true };
 }
 
+/**
+ * Decide how a world-panel full-entity upsert maps onto the authoring engine.
+ * "update"/"add" route through update_world_* / add_world_*; "capacity" mirrors
+ * the historical applied=false result; null keeps the local mutator because the
+ * authoring twin cannot express the write (locked entries reject non-unlock
+ * patches, and add_world_* cannot author hidden or locked entries).
+ */
+function resolveWorldUpsertMode(
+  entries: ReadonlyArray<{ id: string; visible: boolean; locked: boolean }>,
+  entry: { id: string; visible: boolean; locked: boolean },
+  maxEntries: number,
+): "update" | "add" | "capacity" | null {
+  const existing = entries.find((candidate) => candidate.id === entry.id);
+  if (existing) return existing.locked ? null : "update";
+  if (entry.visible === false || entry.locked) return null;
+  if (entries.length >= maxEntries) return "capacity";
+  return "add";
+}
+
+/** Snake_case authoring fields shared by add_world_effect / update_world_effect. */
+function worldEffectAuthoringFields(effect: DirectorWorldEffect) {
+  return {
+    name: effect.name,
+    kind: effect.kind,
+    anchor: {
+      object_id: effect.anchor.objectId ?? null,
+      position: [...effect.anchor.position] as [number, number, number],
+    },
+    shape: structuredClone(effect.shape),
+    intensity: effect.intensity,
+    size_scale: effect.sizeScale,
+    speed_scale: effect.speedScale,
+    wind_influence: effect.windInfluence,
+    seed_offset: effect.seedOffset,
+  };
+}
+
+/** Snake_case authoring fields shared by add_world_water_body / update_world_water_body. */
+function worldWaterBodyAuthoringFields(body: DirectorWorldWaterBody) {
+  return {
+    name: body.name,
+    surface: {
+      center: [...body.surface.center] as [number, number, number],
+      size_x: body.surface.sizeX,
+      size_z: body.surface.sizeZ,
+      rotation_degrees: body.surface.rotationDegrees,
+    },
+    wave_amplitude: body.waveAmplitude,
+    wave_length_m: body.waveLengthM,
+    flow_direction_degrees: body.flowDirectionDegrees,
+    flow_speed_mps: body.flowSpeedMps,
+    color_shallow: body.colorShallow,
+    color_deep: body.colorDeep,
+    opacity: body.opacity,
+    foam_intensity: body.foamIntensity,
+  };
+}
+
+function worldRiverAuthoringFields(river: NonNullable<DirectorWorldWaterBody["river"]>) {
+  return {
+    points: river.points.map((point) => [...point] as [number, number, number]),
+    width_m: river.widthM,
+    ...(river.widthProfile ? { width_profile: [...river.widthProfile] } : {}),
+  };
+}
+
+/** Snake_case authoring fields shared by add_world_wildlife_group / update_world_wildlife_group. */
+function worldWildlifeAuthoringFields(group: DirectorWorldWildlifeGroup) {
+  return {
+    name: group.name,
+    species: group.species,
+    count: group.count,
+    area: {
+      center: [...group.area.center] as [number, number, number],
+      radius: group.area.radius,
+    },
+    speed_scale: group.speedScale,
+    size_scale: group.sizeScale,
+    seed_offset: group.seedOffset,
+  };
+}
+
+/**
+ * update_camera recomputes fov from focal length / aspect / sensor after every
+ * patch. Cameras whose (patched) fov matches that derivation can route through
+ * authoring without drifting framing; snapshot cameras carrying an explicit
+ * viewport fov keep the local mutator.
+ */
+function isCameraFovFocalStable(camera: DirectorCameraShot, patch: Partial<DirectorCameraShot> = {}) {
+  const focalLengthMm = patch.focalLengthMm ?? camera.focalLengthMm ?? DEFAULT_DIRECTOR_CAMERA_FOCAL_LENGTH_MM;
+  const aspectRatio = patch.aspectRatio ?? camera.aspectRatio ?? DEFAULT_DIRECTOR_CAMERA_ASPECT_RATIO;
+  const sensorFormat = patch.sensorFormat ?? camera.sensorFormat ?? DEFAULT_DIRECTOR_CAMERA_SENSOR_FORMAT;
+  const derivedFov = getVerticalFovFromFocalLength(focalLengthMm, aspectRatio, sensorFormat);
+  const expectedFov = patch.fov ?? camera.fov;
+  return Math.abs(expectedFov - derivedFov) < 1e-6;
+}
+
+/** UI camera patch keys that update_camera can express. */
+const CAMERA_AUTHORING_PATCH_KEYS = new Set([
+  "name",
+  "focalLengthMm",
+  "sensorFormat",
+  "aspectRatio",
+  "apertureFStop",
+  "focusDistanceM",
+  "shutterAngle",
+  "iso",
+  "nearClipM",
+  "farClipM",
+  "anamorphicSqueeze",
+  "handheldShake",
+  "action",
+  "fov",
+  "targetMode",
+  "targetObjectId",
+]);
+
+type DirectorCameraAuthoringPatch = Extract<DirectorAuthoringAction, { action: "update_camera" }>["patch"];
+
+/**
+ * Map a UI camera patch onto the update_camera authoring patch, or return null
+ * when the patch must stay on the local mutator: view target / rig transform /
+ * capture bookkeeping have different semantics, explicit fovs that diverge from
+ * the focal-length derivation would drift, and invalid clip ranges would throw.
+ */
+function buildCameraAuthoringPatch(
+  camera: DirectorCameraShot,
+  patch: Partial<Omit<DirectorCameraShot, "id">>,
+): DirectorCameraAuthoringPatch | null {
+  const keys = Object.keys(patch);
+  if (!keys.length || keys.some((key) => !CAMERA_AUTHORING_PATCH_KEYS.has(key))) return null;
+  // update_camera recomputes fov after every patch; only route when the result
+  // matches what the UI expects (CameraPanel always sends the derived fov).
+  if (!isCameraFovFocalStable(camera, patch)) return null;
+  const nextNearClipM = patch.nearClipM ?? camera.nearClipM ?? DEFAULT_DIRECTOR_CAMERA_NEAR_CLIP_M;
+  const nextFarClipM = patch.farClipM ?? camera.farClipM ?? DEFAULT_DIRECTOR_CAMERA_FAR_CLIP_M;
+  if (nextFarClipM <= nextNearClipM) return null;
+  const hasTargetPatch = patch.targetMode !== undefined || patch.targetObjectId !== undefined;
+  if (hasTargetPatch) {
+    // target_object_id encodes both fields; mismatched pairs stay local.
+    const nextMode = patch.targetMode ?? (patch.targetObjectId ? "object" : "manual");
+    if ((nextMode === "object") !== Boolean(patch.targetObjectId)) return null;
+  }
+  // The local mutator materializes the default action on every write; a camera
+  // without one keeps that backfill behavior.
+  if (patch.action === undefined && !camera.action) return null;
+  const authored: DirectorCameraAuthoringPatch = {
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(hasTargetPatch ? { target_object_id: patch.targetObjectId ?? null } : {}),
+    ...(patch.focalLengthMm !== undefined ? { focal_length_mm: patch.focalLengthMm } : {}),
+    ...(patch.sensorFormat !== undefined ? { sensor_format: patch.sensorFormat } : {}),
+    ...(patch.aspectRatio !== undefined ? { aspect_ratio: patch.aspectRatio } : {}),
+    ...(patch.apertureFStop !== undefined ? { aperture_f_stop: patch.apertureFStop } : {}),
+    ...(patch.focusDistanceM !== undefined ? { focus_distance_m: patch.focusDistanceM } : {}),
+    ...(patch.shutterAngle !== undefined ? { shutter_angle: patch.shutterAngle } : {}),
+    ...(patch.iso !== undefined ? { iso: patch.iso } : {}),
+    ...(patch.nearClipM !== undefined ? { near_clip_m: patch.nearClipM } : {}),
+    ...(patch.farClipM !== undefined ? { far_clip_m: patch.farClipM } : {}),
+    ...(patch.anamorphicSqueeze !== undefined ? { anamorphic_squeeze: patch.anamorphicSqueeze } : {}),
+    ...(patch.handheldShake !== undefined ? { handheld_shake: patch.handheldShake } : {}),
+    ...(patch.action !== undefined
+      ? {
+          // normalizeDirectorCameraAction always materializes the mode's
+          // path/follow payload, so the result satisfies the parsed union the
+          // permissive UI DirectorCameraAction interface widens.
+          action: normalizeDirectorCameraAction(patch.action as DirectorCameraAction) as NonNullable<
+            DirectorCameraAuthoringPatch["action"]
+          >,
+        }
+      : {}),
+  };
+  return Object.keys(authored).length ? authored : null;
+}
+
+/** Snake_case authoring fields shared by add_world_road / update_world_road. */
+function worldRoadAuthoringFields(road: DirectorWorldRoad) {
+  return {
+    name: road.name,
+    points: road.points.map((point) => [...point] as [number, number, number]),
+    width_m: road.widthM,
+    loop: road.loop,
+    vehicle_count: road.vehicleCount,
+    speed_kph: road.speedKph,
+    show_surface: road.showSurface,
+    seed_offset: road.seedOffset,
+  };
+}
+
 function appendSelectedObject(
   state: DirectorRuntimeState,
   object: DirectorObject,
@@ -2364,6 +2554,46 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       },
     }));
 
+  /**
+   * Shared UI entry into the Agent authoring engine. Applies one atomic action
+   * batch (one undo entry) and surfaces failures as Director notifications.
+   */
+  const dispatchUiAuthoring = (
+    actions: DirectorAuthoringAction[],
+    idempotencyKey: string,
+    failureTitle = "更新失败",
+  ): boolean => {
+    if (!actions.length) return false;
+    const receipt = dispatchDirectorAuthoringActions(actions, { idempotencyKey });
+    if (!receipt.ok) {
+      notifyDirector({
+        severity: "error",
+        title: failureTitle,
+        detail: receipt.error,
+      });
+      return false;
+    }
+    return true;
+  };
+
+  /**
+   * RAF/gizmo/slider batches (undoBatchDepth > 0) keep the lightweight local
+   * mutators so intermediate drag samples stay cheap; pointer-up still lands
+   * one undo entry through beginUndoBatch/endUndoBatch.
+   */
+  const canUseAuthoringPath = () => get().undoBatchDepth === 0;
+
+  const targetIdempotencySuffix = (target: ObjectMutationTarget) =>
+    "id" in target ? target.id : `crowd:${target.crowdId}`;
+
+  /** Characters matched by a pose/motion/IK target; crowd targets fan out per member. */
+  const resolveTargetCharacters = (target: ObjectMutationTarget) =>
+    get().project.objects.filter((item) =>
+      "id" in target
+        ? item.id === target.id && item.kind === "character"
+        : item.kind === "character" && item.crowdId === target.crowdId,
+    );
+
   const toggleObjectFlag = (id: string, field: "visible" | "locked") => {
     const object = get().project.objects.find((item) => item.id === id);
     if (!object) return;
@@ -2393,6 +2623,22 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
   };
 
   const applyTargetPosePreset = (target: ObjectMutationTarget, presetId: PosePresetId) => {
+    // Preset application keeps the preset identity, so it maps onto the
+    // authoring update_object pose_preset_id patch (not raw pose controls).
+    // Characters without a rig keep the historical local no-op.
+    const riggedCharacters = resolveTargetCharacters(target).filter((item) => item.characterRig);
+    if (canUseAuthoringPath() && riggedCharacters.length) {
+      dispatchUiAuthoring(
+        riggedCharacters.map((item) => ({
+          action: "update_object" as const,
+          object_id: item.id,
+          patch: { pose_preset_id: presetId },
+          force: true,
+        })),
+        `ui-pose-preset:${targetIdempotencySuffix(target)}`,
+      );
+      return;
+    }
     const preset = MANNEQUIN_POSE_PRESETS.find((item) => item.id === presetId);
     mutateTargetObjects(target, (item) => ({
       ...item,
@@ -2408,6 +2654,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
   const updateTargetPoseControl = (target: ObjectMutationTarget, key: string, value: number) => {
     if (!isCharacterPoseControlKey(key) || !Number.isFinite(value)) return;
+    const riggedCharacters = resolveTargetCharacters(target).filter((item) => item.characterRig);
+    if (canUseAuthoringPath() && riggedCharacters.length) {
+      dispatchUiAuthoring(
+        riggedCharacters.map((item) => ({
+          action: "set_character_pose_controls" as const,
+          object_id: item.id,
+          // Clamp to the body-type-aware UI limits before the shared merge;
+          // the in-process dispatch does not re-run wire validation.
+          controls: [{ control: key, value: clampCharacterPoseControlValue(key, value, item.bodyType) }],
+          force: true,
+        })),
+        `ui-pose-control:${targetIdempotencySuffix(target)}:${key}`,
+      );
+      return;
+    }
     mutateTargetObjects(target, (item) => ({
       ...item,
       characterRig: item.characterRig
@@ -2423,7 +2684,49 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     }));
   };
 
-  const setTargetCharacterMotion = (target: ObjectMutationTarget, motion: DirectorCharacterMotionState | undefined) =>
+  const setTargetCharacterMotion = (target: ObjectMutationTarget, motion: DirectorCharacterMotionState | undefined) => {
+    const characters = resolveTargetCharacters(target);
+    if (canUseAuthoringPath() && characters.length) {
+      if (motion === undefined) {
+        // Members without an active clip already match the cleared authoring
+        // state, so skipping them avoids a no-op undo entry.
+        const withMotion = characters.filter((item) => item.characterRig?.motion);
+        if (withMotion.length) {
+          dispatchUiAuthoring(
+            withMotion.map((item) => ({
+              action: "clear_character_motion" as const,
+              object_id: item.id,
+              force: true,
+            })),
+            `ui-motion-clear:${targetIdempotencySuffix(target)}`,
+          );
+        }
+        return;
+      }
+      const rootMotion = motion.rootMotion;
+      if (rootMotion !== "authored" && isDirectorCharacterMotionId(motion.clipId)) {
+        dispatchUiAuthoring(
+          characters.map((item) => ({
+            action: "set_character_motion" as const,
+            object_id: item.id,
+            clip_id: motion.clipId,
+            enabled: motion.enabled,
+            loop: motion.loop,
+            speed: motion.speed,
+            weight: motion.weight,
+            start_frame: motion.startFrame,
+            blend_in_s: motion.blendInS,
+            blend_out_s: motion.blendOutS,
+            root_motion: rootMotion,
+            force: true,
+          })),
+          `ui-motion:${targetIdempotencySuffix(target)}:${motion.clipId}`,
+        );
+        return;
+      }
+      // human-only: legacy `authored` root motion and non-catalog clips predate
+      // the in-place-only authoring contract, so they keep the local mutator.
+    }
     mutateTargetObjects(target, (item) =>
       item.kind === "character"
         ? {
@@ -2436,12 +2739,30 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           }
         : item,
     );
+  };
 
   const setTargetCharacterIk = (
     target: ObjectMutationTarget,
     effector: DirectorCharacterIkEffector,
     value: DirectorCharacterIkTarget,
-  ) =>
+  ) => {
+    const characters = resolveTargetCharacters(target);
+    if (canUseAuthoringPath() && characters.length) {
+      dispatchUiAuthoring(
+        characters.map((item) => ({
+          action: "set_character_ik" as const,
+          object_id: item.id,
+          effector,
+          target: [...value.target] as [number, number, number],
+          pole: [...value.pole] as [number, number, number],
+          weight: value.weight,
+          reach_clamp: value.reachClamp,
+          force: true,
+        })),
+        `ui-ik:${targetIdempotencySuffix(target)}:${effector}`,
+      );
+      return;
+    }
     mutateTargetObjects(target, (item) =>
       item.kind === "character"
         ? {
@@ -2453,8 +2774,25 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           }
         : item,
     );
+  };
 
-  const clearTargetCharacterIk = (target: ObjectMutationTarget, effector: DirectorCharacterIkEffector) =>
+  const clearTargetCharacterIk = (target: ObjectMutationTarget, effector: DirectorCharacterIkEffector) => {
+    if (canUseAuthoringPath()) {
+      const withEffector = resolveTargetCharacters(target).filter((item) => item.characterRig?.ik?.[effector]);
+      // Members without the effector already match the cleared state.
+      if (withEffector.length) {
+        dispatchUiAuthoring(
+          withEffector.map((item) => ({
+            action: "clear_character_ik" as const,
+            object_id: item.id,
+            effector,
+            force: true,
+          })),
+          `ui-ik-clear:${targetIdempotencySuffix(target)}:${effector}`,
+        );
+      }
+      return;
+    }
     mutateTargetObjects(target, (item) => {
       if (item.kind !== "character" || !item.characterRig?.ik?.[effector]) return item;
       const ik = { ...item.characterRig.ik };
@@ -2464,6 +2802,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         characterRig: { ...item.characterRig, ...(Object.keys(ik).length ? { ik } : { ik: undefined }) },
       };
     });
+  };
 
   return {
     ...initialRuntimeState,
@@ -2872,7 +3211,39 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           scene: { ...state.project.scene, ...patch },
         }),
       ),
-    updateWorldSettings: (patch) =>
+    updateWorldSettings: (patch) => {
+      if (canUseAuthoringPath()) {
+        const wind = {
+          ...(patch.wind?.directionDegrees === undefined ? {} : { direction_degrees: patch.wind.directionDegrees }),
+          ...(patch.wind?.speedMps === undefined ? {} : { speed_mps: patch.wind.speedMps }),
+          ...(patch.wind?.gustiness === undefined ? {} : { gustiness: patch.wind.gustiness }),
+          ...(patch.wind?.turbulence === undefined ? {} : { turbulence: patch.wind.turbulence }),
+        };
+        const timeOfDay = {
+          ...(patch.timeOfDay?.mode === undefined ? {} : { mode: patch.timeOfDay.mode }),
+          ...(patch.timeOfDay?.hours === undefined ? {} : { hours: patch.timeOfDay.hours }),
+          ...(patch.timeOfDay?.cycleMinutes === undefined ? {} : { cycle_minutes: patch.timeOfDay.cycleMinutes }),
+          ...(patch.timeOfDay?.drivesSky === undefined ? {} : { drives_sky: patch.timeOfDay.drivesSky }),
+        };
+        const weather = {
+          ...(patch.weather?.preset === undefined ? {} : { preset: patch.weather.preset }),
+          ...(patch.weather?.intensity === undefined ? {} : { intensity: patch.weather.intensity }),
+          ...(patch.weather?.wetness === undefined ? {} : { wetness: patch.weather.wetness }),
+          ...(patch.weather?.cloudCover === undefined ? {} : { cloud_cover: patch.weather.cloudCover }),
+        };
+        const settings = {
+          ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+          ...(patch.seed === undefined ? {} : { seed: patch.seed }),
+          ...(Object.keys(wind).length ? { wind } : {}),
+          ...(Object.keys(timeOfDay).length ? { time_of_day: timeOfDay } : {}),
+          ...(Object.keys(weather).length ? { weather } : {}),
+        };
+        // set_world_settings rejects empty patches; empty calls keep the local path.
+        if (Object.keys(settings).length) {
+          dispatchUiAuthoring([{ action: "set_world_settings", settings }], "ui-world-settings");
+          return;
+        }
+      }
       commitMutation((state) =>
         withWorldPatch(state, (world) => ({
           ...world,
@@ -2885,8 +3256,47 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             weather: { ...world.settings.weather, ...patch.weather },
           },
         })),
-      ),
+      );
+    },
     upsertWorldEffect: (effect) => {
+      // Anchors bound to a missing object would throw in authoring; the local
+      // replace has always tolerated them.
+      const anchorObjectExists =
+        !effect.anchor.objectId || get().project.objects.some((object) => object.id === effect.anchor.objectId);
+      if (canUseAuthoringPath() && anchorObjectExists) {
+        const mode = resolveWorldUpsertMode(get().project.world?.effects ?? [], effect, DIRECTOR_WORLD_MAX_EFFECTS);
+        if (mode === "capacity") return false;
+        if (mode === "update") {
+          return dispatchUiAuthoring(
+            [
+              {
+                action: "update_world_effect",
+                effect_id: effect.id,
+                patch: {
+                  ...worldEffectAuthoringFields(effect),
+                  color_tint: effect.colorTint ?? null,
+                  visible: effect.visible,
+                  locked: effect.locked,
+                },
+              },
+            ],
+            `ui-world-effect:${effect.id}`,
+          );
+        }
+        if (mode === "add") {
+          return dispatchUiAuthoring(
+            [
+              {
+                action: "add_world_effect",
+                id: effect.id,
+                ...worldEffectAuthoringFields(effect),
+                ...(effect.colorTint ? { color_tint: effect.colorTint } : {}),
+              },
+            ],
+            `ui-world-effect:${effect.id}`,
+          );
+        }
+      }
       let applied = false;
       commitMutation((state) =>
         withWorldPatch(state, (world) => {
@@ -2898,6 +3308,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return applied;
     },
     removeWorldEffects: (effectIds) => {
+      if (canUseAuthoringPath()) {
+        // remove_world_effects rejects locked or unknown ids, so the shared
+        // contract now skips locked entries instead of silently deleting them.
+        const requested = new Set(effectIds);
+        const removable = (get().project.world?.effects ?? [])
+          .filter((effect) => requested.has(effect.id) && !effect.locked)
+          .map((effect) => effect.id);
+        if (!removable.length) return 0;
+        return dispatchUiAuthoring(
+          [{ action: "remove_world_effects", effect_ids: removable }],
+          `ui-world-effects-remove:${removable.slice().sort().join(",")}`,
+        )
+          ? removable.length
+          : 0;
+      }
       let removed = 0;
       commitMutation((state) => {
         const world = state.project.world;
@@ -2911,6 +3336,40 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return removed;
     },
     upsertWorldWaterBody: (body) => {
+      if (canUseAuthoringPath()) {
+        const mode = resolveWorldUpsertMode(get().project.world?.waterBodies ?? [], body, DIRECTOR_WORLD_MAX_WATER_BODIES);
+        if (mode === "capacity") return false;
+        if (mode === "update") {
+          return dispatchUiAuthoring(
+            [
+              {
+                action: "update_world_water_body",
+                body_id: body.id,
+                patch: {
+                  ...worldWaterBodyAuthoringFields(body),
+                  river: body.river ? worldRiverAuthoringFields(body.river) : null,
+                  visible: body.visible,
+                  locked: body.locked,
+                },
+              },
+            ],
+            `ui-world-water:${body.id}`,
+          );
+        }
+        if (mode === "add") {
+          return dispatchUiAuthoring(
+            [
+              {
+                action: "add_world_water_body",
+                id: body.id,
+                ...worldWaterBodyAuthoringFields(body),
+                ...(body.river ? { river: worldRiverAuthoringFields(body.river) } : {}),
+              },
+            ],
+            `ui-world-water:${body.id}`,
+          );
+        }
+      }
       let applied = false;
       commitMutation((state) =>
         withWorldPatch(state, (world) => {
@@ -2922,6 +3381,19 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return applied;
     },
     removeWorldWaterBodies: (bodyIds) => {
+      if (canUseAuthoringPath()) {
+        const requested = new Set(bodyIds);
+        const removable = (get().project.world?.waterBodies ?? [])
+          .filter((body) => requested.has(body.id) && !body.locked)
+          .map((body) => body.id);
+        if (!removable.length) return 0;
+        return dispatchUiAuthoring(
+          [{ action: "remove_world_water_bodies", body_ids: removable }],
+          `ui-world-water-remove:${removable.slice().sort().join(",")}`,
+        )
+          ? removable.length
+          : 0;
+      }
       let removed = 0;
       commitMutation((state) => {
         const world = state.project.world;
@@ -2935,6 +3407,47 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return removed;
     },
     upsertWorldWildlifeGroup: (group) => {
+      // add_world_wildlife_group injects a default flight band for aerial
+      // species; an intentionally band-less aerial group keeps the local path.
+      const needsAltitudeFallback =
+        !group.altitude && (group.species === "birds" || group.species === "butterflies");
+      const assetExists = !group.assetId || get().project.assets.some((asset) => asset.id === group.assetId);
+      if (canUseAuthoringPath() && !needsAltitudeFallback && assetExists) {
+        const mode = resolveWorldUpsertMode(get().project.world?.wildlife ?? [], group, DIRECTOR_WORLD_MAX_WILDLIFE_GROUPS);
+        if (mode === "capacity") return false;
+        if (mode === "update") {
+          return dispatchUiAuthoring(
+            [
+              {
+                action: "update_world_wildlife_group",
+                group_id: group.id,
+                patch: {
+                  ...worldWildlifeAuthoringFields(group),
+                  altitude: group.altitude ? { min_m: group.altitude.minM, max_m: group.altitude.maxM } : null,
+                  asset_id: group.assetId ?? null,
+                  visible: group.visible,
+                  locked: group.locked,
+                },
+              },
+            ],
+            `ui-world-wildlife:${group.id}`,
+          );
+        }
+        if (mode === "add") {
+          return dispatchUiAuthoring(
+            [
+              {
+                action: "add_world_wildlife_group",
+                id: group.id,
+                ...worldWildlifeAuthoringFields(group),
+                ...(group.altitude ? { altitude: { min_m: group.altitude.minM, max_m: group.altitude.maxM } } : {}),
+                ...(group.assetId ? { asset_id: group.assetId } : {}),
+              },
+            ],
+            `ui-world-wildlife:${group.id}`,
+          );
+        }
+      }
       let applied = false;
       commitMutation((state) =>
         withWorldPatch(state, (world) => {
@@ -2946,6 +3459,19 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return applied;
     },
     removeWorldWildlifeGroups: (groupIds) => {
+      if (canUseAuthoringPath()) {
+        const requested = new Set(groupIds);
+        const removable = (get().project.world?.wildlife ?? [])
+          .filter((group) => requested.has(group.id) && !group.locked)
+          .map((group) => group.id);
+        if (!removable.length) return 0;
+        return dispatchUiAuthoring(
+          [{ action: "remove_world_wildlife_groups", group_ids: removable }],
+          `ui-world-wildlife-remove:${removable.slice().sort().join(",")}`,
+        )
+          ? removable.length
+          : 0;
+      }
       let removed = 0;
       commitMutation((state) => {
         const world = state.project.world;
@@ -2959,6 +3485,28 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return removed;
     },
     upsertWorldRoad: (road) => {
+      if (canUseAuthoringPath()) {
+        const mode = resolveWorldUpsertMode(get().project.world?.roads ?? [], road, DIRECTOR_WORLD_MAX_ROADS);
+        if (mode === "capacity") return false;
+        if (mode === "update") {
+          return dispatchUiAuthoring(
+            [
+              {
+                action: "update_world_road",
+                road_id: road.id,
+                patch: { ...worldRoadAuthoringFields(road), visible: road.visible, locked: road.locked },
+              },
+            ],
+            `ui-world-road:${road.id}`,
+          );
+        }
+        if (mode === "add") {
+          return dispatchUiAuthoring(
+            [{ action: "add_world_road", id: road.id, ...worldRoadAuthoringFields(road) }],
+            `ui-world-road:${road.id}`,
+          );
+        }
+      }
       let applied = false;
       commitMutation((state) =>
         withWorldPatch(state, (world) => {
@@ -2971,6 +3519,19 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return applied;
     },
     removeWorldRoads: (roadIds) => {
+      if (canUseAuthoringPath()) {
+        const requested = new Set(roadIds);
+        const removable = (get().project.world?.roads ?? [])
+          .filter((road) => requested.has(road.id) && !road.locked)
+          .map((road) => road.id);
+        if (!removable.length) return 0;
+        return dispatchUiAuthoring(
+          [{ action: "remove_world_roads", road_ids: removable }],
+          `ui-world-roads-remove:${removable.slice().sort().join(",")}`,
+        )
+          ? removable.length
+          : 0;
+      }
       let removed = 0;
       commitMutation((state) => {
         const world = state.project.world;
@@ -2983,8 +3544,13 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       });
       return removed;
     },
-    updateStoryboard: (storyboard) =>
-      commitMutation((state) => withProjectPatch(state, { storyboard: cloneJsonValue(storyboard) })),
+    updateStoryboard: (storyboard) => {
+      if (canUseAuthoringPath()) {
+        dispatchUiAuthoring([{ action: "set_storyboard", storyboard: cloneJsonValue(storyboard) }], "ui-storyboard");
+        return;
+      }
+      commitMutation((state) => withProjectPatch(state, { storyboard: cloneJsonValue(storyboard) }));
+    },
     removePanoramaAsset: () =>
       commitMutation((state) => {
         const panoramaAssetId = state.project.panoramaAssetId;
@@ -3122,7 +3688,44 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         });
       });
     },
-    updateObjectTransforms: (updates) =>
+    updateObjectTransforms: (updates) => {
+      const currentProject = get().project;
+      const applicable = updates.filter((update) => {
+        const object = currentProject.objects.find((item) => item.id === update.id);
+        return (
+          object && !isObjectTransformEffectivelyLocked(currentProject.scene, currentProject.objects, object)
+        );
+      });
+      // Cameras sync their linked rig, composite parents propagate to children,
+      // and object-focused cameras need the UI refresh helper, so any of those
+      // in the batch keeps the whole call on the local mutator (rule: keep
+      // current exceptions until authoring owns the refresh).
+      const needsUiOnlyHandling = applicable.some((update) => {
+        const object = currentProject.objects.find((item) => item.id === update.id)!;
+        return (
+          object.kind === "camera" ||
+          object.isCompositeParent ||
+          currentProject.cameras.some(
+            (camera) => camera.targetMode === "object" && camera.targetObjectId === update.id,
+          )
+        );
+      });
+      if (canUseAuthoringPath() && applicable.length && !needsUiOnlyHandling) {
+        dispatchUiAuthoring(
+          applicable.map((update) => ({
+            action: "update_object" as const,
+            object_id: update.id,
+            patch: { transform: structuredClone(update.transform) },
+            force: true,
+          })),
+          `ui-transforms:${applicable
+            .map((update) => update.id)
+            .sort()
+            .join(",")}`,
+          "变换失败",
+        );
+        return;
+      }
       commitMutation((state) => {
         const updatesById = new Map(updates.map((update) => [update.id, update.transform]));
         if (!updatesById.size) return state;
@@ -3162,21 +3765,80 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           objects,
           cameras: refreshCamerasFocusedOnObjects(cameras, objects, [...changedObjectIds]),
         });
-      }),
+      });
+    },
     batchUpdateObjects: (ids, patch) => {
       const requested = new Set(ids);
       const currentState = get();
-      const editableIds = currentState.project.objects
-        .filter(
-          (object) =>
-            requested.has(object.id) &&
-            object.kind !== "camera" &&
-            !isObjectTransformEffectivelyLocked(currentState.project.scene, currentState.project.objects, object),
-        )
-        .map((object) => object.id);
+      const editableObjects = currentState.project.objects.filter(
+        (object) =>
+          requested.has(object.id) &&
+          object.kind !== "camera" &&
+          !isObjectTransformEffectivelyLocked(currentState.project.scene, currentState.project.objects, object),
+      );
+      const editableIds = editableObjects.map((object) => object.id);
       if (!editableIds.length) return 0;
       const editable = new Set(editableIds);
       const normalizedLayer = patch.layer === null ? undefined : patch.layer?.trim() || undefined;
+      const patchHasKeys =
+        patch.visible !== undefined ||
+        patch.locked !== undefined ||
+        patch.layer !== undefined ||
+        patch.color !== undefined ||
+        patch.material !== undefined ||
+        Boolean(patch.transform && Object.keys(patch.transform).length);
+      // Composite parents propagate transforms to children and object-focused
+      // cameras need the UI refresh helper; both keep the local mutator.
+      const needsUiOnlyTransformHandling =
+        Boolean(patch.transform) &&
+        editableObjects.some(
+          (object) =>
+            object.isCompositeParent ||
+            currentState.project.cameras.some(
+              (camera) => camera.targetMode === "object" && camera.targetObjectId === object.id,
+            ),
+        );
+      // update_object rejects color/material/layer patches on provisioned
+      // native Blender objects; those edits keep the historical local merge.
+      const nativeRestricted =
+        (patch.color !== undefined || patch.material !== undefined || patch.layer !== undefined) &&
+        editableObjects.some(
+          (object) => object.nativeSource?.engine === "blender" && object.nativeSource.provisioned !== false,
+        );
+      if (canUseAuthoringPath() && patchHasKeys && !needsUiOnlyTransformHandling && !nativeRestricted) {
+        const applied = dispatchUiAuthoring(
+          editableObjects.map((object) => ({
+            action: "update_object" as const,
+            object_id: object.id,
+            patch: {
+              ...(patch.visible === undefined ? {} : { visible: patch.visible }),
+              ...(patch.locked === undefined ? {} : { locked: patch.locked }),
+              ...(patch.layer === undefined ? {} : { layer: normalizedLayer ?? null }),
+              ...(patch.color === undefined ? {} : { color: patch.color }),
+              ...(patch.material === undefined
+                ? {}
+                : {
+                    // Pre-merge per object so the shared engine's material
+                    // replacement matches the store's partial-merge semantics.
+                    material:
+                      patch.material === null
+                        ? null
+                        : {
+                            ...object.material,
+                            ...patch.material,
+                            ...(patch.material.textures
+                              ? { textures: { ...object.material?.textures, ...patch.material.textures } }
+                              : {}),
+                          },
+                  }),
+              ...(patch.transform ? { transform: structuredClone(patch.transform) } : {}),
+            },
+            force: true,
+          })),
+          `ui-batch:${editableIds.slice().sort().join(",")}`,
+        );
+        return applied ? editableIds.length : 0;
+      }
       commitMutation((state) => {
         let objects = state.project.objects;
         const transformedIds = new Set<string>();
@@ -3269,6 +3931,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           !object.isCompositeParent,
       );
       if (objects.length < 2) return 0;
+      // Object-focused cameras still need the UI refresh helper after moves.
+      const hasFocusedCamera = objects.some((object) =>
+        currentState.project.cameras.some(
+          (camera) => camera.targetMode === "object" && camera.targetObjectId === object.id,
+        ),
+      );
+      if (canUseAuthoringPath() && !hasFocusedCamera) {
+        const alignedIds = objects.map((object) => object.id);
+        return dispatchUiAuthoring(
+          [{ action: "align_objects", object_ids: alignedIds, axis, mode, force: true }],
+          `ui-align:${alignedIds.slice().sort().join(",")}:${axis}`,
+        )
+          ? objects.length
+          : 0;
+      }
       const coordinates = objects.map((object) => object.transform.position[axisIndex]);
       const coordinate =
         mode === "min"
@@ -3313,6 +3990,20 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             left.transform.position[axisIndex] - right.transform.position[axisIndex] || left.id.localeCompare(right.id),
         );
       if (objects.length < 3) return 0;
+      const hasFocusedCamera = objects.some((object) =>
+        currentState.project.cameras.some(
+          (camera) => camera.targetMode === "object" && camera.targetObjectId === object.id,
+        ),
+      );
+      if (canUseAuthoringPath() && !hasFocusedCamera) {
+        const distributedIds = objects.map((object) => object.id);
+        return dispatchUiAuthoring(
+          [{ action: "distribute_objects", object_ids: distributedIds, axis, force: true }],
+          `ui-distribute:${distributedIds.slice().sort().join(",")}:${axis}`,
+        )
+          ? objects.length
+          : 0;
+      }
       const first = objects[0]!.transform.position[axisIndex];
       const last = objects.at(-1)!.transform.position[axisIndex];
       const step = (last - first) / (objects.length - 1);
@@ -3343,9 +4034,26 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       const changedObjects = currentState.project.objects.filter(
         (object) => object.kind !== "camera" && object.visible !== selected.has(object.id),
       ).length;
-      const changedLayers = (currentState.project.scene.objectLayers ?? []).filter((layer) => !layer.visible).length;
-      const changed = changedObjects + changedLayers;
+      const hiddenLayers = (currentState.project.scene.objectLayers ?? []).filter((layer) => !layer.visible);
+      const changed = changedObjects + hiddenLayers.length;
       if (!selected.size || !changed) return 0;
+      const existingSelectedIds = ids.filter((id) => currentState.project.objects.some((object) => object.id === id));
+      if (canUseAuthoringPath() && existingSelectedIds.length) {
+        // Authoring isolate only toggles object visibility; the layer reveal
+        // the panel performs rides in the same atomic batch (one undo entry).
+        const applied = dispatchUiAuthoring(
+          [
+            { action: "isolate_objects" as const, object_ids: existingSelectedIds, force: true },
+            ...hiddenLayers.map((layer) => ({
+              action: "set_object_layer_state" as const,
+              layer_id: layer.id,
+              visible: true,
+            })),
+          ],
+          `ui-isolate:${existingSelectedIds.slice().sort().join(",")}`,
+        );
+        return applied ? changed : 0;
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           objects: state.project.objects.map((object) =>
@@ -3365,6 +4073,14 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         currentState.project.objects.filter((object) => !object.visible).length +
         (currentState.project.scene.objectLayers ?? []).filter((layer) => !layer.visible).length;
       if (!changed) return 0;
+      // show_all_objects skips camera rigs; a hidden camera object keeps the
+      // historical local reveal that includes it.
+      const hasHiddenCameraObject = currentState.project.objects.some(
+        (object) => object.kind === "camera" && !object.visible,
+      );
+      if (canUseAuthoringPath() && !hasHiddenCameraObject) {
+        return dispatchUiAuthoring([{ action: "show_all_objects" }], "ui-show-all") ? changed : 0;
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           objects: state.project.objects.map((object) => (object.visible ? object : { ...object, visible: true })),
@@ -3377,6 +4093,25 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return changed;
     },
     setObjectPivot: (id, pivot) => {
+      const currentState = get();
+      const currentObject = currentState.project.objects.find((item) => item.id === id);
+      if (canUseAuthoringPath()) {
+        if (
+          !currentObject ||
+          currentObject.kind === "camera" ||
+          isObjectTransformEffectivelyLocked(currentState.project.scene, currentState.project.objects, currentObject)
+        ) {
+          return false;
+        }
+        // Round exactly like the local path so the shared engine stores the
+        // same tuple, and skip no-op writes to keep the undo stack clean.
+        const normalized = pivot ? roundTransformTuple(pivot) : undefined;
+        if (JSON.stringify(currentObject.pivot ?? null) === JSON.stringify(normalized ?? null)) return false;
+        return dispatchUiAuthoring(
+          [{ action: "set_object_pivot", object_id: id, pivot: normalized ?? null, force: true }],
+          `ui-pivot:${id}`,
+        );
+      }
       let changed = false;
       commitMutation((state) => {
         const object = state.project.objects.find((item) => item.id === id);
@@ -3413,12 +4148,39 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     },
     addSceneAnnotation: (input) => {
       const text = input.text.trim();
+      const currentState = get();
+      if (!text) return null;
+      if (
+        input.anchor.objectId &&
+        !currentState.project.objects.some((object) => object.id === input.anchor.objectId)
+      ) {
+        return null;
+      }
+      if (canUseAuthoringPath()) {
+        const annotationId = getNextSequentialId(
+          (currentState.project.scene.annotations ?? []).map((annotation) => annotation.id),
+          "annotation_",
+        );
+        const applied = dispatchUiAuthoring(
+          [
+            {
+              action: "add_annotation",
+              annotation: {
+                id: annotationId,
+                text,
+                anchor: structuredClone(input.anchor),
+                color: input.color?.trim() || "#f6c453",
+                visible: true,
+                createdAt: new Date().toISOString(),
+              },
+            },
+          ],
+          `ui-annotation:${annotationId}`,
+        );
+        return applied ? annotationId : null;
+      }
       let annotationId: string | null = null;
       commitMutation((state) => {
-        if (!text) return state;
-        if (input.anchor.objectId && !state.project.objects.some((object) => object.id === input.anchor.objectId)) {
-          return state;
-        }
         annotationId = getNextSequentialId(
           (state.project.scene.annotations ?? []).map((annotation) => annotation.id),
           "annotation_",
@@ -3441,12 +4203,23 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return annotationId;
     },
     updateSceneAnnotation: (id, patch) => {
+      const currentState = get();
+      if (!currentState.project.scene.annotations?.some((annotation) => annotation.id === id)) return false;
+      if (
+        patch.anchor?.objectId &&
+        !currentState.project.objects.some((object) => object.id === patch.anchor?.objectId)
+      ) {
+        return false;
+      }
+      if (canUseAuthoringPath() && Object.keys(patch).length) {
+        return dispatchUiAuthoring(
+          [{ action: "update_annotation", annotation_id: id, patch: structuredClone(patch) }],
+          `ui-annotation:${id}`,
+        );
+      }
       let changed = false;
       commitMutation((state) => {
         if (!state.project.scene.annotations?.some((annotation) => annotation.id === id)) return state;
-        if (patch.anchor?.objectId && !state.project.objects.some((object) => object.id === patch.anchor?.objectId)) {
-          return state;
-        }
         changed = true;
         return withProjectPatch(state, {
           scene: {
@@ -3460,6 +4233,14 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return changed;
     },
     removeSceneAnnotation: (id) => {
+      const currentState = get();
+      if (!(currentState.project.scene.annotations ?? []).some((annotation) => annotation.id === id)) return false;
+      if (canUseAuthoringPath()) {
+        return dispatchUiAuthoring(
+          [{ action: "remove_annotations", annotation_ids: [id] }],
+          `ui-annotation-remove:${id}`,
+        );
+      }
       let removed = false;
       commitMutation((state) => {
         const annotations = state.project.scene.annotations ?? [];
@@ -3472,10 +4253,35 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return removed;
     },
     addSceneMeasurement: (input) => {
+      const currentState = get();
+      const anchorIds = [input.start.objectId, input.end.objectId].filter(Boolean);
+      if (anchorIds.some((id) => !currentState.project.objects.some((object) => object.id === id))) return null;
+      if (canUseAuthoringPath()) {
+        const measurementId = getNextSequentialId(
+          (currentState.project.scene.measurements ?? []).map((measurement) => measurement.id),
+          "measurement_",
+        );
+        const applied = dispatchUiAuthoring(
+          [
+            {
+              action: "add_measurement",
+              measurement: {
+                id: measurementId,
+                ...(input.label?.trim() ? { label: input.label.trim() } : {}),
+                start: structuredClone(input.start),
+                end: structuredClone(input.end),
+                color: input.color?.trim() || "#6ed6ff",
+                visible: true,
+                createdAt: new Date().toISOString(),
+              },
+            },
+          ],
+          `ui-measurement:${measurementId}`,
+        );
+        return applied ? measurementId : null;
+      }
       let measurementId: string | null = null;
       commitMutation((state) => {
-        const anchorIds = [input.start.objectId, input.end.objectId].filter(Boolean);
-        if (anchorIds.some((id) => !state.project.objects.some((object) => object.id === id))) return state;
         measurementId = getNextSequentialId(
           (state.project.scene.measurements ?? []).map((measurement) => measurement.id),
           "measurement_",
@@ -3499,11 +4305,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return measurementId;
     },
     updateSceneMeasurement: (id, patch) => {
+      const currentState = get();
+      if (!currentState.project.scene.measurements?.some((measurement) => measurement.id === id)) return false;
+      const anchorIds = [patch.start?.objectId, patch.end?.objectId].filter(Boolean);
+      if (anchorIds.some((objectId) => !currentState.project.objects.some((object) => object.id === objectId))) {
+        return false;
+      }
+      if (canUseAuthoringPath() && Object.keys(patch).length) {
+        return dispatchUiAuthoring(
+          [{ action: "update_measurement", measurement_id: id, patch: structuredClone(patch) }],
+          `ui-measurement:${id}`,
+        );
+      }
       let changed = false;
       commitMutation((state) => {
         if (!state.project.scene.measurements?.some((measurement) => measurement.id === id)) return state;
-        const anchorIds = [patch.start?.objectId, patch.end?.objectId].filter(Boolean);
-        if (anchorIds.some((objectId) => !state.project.objects.some((object) => object.id === objectId))) return state;
         changed = true;
         return withProjectPatch(state, {
           scene: {
@@ -3517,6 +4333,14 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return changed;
     },
     removeSceneMeasurement: (id) => {
+      const currentState = get();
+      if (!(currentState.project.scene.measurements ?? []).some((measurement) => measurement.id === id)) return false;
+      if (canUseAuthoringPath()) {
+        return dispatchUiAuthoring(
+          [{ action: "remove_measurements", measurement_ids: [id] }],
+          `ui-measurement-remove:${id}`,
+        );
+      }
       let removed = false;
       commitMutation((state) => {
         const measurements = state.project.scene.measurements ?? [];
@@ -3667,9 +4491,27 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     },
     setObjectLayerState: (id, patch) => {
       const layerId = id.trim();
+      if (!layerId || (!Object.hasOwn(patch, "visible") && !Object.hasOwn(patch, "locked"))) return false;
+      if (canUseAuthoringPath()) {
+        const layers = get().project.scene.objectLayers ?? [];
+        const existing = layers.find((layer) => layer.id === layerId);
+        const nextVisible = patch.visible ?? existing?.visible ?? true;
+        const nextLocked = patch.locked ?? existing?.locked ?? false;
+        if (existing && existing.visible === nextVisible && existing.locked === nextLocked) return false;
+        return dispatchUiAuthoring(
+          [
+            {
+              action: "set_object_layer_state",
+              layer_id: layerId,
+              ...(patch.visible === undefined ? {} : { visible: patch.visible }),
+              ...(patch.locked === undefined ? {} : { locked: patch.locked }),
+            },
+          ],
+          `ui-layer-state:${layerId}`,
+        );
+      }
       let changed = false;
       commitMutation((state) => {
-        if (!layerId || (!Object.hasOwn(patch, "visible") && !Object.hasOwn(patch, "locked"))) return state;
         const layers = state.project.scene.objectLayers ?? [];
         const existing = layers.find((layer) => layer.id === layerId);
         const next: DirectorObjectLayer = {
@@ -3689,6 +4531,20 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return changed;
     },
     moveObjectLayer: (id, direction) => {
+      if (canUseAuthoringPath()) {
+        const layers = get().project.scene.objectLayers ?? [];
+        const index = layers.findIndex((layer) => layer.id === id);
+        const targetIndex = direction === "up" ? index - 1 : index + 1;
+        if (index < 0 || targetIndex < 0 || targetIndex >= layers.length) return false;
+        // The adjacent swap maps onto reorder_object_layer: moving up inserts
+        // before the previous layer; moving down inserts before the layer two
+        // slots ahead (or at the end when none exists).
+        const beforeLayerId = direction === "up" ? layers[targetIndex]!.id : (layers[index + 2]?.id ?? null);
+        return dispatchUiAuthoring(
+          [{ action: "reorder_object_layer", layer_id: id, before_layer_id: beforeLayerId }],
+          `ui-layer-move:${id}`,
+        );
+      }
       let changed = false;
       commitMutation((state) => {
         const layers = [...(state.project.scene.objectLayers ?? [])];
@@ -3741,7 +4597,32 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           cameras: refreshCamerasFocusedOnObject(state.project.cameras, nextObject),
         });
       }),
-    setObjectAnimation: (id, animation) =>
+    setObjectAnimation: (id, animation) => {
+      const currentState = get();
+      const currentObject = currentState.project.objects.find((item) => item.id === id);
+      // The transform-lock no-op stays in the UI: authoring set_animation does
+      // not consult object locks, so dispatching a locked target would weaken
+      // the existing guard.
+      if (
+        !currentObject ||
+        isObjectTransformEffectivelyLocked(currentState.project.scene, currentState.project.objects, currentObject)
+      ) {
+        return;
+      }
+      if (canUseAuthoringPath()) {
+        dispatchUiAuthoring(
+          [
+            {
+              action: "set_animation",
+              target_type: "object",
+              target_id: id,
+              animation: animation ? structuredClone(animation) : null,
+            },
+          ],
+          `ui-object-animation:${id}`,
+        );
+        return;
+      }
       commitMutation((state) => {
         const object = state.project.objects.find((item) => item.id === id);
         if (!object || isObjectTransformEffectivelyLocked(state.project.scene, state.project.objects, object)) {
@@ -3753,7 +4634,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             ...(animation ? { animation } : { animation: undefined }),
           })),
         });
-      }),
+      });
+    },
     updateCrowdTransform: (crowdId, patch) =>
       commitMutation((state) => {
         const members = state.project.objects.filter((object) => object.crowdId === crowdId);
@@ -3775,21 +4657,71 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           objects.map((item) => (changedIdSet.has(item.id) ? { ...item, placementMode: "grounded" as const } : item)),
         );
       }),
-    updateObjectName: (id, name) =>
+    updateObjectName: (id, name) => {
+      const currentState = get();
+      const currentObject = currentState.project.objects.find((item) => item.id === id);
+      // Camera rigs rename through update_camera (which syncs the rig object);
+      // authoring rejects renaming characters without a bound asset, and a
+      // rename must not drift a snapshot camera's explicit fov, so those cases
+      // keep the local mutator.
+      const linkedCamera =
+        currentObject?.kind === "camera" && currentObject.linkedCameraId
+          ? currentState.project.cameras.find((camera) => camera.id === currentObject.linkedCameraId)
+          : undefined;
+      if (canUseAuthoringPath() && currentObject) {
+        if (linkedCamera && isCameraFovFocalStable(linkedCamera)) {
+          dispatchUiAuthoring(
+            [{ action: "update_camera", camera_id: linkedCamera.id, patch: { name } }],
+            `ui-camera:${linkedCamera.id}`,
+          );
+          return;
+        }
+        if (currentObject.kind !== "camera" && (currentObject.kind !== "character" || currentObject.assetRefId)) {
+          dispatchUiAuthoring(
+            [{ action: "update_object", object_id: id, patch: { name }, force: true }],
+            `ui-name:${id}`,
+          );
+          return;
+        }
+      }
       commitMutation((state) => {
-        const currentObject = state.project.objects.find((item) => item.id === id);
-        const linkedCameraId = currentObject?.kind === "camera" ? currentObject.linkedCameraId : null;
+        const object = state.project.objects.find((item) => item.id === id);
+        const linkedCameraId = object?.kind === "camera" ? object.linkedCameraId : null;
         return withProjectPatch(state, {
           objects: updateObjectById(state.project.objects, id, (item) => ({ ...item, name })),
           cameras: linkedCameraId
             ? state.project.cameras.map((camera) => (camera.id === linkedCameraId ? { ...camera, name } : camera))
             : state.project.cameras,
         });
-      }),
-    updateObjectReferenceBindings: (id, bindings) =>
+      });
+    },
+    updateObjectReferenceBindings: (id, bindings) => {
+      const currentState = get();
+      const currentObject = currentState.project.objects.find((item) => item.id === id);
+      // update_camera has no reference_bindings field, so camera rigs (which
+      // mirror bindings onto the linked camera) keep the local mutator.
+      if (
+        canUseAuthoringPath() &&
+        currentObject &&
+        currentObject.kind !== "camera" &&
+        !(currentObject.nativeSource?.engine === "blender" && currentObject.nativeSource.provisioned !== false)
+      ) {
+        dispatchUiAuthoring(
+          [
+            {
+              action: "update_object",
+              object_id: id,
+              patch: { reference_bindings: structuredClone(bindings) },
+              force: true,
+            },
+          ],
+          `ui-bindings:${id}`,
+        );
+        return;
+      }
       commitMutation((state) => {
-        const currentObject = state.project.objects.find((item) => item.id === id);
-        const linkedCameraId = currentObject?.kind === "camera" ? currentObject.linkedCameraId : null;
+        const object = state.project.objects.find((item) => item.id === id);
+        const linkedCameraId = object?.kind === "camera" ? object.linkedCameraId : null;
         return withProjectPatch(state, {
           objects: updateObjectById(state.project.objects, id, (item) => ({ ...item, referenceBindings: bindings })),
           cameras: linkedCameraId
@@ -3798,7 +4730,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               )
             : state.project.cameras,
         });
-      }),
+      });
+    },
     updateCrowdLabel: (crowdId, label) =>
       commitMutation((state) =>
         mapProjectObjects(state, (item) =>
@@ -3807,6 +4740,34 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       ),
     createCompositeObject: (ids, label = "组合对象") => {
       const normalizedLabel = label.trim() || "组合对象";
+      const currentState = get();
+      if (canUseAuthoringPath()) {
+        const childIdSet = new Set(ids);
+        const children = currentState.project.objects.filter(
+          (item) =>
+            childIdSet.has(item.id) &&
+            item.kind !== "camera" &&
+            !item.isCompositeParent &&
+            !isDirectorObjectEffectivelyLocked(currentState.project.scene, item),
+        );
+        if (!children.length) return null;
+        const compositeId = getNextCompositeParentId(currentState.project.objects);
+        const applied = dispatchUiAuthoring(
+          [
+            {
+              action: "group_objects",
+              group_id: compositeId,
+              name: normalizedLabel,
+              object_ids: children.map((child) => child.id),
+            },
+          ],
+          `ui-group:${compositeId}`,
+        );
+        if (!applied) return null;
+        // Selection is UI-only state; apply it after the authored commit.
+        commitUiMutation((state) => ({ ...state, ...selectedObjectsPatch([compositeId]) }));
+        return compositeId;
+      }
       let parentObjectId: string | null = null;
 
       commitMutation((state) => {
@@ -3859,7 +4820,46 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
       return parentObjectId;
     },
-    addObjectsToComposite: (ids, parentObjectId) =>
+    addObjectsToComposite: (ids, parentObjectId) => {
+      const currentState = get();
+      if (canUseAuthoringPath()) {
+        const parent = currentState.project.objects.find(
+          (item) => item.id === parentObjectId && item.isCompositeParent,
+        );
+        if (
+          !parent ||
+          isObjectTransformEffectivelyLocked(currentState.project.scene, currentState.project.objects, parent)
+        ) {
+          return;
+        }
+        const childIds = new Set(ids);
+        const children = currentState.project.objects.filter(
+          (item) =>
+            childIds.has(item.id) &&
+            item.kind !== "camera" &&
+            !item.isCompositeParent &&
+            item.id !== parent.id &&
+            !isDirectorObjectEffectivelyLocked(currentState.project.scene, item),
+        );
+        // Provisioned native Blender objects reject parent_id patches through
+        // authoring; keep the whole call local so the composite stays complete.
+        const hasNativeChild = children.some(
+          (item) => item.nativeSource?.engine === "blender" && item.nativeSource.provisioned !== false,
+        );
+        if (children.length && !hasNativeChild) {
+          dispatchUiAuthoring(
+            children.map((item) => ({
+              action: "update_object" as const,
+              object_id: item.id,
+              patch: { parent_id: parent.id },
+              force: true,
+            })),
+            `ui-composite-add:${parent.id}`,
+          );
+          return;
+        }
+        if (!hasNativeChild) return;
+      }
       commitMutation((state) => {
         const parent = state.project.objects.find((item) => item.id === parentObjectId && item.isCompositeParent);
         if (!parent || isObjectTransformEffectivelyLocked(state.project.scene, state.project.objects, parent)) {
@@ -3877,8 +4877,43 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             ? { ...item, parentObjectId: parent.id }
             : item,
         );
-      }),
-    removeObjectsFromComposite: (ids) =>
+      });
+    },
+    removeObjectsFromComposite: (ids) => {
+      const currentState = get();
+      if (canUseAuthoringPath()) {
+        const childIds = new Set(ids);
+        const children = currentState.project.objects.filter(
+          (item) =>
+            childIds.has(item.id) &&
+            item.parentObjectId &&
+            !isDirectorObjectEffectivelyLocked(currentState.project.scene, item) &&
+            !isObjectTransformEffectivelyLocked(
+              currentState.project.scene,
+              currentState.project.objects,
+              currentState.project.objects.find((candidate) => candidate.id === item.parentObjectId) ?? item,
+            ),
+        );
+        const hasNativeChild = children.some(
+          (item) => item.nativeSource?.engine === "blender" && item.nativeSource.provisioned !== false,
+        );
+        if (children.length && !hasNativeChild) {
+          dispatchUiAuthoring(
+            children.map((item) => ({
+              action: "update_object" as const,
+              object_id: item.id,
+              patch: { parent_id: null },
+              force: true,
+            })),
+            `ui-composite-remove:${children
+              .map((item) => item.id)
+              .sort()
+              .join(",")}`,
+          );
+          return;
+        }
+        if (!hasNativeChild) return;
+      }
       commitMutation((state) => {
         const childIds = new Set(ids);
         if (childIds.size === 0) return state;
@@ -3894,7 +4929,11 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             ? { ...item, parentObjectId: undefined }
             : item,
         );
-      }),
+      });
+    },
+    // human-only: no authoring twin. Object lists are a UI selection helper
+    // (objectListId/objectListLabel), not composite groups; group_objects would
+    // be a wrong mapping.
     createObjectList: (ids, label) => {
       const normalizedLabel = label.trim();
       const objectIds = Array.from(new Set(ids));
@@ -3920,6 +4959,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
       return objectListId;
     },
+    // human-only: no authoring twin (see createObjectList).
     addObjectsToObjectList: (ids, objectListId) =>
       commitMutation((state) => {
         const normalizedListId = objectListId.trim();
@@ -3940,6 +4980,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             : item,
         );
       }),
+    // human-only: no authoring twin (see createObjectList).
     removeObjectsFromObjectList: (ids) =>
       commitMutation((state) => {
         const objectIds = new Set(ids);
@@ -3956,6 +4997,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             : item,
         );
       }),
+    // human-only: no authoring twin (see createObjectList).
     updateObjectListLabel: (objectListId, label) =>
       commitMutation((state) => {
         const normalizedListId = objectListId.trim();
@@ -3966,13 +5008,77 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           item.objectListId === normalizedListId ? { ...item, objectListLabel: normalizedLabel } : item,
         );
       }),
-    updateObjectColor: (id, color) =>
+    updateObjectColor: (id, color) => {
+      const currentState = get();
+      const currentObject = currentState.project.objects.find((item) => item.id === id);
+      // update_object rejects camera rigs and color patches on provisioned
+      // native Blender objects; those keep the local mutator.
+      if (
+        canUseAuthoringPath() &&
+        currentObject &&
+        currentObject.kind !== "camera" &&
+        !(currentObject.nativeSource?.engine === "blender" && currentObject.nativeSource.provisioned !== false)
+      ) {
+        dispatchUiAuthoring([{ action: "update_object", object_id: id, patch: { color }, force: true }], `ui-color:${id}`);
+        return;
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           objects: updateObjectById(state.project.objects, id, (item) => ({ ...item, color })),
         }),
-      ),
-    setObjectVehicleProfile: (id, profile) =>
+      );
+    },
+    setObjectVehicleProfile: (id, profile) => {
+      const currentState = get();
+      const currentObject = currentState.project.objects.find((item) => item.id === id);
+      // set_vehicle_profile/clear_vehicle_profile only accept unlocked prop and
+      // scene objects; everything else keeps the historical local write.
+      const vehicleAuthorable =
+        currentObject &&
+        (currentObject.kind === "prop" || currentObject.kind === "scene") &&
+        !isDirectorObjectEffectivelyLocked(currentState.project.scene, currentObject);
+      if (canUseAuthoringPath() && vehicleAuthorable) {
+        if (profile === null) {
+          // clear_vehicle_profile on a profile-less object is a no-op note;
+          // skip it so the undo stack stays clean like the local path.
+          if (currentObject.vehicle) {
+            dispatchUiAuthoring([{ action: "clear_vehicle_profile", object_id: id }], `ui-vehicle-clear:${id}`);
+          }
+          return;
+        }
+        dispatchUiAuthoring(
+          [
+            {
+              action: "set_vehicle_profile",
+              object_id: id,
+              // Full snake_case patch so the authoring merge reproduces the
+              // exact profile the panel computed.
+              profile: {
+                kind: profile.kind,
+                drivable: profile.drivable,
+                mass_kg: profile.massKg,
+                engine_force_n: profile.engineForceN,
+                brake_force_n: profile.brakeForceN,
+                max_speed_kph: profile.maxSpeedKph,
+                reverse_speed_kph: profile.reverseSpeedKph,
+                steer_max_deg: profile.steerMaxDeg,
+                wheel_radius_m: profile.wheelRadiusM,
+                suspension_rest_m: profile.suspensionRestM,
+                suspension_stiffness: profile.suspensionStiffness,
+                center_of_mass_y_offset_m: profile.centerOfMassYOffsetM,
+                seat_offset: [...profile.seatOffset] as [number, number, number],
+                exit_offsets: structuredClone(profile.exitOffsets),
+                camera: {
+                  chase_distance_m: profile.camera.chaseDistanceM,
+                  chase_height_m: profile.camera.chaseHeightM,
+                },
+              },
+            },
+          ],
+          `ui-vehicle:${id}`,
+        );
+        return;
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           objects: updateObjectById(state.project.objects, id, (item) => {
@@ -3985,8 +5091,41 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             return { ...item, vehicle: profile };
           }),
         }),
-      ),
-    updateObjectMaterial: (id, patch) =>
+      );
+    },
+    updateObjectMaterial: (id, patch) => {
+      const currentState = get();
+      const currentObject = currentState.project.objects.find((item) => item.id === id);
+      // Composite parents ignore materials, camera rigs reject update_object,
+      // and provisioned native Blender objects reject material patches.
+      if (
+        canUseAuthoringPath() &&
+        currentObject &&
+        currentObject.kind !== "camera" &&
+        !currentObject.isCompositeParent &&
+        !(currentObject.nativeSource?.engine === "blender" && currentObject.nativeSource.provisioned !== false)
+      ) {
+        dispatchUiAuthoring(
+          [
+            {
+              action: "update_object",
+              object_id: id,
+              patch:
+                patch === null
+                  ? { material: null }
+                  : {
+                      ...(patch.baseColor ? { color: patch.baseColor } : {}),
+                      // Pre-merge so the engine's material replacement matches
+                      // the store's partial-merge semantics.
+                      material: mergeDirectorPbrMaterial(currentObject.material, patch),
+                    },
+              force: true,
+            },
+          ],
+          `ui-material:${id}`,
+        );
+        return;
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           objects: updateObjectById(state.project.objects, id, (item) => {
@@ -4003,8 +5142,38 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             };
           }),
         }),
-      ),
-    updateObjectMaterialTexture: (id, slot, assetId) =>
+      );
+    },
+    updateObjectMaterialTexture: (id, slot, assetId) => {
+      const currentState = get();
+      const currentObject = currentState.project.objects.find((item) => item.id === id);
+      if (assetId) {
+        const asset = currentState.project.assets.find((item) => item.id === assetId);
+        if (!asset || asset.sourceType !== "image") return;
+      }
+      if (
+        canUseAuthoringPath() &&
+        currentObject &&
+        currentObject.kind !== "camera" &&
+        !currentObject.isCompositeParent &&
+        !(currentObject.nativeSource?.engine === "blender" && currentObject.nativeSource.provisioned !== false)
+      ) {
+        const textures = { ...(currentObject.material?.textures ?? {}) };
+        if (assetId) textures[slot] = assetId;
+        else delete textures[slot];
+        dispatchUiAuthoring(
+          [
+            {
+              action: "update_object",
+              object_id: id,
+              patch: { material: mergeDirectorPbrMaterial(currentObject.material, { textures }) },
+              force: true,
+            },
+          ],
+          `ui-material-texture:${id}:${slot}`,
+        );
+        return;
+      }
       commitMutation((state) => {
         if (assetId) {
           const asset = state.project.assets.find((item) => item.id === assetId);
@@ -4022,7 +5191,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             };
           }),
         });
-      }),
+      });
+    },
     updateCrowdColor: (crowdId, color) =>
       commitMutation((state) =>
         mapProjectObjects(state, (item) =>
@@ -4030,19 +5200,29 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         ),
       ),
     addLight: (type) => {
-      let lightId = "";
+      const currentState = get();
+      const currentLights = currentState.project.lights ?? [];
+      const lightId = getNextSequentialId(
+        [
+          ...currentLights.map((light) => light.id),
+          ...currentState.project.assets.map((asset) => asset.id),
+          ...currentState.project.objects.map((object) => object.id),
+          ...currentState.project.cameras.map((camera) => camera.id),
+        ],
+        "light_",
+        currentLights.length + 1,
+      );
+      if (canUseAuthoringPath()) {
+        // add_light re-applies the same nativeScene provisioning stamp, so the
+        // created light matches the local construction exactly.
+        dispatchUiAuthoring(
+          [{ action: "add_light", light: createDirectorLight(lightId, type) }],
+          `ui-light-add:${lightId}`,
+        );
+        return lightId;
+      }
       commitMutation((state) => {
         const lights = state.project.lights ?? [];
-        lightId = getNextSequentialId(
-          [
-            ...lights.map((light) => light.id),
-            ...state.project.assets.map((asset) => asset.id),
-            ...state.project.objects.map((object) => object.id),
-            ...state.project.cameras.map((camera) => camera.id),
-          ],
-          "light_",
-          lights.length + 1,
-        );
         const light = createDirectorLight(lightId, type);
         if (state.project.nativeScene && hasBlenderLightRepresentation(type)) {
           light.nativeSource = { engine: "blender", objectId: lightId, provisioned: false };
@@ -4051,7 +5231,22 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       });
       return lightId;
     },
-    updateLight: (id, patch) =>
+    updateLight: (id, patch) => {
+      const currentState = get();
+      const currentLight = (currentState.project.lights ?? []).find((light) => light.id === id);
+      // Type switches rebuild the light from defaults locally, and explicit
+      // nativeSource patches are renderer bookkeeping; both stay local.
+      const isTypeSwitch = Boolean(patch.type && currentLight && patch.type !== currentLight.type);
+      if (canUseAuthoringPath() && currentLight && !isTypeSwitch && !("nativeSource" in patch)) {
+        const { nativeSource: _nativeSource, ...lightPatch } = patch;
+        if (Object.keys(lightPatch).length) {
+          dispatchUiAuthoring(
+            [{ action: "update_light", light_id: id, patch: structuredClone(lightPatch), force: true }],
+            `ui-light:${id}`,
+          );
+        }
+        return;
+      }
       commitMutation((state) => {
         const lights = state.project.lights ?? [];
         return withProjectPatch(state, {
@@ -4073,14 +5268,23 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             return next;
           }),
         });
-      }),
-    removeLight: (id) =>
+      });
+    },
+    removeLight: (id) => {
+      const currentState = get();
+      const target = (currentState.project.lights ?? []).find((light) => light.id === id);
+      if (!target || target.locked) return;
+      if (canUseAuthoringPath()) {
+        dispatchUiAuthoring([{ action: "delete_lights", light_ids: [id] }], `ui-light-remove:${id}`);
+        return;
+      }
       commitMutation((state) => {
         const lights = state.project.lights ?? [];
-        const target = lights.find((light) => light.id === id);
-        if (!target || target.locked) return state;
-        return withProjectPatch(state, { lights: lights.filter((light) => light.id !== id) });
-      }),
+        const light = lights.find((item) => item.id === id);
+        if (!light || light.locked) return state;
+        return withProjectPatch(state, { lights: lights.filter((item) => item.id !== id) });
+      });
+    },
     updateCharacterBodyType: (id, bodyType) =>
       commitMutation((state) => {
         const normalizedBodyType = normalizeBodyType(bodyType);
@@ -4238,6 +5442,10 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           assets: state.project.assets.map((item) => (item.id === assetId ? nextAsset : item)),
         });
       }),
+    // human-only: no authoring twin. createSceneObjectFromAsset stamps the
+    // Blender nativeSource provisioning marker and character rig defaults that
+    // add_object does not author; migrateDirectorProject backfills them only on
+    // load, so runtime asset drops keep the local construction.
     addObjectFromAsset: (assetId) => {
       let nextObjectId: string | null = null;
 
@@ -4253,6 +5461,9 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
       return nextObjectId;
     },
+    // human-only: no authoring twin. add_object forces mannequin body type and
+    // the default ochre for characters, while the preset flow keeps per-add
+    // body types and a rotating distinct-color palette.
     addPresetCharacter: (bodyType = DEFAULT_CHARACTER_BODY_TYPE, color) =>
       commitMutation((state) => {
         const defaultCharacterAsset = getDefaultMixamoCharacterAssetRef();
@@ -4271,6 +5482,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             : [defaultCharacterAsset, ...state.project.assets],
         });
       }),
+    // human-only: no authoring twin. crowdId/crowdLabel grouping is UI-only
+    // state that add_object cannot author.
     addCrowdCharacters: ({ bodyType = DEFAULT_CHARACTER_BODY_TYPE, rows, columns, spacing }) => {
       const createdIds: string[] = [];
 
@@ -4323,9 +5536,9 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
       return createdIds;
     },
-    addGeometryPrimitive: (geometryType) =>
-      commitMutation((state) => {
-        const geometryObjects = state.project.objects.filter((item) => item.kind === "prop" && item.geometryType);
+    addGeometryPrimitive: (geometryType) => {
+      const buildPrimitive = (objects: DirectorObject[]): DirectorObject => {
+        const geometryObjects = objects.filter((item) => item.kind === "prop" && item.geometryType);
         const geometryIndex = geometryObjects.length + 1;
         const sameTypeCount = geometryObjects.filter((item) => item.geometryType === geometryType).length;
         const row = Math.floor((geometryIndex - 1) / 4);
@@ -4334,11 +5547,11 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         const z = row * 0.75 + 1.15;
         const label = getGeometryPrimitiveLabel(geometryType);
         const objectId = getNextSequentialId(
-          state.project.objects.map((item) => item.id),
+          objects.map((item) => item.id),
           `geo_${geometryType}_`,
           geometryIndex,
         );
-        const nextObject: DirectorObject = {
+        return {
           id: objectId,
           name: sameTypeCount === 0 ? label : `${label}${String(sameTypeCount + 1).padStart(2, "0")}`,
           kind: "prop",
@@ -4348,9 +5561,38 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           color: GEOMETRY_PRIMITIVE_COLOR,
           transform: createTransform([x, 0, z]),
         };
-
-        return appendSelectedObject(state, nextObject);
-      }),
+      };
+      if (canUseAuthoringPath()) {
+        const primitive = buildPrimitive(get().project.objects);
+        // In-process authoring still accepts geometry_type for the white-box
+        // primitives; only the public workbench agent wire rejects it.
+        const applied = dispatchUiAuthoring(
+          [
+            {
+              action: "add_object",
+              id: primitive.id,
+              name: primitive.name,
+              kind: "prop",
+              geometry_type: geometryType,
+              color: primitive.color,
+              transform: primitive.transform,
+            },
+          ],
+          `ui-primitive:${primitive.id}`,
+        );
+        if (applied) {
+          // Selection is UI-only state; apply it after the authored commit.
+          commitUiMutation((state) => ({ ...state, ...selectedObjectsPatch([primitive.id]) }));
+        }
+        return;
+      }
+      commitMutation((state) => appendSelectedObject(state, buildPrimitive(state.project.objects)));
+    },
+    // human-only: stays local. Snapshot-created cameras keep the viewport's
+    // exact fov while add_camera always derives fov from focal length (rounding
+    // drift), the UI's sequential cam_N/cam_object_N ids and active-camera
+    // optics inheritance are not authoring concepts, and appendSelectedObject
+    // selection rides in the same undoable commit.
     addCameraShot: (snapshot) => {
       let nextCameraId = "";
 
@@ -4449,15 +5691,42 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     setCrowdCharacterIkEffector: (crowdId, effector, target) => setTargetCharacterIk({ crowdId }, effector, target),
     clearCharacterIkEffector: (id, effector) => clearTargetCharacterIk({ id }, effector),
     clearCrowdCharacterIkEffector: (crowdId, effector) => clearTargetCharacterIk({ crowdId }, effector),
-    setActiveCamera: (cameraId) =>
+    setActiveCamera: (cameraId) => {
+      const currentState = get() as DirectorRuntimeState;
+      const cameraExists = currentState.project.cameras.some((camera) => camera.id === cameraId);
+      // An active camera is the selected physical rig in the Stage. Selection
+      // and viewport aspect stay UI-only state, applied outside the authored
+      // commit so authoring does not dual-write camera fields.
+      const applyUiCameraSelection = () =>
+        commitUiMutation((state) => {
+          const selectedCamera = state.project.cameras.find((camera) => camera.id === cameraId);
+          const selectedObjectId =
+            state.project.objects.find((item) => item.kind === "camera" && item.linkedCameraId === cameraId)?.id ??
+            null;
+          return {
+            ...state,
+            ...selectedObjectsPatch(selectedObjectId ? [selectedObjectId] : []),
+            viewportAspectRatio: selectedCamera?.aspectRatio ?? state.viewportAspectRatio,
+          };
+        });
+      if (canUseAuthoringPath() && cameraExists) {
+        if (currentState.project.activeCameraId !== cameraId) {
+          // Re-activating the current camera only refreshes UI selection;
+          // skipping the dispatch avoids a no-op undo entry.
+          const applied = dispatchUiAuthoring(
+            [{ action: "set_active_camera", camera_id: cameraId }],
+            `ui-active-camera:${cameraId}`,
+          );
+          if (!applied) return;
+        }
+        applyUiCameraSelection();
+        return;
+      }
       commitUiMutation((state) => {
         const selectedCamera = state.project.cameras.find((camera) => camera.id === cameraId);
         const selectedObjectId =
           state.project.objects.find((item) => item.kind === "camera" && item.linkedCameraId === cameraId)?.id ?? null;
 
-        // An active camera is the selected physical rig in the Stage. This
-        // keeps the right inspector synchronized with the viewport camera
-        // properties, matching the direct-manipulation camera workflow.
         return withProjectPatch(
           state,
           { activeCameraId: cameraId },
@@ -4466,7 +5735,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             viewportAspectRatio: selectedCamera?.aspectRatio ?? state.viewportAspectRatio,
           },
         );
-      }),
+      });
+    },
     addCameraCaptures: (cameraId, dataUrls) =>
       commitMutation((state) => {
         if (dataUrls.length === 0) return state;
@@ -4492,7 +5762,29 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
         return withProjectPatch(state, { cameras });
       }),
-    updateCamera: (cameraId, patch) =>
+    updateCamera: (cameraId, patch) => {
+      const currentState = get() as DirectorRuntimeState;
+      const camera = currentState.project.cameras.find((item) => item.id === cameraId);
+      if (canUseAuthoringPath() && camera) {
+        const rig = currentState.project.objects.find(
+          (item) => item.kind === "camera" && item.linkedCameraId === cameraId,
+        );
+        // update_camera requires a linked rig object unless the camera is
+        // Blender-native; it also syncs the rig name like the local mutator.
+        if (rig || camera.nativeSource?.engine === "blender") {
+          const authored = buildCameraAuthoringPatch(camera, patch);
+          if (authored) {
+            dispatchUiAuthoring(
+              [{ action: "update_camera", camera_id: cameraId, patch: authored }],
+              `ui-camera:${cameraId}`,
+            );
+            return;
+          }
+        }
+      }
+      // Local path: rig transform / view target / capture bookkeeping patches
+      // have UI semantics that update_camera cannot express (see
+      // buildCameraAuthoringPatch), plus RAF/gizmo undo batches.
       commitMutation((state) =>
         withProjectPatch(state, {
           cameras: state.project.cameras.map((item) =>
@@ -4519,7 +5811,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               : item,
           ),
         }),
-      ),
+      );
+    },
     setObjectMeasuredLocalBounds: (objectId, bounds) =>
       commitMutation(
         (state) => {
@@ -4534,7 +5827,22 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         },
         { trackUndo: false },
       ),
-    setCameraAnimation: (cameraId, animation) =>
+    setCameraAnimation: (cameraId, animation) => {
+      const cameraExists = get().project.cameras.some((camera) => camera.id === cameraId);
+      if (canUseAuthoringPath() && cameraExists) {
+        dispatchUiAuthoring(
+          [
+            {
+              action: "set_animation",
+              target_type: "camera",
+              target_id: cameraId,
+              animation: animation ? structuredClone(animation) : null,
+            },
+          ],
+          `ui-camera-animation:${cameraId}`,
+        );
+        return;
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           cameras: state.project.cameras.map((camera) =>
@@ -4546,7 +5854,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               : camera,
           ),
         }),
-      ),
+      );
+    },
     copySelectedObjects: () => {
       const currentState = get() as DirectorRuntimeState;
       const clipboard = buildClipboardEntries(currentState);
