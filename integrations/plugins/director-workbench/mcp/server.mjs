@@ -133223,31 +133223,29 @@ var COMMON_RATE_LIST2 = Object.values(DIRECTOR_COMMON_FRAME_RATES2);
 // packages/dcc-protocol/src/directorDccEngineSpace.ts
 var directorDccEngineIdSchema = external_exports.enum(["unreal", "unity", "godot"]);
 var directorDccConnectorProviderIdSchema = external_exports.enum(["blender", "unreal", "unity", "godot"]);
-var DIRECTOR_DCC_ENGINE_SPACES = Object.freeze(
-  {
-    unreal: {
-      handedness: "left",
-      upAxis: "Z",
-      forwardAxis: "+X",
-      unitsPerMeter: 100,
-      linearMap: "(x,y,z)->(-z*100,x*100,y*100)"
-    },
-    unity: {
-      handedness: "left",
-      upAxis: "Y",
-      forwardAxis: "+Z",
-      unitsPerMeter: 1,
-      linearMap: "(x,y,z)->(x,y,-z)"
-    },
-    godot: {
-      handedness: "right",
-      upAxis: "Y",
-      forwardAxis: "-Z",
-      unitsPerMeter: 1,
-      linearMap: "(x,y,z)->(x,y,z)"
-    }
+var DIRECTOR_DCC_ENGINE_SPACES = Object.freeze({
+  unreal: {
+    handedness: "left",
+    upAxis: "Z",
+    forwardAxis: "+X",
+    unitsPerMeter: 100,
+    linearMap: "(x,y,z)->(-z*100,x*100,y*100)"
+  },
+  unity: {
+    handedness: "left",
+    upAxis: "Y",
+    forwardAxis: "+Z",
+    unitsPerMeter: 1,
+    linearMap: "(x,y,z)->(x,y,-z)"
+  },
+  godot: {
+    handedness: "right",
+    upAxis: "Y",
+    forwardAxis: "-Z",
+    unitsPerMeter: 1,
+    linearMap: "(x,y,z)->(x,y,z)"
   }
-);
+});
 var ENGINE_PERMUTATIONS = {
   unreal: new Matrix4().set(0, 0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1),
   unity: new Matrix4().set(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1),
@@ -133675,6 +133673,42 @@ function engineProvider(id4, label, preferredFormat, exchangeFormats) {
     connectorDirectory: `integrations/${id4}`
   });
 }
+function unityEngineProvider() {
+  const exchangeFormats = ["glb", "usda"];
+  return directorDccProviderDescriptorSchema.parse({
+    id: "unity",
+    label: "Unity",
+    category: "engine",
+    integration: "engine-headless",
+    preferredFormat: "glb",
+    exchangeFormats,
+    capabilities: [
+      // Scene layout and cameras still travel through the portable package;
+      // the connector performs the host-side import but the format carries them.
+      { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      // The connector bakes Director keyframe/trajectory animation into Unity
+      // AnimationClips on Timeline; unsupported channels warn-and-omit.
+      { id: "animation", level: "native", layer: "connector" },
+      // Humanoid Avatars are built from Mixamo-compatible skinned GLB payloads
+      // (generic Avatar fallback); characters resolve by assetRefId, never index.
+      { id: "skeleton", level: "native", layer: "connector" },
+      // Director PBR manifest materials fall back to URP/Lit or Standard;
+      // unsupported material graphs warn-and-omit.
+      { id: "materials", level: "native", layer: "connector" },
+      // The Director manifest and connector preserve stable director:id
+      // metadata on both directions of the handoff.
+      { id: "stable_ids", level: "native", layer: "director-manifest" },
+      // Headless import/return round trip is performed by the Director-authored
+      // connector; runtime availability is still gated by nativeReady.
+      { id: "roundtrip", level: "native", layer: "connector" },
+      { id: "headless", level: "native", layer: "connector" },
+      // No live preview transport ships yet; see MULTI_DCC_INTEGRATION.md.
+      { id: "live_link", level: "planned", layer: "connector" }
+    ],
+    connectorDirectory: "integrations/unity"
+  });
+}
 var DIRECTOR_DCC_PROVIDERS = Object.freeze([
   directorDccProviderDescriptorSchema.parse({
     id: "blender",
@@ -133700,7 +133734,7 @@ var DIRECTOR_DCC_PROVIDERS = Object.freeze([
   engineProvider("unreal", "Unreal Engine", "usda", ["usda", "glb"]),
   exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("unity", "Unity", "glb", ["glb", "usda"]),
+  unityEngineProvider(),
   exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
   engineProvider("godot", "Godot", "glb", ["glb"])
 ]);
@@ -133894,6 +133928,24 @@ var directorDccConnectorManifestSchema = external_exports.strictObject({
   /** Human-readable host requirement, e.g. "Unreal Engine 5.3+". */
   hostRequirement: nonEmpty4.max(200)
 });
+var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
+  /** Project-relative Timeline asset path, or null when no shots/animation mapped. */
+  timelinePath: external_exports.string().trim().min(1).max(1024).nullable(),
+  /** Render pipeline the material fallback targeted during the run. */
+  renderPipeline: external_exports.enum(["built-in", "urp", "hdrp", "custom"]),
+  /** Whether a glTF ScriptedImporter produced prefabs for GLB payloads. */
+  gltfImporterAvailable: external_exports.boolean(),
+  /** Lights created from the manifest with director_id markers. */
+  importedLightCount: external_exports.number().int().nonnegative(),
+  /** AnimationClips baked from Director keyframe/trajectory channels. */
+  bakedAnimationClipCount: external_exports.number().int().nonnegative(),
+  /** Humanoid Avatars built from Mixamo-compatible skinned payloads. */
+  humanoidAvatarCount: external_exports.number().int().nonnegative(),
+  /** Generic Avatars built where Humanoid mapping was not possible. */
+  genericAvatarCount: external_exports.number().int().nonnegative(),
+  /** Materials created from Director PBR manifest fallback. */
+  materialFallbackCount: external_exports.number().int().nonnegative()
+});
 var directorDccEngineReportSchema = external_exports.strictObject({
   ok: external_exports.literal(true),
   contract: external_exports.literal(DIRECTOR_DCC_ENGINE_REPORT_CONTRACT),
@@ -133909,7 +133961,17 @@ var directorDccEngineReportSchema = external_exports.strictObject({
   scenePath: external_exports.string().trim().min(1).max(1024).nullable(),
   /** Relative directory of an echoed return package when the connector produced one. */
   returnPackageDir: safeRelativePathSchema.nullable(),
-  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4)
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4),
+  /** Unity connector details; only the unity provider may write this block. */
+  unity: directorDccUnityEngineReportDetailsSchema.optional()
+}).superRefine((report, context) => {
+  if (report.unity && report.provider !== "unity") {
+    context.addIssue({
+      code: "custom",
+      path: ["unity"],
+      message: "only unity connector reports may carry the unity details block"
+    });
+  }
 });
 var directorDccEngineHealthCheckIdSchema = external_exports.enum([
   "executable",
