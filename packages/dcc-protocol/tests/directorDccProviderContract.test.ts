@@ -144,14 +144,17 @@ describe("Director DCC provider contract", () => {
       expect(byId.get("roundtrip")).toEqual({ id: "roundtrip", level: "native", layer: "connector" });
       expect(byId.get("stable_ids")).toEqual({ id: "stable_ids", level: "native", layer: "director-manifest" });
       // Unreal, Unity, and Godot each ship a tested native subset for
-      // animation/skeleton/materials; live_link stays planned.
+      // animation/skeleton/materials.
       for (const id of ["animation", "skeleton", "materials"] as const) {
         expect(byId.get(id)).toEqual({ id, level: "native", layer: "connector" });
       }
       // Unreal ships a tested preview-only live link (Gateway loopback
-      // transport + connector session, disconnect/reorder/duplicate tests);
-      // it is never the durable scene channel. Unity and Godot stay planned.
-      const livePreviewLevel = descriptor.id === "unreal" ? "native" : "planned";
+      // transport + connector session, disconnect/reorder/duplicate tests) and
+      // Unity ships a preview-only outbound polling live link (scoped bearer
+      // token + sequence numbers) whose disconnect safety is pinned by the
+      // gateway unityLiveLink tests. Neither is ever the durable scene
+      // channel. Godot stays planned.
+      const livePreviewLevel = descriptor.id === "unreal" || descriptor.id === "unity" ? "native" : "planned";
       expect(byId.get("live_link")).toEqual({ id: "live_link", level: livePreviewLevel, layer: "connector" });
     }
   });

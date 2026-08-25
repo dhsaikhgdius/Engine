@@ -85,6 +85,7 @@ import { createDirectorDccEngineBridge } from "./dcc/engineBridge";
 import { createEngineSceneImporter } from "./dcc/engineSceneImport";
 import { handleDccRoute } from "./routes/dccRoutes";
 import { createDirectorDccProviderRegistry, registerConfiguredDirectorDccProviders } from "./dcc/dccProviderRegistry";
+import { createUnityLiveLinkHub } from "./dcc/unityLiveLink";
 import { createDirectorDccExchangePackager } from "./dcc/dccExchangePackage";
 import { createBlenderNativeSession, BlenderNativeSessionError } from "./dcc/blenderNativeSession";
 import { bindBlenderNativeSessionProject, executeBlenderNativeTool } from "./dcc/blenderNativeTool";
@@ -277,6 +278,7 @@ const dccProviders = createDirectorDccProviderRegistry({
   workspaceRoot: root,
 });
 await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
+const unityLiveLinkHub = createUnityLiveLinkHub();
 const blenderNativeSession = createBlenderNativeSession(controlPlaneConfig.dcc.blender);
 
 /** Hard deadline in milliseconds for a planner subprocess to produce output. */
@@ -2226,6 +2228,7 @@ const server = createServer(async (request, response) => {
         returnImporter: blenderReturnImporter,
         engineBridge: dccEngineBridge,
         engineReturnImporters: dccEngineReturnImporters,
+        unityLiveLink: unityLiveLinkHub,
         applyAuthoring: async (operation) => {
           const remote = await requestWorkbenchCommand(operation);
           return remote

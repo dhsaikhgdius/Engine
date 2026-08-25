@@ -178,15 +178,16 @@ namespace Director.Bridge.Editor.Tests
         }
 
         [Test]
-        public void CameraChannelsAndUnsupportedChannelsAreReported()
+        public void CameraChannelsPoseChannelsAndUnsupportedChannelsAreReported()
         {
             var evaluator = new DirectorAnimationEvaluator(JObject.Parse(@"{
                 ""version"": 1,
                 ""enabled"": true,
                 ""keyframes"": [
                     { ""frame"": 0, ""fov"": 40, ""lookTarget"": [0,1,0], ""lookTargetObjectId"": ""hero"",
-                      ""poseValues"": { ""arm"": 0.5 } },
-                    { ""frame"": 20, ""fov"": 60, ""lookTarget"": [2,1,0], ""lookTargetObjectId"": null }
+                      ""poseValues"": { ""leftShoulder.spread"": 40 } },
+                    { ""frame"": 20, ""fov"": 60, ""lookTarget"": [2,1,0], ""lookTargetObjectId"": null,
+                      ""poseValues"": { ""leftShoulder.spread"": -20 } }
                 ],
                 ""motionBlocks"": [
                     { ""id"": ""walk"", ""clipId"": ""mixamo:walk"", ""enabled"": true, ""loop"": ""loop"",
@@ -203,7 +204,18 @@ namespace Director.Bridge.Editor.Tests
             Assert.That(lookTarget[0], Is.EqualTo(1.0).Within(Tolerance));
             Assert.That(evaluator.EvaluateWaypointTargetObjectId(10), Is.EqualTo("hero"));
             Assert.That(evaluator.EvaluateWaypointTargetObjectId(20), Is.Null);
-            Assert.That(evaluator.UnsupportedChannels, Does.Contain("poseValues"));
+
+            Assert.That(evaluator.HasPoseChannels, Is.True);
+            var baseControls = new System.Collections.Generic.Dictionary<string, double>
+            {
+                ["torso.pitch"] = 5.0,
+            };
+            System.Collections.Generic.Dictionary<string, double> pose =
+                evaluator.EvaluatePoseValues(10, baseControls);
+            Assert.That(pose["leftShoulder.spread"], Is.EqualTo(10.0).Within(Tolerance));
+            Assert.That(pose["torso.pitch"], Is.EqualTo(5.0).Within(Tolerance), "base controls merge through");
+
+            Assert.That(evaluator.UnsupportedChannels, Does.Not.Contain("poseValues"));
             Assert.That(evaluator.UnsupportedChannels, Does.Contain("motionBlocks"));
         }
 

@@ -15,10 +15,12 @@ namespace Director.Bridge.Editor
     /// Supported channels: transform keyframes (step/linear/smooth easing plus
     /// CSS cubic-bezier timing curves), trajectory presets (speed, bezier
     /// position handles, circle geometry, orient-to-path), camera fov,
-    /// camera look targets, and camera waypoint target objects. Unsupported
-    /// channels (character pose values, skeletal motion blocks, procedural
-    /// gait) are surfaced through <see cref="UnsupportedChannels"/> so the
-    /// importer can warn-and-omit instead of silently flattening them.
+    /// camera look targets, camera waypoint target objects, and per-control
+    /// character pose values (evaluated by <see cref="EvaluatePoseValues"/>
+    /// and baked by DirectorPoseImport on Mixamo-compatible rigs).
+    /// Unsupported channels (skeletal motion blocks, procedural gait) are
+    /// surfaced through <see cref="UnsupportedChannels"/> so the importer can
+    /// warn-and-omit instead of silently flattening them.
     /// </summary>
     public sealed class DirectorAnimationEvaluator
     {
@@ -57,6 +59,8 @@ namespace Director.Bridge.Editor
         private readonly List<Key<TransformValue>> _transformKeys = new List<Key<TransformValue>>();
         private readonly List<Key<double>> _fovKeys = new List<Key<double>>();
         private readonly List<Key<double[]>> _lookTargetKeys = new List<Key<double[]>>();
+        private readonly Dictionary<string, List<Key<double>>> _poseChannels =
+            new Dictionary<string, List<Key<double>>>();
         private readonly List<(double Frame, string TargetObjectId)> _waypointTargets =
             new List<(double, string)>();
 
@@ -77,6 +81,12 @@ namespace Director.Bridge.Editor
 
         /// <summary>True when the animation carries look-target keys or waypoint target objects.</summary>
         public bool HasLookChannel => _enabled && (_lookTargetKeys.Count > 0 || _waypointTargets.Count > 0);
+
+        /// <summary>True when the animation carries per-control pose value keyframes.</summary>
+        public bool HasPoseChannels => _enabled && _poseChannels.Count > 0;
+
+        /// <summary>The pose control keys that carry keyframes in this animation.</summary>
+        public IEnumerable<string> PoseControlKeys => _poseChannels.Keys;
 
         public DirectorAnimationEvaluator(JObject animation)
         {
@@ -160,10 +170,23 @@ namespace Director.Bridge.Editor
                 {
                     _waypointTargets.Add((frame, (string)keyframe["lookTargetObjectId"]));
                 }
-                if (keyframe["poseValues"] is JObject poseValues && poseValues.Count > 0 &&
-                    !unsupported.Contains("poseValues"))
+                if (keyframe["poseValues"] is JObject poseValues)
                 {
-                    unsupported.Add("poseValues");
+                    foreach (KeyValuePair<string, JToken> control in poseValues)
+                    {
+                        if (!_poseChannels.TryGetValue(control.Key, out List<Key<double>> channel))
+                        {
+                            channel = new List<Key<double>>();
+                            _poseChannels[control.Key] = channel;
+                        }
+                        channel.Add(new Key<double>
+                        {
+                            Frame = frame,
+                            Interpolation = interpolation,
+                            TimingCurve = timingCurve,
+                            Value = (double)control.Value,
+                        });
+                    }
                 }
             }
             FirstFrame = firstFrame;
@@ -183,6 +206,10 @@ namespace Director.Bridge.Editor
             _transformKeys.Sort((left, right) => left.Frame.CompareTo(right.Frame));
             _fovKeys.Sort((left, right) => left.Frame.CompareTo(right.Frame));
             _lookTargetKeys.Sort((left, right) => left.Frame.CompareTo(right.Frame));
+            foreach (List<Key<double>> channel in _poseChannels.Values)
+            {
+                channel.Sort((left, right) => left.Frame.CompareTo(right.Frame));
+            }
             _waypointTargets.Sort((left, right) => left.Frame.CompareTo(right.Frame));
         }
 
@@ -279,6 +306,33 @@ namespace Director.Bridge.Editor
         {
             if (!_enabled || _lookTargetKeys.Count == 0) return null;
             return EvaluateSortedKeys(_lookTargetKeys, frame, LerpVec3);
+        }
+
+        /// <summary>
+        /// Evaluates every keyframed pose control at a frame over the rig's
+        /// base control values, ported from evaluatePoseValuesAnimation: the
+        /// base dictionary is returned merged with only the controls whose
+        /// interpolated value differs from the base.
+        /// </summary>
+        public Dictionary<string, double> EvaluatePoseValues(
+            double frame, IReadOnlyDictionary<string, double> baseControls)
+        {
+            var merged = new Dictionary<string, double>();
+            if (baseControls != null)
+            {
+                foreach (KeyValuePair<string, double> control in baseControls)
+                {
+                    merged[control.Key] = control.Value;
+                }
+            }
+            if (!_enabled || _poseChannels.Count == 0) return merged;
+            foreach (KeyValuePair<string, List<Key<double>>> channel in _poseChannels)
+            {
+                double value = EvaluateSortedKeys(
+                    channel.Value, frame, (left, right, weight) => left + (right - left) * weight);
+                merged[channel.Key] = value;
+            }
+            return merged;
         }
 
         /// <summary>

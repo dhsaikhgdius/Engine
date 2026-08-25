@@ -22,6 +22,7 @@ import {
 import type { BlenderBridge } from "./blenderBridge";
 import type { DirectorDccEngineBridge } from "./engineBridge";
 import { GODOT_DEFAULT_EXECUTABLE_PATHS, GODOT_EXECUTABLE_COMMANDS } from "./godotProbe";
+import { UNITY_STATIC_EDITOR_PATHS } from "./unityProbe";
 
 /**
  * A pluggable adapter that vends a DCC provider's descriptor and live status.
@@ -135,8 +136,13 @@ const RUNTIME_PROBES: Partial<Record<DirectorDccProviderId, RuntimeProbe>> = {
   },
   unity: {
     environmentVariable: "DIRECTOR_UNITY_BIN",
-    commands: ["Unity", "unity-editor"],
-    paths: ["/opt/director-dcc/unity/Editor/Unity", "/Applications/Unity/Unity.app/Contents/MacOS/Unity"],
+    commands: ["Unity", "unity-editor", "Unity.exe"],
+    // Exchange-fallback detection only; the engine bridge performs the full
+    // per-platform Unity Hub scan through unityProbe.ts.
+    paths: [
+      "/opt/director-dcc/unity/Editor/Unity",
+      ...new Set(Object.values(UNITY_STATIC_EDITOR_PATHS).flat()),
+    ],
     scanRoots: [
       { root: "/opt/director-dcc", suffix: "Editor/Unity" },
       { root: "Unity/Hub/Editor", homeRelative: true, suffix: "Editor/Unity" },
