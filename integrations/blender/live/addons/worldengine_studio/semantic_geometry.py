@@ -301,7 +301,7 @@ def _node_property_inspection(node: bpy.types.Node) -> dict[str, Any]:
 
 def _apply_geometry_node_properties(node: bpy.types.Node, properties: dict[str, Any]) -> None:
     for key, value in properties.items():
-        if kernel_policy._RNA_PATH_DENY.match(key):
+        if kernel_policy._TYPED_PROPERTY_DENY.match(key):
             raise ValueError(
                 f"Geometry node property is outside the Director modeling kernel: {key}"
             )
