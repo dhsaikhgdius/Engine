@@ -19,6 +19,11 @@ import {
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
 const jobPathSchema = z.string().uuid();
+/** Cursor query for the preview-only live-link feed: both parts or neither. */
+const liveLinkCursorQuerySchema = z.strictObject({
+  sceneEpoch: z.string().uuid(),
+  since: z.coerce.number().int().nonnegative(),
+});
 const MAX_NATIVE_MODEL_BYTES = 512 * 1024 * 1024;
 const NATIVE_MODEL_EXTENSIONS = new Set([".fbx", ".obj", ".glb", ".gltf"]);
 /** Gaussian splatting scene captures rendered by Spark in the browser viewport. */
@@ -287,6 +292,7 @@ async function binaryScenePreview(session: BlenderNativeSession): Promise<Cached
  * Routes handled: `/api/dcc/blender/assets` (POST native model upload),
  * `/api/tools/blender_native` (POST tool execution), `/api/dcc/blender/status`,
  * `/api/dcc/blender/scene`, `/api/dcc/blender/preview.glb` (GET binary GLB),
+ * `/api/dcc/blender/live-link` (GET preview-only delta frames),
  * `/api/dcc/blender/commands` (POST command batch), and
  * `/api/dcc/blender/jobs/:id` (GET job status).
  *
@@ -386,6 +392,45 @@ export async function handleBlenderLiveRoute(
   if (request.method === "GET" && url.pathname === "/api/dcc/blender/scene") {
     try {
       json(response, 200, { success: true, result: await session.snapshot() });
+    } catch (error) {
+      writeSessionError(response, json, error);
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/dcc/blender/live-link") {
+    if (request.method !== "GET") {
+      json(response, 405, {
+        success: false,
+        code: "blender_method_not_allowed",
+        error: "Blender live-link polling requires GET.",
+      });
+      return true;
+    }
+    // Preview-only delta feed: frames mirror in-progress Blender edits on the
+    // Stage without ever authoring into the Director project. Committing state
+    // still goes through the reviewed return/import path or revision-guarded
+    // command batches.
+    const epoch = url.searchParams.get("epoch");
+    const since = url.searchParams.get("since");
+    let cursor: { sceneEpoch: string; since: number } | undefined;
+    if (epoch !== null || since !== null) {
+      const parsed =
+        epoch !== null && since !== null
+          ? liveLinkCursorQuerySchema.safeParse({ sceneEpoch: epoch, since })
+          : null;
+      if (!parsed?.success) {
+        json(response, 400, {
+          success: false,
+          code: "blender_live_link_cursor_invalid",
+          error: "Live-link cursor requires a UUID epoch and a non-negative integer since, together.",
+        });
+        return true;
+      }
+      cursor = parsed.data;
+    }
+    try {
+      json(response, 200, { success: true, result: await session.liveLink(cursor) });
     } catch (error) {
       writeSessionError(response, json, error);
     }

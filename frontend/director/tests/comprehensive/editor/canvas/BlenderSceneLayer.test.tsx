@@ -26,6 +26,7 @@ const liveClient = vi.hoisted(() => ({
   getPreview: vi.fn(),
   getScene: vi.fn(),
   getStatus: vi.fn(),
+  pollLiveLink: vi.fn(),
 }));
 
 vi.mock("../../../../src/comprehensive/editor/api/blenderLiveClient", () => ({
@@ -34,6 +35,7 @@ vi.mock("../../../../src/comprehensive/editor/api/blenderLiveClient", () => ({
   getBlenderLivePreviewGlb: liveClient.getPreview,
   getBlenderLiveScene: liveClient.getScene,
   getBlenderLiveStatus: liveClient.getStatus,
+  pollBlenderLiveLink: liveClient.pollLiveLink,
   blenderSetSceneFrameOperation: (frame: number) => ({ op: "set_scene_frame", frame }),
 }));
 
@@ -73,6 +75,7 @@ vi.mock("../../../../src/comprehensive/editor/canvas/SceneRoot", () => ({
 import {
   applyDirectorOwnedBlenderVisibility,
   applyBlenderDirectorSegmentationMetadata,
+  applyBlenderLiveLinkFrames,
   collectHiddenBlenderVisualIds,
   collectBlenderStaticMeshes,
   buildDirectorBlenderOperations,
@@ -1228,6 +1231,202 @@ describe("BlenderSceneLayer", () => {
     expect(loadScene).toHaveBeenCalledTimes(1);
     expect(cubeNode.position.x).toBeCloseTo(3);
     expect(collisionChanges.mock.calls.at(-1)?.[0]).toMatchObject({ versionKey: "scene-epoch-a:2" });
+  });
+
+  it("re-poses object and light nodes from live-link transform frames, parents before children", () => {
+    const scene = new Group();
+    const parent = new Group();
+    parent.userData.worldengine_id = "parent";
+    const child = new Group();
+    child.userData.worldengine_id = "child";
+    parent.add(child);
+    scene.add(parent);
+    const lamp = new Group();
+    lamp.userData.worldengine_id = "lamp";
+    scene.add(lamp);
+
+    const applied = applyBlenderLiveLinkFrames(
+      scene,
+      [
+        {
+          seq: 5,
+          kind: "transform",
+          revision: 5,
+          frame: 1,
+          objects: [
+            // Child listed first on purpose: the parent map must still re-pose the parent first.
+            { id: "child", position: [3, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            { id: "parent", position: [2, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            { id: "missing-from-glb", position: [9, 9, 9], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            { id: "lamp", position: [Number.NaN, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+          ],
+          cameras: [],
+          lights: [{ id: "lamp", position: [0, 4, 0], rotation: [0, 0, 0], color: [1, 1, 1], energy: 800 }],
+        },
+      ],
+      new Map([
+        ["parent", null],
+        ["child", "parent"],
+      ]),
+    );
+
+    expect(applied).toBe(true);
+    expect(parent.position.x).toBeCloseTo(2);
+    // Scene-space [3,0,0] under a parent at [2,0,0] resolves to local x=1.
+    expect(child.position.x).toBeCloseTo(1);
+    expect(lamp.position.y).toBeCloseTo(4);
+    expect(lamp.position.x).toBeCloseTo(0);
+  });
+
+  it("ignores live-link structure frames instead of guessing at topology changes", () => {
+    const scene = new Group();
+    const node = new Group();
+    node.userData.worldengine_id = "cube-a";
+    scene.add(node);
+
+    expect(
+      applyBlenderLiveLinkFrames(scene, [
+        { seq: 7, kind: "structure", revision: 7, frame: 1, objects: [], cameras: [], lights: [] },
+      ]),
+    ).toBe(false);
+    expect(node.position.x).toBe(0);
+  });
+
+  it("mirrors live-link frames onto the mounted preview and camera without writing Director state", async () => {
+    vi.useFakeTimers();
+    const epoch = "0f8b7e62-6f4e-49b5-9d2e-91f5f8f3f9a1";
+    const baseCamera = {
+      id: "native-camera",
+      name: "Native camera",
+      position: [1, 2, 3] as [number, number, number],
+      rotation: [0, 0, 0] as [number, number, number],
+      projectionType: "PERSPECTIVE" as const,
+      focalLengthMm: 36,
+      sensorFit: "HORIZONTAL" as const,
+      sensorWidthMm: 36,
+      sensorHeightMm: 24,
+      shiftX: 0,
+      shiftY: 0,
+      clipStart: 0.05,
+      clipEnd: 750,
+      orthographicScale: 6,
+      active: true,
+    };
+    liveClient.getStatus.mockResolvedValue({
+      ...availableStatus(4, epoch),
+      liveLink: { seq: 3, bufferedFrames: 1, capacity: 128 },
+    });
+    liveClient.getScene.mockResolvedValue({ ...sceneSnapshot(4, epoch), cameras: [baseCamera] });
+    liveClient.getPreview.mockResolvedValue({ blob: new Blob(["glb"]), revision: 4, sceneEpoch: epoch });
+    const chairNode = new Group();
+    chairNode.userData.worldengine_id = "chair";
+    const mounted = new Group();
+    mounted.add(chairNode);
+    liveClient.pollLiveLink
+      .mockResolvedValueOnce({
+        kind: "frames",
+        contract: BLENDER_LIVE_CONTRACT,
+        sceneEpoch: epoch,
+        seq: 4,
+        frames: [
+          {
+            seq: 4,
+            kind: "transform",
+            revision: 5,
+            frame: 1,
+            objects: [{ id: "chair", position: [5, 0, -2], rotation: [0, 0, 0], scale: [1, 1, 1] }],
+            cameras: [{ id: "native-camera", position: [4, 2, 3], rotation: [0, 0, 0], focalLengthMm: 50, active: true }],
+            lights: [],
+          },
+        ],
+      })
+      .mockResolvedValue({ kind: "frames", contract: BLENDER_LIVE_CONTRACT, sceneEpoch: epoch, seq: 4, frames: [] });
+    const cameraChanges = vi.fn();
+    const projectBefore = useDirectorStore.getState().project;
+
+    render(
+      <BlenderSceneLayer
+        liveLinkPollIntervalMs={100}
+        loadScene={vi.fn().mockResolvedValue(mounted)}
+        onActiveCameraChange={cameraChanges}
+        pollIntervalMs={60_000}
+        referenceRoot={new Group()}
+        visible
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(liveClient.pollLiveLink).toHaveBeenCalledWith(
+      { sceneEpoch: epoch, since: 3 },
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(chairNode.position.x).toBeCloseTo(5);
+    expect(chairNode.position.z).toBeCloseTo(-2);
+    expect(cameraChanges.mock.calls.at(-1)?.[0]).toMatchObject({ position: [4, 2, 3], focalLengthMm: 50 });
+    // Read-only guarantee: the preview never wrote into the Director project
+    // or submitted anything back to Blender.
+    expect(useDirectorStore.getState().project).toBe(projectBefore);
+    expect(liveClient.applyOperations).not.toHaveBeenCalled();
+    expect(useBlenderRuntimeStore.getState().refreshRequestId).toBe(0);
+  });
+
+  it("pauses live-link deltas and requests an authoritative resync on a sequence gap", async () => {
+    vi.useFakeTimers();
+    const epoch = "0f8b7e62-6f4e-49b5-9d2e-91f5f8f3f9a1";
+    liveClient.getStatus.mockResolvedValue({
+      ...availableStatus(4, epoch),
+      liveLink: { seq: 3, bufferedFrames: 1, capacity: 128 },
+    });
+    liveClient.getScene.mockResolvedValue(sceneSnapshot(4, epoch));
+    liveClient.getPreview.mockResolvedValue({ blob: new Blob(["glb"]), revision: 4, sceneEpoch: epoch });
+    const chairNode = new Group();
+    chairNode.userData.worldengine_id = "chair";
+    const mounted = new Group();
+    mounted.add(chairNode);
+    // seq jumps from cursor 3 straight to 5: frame 4 was lost, applying 5 would desynchronize.
+    liveClient.pollLiveLink.mockResolvedValue({
+      kind: "frames",
+      contract: BLENDER_LIVE_CONTRACT,
+      sceneEpoch: epoch,
+      seq: 5,
+      frames: [
+        {
+          seq: 5,
+          kind: "transform",
+          revision: 6,
+          frame: 1,
+          objects: [{ id: "chair", position: [9, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }],
+          cameras: [],
+          lights: [],
+        },
+      ],
+    });
+
+    render(
+      <BlenderSceneLayer
+        liveLinkPollIntervalMs={100}
+        loadScene={vi.fn().mockResolvedValue(mounted)}
+        pollIntervalMs={60_000}
+        referenceRoot={new Group()}
+        visible
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(chairNode.position.x).toBe(0);
+    expect(useBlenderRuntimeStore.getState().refreshRequestId).toBeGreaterThanOrEqual(1);
+    const pollCalls = liveClient.pollLiveLink.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    // Deltas stay paused until the authoritative snapshot resyncs the guard.
+    expect(liveClient.pollLiveLink.mock.calls.length).toBe(pollCalls);
+    expect(chairNode.position.x).toBe(0);
   });
 
   it("still reloads the preview GLB when the kernel reports a content change", async () => {

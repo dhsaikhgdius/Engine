@@ -19,6 +19,7 @@ import {
   getBlenderLivePreviewGlb,
   getBlenderLiveStatus,
   inspectBlenderLiveObject,
+  pollBlenderLiveLink,
   submitBlenderLiveCommands,
   blenderAssignMaterialOperation,
   blenderAddNlaStripOperation,
@@ -197,6 +198,73 @@ describe("Blender live client", () => {
 
     await expect(getBlenderLiveScene({ signal })).resolves.toMatchObject({ revision: 7 });
     expect(transport.fetch).toHaveBeenCalledWith("/api/dcc/blender/scene", { signal });
+  });
+
+  it("polls the preview-only live-link feed without a cursor as first contact", async () => {
+    transport.fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          result: {
+            kind: "resync",
+            contract: BLENDER_LIVE_CONTRACT,
+            sceneEpoch,
+            seq: 9,
+            reason: "initial",
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(pollBlenderLiveLink()).resolves.toMatchObject({ kind: "resync", reason: "initial", seq: 9 });
+    expect(transport.fetch).toHaveBeenCalledWith("/api/dcc/blender/live-link", { signal: undefined });
+  });
+
+  it("polls the live-link feed with a replay-guard cursor and validates the frames", async () => {
+    const signal = new AbortController().signal;
+    transport.fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          result: {
+            kind: "frames",
+            contract: BLENDER_LIVE_CONTRACT,
+            sceneEpoch,
+            seq: 11,
+            frames: [
+              {
+                seq: 11,
+                kind: "transform",
+                revision: 11,
+                frame: 1,
+                objects: [{ id: "chair", position: [1, 0, 2], rotation: [0, 0.5, 0], scale: [1, 1, 1] }],
+                cameras: [],
+                lights: [],
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(pollBlenderLiveLink({ sceneEpoch, since: 10 }, { signal })).resolves.toMatchObject({
+      kind: "frames",
+      seq: 11,
+      frames: [{ seq: 11, objects: [{ id: "chair" }] }],
+    });
+    expect(transport.fetch).toHaveBeenCalledWith(`/api/dcc/blender/live-link?epoch=${sceneEpoch}&since=10`, {
+      signal,
+    });
+  });
+
+  it("rejects a live-link payload that does not match the shared contract", async () => {
+    transport.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ success: true, result: { kind: "frames", frames: "nope" } }), { status: 200 }),
+    );
+
+    await expect(pollBlenderLiveLink()).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("reads the authenticated binary preview and its authoritative revision", async () => {
