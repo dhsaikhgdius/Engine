@@ -1422,6 +1422,8 @@
   "输入 API 密钥，或留空使用环境认证": "Enter an API key, or leave blank to use environment authentication",
   "已配置——输入新值可替换": "Configured — enter a new value to replace",
   "由启动环境提供（只读）": "Provided by the launch environment (read-only)",
+  "当前 Director 角色为只读": "The current Director role is read-only",
+  "当前 Director 角色为只读，禁止修改场景。": "The current Director role is read-only; scene edits are not allowed.",
   "加载提供方目录失败": "Loading the provider directory failed",
   "重试": "Retry",
   "本地 MCP": "Local MCP",

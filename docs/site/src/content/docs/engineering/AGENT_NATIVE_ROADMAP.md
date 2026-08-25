@@ -67,7 +67,7 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 | **M0** | Baseline & metrics         | **Partial**     | Stage inventory + parity tests + Feature Status row shipped; generator and `stage_*` map open                  | —                       |
 | **M1** | Shared action registry     | **Partial**     | Stage one-shot mutators share `applyDirectorAuthoringActions`; Canvas/Video (1e/1f) open                       | M0                      |
 | **M2** | Remove human-only surfaces | **Implemented** | Interchange export + import (plan-import/import) and collaboration reads/writes (resolve, version create/restore, …) are JSON operations | M1 (partially parallel) |
-| **M3** | Unified gateway governance | **Implemented** | Shared `filmRoleToolPolicy` on MCP / local / hosted / raw HTTP+CLI; source-tagged `/api/tools/*` audit trail | M1                      |
+| **M3** | Unified gateway governance | **Partial** | Policy, unified audit, and confirmation boundaries now guard raw HTTP/CLI; role-gated UI shipped; read-only mode open | M1                      |
 | **M4** | In-product workspace       | Planned         | SQL-backed instructions / skills / memory                                                                    | M3                      |
 | **M5** | Observability              | Planned         | Traces, cost, long-running progress                                                                          | M3                      |
 | **M6** | Team readiness             | Planned         | Collaboration auth, multi-agent enhancements                                                                 | M3, M5                  |
@@ -217,7 +217,7 @@ media bytes still never enter Yjs.
 
 ## Milestone 3 — Unified gateway governance
 
-**Status: Implemented** (verified 2026-08-25). Optional UI permission gating and confirmation boundaries continue as follow-ups.
+**Status: Partial** (verified 2026-08-25).
 
 **Goal:** every control surface obeys the same permission and audit policy.
 
@@ -230,36 +230,34 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
 | MCP            | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                                                                                                                                                                        |
 | Local harness  | `agentAdapters.ts` prompt + `filmRoleToolPolicyRejection` before tool dispatch                                                                                                                                                 |
 | Hosted adapter | `openAiCompatibleAdapter.ts` visibility + rejection                                                                                                                                                                            |
-| Raw HTTP / CLI | `backend/gateway/agents/httpToolPolicy.ts` on every `/api/tools/*` route (`DIRECTOR_FILM_ROLE` + `DIRECTOR_PLAN_MODE`, same 403 rejection body as MCP; covers the Stage CLI and the DSH plugin, which POST to the same routes) |
+| Raw HTTP / CLI | `backend/gateway/agents/httpToolGovernance.ts` on every `/api/tools/*` route (`x-director-film-role` header, then `DIRECTOR_FILM_ROLE`; same 403 rejection body as MCP; covers the Stage CLI and the DSH plugin, which POST to the same routes) |
 
-#### 3.1 Raw HTTP and CLI permissions (shipped)
+#### 3.1 Raw HTTP and CLI permissions
 
-- `filmRoleToolPolicy` now gates raw `POST /api/tools/{tool-name}` (and therefore the CLI and DSH plugin) through the shared `httpToolPolicyRejection` helper, before any browser-target execution.
-- An unknown `DIRECTOR_FILM_ROLE` fails closed with the same structured rejection.
+- Shipped (2026-08-25): `backend/gateway/agents/httpToolGovernance.ts` applies `filmRoleToolPolicy` to every raw `POST /api/tools/{tool-name}` (and therefore CLI). Role resolves from the `x-director-film-role` header, then `DIRECTOR_FILM_ROLE`, else unrestricted; policy denials return HTTP 403.
+- Shipped (2026-08-25): role-gated UI from the same policy source. The allow-table moved to `packages/protocol/src/filmRoleToolPolicy.ts` (the gateway path re-exports it), `GET /api/control-plane/film-role` exposes the configured role, and `frontend/director/src/comprehensive/editor/api/filmRoleGate.ts` disables Stage write controls plus the UI authoring dispatch for roles that cannot author (e.g. `visual-critic`); observe/capture stay enabled.
+- Optional (open): a full read-only mode.
 
-#### 3.2 Unified audit trail (shipped)
+#### 3.2 Unified audit trail
 
-- Every `/api/tools/*` invocation is appended to a gateway-local audit log (`backend/gateway/agents/toolInvocationAuditStore.ts`, JSONL under the control-plane data directory), tagged `source: ui | mcp | http | cli | dsh | unknown` derived from the payload `session_id` prefix.
-- Structured fields: `tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `session_id`, `outcome`, `http_status`, redacted error code/message.
-- `GET /api/agent/audit` (gateway-authorized) lists records with `session_id` / `source` / `tool` filters and an `after` cursor.
-
-### Remaining
-
-#### 3.1b Optional UI permission gating
-
-- Optional: read-only mode and role-gated UI disable from the same policy source. UI-dispatched author actions are not yet written to the unified audit trail.
+- Shipped (2026-08-25): all tool invocations log to the JSON-backed `backend/gateway/agentToolAuditStore.ts` (including UI-dispatched author, tagged `source: ui | mcp | http | cli`), readable via `GET /api/agent/tool-audit`.
+- Structured fields: `tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`, `session_id`.
 
 #### 3.3 Confirmation boundaries
 
-- Define destructive/publish actions (`deliver`, `export`, `version_restore`, etc.).
-- Agent path: harness approval or explicit `confirm_token`.
-- UI path: existing modals; shared `confirm_token` generation.
+- Shipped (2026-08-25): a closed destructive/publish list in `CONFIRMABLE_TOOL_OPERATIONS` (`director_workbench` `deliver`; `director_creative` interchange `export`/`import`, collaboration `restore-version`/`delete-version`/`delete-comment`, `gallery.media.purge`). Those operations on `POST /api/tools/*` (HTTP, MCP, CLI) execute only with the protocol-level `confirm: true` field where the schema already defines it, or a single-use `confirm_token`; otherwise the gateway returns 403 `confirm_required` with an issue-on-deny retry payload and never executes.
+- Tokens are issued by `POST /api/agent/confirm-token` (gateway auth), expire after 2 minutes, are bound to tool + operation + role + session, and are stored SHA-256-hashed in `backend/gateway/agentConfirmTokenStore.ts` (JSON + `writeJsonAtomic`, next to the audit store). Callers pass `confirm_token` as a top-level body field (MCP/CLI lift it out of the tool input; the CLI also reads `DIRECTOR_CONFIRM_TOKEN`) or the `x-director-confirm-token` header. Role policy stays first: a denied role is rejected before any token is read.
+- UI modals keep using the protocol `confirm: true` literal; unrelated edits are not blocked.
+
+### Remaining
+
+- Optional: a full read-only mode from the same policy source.
 
 ### Acceptance
 
-- Denied MCP ops are also denied on raw HTTP/CLI for the same role — done (`backend/gateway/tests/routes/httpToolPolicyRoutes.test.ts`).
-- Audit log reconstructs a tool chain across HTTP/CLI/MCP/DSH entry points via `GET /api/agent/audit` — done (`backend/gateway/tests/routes/agentAuditRoutes.test.ts`). UI-dispatched author actions remain out of scope until UI gating lands.
-- Governance tests cover HTTP bypass cases — done; UI bypass cases remain with 3.1b.
+- Denied MCP ops are also denied on raw HTTP/CLI for the same role — done (`backend/gateway/tests/routes/httpToolPolicy.test.ts`).
+- Audit log reconstructs a tool chain across HTTP/CLI/MCP/UI entry points via `GET /api/agent/tool-audit` — done (`backend/gateway/tests/routes/agentToolAuditRoutes.test.ts`).
+- Confirmation boundaries cover the closed destructive/publish list — done (`backend/gateway/tests/routes/httpToolConfirmation.test.ts`).
 
 ---
 
@@ -398,5 +396,5 @@ At **~2 weeks per milestone** (adjust for capacity):
 ## Immediate next steps
 
 1. Remaining M1: Canvas/Video UI stores (1e/1f) and the leftover Stage ui-only writers in the [parity inventory](/engineering/ui-agent-parity-inventory/)
-2. M3 follow-ups: optional role-gated UI disable (3.1b) and confirmation boundaries (3.3); the HTTP/CLI policy gate and unified audit trail shipped 2026-08-25
+2. Finish remaining M3: the optional read-only mode (policy on raw HTTP/UI, the unified audit trail, confirmation boundaries, and role-gated UI shipped 2026-08-25)
 3. M7 leftovers landed: ADR 0004 concluded the A2A spike (runtime no-go; discovery-only card served) and the cross-app receipt recipe is documented in Control surfaces

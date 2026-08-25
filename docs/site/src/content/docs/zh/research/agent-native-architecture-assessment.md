@@ -147,12 +147,13 @@ A2A-aware 客户端指向 MCP 与 tool manifest —— 没有远程 A2A endpoint
 - Revision / idempotency / exact target fail-closed（428 / 409）
 - Agent event store、structured MCP receipts、credential redaction
 - 共享的电影角色工具策略（如 visual-critic 只读）— `backend/gateway/agents/filmRoleToolPolicy.ts`，由 MCP（`DIRECTOR_FILM_ROLE`）、本地 Agent harness 与托管 API adapter 共用
-- 原始 HTTP `POST /api/tools/{tool-name}`（因此也覆盖 CLI 与 DSH plugin）经 `backend/gateway/agents/httpToolPolicy.ts` 应用同一策略，在浏览器目标执行之前拒绝，403 结构化拒绝体与 MCP 一致
-- 统一 gateway 审计轨迹：每次 `/api/tools/*` 调用都追加到 `backend/gateway/agents/toolInvocationAuditStore.ts`，按 `source: ui | mcp | http | cli | dsh | unknown` 标记（由 payload `session_id` 前缀推导；Stage CLI 的 `STAGE_AGENT_SESSION` 默认 `cli-default`），可经鉴权的 `GET /api/agent/audit` 查询
+- 原始 HTTP `POST /api/tools/{tool-name}`（因此也覆盖 CLI 与 DSH plugin）经 `backend/gateway/agents/httpToolGovernance.ts` 应用同一策略，在浏览器目标执行之前拒绝，403 结构化拒绝体与 MCP 一致
+- 统一 gateway 审计轨迹：每次 `/api/tools/*` 调用都追加到 `backend/gateway/agentToolAuditStore.ts`，按 `source: ui | mcp | http | cli` 标记，可经鉴权的 `GET /api/agent/tool-audit` 查询
 
 **缺口：**
 
-- Human UI 操作无等价 permission gate，UI-dispatched author 操作尚未写入统一审计轨迹
+- 已解决（2026-08-25）：原始 HTTP `POST /api/tools/{tool-name}`（以及走该路径的 CLI）现已应用 `filmRoleToolPolicy`，工具调用共享按 `source: ui | mcp | http | cli` 标记的 **统一审计轨迹**（`backend/gateway/agentToolAuditStore.ts`）
+- Human UI 写控件已接入与 policy 同源的 role 门控（`frontend/director/src/comprehensive/editor/api/filmRoleGate.ts`）；完整只读 mode 仍未完成
 - Collaboration 生产房间鉴权、公网部署加固仍 **Limited**
 
 **评级：4/5**
@@ -233,7 +234,7 @@ agent-gateway.ts (composition root)
 ## 主要差距
 
 1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除、单次变换、相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体与故事板已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring（见 [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/)）。仍直连 store 的路径：创建流程（资产拖放、预设角色、人群、机位创建）、UI-only 对象列表/人群分组、gizmo 拖拽批次与 Canvas/Video store
-2. **Governance 入口未完全统一** — MCP、本地 harness、托管 adapter 与原始 HTTP/CLI 已共享 `filmRoleToolPolicy` 以及按 source 标记的 `/api/tools/*` 审计轨迹（`GET /api/agent/audit`）。Human UI `directorStore` 仍无角色门控或审计（3.1b）；`confirm_token` 仍未实现（3.3）
+2. **Governance 入口趋于统一** — MCP、本地 harness、托管 adapter 与原始 HTTP/CLI 已共享 `filmRoleToolPolicy` 以及按 source 标记的 `/api/tools/*` 审计轨迹（`GET /api/agent/tool-audit`）；role 门控 UI 写控件与 `confirm_token` 边界已于 2026-08-25 交付；完整只读 mode 仍未完成
 3. **Protocol breadth** — MCP 强且已发布 HTTP tool manifest；A2A 已评估并拒绝 runtime（ADR 0004；提供 discovery-only card）；multi-agent 为自定义串行 graph
 4. **Dual surface 遗留** — `stage_*` 兼容层 vs `director_workbench` 完整模型仍并存
 5. **Runtime workspace** — 无文章描述的 SQL-backed AGENTS.md / LEARNINGS.md 等产品内 workspace

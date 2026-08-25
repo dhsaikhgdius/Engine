@@ -162,12 +162,13 @@ A2A-aware clients at MCP and the tool manifest — no remote A2A endpoint
 - Revision / idempotency / exact target fail-closed (428 / 409)
 - Agent event store, structured MCP receipts, credential redaction
 - Shared film-role tool policy (e.g. visual-critic read-only) — `backend/gateway/agents/filmRoleToolPolicy.ts`, used by MCP (`DIRECTOR_FILM_ROLE`), the local Agent harness, and the hosted API adapter
-- Raw HTTP `POST /api/tools/{tool-name}` (and therefore the CLI and DSH plugin) applies the same policy through `backend/gateway/agents/httpToolPolicy.ts`, rejecting before browser-target execution with the same structured 403 body as MCP
-- Unified gateway audit trail: every `/api/tools/*` invocation is appended to `backend/gateway/agents/toolInvocationAuditStore.ts` tagged `source: ui | mcp | http | cli | dsh | unknown` (derived from the payload `session_id` prefix; the Stage CLI's `STAGE_AGENT_SESSION` defaults to `cli-default`), queryable via authorized `GET /api/agent/audit`
+- Raw HTTP `POST /api/tools/{tool-name}` (and therefore the CLI and DSH plugin) applies the same policy through `backend/gateway/agents/httpToolGovernance.ts`, rejecting before browser-target execution with the same structured 403 body as MCP
+- Unified gateway audit trail: every `/api/tools/*` invocation is appended to `backend/gateway/agentToolAuditStore.ts` tagged `source: ui | mcp | http | cli`, queryable via authorized `GET /api/agent/tool-audit`
 
 **Gaps:**
 
-- Human UI actions have no equivalent permission gate, and UI-dispatched author actions are not yet written to the unified audit trail
+- Resolved 2026-08-25: raw HTTP `POST /api/tools/{tool-name}` (and the CLI path that calls it) now applies `filmRoleToolPolicy`, and tool invocations share one **unified audit trail** tagged `source: ui | mcp | http | cli` (`backend/gateway/agentToolAuditStore.ts`)
+- Human UI write controls are role-gated from the same policy source (`frontend/director/src/comprehensive/editor/api/filmRoleGate.ts`); a full read-only mode remains open
 - Collaboration production-room auth and internet deployment hardening remain **Limited**
 
 **Rating: 4/5**
@@ -264,7 +265,7 @@ agent-gateway.ts (composition root)
 ## Main gaps
 
 1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring (see the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)). Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, gizmo drag batches, and the Canvas/Video stores
-2. **Incomplete governance surfaces** — MCP, local harness, hosted adapter, and raw HTTP/CLI share `filmRoleToolPolicy` plus the source-tagged `/api/tools/*` audit trail (`GET /api/agent/audit`). Human UI `directorStore` still has no role gate or audit (3.1b); `confirm_token` is still unimplemented (3.3)
+2. **Governance surfaces converging** — MCP, local harness, hosted adapter, and raw HTTP/CLI share `filmRoleToolPolicy` plus the source-tagged `/api/tools/*` audit trail (`GET /api/agent/tool-audit`); role-gated UI write controls and `confirm_token` boundaries shipped 2026-08-25; a full read-only mode remains open
 3. **Protocol breadth** — MCP is strong and the HTTP tool manifest is published; A2A evaluated and rejected for a runtime (ADR 0004; discovery-only card served); multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
 5. **Runtime workspace** — no in-product SQL-backed AGENTS.md / LEARNINGS.md pattern described in the article

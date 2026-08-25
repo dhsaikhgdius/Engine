@@ -39,6 +39,13 @@ Discover fields with describe (no tab required).
 \`npm run stage --\` prints an npm banner that breaks JSON.parse; use --silent
 or invoke this file with node.
 
+Destructive/publish operations (deliver, interchange export/import,
+collaboration restore/delete, gallery purge) return 403 confirm_required
+unless the request carries the protocol confirm:true field or a single-use
+token from POST /api/agent/confirm-token. Pass the token as "confirm_token"
+next to "op" (this CLI lifts it into the request envelope) or via the
+DIRECTOR_CONFIRM_TOKEN environment variable.
+
 Examples:
   npm run --silent stage -- director_workbench '{"op":"observe"}'
   npm run --silent stage -- director_workbench '{"op":"capabilities"}'
@@ -46,7 +53,8 @@ Examples:
   npm run --silent stage -- director_creative '{"op":"observe"}'
   npm run --silent stage -- director_dcc '{"op":"status"}'
 
-Env: STAGE_GATEWAY_URL, STAGE_AGENT_SESSION, DIRECTOR_TARGET_TOKEN
+Env: STAGE_GATEWAY_URL, STAGE_AGENT_SESSION, DIRECTOR_TARGET_TOKEN,
+     DIRECTOR_FILM_ROLE, DIRECTOR_CONFIRM_TOKEN
 `);
 }
 
@@ -82,6 +90,14 @@ try {
 
 function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+// A confirm token confirms destructive/publish operations. It rides the
+// request envelope, not the strict tool input, so lift it out of the JSON.
+let confirmToken = process.env.DIRECTOR_CONFIRM_TOKEN?.trim() || "";
+if (isRecord(input) && typeof input.confirm_token === "string" && input.confirm_token.trim()) {
+  confirmToken = input.confirm_token.trim();
+  input = Object.fromEntries(Object.entries(input).filter(([key]) => key !== "confirm_token"));
 }
 
 function isExactTarget(value) {
@@ -325,13 +341,22 @@ try {
     injectedGuard = { field: "expected_revision", value: cachedRevision, source: "session_cache" };
   }
 
+  // The gateway applies the same film-role policy as MCP to raw HTTP; the CLI
+  // forwards its configured role and tags the unified audit trail as `cli`.
+  const filmRole = process.env.DIRECTOR_FILM_ROLE?.trim() || "";
   const call = (requestInput, requestTargetToken) =>
     fetch(`${gatewayUrl}/api/tools/${tool}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-director-browser-token": gatewayToken },
+      headers: {
+        "content-type": "application/json",
+        "x-director-browser-token": gatewayToken,
+        "x-director-tool-source": "cli",
+        ...(filmRole ? { "x-director-film-role": filmRole } : {}),
+      },
       body: JSON.stringify({
         input: requestInput,
         session_id: sessionId,
+        ...(confirmToken ? { confirm_token: confirmToken } : {}),
         ...(requestTargetToken ? { target_token: requestTargetToken } : {}),
       }),
     });

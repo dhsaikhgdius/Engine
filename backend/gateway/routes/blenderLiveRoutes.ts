@@ -15,8 +15,12 @@ import {
   exportBlenderScenePreview,
   publicBlenderJob,
 } from "../dcc/blenderNativeTool";
-import { httpToolPolicyRejection, resolveHttpToolPolicyContext } from "../agents/httpToolPolicy";
-import { buildToolInvocationAuditEntry, type ToolInvocationAuditEntry } from "../agents/toolInvocationAuditStore";
+import {
+  evaluateHttpToolGovernance,
+  recordRejectedHttpToolCall,
+  withHttpToolAudit,
+  type HttpToolGovernanceDependencies,
+} from "../agents/httpToolGovernance";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -68,8 +72,8 @@ export type BlenderLiveRouteDependencies = {
   session: BlenderNativeSession;
   /** Binds Blender to the Director project owned by the exact Agent target. */
   bindDirectorProject?: (input: { sessionId?: string; targetToken?: string }) => Promise<void>;
-  /** Appends one tool invocation to the gateway audit trail. */
-  recordToolInvocation?: (entry: ToolInvocationAuditEntry) => void;
+  /** Film-role/plan-mode policy overrides plus the audit trail for POST /api/tools. */
+  governance?: HttpToolGovernanceDependencies;
 };
 
 async function readNativeModelBytes(request: IncomingMessage) {
@@ -306,20 +310,7 @@ export async function handleBlenderLiveRoute(
   url: URL,
   dependencies: BlenderLiveRouteDependencies,
 ): Promise<boolean> {
-  const { session, json: writeJson, recordToolInvocation } = dependencies;
-
-  // Only the /api/tools/blender_native branch arms this hook; every response
-  // written for that invocation is then mirrored into the gateway audit trail.
-  let auditContext: { tool: string; toolInput: unknown; sessionId: string | null; role: string | null } | null = null;
-  const json: JsonWriter = (jsonResponse, status, body) => {
-    writeJson(jsonResponse, status, body);
-    if (!auditContext || !recordToolInvocation) return;
-    try {
-      recordToolInvocation(buildToolInvocationAuditEntry({ ...auditContext, httpStatus: status, body }));
-    } catch (error) {
-      console.warn(`Tool invocation audit failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
+  const { session, json } = dependencies;
 
   if (url.pathname === "/api/dcc/blender/assets") {
     if (request.method !== "POST") {
@@ -367,20 +358,28 @@ export async function handleBlenderLiveRoute(
       });
       return true;
     }
-    const policyContext = resolveHttpToolPolicyContext();
-    auditContext = {
+    // Same film-role and plan-mode policy as MCP, checked before Blender dispatch.
+    const governance = evaluateHttpToolGovernance({
+      request,
       tool: "blender_native",
       toolInput: parsed.data.input,
-      sessionId: parsed.data.session_id ?? null,
-      role: policyContext.invalidRole ? null : policyContext.role,
+      sessionId: parsed.data.session_id,
+      dependencies: dependencies.governance,
+    });
+    const auditContext = {
+      store: dependencies.governance?.auditStore,
+      tool: "blender_native",
+      toolInput: parsed.data.input,
+      roleId: governance.roleId,
+      source: governance.source,
+      sessionId: parsed.data.session_id,
     };
-    // Shared film-role/plan-mode gate: runs before project binding and kernel
-    // execution so rejected calls never touch the live Blender session.
-    const policyRejection = httpToolPolicyRejection("blender_native", parsed.data.input);
-    if (policyRejection) {
-      json(response, policyRejection.status, policyRejection.body);
+    if (!governance.allowed) {
+      recordRejectedHttpToolCall(governance, auditContext);
+      json(response, governance.status, governance.body);
       return true;
     }
+    const auditedJson = withHttpToolAudit(json, auditContext);
     try {
       if (PROJECT_BOUND_NATIVE_OPERATIONS.has(parsed.data.input.op)) {
         await dependencies.bindDirectorProject?.({
@@ -397,14 +396,14 @@ export async function handleBlenderLiveRoute(
         capture && result && typeof result === "object"
           ? Object.fromEntries(Object.entries(result).filter(([key]) => key !== "capture"))
           : result;
-      json(response, 200, {
+      auditedJson(response, 200, {
         success: true,
         result: publicResult,
         ...(parsed.data.input.op === "apply" ? { director_project_sync: "automatic" } : {}),
         ...(capture ? { capture } : {}),
       });
     } catch (error) {
-      writeSessionError(response, json, error);
+      writeSessionError(response, auditedJson, error);
     }
     return true;
   }

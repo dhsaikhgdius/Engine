@@ -44,8 +44,13 @@ import {
   canServeDisconnectedWorkbenchRead,
   type DisconnectedWorkbenchSources,
 } from "../workbenchDisconnectedReads";
-import { httpToolPolicyRejection, resolveHttpToolPolicyContext } from "../agents/httpToolPolicy";
-import { buildToolInvocationAuditEntry, type ToolInvocationAuditEntry } from "../agents/toolInvocationAuditStore";
+import {
+  evaluateHttpToolConfirmation,
+  evaluateHttpToolGovernance,
+  recordRejectedHttpToolCall,
+  withHttpToolAudit,
+  type HttpToolGovernanceDependencies,
+} from "../agents/httpToolGovernance";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -55,6 +60,8 @@ const toolEnvelopeSchema = z.looseObject({
   session_id: z.string().trim().min(1).max(160).optional(),
   target_token: z.string().trim().min(1).max(240).optional(),
   omit_scene: z.boolean().optional(),
+  /** Single-use gateway-issued token confirming one destructive/publish operation. */
+  confirm_token: z.string().trim().min(1).max(240).optional(),
   input: z.unknown().optional(),
 });
 
@@ -270,15 +277,15 @@ export type StageRouteDependencies = {
   executeVideoModel: (scene: StageScene, input: unknown) => Promise<ToolExecution>;
   /** Coordinates calls that address the same exact Director browser target. */
   targetScheduler?: DirectorAgentTargetScheduler;
-  /** Appends one tool invocation to the gateway audit trail. */
-  recordToolInvocation?: (entry: ToolInvocationAuditEntry) => void;
+  /** Film-role/plan-mode policy overrides plus the audit trail for POST /api/tools. */
+  governance?: HttpToolGovernanceDependencies;
 };
+
+const TOOL_ENVELOPE_KEYS = new Set(["session_id", "target_token", "omit_scene", "confirm_token"]);
 
 function directToolInput(payload: z.infer<typeof toolEnvelopeSchema>) {
   if (Object.prototype.hasOwnProperty.call(payload, "input")) return payload.input ?? {};
-  return Object.fromEntries(
-    Object.entries(payload).filter(([key]) => key !== "session_id" && key !== "target_token" && key !== "omit_scene"),
-  );
+  return Object.fromEntries(Object.entries(payload).filter(([key]) => !TOOL_ENVELOPE_KEYS.has(key)));
 }
 
 async function acquireScheduledLease(
@@ -377,7 +384,6 @@ export async function handleStageRoute(
   const {
     readBody,
     headers,
-    json: writeJson,
     getScene,
     replaceScene,
     persistScene,
@@ -397,21 +403,9 @@ export async function handleStageRoute(
     loadDisconnectedWorkbenchSources,
     executeVideoModel,
     targetScheduler,
-    recordToolInvocation,
   } = dependencies;
-
-  // Every response written after the tool envelope parses is mirrored into
-  // the gateway audit trail; failures there never affect the tool response.
-  let auditContext: { tool: string; toolInput: unknown; sessionId: string; role: string | null } | null = null;
-  const json: JsonWriter = (jsonResponse, status, body) => {
-    writeJson(jsonResponse, status, body);
-    if (!auditContext || !recordToolInvocation) return;
-    try {
-      recordToolInvocation(buildToolInvocationAuditEntry({ ...auditContext, httpStatus: status, body }));
-    } catch (error) {
-      console.warn(`Tool invocation audit failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
+  // Reassigned with an audit-recording wrapper once a governed tool call is admitted.
+  let json = dependencies.json;
 
   if (request.method === "GET" && url.pathname === "/api/stage") {
     json(response, 200, getScene());
@@ -456,16 +450,47 @@ export async function handleStageRoute(
   const sessionId = payload.session_id ?? "http-default";
   let targetToken = payload.target_token;
   const toolInput = directToolInput(payload);
-  const policyContext = resolveHttpToolPolicyContext();
-  auditContext = { tool, toolInput, sessionId, role: policyContext.invalidRole ? null : policyContext.role };
-  // The shared film-role/plan-mode gate runs before any target discovery or
-  // browser execution, so rejected calls never require a live tab and MCP,
-  // CLI, DSH plugin, and raw HTTP callers share one policy contract.
-  const policyRejection = httpToolPolicyRejection(tool, toolInput);
-  if (policyRejection) {
-    json(response, policyRejection.status, policyRejection.body);
+  // Same film-role and plan-mode policy as MCP, applied to the effective tool
+  // input before any lease or browser dispatch so denials stay cheap.
+  const governance = evaluateHttpToolGovernance({
+    request,
+    tool,
+    toolInput,
+    sessionId: payload.session_id,
+    dependencies: dependencies.governance,
+  });
+  const auditContext = {
+    store: dependencies.governance?.auditStore,
+    tool,
+    toolInput,
+    roleId: governance.roleId,
+    source: governance.source,
+    sessionId: payload.session_id,
+  };
+  if (!governance.allowed) {
+    recordRejectedHttpToolCall(governance, auditContext);
+    json(response, governance.status, governance.body);
     return true;
   }
+  // Confirmation boundary after the role/plan policy: destructive/publish
+  // operations execute only with the protocol confirm literal or a valid
+  // single-use gateway-issued confirm_token.
+  const confirmation = await evaluateHttpToolConfirmation({
+    request,
+    tool,
+    toolInput,
+    roleId: governance.roleId,
+    source: governance.source,
+    sessionId: payload.session_id,
+    confirmToken: payload.confirm_token,
+    dependencies: dependencies.governance,
+  });
+  if (confirmation) {
+    recordRejectedHttpToolCall(confirmation, auditContext);
+    json(response, confirmation.status, confirmation.body);
+    return true;
+  }
+  json = withHttpToolAudit(json, auditContext);
   let scene = getScene();
   // Token-conscious direct HTTP callers can opt out of the embedded scene; the
   // MCP server never sends the flag because it requires scene in every response.

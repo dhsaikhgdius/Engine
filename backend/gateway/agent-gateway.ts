@@ -115,6 +115,10 @@ import { handleProductionJobRoute } from "./routes/productionJobRoutes";
 import { ProductionJobStore } from "./jobs/productionJobStore";
 import { ProductionArtifactStore } from "./artifacts/productionArtifactStore";
 import { handleProductionArtifactRoute } from "./routes/productionArtifactRoutes";
+import { AgentToolAuditStore } from "./agentToolAuditStore";
+import { AgentConfirmTokenStore } from "./agentConfirmTokenStore";
+import { handleAgentToolAuditRoute } from "./routes/agentToolAuditRoutes";
+import { handleAgentConfirmTokenRoute } from "./routes/agentConfirmTokenRoutes";
 import { handleGeneratedAssetRoute } from "./routes/generatedAssetRoutes";
 import { handleGenerationRoute } from "./routes/generationRoutes";
 import { createComfyGenerationRuntime } from "./generation/createComfyGenerationRuntime";
@@ -135,9 +139,6 @@ import { handleMotionGenerationRoute } from "./routes/motionGenerationRoutes";
 import { handleSceneGenerationRoute } from "./routes/sceneGenerationRoutes";
 import { registerBuiltinProviders, resolveModelProvider } from "./agents/modelProviderIntegration";
 import { DirectorAgentTargetScheduler } from "./agents/agentToolScheduler";
-import { ToolInvocationAuditStore, type ToolInvocationAuditEntry } from "./agents/toolInvocationAuditStore";
-import { handleAgentAuditRoute } from "./routes/agentAuditRoutes";
-
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const controlPlaneConfig = loadDirectorControlPlaneConfig(root);
 const dataDirectory = controlPlaneConfig.dataDirectory;
@@ -332,6 +333,13 @@ const ardyMotionService = new ArdyMotionService({
   dataDirectory,
 });
 const productionJobStore = new ProductionJobStore(dataDirectory);
+// Unified tool-invocation audit trail shared by every POST /api/tools entry
+// point (HTTP, MCP, CLI) plus UI-dispatched authoring ingest. Destructive /
+// publish operations additionally consume single-use confirm tokens issued by
+// POST /api/agent/confirm-token and stored hashed next to the audit trail.
+const agentToolAuditStore = new AgentToolAuditStore(dataDirectory);
+const agentConfirmTokenStore = new AgentConfirmTokenStore(dataDirectory);
+const toolGovernance = { auditStore: agentToolAuditStore, confirmTokens: agentConfirmTokenStore };
 const mediaTranscriptionRuntime = createMediaTranscriptionRuntime(
   controlPlaneConfig,
   dataDirectory,
@@ -348,10 +356,6 @@ const generated3dRuntime = createGenerated3DRuntime(
   generatedAssetRoot,
 );
 const productionArtifactStore = new ProductionArtifactStore(dataDirectory);
-const toolInvocationAuditStore = new ToolInvocationAuditStore(dataDirectory);
-const recordToolInvocation = (entry: ToolInvocationAuditEntry) => {
-  toolInvocationAuditStore.record(entry);
-};
 
 let scene: StageScene = await readFile(scenePath, "utf8")
   .then((contents) => {
@@ -1931,6 +1935,7 @@ const server = createServer(async (request, response) => {
         config: controlPlaneConfig,
         listAgentProfiles: () => agentProfileRegistry.list(),
         videoCapabilities: () => videoGenerationService.capabilities(),
+        filmRole: () => process.env.DIRECTOR_FILM_ROLE?.trim() || null,
       })
     )
       return;
@@ -2114,7 +2119,7 @@ const server = createServer(async (request, response) => {
         readBody: body,
         json,
         session: blenderNativeSession,
-        recordToolInvocation,
+        governance: toolGovernance,
       })
     )
       return;
@@ -2163,7 +2168,7 @@ const server = createServer(async (request, response) => {
               }
             : null;
         },
-        recordToolInvocation,
+        governance: toolGovernance,
       })
     )
       return;
@@ -2191,7 +2196,7 @@ const server = createServer(async (request, response) => {
         headers,
         json,
         ...liveStageRouteDependencies(),
-        recordToolInvocation,
+        governance: toolGovernance,
       })
     )
       return;
@@ -2200,11 +2205,26 @@ const server = createServer(async (request, response) => {
         readBody: body,
         json,
         resolveProvider: async (providerId) => resolveModelProvider(providerId),
-        recordToolInvocation,
+        governance: toolGovernance,
       })
     )
       return;
-    if (await handleAgentAuditRoute(request, response, url, { json, store: toolInvocationAuditStore })) return;
+    if (
+      await handleAgentToolAuditRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: agentToolAuditStore,
+      })
+    )
+      return;
+    if (
+      await handleAgentConfirmTokenRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: agentConfirmTokenStore,
+      })
+    )
+      return;
     return json(response, 404, { error: "Not found" });
   } catch (error) {
     return json(response, 500, { error: error instanceof Error ? error.message : String(error) });

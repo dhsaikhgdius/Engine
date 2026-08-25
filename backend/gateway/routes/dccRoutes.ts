@@ -14,8 +14,12 @@ import { directorDccProviderIdSchema } from "@director/dcc-protocol";
 import type { DirectorDccProviderRegistry } from "../dcc/dccProviderRegistry";
 import { DirectorDccExchangePackageError, type DirectorDccExchangePackager } from "../dcc/dccExchangePackage";
 import { DirectorDccEngineBridgeError, type DirectorDccEngineBridge } from "../dcc/engineBridge";
-import { httpToolPolicyRejection, resolveHttpToolPolicyContext } from "../agents/httpToolPolicy";
-import { buildToolInvocationAuditEntry, type ToolInvocationAuditEntry } from "../agents/toolInvocationAuditStore";
+import {
+  evaluateHttpToolGovernance,
+  recordRejectedHttpToolCall,
+  withHttpToolAudit,
+  type HttpToolGovernanceDependencies,
+} from "../agents/httpToolGovernance";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -72,8 +76,8 @@ export interface DccRouteDependencies {
   /** Per-engine return importers scoped to each engine's job root. */
   engineReturnImporters?: Partial<Record<DirectorDccEngineId, DccReturnImporter>>;
   applyAuthoring?: (operation: DirectorWorkbenchOperation) => Promise<DirectorDccAuthoringResponse | null>;
-  /** Appends one tool invocation to the gateway audit trail. */
-  recordToolInvocation?: (entry: ToolInvocationAuditEntry) => void;
+  /** Film-role/plan-mode policy overrides plus the audit trail for POST /api/tools. */
+  governance?: HttpToolGovernanceDependencies;
 }
 
 /** Agent-native DCC route. Blender execution remains server-side and path constrained. */
@@ -85,7 +89,6 @@ export async function handleDccRoute(
 ): Promise<boolean> {
   const {
     readBody,
-    json: writeJson,
     getProject,
     blender,
     providers,
@@ -95,21 +98,9 @@ export async function handleDccRoute(
     engineBridge,
     engineReturnImporters,
     applyAuthoring,
-    recordToolInvocation,
   } = dependencies;
-
-  // Only the director_dcc tool branch arms this hook; every response written
-  // for that invocation is then mirrored into the gateway audit trail.
-  let auditContext: { tool: string; toolInput: unknown; sessionId: string | null; role: string | null } | null = null;
-  const json: JsonWriter = (jsonResponse, status, body) => {
-    writeJson(jsonResponse, status, body);
-    if (!auditContext || !recordToolInvocation) return;
-    try {
-      recordToolInvocation(buildToolInvocationAuditEntry({ ...auditContext, httpStatus: status, body }));
-    } catch (error) {
-      console.warn(`Tool invocation audit failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
+  // Reassigned with an audit-recording wrapper once a governed tool call is admitted.
+  let json = dependencies.json;
 
   async function liveProject() {
     const parsed = safeParseDirectorProject(await getProject());
@@ -214,20 +205,6 @@ export async function handleDccRoute(
   }
   const input = Object.prototype.hasOwnProperty.call(body.data, "input") ? body.data.input : body.data;
   const { operationInput, skipDirectorIds, error: skipError } = extractSkipDirectorIds(input);
-  const policyContext = resolveHttpToolPolicyContext();
-  auditContext = {
-    tool: "director_dcc",
-    toolInput: operationInput,
-    sessionId: body.data.session_id ?? null,
-    role: policyContext.invalidRole ? null : policyContext.role,
-  };
-  // Shared film-role/plan-mode gate: covers /api/tools/director_dcc and the
-  // legacy /api/dcc/blender alias before any Blender or importer work runs.
-  const policyRejection = httpToolPolicyRejection("director_dcc", operationInput);
-  if (policyRejection) {
-    json(response, policyRejection.status, policyRejection.body);
-    return true;
-  }
   if (skipError) {
     json(response, 400, { success: false, error: skipError });
     return true;
@@ -241,6 +218,28 @@ export async function handleDccRoute(
     });
     return true;
   }
+  // Same film-role and plan-mode policy as MCP, checked before any DCC work.
+  const governance = evaluateHttpToolGovernance({
+    request,
+    tool: "director_dcc",
+    toolInput: parsed.data,
+    sessionId: body.data.session_id,
+    dependencies: dependencies.governance,
+  });
+  const auditContext = {
+    store: dependencies.governance?.auditStore,
+    tool: "director_dcc",
+    toolInput: parsed.data,
+    roleId: governance.roleId,
+    source: governance.source,
+    sessionId: body.data.session_id,
+  };
+  if (!governance.allowed) {
+    recordRejectedHttpToolCall(governance, auditContext);
+    json(response, governance.status, governance.body);
+    return true;
+  }
+  json = withHttpToolAudit(json, auditContext);
   if (parsed.data.op === "discover") {
     if (!providers) {
       json(response, 503, { success: false, error: "DCC provider registry is not configured." });
