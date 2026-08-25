@@ -44,29 +44,28 @@ vi.mock("../../../../../src/comprehensive/editor/world/surface/worldSurfaceRespo
 
 vi.mock("../../../../../src/comprehensive/editor/world/surface/worldAmbientAudio", () => ({ default: () => null }));
 
-const context = {
-  worldSeconds: 0,
-  frame: 0,
-  fps: 24,
-  isPlaying: false,
-  seed: 1,
-  settings: {
-    weather: { preset: "clear", intensity: 0, wetness: 0, cloudCover: 0 },
-  },
-  windVector: [0, 0, 0],
-  groundHeight: 0,
-} as LivingWorldFrameContext;
+function createContext(): LivingWorldFrameContext {
+  return {
+    worldSeconds: 0,
+    frame: 0,
+    fps: 24,
+    isPlaying: false,
+    seed: 1,
+    settings: {
+      weather: { preset: "clear", intensity: 0, wetness: 0, cloudCover: 0 },
+      wind: { directionDegrees: 0, speedMps: 0, gustiness: 0, turbulence: 0 },
+    },
+    windVector: [0, 0, 0],
+    groundHeight: 0,
+  } as LivingWorldFrameContext;
+}
 
 describe("WorldSurfaceLayer material synchronization", () => {
-  let nowMs = 0;
-
   beforeEach(() => {
-    nowMs = 0;
     mocks.frame = null;
     mocks.invalidate.mockClear();
     mocks.syncMaterials.mockClear();
     mocks.writeUniforms.mockClear();
-    vi.spyOn(performance, "now").mockImplementation(() => nowMs);
   });
 
   afterEach(() => {
@@ -74,6 +73,7 @@ describe("WorldSurfaceLayer material synchronization", () => {
   });
 
   it("updates uniforms every frame without traversing scene materials every frame", () => {
+    const context = createContext();
     render(<WorldSurfaceLayer captureHeightMap={false} context={context} evaluatedObjects={[]} />);
 
     expect(mocks.syncMaterials).toHaveBeenCalledTimes(1);
@@ -85,8 +85,40 @@ describe("WorldSurfaceLayer material synchronization", () => {
     expect(mocks.writeUniforms).toHaveBeenCalledTimes(31);
     expect(mocks.syncMaterials).toHaveBeenCalledTimes(1);
 
-    nowMs = 500;
+    // Discovery re-walks the scene when the DETERMINISTIC frame counter has
+    // advanced far enough, not when a wall clock says so.
+    context.frame = 12;
     act(() => mocks.frame?.());
     expect(mocks.syncMaterials).toHaveBeenCalledTimes(2);
+  });
+
+  it("throttles discovery on world time while scrubbing and ignores the wall clock", () => {
+    const context = createContext();
+    let nowMs = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => nowMs);
+    render(<WorldSurfaceLayer captureHeightMap={false} context={context} evaluatedObjects={[]} />);
+    expect(mocks.syncMaterials).toHaveBeenCalledTimes(1);
+
+    // A long wall-clock pause alone (paused editor, slow export machine)
+    // must NOT trigger discovery: exports replay identically on any machine.
+    nowMs = 60_000;
+    act(() => mocks.frame?.());
+    expect(mocks.syncMaterials).toHaveBeenCalledTimes(1);
+
+    // Scrubbing advances worldSeconds without the playback frame counter;
+    // crossing the quantized bucket re-walks the scene.
+    context.worldSeconds = 0.6;
+    act(() => mocks.frame?.());
+    expect(mocks.syncMaterials).toHaveBeenCalledTimes(2);
+
+    context.frame = 500;
+    act(() => mocks.frame?.());
+    expect(mocks.syncMaterials).toHaveBeenCalledTimes(3);
+
+    // A playback restart resets the frame counter; the |delta| check still
+    // schedules a resync instead of stalling until the counter catches up.
+    context.frame = 0;
+    act(() => mocks.frame?.());
+    expect(mocks.syncMaterials).toHaveBeenCalledTimes(4);
   });
 });

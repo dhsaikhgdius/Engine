@@ -4,11 +4,22 @@ import {
   directorWorldSchema,
 } from "../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
-import { repairDirectorProjectReferences, safeParseDirectorProject } from "../../../../src/comprehensive/editor/schema/directorProjectSchema";
+import {
+  repairDirectorProjectReferences,
+  safeParseDirectorProject,
+} from "../../../../src/comprehensive/editor/schema/directorProjectSchema";
 import type { DirectorWorld, DirectorWorldEffect } from "../../../../src/comprehensive/editor/schema/directorProject";
-import { evaluateWorldTimeOfDayHours, getWorldSecondsForFrame } from "../../../../src/comprehensive/editor/world/worldTime";
-import { createWorldRng, hashCombine, worldRandom01, worldStreamId } from "../../../../src/comprehensive/editor/world/worldRandom";
-import { getWorldWindVector } from "../../../../src/comprehensive/editor/world/worldWind";
+import {
+  evaluateWorldTimeOfDayHours,
+  getWorldSecondsForFrame,
+} from "../../../../src/comprehensive/editor/world/worldTime";
+import {
+  createWorldRng,
+  hashCombine,
+  worldRandom01,
+  worldStreamId,
+} from "../../../../src/comprehensive/editor/world/worldRandom";
+import { getWorldWindSpeedMps, getWorldWindVector } from "../../../../src/comprehensive/editor/world/worldWind";
 
 function createEffect(overrides: Partial<DirectorWorldEffect> = {}): DirectorWorldEffect {
   return {
@@ -80,6 +91,38 @@ describe("world wind", () => {
     const north = getWorldWindVector({ ...calm, directionDegrees: 0 }, 3);
     expect(north[0]).toBeCloseTo(0, 10);
     expect(north[2]).toBeCloseTo(4, 10);
+  });
+
+  it("makes turbulence visible in the gusted speed while steady wind stays exact", () => {
+    const base = { directionDegrees: 90, speedMps: 4, gustiness: 0.5, turbulence: 0 };
+    const turbulent = { ...base, turbulence: 1 };
+    // Same gust bands, but the turbulence flutter separates the signals at
+    // most sample times. Deterministic: pure in worldSeconds.
+    let diverged = 0;
+    for (let t = 0; t < 30; t += 0.37) {
+      if (Math.abs(getWorldWindSpeedMps(base, t) - getWorldWindSpeedMps(turbulent, t)) > 1e-6) diverged += 1;
+    }
+    expect(diverged).toBeGreaterThan(50);
+    expect(getWorldWindSpeedMps(turbulent, 12.5)).toBe(getWorldWindSpeedMps(turbulent, 12.5));
+    // gustiness 0 disables both the gust and the turbulence flutter.
+    expect(getWorldWindSpeedMps({ ...turbulent, gustiness: 0 }, 12.5)).toBe(4);
+  });
+
+  it("lets turbulence meander the heading a few degrees without changing the convention", () => {
+    const steady = { directionDegrees: 90, speedMps: 4, gustiness: 0.5, turbulence: 0 };
+    const turbulent = { ...steady, turbulence: 1 };
+    let maxAngleOffsetRad = 0;
+    for (let t = 0; t < 60; t += 0.61) {
+      const [sx, , sz] = getWorldWindVector(steady, t);
+      const [tx, , tz] = getWorldWindVector(turbulent, t);
+      const steadyAngle = Math.atan2(sx, sz);
+      const turbulentAngle = Math.atan2(tx, tz);
+      maxAngleOffsetRad = Math.max(maxAngleOffsetRad, Math.abs(turbulentAngle - steadyAngle));
+      // The steady evaluation never drifts off the authored heading.
+      expect(steadyAngle).toBeCloseTo(Math.PI / 2, 10);
+    }
+    expect(maxAngleOffsetRad).toBeGreaterThan(0.02);
+    expect(maxAngleOffsetRad).toBeLessThan(0.17);
   });
 });
 
