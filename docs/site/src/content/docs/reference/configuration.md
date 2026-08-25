@@ -21,6 +21,21 @@ automatically; raw HTTP clients obtain it from `/te-man/director/agent/bootstrap
 `X-Director-Browser-Token`. This authentication token is separate from the exact workspace
 `target_token` returned by observation.
 
+## Collaboration rooms
+
+| Variable                            | Default                | Purpose                                                                                          |
+| ----------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ |
+| `DIRECTOR_COLLAB_ROOM_AUTH`         | unset (local trust)    | Set to `required` to reject room joins without a valid invite capability token                    |
+| `DIRECTOR_COLLAB_INVITE_SECRET`     | process gateway secret | Stable HMAC secret for invite tokens; set it so invites survive gateway restarts                  |
+| `DIRECTOR_COLLAB_PERSISTENCE`       | unset (in-memory)      | Set to `1` to persist Yjs room snapshots (compaction + corrupt-update quarantine) on disk         |
+| `VITE_DIRECTOR_COLLAB_INVITE_TOKEN` | unset                  | Frontend build/env-provided invite token the browser transport attaches to `collab.join`          |
+
+In local trust mode (default) every upgrade-authenticated socket joins as an editor, matching the
+pre-auth behavior. With `DIRECTOR_COLLAB_ROOM_AUTH=required`, operators mint invites through
+`POST /api/collab/invites` (`{room, role, ttl_seconds}` — `role` is `editor` or `viewer`, and `room`
+may be a prefix capability such as `project-a/*`). `GET /api/collab/auth` reports the active mode.
+Viewer invites receive documents and share awareness but cannot write.
+
 ## Provider commands
 
 | Variable             | Default  |
