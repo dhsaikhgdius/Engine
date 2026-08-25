@@ -26,19 +26,23 @@ npm run dsh
 
 The launcher initializes the vendored submodule when needed, writes a thin overlay
 under `vendor/deepseek-harness/.director/`, and launches the pinned official DSH
-release on `http://127.0.0.1:3080`. The Gateway must
+release (`@deepseek-ai/dsh@0.1.0-rc.6`) on `http://127.0.0.1:3080`. It runs DSH
+with the repository root as the working directory, so DSH discovers the
+`.dsh/skills/director-workbench` skill by itself — load it in-session with DSH's
+native `skill` tool. The Gateway must
 already be running (`npm run dev:gateway`) so the plugin can reach the live 3D
 Stage, Canvas, and Video Editor. Use `npm run dsh:prepare` only when a generated
 overlay is needed without launching the Web profile.
 
-Environment:
+Environment (the launcher passes the first three through to DSH when set):
 
-| Variable                    | Purpose                                         |
-| --------------------------- | ----------------------------------------------- |
-| `STAGE_GATEWAY_URL`         | Gateway origin, default `http://127.0.0.1:8787` |
-| `DIRECTOR_GATEWAY_TOKEN`    | Browser token for authenticated tool routes     |
-| `DIRECTOR_TARGET_TOKEN`     | Exact Director tab target                       |
-| `DIRECTOR_AGENT_SESSION_ID` | Fallback session id for non-DSH plugin hosts    |
+| Variable                    | Purpose                                                                  |
+| --------------------------- | ------------------------------------------------------------------------ |
+| `STAGE_GATEWAY_URL`         | Gateway origin, default `http://127.0.0.1:8787`                          |
+| `DIRECTOR_GATEWAY_TOKEN`    | Browser token for authenticated tool routes                              |
+| `DIRECTOR_TARGET_TOKEN`     | Exact Director tab target                                                |
+| `DIRECTOR_DSH_NO_OPEN`      | Set `1` to launch DSH Web with `--no-open` (also implied by truthy `CI`) |
+| `DIRECTOR_AGENT_SESSION_ID` | Fallback session id for non-DSH plugin hosts                             |
 
 Generic coding, web, todo, subagent, and job tools stay in DeepSeek Harness.
 Do not add them here.
