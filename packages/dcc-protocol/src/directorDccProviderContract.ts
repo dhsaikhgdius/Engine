@@ -403,9 +403,13 @@ const UNREAL_PROVIDER_DESCRIPTOR: DirectorDccProviderDescriptor = directorDccPro
     { id: "stable_ids", level: "native", layer: "director-manifest" },
     { id: "roundtrip", level: "native", layer: "connector" },
     { id: "headless", level: "native", layer: "connector" },
-    // A preview-only loopback protocol exists in the connector, but no
-    // durable gateway transport ships yet, so the claim stays planned.
-    { id: "live_link", level: "planned", layer: "connector" },
+    // Preview-only live link: the Gateway loopback transport
+    // (backend/gateway/dcc/unrealLivePreview.ts) and the connector session
+    // (director_livelink.py) both carry tested disconnect/reorder/duplicate
+    // semantics, and neither side can turn a live frame into a project
+    // mutation. The durable scene channel remains the hash-verified
+    // exchange/return package.
+    { id: "live_link", level: "native", layer: "connector" },
   ],
   connectorDirectory: "integrations/unreal",
 });
