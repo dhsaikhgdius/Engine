@@ -23,6 +23,7 @@ import {
   type AtmosphereSolution,
 } from "./atmosphere";
 import { ATMOSPHERE_SKY_FRAGMENT_SHADER, ATMOSPHERE_SKY_VERTEX_SHADER } from "./atmosphereSkyShaders";
+import { evaluateSkyWeatherMood } from "./skyWeather";
 import { evaluateSkyAtmosphere, evaluateSkyLighting, getSolarDirectionForHours } from "./solar";
 
 const SKY_BOX_EXTENT = 4200;
@@ -102,6 +103,7 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
       sunColor: { value: sunColor },
       sunIntensity: { value: 1 },
       cloudAmount: { value: 0 },
+      cloudDarken: { value: 1 },
       time: { value: 0 },
       windDir: { value: windDir },
     }),
@@ -122,7 +124,11 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
     sunDir.set(trueSun[0], trueSun[1], trueSun[2]);
     sunColor.set(solution.sunColor[0], solution.sunColor[1], solution.sunColor[2]);
     material.uniforms.sunIntensity.value = Math.max(lighting.sunIntensity, 0.08);
-    material.uniforms.cloudAmount.value = atmosphereSkyCloudAmount(settings.weather.cloudCover);
+    // Shader clouds follow the preset-floored effective cover: an overcast
+    // or storm sky closes its deck even at a low authored cover slider.
+    const mood = evaluateSkyWeatherMood(settings.weather);
+    material.uniforms.cloudAmount.value = atmosphereSkyCloudAmount(mood.effectiveCloudCover);
+    material.uniforms.cloudDarken.value = mood.cloudShaderDarkening;
     material.uniforms.time.value = seconds;
     const windRadians = (settings.wind.directionDegrees * Math.PI) / 180;
     windDir.set(Math.sin(windRadians), Math.cos(windRadians));

@@ -1,12 +1,14 @@
-import { createWorldRng, hashCombine, worldStreamId } from "../worldRandom";
+import { createWorldRng, hashCombine, worldRandom01, worldStreamId } from "../worldRandom";
 
 /**
- * Seeded starfield geometry.
+ * Seeded starfield geometry and twinkle.
  *
  * drei's `<Stars>` seeds its points from `Math.random()` and twinkles from the
  * wall clock, so two sessions of the same project would export different
  * night skies. This generator is a pure function of the world seed instead:
- * identical seeds always produce the identical star dome.
+ * identical seeds always produce the identical star dome, and per-star
+ * twinkle parameters come from the integer-hash `worldRandom01` streams (no
+ * fract(sin) shader noise), evaluated against `worldSeconds` only.
  */
 
 /** Number of star points on the dome. */
@@ -42,4 +44,76 @@ export function createStarFieldPositions(
     positions[index * 3 + 2] = Math.cos(azimuth) * cosElevation * shellRadius;
   }
   return positions;
+}
+
+/** Twinkle angular speed band, radians per world second. */
+export const STAR_TWINKLE_MIN_SPEED = 0.6;
+export const STAR_TWINKLE_MAX_SPEED = 2.6;
+/** Twinkle modulation depth band: how far a star dips from full brightness. */
+export const STAR_TWINKLE_MIN_AMOUNT = 0.25;
+export const STAR_TWINKLE_MAX_AMOUNT = 0.75;
+/** Per-star base brightness band, so the dome shows magnitude variety. */
+export const STAR_MIN_BRIGHTNESS = 0.45;
+export const STAR_MAX_BRIGHTNESS = 1;
+
+const TWINKLE_STREAM = worldStreamId("sky-star-twinkle");
+const FIELD_TWINKLE_PHASE = 1;
+const FIELD_TWINKLE_SPEED = 2;
+const FIELD_TWINKLE_AMOUNT = 3;
+const FIELD_BRIGHTNESS = 4;
+
+export interface StarFieldTwinkleAttributes {
+  /** Per-star twinkle phase offset in [0, 2π). */
+  phase: Float32Array;
+  /** Per-star twinkle angular speed, radians per world second. */
+  speed: Float32Array;
+  /** Per-star modulation depth in [STAR_TWINKLE_MIN_AMOUNT, STAR_TWINKLE_MAX_AMOUNT]. */
+  amount: Float32Array;
+  /** Per-star base brightness in [STAR_MIN_BRIGHTNESS, STAR_MAX_BRIGHTNESS]. */
+  brightness: Float32Array;
+}
+
+/**
+ * Per-star twinkle parameters, one entry per star, from integer-hash streams.
+ * A pure function of `(seed, count)`: the same dome always twinkles the same
+ * way across sessions, scrubs, and exports.
+ *
+ * @param seed - The world seed.
+ * @param count - Number of stars (must match the positions buffer).
+ * @returns Flat per-star attribute arrays for the star shader.
+ */
+export function createStarFieldTwinkleAttributes(seed: number, count = STAR_FIELD_COUNT): StarFieldTwinkleAttributes {
+  const fieldSeed = hashCombine(seed, TWINKLE_STREAM);
+  const phase = new Float32Array(count);
+  const speed = new Float32Array(count);
+  const amount = new Float32Array(count);
+  const brightness = new Float32Array(count);
+  for (let index = 0; index < count; index += 1) {
+    phase[index] = worldRandom01(fieldSeed, index, FIELD_TWINKLE_PHASE) * Math.PI * 2;
+    speed[index] =
+      STAR_TWINKLE_MIN_SPEED +
+      (STAR_TWINKLE_MAX_SPEED - STAR_TWINKLE_MIN_SPEED) * worldRandom01(fieldSeed, index, FIELD_TWINKLE_SPEED);
+    amount[index] =
+      STAR_TWINKLE_MIN_AMOUNT +
+      (STAR_TWINKLE_MAX_AMOUNT - STAR_TWINKLE_MIN_AMOUNT) * worldRandom01(fieldSeed, index, FIELD_TWINKLE_AMOUNT);
+    brightness[index] =
+      STAR_MIN_BRIGHTNESS +
+      (STAR_MAX_BRIGHTNESS - STAR_MIN_BRIGHTNESS) * worldRandom01(fieldSeed, index, FIELD_BRIGHTNESS);
+  }
+  return { phase, speed, amount, brightness };
+}
+
+/**
+ * Twinkle factor for one star at `worldSeconds` — the CPU twin of the star
+ * shader's vertex formula. 1 means full brightness; the star dips by
+ * `amount` on a deterministic sine of world time (never the wall clock).
+ *
+ * @param phase - The star's phase offset.
+ * @param speed - The star's angular twinkle speed.
+ * @param amount - The star's modulation depth.
+ * @param worldSeconds - World time in seconds.
+ * @returns Brightness factor in [1 - amount, 1].
+ */
+export function evaluateStarTwinkle(phase: number, speed: number, amount: number, worldSeconds: number): number {
+  return 1 - amount * (0.5 + 0.5 * Math.sin(phase + speed * worldSeconds));
 }

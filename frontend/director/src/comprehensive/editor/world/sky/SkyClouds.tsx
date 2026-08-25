@@ -19,6 +19,7 @@ import {
   SKY_CLOUD_MAX_QUAD_COUNT,
 } from "./cloudField";
 import { getCloudSpriteTexture } from "./skySpriteTextures";
+import { evaluateSkyWeatherMood } from "./skyWeather";
 import { evaluateSkyLighting } from "./solar";
 
 /**
@@ -36,6 +37,9 @@ const SKY_CLOUDS_RENDER_ORDER = 4;
 
 /** Base opacity of a full-weight quad; per-quad weights scale it down. */
 export const SKY_CLOUD_BASE_OPACITY = 0.42;
+
+/** Hard ceiling after the weather opacity scale, so decks never go opaque-white. */
+export const SKY_CLOUD_MAX_OPACITY = 0.92;
 
 /**
  * Drift is quantized into buckets so instance matrices are rewritten a few
@@ -108,9 +112,16 @@ export default function SkyClouds({ context }: SkyCloudsProps) {
   const meshRef = useRef<InstancedMesh>(null);
   const lastDriftSampleSecondsRef = useRef<number | null>(null);
 
+  // Preset + intensity raise the effective cover, so an overcast or storm
+  // sky fills with clusters even when the authored cover slider sits low.
+  const mood = useMemo(
+    () => evaluateSkyWeatherMood(settings.weather),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settings.weather.preset, settings.weather.intensity, settings.weather.cloudCover],
+  );
   const quads = useMemo(
-    () => createSkyCloudPlacements(seed, settings.weather.cloudCover),
-    [seed, settings.weather.cloudCover],
+    () => createSkyCloudPlacements(seed, mood.effectiveCloudCover),
+    [seed, mood.effectiveCloudCover],
   );
 
   const geometry = useMemo(() => {
@@ -147,9 +158,10 @@ export default function SkyClouds({ context }: SkyCloudsProps) {
 
   const syncCloudFrame = useCallback(
     (force = false) => {
-      const palette = getSkyCloudPalette(evaluateSkyLighting(settings, context.worldSeconds));
+      const palette = getSkyCloudPalette(evaluateSkyLighting(settings, context.worldSeconds), settings.weather);
       (material.uniforms.uTopColor.value as Color).setRGB(...palette.top);
       (material.uniforms.uBottomColor.value as Color).setRGB(...palette.bottom);
+      material.uniforms.uOpacity.value = Math.min(SKY_CLOUD_MAX_OPACITY, SKY_CLOUD_BASE_OPACITY * mood.cloudOpacityScale);
 
       const driftSampleSeconds =
         Math.floor(context.worldSeconds / SKY_CLOUD_DRIFT_BUCKET_SECONDS) * SKY_CLOUD_DRIFT_BUCKET_SECONDS;
@@ -162,7 +174,9 @@ export default function SkyClouds({ context }: SkyCloudsProps) {
       const weights = geometry.getAttribute("aCloudWeight") as InstancedBufferAttribute;
       quads.forEach((quad, index) => {
         const [x, y, z] = getSkyCloudPosition(quad, driftRadians);
-        scratchMatrix.makeScale(quad.size, quad.size * SKY_CLOUD_QUAD_ASPECT, 1);
+        // Heavy weather widens each puff so clusters merge into banks.
+        const size = quad.size * mood.cloudSizeScale;
+        scratchMatrix.makeScale(size, size * SKY_CLOUD_QUAD_ASPECT, 1);
         scratchMatrix.setPosition(x, y, z);
         mesh.setMatrixAt(index, scratchMatrix);
         weights.setX(index, quad.opacityWeight);
@@ -171,7 +185,7 @@ export default function SkyClouds({ context }: SkyCloudsProps) {
       mesh.instanceMatrix.needsUpdate = true;
       weights.needsUpdate = true;
     },
-    [context, geometry, material, quads, settings],
+    [context, geometry, material, mood, quads, settings],
   );
 
   // Palette stays live every frame; instance transforms remain bucketed at
