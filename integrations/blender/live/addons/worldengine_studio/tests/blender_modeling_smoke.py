@@ -2019,250 +2019,261 @@ def main():
         assert "Unknown Blender action" in unknown_action["error"]
         assert tuple(blockout.find_object(rig_id).pose.bones["Agent Root"].location) == unknown_action_location
 
-        active = bpy.context.view_layer.objects.active
-        if active is not None and active.mode != 'OBJECT':
-            bpy.ops.object.mode_set(mode='OBJECT')
-        target_objects_before = set(bpy.data.objects)
-        _, idle_path = mixamo_actions._motion_entry("idle")
-        assert 'FINISHED' in bpy.ops.import_scene.gltf(filepath=str(idle_path))
-        mixamo_target = next(
-            obj
-            for obj in set(bpy.data.objects) - target_objects_before
-            if obj.type == 'ARMATURE'
-            and obj.animation_data is not None
-            and obj.animation_data.action is not None
-        )
-        mixamo_target_id = "mixamo-smoke-rig"
-        mixamo_target[blockout.ID_PROPERTY] = mixamo_target_id
-        mixamo_target.name = "Mixamo Smoke Rig"
-        idle_action = mixamo_target.animation_data.action
-        mixamo_target.animation_data.action = None
-        for track in list(mixamo_target.animation_data.nla_tracks):
-            mixamo_target.animation_data.nla_tracks.remove(track)
-        if idle_action.users == 0:
-            bpy.data.actions.remove(idle_action)
-        bpy.context.view_layer.update()
-        if native_session._manual_change_pending:
-            flush_scheduled_snapshot()
+        # Packaged Mixamo clips are user-supplied (Adobe terms are local-only),
+        # staged by `npm run assets:install`, and absent from a bare checkout.
+        # Skip only the packaged-motion coverage when they are missing so the
+        # rest of the kernel contract still runs everywhere.
+        try:
+            mixamo_actions._motion_entry("idle")
+            mixamo_clips_installed = True
+        except ValueError:
+            mixamo_clips_installed = False
+            print("SKIP packaged Mixamo motion coverage: clips are not installed (npm run assets:install)")
+        if mixamo_clips_installed:
+            active = bpy.context.view_layer.objects.active
+            if active is not None and active.mode != 'OBJECT':
+                bpy.ops.object.mode_set(mode='OBJECT')
+            target_objects_before = set(bpy.data.objects)
+            _, idle_path = mixamo_actions._motion_entry("idle")
+            assert 'FINISHED' in bpy.ops.import_scene.gltf(filepath=str(idle_path))
+            mixamo_target = next(
+                obj
+                for obj in set(bpy.data.objects) - target_objects_before
+                if obj.type == 'ARMATURE'
+                and obj.animation_data is not None
+                and obj.animation_data.action is not None
+            )
+            mixamo_target_id = "mixamo-smoke-rig"
+            mixamo_target[blockout.ID_PROPERTY] = mixamo_target_id
+            mixamo_target.name = "Mixamo Smoke Rig"
+            idle_action = mixamo_target.animation_data.action
+            mixamo_target.animation_data.action = None
+            for track in list(mixamo_target.animation_data.nla_tracks):
+                mixamo_target.animation_data.nla_tracks.remove(track)
+            if idle_action.users == 0:
+                bpy.data.actions.remove(idle_action)
+            bpy.context.view_layer.update()
+            if native_session._manual_change_pending:
+                flush_scheduled_snapshot()
 
-        compatibility = execute({"op": "inspect_object", "id": mixamo_target_id})[
-            "rig"
-        ]["mixamoCompatibility"]
-        assert compatibility["compatible"] is True
-        assert compatibility["missingBoneRoles"] == []
-        mixamo_bones = mixamo_actions._bone_index(mixamo_target)
-        left_arm_name = mixamo_bones["leftarm"]
-        preview_pose_token = '{"pose":"preview-regression"}'
-        preview_pose_applied = submit(
-            "apply-preview-regression-pose",
-            [{
-                "op": "apply_pose_offsets",
-                "id": mixamo_target_id,
-                "stateToken": preview_pose_token,
-                "resetPose": True,
-                "bones": [{
-                    "boneRef": left_arm_name,
-                    "rotationOffsetQuaternion": [0.9914448614, 0.0, 0.0, 0.1305261922],
+            compatibility = execute({"op": "inspect_object", "id": mixamo_target_id})[
+                "rig"
+            ]["mixamoCompatibility"]
+            assert compatibility["compatible"] is True
+            assert compatibility["missingBoneRoles"] == []
+            mixamo_bones = mixamo_actions._bone_index(mixamo_target)
+            left_arm_name = mixamo_bones["leftarm"]
+            preview_pose_token = '{"pose":"preview-regression"}'
+            preview_pose_applied = submit(
+                "apply-preview-regression-pose",
+                [{
+                    "op": "apply_pose_offsets",
+                    "id": mixamo_target_id,
+                    "stateToken": preview_pose_token,
+                    "resetPose": True,
+                    "bones": [{
+                        "boneRef": left_arm_name,
+                        "rotationOffsetQuaternion": [0.9914448614, 0.0, 0.0, 0.1305261922],
+                    }],
                 }],
-            }],
-        )
-        assert preview_pose_applied["status"] == "succeeded"
-        preview_pose_before = tuple(
-            mixamo_target.pose.bones[left_arm_name].rotation_quaternion
-        )
-        preview_pose_revision = native_session._revision_value(bpy.context.scene)
-        preview_pose_record = submit(
-            "preview-preserves-director-character-pose",
-            [{"op": "export_scene_preview"}],
-        )
-        assert preview_pose_record["status"] == "succeeded"
-        assert preview_pose_record["revision"] == preview_pose_revision
-        bpy.context.view_layer.update()
-        if native_session._manual_change_pending:
-            flush_scheduled_snapshot()
-        assert native_session._revision_value(bpy.context.scene) == preview_pose_revision
-        mixamo_target = blockout.find_object(mixamo_target_id)
-        assert mixamo_target is not None
-        assert mixamo_target.type == 'ARMATURE'
-        preview_pose_after = tuple(
-            mixamo_target.pose.bones[left_arm_name].rotation_quaternion
-        )
-        assert mixamo_target[rig_tools.DIRECTOR_CHARACTER_STATE_PROPERTY] == preview_pose_token
-        assert all(
-            abs(before - after) < 1e-6
-            for before, after in zip(preview_pose_before, preview_pose_after)
-        )
-        armatures_before_mixamo = {
-            obj.name for obj in bpy.data.objects if obj.type == 'ARMATURE'
-        }
-        mixamo_revision = native_session._revision_value(bpy.context.scene)
-        mixamo_transaction = submit(
-            "mixamo-import-and-nla-one-transaction",
-            [
-                {
-                    "op": "import_mixamo_action",
+            )
+            assert preview_pose_applied["status"] == "succeeded"
+            preview_pose_before = tuple(
+                mixamo_target.pose.bones[left_arm_name].rotation_quaternion
+            )
+            preview_pose_revision = native_session._revision_value(bpy.context.scene)
+            preview_pose_record = submit(
+                "preview-preserves-director-character-pose",
+                [{"op": "export_scene_preview"}],
+            )
+            assert preview_pose_record["status"] == "succeeded"
+            assert preview_pose_record["revision"] == preview_pose_revision
+            bpy.context.view_layer.update()
+            if native_session._manual_change_pending:
+                flush_scheduled_snapshot()
+            assert native_session._revision_value(bpy.context.scene) == preview_pose_revision
+            mixamo_target = blockout.find_object(mixamo_target_id)
+            assert mixamo_target is not None
+            assert mixamo_target.type == 'ARMATURE'
+            preview_pose_after = tuple(
+                mixamo_target.pose.bones[left_arm_name].rotation_quaternion
+            )
+            assert mixamo_target[rig_tools.DIRECTOR_CHARACTER_STATE_PROPERTY] == preview_pose_token
+            assert all(
+                abs(before - after) < 1e-6
+                for before, after in zip(preview_pose_before, preview_pose_after)
+            )
+            armatures_before_mixamo = {
+                obj.name for obj in bpy.data.objects if obj.type == 'ARMATURE'
+            }
+            mixamo_revision = native_session._revision_value(bpy.context.scene)
+            mixamo_transaction = submit(
+                "mixamo-import-and-nla-one-transaction",
+                [
+                    {
+                        "op": "import_mixamo_action",
+                        "id": mixamo_target_id,
+                        "motionId": "walk",
+                        "actionName": "Agent Walk",
+                        "rootMotion": "IN_PLACE",
+                    },
+                    {
+                        "op": "create_nla_track",
+                        "id": mixamo_target_id,
+                        "trackName": "Locomotion",
+                    },
+                    {
+                        "op": "add_nla_strip",
+                        "id": mixamo_target_id,
+                        "trackName": "Locomotion",
+                        "stripName": "Walk Base",
+                        "actionName": "Agent Walk",
+                        "startFrame": 10,
+                        "blendMode": "REPLACE",
+                        "influence": 0.75,
+                        "repeat": 2,
+                        "scale": 0.5,
+                    },
+                    {
+                        "op": "update_nla_strip",
+                        "id": mixamo_target_id,
+                        "trackName": "Locomotion",
+                        "stripName": "Walk Base",
+                        "blendMode": "ADD",
+                        "influence": 0.5,
+                    },
+                ],
+            )
+            assert mixamo_transaction["status"] == "succeeded", mixamo_transaction
+            assert mixamo_transaction["revision"] == mixamo_revision + 1
+            for result in mixamo_transaction["result"]["operations"]:
+                assert result["affectedObjectIds"] == [mixamo_target_id]
+                assert result["dirtyObjectIds"] == [mixamo_target_id]
+            assert {
+                obj.name for obj in bpy.data.objects if obj.type == 'ARMATURE'
+            } == armatures_before_mixamo
+
+            mixamo_inspection = execute({"op": "inspect_object", "id": mixamo_target_id})
+            locomotion_track = next(
+                track
+                for track in mixamo_inspection["animation"]["nlaTracks"]
+                if track["name"] == "Locomotion"
+            )
+            walk_strip = locomotion_track["strips"][0]
+            assert walk_strip["name"] == "Walk Base"
+            assert walk_strip["actionName"] == "Agent Walk"
+            assert walk_strip["frameStart"] == 10.0
+            assert walk_strip["blendMode"] == "ADD"
+            assert walk_strip["influence"] == 0.5
+            assert walk_strip["repeat"] == 2.0
+            assert walk_strip["scale"] == 0.5
+
+            walk_action = bpy.data.actions["Agent Walk"]
+            hips_name = mixamo_actions._bone_index(mixamo_target)["hips"]
+            vertical_axis = mixamo_actions._root_vertical_axis(mixamo_target, hips_name)
+            root_location_curves = [
+                curve
+                for curve in mixamo_actions._fcurves(walk_action)
+                if curve.data_path == f'pose.bones["{hips_name}"].location'
+            ]
+            assert len(root_location_curves) == 3
+            for curve in root_location_curves:
+                if curve.array_index == vertical_axis:
+                    continue
+                values = [round(float(point.co.y), 6) for point in curve.keyframe_points]
+                assert len(set(values)) == 1
+
+            mixamo_undo = submit("mixamo-import-and-nla-undo", [{"op": "undo_scene"}])
+            assert mixamo_undo["status"] == "succeeded"
+            assert bpy.data.actions.get("Agent Walk") is None
+            assert execute({"op": "inspect_object", "id": mixamo_target_id})[
+                "animation"
+            ]["nlaTracks"] == []
+
+            mixamo_redo = submit("mixamo-import-and-nla-redo", [{"op": "redo_scene"}])
+            assert mixamo_redo["status"] == "succeeded"
+            assert bpy.data.actions.get("Agent Walk") is not None
+            assert execute({"op": "inspect_object", "id": mixamo_target_id})[
+                "animation"
+            ]["nlaTrackCount"] == 1
+
+            nla_pose_token = '{"pose":"nla-preview-regression"}'
+            nla_pose_applied = submit(
+                "apply-nla-preview-regression-pose",
+                [{
+                    "op": "apply_pose_offsets",
                     "id": mixamo_target_id,
-                    "motionId": "walk",
-                    "actionName": "Agent Walk",
-                    "rootMotion": "IN_PLACE",
-                },
-                {
-                    "op": "create_nla_track",
-                    "id": mixamo_target_id,
-                    "trackName": "Locomotion",
-                },
-                {
-                    "op": "add_nla_strip",
-                    "id": mixamo_target_id,
-                    "trackName": "Locomotion",
-                    "stripName": "Walk Base",
-                    "actionName": "Agent Walk",
-                    "startFrame": 10,
-                    "blendMode": "REPLACE",
-                    "influence": 0.75,
-                    "repeat": 2,
-                    "scale": 0.5,
-                },
-                {
-                    "op": "update_nla_strip",
-                    "id": mixamo_target_id,
-                    "trackName": "Locomotion",
-                    "stripName": "Walk Base",
-                    "blendMode": "ADD",
-                    "influence": 0.5,
-                },
-            ],
-        )
-        assert mixamo_transaction["status"] == "succeeded", mixamo_transaction
-        assert mixamo_transaction["revision"] == mixamo_revision + 1
-        for result in mixamo_transaction["result"]["operations"]:
-            assert result["affectedObjectIds"] == [mixamo_target_id]
-            assert result["dirtyObjectIds"] == [mixamo_target_id]
-        assert {
-            obj.name for obj in bpy.data.objects if obj.type == 'ARMATURE'
-        } == armatures_before_mixamo
-
-        mixamo_inspection = execute({"op": "inspect_object", "id": mixamo_target_id})
-        locomotion_track = next(
-            track
-            for track in mixamo_inspection["animation"]["nlaTracks"]
-            if track["name"] == "Locomotion"
-        )
-        walk_strip = locomotion_track["strips"][0]
-        assert walk_strip["name"] == "Walk Base"
-        assert walk_strip["actionName"] == "Agent Walk"
-        assert walk_strip["frameStart"] == 10.0
-        assert walk_strip["blendMode"] == "ADD"
-        assert walk_strip["influence"] == 0.5
-        assert walk_strip["repeat"] == 2.0
-        assert walk_strip["scale"] == 0.5
-
-        walk_action = bpy.data.actions["Agent Walk"]
-        hips_name = mixamo_actions._bone_index(mixamo_target)["hips"]
-        vertical_axis = mixamo_actions._root_vertical_axis(mixamo_target, hips_name)
-        root_location_curves = [
-            curve
-            for curve in mixamo_actions._fcurves(walk_action)
-            if curve.data_path == f'pose.bones["{hips_name}"].location'
-        ]
-        assert len(root_location_curves) == 3
-        for curve in root_location_curves:
-            if curve.array_index == vertical_axis:
-                continue
-            values = [round(float(point.co.y), 6) for point in curve.keyframe_points]
-            assert len(set(values)) == 1
-
-        mixamo_undo = submit("mixamo-import-and-nla-undo", [{"op": "undo_scene"}])
-        assert mixamo_undo["status"] == "succeeded"
-        assert bpy.data.actions.get("Agent Walk") is None
-        assert execute({"op": "inspect_object", "id": mixamo_target_id})[
-            "animation"
-        ]["nlaTracks"] == []
-
-        mixamo_redo = submit("mixamo-import-and-nla-redo", [{"op": "redo_scene"}])
-        assert mixamo_redo["status"] == "succeeded"
-        assert bpy.data.actions.get("Agent Walk") is not None
-        assert execute({"op": "inspect_object", "id": mixamo_target_id})[
-            "animation"
-        ]["nlaTrackCount"] == 1
-
-        nla_pose_token = '{"pose":"nla-preview-regression"}'
-        nla_pose_applied = submit(
-            "apply-nla-preview-regression-pose",
-            [{
-                "op": "apply_pose_offsets",
-                "id": mixamo_target_id,
-                "stateToken": nla_pose_token,
-                "resetPose": False,
-                "bones": [{
-                    "boneRef": left_arm_name,
-                    "rotationOffsetQuaternion": [1.0, 0.0, 0.0, 0.0],
+                    "stateToken": nla_pose_token,
+                    "resetPose": False,
+                    "bones": [{
+                        "boneRef": left_arm_name,
+                        "rotationOffsetQuaternion": [1.0, 0.0, 0.0, 0.0],
+                    }],
                 }],
-            }],
-        )
-        assert nla_pose_applied["status"] == "succeeded"
-        nla_pose_revision = native_session._revision_value(bpy.context.scene)
-        bpy.context.view_layer.update()
-        if native_session._manual_change_pending:
-            flush_scheduled_snapshot()
-        assert native_session._revision_value(bpy.context.scene) == nla_pose_revision
-        assert blockout.find_object(mixamo_target_id)[
-            rig_tools.DIRECTOR_CHARACTER_STATE_PROPERTY
-        ] == nla_pose_token
-        nla_preview = submit(
-            "preview-preserves-nla-character-pose",
-            [{"op": "export_scene_preview"}],
-        )
-        assert nla_preview["status"] == "succeeded"
-        assert nla_preview["revision"] == nla_pose_revision
-        assert blockout.find_object(mixamo_target_id)[
-            rig_tools.DIRECTOR_CHARACTER_STATE_PROPERTY
-        ] == nla_pose_token
+            )
+            assert nla_pose_applied["status"] == "succeeded"
+            nla_pose_revision = native_session._revision_value(bpy.context.scene)
+            bpy.context.view_layer.update()
+            if native_session._manual_change_pending:
+                flush_scheduled_snapshot()
+            assert native_session._revision_value(bpy.context.scene) == nla_pose_revision
+            assert blockout.find_object(mixamo_target_id)[
+                rig_tools.DIRECTOR_CHARACTER_STATE_PROPERTY
+            ] == nla_pose_token
+            nla_preview = submit(
+                "preview-preserves-nla-character-pose",
+                [{"op": "export_scene_preview"}],
+            )
+            assert nla_preview["status"] == "succeeded"
+            assert nla_preview["revision"] == nla_pose_revision
+            assert blockout.find_object(mixamo_target_id)[
+                rig_tools.DIRECTOR_CHARACTER_STATE_PROPERTY
+            ] == nla_pose_token
 
-        authored_revision = native_session._revision_value(bpy.context.scene)
-        authored_motion = submit(
-            "mixamo-authored-root-motion",
-            [
-                {
-                    "op": "import_mixamo_action",
-                    "id": mixamo_target_id,
-                    "motionId": "walk",
-                    "actionName": "Agent Walk Authored",
-                    "rootMotion": "AUTHORED",
-                }
-            ],
-        )
-        assert authored_motion["status"] == "succeeded", authored_motion
-        assert authored_motion["revision"] == authored_revision + 1
-        authored_curves = [
-            curve
-            for curve in mixamo_actions._fcurves(bpy.data.actions["Agent Walk Authored"])
-            if curve.data_path == f'pose.bones["{hips_name}"].location'
-            and curve.array_index != vertical_axis
-        ]
-        assert any(
-            len({round(float(point.co.y), 6) for point in curve.keyframe_points}) > 1
-            for curve in authored_curves
-        )
-        authored_undo = submit("mixamo-authored-root-motion-undo", [{"op": "undo_scene"}])
-        assert authored_undo["status"] == "succeeded"
-        assert bpy.data.actions.get("Agent Walk Authored") is None
+            authored_revision = native_session._revision_value(bpy.context.scene)
+            authored_motion = submit(
+                "mixamo-authored-root-motion",
+                [
+                    {
+                        "op": "import_mixamo_action",
+                        "id": mixamo_target_id,
+                        "motionId": "walk",
+                        "actionName": "Agent Walk Authored",
+                        "rootMotion": "AUTHORED",
+                    }
+                ],
+            )
+            assert authored_motion["status"] == "succeeded", authored_motion
+            assert authored_motion["revision"] == authored_revision + 1
+            authored_curves = [
+                curve
+                for curve in mixamo_actions._fcurves(bpy.data.actions["Agent Walk Authored"])
+                if curve.data_path == f'pose.bones["{hips_name}"].location'
+                and curve.array_index != vertical_axis
+            ]
+            assert any(
+                len({round(float(point.co.y), 6) for point in curve.keyframe_points}) > 1
+                for curve in authored_curves
+            )
+            authored_undo = submit("mixamo-authored-root-motion-undo", [{"op": "undo_scene"}])
+            assert authored_undo["status"] == "succeeded"
+            assert bpy.data.actions.get("Agent Walk Authored") is None
 
-        unknown_motion_revision = native_session._revision_value(bpy.context.scene)
-        unknown_motion = submit(
-            "unknown-mixamo-motion-rolls-back",
-            [
-                {
-                    "op": "import_mixamo_action",
-                    "id": mixamo_target_id,
-                    "motionId": "missing-motion",
-                    "actionName": "Missing Motion",
-                }
-            ],
-        )
-        assert unknown_motion["status"] == "failed"
-        assert unknown_motion["revision"] == unknown_motion_revision
-        assert bpy.data.actions.get("Missing Motion") is None
+            unknown_motion_revision = native_session._revision_value(bpy.context.scene)
+            unknown_motion = submit(
+                "unknown-mixamo-motion-rolls-back",
+                [
+                    {
+                        "op": "import_mixamo_action",
+                        "id": mixamo_target_id,
+                        "motionId": "missing-motion",
+                        "actionName": "Missing Motion",
+                    }
+                ],
+            )
+            assert unknown_motion["status"] == "failed"
+            assert unknown_motion["revision"] == unknown_motion_revision
+            assert bpy.data.actions.get("Missing Motion") is None
 
         mixed_revision = native_session._revision_value(bpy.context.scene)
         mixed = submit(
