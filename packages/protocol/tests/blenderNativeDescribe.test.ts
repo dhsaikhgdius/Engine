@@ -34,6 +34,51 @@ describe("blender native typed describe", () => {
     const serialized = JSON.stringify(described.result.json_schema);
     expect(serialized).toContain("primitive");
     expect(serialized).toContain("create_primitive");
+    expect(described.result.note).toContain("grounded");
+    expect(described.result.note).toContain("create_blockout");
+  });
+
+  it("documents the white-box blockout contract on create_blockout describe", () => {
+    const described = describeBlenderNativeTarget("create_blockout");
+    expect(described.success).toBe(true);
+    if (!described.success) return;
+    expect(described.result.target).toBe("apply.create_blockout");
+    expect(described.result.note).toContain("room = floor + 4 walls");
+    expect(described.result.note).toContain("create_opening");
+    const serialized = JSON.stringify(described.result.json_schema);
+    expect(serialized).toContain("idPrefix");
+    expect(serialized).toContain("wallThickness");
+    expect(serialized).toContain("north/south/east/west");
+  });
+
+  it("documents metric opening semantics on create_opening describe", () => {
+    const described = describeBlenderNativeTarget("create_opening");
+    expect(described.success).toBe(true);
+    if (!described.success) return;
+    expect(described.result.target).toBe("apply.create_opening");
+    expect(described.result.note).toContain("BOOLEAN");
+    expect(described.result.note).toContain("darker box");
+    const serialized = JSON.stringify(described.result.json_schema);
+    expect(serialized).toContain("sillHeight");
+    expect(serialized).toContain("<idPrefix>:2..5");
+  });
+
+  it("redirects common blockout and opening guesses to the canonical typed ops", () => {
+    for (const guess of ["blockout", "create_room", "create-stairs", "create_wall"]) {
+      const described = describeBlenderNativeTarget(guess);
+      expect(described.success, guess).toBe(true);
+      if (!described.success) continue;
+      expect(described.result.target).toBe("apply.create_blockout");
+      expect(described.result.note).toContain(`"${guess}" is not a typed op`);
+      expect(described.result.note).toContain("create_opening");
+    }
+    for (const guess of ["opening", "add_opening", "create_door", "create_window"]) {
+      const described = describeBlenderNativeTarget(guess);
+      expect(described.success, guess).toBe(true);
+      if (!described.success) continue;
+      expect(described.result.target).toBe("apply.create_opening");
+      expect(described.result.note).toContain("create_opening");
+    }
   });
 
   it("accepts the apply. prefix and rejects unknown targets", () => {

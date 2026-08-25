@@ -369,14 +369,17 @@ const agentOperationSchemas = [
   }),
   z.strictObject({
     op: z.literal("create_opening"),
-    id: identifier,
-    targetId: identifier,
+    id: identifier.describe("Stable id for the created cutter object."),
+    targetId: identifier.describe("Existing mesh wall to cut. A create_blockout room returns walls as <idPrefix>:2..5."),
     kind: openingKindSchema.default("door"),
     name: z.string().trim().min(1).max(240).optional(),
-    width: finite.positive().default(0.9),
-    height: finite.positive().default(2.1),
-    sillHeight: finite.nonnegative().default(0),
-    offset: finite.default(0),
+    width: finite.positive().default(0.9).describe("Opening width in metres."),
+    height: finite.positive().default(2.1).describe("Opening height in metres."),
+    sillHeight: finite
+      .nonnegative()
+      .default(0)
+      .describe("Bottom of the opening above the wall base in metres. Doors keep 0; windows are typically 0.9-1.1."),
+    offset: finite.default(0).describe("Horizontal offset from the wall centre in metres."),
   }),
   z.strictObject({
     op: z.literal("move_to_collection"),
@@ -403,14 +406,28 @@ const agentOperationSchemas = [
   }),
   z.strictObject({
     op: z.literal("create_blockout"),
-    preset: blockoutPresetSchema,
-    idPrefix: identifier,
-    origin: vec3.default([0, 0, 0]),
-    width: finite.positive().min(0.05).max(10_000).default(8),
-    depth: finite.positive().min(0.05).max(10_000).default(6),
-    height: finite.positive().min(0.05).max(10_000).default(3),
-    wallThickness: finite.positive().min(0.01).max(10).default(0.18),
-    stepCount: z.number().int().min(1).max(256).default(12),
+    preset: blockoutPresetSchema.describe(
+      "room = floor + 4 walls, corridor = floor + 2 parallel walls, stairs = one flight, wall/floor = a single slab. All clay-material white-box shells.",
+    ),
+    idPrefix: identifier.describe(
+      'Created objects get stable ids "<idPrefix>:1..n" (room: 1 floor, then north/south/east/west walls). Use one as the batch probe.',
+    ),
+    origin: vec3.default([0, 0, 0]).describe("Floor-level origin in metres (Director Y-up)."),
+    width: finite.positive().min(0.05).max(10_000).default(8).describe("Metres. Stairs preset: flight width."),
+    depth: finite
+      .positive()
+      .min(0.05)
+      .max(10_000)
+      .default(6)
+      .describe("Metres. Corridor preset: length. Stairs preset: total run."),
+    height: finite
+      .positive()
+      .min(0.05)
+      .max(10_000)
+      .default(3)
+      .describe("Metres. Stairs preset: total rise."),
+    wallThickness: finite.positive().min(0.01).max(10).default(0.18).describe("Wall and floor slab thickness in metres."),
+    stepCount: z.number().int().min(1).max(256).default(12).describe("Step count for the stairs preset."),
   }),
   z.strictObject({
     op: z.literal("discover_operators"),
