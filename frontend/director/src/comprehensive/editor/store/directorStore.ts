@@ -589,6 +589,42 @@ function cloneJsonValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Restore structural sharing after a whole-document rebuild (structuredClone
+ * or JSON round trip): every subtree that is deep-equal to the previous
+ * document keeps the previous reference. Store subscribers selecting an
+ * untouched branch (assets, cameras, production, ...) then see an identical
+ * reference and skip re-rendering when an authored edit changed something else.
+ */
+function reuseUnchangedJsonReferences<T>(previous: unknown, next: T): T {
+  if (Object.is(previous, next)) return next;
+  if (Array.isArray(previous) && Array.isArray(next)) {
+    let reusedAll = previous.length === next.length;
+    const merged = next.map((item, index) => {
+      const reused = reuseUnchangedJsonReferences(previous[index], item);
+      if (!Object.is(reused, previous[index])) reusedAll = false;
+      return reused;
+    });
+    return (reusedAll ? previous : merged) as T;
+  }
+  if (isPlainJsonObject(previous) && isPlainJsonObject(next)) {
+    const nextKeys = Object.keys(next);
+    let reusedAll = Object.keys(previous).length === nextKeys.length;
+    const merged: Record<string, unknown> = {};
+    for (const key of nextKeys) {
+      const reused = reuseUnchangedJsonReferences(previous[key], next[key]);
+      merged[key] = reused;
+      if (!Object.is(reused, previous[key])) reusedAll = false;
+    }
+    return (reusedAll ? previous : merged) as T;
+  }
+  return next;
+}
+
 function readPersistedLocalModelAssets() {
   const storage = getLocalStorageSafe();
   if (!storage) return [];
@@ -4660,19 +4696,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       const characterIssues = getDirectorCharacterAssetBindingIssues(migratedProject);
       if (characterIssues.length) throw new Error(`人物资产绑定无效：${characterIssues[0]}`);
       commitMutation((state) => {
-        const remainingIds = new Set(migratedProject.objects.map((object) => object.id));
+        const nextProject = reuseUnchangedJsonReferences(state.project, migratedProject);
+        const remainingIds = new Set(nextProject.objects.map((object) => object.id));
         const nextSelectedIds = getOrderedSelectedObjectIds(state).filter((id) => remainingIds.has(id));
+        const selectionUnchanged =
+          nextSelectedIds.length === state.selectedObjectIds.length &&
+          nextSelectedIds.every((id, index) => state.selectedObjectIds[index] === id);
         const nextCrowdId =
           state.selectedCrowdId &&
-          migratedProject.objects.some(
-            (object) => object.kind === "character" && object.crowdId === state.selectedCrowdId,
-          )
+          nextProject.objects.some((object) => object.kind === "character" && object.crowdId === state.selectedCrowdId)
             ? state.selectedCrowdId
             : null;
         return {
           ...state,
-          project: migratedProject,
-          ...selectedObjectsPatch(nextSelectedIds, nextCrowdId),
+          project: nextProject,
+          ...selectedObjectsPatch(selectionUnchanged ? state.selectedObjectIds : nextSelectedIds, nextCrowdId),
         };
       });
     },

@@ -246,7 +246,14 @@ it("keeps character roam and camera pilot mutually exclusive", () => {
 
 it("undoes and redoes scene edits from the viewport toolbar buttons", async () => {
   const user = userEvent.setup();
-  useDirectorStore.setState({ ...useDirectorStore.getState(), undoStack: [], redoStack: [] });
+  useDirectorStore.setState({
+    ...useDirectorStore.getState(),
+    undoStack: [],
+    redoStack: [],
+    historyUndoStack: [],
+    historyRedoStack: [],
+    historyBusy: false,
+  });
   render(<ViewportToolbar />);
 
   const undoButton = screen.getByRole("button", { name: "撤销" });

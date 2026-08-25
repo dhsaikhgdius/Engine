@@ -133,6 +133,10 @@ export function isMixamoHeadLookSettled(
 }
 
 function wrapAngleRad(value: number) {
+  // Keep in-range angles bit-exact: the atan2/sin/cos round trip can perturb
+  // them by one ulp, which would make the damped angles snap onto a target
+  // that is not the caller's requested gaze.
+  if (value > -Math.PI && value <= Math.PI) return value;
   return Math.atan2(Math.sin(value), Math.cos(value));
 }
 
