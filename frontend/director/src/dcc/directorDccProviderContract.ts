@@ -390,10 +390,15 @@ const GODOT_PROVIDER_DESCRIPTOR: DirectorDccProviderDescriptor = directorDccProv
     { id: "stable_ids", level: "native", layer: "director-manifest" },
     { id: "roundtrip", level: "native", layer: "connector" },
     { id: "headless", level: "native", layer: "connector" },
-    // No live preview transport ships; any future transport must be outbound
-    // to Director only (never an unauthenticated scripting port) and needs
-    // disconnect tests before this claim moves.
-    { id: "live_link", level: "planned", layer: "connector" },
+    // Outbound-only preview transport (director-godot-live-link-v1): the
+    // editor plugin pushes sequence-numbered ephemeral frames to the Gateway's
+    // token-guarded live-link routes; Godot never listens on a port. Preview
+    // state is never authoritative — a disconnect (missed bye or idle
+    // timeout) always leaves the last committed Director revision intact,
+    // verified by the sequence/replay/disconnect goldens in
+    // backend/gateway/tests/dcc/godotLiveLink.test.ts. Durable changes still
+    // travel only through the reviewed return-package path.
+    { id: "live_link", level: "native", layer: "connector" },
   ],
   connectorDirectory: "integrations/godot",
 });

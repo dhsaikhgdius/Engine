@@ -146,13 +146,19 @@ describe("Godot import receipt and connector health", () => {
       bakedKeyCount: 175,
       transformTrackCount: 2,
       fovTrackCount: 1,
+      shotCutTrackCount: 1,
+      mappedShotCount: 2,
       payloadAnimationPlayerCount: 1,
       importedSkeletonCount: 1,
       importedLightCount: 3,
+      worldEnvironmentAmbient: true,
+      omittedLightCount: 1,
       appliedMaterialCount: 1,
       externalizedTextureCount: 2,
     });
     expect(receipt.displayRate).toBe("24000/1001");
+    expect(receipt.mappedShotCount).toBe(2);
+    expect(receipt.worldEnvironmentAmbient).toBe(true);
   });
 
   it("accepts a static import (no animation keyed) and rejects malformed rates", () => {
@@ -163,9 +169,13 @@ describe("Godot import receipt and connector health", () => {
       bakedKeyCount: 0,
       transformTrackCount: 0,
       fovTrackCount: 0,
+      shotCutTrackCount: 0,
+      mappedShotCount: 0,
       payloadAnimationPlayerCount: 0,
       importedSkeletonCount: 0,
       importedLightCount: 0,
+      worldEnvironmentAmbient: false,
+      omittedLightCount: 0,
       appliedMaterialCount: 0,
       externalizedTextureCount: 0,
     };
