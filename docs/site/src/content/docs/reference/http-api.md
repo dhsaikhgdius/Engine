@@ -44,16 +44,17 @@ The process token authenticates the client to the gateway. It is separate from t
 
 ## Discovery
 
-| Method | Path                              | Result                                           |
-| ------ | --------------------------------- | ------------------------------------------------ |
-| `GET`  | `/health`                         | Unauthenticated process health and browser count |
-| `GET`  | `/api/control-plane/capabilities` | Redacted Agent and video configuration           |
-| `GET`  | `/api/agent/providers`            | Local/API session-provider availability          |
-| `GET`  | `/api/agent/profiles`             | Public Profile metadata and model capabilities   |
-| `GET`  | `/api/video/providers`            | Live video-provider capability report            |
-| `GET`  | `/api/dcc/status`                 | Blender/DCC bridge status                        |
-| `GET`  | `/api/stage`                      | Legacy StageScene projection                     |
-| `GET`  | `/api/preview`                    | Latest captured preview; authenticated read      |
+| Method | Path                               | Result                                           |
+| ------ | ---------------------------------- | ------------------------------------------------ |
+| `GET`  | `/health`                          | Unauthenticated process health and browser count |
+| `GET`  | `/api/control-plane/capabilities`  | Redacted Agent and video configuration           |
+| `GET`  | `/api/control-plane/tool-manifest` | Machine-readable Director tool catalog           |
+| `GET`  | `/api/agent/providers`             | Local/API session-provider availability          |
+| `GET`  | `/api/agent/profiles`              | Public Profile metadata and model capabilities   |
+| `GET`  | `/api/video/providers`             | Live video-provider capability report            |
+| `GET`  | `/api/dcc/status`                  | Blender/DCC bridge status                        |
+| `GET`  | `/api/stage`                       | Legacy StageScene projection                     |
+| `GET`  | `/api/preview`                     | Latest captured preview; authenticated read      |
 
 ```bash
 curl -fsS "$BASE/api/agent/profiles" \
@@ -62,6 +63,19 @@ curl -fsS "$BASE/api/agent/profiles" \
 
 Discovery responses never contain model API keys, worker credentials, or raw credential environment
 variable names.
+
+`GET /api/control-plane/tool-manifest` returns the `director-tool-manifest-v1` catalog: every
+Director tool with its surface (`mcp`, `http`, or `both`), category, wire `op` enum, and its HTTP
+binding when one exists. Typed tools bind to `POST /api/tools/<name>`; `stage_*` entries are marked
+`legacy` (HTTP-only compatibility, no longer advertised over MCP); `director_film` and
+`director_production` report `http: null` because their HTTP surface is their own domain routes
+(`/api/film/runs`, `/api/production/*`), not `/api/tools/<name>`. Use each tool's `describe`
+operation for exact per-operation JSON Schemas; the manifest deliberately stays a catalog.
+
+```bash
+curl -fsS "$BASE/api/control-plane/tool-manifest" \
+  -H "X-Director-Browser-Token: $TOKEN" | jq '.tools[] | {name, surface, legacy}'
+```
 
 Capture results may include a process-epoch `preview_token` URL. It is a read-only capability for that
 preview route, allowing browsers and vision-capable Agents to render the image without receiving the

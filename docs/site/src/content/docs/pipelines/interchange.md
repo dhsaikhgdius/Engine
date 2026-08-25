@@ -162,16 +162,20 @@ frame coverage, and top-left pixel bounds. It does not claim an occlusion ratio 
 
 ## Agent boundary
 
-`director_creative interchange` exposes `capabilities`, `plan-export`, and `export` for bounded
-OTIO/OTIOZ, Fountain, glTF/GLB, USD/USDZ, OBJ, and STL transfer. Every plan is tied to the exact
-Stage revision or creative-workspace fingerprint. Export returns UTF-8 or base64 payload, archive
-SHA-256, byte count, compatibility warnings, and a stable receipt; inline transfer is capped at
-8 MiB. OBJ/STL plans may carry exact `object_ids`, which become part of the plan identity and ZIP
-manifest.
+`director_creative interchange` exposes `capabilities`, `plan-export`, `export`, `plan-import`, and
+`import` for bounded OTIO/OTIOZ, Fountain, glTF/GLB, USD/USDZ, OBJ, and STL transfer. Every plan is
+tied to the exact Stage revision or creative-workspace fingerprint. Export returns UTF-8 or base64
+payload, archive SHA-256, byte count, compatibility warnings, and a stable receipt; inline transfer
+is capped at 8 MiB. OBJ/STL plans may carry exact `object_ids`, which become part of the plan
+identity and ZIP manifest.
 
-Import remains human-file-picker-only because a browser file handle is not fabricated for an
-Agent. Use the Interchange menu or a corresponding trusted host adapter, and never claim an import
-without an actual user-selected file and validated result.
+Import is the same plan/receipt discipline in two JSON steps. `plan-import` validates one source —
+a bounded `inline` payload, an existing Gallery `media_id`, or a readable `workspace_path` — and
+returns a plan bound to the current guard fingerprint. `import` then applies exactly that `plan_id`
+with `expected_guard_fingerprint` and `confirm:true`; a stale fingerprint requires a new plan. The
+browser file picker remains available as a convenience for local files a human already has open,
+but it is no longer the only import path. Never claim an import without a validated plan and
+receipt.
 
 For Stage acceptance and provider-neutral evidence, use `director_workbench` `shot_ir`,
 `shot_package`, or `deliver`. For Blender, discover and invoke `director_dcc` capabilities.

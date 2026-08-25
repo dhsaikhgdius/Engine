@@ -6,7 +6,7 @@ description: Evaluate Director against the Builder.io agent-native architecture 
 This document evaluates Director against the framework in
 [Builder.io: Agent-Native — The Next Architecture for Software](https://www.builder.io/blog/agent-native-architecture#where-agent-native-fits-in-the-software-stack).
 
-Last verified: **2026-08-13**. Aligns with [Feature Status](/reference/feature-status/).
+Last verified: **2026-08-25**. Aligns with [Feature Status](/reference/feature-status/).
 
 Related docs:
 
@@ -21,6 +21,8 @@ Related docs:
 Director **aligns with the agent-native definition in direction and core implementation**. Its control plane, protocol exposure, and evidence loop are materially stronger than typical "sidebar chat plus partial API" products. It has **not yet reached the article's ideal state**; the main gaps are UI/agent parity, a unified action registry, and team governance.
 
 **Composite score: ~4/5** — design-first and substantially implemented for an agent-native product.
+The M2 JSON gaps (interchange import, collaboration comment/version writes) closed on 2026-08-25;
+the composite score stays at 4/5 until UI parity (M1) and unified governance (M3) land.
 
 ---
 
@@ -52,13 +54,13 @@ Conclusion: Director is an **agent-native product architecture, not bolt-on AI**
 
 **Aligned:**
 
-- Core capabilities (scene authoring, cameras, characters, timeline, Canvas/Video, interchange export, collaboration observe/comment, audit/deliver) are reachable through MCP / HTTP / CLI
+- Core capabilities (scene authoring, cameras, characters, timeline, Canvas/Video, interchange export and import, collaboration comments and versions, audit/deliver) are reachable through MCP / HTTP / CLI
+- **Interchange** and **Collaboration** are fully exposed as `director_creative` JSON operations: interchange `capabilities` / `plan-export` / `export` plus `plan-import` (inline, Gallery `media_id`, or `workspace_path` source) and guarded `import` (`plan_id` + `expected_guard_fingerprint` + `confirm:true`); collaboration `observe` / `list-comments` / `add-comment` / `resolve-comment` / `reopen-comment` / `update-comment` / `delete-comment` / `list-versions` / `compare` / `create-version` / `restore-version` / `delete-version` (`packages/protocol/src/creativeWorkspaceProtocol.ts`, `frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts`). What stays **Limited** in Feature Status is format subsets and collaboration room auth, not missing JSON operations
 - DOM-coordinate automation is not a supported authoring contract ([Feature Status](/reference/feature-status/))
 - Agent results are inspectable in the UI (revision, diff, capture, receipts)
 
 **Gaps:**
 
-- **Interchange** and **Collaboration** are **partially** exposed as `director_creative` JSON operations. Shipped: interchange `capabilities` / `plan-export` / `export`; collaboration `observe` / `list-comments` / `add-comment` / `list-versions` / `compare`. Remaining: interchange **import** stays human-file-picker-only; collaboration **writes** still lack comment resolve and version create/restore
 - Many UI operations still **mutate the Zustand store directly** (`frontend/director/src/comprehensive/editor/store/directorStore.ts`) while agents route through `directorWorkbenchExecutor` → `applyDirectorAuthoringActions`
 - Viewport drag, pilot, and other interactive controls lack full semantic equivalents
 
@@ -136,10 +138,13 @@ All control surfaces converge on the same gateway execution and validation layer
 
 
 MCP tools forward to the gateway without duplicating business logic. Distributable plugin includes `.mcp.json`, Skills, and Codex plugin manifest.
+`GET /api/control-plane/tool-manifest` publishes the machine-readable `director-tool-manifest-v1`
+catalog (surfaces, op enums, HTTP bindings, legacy `stage_*` flags) derived from the same Zod
+schemas (`backend/gateway/controlPlane/toolManifest.ts`).
 
 **Gaps:**
 
-- No standard **A2A (agent-to-agent)** protocol
+- No standard **A2A (agent-to-agent)** protocol; the optional spike is deferred until a concrete cross-app consumer exists
 - Multi-agent orchestration is a fixed serial DAG, status **Experimental**
 
 **Rating: 4/5**
@@ -176,7 +181,7 @@ Against the article's [Where agent-native fits in the software stack](https://ww
 | ------------------------- | -------------------------- | ------------------------ | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----- |
 | **Control**               | Vendor                     | User prompts             | Developer/team owns app           | Open source, local gateway, modifiable code                                                                                  | 5/5   |
 | **Human UI quality**      | Strong                     | Weak/none                | Full product UI                   | Full Canvas / 3D / Video editor                                                                                              | 4.5/5 |
-| **Agent access**          | Partial bolt-on            | Broad but unstructured   | Full access via app actions       | Strong on core paths; interchange export and collab observe/comment are JSON; import and remaining collab writes are limited | 4.5/5 |
+| **Agent access**          | Partial bolt-on            | Broad but unstructured   | Full access via app actions       | Strong on core paths; interchange export/import and full collaboration comment/version writes are JSON; format subsets and room auth stay Limited | 4.5/5 |
 | **Customizability**       | Settings/integrations      | One-off prompts          | Cloneable code/workflows          | Profiles, Skills, MCP plugin                                                                                                 | 4/5   |
 | **Data ownership**        | Vendor DB                  | Depends on tools         | Your DB/schema                    | Local SQLite / JSON / browser media                                                                                          | 4.5/5 |
 | **Runtime customization** | Vendor roadmap             | One-off chat             | SQL workspaces, runtime tools     | Skills/Profiles; no SQL-backed in-product workspace                                                                          | 3/5   |
@@ -256,7 +261,7 @@ agent-gateway.ts (composition root)
 
 1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes and many one-shot transforms now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining store mutators (camera panel, pose/IK, timeline, world, Canvas/Video) are still migrating in batches
 2. **Incomplete governance surfaces** — MCP, local harness, and hosted adapter share `filmRoleToolPolicy`; raw HTTP and human UI still bypass film roles, and audit is not unified across entry points
-3. **Protocol breadth** — MCP is strong; no standard A2A; multi-agent is a custom serial graph
+3. **Protocol breadth** — MCP is strong and the HTTP tool manifest is published; no standard A2A (spike deferred); multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
 5. **Runtime workspace** — no in-product SQL-backed AGENTS.md / LEARNINGS.md pattern described in the article
 
@@ -271,7 +276,7 @@ See the full phased plan in [Agent-Native Optimization Roadmap](/engineering/age
 1. **Keep routing UI mutators through shared authoring dispatch** — camera / pose / timeline / Canvas·Video still dual-write
 2. **Apply the shared role policy to raw HTTP and UI, and unify the audit trail** — MCP / local / hosted already share `filmRoleToolPolicy.ts`
 3. **Strengthen team/observability layers** — collaboration auth, agent trace/cost dashboard
-4. **Evaluate A2A or OpenAPI tool manifest export** — enable cross-app agent orchestration
+4. **Cross-app orchestration** — the tool manifest export shipped (`GET /api/control-plane/tool-manifest`); the A2A spike stays deferred until a concrete peer product appears
 
 ---
 

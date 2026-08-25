@@ -101,6 +101,7 @@ All `/api/*` endpoints below require gateway authentication unless noted otherwi
 | `GET /health`                                                  | Minimal unauthenticated gateway health                                               |
 | `POST /te-man/director/agent/bootstrap`                        | Obtain the local process-epoch browser token                                         |
 | `GET /api/control-plane/capabilities`                          | Sanitized Agent/video configuration summary; never includes secrets                  |
+| `GET /api/control-plane/tool-manifest`                         | Machine-readable `director-tool-manifest-v1` tool catalog: surfaces, op enums, HTTP bindings, legacy `stage_*` flags; never includes secrets |
 | `GET /api/agent/profiles`                                      | Public model/runtime profiles and capabilities                                       |
 | `GET /api/agent/providers`                                     | Runtime availability for `codex`, `claude`, and `api`                                |
 | `GET, POST /api/agent/sessions`                                | List or create durable sessions                                                      |
