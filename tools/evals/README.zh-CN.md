@@ -80,5 +80,5 @@ npm run eval:reference
 | `tasks/07-video-and-native-capabilities.json`    | 通过公开工具验证视频 Provider 发现与 Blender 原生内核状态                |
 | `tasks/08-world-systems-observation.json`        | 设置 Living World 天气/风并添加一个效果,验证 `world` 观察投影            |
 | `tasks/09-dcc-discover-and-handoff.json`         | 验证 DCC Provider 目录、Blender 交接就绪状态与未知 Provider 失败分类      |
-| `tasks/10-reconstruction-contract.json`          | 验证重建任务列表面以及未知输入下 get/submit 的失败分类                    |
+| `tasks/10-transcription-contract.json`           | 验证转写 capabilities/list 以及未知输入下 get/read 的失败分类             |
 | `tasks/11-workbench-observe-author-smoke.json`   | 冒烟核心循环:capabilities、有界观察、添加机位、inspect 与撤销             |

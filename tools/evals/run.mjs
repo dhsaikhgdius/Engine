@@ -203,7 +203,7 @@ function checkExpectations(expect, body) {
   for (const path of expect.result_paths ?? []) {
     if (resolvePath(body, path) == null) failures.push(`expected response path "${path}" to resolve to a value`);
   }
-  if (failures.length && !expect.success) {
+  if (failures.length) {
     failures.push(`actual code=${JSON.stringify(code)} error=${JSON.stringify(body.error)}`);
   }
   return failures;
