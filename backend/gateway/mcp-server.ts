@@ -19,7 +19,11 @@ import {
   sameDirectorAgentTarget,
   type DirectorAgentTargetWire,
 } from "../../packages/protocol/src/agentGatewayProtocol";
-import { createMcpToolResponse, mcpToolStructuredOutputSchema } from "./mcpToolResponse";
+import {
+  createMcpToolResponse,
+  mcpToolStructuredOutputSchema,
+  stripEncodedMediaFromSerializedView,
+} from "./mcpToolResponse";
 import { directorDccOperationSchema } from "@director/dcc-protocol";
 import { blenderNativeToolRequestSchema } from "../../packages/protocol/src/blenderLiveProtocol";
 import {
@@ -314,7 +318,7 @@ for (const tool of AGENT_TOOL_NAMES.filter(
       if (rejection) return rejection;
       try {
         const result = await callGateway(tool, input as Record<string, unknown>);
-        return createMcpToolResponse(result);
+        return createMcpToolResponse(result, tool);
       } catch (error) {
         return {
           content: [
@@ -366,6 +370,9 @@ registerVisibleTool("blender_native", () => {
               ? capture.data
               : null;
         const mimeType = typeof capture?.mimeType === "string" ? capture.mimeType : null;
+        // Capture bytes travel only in the MCP image block below; the
+        // serialized text/structured JSON keeps capture metadata without the base64 payload.
+        const serializedPayload = stripEncodedMediaFromSerializedView(payload) as Record<string, unknown>;
         const content: Array<
           | { type: "text"; text: string }
           | {
@@ -374,7 +381,7 @@ registerVisibleTool("blender_native", () => {
               mimeType: string;
               annotations: { audience: ["assistant"]; priority: number };
             }
-        > = [{ type: "text", text: JSON.stringify(payload) }];
+        > = [{ type: "text", text: JSON.stringify(serializedPayload) }];
         if (imageData && mimeType) {
           content.push({
             type: "image",
@@ -385,7 +392,7 @@ registerVisibleTool("blender_native", () => {
         }
         return {
           content,
-          structuredContent: payload,
+          structuredContent: serializedPayload,
           isError: !response.ok || payload.success === false,
         };
       } catch (error) {
