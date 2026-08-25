@@ -325,10 +325,18 @@ try {
     injectedGuard = { field: "expected_revision", value: cachedRevision, source: "session_cache" };
   }
 
+  // The gateway applies the same film-role policy as MCP to raw HTTP; the CLI
+  // forwards its configured role and tags the unified audit trail as `cli`.
+  const filmRole = process.env.DIRECTOR_FILM_ROLE?.trim() || "";
   const call = (requestInput, requestTargetToken) =>
     fetch(`${gatewayUrl}/api/tools/${tool}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-director-browser-token": gatewayToken },
+      headers: {
+        "content-type": "application/json",
+        "x-director-browser-token": gatewayToken,
+        "x-director-tool-source": "cli",
+        ...(filmRole ? { "x-director-film-role": filmRole } : {}),
+      },
       body: JSON.stringify({
         input: requestInput,
         session_id: sessionId,

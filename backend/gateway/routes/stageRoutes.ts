@@ -44,6 +44,12 @@ import {
   canServeDisconnectedWorkbenchRead,
   type DisconnectedWorkbenchSources,
 } from "../workbenchDisconnectedReads";
+import {
+  evaluateHttpToolGovernance,
+  recordRejectedHttpToolCall,
+  withHttpToolAudit,
+  type HttpToolGovernanceDependencies,
+} from "../agents/httpToolGovernance";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -268,6 +274,8 @@ export type StageRouteDependencies = {
   executeVideoModel: (scene: StageScene, input: unknown) => Promise<ToolExecution>;
   /** Coordinates calls that address the same exact Director browser target. */
   targetScheduler?: DirectorAgentTargetScheduler;
+  /** Film-role/plan-mode policy overrides plus the audit trail for POST /api/tools. */
+  governance?: HttpToolGovernanceDependencies;
 };
 
 function directToolInput(payload: z.infer<typeof toolEnvelopeSchema>) {
@@ -373,7 +381,6 @@ export async function handleStageRoute(
   const {
     readBody,
     headers,
-    json,
     getScene,
     replaceScene,
     persistScene,
@@ -394,6 +401,8 @@ export async function handleStageRoute(
     executeVideoModel,
     targetScheduler,
   } = dependencies;
+  // Reassigned with an audit-recording wrapper once a governed tool call is admitted.
+  let json = dependencies.json;
 
   if (request.method === "GET" && url.pathname === "/api/stage") {
     json(response, 200, getScene());
@@ -438,6 +447,29 @@ export async function handleStageRoute(
   const sessionId = payload.session_id ?? "http-default";
   let targetToken = payload.target_token;
   const toolInput = directToolInput(payload);
+  // Same film-role and plan-mode policy as MCP, applied to the effective tool
+  // input before any lease or browser dispatch so denials stay cheap.
+  const governance = evaluateHttpToolGovernance({
+    request,
+    tool,
+    toolInput,
+    sessionId: payload.session_id,
+    dependencies: dependencies.governance,
+  });
+  const auditContext = {
+    store: dependencies.governance?.auditStore,
+    tool,
+    toolInput,
+    roleId: governance.roleId,
+    source: governance.source,
+    sessionId: payload.session_id,
+  };
+  if (!governance.allowed) {
+    recordRejectedHttpToolCall(governance, auditContext);
+    json(response, governance.status, governance.body);
+    return true;
+  }
+  json = withHttpToolAudit(json, auditContext);
   let scene = getScene();
   // Token-conscious direct HTTP callers can opt out of the embedded scene; the
   // MCP server never sends the flag because it requires scene in every response.

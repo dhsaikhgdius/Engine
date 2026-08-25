@@ -13,11 +13,18 @@ import type { DirectorWorkbenchOperation } from "@director/agent-engine";
 import { directorDccProviderIdSchema } from "@director/dcc-protocol";
 import type { DirectorDccProviderRegistry } from "../dcc/dccProviderRegistry";
 import { DirectorDccExchangePackageError, type DirectorDccExchangePackager } from "../dcc/dccExchangePackage";
+import {
+  evaluateHttpToolGovernance,
+  recordRejectedHttpToolCall,
+  withHttpToolAudit,
+  type HttpToolGovernanceDependencies,
+} from "../agents/httpToolGovernance";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
 const envelopeSchema = z.looseObject({
   input: z.unknown().optional(),
+  session_id: z.string().trim().min(1).max(160).optional(),
 });
 
 const skipDirectorIdsSchema = z.array(z.string().trim().min(1).max(200)).max(20_000);
@@ -61,6 +68,8 @@ export interface DccRouteDependencies {
   sceneImporter?: BlenderSceneImporter;
   returnImporter?: BlenderReturnImporter;
   applyAuthoring?: (operation: DirectorWorkbenchOperation) => Promise<DirectorDccAuthoringResponse | null>;
+  /** Film-role/plan-mode policy overrides plus the audit trail for POST /api/tools. */
+  governance?: HttpToolGovernanceDependencies;
 }
 
 /** Agent-native DCC route. Blender execution remains server-side and path constrained. */
@@ -70,17 +79,10 @@ export async function handleDccRoute(
   url: URL,
   dependencies: DccRouteDependencies,
 ): Promise<boolean> {
-  const {
-    readBody,
-    json,
-    getProject,
-    blender,
-    providers,
-    exchangePackager,
-    sceneImporter,
-    returnImporter,
-    applyAuthoring,
-  } = dependencies;
+  const { readBody, getProject, blender, providers, exchangePackager, sceneImporter, returnImporter, applyAuthoring } =
+    dependencies;
+  // Reassigned with an audit-recording wrapper once a governed tool call is admitted.
+  let json = dependencies.json;
 
   async function liveProject() {
     const parsed = safeParseDirectorProject(await getProject());
@@ -198,6 +200,28 @@ export async function handleDccRoute(
     });
     return true;
   }
+  // Same film-role and plan-mode policy as MCP, checked before any DCC work.
+  const governance = evaluateHttpToolGovernance({
+    request,
+    tool: "director_dcc",
+    toolInput: parsed.data,
+    sessionId: body.data.session_id,
+    dependencies: dependencies.governance,
+  });
+  const auditContext = {
+    store: dependencies.governance?.auditStore,
+    tool: "director_dcc",
+    toolInput: parsed.data,
+    roleId: governance.roleId,
+    source: governance.source,
+    sessionId: body.data.session_id,
+  };
+  if (!governance.allowed) {
+    recordRejectedHttpToolCall(governance, auditContext);
+    json(response, governance.status, governance.body);
+    return true;
+  }
+  json = withHttpToolAudit(json, auditContext);
   if (parsed.data.op === "discover") {
     if (!providers) {
       json(response, 503, { success: false, error: "DCC provider registry is not configured." });

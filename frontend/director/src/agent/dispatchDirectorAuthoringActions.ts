@@ -12,7 +12,41 @@ import {
   type DirectorAuthoringResult,
 } from "@director/agent-engine/authoring";
 import { getDirectorProjectRevision, type DirectorProject } from "@director/project-schema";
+import { directorControlPlaneFetch } from "../comprehensive/editor/api/directorControlPlaneClient";
 import { useDirectorStore } from "../comprehensive/editor/store/directorStore";
+
+/**
+ * Fire-and-forget ingest of one UI-dispatched authoring apply into the
+ * gateway's unified tool audit trail (`POST /api/agent/tool-audit`).
+ * The UI mutator must never block on, or fail because of, audit ingest.
+ */
+function recordUiAuthoringAudit(entry: {
+  outcome: "success" | "error";
+  idempotencyKey?: string;
+  revisionBefore: string;
+  revisionAfter?: string;
+  code?: string;
+}) {
+  try {
+    void directorControlPlaneFetch("/api/agent/tool-audit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tool: "director_workbench",
+        operation: "author",
+        source: "ui",
+        role: null,
+        outcome: entry.outcome,
+        revision_before: entry.revisionBefore,
+        ...(entry.revisionAfter ? { revision_after: entry.revisionAfter } : {}),
+        ...(entry.idempotencyKey ? { idempotency_key: entry.idempotencyKey } : {}),
+        ...(entry.code ? { code: entry.code } : {}),
+      }),
+    }).catch(() => {});
+  } catch {
+    // Audit ingest is best-effort only.
+  }
+}
 
 export type DispatchDirectorAuthoringOptions = {
   idempotencyKey?: string;
@@ -51,7 +85,9 @@ export function compileDirectorDeleteObjectActions(
   if (!requested.length) return [];
   const requestedSet = new Set(requested);
   const detachChildren: DirectorAuthoringAction[] = project.objects
-    .filter((object) => object.parentObjectId && requestedSet.has(object.parentObjectId) && !requestedSet.has(object.id))
+    .filter(
+      (object) => object.parentObjectId && requestedSet.has(object.parentObjectId) && !requestedSet.has(object.id),
+    )
     .map((object) => ({
       action: "update_object" as const,
       object_id: object.id,
@@ -85,6 +121,12 @@ export function dispatchDirectorAuthoringActions(
   const projectRevisionBefore = getDirectorProjectRevision(before);
   const idempotencyKey = options.idempotencyKey ?? `ui-author:${crypto.randomUUID()}`;
   if (options.expectedRevision && options.expectedRevision !== projectRevisionBefore) {
+    recordUiAuthoringAudit({
+      outcome: "error",
+      code: "stale_project_revision",
+      idempotencyKey,
+      revisionBefore: projectRevisionBefore,
+    });
     return {
       ok: false,
       error: `Stale project revision (expected ${options.expectedRevision}, current ${projectRevisionBefore}).`,
@@ -95,10 +137,17 @@ export function dispatchDirectorAuthoringActions(
     const authored = applyDirectorAuthoringActions(before, actions);
     store.applyAuthoredProject(authored.project);
     const after = useDirectorStore.getState().project;
+    const projectRevision = getDirectorProjectRevision(after);
+    recordUiAuthoringAudit({
+      outcome: "success",
+      idempotencyKey,
+      revisionBefore: projectRevisionBefore,
+      revisionAfter: projectRevision,
+    });
     return {
       ok: true,
       project_revision_before: projectRevisionBefore,
-      project_revision: getDirectorProjectRevision(after),
+      project_revision: projectRevision,
       idempotency_key: idempotencyKey,
       created: authored.created,
       updated: authored.updated,
@@ -107,6 +156,11 @@ export function dispatchDirectorAuthoringActions(
       notes: authored.notes ?? [],
     };
   } catch (error) {
+    recordUiAuthoringAudit({
+      outcome: "error",
+      idempotencyKey,
+      revisionBefore: projectRevisionBefore,
+    });
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),

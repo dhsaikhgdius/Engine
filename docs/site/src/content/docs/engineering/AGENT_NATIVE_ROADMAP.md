@@ -67,7 +67,7 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 | **M0** | Baseline & metrics         | Planned     | UI/agent parity inventory, parity harness                                                    | —                       |
 | **M1** | Shared action registry     | Planned     | High-traffic UI paths via `applyDirectorAuthoringActions`                                    | M0                      |
 | **M2** | Remove human-only surfaces | **Partial** | Interchange export + collab observe/comment shipped; import and remaining collab writes open | M1 (partially parallel) |
-| **M3** | Unified gateway governance | **Partial** | Shared `filmRoleToolPolicy` on MCP / local / hosted; raw HTTP/UI and unified audit open      | M1                      |
+| **M3** | Unified gateway governance | **Partial** | Policy now also guards raw HTTP/CLI with a unified audit trail; confirmation boundaries open | M1                      |
 | **M4** | In-product workspace       | Planned     | SQL-backed instructions / skills / memory                                                    | M3                      |
 | **M5** | Observability              | Planned     | Traces, cost, long-running progress                                                          | M3                      |
 | **M6** | Team readiness             | Planned     | Collaboration auth, multi-agent enhancements                                                 | M3, M5                  |
@@ -230,13 +230,13 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
 
 #### 3.1 Raw HTTP and UI permissions
 
-- Apply `filmRoleToolPolicy` to raw `POST /api/tools/{tool-name}` (and therefore CLI).
-- Optional: read-only mode and role-gated UI disable from the same policy source.
+- Shipped (2026-08-25): `backend/gateway/agents/httpToolGovernance.ts` applies `filmRoleToolPolicy` to every raw `POST /api/tools/{tool-name}` (and therefore CLI). Role resolves from the `x-director-film-role` header, then `DIRECTOR_FILM_ROLE`, else unrestricted; policy denials return HTTP 403.
+- Optional (open): read-only mode and role-gated UI disable from the same policy source.
 
 #### 3.2 Unified audit trail
 
-- Log all tool invocations to `agentSessionStore` (including UI-dispatched author, tagged `source: ui | mcp | http | cli`).
-- Structured fields: `tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`.
+- Shipped (2026-08-25): all tool invocations log to the JSON-backed `backend/gateway/agentToolAuditStore.ts` (including UI-dispatched author, tagged `source: ui | mcp | http | cli`), readable via `GET /api/agent/tool-audit`.
+- Structured fields: `tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`, `session_id`.
 
 #### 3.3 Confirmation boundaries
 

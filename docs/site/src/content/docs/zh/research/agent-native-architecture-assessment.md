@@ -141,9 +141,8 @@ MCP 工具全部转发 gateway，无重复业务逻辑。可分发插件含 `.mc
 
 **缺口：**
 
-- 原始 HTTP `POST /api/tools/{tool-name}` 以及走该路径的 CLI **不应用** `filmRoleToolPolicy`
+- 已解决（2026-08-25）：原始 HTTP `POST /api/tools/{tool-name}`（以及走该路径的 CLI）现已应用 `filmRoleToolPolicy`，工具调用共享按 `source: ui | mcp | http | cli` 标记的 **统一审计轨迹**（`backend/gateway/agentToolAuditStore.ts`）
 - Human UI 操作无等价 permission gate
-- 工具调用尚未形成按 `source: ui | mcp | http | cli` 标记的 **统一审计轨迹**
 - Collaboration 生产房间鉴权、公网部署加固仍 **Limited**
 
 **评级：4/5**
@@ -224,7 +223,7 @@ agent-gateway.ts (composition root)
 ## 主要差距
 
 1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除与单次变换开始经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring。其余 store mutator（相机面板、姿态/IK、时间线、世界、Canvas/Video）仍在分批收敛
-2. **Governance 入口未完全统一** — MCP、本地 harness 与托管 adapter 已共享 `filmRoleToolPolicy`；原始 HTTP 与人类 UI 仍绕过 film role，审计也未跨入口统一
+2. **Governance 入口未完全统一** — MCP、本地 harness、托管 adapter 以及（自 2026-08-25 起）原始 HTTP/CLI 已共享 `filmRoleToolPolicy` 并接入按 source 标记的统一审计轨迹；人类 UI 操作仍绕过 film role
 3. **Protocol breadth** — MCP 强，无标准 A2A；multi-agent 为自定义串行 graph
 4. **Dual surface 遗留** — `stage_*` 兼容层 vs `director_workbench` 完整模型仍并存
 5. **Runtime workspace** — 无文章描述的 SQL-backed AGENTS.md / LEARNINGS.md 等产品内 workspace

@@ -156,9 +156,8 @@ MCP tools forward to the gateway without duplicating business logic. Distributab
 
 **Gaps:**
 
-- Raw HTTP `POST /api/tools/{tool-name}` and the CLI path that calls it do **not** apply `filmRoleToolPolicy`
+- Resolved 2026-08-25: raw HTTP `POST /api/tools/{tool-name}` (and the CLI path that calls it) now applies `filmRoleToolPolicy`, and tool invocations share one **unified audit trail** tagged `source: ui | mcp | http | cli` (`backend/gateway/agentToolAuditStore.ts`)
 - Human UI actions have no equivalent permission gate
-- Tool invocations are not yet one **unified audit trail** tagged `source: ui | mcp | http | cli`
 - Collaboration production-room auth and internet deployment hardening remain **Limited**
 
 **Rating: 4/5**
@@ -255,7 +254,7 @@ agent-gateway.ts (composition root)
 ## Main gaps
 
 1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes and many one-shot transforms now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining store mutators (camera panel, pose/IK, timeline, world, Canvas/Video) are still migrating in batches
-2. **Incomplete governance surfaces** — MCP, local harness, and hosted adapter share `filmRoleToolPolicy`; raw HTTP and human UI still bypass film roles, and audit is not unified across entry points
+2. **Incomplete governance surfaces** — MCP, local harness, hosted adapter, and (since 2026-08-25) raw HTTP/CLI share `filmRoleToolPolicy` with a unified per-source audit trail; human UI actions still bypass film roles
 3. **Protocol breadth** — MCP is strong; no standard A2A; multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
 5. **Runtime workspace** — no in-product SQL-backed AGENTS.md / LEARNINGS.md pattern described in the article

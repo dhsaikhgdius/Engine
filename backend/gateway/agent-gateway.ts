@@ -114,6 +114,8 @@ import { handleProductionJobRoute } from "./routes/productionJobRoutes";
 import { ProductionJobStore } from "./jobs/productionJobStore";
 import { ProductionArtifactStore } from "./artifacts/productionArtifactStore";
 import { handleProductionArtifactRoute } from "./routes/productionArtifactRoutes";
+import { AgentToolAuditStore } from "./agentToolAuditStore";
+import { handleAgentToolAuditRoute } from "./routes/agentToolAuditRoutes";
 import { handleGeneratedAssetRoute } from "./routes/generatedAssetRoutes";
 import { handleGenerationRoute } from "./routes/generationRoutes";
 import { createComfyGenerationRuntime } from "./generation/createComfyGenerationRuntime";
@@ -319,6 +321,10 @@ const ardyMotionService = new ArdyMotionService({
   dataDirectory,
 });
 const productionJobStore = new ProductionJobStore(dataDirectory);
+// Unified tool-invocation audit trail shared by every POST /api/tools entry
+// point (HTTP, MCP, CLI) plus UI-dispatched authoring ingest.
+const agentToolAuditStore = new AgentToolAuditStore(dataDirectory);
+const toolGovernance = { auditStore: agentToolAuditStore };
 const mediaTranscriptionRuntime = createMediaTranscriptionRuntime(
   controlPlaneConfig,
   dataDirectory,
@@ -2097,6 +2103,7 @@ const server = createServer(async (request, response) => {
         readBody: body,
         json,
         session: blenderNativeSession,
+        governance: toolGovernance,
       })
     )
       return;
@@ -2143,6 +2150,7 @@ const server = createServer(async (request, response) => {
               }
             : null;
         },
+        governance: toolGovernance,
       })
     )
       return;
@@ -2170,6 +2178,7 @@ const server = createServer(async (request, response) => {
         headers,
         json,
         ...liveStageRouteDependencies(),
+        governance: toolGovernance,
       })
     )
       return;
@@ -2178,6 +2187,15 @@ const server = createServer(async (request, response) => {
         readBody: body,
         json,
         resolveProvider: async (providerId) => resolveModelProvider(providerId),
+        governance: toolGovernance,
+      })
+    )
+      return;
+    if (
+      await handleAgentToolAuditRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: agentToolAuditStore,
       })
     )
       return;

@@ -80,6 +80,10 @@ async function authenticatedGatewayFetch(path: string, init: RequestInit, retryU
   const token = await getGatewayAuthToken();
   const headers = new Headers(init.headers);
   headers.set("x-director-browser-token", token);
+  // Defense in depth: the gateway re-checks the same film-role policy on raw
+  // HTTP and tags the unified audit trail with the MCP entry point.
+  headers.set("x-director-tool-source", "mcp");
+  if (filmRoleId) headers.set("x-director-film-role", filmRoleId);
   let response: Response;
   try {
     response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });

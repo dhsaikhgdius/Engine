@@ -61,7 +61,7 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 | **M0** | 基线与度量             | Planned     | UI/Agent parity 清单、parity harness                                             | 无               |
 | **M1** | Shared action registry | Planned     | UI 高频路径经 `applyDirectorAuthoringActions`                                    | M0               |
 | **M2** | Human-only 面消除      | **Partial** | Interchange 导出 + collab observe/comment 已交付；导入与剩余 collab 写操作未完成 | M1（部分可并行） |
-| **M3** | Gateway 统一治理       | **Partial** | MCP / 本地 / 托管已共享 `filmRoleToolPolicy`；原始 HTTP/UI 与统一审计未完成      | M1               |
+| **M3** | Gateway 统一治理       | **Partial** | 策略已覆盖原始 HTTP/CLI 并接入统一审计轨迹；确认边界未完成                       | M1               |
 | **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
 | **M5** | 可观测性               | Planned     | Trace、cost、长任务进度                                                          | M3               |
 | **M6** | 团队就绪               | Planned     | Collaboration auth、multi-agent 增强                                             | M3、M5           |
@@ -224,13 +224,13 @@ flowchart LR
 
 #### 3.1 原始 HTTP 与 UI 权限
 
-- 把 `filmRoleToolPolicy` 接到原始 `POST /api/tools/{tool-name}`（因此也覆盖 CLI）。
-- 可选：只读 mode、role 限制下的 UI 禁用 — 与 policy 同源。
+- 已交付（2026-08-25）：`backend/gateway/agents/httpToolGovernance.ts` 已把 `filmRoleToolPolicy` 接到所有原始 `POST /api/tools/{tool-name}`（因此也覆盖 CLI）。Role 依次取 `x-director-film-role` header、`DIRECTOR_FILM_ROLE` 环境变量，否则不受限；策略拒绝返回 HTTP 403。
+- 可选（未完成）：只读 mode、role 限制下的 UI 禁用 — 与 policy 同源。
 
 #### 3.2 统一 audit trail
 
-- 所有 tool invocation 写入 `agentSessionStore`（含 UI-dispatched author，标记 `source: ui | mcp | http | cli`）。
-- 结构化字段：`tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`。
+- 已交付（2026-08-25）：所有 tool invocation 写入 JSON 持久化的 `backend/gateway/agentToolAuditStore.ts`（含 UI-dispatched author，标记 `source: ui | mcp | http | cli`），可经 `GET /api/agent/tool-audit` 读取。
+- 结构化字段：`tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`, `session_id`。
 
 #### 3.3 确认边界（governed execution）
 

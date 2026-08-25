@@ -146,6 +146,9 @@ export async function dispatchDirectorWorkbenchTool(
         headers: {
           "content-type": "application/json",
           "x-director-browser-token": gatewayToken,
+          // DeepSeek Harness is the MCP-style agent entry point; the gateway
+          // tags the unified tool audit trail with this source.
+          "x-director-tool-source": "mcp",
         },
         body,
         signal,
