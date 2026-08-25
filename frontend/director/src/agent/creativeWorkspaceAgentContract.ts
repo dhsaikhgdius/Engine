@@ -39,6 +39,7 @@ import {
   auditCreativeWorkspaceSnapshot,
   type CreativeWorkspaceAuditReceipt,
 } from "@director/agent-engine/creative-quality";
+import { runWithCreativeWorkspaceAgentExecution } from "./creativeWorkspaceAgentGuard";
 
 import {
   creativeWorkspaceCanvasNodePatchSchema as canvasNodePatchSchema,
@@ -751,6 +752,16 @@ function mapClipPatch(patch: z.infer<typeof editClipPatchSchema>): Partial<Omit<
 export function executeCreativeWorkspaceAgentOperation(
   input: unknown,
   context: CreativeWorkspaceAgentContext = defaultContext,
+): CreativeWorkspaceAgentExecutionResult {
+  // The guard keeps directorWorkspaceStore mutators on their local path while
+  // this contract drives them, so UI routing through the same execute path
+  // cannot re-enter the contract.
+  return runWithCreativeWorkspaceAgentExecution(() => executeCreativeWorkspaceAgentOperationInner(input, context));
+}
+
+function executeCreativeWorkspaceAgentOperationInner(
+  input: unknown,
+  context: CreativeWorkspaceAgentContext,
 ): CreativeWorkspaceAgentExecutionResult {
   const parsed = parseCreativeWorkspaceAgentOperation(input);
   if (!parsed.success) {

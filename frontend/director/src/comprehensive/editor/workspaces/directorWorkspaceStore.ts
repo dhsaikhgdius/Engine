@@ -3,6 +3,7 @@ import { z } from "zod";
 import { dismissDirectorNotification, notifyDirector } from "../../app/notifications/directorNotificationStore";
 import { finiteNumberOr, isRecord } from "../../../../../../packages/protocol/src/primitives";
 import {
+  creativeWorkspaceAgentOperationSchema,
   creativeWorkspaceEditAspectRatioSchema as editAspectRatioSchema,
   creativeWorkspaceEditExportQualitySchema as editExportQualitySchema,
   creativeWorkspaceFitSchema as editClipFitSchema,
@@ -10,6 +11,12 @@ import {
   creativeWorkspaceNodeKindSchema as boardNodeKindSchema,
   creativeWorkspaceTrackKindSchema as videoTrackKindSchema,
 } from "../../../../../../packages/protocol/src/creativeWorkspaceProtocol";
+import { isCreativeWorkspaceAgentExecuting } from "../../../agent/creativeWorkspaceAgentGuard";
+import {
+  dispatchCreativeWorkspaceOperation,
+  type DispatchCreativeWorkspaceReceipt,
+} from "../../../agent/dispatchCreativeWorkspaceOperation";
+import { persistentCreativeMediaLibrary } from "../media/persistentCreativeMediaStore";
 import type { ScriptToCanvasPlan } from "../assistant/scriptToProductionPipeline";
 import { createDefaultDirectorTimebase, frameRateToNumber, normalizeDirectorTimebase } from "../timeline/frameRate";
 import {
@@ -1253,6 +1260,388 @@ function galleryPatchCatalogsMedia(patch: Partial<Omit<DirectorGalleryMediaRecor
   );
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * Agent-shared mutation routing (Canvas / Video Editor)
+ * ---------------------------------------------------------------------------
+ * Human Canvas/Video edits route through the same guarded creative execute
+ * path agents use (executeCreativeWorkspaceAgentRequest): the dispatch helper
+ * fills expected_snapshot_fingerprint and idempotency_key, and the contract
+ * applies the operation by calling back into these local mutators under the
+ * reentrancy guard. A mutation stays on the legacy local path when:
+ *   - a history batch is open (gizmo/drag/RAF coalescing keeps drags cheap),
+ *   - the agent contract itself is executing (reentrancy guard),
+ *   - the intent cannot round-trip the wire schema (out-of-bound values the
+ *     local path clamps or keeps, fields with no operation twin), or
+ *   - the strict operation would reject what the lenient local path accepts
+ *     (media missing from the persistent library, kind mismatches, locked or
+ *     final-video tracks in removeTrack).
+ */
+
+/** Routed mutation outcome: handled with a return value, or fall through to the local mutator. */
+type RoutedCreativeMutation<T> = { handled: true; value: T } | { handled: false };
+
+const LOCAL_CREATIVE_PATH = { handled: false } as const;
+
+/**
+ * The shared execute path observes the persistent media library; hosts (and
+ * tests) that stub the library without its store cannot route and keep the
+ * historic local path.
+ */
+function isCreativeMediaStoreAvailable() {
+  const library = persistentCreativeMediaLibrary as Partial<typeof persistentCreativeMediaLibrary> | undefined;
+  return typeof library?.store?.getState === "function";
+}
+
+function canRouteCreativeMutationThroughAgent() {
+  return historyBatchDepth === 0 && !isCreativeWorkspaceAgentExecuting() && isCreativeMediaStoreAvailable();
+}
+
+/**
+ * Validate one routed UI mutation against the wire schema and execute it
+ * through the shared creative agent path. Returns "local" when the intent is
+ * not representable on the wire (the caller falls back to the local mutator)
+ * and "failed" after notifying when the shared path rejected it.
+ */
+function dispatchRoutedCreativeOperation(operation: unknown): DispatchCreativeWorkspaceReceipt | "local" | "failed" {
+  const parsed = creativeWorkspaceAgentOperationSchema.safeParse(operation);
+  if (!parsed.success) return "local";
+  const receipt = dispatchCreativeWorkspaceOperation(parsed.data);
+  if (!receipt.ok) {
+    notifyDirector({ severity: "error", title: "更新失败", detail: receipt.error });
+    return "failed";
+  }
+  return receipt;
+}
+
+function routedEntityId(result: Record<string, unknown>, key: "node" | "clip" | "track"): string | null {
+  const entity = result[key];
+  if (entity && typeof entity === "object" && typeof (entity as { id?: unknown }).id === "string") {
+    return (entity as { id: string }).id;
+  }
+  return null;
+}
+
+function findRoutableCreativeMedia(mediaId: string) {
+  return persistentCreativeMediaLibrary.store.getState().assets.find((asset) => asset.id === mediaId) ?? null;
+}
+
+/** Mirror of the contract's validateNodeMedia: false when the strict path would reject what local accepts. */
+function isBoardNodeMediaRoutable(kind: DirectorBoardNodeKind, mediaId: string | null): boolean {
+  if (!mediaId || kind === "shot") return true;
+  if (kind === "note" || kind === "frame") return false;
+  const asset = findRoutableCreativeMedia(mediaId);
+  return Boolean(asset && asset.kind === kind);
+}
+
+/** Mirror of the contract's expectedTrackKind media/track pairing check. */
+function isClipMediaRoutable(trackKind: DirectorVideoTrackKind, mediaId: string): boolean {
+  const asset = findRoutableCreativeMedia(mediaId);
+  if (!asset) return false;
+  return (asset.kind === "audio" ? "audio" : "video") === trackKind;
+}
+
+function routeAddBoardNodeViaAgent(input: AddBoardNodeInput): RoutedCreativeMutation<DirectorBoardNode | null> {
+  if (!canRouteCreativeMutationThroughAgent()) return LOCAL_CREATIVE_PATH;
+  if (!isBoardNodeMediaRoutable(input.kind, input.mediaId ?? null)) return LOCAL_CREATIVE_PATH;
+  const outcome = dispatchRoutedCreativeOperation({
+    op: "canvas.node.add",
+    kind: input.kind,
+    title: input.title.trim() || "未命名节点",
+    ...(input.body !== undefined ? { body: input.body } : {}),
+    ...(input.mediaId !== undefined ? { media_id: input.mediaId } : {}),
+    x: Math.round(Number.isFinite(input.x) ? input.x : 0),
+    y: Math.round(Number.isFinite(input.y) ? input.y : 0),
+    ...(input.width !== undefined ? { width: clamp(input.width, 180, 1200) } : {}),
+    ...(input.height !== undefined ? { height: clamp(input.height, 120, 900) } : {}),
+    ...(input.accent !== undefined ? { accent: input.accent } : {}),
+  });
+  if (outcome === "local") return LOCAL_CREATIVE_PATH;
+  if (outcome === "failed") return { handled: true, value: null };
+  const nodeId = routedEntityId(outcome.result, "node");
+  const node = nodeId
+    ? (useDirectorCreativeWorkspaceStore.getState().boardNodes.find((candidate) => candidate.id === nodeId) ?? null)
+    : null;
+  return { handled: true, value: node };
+}
+
+const ROUTABLE_BOARD_NODE_PATCH_KEYS = new Set([
+  "kind",
+  "title",
+  "body",
+  "mediaId",
+  "x",
+  "y",
+  "width",
+  "height",
+  "accent",
+]);
+
+function routeUpdateBoardNodeViaAgent(nodeId: string, patch: Partial<Omit<DirectorBoardNode, "id">>): boolean {
+  if (!canRouteCreativeMutationThroughAgent()) return false;
+  const state = useDirectorCreativeWorkspaceStore.getState();
+  const node = state.boardNodes.find((candidate) => candidate.id === nodeId);
+  if (!node) return false;
+  const entries = Object.entries(patch);
+  if (!entries.length) return false;
+  for (const [key, value] of entries) {
+    if (!ROUTABLE_BOARD_NODE_PATCH_KEYS.has(key) || value === undefined) return false;
+  }
+  // The wire schema trims strings while the local path stores them raw (users
+  // type trailing spaces mid-edit), so only already-normalized strings route.
+  if (patch.title !== undefined && patch.title !== patch.title.trim()) return false;
+  if (patch.accent !== undefined && patch.accent !== patch.accent.trim()) return false;
+  const nextKind = patch.kind ?? node.kind;
+  const nextMediaId = Object.prototype.hasOwnProperty.call(patch, "mediaId") ? (patch.mediaId ?? null) : node.mediaId;
+  if (!isBoardNodeMediaRoutable(nextKind, nextMediaId)) return false;
+  const outcome = dispatchRoutedCreativeOperation({
+    op: "canvas.node.update",
+    node_id: nodeId,
+    patch: {
+      ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.body !== undefined ? { body: patch.body } : {}),
+      ...(Object.prototype.hasOwnProperty.call(patch, "mediaId") ? { media_id: patch.mediaId ?? null } : {}),
+      ...(patch.x !== undefined ? { x: patch.x } : {}),
+      ...(patch.y !== undefined ? { y: patch.y } : {}),
+      ...(patch.width !== undefined ? { width: clamp(patch.width, 180, 1200) } : {}),
+      ...(patch.height !== undefined ? { height: clamp(patch.height, 120, 900) } : {}),
+      ...(patch.accent !== undefined ? { accent: patch.accent } : {}),
+    },
+  });
+  return outcome !== "local";
+}
+
+function routeRemoveBoardNodeViaAgent(nodeId: string): boolean {
+  if (!canRouteCreativeMutationThroughAgent()) return false;
+  if (!useDirectorCreativeWorkspaceStore.getState().boardNodes.some((node) => node.id === nodeId)) return false;
+  return dispatchRoutedCreativeOperation({ op: "canvas.node.remove", node_id: nodeId }) !== "local";
+}
+
+function routeAddBoardEdgeViaAgent(sourceNodeId: string, targetNodeId: string): RoutedCreativeMutation<boolean> {
+  if (!canRouteCreativeMutationThroughAgent()) return LOCAL_CREATIVE_PATH;
+  const outcome = dispatchRoutedCreativeOperation({
+    op: "canvas.edge.add",
+    source_node_id: sourceNodeId,
+    target_node_id: targetNodeId,
+  });
+  if (outcome === "local") return LOCAL_CREATIVE_PATH;
+  return { handled: true, value: outcome !== "failed" };
+}
+
+function routeRemoveBoardEdgeViaAgent(edgeId: string): boolean {
+  if (!canRouteCreativeMutationThroughAgent()) return false;
+  if (!useDirectorCreativeWorkspaceStore.getState().boardEdges.some((edge) => edge.id === edgeId)) return false;
+  return dispatchRoutedCreativeOperation({ op: "canvas.edge.remove", edge_id: edgeId }) !== "local";
+}
+
+function routeAddClipViaAgent(
+  track: DirectorEditTrack,
+  input: AddClipInput,
+): RoutedCreativeMutation<DirectorEditClip | null> {
+  if (!canRouteCreativeMutationThroughAgent()) return LOCAL_CREATIVE_PATH;
+  // Transition-in has no operation twin; nonzero values stay local.
+  if (input.transitionInSec !== undefined && input.transitionInSec !== 0) return LOCAL_CREATIVE_PATH;
+  if (!isClipMediaRoutable(track.kind, input.mediaId)) return LOCAL_CREATIVE_PATH;
+  const playbackRate = clamp(input.playbackRate ?? 1, MIN_CLIP_PLAYBACK_RATE, MAX_CLIP_PLAYBACK_RATE);
+  const durationSec = clamp(input.durationSec, 0.1, MAX_CLIP_DURATION_SEC);
+  const sourceDurationSec = clamp(
+    input.sourceDurationSec ?? durationSec * playbackRate,
+    durationSec * playbackRate,
+    MAX_CLIP_DURATION_SEC,
+  );
+  const fades = normalizeClipFades(input.fadeInSec ?? 0, input.fadeOutSec ?? 0, durationSec);
+  const outcome = dispatchRoutedCreativeOperation({
+    op: "edit.clip.add",
+    track_id: input.trackId,
+    media_id: input.mediaId,
+    name: input.name.trim() || "未命名剪辑",
+    start_sec: Number.isFinite(input.startSec) ? Math.max(0, input.startSec) : 0,
+    duration_sec: durationSec,
+    source_duration_sec: sourceDurationSec,
+    playback_rate: playbackRate,
+    fade_in_sec: fades.fadeInSec,
+    fade_out_sec: fades.fadeOutSec,
+    ...(input.scale !== undefined ? { scale: clamp(input.scale, MIN_CLIP_SCALE, MAX_CLIP_SCALE) } : {}),
+    ...(input.positionX !== undefined
+      ? { position_x: clamp(input.positionX, -MAX_CLIP_POSITION_PX, MAX_CLIP_POSITION_PX) }
+      : {}),
+    ...(input.positionY !== undefined
+      ? { position_y: clamp(input.positionY, -MAX_CLIP_POSITION_PX, MAX_CLIP_POSITION_PX) }
+      : {}),
+    ...(input.rotationDeg !== undefined
+      ? { rotation_deg: clamp(input.rotationDeg, -MAX_CLIP_ROTATION_DEG, MAX_CLIP_ROTATION_DEG) }
+      : {}),
+    ...(input.fit !== undefined ? { fit: input.fit } : {}),
+  });
+  if (outcome === "local") return LOCAL_CREATIVE_PATH;
+  if (outcome === "failed") return { handled: true, value: null };
+  const clipId = routedEntityId(outcome.result, "clip");
+  const created = findDirectorEditClip(useDirectorCreativeWorkspaceStore.getState().editTracks, clipId);
+  return { handled: true, value: created?.clip ?? null };
+}
+
+const ROUTABLE_EDIT_CLIP_PATCH_KEYS = new Set([
+  "mediaId",
+  "name",
+  "startSec",
+  "durationSec",
+  "inSec",
+  "sourceDurationSec",
+  "playbackRate",
+  "opacity",
+  "volume",
+  "fadeInSec",
+  "fadeOutSec",
+  "scale",
+  "positionX",
+  "positionY",
+  "rotationDeg",
+  "fit",
+]);
+
+function routeUpdateClipViaAgent(clipId: string, patch: Partial<Omit<DirectorEditClip, "id">>): boolean {
+  if (!canRouteCreativeMutationThroughAgent()) return false;
+  const state = useDirectorCreativeWorkspaceStore.getState();
+  const owner = state.editTracks.find((track) => track.clips.some((clip) => clip.id === clipId));
+  const stored = owner?.clips.find((clip) => clip.id === clipId);
+  if (!owner || owner.locked || !stored) return false;
+  const entries = Object.entries(patch);
+  if (!entries.length) return false;
+  for (const [key, value] of entries) {
+    if (!ROUTABLE_EDIT_CLIP_PATCH_KEYS.has(key) || value === undefined) return false;
+  }
+  if (patch.name !== undefined && patch.name !== patch.name.trim()) return false;
+  if (patch.mediaId !== undefined && !isClipMediaRoutable(owner.kind, patch.mediaId)) return false;
+  // Send the locally normalized values so the strict path lands the exact
+  // state the local mutator would produce for the same patch.
+  const current = normalizeClip(stored);
+  const nextSourceDuration = clamp(
+    finiteNumberOr(patch.sourceDurationSec, current.sourceDurationSec),
+    0.1,
+    MAX_CLIP_DURATION_SEC,
+  );
+  const nextIn = clamp(finiteNumberOr(patch.inSec, current.inSec), 0, Math.max(0, nextSourceDuration - 0.1));
+  const nextPlaybackRate = clamp(
+    finiteNumberOr(patch.playbackRate, current.playbackRate),
+    MIN_CLIP_PLAYBACK_RATE,
+    MAX_CLIP_PLAYBACK_RATE,
+  );
+  const nextDuration = clamp(
+    finiteNumberOr(patch.durationSec, current.durationSec),
+    0.1,
+    Math.max(0.1, (nextSourceDuration - nextIn) / nextPlaybackRate),
+  );
+  const fades = normalizeClipFades(
+    finiteNumberOr(patch.fadeInSec, current.fadeInSec ?? 0),
+    finiteNumberOr(patch.fadeOutSec, current.fadeOutSec ?? 0),
+    nextDuration,
+  );
+  // The strict path rejects invariant violations the local path resolves by
+  // clamping neighbours (for example shrinking fades with the new duration);
+  // those intents stay local.
+  const checkIn = patch.inSec !== undefined ? nextIn : stored.inSec;
+  const checkDuration = patch.durationSec !== undefined ? nextDuration : stored.durationSec;
+  const checkRate = patch.playbackRate !== undefined ? nextPlaybackRate : stored.playbackRate;
+  const checkSource = patch.sourceDurationSec !== undefined ? nextSourceDuration : stored.sourceDurationSec;
+  if (checkIn + checkDuration * checkRate > checkSource + Number.EPSILON) return false;
+  const checkFadeIn = patch.fadeInSec !== undefined ? fades.fadeInSec : stored.fadeInSec;
+  const checkFadeOut = patch.fadeOutSec !== undefined ? fades.fadeOutSec : stored.fadeOutSec;
+  if (checkFadeIn + checkFadeOut > checkDuration + Number.EPSILON) return false;
+  const outcome = dispatchRoutedCreativeOperation({
+    op: "edit.clip.update",
+    clip_id: clipId,
+    patch: {
+      ...(patch.mediaId !== undefined ? { media_id: patch.mediaId } : {}),
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.startSec !== undefined
+        ? { start_sec: Math.max(0, finiteNumberOr(patch.startSec, current.startSec)) }
+        : {}),
+      ...(patch.durationSec !== undefined ? { duration_sec: nextDuration } : {}),
+      ...(patch.inSec !== undefined ? { in_sec: nextIn } : {}),
+      ...(patch.sourceDurationSec !== undefined ? { source_duration_sec: nextSourceDuration } : {}),
+      ...(patch.playbackRate !== undefined ? { playback_rate: nextPlaybackRate } : {}),
+      ...(patch.opacity !== undefined ? { opacity: clamp(finiteNumberOr(patch.opacity, current.opacity), 0, 1) } : {}),
+      ...(patch.volume !== undefined ? { volume: clamp(finiteNumberOr(patch.volume, current.volume), 0, 1) } : {}),
+      ...(patch.fadeInSec !== undefined ? { fade_in_sec: fades.fadeInSec } : {}),
+      ...(patch.fadeOutSec !== undefined ? { fade_out_sec: fades.fadeOutSec } : {}),
+      ...(patch.scale !== undefined
+        ? { scale: clamp(finiteNumberOr(patch.scale, current.scale ?? 1), MIN_CLIP_SCALE, MAX_CLIP_SCALE) }
+        : {}),
+      ...(patch.positionX !== undefined
+        ? {
+            position_x: clamp(
+              finiteNumberOr(patch.positionX, current.positionX ?? 0),
+              -MAX_CLIP_POSITION_PX,
+              MAX_CLIP_POSITION_PX,
+            ),
+          }
+        : {}),
+      ...(patch.positionY !== undefined
+        ? {
+            position_y: clamp(
+              finiteNumberOr(patch.positionY, current.positionY ?? 0),
+              -MAX_CLIP_POSITION_PX,
+              MAX_CLIP_POSITION_PX,
+            ),
+          }
+        : {}),
+      ...(patch.rotationDeg !== undefined
+        ? {
+            rotation_deg: clamp(
+              finiteNumberOr(patch.rotationDeg, current.rotationDeg ?? 0),
+              -MAX_CLIP_ROTATION_DEG,
+              MAX_CLIP_ROTATION_DEG,
+            ),
+          }
+        : {}),
+      ...(patch.fit !== undefined ? { fit: patch.fit } : {}),
+    },
+  });
+  return outcome !== "local";
+}
+
+function routeRemoveClipViaAgent(clipId: string): boolean {
+  if (!canRouteCreativeMutationThroughAgent()) return false;
+  const owner = useDirectorCreativeWorkspaceStore
+    .getState()
+    .editTracks.find((track) => track.clips.some((clip) => clip.id === clipId));
+  if (!owner || owner.locked) return false;
+  return dispatchRoutedCreativeOperation({ op: "edit.clip.remove", clip_id: clipId }) !== "local";
+}
+
+function routeAddTrackViaAgent(
+  kind: DirectorVideoTrackKind,
+  name?: string,
+): RoutedCreativeMutation<DirectorEditTrack | null> {
+  if (!canRouteCreativeMutationThroughAgent()) return LOCAL_CREATIVE_PATH;
+  const trimmedName = name?.trim();
+  const outcome = dispatchRoutedCreativeOperation({
+    op: "edit.track.add",
+    kind,
+    ...(trimmedName ? { name: trimmedName } : {}),
+  });
+  if (outcome === "local") return LOCAL_CREATIVE_PATH;
+  if (outcome === "failed") return { handled: true, value: null };
+  const trackId = routedEntityId(outcome.result, "track");
+  const track = trackId
+    ? (useDirectorCreativeWorkspaceStore.getState().editTracks.find((item) => item.id === trackId) ?? null)
+    : null;
+  return { handled: true, value: track };
+}
+
+function routeRemoveTrackViaAgent(trackId: string): boolean {
+  if (!canRouteCreativeMutationThroughAgent()) return false;
+  const state = useDirectorCreativeWorkspaceStore.getState();
+  const track = state.editTracks.find((item) => item.id === trackId);
+  if (!track) return false;
+  // The strict path rejects locked tracks; the local path removes them once
+  // the UI has already confirmed the delete.
+  if (track.locked) return false;
+  if (track.kind === "video" && state.editTracks.filter((item) => item.kind === "video").length <= 1) return false;
+  return dispatchRoutedCreativeOperation({ op: "edit.track.remove", track_id: trackId }) !== "local";
+}
+
 /**
  * The singleton Zustand store for the Director creative workspace.
  *
@@ -1266,6 +1655,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
   setMode: (mode) => set({ mode }),
   addBoardNode: (input) => {
     if (get().boardNodes.length >= MAX_BOARD_NODES) return null;
+    const routed = routeAddBoardNodeViaAgent(input);
+    if (routed.handled) return routed.value;
     const sections = get().boardSections;
     const draft: DirectorBoardNode = {
       id: createId("board-node"),
@@ -1305,7 +1696,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
     });
     return get().boardNodes.some((candidate) => candidate.id === node.id) ? node : null;
   },
-  updateBoardNode: (nodeId, patch) =>
+  updateBoardNode: (nodeId, patch) => {
+    if (routeUpdateBoardNodeViaAgent(nodeId, patch)) return;
     set((state) => {
       if (!state.boardNodes.some((node) => node.id === nodeId)) return state;
       return withHistory(state, {
@@ -1322,7 +1714,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
             : node,
         ),
       });
-    }),
+    });
+  },
   updateBoardNodeProduction: (nodeId, patch) =>
     set((state) => {
       if (!state.boardNodes.some((node) => node.id === nodeId)) return state;
@@ -1359,6 +1752,7 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
       ),
     }));
   },
+  // human-only: Canvas z-order has no creative op twin.
   bringBoardNodeToFront: (nodeId) =>
     set((state) => {
       const index = state.boardNodes.findIndex((node) => node.id === nodeId);
@@ -1368,7 +1762,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
         boardNodes: [...state.boardNodes.slice(0, index), ...state.boardNodes.slice(index + 1), node],
       });
     }),
-  removeBoardNode: (nodeId) =>
+  removeBoardNode: (nodeId) => {
+    if (routeRemoveBoardNodeViaAgent(nodeId)) return;
     set((state) => {
       if (!state.boardNodes.some((node) => node.id === nodeId)) return state;
       return withHistory(state, {
@@ -1376,7 +1771,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
         boardEdges: state.boardEdges.filter((edge) => edge.sourceNodeId !== nodeId && edge.targetNodeId !== nodeId),
         selectedBoardNodeId: state.selectedBoardNodeId === nodeId ? null : state.selectedBoardNodeId,
       });
-    }),
+    });
+  },
   selectBoardNode: (selectedBoardNodeId) => set({ selectedBoardNodeId }),
   setBoardViewport: (viewport) =>
     set({
@@ -1386,6 +1782,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
         zoom: clamp(viewport.zoom, 0.1, 2.5),
       },
     }),
+  // human-only: Canvas sections (add/update/collapse/remove/assign) have no
+  // canvas.section.* creative op twin yet.
   addBoardSection: (input) => {
     if (get().boardSections.length >= MAX_BOARD_SECTIONS) return null;
     const section: DirectorBoardSection = {
@@ -1456,12 +1854,15 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
         boardNodes: state.boardNodes.map((item) => (item.id === nodeId ? { ...item, sectionId } : item)),
       });
     }),
+  // human-only: workspace preferences have no creative op twin.
   updateWorkspacePrefs: (patch) =>
     set((state) => {
       const workspacePrefs = normalizeWorkspacePrefs({ ...state.workspacePrefs, ...patch });
       if (workspacePrefs.autoSendToTimeline === state.workspacePrefs.autoSendToTimeline) return state;
       return withHistory(state, { workspacePrefs });
     }),
+  // human-only: whole-plan Canvas application has no creative op twin (agents
+  // compose canvas.node.add/canvas.edge.add batches instead).
   applyScriptCanvasPlan: (plan) =>
     set((state) => {
       const remainingCapacity = MAX_BOARD_NODES - state.boardNodes.length;
@@ -1492,6 +1893,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
     if (boardEdges.some((edge) => edge.sourceNodeId === sourceNodeId && edge.targetNodeId === targetNodeId))
       return false;
     if (wouldCreateDirectorCanvasCycle(boardNodes, boardEdges, sourceNodeId, targetNodeId)) return false;
+    const routed = routeAddBoardEdgeViaAgent(sourceNodeId, targetNodeId);
+    if (routed.handled) return routed.value;
     set((state) =>
       withHistory(state, {
         boardEdges: [...state.boardEdges, { id: createId("board-edge"), sourceNodeId, targetNodeId }],
@@ -1499,13 +1902,15 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
     );
     return true;
   },
-  removeBoardEdge: (edgeId) =>
+  removeBoardEdge: (edgeId) => {
+    if (routeRemoveBoardEdgeViaAgent(edgeId)) return;
     set((state) => {
       if (!state.boardEdges.some((edge) => edge.id === edgeId)) return state;
       return withHistory(state, {
         boardEdges: state.boardEdges.filter((edge) => edge.id !== edgeId),
       });
-    }),
+    });
+  },
   layoutBoardDag: (options) => {
     const state = get();
     const layout = layoutDirectorCanvasDag(state.boardNodes, state.boardEdges, options);
@@ -1528,6 +1933,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
   addClip: (input) => {
     const track = get().editTracks.find((item) => item.id === input.trackId);
     if (!track || track.locked || track.clips.length >= MAX_TRACK_CLIPS) return null;
+    const routed = routeAddClipViaAgent(track, input);
+    if (routed.handled) return routed.value;
     const playbackRate = clamp(input.playbackRate ?? 1, MIN_CLIP_PLAYBACK_RATE, MAX_CLIP_PLAYBACK_RATE);
     const duration = clamp(input.durationSec, 0.1, MAX_CLIP_DURATION_SEC);
     const sourceDuration = clamp(
@@ -1566,7 +1973,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
     );
     return clip;
   },
-  updateClip: (clipId, patch) =>
+  updateClip: (clipId, patch) => {
+    if (routeUpdateClipViaAgent(clipId, patch)) return;
     set((state) => {
       const owner = state.editTracks.find((track) => track.clips.some((clip) => clip.id === clipId));
       if (!owner || owner.locked) return state;
@@ -1630,7 +2038,9 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
           }),
         })),
       });
-    }),
+    });
+  },
+  // human-only: clip transitions have no field on the creative wire schema.
   setClipTransition: (clipId, seconds) =>
     set((state) => {
       const owner = state.editTracks.find((track) => track.clips.some((clip) => clip.id === clipId));
@@ -1703,7 +2113,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
     set((current) => withHistory(current, { editTracks, selectedClipId: created.id }));
     return created;
   },
-  removeClip: (clipId) =>
+  removeClip: (clipId) => {
+    if (routeRemoveClipViaAgent(clipId)) return;
     set((state) => {
       const owner = state.editTracks.find((track) => track.clips.some((clip) => clip.id === clipId));
       if (!owner || owner.locked) return state;
@@ -1714,7 +2125,10 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
         })),
         selectedClipId: state.selectedClipId === clipId ? null : state.selectedClipId,
       });
-    }),
+    });
+  },
+  // human-only: pointer-up overwrite resolution after a drag has no creative
+  // op twin (agents express placement with edit.clip.move / edit.range.*).
   commitClipPlacement: (clipId) =>
     set((state) => {
       const owner = state.editTracks.find((track) => track.clips.some((clip) => clip.id === clipId));
@@ -1731,6 +2145,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
         selectedClipId: selectionRemoved ? null : state.selectedClipId,
       });
     }),
+  // human-only: single-clip ripple delete has no creative op twin (agents use
+  // edit.clip.remove plus edit.range.remove).
   rippleRemoveClip: (clipId) =>
     set((state) => {
       const owner = state.editTracks.find((track) => track.clips.some((clip) => clip.id === clipId));
@@ -1917,6 +2333,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
   addTrack: (kind, name) => {
     const state = get();
     if (state.editTracks.length >= MAX_TRACKS) return null;
+    const routed = routeAddTrackViaAgent(kind, name);
+    if (routed.handled) return routed.value;
     const usedIds = new Set(state.editTracks.map((track) => track.id));
     let suffix = 1;
     while (usedIds.has(`${kind}-${suffix}`)) suffix += 1;
@@ -1936,7 +2354,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
     );
     return track;
   },
-  removeTrack: (trackId) =>
+  removeTrack: (trackId) => {
+    if (routeRemoveTrackViaAgent(trackId)) return;
     set((state) => {
       const track = state.editTracks.find((item) => item.id === trackId);
       if (!track) return state;
@@ -1948,7 +2367,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
         editTracks: state.editTracks.filter((item) => item.id !== trackId),
         selectedClipId: state.selectedClipId && removedClipIds.has(state.selectedClipId) ? null : state.selectedClipId,
       });
-    }),
+    });
+  },
   renameTrack: (trackId, name) =>
     set((state) => {
       const nextName = name.trim().slice(0, 120);
