@@ -127,7 +127,15 @@ export const directorDccProviderDescriptorSchema = z
     id: directorDccProviderIdSchema,
     label: z.string().trim().min(1).max(80),
     category: z.enum(["dcc", "engine"]),
-    integration: z.enum(["native-roundtrip", "exchange-package"]),
+    /**
+     * How Director integrates with the provider:
+     * - `native-roundtrip` — an in-process bridge drives the host end to end (Blender).
+     * - `engine-headless` — a Director-authored connector runs fixed headless
+     *   entry points inside the user's engine installation; scene content still
+     *   travels through the portable exchange package.
+     * - `exchange-package` — Director only prepares/consumes the portable package.
+     */
+    integration: z.enum(["native-roundtrip", "engine-headless", "exchange-package"]),
     preferredFormat: directorDccExchangeFormatSchema,
     exchangeFormats: z.array(directorDccExchangeFormatSchema).min(1),
     capabilities: z.array(directorDccCapabilitySchema).min(1),
@@ -325,6 +333,43 @@ function exchangeProvider(
   });
 }
 
+function engineProvider(
+  id: DirectorDccProviderId,
+  label: string,
+  preferredFormat: Exclude<DirectorDccExchangeFormat, "blend">,
+  exchangeFormats: Array<Exclude<DirectorDccExchangeFormat, "blend">>,
+): DirectorDccProviderDescriptor {
+  return directorDccProviderDescriptorSchema.parse({
+    id,
+    label,
+    category: "engine",
+    integration: "engine-headless",
+    preferredFormat,
+    exchangeFormats,
+    capabilities: [
+      // Scene layout and cameras still travel through the portable package;
+      // the connector performs the host-side import but the format carries them.
+      { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      // Animation, skeletons, and materials stay planned until a version-tested
+      // acceptance suite validates the host-side work end to end.
+      { id: "animation", level: "planned", layer: "connector" },
+      { id: "skeleton", level: "planned", layer: "connector" },
+      { id: "materials", level: "planned", layer: "connector" },
+      // The Director manifest and connector preserve stable director:id
+      // metadata on both directions of the handoff.
+      { id: "stable_ids", level: "native", layer: "director-manifest" },
+      // Headless import/return round trip is performed by the Director-authored
+      // connector; runtime availability is still gated by nativeReady.
+      { id: "roundtrip", level: "native", layer: "connector" },
+      { id: "headless", level: "native", layer: "connector" },
+      // No live preview transport ships yet; see MULTI_DCC_INTEGRATION.md.
+      { id: "live_link", level: "planned", layer: "connector" },
+    ],
+    connectorDirectory: `integrations/${id}`,
+  });
+}
+
 /**
  * Product capability catalog. Runtime installation state is deliberately kept
  * out of this table and is supplied by the gateway registry.
@@ -351,12 +396,12 @@ export const DIRECTOR_DCC_PROVIDERS: readonly DirectorDccProviderDescriptor[] = 
     connectorDirectory: "integrations/blender",
   }),
   exchangeProvider("maya", "Autodesk Maya", "dcc", "usda", ["usda", "glb"]),
-  exchangeProvider("unreal", "Unreal Engine", "engine", "usda", ["usda", "glb"]),
+  engineProvider("unreal", "Unreal Engine", "usda", ["usda", "glb"]),
   exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
-  exchangeProvider("unity", "Unity", "engine", "glb", ["glb", "usda"]),
+  engineProvider("unity", "Unity", "glb", ["glb", "usda"]),
   exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
-  exchangeProvider("godot", "Godot", "engine", "glb", ["glb"]),
+  engineProvider("godot", "Godot", "glb", ["glb"]),
 ]);
 
 /**

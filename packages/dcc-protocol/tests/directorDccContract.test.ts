@@ -159,4 +159,55 @@ describe("Director DCC scene contract", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("scopes engine handoff operations to connector-backed engine providers", () => {
+    expect(
+      directorDccOperationSchema.parse({ op: "send_to_engine", provider: "godot", formats: ["glb"] }),
+    ).toEqual({ op: "send_to_engine", provider: "godot", formats: ["glb"] });
+    expect(
+      directorDccOperationSchema.parse({ op: "send_to_engine", provider: "unreal", camera_id: "cam-1", frame: 12 }),
+    ).toMatchObject({ provider: "unreal", camera_id: "cam-1", frame: 12 });
+    // Engines only; DCCs keep the exchange/blender-specific operations.
+    expect(directorDccOperationSchema.safeParse({ op: "send_to_engine", provider: "maya" }).success).toBe(false);
+    expect(directorDccOperationSchema.safeParse({ op: "send_to_engine", provider: "blender" }).success).toBe(false);
+
+    expect(
+      directorDccOperationSchema.parse({ op: "receive_from_engine", provider: "unity", package_dir: "job-1/return" }),
+    ).toEqual({ op: "receive_from_engine", provider: "unity", package_dir: "job-1/return", dry_run: true });
+    expect(
+      directorDccOperationSchema.safeParse({ op: "receive_from_engine", provider: "houdini", package_dir: "x" })
+        .success,
+    ).toBe(false);
+
+    const plan = {
+      contract: "director-dcc-import-plan-v1",
+      ready: true,
+      packageId: "return-1",
+      packageDir: "job-1/return",
+      manifestHash: "c".repeat(64),
+      sourceRevision: "director-project-revision:v1:sha256:" + "d".repeat(64),
+      targetRevision: "director-project-revision:v1:sha256:" + "d".repeat(64),
+      operations: [],
+      conflicts: [],
+      warnings: [],
+    };
+    expect(
+      directorDccOperationSchema.parse({
+        op: "apply_import_plan",
+        provider: "godot",
+        plan,
+        expected_revision: plan.targetRevision,
+        idempotency_key: "engine-return-1",
+      }),
+    ).toMatchObject({ op: "apply_import_plan", provider: "godot" });
+    expect(
+      directorDccOperationSchema.safeParse({
+        op: "apply_import_plan",
+        provider: "maya",
+        plan,
+        expected_revision: plan.targetRevision,
+        idempotency_key: "engine-return-2",
+      }).success,
+    ).toBe(false);
+  });
 });

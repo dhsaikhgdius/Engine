@@ -37,6 +37,7 @@ import { directorBlendSceneImportSelectionSchema } from "./directorBlendSceneImp
 import { strictOperation } from "@director/protocol/strictProtocolVariant";
 import { directorCameraAspectRatioSchema } from "@director/protocol/directorCameraProtocol";
 import { directorDccPortableExchangeFormatSchema, directorDccProviderIdSchema } from "./directorDccProviderContract";
+import { directorDccConnectorProviderIdSchema, directorDccEngineIdSchema } from "./directorDccEngineSpace";
 
 export { directorDccTransformSchema } from "./directorDccSharedContract";
 export type { DirectorDccTransform } from "./directorDccSharedContract";
@@ -192,12 +193,25 @@ export const directorDccOperationSchema = z.discriminatedUnion("op", [
     camera_id: z.string().trim().min(1).max(160).optional(),
     frame: z.number().finite().nonnegative().optional(),
   }),
+  strictOperation("send_to_engine", {
+    provider: directorDccEngineIdSchema,
+    formats: z.array(directorDccPortableExchangeFormatSchema).min(1).max(2).optional(),
+    camera_id: z.string().trim().min(1).max(160).optional(),
+    frame: z.number().finite().nonnegative().optional(),
+  }),
+  strictOperation("receive_from_engine", {
+    provider: directorDccEngineIdSchema,
+    package_dir: z.string().trim().min(1).max(2_048),
+    dry_run: z.boolean().optional().default(true),
+  }),
   strictOperation("import_return_package", {
     package_dir: z.string().trim().min(1).max(2_048),
     dry_run: z.boolean().optional().default(true),
   }),
   strictOperation("apply_import_plan", {
     plan: directorDccImportPlanSchema,
+    /** Connector provider whose job root holds the return package (defaults to blender). */
+    provider: directorDccConnectorProviderIdSchema.optional(),
     expected_revision: z.string().trim().min(1).max(240),
     idempotency_key: z.string().trim().min(1).max(240),
   }),

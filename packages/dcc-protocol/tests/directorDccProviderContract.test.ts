@@ -72,19 +72,27 @@ describe("Director DCC provider contract", () => {
       category: "dcc",
     });
     expect(getDirectorDccProviderDescriptor("unreal")).toMatchObject({
-      integration: "exchange-package",
+      integration: "engine-headless",
       preferredFormat: "usda",
       category: "engine",
     });
     expect(getDirectorDccProviderDescriptor("unity")).toMatchObject({
-      integration: "exchange-package",
+      integration: "engine-headless",
       preferredFormat: "glb",
       category: "engine",
+    });
+    expect(getDirectorDccProviderDescriptor("godot")).toMatchObject({
+      integration: "engine-headless",
+      preferredFormat: "glb",
+      category: "engine",
+      exchangeFormats: ["glb"],
     });
   });
 
   it("separates portable layout, Director manifest, and provider connector capabilities", () => {
-    for (const descriptor of DIRECTOR_DCC_PROVIDERS.filter(({ id }) => id !== "blender")) {
+    const exchangeOnly = DIRECTOR_DCC_PROVIDERS.filter(({ integration }) => integration === "exchange-package");
+    expect(exchangeOnly.map(({ id }) => id)).toEqual(["maya", "houdini", "cinema4d", "3dsmax"]);
+    for (const descriptor of exchangeOnly) {
       const byId = new Map(descriptor.capabilities.map((capability) => [capability.id, capability]));
 
       for (const id of ["scene", "camera"] as const) {
@@ -101,6 +109,34 @@ describe("Director DCC provider contract", () => {
         layer: "director-manifest",
       });
       for (const id of ["animation", "skeleton", "materials", "roundtrip", "headless", "live_link"] as const) {
+        expect(byId.get(id)).toEqual({ id, level: "planned", layer: "connector" });
+      }
+    }
+  });
+
+  it("promotes only connector-backed engine capabilities and keeps fidelity claims honest", () => {
+    const engines = DIRECTOR_DCC_PROVIDERS.filter(({ integration }) => integration === "engine-headless");
+    expect(engines.map(({ id }) => id)).toEqual(["unreal", "unity", "godot"]);
+    for (const descriptor of engines) {
+      expect(descriptor.category).toBe("engine");
+      expect(descriptor.connectorDirectory).toBe(`integrations/${descriptor.id}`);
+      const byId = new Map(descriptor.capabilities.map((capability) => [capability.id, capability]));
+
+      // Scene layout and cameras still travel through the portable package.
+      for (const id of ["scene", "camera"] as const) {
+        expect(byId.get(id)).toEqual({
+          id,
+          level: "exchange",
+          layer: "exchange-format",
+          formats: descriptor.exchangeFormats.filter((format) => format === "glb" || format === "usda"),
+        });
+      }
+      // The Director-authored connector performs headless import/return.
+      expect(byId.get("headless")).toEqual({ id: "headless", level: "native", layer: "connector" });
+      expect(byId.get("roundtrip")).toEqual({ id: "roundtrip", level: "native", layer: "connector" });
+      expect(byId.get("stable_ids")).toEqual({ id: "stable_ids", level: "native", layer: "director-manifest" });
+      // Animation/skeleton/material fidelity and live link remain unproven.
+      for (const id of ["animation", "skeleton", "materials", "live_link"] as const) {
         expect(byId.get(id)).toEqual({ id, level: "planned", layer: "connector" });
       }
     }
