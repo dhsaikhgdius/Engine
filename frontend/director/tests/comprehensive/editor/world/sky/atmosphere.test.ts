@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { DirectorWorldWeather } from "../../../../../src/comprehensive/editor/schema/directorProject";
 import {
   ATMOSPHERE_SUN_SCALE_BASE,
   chromaticityOf,
   clearAtmosphereCache,
   evaluateSunRadiance,
   getAtmosphereGroundAlbedo,
+  getAtmosphereMieScale,
   kastenYoungAirMass,
   luminanceOf,
   packAtmosphereLutRgba,
@@ -12,6 +14,10 @@ import {
   SNOW_GROUND_ALBEDO,
   solveAtmosphere,
 } from "../../../../../src/comprehensive/editor/world/sky/atmosphere";
+
+function weatherOf(overrides: Partial<DirectorWorldWeather> = {}): DirectorWorldWeather {
+  return { preset: "clear", intensity: 0.5, wetness: 0, cloudCover: 0.3, ...overrides };
+}
 
 describe("Kasten-Young air mass", () => {
   it("is 1 at zenith and stays finite on the horizon", () => {
@@ -123,5 +129,40 @@ describe("getAtmosphereGroundAlbedo", () => {
     const clear = getAtmosphereGroundAlbedo({ preset: "clear", intensity: 0, wetness: 0, cloudCover: 0 });
     expect(luminanceOf(snow)).toBeGreaterThan(luminanceOf(clear));
     expect(snow[2]).toBeGreaterThan(snow[0]);
+  });
+
+  it("darkens wet ground the way a rained-on street reads darker", () => {
+    for (const preset of ["clear", "overcast", "rain", "storm", "snow"] as const) {
+      const dry = getAtmosphereGroundAlbedo(weatherOf({ preset, wetness: 0 }));
+      const soaked = getAtmosphereGroundAlbedo(weatherOf({ preset, wetness: 1 }));
+      expect(luminanceOf(soaked), `${preset} wet ground must darken`).toBeLessThan(luminanceOf(dry));
+    }
+  });
+});
+
+describe("getAtmosphereMieScale", () => {
+  it("separates the five presets and orders their haze", () => {
+    const presets = ["clear", "snow", "overcast", "rain", "storm"] as const;
+    const scales = presets.map((preset) => getAtmosphereMieScale(weatherOf({ preset })));
+    expect(new Set(scales).size).toBe(presets.length);
+    for (let index = 1; index < scales.length; index += 1) {
+      expect(scales[index], `${presets[index]} must be hazier than ${presets[index - 1]}`).toBeGreaterThan(
+        scales[index - 1]!,
+      );
+    }
+  });
+
+  it("thickens haze with weather intensity for every non-clear preset", () => {
+    for (const preset of ["snow", "overcast", "rain", "storm"] as const) {
+      const faint = getAtmosphereMieScale(weatherOf({ preset, intensity: 0.1 }));
+      const violent = getAtmosphereMieScale(weatherOf({ preset, intensity: 1 }));
+      expect(violent, `${preset} haze must grow with intensity`).toBeGreaterThan(faint);
+    }
+  });
+
+  it("thickens haze with authored cloud cover", () => {
+    expect(getAtmosphereMieScale(weatherOf({ cloudCover: 1 }))).toBeGreaterThan(
+      getAtmosphereMieScale(weatherOf({ cloudCover: 0 })),
+    );
   });
 });

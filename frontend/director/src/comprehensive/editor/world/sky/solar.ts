@@ -8,6 +8,7 @@ import {
   solveAtmosphere,
   type AtmosphereSolution,
 } from "./atmosphere";
+import { evaluateSkyWeatherMood } from "./skyWeather";
 
 /**
  * Pure solar/sky lighting model for the Living World sky layer.
@@ -120,32 +121,6 @@ export function getSolarDirectionForHours(hours: number): [number, number, numbe
   return directionFromAngles(arc.elevationRadians, arc.azimuthRadians);
 }
 
-/** How much direct key light survives the weather, multiplied onto the sun. */
-const PRESET_DIRECT_LIGHT: Record<WeatherPreset, number> = {
-  clear: 1,
-  overcast: 0.55,
-  rain: 0.4,
-  snow: 0.55,
-  storm: 0.4,
-};
-
-/** Ambient survival per preset; snow bounces light back, storms swallow it. */
-const PRESET_AMBIENT_LIGHT: Record<WeatherPreset, number> = {
-  clear: 1,
-  overcast: 0.95,
-  rain: 0.8,
-  snow: 1,
-  storm: 0.8,
-};
-
-const PRESET_STARS: Record<WeatherPreset, number> = {
-  clear: 1,
-  overcast: 0.25,
-  rain: 0.15,
-  snow: 0.25,
-  storm: 0.05,
-};
-
 const PRESET_TURBIDITY: Record<WeatherPreset, number> = {
   clear: 0,
   overcast: 4,
@@ -154,10 +129,9 @@ const PRESET_TURBIDITY: Record<WeatherPreset, number> = {
   storm: 8,
 };
 
-/** Fraction of direct key light surviving cloud cover, weather preset, and storm darkening. */
+/** Fraction of direct key light surviving cloud cover, weather preset, and intensity. */
 function getDirectWeatherTransmission(weather: DirectorWorldWeather): number {
-  const stormDarkening = weather.preset === "storm" ? lerp(1, 0.45, clamp01(weather.intensity)) : 1;
-  return (1 - 0.72 * clamp01(weather.cloudCover)) * PRESET_DIRECT_LIGHT[weather.preset] * stormDarkening;
+  return evaluateSkyWeatherMood(weather).directTransmission;
 }
 
 const SUN_COLOR_NOON: readonly [number, number, number] = [1, 0.975, 0.93];
@@ -228,8 +202,8 @@ export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSecond
   const hours = evaluateWorldTimeOfDayHours(settings.timeOfDay, worldSeconds);
   const arc = getSkySolarArc(hours);
   const weather = settings.weather;
-  const cloudCover = clamp01(weather.cloudCover);
-  const stormDarkening = weather.preset === "storm" ? lerp(1, 0.45, clamp01(weather.intensity)) : 1;
+  const mood = evaluateSkyWeatherMood(weather);
+  const cloudCover = mood.effectiveCloudCover;
   const atmosphere = evaluateAtmosphereForSky(settings, worldSeconds);
 
   // 0 at deep night, 1 in full daylight, easing through twilight.
@@ -241,36 +215,32 @@ export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSecond
     ? directionFromAngles(arc.elevationRadians, arc.azimuthRadians)
     : directionFromAngles(-arc.elevationRadians, arc.azimuthRadians + Math.PI);
 
-  const directWeather = getDirectWeatherTransmission(weather);
+  const directWeather = mood.directTransmission;
   const sunIntensity = sunUp
     ? SKY_NOON_SUN_INTENSITY * smoothstep(0, 0.25, arc.altitudeSin) * directWeather
     : SKY_NOON_SUN_INTENSITY * SKY_MOONLIGHT_INTENSITY_RATIO * smoothstep(0, 0.25, -arc.altitudeSin) * directWeather;
-  const sunColor = sunUp
-    ? lerpColor(SUN_COLOR_NOON, atmosphere.sunColor, 0.7)
-    : [...MOON_COLOR];
+  // Golden hour: the closer the sun sits to the horizon the more of the
+  // air-mass-reddened atmosphere tint the key light takes on.
+  const sunWarmthBlend = lerp(0.7, 0.96, horizonWarmth);
+  const sunColor = sunUp ? lerpColor(SUN_COLOR_NOON, atmosphere.sunColor, sunWarmthBlend) : [...MOON_COLOR];
 
   const cloudLift = 1 + 0.3 * cloudCover * daylight;
-  const ambientIntensity =
-    lerp(0.14, 0.85, daylight) * cloudLift * PRESET_AMBIENT_LIGHT[weather.preset] * stormDarkening;
+  const ambientIntensity = lerp(0.14, 0.85, daylight) * cloudLift * mood.ambientScale;
   const skyFill = chromaticityOf(atmosphere.skyIrradianceUp);
   const ambientColor = lerpColor(
     lerpColor(AMBIENT_COLOR_NIGHT, skyFill, daylight),
     AMBIENT_COLOR_OVERCAST,
     cloudCover * daylight,
   );
-  const groundColor: [number, number, number] = [
-    ambientColor[0] * 0.35,
-    ambientColor[1] * 0.33,
-    ambientColor[2] * 0.3,
-  ];
+  const groundColor: [number, number, number] = [ambientColor[0] * 0.35, ambientColor[1] * 0.33, ambientColor[2] * 0.3];
   const aerialFogColor = chromaticityOf(lerpColor(atmosphere.aerialNearColor, atmosphere.horizonColor, 0.35));
   const aerialFogDensity =
     PRESET_AERIAL_FOG_DENSITY[weather.preset] *
     (1 + 0.55 * cloudCover) *
-    (weather.preset === "storm" ? lerp(1, 1.35, clamp01(weather.intensity)) : 1);
+    (weather.preset === "clear" ? 1 : lerp(1, 1.35, clamp01(weather.intensity)));
 
   const nightFactor = 1 - smoothstep(-0.18, 0.03, arc.altitudeSin);
-  const starsOpacity = clamp01(nightFactor * (1 - cloudCover) * PRESET_STARS[weather.preset]);
+  const starsOpacity = clamp01(nightFactor * (1 - cloudCover) * mood.starVisibility);
 
   const skyTurbidity = clamp(2.2 + 9 * cloudCover + PRESET_TURBIDITY[weather.preset], 2, 20);
   const skyRayleigh = clamp(1 + 2.4 * horizonWarmth * daylight, 0.3, 4);
