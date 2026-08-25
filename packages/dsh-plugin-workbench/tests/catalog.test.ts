@@ -166,9 +166,9 @@ describe("Director DSH workbench plugin catalog", () => {
         request: { action: "capabilities" },
       }).success,
     ).toBe(true);
-    expect(
-      DIRECTOR_AGENT_WIRE_SCHEMAS.director_creative.safeParse({ op: "interchange", request: {} }).success,
-    ).toBe(false);
+    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.director_creative.safeParse({ op: "interchange", request: {} }).success).toBe(
+      false,
+    );
   });
 
   it("exposes the video job and provider fields agents need across the job lifecycle", () => {
@@ -208,9 +208,9 @@ describe("Director DSH workbench plugin catalog", () => {
     expect(blender.properties?.query).toBeDefined();
     expect(blender.properties?.name_pattern).toBeDefined();
     expect(blender.properties?.assetType).toBeDefined();
-    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({ op: "polyhaven_search", query: "chair" }).success).toBe(
-      true,
-    );
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({ op: "polyhaven_search", query: "chair" }).success,
+    ).toBe(true);
     expect(
       DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({
         op: "capture_render",
