@@ -7,7 +7,10 @@ import {
   useDirectorStore,
 } from "../../../../src/comprehensive/editor/store/directorStore";
 import { selectRightPanelKind } from "../../../../src/comprehensive/editor/store/directorSelectors";
-import { getCameraRigPositionFromViewSnapshot } from "../../../../src/comprehensive/editor/schema/cameraGeometry";
+import {
+  getCameraRigPositionFromViewSnapshot,
+  getVerticalFovFromFocalLength,
+} from "../../../../src/comprehensive/editor/schema/cameraGeometry";
 import {
   getDirectorCharacterAssetBindingIssues,
   getMixamoCharacterCatalogItem,
@@ -712,6 +715,36 @@ it("activating a camera selects its physical rig and opens the camera inspector"
   expect(nextState.selectedObjectIds).toEqual([cameraObject.id]);
   expect(nextState.directorInspectorMode).toBe("auto");
   expect(selectRightPanelKind(nextState)).toBe("camera");
+});
+
+it("routes camera optics updates through shared authoring as one undoable edit", () => {
+  const before = useDirectorStore.getState().project.cameras[0]!;
+  const fov = getVerticalFovFromFocalLength(85, before.aspectRatio, before.sensorFormat);
+
+  useDirectorStore.getState().updateCamera(before.id, { focalLengthMm: 85, fov });
+
+  const camera = useDirectorStore.getState().project.cameras[0]!;
+  expect(camera.focalLengthMm).toBe(85);
+  expect(camera.fov).toBeCloseTo(fov, 6);
+  expect(selectDirectorCanUndo(useDirectorStore.getState())).toBe(true);
+
+  useDirectorStore.getState().undo();
+  expect(useDirectorStore.getState().project.cameras[0]?.focalLengthMm).toBe(before.focalLengthMm);
+});
+
+it("applies pose presets through shared authoring while keeping the preset identity", () => {
+  const character = useDirectorStore.getState().project.objects.find((item) => item.kind === "character")!;
+
+  useDirectorStore.getState().applyPosePreset(character.id, "sit");
+
+  const rig = useDirectorStore.getState().project.objects.find((item) => item.id === character.id)?.characterRig;
+  expect(rig?.posePresetId).toBe("sit");
+  expect(selectDirectorCanUndo(useDirectorStore.getState())).toBe(true);
+
+  useDirectorStore.getState().undo();
+  expect(
+    useDirectorStore.getState().project.objects.find((item) => item.id === character.id)?.characterRig?.posePresetId,
+  ).toBe("stand");
 });
 
 it("uses the reference ochre default and gives newly added characters distinct colors", () => {
