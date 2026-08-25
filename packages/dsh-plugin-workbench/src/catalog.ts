@@ -127,7 +127,9 @@ export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
     operations: z
       .array(z.looseObject({ op: z.string().min(1) }))
       .optional()
-      .describe('Required for op="apply". Typed ops include create_primitive, polyhaven_import, sketchfab_import, execute_code.'),
+      .describe(
+        'Required for op="apply". Typed ops include create_blockout (white-box shells: presets floor/wall/room/corridor/stairs, metres), create_opening (door/window holes), create_primitive (dimensions + grounded), polyhaven_import, sketchfab_import, execute_code.',
+      ),
     operator: z.string().optional().describe('RNA id for op="describe", e.g. mesh.bevel.'),
     target: z.string().optional().describe('Typed apply op for op="describe", e.g. create_primitive or polyhaven_import.'),
     query: z.string().optional().describe('When op="query", Blender object name substring (e.g. "清华"). Also search text for catalog, polyhaven_search, and sketchfab_search.'),
@@ -174,7 +176,7 @@ export const DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
     type: "function" as const,
     name: "blender_native",
     description:
-      'Operate Blender\'s native modeling and rig surface in the same Director project. Use this for unique architecture and set pieces that are not in the catalog; successful edits synchronize automatically, never via GLB re-import. Call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search","assetType":"models","query":"chair"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Native stills are {"op":"capture"} or the alias {"op":"capture_render"}. Describe typed apply ops with {"op":"describe","target":"create_primitive"} when a field is unknown. invoke_operator covers most Blender RNA; execute_code runs Python when that is not enough. Missing scene epoch, revision, and intent id are filled by the gateway.',
+      'Operate Blender\'s native modeling and rig surface in the same Director project. Use this for unique architecture and set pieces that are not in the catalog; successful edits synchronize automatically, never via GLB re-import. White-box shells use apply create_blockout (presets floor/wall/room/corridor/stairs, metric metres, stable ids "<idPrefix>:1..n"); door/window holes use create_opening on the wall, never a darker box. Call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search","assetType":"models","query":"chair"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Native stills are {"op":"capture"} or the alias {"op":"capture_render"}. Describe typed apply ops with {"op":"describe","target":"create_blockout"} when a field is unknown. invoke_operator covers most Blender RNA; execute_code runs Python when that is not enough. Missing scene epoch, revision, and intent id are filled by the gateway.',
     inputSchema: z.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native),
     dshParameters: dshToolParameters(z.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native)),
   },

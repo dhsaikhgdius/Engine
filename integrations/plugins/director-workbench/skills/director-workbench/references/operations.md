@@ -520,6 +520,42 @@ Use one transaction for one modeling intent. Prefer semantic operations for comm
 }
 ```
 
+Sizes are metres. The preset returns stable ids `warehouse-shell:1` (floor) then
+`warehouse-shell:2..5` (north/south/east/west walls), all with a neutral clay material. Presets:
+`room`, `corridor` (`depth` is the corridor length), `stairs` (`depth` total run, `height` total
+rise, `stepCount` steps), and single-slab `wall` / `floor`. Cut real doors and windows into the
+returned walls in the next transaction — never fake an opening with a darker box:
+
+```json
+{
+  "op": "apply",
+  "operations": [
+    {
+      "op": "create_opening",
+      "id": "warehouse-door",
+      "targetId": "warehouse-shell:2",
+      "kind": "door",
+      "width": 1.2,
+      "height": 2.2
+    },
+    {
+      "op": "create_opening",
+      "id": "warehouse-window-east",
+      "targetId": "warehouse-shell:4",
+      "kind": "window",
+      "width": 1.4,
+      "height": 1.2,
+      "sillHeight": 1.0,
+      "offset": 1.5
+    }
+  ]
+}
+```
+
+Then accept the white-box visually, not from `audit.ready`: add a 35–65 mm Stage camera at about
+1.8× subject height distance with under ~15° pitch and `capture` (or attach `evidence` to the same
+`author` call). Check massing hierarchy, real openings, ground contact, and metric proportions.
+
 If an `apply` result is `outcome_unknown`, resend the complete `retry_ticket.input` unchanged. It
 contains the original epoch, revision, intent ID, and operation batch needed for native exact replay.
 

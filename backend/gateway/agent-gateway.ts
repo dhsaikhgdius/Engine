@@ -83,6 +83,7 @@ import { createBlenderBridge } from "./dcc/blenderBridge";
 import { createBlenderReturnImporter, createDccReturnImporter } from "./dcc/blenderReturnImport";
 import { createBlenderSceneImporter } from "./dcc/blenderSceneImport";
 import { createDirectorDccEngineBridge } from "./dcc/engineBridge";
+import { createEngineSceneImporter } from "./dcc/engineSceneImport";
 import { handleDccRoute } from "./routes/dccRoutes";
 import { createDirectorDccProviderRegistry, registerConfiguredDirectorDccProviders } from "./dcc/dccProviderRegistry";
 import { createDirectorDccExchangePackager } from "./dcc/dccExchangePackage";
@@ -249,6 +250,7 @@ const collaborationHub = new DirectorCollaborationWebSocketHub();
 const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
 const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
 const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
+const engineSceneImporter = createEngineSceneImporter({ workspaceRoot: root, dataDirectory });
 const dccExchangePackager = createDirectorDccExchangePackager({ workspaceRoot: root, dataDirectory });
 const dccEngineBridge = createDirectorDccEngineBridge({
   workspaceRoot: root,
@@ -260,7 +262,11 @@ const dccEngineReturnImporters = {
   unity: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "unity" }),
   godot: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "godot" }),
 };
-const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge, engines: dccEngineBridge });
+const dccProviders = createDirectorDccProviderRegistry({
+  blender: blenderBridge,
+  engines: dccEngineBridge,
+  workspaceRoot: root,
+});
 await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
 const blenderNativeSession = createBlenderNativeSession(controlPlaneConfig.dcc.blender);
 
@@ -410,7 +416,7 @@ function plannerPrompt(
     "Return ONLY a JSON value matching the supplied schema. Do not use tools, do not mutate files, and do not explain outside JSON.",
     "You are preparing a plan only. The browser will show it to the user before any operation is applied.",
     "Use only these public tools: director_workbench, director_creative, stage_video, blender_native.",
-    "- director_workbench: observe when current IDs are needed, use catalog for packaged assets and motions, and group one requested scene change into one author operation. Do not assemble scenes from geometry_type primitives; instance catalog/project meshes, model with blender_native, or generate with generated_3d. Use deliver only when the user asks for an exported result.",
+    "- director_workbench: observe when current IDs are needed, use catalog for packaged assets and motions, and group one requested scene change into one author operation. Do not assemble scenes from geometry_type primitives; instance catalog/project meshes, model with blender_native (create_blockout shells, create_opening doors/windows), or generate with generated_3d. Use deliver only when the user asks for an exported result.",
     "  Multi-scene work uses production observe followed by the requested create, duplicate, rename, activate, or delete action.",
     "  Gallery generation, transcription, generated 3D, and storyboard export should discover available providers, submit the requested job, then poll its returned job ID. Do not add extra review passes.",
     "  Automation and memory support macro list/get/save/remove/export/run and memory pin/recall/forget/export.",
@@ -2143,6 +2149,7 @@ const server = createServer(async (request, response) => {
         providers: dccProviders,
         exchangePackager: dccExchangePackager,
         sceneImporter: blenderSceneImporter,
+        engineImporter: engineSceneImporter,
         returnImporter: blenderReturnImporter,
         engineBridge: dccEngineBridge,
         engineReturnImporters: dccEngineReturnImporters,

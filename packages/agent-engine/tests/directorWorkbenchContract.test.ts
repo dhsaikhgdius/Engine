@@ -104,6 +104,7 @@ describe("director workbench contract", () => {
     expect(apply).toMatchObject({ success: false });
     if (!apply.success) {
       expect(apply.error).toContain("blender_native");
+      expect(apply.error).toContain("create_blockout");
       expect(apply.error).not.toContain("Invalid discriminator");
     }
     const primitive = parseDirectorWorkbenchInput({ op: "create_primitive", id: "hero-plinth", primitive: "cube" });
@@ -130,6 +131,8 @@ describe("director workbench contract", () => {
       expect(assembled.error).toContain("geometry_type");
       expect(assembled.error).toContain("blender_native");
       expect(assembled.error).toContain("generated_3d");
+      expect(assembled.error).toContain("create_blockout");
+      expect(assembled.error).toContain("create_opening");
     }
     const patched = parseDirectorWorkbenchInput({
       op: "author",

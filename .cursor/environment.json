@@ -1,0 +1,4 @@
+{
+  "install": "git submodule update --init --depth 1 vendor/deepseek-harness\nnpm ci\nbash tools/scripts/install-dcc-runtimes.sh || true",
+  "start": "echo \"Director cloud env ready: Node $(node -v), npm $(npm -v), Blender $(command -v blender || echo missing), Unity $(command -v unity || echo missing)\""
+}

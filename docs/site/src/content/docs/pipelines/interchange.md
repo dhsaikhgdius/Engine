@@ -23,6 +23,8 @@ standard.
 | Blender `.blend`   | import        | Active-scene current-frame GLB snapshot, selected static perspective cameras, source-time audit metadata                                          | No deep editable hierarchy, animation playback/timeline remap, live sync, or safe processing of untrusted files; Blender-only semantics are unsupported or lossy |
 | Blender round trip | export/return | Validated scene/camera handoff, clay preview, stable-ID mesh/transform return                                                                     | Return is limited to hashed packages below the DCC job root; Blender-only objects and optics/light edits are not auto-imported                                   |
 | Engine handoff (Unreal/Unity/Godot) | send/receive | Headless connector import of scene layout, cameras, and shot ranges with `director:id` metadata; canonical-space transform return | Requires the Director-authored connector installed in the user's engine project (`nativeReady`); animation, skeletons, materials, and live link are not claimed |
+| Unreal scene       | import        | Level GLB bundle (geometry, materials, skeletal meshes), typed hierarchy snapshot, cine camera optics, directional/point/spot/rect/sky lights, stable actor IDs | Sequencer animation is inventoried by name only; clip planes use Director defaults; round-trip back to Unreal is planned                                          |
+| Unity scene        | import        | Scene GLB bundle (geometry, materials, skinned meshes), typed hierarchy snapshot, physical camera optics, directional/point/spot/rect lights + flat ambient, `GlobalObjectId` stable IDs | Disc lights and skybox ambient become gaps; animation clips are inventoried with durations only; round-trip back to Unity is planned                              |
 
 The editor's **Interchange** menu is the human entry point. Stage OTIO and Video workspace OTIO
 have separate adapters because they preserve different source models. Import always validates
@@ -82,6 +84,31 @@ This is a trusted-local operation. `--disable-autoexec` prevents automatic embed
 execution, but it does not provide an OS/container sandbox for Blender's native file parser. Private
 job paths, size limits, and process timeouts are containment measures, not a sandbox. Process
 untrusted `.blend` files in a container or VM before they reach Director.
+
+## Game-engine scenes (Unreal / Unity)
+
+Unreal Engine 5 and Unity scenes import through the same preview/apply discipline as `.blend`
+files, but the package format differs: the in-engine exporters
+(`integrations/unreal/interchange/director_scene_export.py`,
+`integrations/unity/interchange/DirectorSceneExport.cs`) own the coordinate conversion and write a
+`director-engine-scene-v1` package whose transforms are already in Director's right-handed Y-up
+metre convention. The manifest declares the exact linear map that was applied
+(Unreal `(x,y,z)->(y,z,-x)*0.01`, Unity `(x,y,z)->(-x,y,z)`), the hierarchy snapshot, cameras,
+lights, animation clip inventory, warnings, and SHA-256 hashes for every file.
+
+Two ingestion paths produce identical packages. `director_dcc extract_engine_scene` runs the
+installed engine headlessly against a local project (Unreal `UnrealEditor-Cmd -run=pythonscript`,
+Unity `-batchmode -executeMethod`; Unity additionally requires an activated license). Uploading a
+`.zip` exported inside the engine to `POST /api/dcc/engine-scene/uploads?provider=unreal|unity`
+works without any engine installed and is the headless-verifiable path for cloud environments.
+
+`preview_engine_scene_import` builds a server-persisted `director-engine-scene-import-plan-v1`;
+`apply_engine_scene_import` revalidates hashes, copies the GLB into content-addressed storage, and
+performs one atomic authoring mutation with `plan_id`, `expected_revision`, and a retry-only
+`idempotency_key`. Geometry keeps `modelNormalization: "preserve"`. Renderable geometry requires
+the engine-side glTF exporter (Unreal's glTF Exporter plugin, Unity's `com.unity.cloud.gltfast`);
+without it the package still imports cameras, lights, and hierarchy and records the geometry gap.
+Round-trip back to the engines is a declared `planned` capability, not an available one.
 
 ## Coordinate system
 
