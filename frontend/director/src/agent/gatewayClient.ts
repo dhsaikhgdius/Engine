@@ -56,6 +56,10 @@ import {
   parseDirectorWorkbenchExecutableInput,
 } from "@director/agent-engine/contract";
 import { DirectorProjectRevisionConflictError, runWithDirectorProjectRevision } from "./directorRevisionBoundCapture";
+import {
+  executeDirectorCaptureCompareWorkbenchCommand,
+  type CaptureViewportRequest,
+} from "./directorCaptureCompareWorkbench";
 import { executeDirectorCaptureReconstructionWorkbenchCommand } from "./directorCaptureReconstructionWorkbench";
 import { executeDirectorGenerated3DWorkbenchCommand } from "./directorGenerated3DWorkbench";
 import { executeDirectorGenerationWorkbenchCommand } from "./directorGenerationWorkbench";
@@ -717,6 +721,25 @@ async function captureStagePreviewAfterPaint(cameraId?: string) {
   }
 }
 
+// Offscreen camera-view render shared by the reconstruction and compare
+// workbench modules: both score stage renders through this one capture bridge.
+async function requestWorkbenchViewportCapture(
+  captureRequest: CaptureViewportRequest,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const [capture] = await requestViewportCapture({
+    preset: "current",
+    source: "camera-panel",
+    cameraId: captureRequest.cameraId,
+    frame: captureRequest.frame,
+    width: captureRequest.width,
+    height: captureRequest.height,
+    signal,
+    waitForHandlerMs: 2_000,
+  });
+  return capture?.dataUrl ?? null;
+}
+
 // Establishes (and re-establishes) the WebSocket connection to the Director Gateway.
 // Flow: bootstrap → authenticate → open WebSocket → handle messages → reconnect on close.
 //
@@ -992,23 +1015,13 @@ async function connectSocket() {
                 commandController.signal,
                 {
                   scope: activeSceneId,
-                  dependencies: {
-                    requestCapture: async (captureRequest, signal) => {
-                      const [capture] = await requestViewportCapture({
-                        preset: "current",
-                        source: "camera-panel",
-                        cameraId: captureRequest.cameraId,
-                        frame: captureRequest.frame,
-                        width: captureRequest.width,
-                        height: captureRequest.height,
-                        signal,
-                        waitForHandlerMs: 2_000,
-                      });
-                      return capture?.dataUrl ?? null;
-                    },
-                  },
+                  dependencies: { requestCapture: requestWorkbenchViewportCapture },
                 },
               );
+            } else if (message.input.op === "compare") {
+              execution = await executeDirectorCaptureCompareWorkbenchCommand(message.input, commandController.signal, {
+                dependencies: { requestCapture: requestWorkbenchViewportCapture },
+              });
             } else if (message.input.op === "storyboard_artifact") {
               execution = await executeDirectorStoryboardWorkbenchCommand(
                 message.input.command,

@@ -435,6 +435,45 @@ export const directorAuthorEvidenceProfileSchema = z
     message: "author evidence raster cannot exceed 2073600 pixels over the Agent wire",
   });
 
+/**
+ * One image endpoint of a general capture comparison: a live stage render,
+ * a durable Gallery still, or a reconstruction capture keyframe. Image bytes
+ * stay in the bound browser; only scores and grid cells cross the Agent wire.
+ */
+export const directorCompareSourceSchema = z.discriminatedUnion("kind", [
+  z
+    .strictObject({
+      kind: z.literal("stage"),
+      /** Omitted camera_id renders through the active project camera. */
+      camera_id: nonEmptyText(200).optional(),
+      frame: z.number().int().nonnegative().default(0),
+      width: rasterDimensionSchema.default(640),
+      height: rasterDimensionSchema.default(360),
+    })
+    .refine(rasterFitsAgentWire, {
+      message: "compare stage raster cannot exceed 2073600 pixels",
+      path: ["width"],
+    }),
+  z.strictObject({
+    kind: z.literal("media"),
+    /** Durable Gallery still-image media id. */
+    media_id: nonEmptyText(512),
+  }),
+  z.strictObject({
+    kind: z.literal("reconstruction_keyframe"),
+    job_id: nonEmptyText(240),
+    /** Capture key-view id from the reconstruction plan. */
+    view_id: nonEmptyText(120).optional(),
+    /** Capture-view camera id from the reconstruction plan. */
+    camera_id: nonEmptyText(200).optional(),
+  }),
+]);
+
+/** Canonical compare source kinds, surfaced through capabilities as vocabulary. */
+export const directorCompareSourceKinds = directorCompareSourceSchema.options.map(
+  (option) => option.shape.kind.value,
+);
+
 const directorSpatialVec3Schema = directorTransformSchema.shape.position;
 export const directorObjectSpatialQuerySchema = z.discriminatedUnion("mode", [
   z.strictObject({
@@ -757,6 +796,26 @@ export const directorWorkbenchOperationSchema = z.discriminatedUnion("op", [
     .refine(rasterFitsAgentWire, {
       message: "capture raster cannot exceed 2073600 pixels over the Agent wire",
     }),
+  /**
+   * General render-and-compare scoring: decode a reference and a candidate
+   * image source, score them on the shared luminance grid, and surface the
+   * worst cells so a caller can quantify the mismatch, locate its regions,
+   * and fix only those regions. reconstruction.compare is the plan-bound
+   * specialization of this operation and shares the same scorer.
+   */
+  strictOperation("compare", {
+    /** Ground-truth image the candidate is scored against. */
+    reference: directorCompareSourceSchema,
+    /** Image under evaluation; defaults to a stage render through the active camera. */
+    candidate: directorCompareSourceSchema.default({ kind: "stage", frame: 0, width: 640, height: 360 }),
+    /** Scoring grid dimensions; grid.worst localizes the weakest cells. */
+    grid: z
+      .strictObject({
+        rows: z.number().int().min(1).max(16).default(8),
+        cols: z.number().int().min(1).max(16).default(8),
+      })
+      .optional(),
+  }),
   strictOperation("shot_package", {
     camera_id: nonEmptyText(200).optional(),
     take_id: nonEmptyText(200).optional(),
@@ -794,6 +853,8 @@ type DirectorWorkbenchMutationOperation = Extract<
 >;
 type DirectorWorkbenchGuardedMutationOperation = DirectorWorkbenchMutationOperation &
   ({ expected_revision: string } | { expected_revision?: never; unconditional: true });
+export type DirectorCompareSource = z.infer<typeof directorCompareSourceSchema>;
+export type DirectorCompareWorkbenchOperation = Extract<DirectorWorkbenchOperation, { op: "compare" }>;
 export type DirectorGenerationCommand = z.infer<typeof directorGenerationCommandSchema>;
 export type DirectorTranscriptionCommand = z.infer<typeof directorTranscriptionCommandSchema>;
 export type DirectorGenerated3DCommand = z.infer<typeof directorGenerated3DCommandSchema>;

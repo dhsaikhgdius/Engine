@@ -8,11 +8,7 @@ import {
   persistentCreativeMediaLibrary,
   type CreativeMediaAsset,
 } from "../comprehensive/editor/media/persistentCreativeMediaStore";
-import {
-  compareLuminanceImages,
-  luminanceFromRgba,
-  type LuminanceImage,
-} from "../comprehensive/editor/reconstruction/captureCompare";
+import { compareLuminanceImages, type LuminanceImage } from "../comprehensive/editor/reconstruction/captureCompare";
 import { buildCaptureReconstructionAuthoringActions } from "../comprehensive/editor/reconstruction/captureReconstructionApply";
 import {
   detectCaptureSourceKind,
@@ -26,10 +22,18 @@ import {
 import { useDirectorStore, type DirectorStore } from "../comprehensive/editor/store/directorStore";
 import type { DirectorReconstructionCommand, DirectorWorkbenchOperation } from "@director/agent-engine/contract";
 import {
+  captureCompareHint,
+  decodeImageSourceToLuminance,
+  resolveCapturePlanCamera,
+  type CaptureViewportRequest,
+} from "./directorCaptureCompareWorkbench";
+import {
   executeDirectorWorkbenchOperation,
   type DirectorWorkbenchExecution,
   type DirectorWorkbenchExecutionOptions,
 } from "./directorWorkbenchExecutor";
+
+export type { CaptureViewportRequest } from "./directorCaptureCompareWorkbench";
 
 /**
  * Pattern matching a staged source identifier: an optional prefix chain
@@ -38,22 +42,6 @@ import {
  * an explicit {@code source_kind}.
  */
 const STAGED_SOURCE_ID_PATTERN = /^(?:[A-Za-z0-9._-]+:)*sha256:[a-f0-9]{64}$/;
-
-/**
- * Parameters for an offscreen render capture of a specific camera view at a
- * given frame, used to compare the current 3D scene against a reconstruction
- * keyframe.
- */
-export type CaptureViewportRequest = {
-  /** Identifier of the camera to render from. */
-  cameraId: string;
-  /** Frame number to capture. */
-  frame: number;
-  /** Render width in pixels. */
-  width: number;
-  /** Render height in pixels. */
-  height: number;
-};
 
 /**
  * Injectable dependencies for the capture reconstruction workbench command.
@@ -95,25 +83,6 @@ export type DirectorCaptureReconstructionWorkbenchDependencies = {
   now?: () => string;
 };
 
-// Decode either a blob or a data URL into a luminance image for comparison.
-// createImageBitmap handles both formats natively; the canvas round-trip
-// extracts raw pixel data for luminance computation.
-async function defaultDecodeImage(source: Blob | string): Promise<LuminanceImage> {
-  const bitmap = await createImageBitmap(typeof source === "string" ? await (await fetch(source)).blob() : source);
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas 2D context is unavailable; cannot compare images");
-    context.drawImage(bitmap, 0, 0);
-    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    return luminanceFromRgba(imageData.data, imageData.width, imageData.height);
-  } finally {
-    bitmap.close();
-  }
-}
-
 // Wire production dependencies to the live Director singleton and API clients.
 function defaultDependencies(): Required<DirectorCaptureReconstructionWorkbenchDependencies> {
   return {
@@ -128,7 +97,7 @@ function defaultDependencies(): Required<DirectorCaptureReconstructionWorkbenchD
     getMediaBlob: (id) => persistentCreativeMediaLibrary.getBlob(id),
     uploadModelAsset: (blob, fileName, assetId) => uploadBlenderModelAsset(blob, fileName, assetId),
     requestCapture: async () => null,
-    decodeImage: defaultDecodeImage,
+    decodeImage: decodeImageSourceToLuminance,
     executeWorkbench: executeDirectorWorkbenchOperation,
     now: () => new Date().toISOString(),
   };
@@ -299,11 +268,7 @@ export async function executeDirectorCaptureReconstructionWorkbenchCommand(
       }
       case "compare": {
         const plan = await dependencies.fetchPlan(command.job_id, signal);
-        const camera = command.camera_id
-          ? plan.cameras.find((candidate) => candidate.id === command.camera_id)
-          : command.view_id
-            ? plan.cameras.find((candidate) => candidate.viewId === command.view_id)
-            : plan.cameras[0];
+        const camera = resolveCapturePlanCamera(plan, { cameraId: command.camera_id, viewId: command.view_id });
         if (!camera) {
           throw new Error("This reconstruction plan has no matching capture-view camera; confirm view_id / camera_id first.");
         }
@@ -333,10 +298,7 @@ export async function executeDirectorCaptureReconstructionWorkbenchCommand(
             grid,
             capturedAt: dependencies.now(),
           },
-          hint:
-            score.composite >= 0.75
-              ? "Match to the capture keyframe is strong."
-              : "Match is weak: fix the regions in grid.worst first (large forms and layout, then materials, then lighting).",
+          hint: captureCompareHint(score, "the capture keyframe"),
         });
       }
     }

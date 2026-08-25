@@ -75,6 +75,7 @@ Director does not own the agent loop. This process is DeepSeek Harness. Load pro
 - Capture exposure and depth of field follow the camera's physical optics. f/2.8, ISO 800, 180° shutter at 24 fps is neutral exposure; smaller apertures darken the image. Always set `focus_distance_m` to the subject distance — the default is a close-up focus and blurs wide landscape shots.
 - Untargeted calls in one agent session stick to the tab that served the previous call, so an author→capture sequence stays on one project state. Keep one capture-ready Stage tab open.
 - A camera focused at or beyond its hyperfocal distance skips the depth-of-field pass automatically. Pass `depth_of_field: false` to force a deep-focus verification render.
+- When a render must match a reference image, use `compare`: quantify with `score.composite`, locate with the `grid.worst` normalized regions, fix only those regions with `author`, then compare again. Either endpoint may be a stage render, a Gallery still, or a reconstruction keyframe; `reconstruction.compare` is the plan-bound form of the same scorer. The normative parameter vocabulary is `capabilities` (`compare_contract`) and `describe` (`target:"compare"`), not this file.
 
 ### Asset selection
 
@@ -172,7 +173,7 @@ A white-box request ("搭一个某地点的白膜") delivers a metric clay model
 - `reconstruction` turns a captured room into an explorable, interactive stage: `submit` a Gallery video or a staged RGB-D scan bundle, poll with `get`, review `plan`, then `apply`.
 - RGB-D bundles (zip with capture.json, posed frames, depth) reconstruct deterministically into metric floor, wall segments split around openings, swinging door leaves (Player Mode E-to-open interactions), window panes, and proxy item boxes. Bundles with poses but no depth fuse monocular model depth over the real poses.
 - Plain RGB video uses monocular depth estimation when the worker's optional `depth` extra is installed: a single-view metric reconstruction of the visible surfaces (`providers.poses: "estimated"`, `providers.depth: "model"`), with one calibrated compare camera. Trust its warnings — surfaces behind the camera are unknown; extend the room with `author` from the video evidence. Without a depth model it degrades to capture keyframes plus a scaffold.
-- `apply` with `include_cameras: true` adds one stage camera per capture key view. Loop: `capture` through a capture-view camera → `reconstruction.compare` scores the render against the keyframe (composite 0..1, worst grid cells first) → fix with `author` (layout, then materials, then light) → re-compare → `audit` before delivering.
+- `apply` with `include_cameras: true` adds one stage camera per capture key view. Loop: `capture` through a capture-view camera → `reconstruction.compare` scores the render against the keyframe (composite 0..1, worst grid cells first) → fix with `author` (layout, then materials, then light) → re-compare → `audit` before delivering. The general `compare` op runs the same scorer against any reference/candidate image pair.
 - Proxy item boxes are placeholders by design: replace them with catalog meshes or Blender-authored geometry of matching `bounds_m`. Do not leave the room as primitive boxes.
 - After applying, the room is walkable in Player Mode (doors open with E); drivable vehicles and world systems compose normally with reconstructed rooms.
 

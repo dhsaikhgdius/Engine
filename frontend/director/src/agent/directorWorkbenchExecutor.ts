@@ -17,6 +17,7 @@ import type {
   DirectorWorkbenchOperation,
 } from "@director/agent-engine/contract";
 import {
+  directorCompareSourceKinds,
   directorWorkbenchCatalogIdSchema,
   directorWorkbenchOperationNames,
   directorWorkbenchProjectAssetSourceSchema,
@@ -138,6 +139,10 @@ function createDirectorWorkbenchCapabilities() {
   return {
     ...capabilities,
     operations: directorWorkbenchOperationNames,
+    compare_contract: {
+      ...capabilities.compare_contract,
+      source_kinds: directorCompareSourceKinds,
+    },
     spatial_contract: {
       ...capabilities.spatial_contract,
       placement_modes: [...DIRECTOR_PLACEMENT_MODES],
@@ -1732,6 +1737,8 @@ function executeDirectorWorkbenchOperationCore(
       // -- Browser-gateway-only operations (must be executed in the UI process) --
       case "capture":
         return { success: false, error: "capture must be executed through the browser gateway" };
+      case "compare":
+        return { success: false, error: "compare must be executed through the browser gateway" };
       case "shot_package":
         return { success: false, error: "shot_package must be executed through the browser gateway" };
       case "generation":

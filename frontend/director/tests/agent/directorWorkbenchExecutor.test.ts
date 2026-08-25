@@ -275,6 +275,7 @@ describe("Director workbench executor", () => {
         "transcription",
         "storyboard_artifact",
         "query_objects",
+        "compare",
         "deliver",
       ]),
       controls: expect.arrayContaining([
@@ -327,6 +328,13 @@ describe("Director workbench executor", () => {
         concurrency: expect.stringContaining("public Agent boundary"),
         export: expect.stringContaining("A4/Letter"),
         download: expect.stringContaining("browser"),
+      },
+      compare_contract: {
+        source_kinds: ["stage", "media", "reconstruction_keyframe"],
+        scoring: expect.stringContaining("composite"),
+        localization: expect.stringContaining("grid.worst"),
+        loop: expect.stringContaining("fix only those regions"),
+        relationship: expect.stringContaining("reconstruction.compare"),
       },
       transcription_contract: {
         actions: ["capabilities", "list", "get", "submit", "cancel", "retry", "read", "search", "promote"],
