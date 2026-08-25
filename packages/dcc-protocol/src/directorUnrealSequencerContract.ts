@@ -85,7 +85,10 @@ export const directorUnrealBakedEntitySchema = z
       })
       .optional(),
     /** Channels present in the source animation that the bake could not carry (warn-and-omit). */
-    omittedChannels: z.array(z.enum(["pose_values", "motion_blocks", "character_rig"])).max(8).optional(),
+    omittedChannels: z
+      .array(z.enum(["pose_values", "motion_blocks", "character_rig"]))
+      .max(8)
+      .optional(),
     warnings: z.array(z.string().max(2_000)).max(200),
   })
   .superRefine((entity, context) => {
