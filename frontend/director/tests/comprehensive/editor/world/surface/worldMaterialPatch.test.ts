@@ -60,6 +60,14 @@ describe("world surface shader anchors", () => {
     });
   });
 
+  it("darkens and glazes porous dielectrics hardest while metals barely move (Lagarde)", () => {
+    const dry = injectWorldSurfaceShaders(ShaderLib.standard.vertexShader, ShaderLib.standard.fragmentShader, false);
+    // First endpoint (porosity 0 ≙ metal) must sit closer to 1 than the
+    // second (porosity 1): wet response GROWS with porosity, never shrinks.
+    expect(dry.fragmentShader).toContain("mix(0.92, 0.52, porosity), wet");
+    expect(dry.fragmentShader).toContain("mix(0.72, 0.28, porosity), wet");
+  });
+
   it("consumes the full wind vector: direction, gustiness, and turbulence", () => {
     const veg = injectWorldSurfaceShaders(ShaderLib.standard.vertexShader, ShaderLib.standard.fragmentShader, true);
     // Gust waves travel along the wind direction (dot with anchor) and the
@@ -72,6 +80,18 @@ describe("world surface shader anchors", () => {
     expect(WORLD_SURFACE_VEGETATION_SWAY_CHUNK).toContain("uWorldTime");
     expect(WORLD_SURFACE_VEGETATION_SWAY_CHUNK).toContain("uWorldSeed");
     expect(WORLD_SURFACE_VEGETATION_SWAY_CHUNK).not.toContain("cameraPosition");
+  });
+
+  it("pulls the world-space lean back into object space so rotated plants read the wind", () => {
+    // v * M multiplies by transpose(M) — the rotation inverse — so a plant
+    // rotated 90° still bends down the WORLD wind, not its local +X. The
+    // instance rotation joins the frame for instanced batches.
+    expect(WORLD_SURFACE_VEGETATION_SWAY_CHUNK).toContain("mat3 swayFrame = mat3(modelMatrix);");
+    expect(WORLD_SURFACE_VEGETATION_SWAY_CHUNK).toContain("swayFrame = swayFrame * mat3(instanceMatrix);");
+    expect(WORLD_SURFACE_VEGETATION_SWAY_CHUNK).toContain("vec3(swayWorld.x, 0.0, swayWorld.y) * swayFrame");
+    // Re-normalised to the world magnitude: instance scale sways the plant
+    // proportionally to its size, never by scale².
+    expect(WORLD_SURFACE_VEGETATION_SWAY_CHUNK).toContain("length(swayWorld) / swayLocalLength");
   });
 
   it("pools seeded spatial puddles on flat faces but never on vegetation", () => {

@@ -8,6 +8,8 @@ import {
   computeWorldPuddleAmount,
   computeWorldSurfacePorosity,
   computeWorldVegetationWindStrength,
+  computeWorldWetAlbedoScale,
+  computeWorldWetRoughnessScale,
   isWorldVegetationName,
 } from "../../../../../src/comprehensive/editor/world/surface/worldSurfaceResponse";
 
@@ -96,6 +98,34 @@ describe("vegetation wind and porosity", () => {
   });
 });
 
+describe("Lagarde wet response direction", () => {
+  it("darkens porous dielectrics hardest while metal albedo barely moves", () => {
+    const metal = computeWorldSurfacePorosity(1, false);
+    const dielectric = computeWorldSurfacePorosity(0, false);
+    const foliage = computeWorldSurfacePorosity(0, true);
+    // Soaked albedo: foliage < dielectric < metal < 1 (metals stay bright).
+    expect(computeWorldWetAlbedoScale(foliage, 1)).toBeLessThan(computeWorldWetAlbedoScale(dielectric, 1));
+    expect(computeWorldWetAlbedoScale(dielectric, 1)).toBeLessThan(computeWorldWetAlbedoScale(metal, 1));
+    expect(computeWorldWetAlbedoScale(metal, 1)).toBeGreaterThan(0.85);
+    expect(computeWorldWetAlbedoScale(metal, 1)).toBeLessThan(1);
+    // Dry is exactly identity for every porosity.
+    expect(computeWorldWetAlbedoScale(foliage, 0)).toBe(1);
+    expect(computeWorldWetAlbedoScale(metal, 0)).toBe(1);
+  });
+
+  it("glazes porous dielectrics into a sheen while metals keep their microsurface", () => {
+    const metal = computeWorldSurfacePorosity(1, false);
+    const dielectric = computeWorldSurfacePorosity(0, false);
+    expect(computeWorldWetRoughnessScale(dielectric, 1)).toBeLessThan(computeWorldWetRoughnessScale(metal, 1));
+    expect(computeWorldWetRoughnessScale(metal, 1)).toBeGreaterThan(0.6);
+    expect(computeWorldWetRoughnessScale(dielectric, 0)).toBe(1);
+    // Half wetness sits between dry and soaked.
+    const half = computeWorldWetRoughnessScale(dielectric, 0.5);
+    expect(half).toBeGreaterThan(computeWorldWetRoughnessScale(dielectric, 1));
+    expect(half).toBeLessThan(1);
+  });
+});
+
 describe("ambient audio gains", () => {
   it("is silent on a still clear day and rises with wind and rain", () => {
     expect(computeWorldAmbientAudioGains(weather({ intensity: 0 }), 0)).toEqual({
@@ -103,6 +133,7 @@ describe("ambient audio gains", () => {
       rain: 0,
       snow: 0,
       rumble: 0,
+      rustle: 0,
     });
     const storm = computeWorldAmbientAudioGains(weather({ preset: "storm", intensity: 1 }), 14);
     expect(storm.wind).toBeCloseTo(0.45, 10);
@@ -111,6 +142,18 @@ describe("ambient audio gains", () => {
     const snow = computeWorldAmbientAudioGains(weather({ preset: "snow", intensity: 1 }), 0);
     expect(snow.snow).toBeGreaterThan(0.4);
     expect(snow.rain).toBe(0);
+  });
+
+  it("brings the foliage rustle forward quadratically with wind speed", () => {
+    expect(computeWorldAmbientAudioGains(weather(), 0).rustle).toBe(0);
+    const breeze = computeWorldAmbientAudioGains(weather(), 3.5).rustle;
+    const gale = computeWorldAmbientAudioGains(weather(), 14).rustle;
+    // Quadratic: a light breeze stays far below half of the full-wind gain.
+    expect(breeze).toBeGreaterThan(0);
+    expect(breeze).toBeLessThan(gale / 4);
+    expect(gale).toBeCloseTo(0.3, 10);
+    // Clamped above the 14 m/s reference speed.
+    expect(computeWorldAmbientAudioGains(weather(), 40).rustle).toBeCloseTo(0.3, 10);
   });
 
   it("reserves the deep rumble bed for storms", () => {

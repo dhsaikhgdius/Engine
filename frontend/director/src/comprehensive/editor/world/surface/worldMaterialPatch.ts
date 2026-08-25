@@ -8,6 +8,10 @@ import {
 } from "three";
 import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import {
+  WORLD_WET_ALBEDO_SCALE_POROSITY_0,
+  WORLD_WET_ALBEDO_SCALE_POROSITY_1,
+  WORLD_WET_ROUGHNESS_SCALE_POROSITY_0,
+  WORLD_WET_ROUGHNESS_SCALE_POROSITY_1,
   computeEffectiveWorldSnowCover,
   computeEffectiveWorldWetness,
   computeWorldPuddleAmount,
@@ -239,18 +243,26 @@ export const WORLD_SURFACE_WORLD_POS_CHUNK = /* glsl */ `
 `;
 
 /**
- * GLSL chunk that displaces vertex XZ along the FULL wind vector, scaled by
+ * GLSL chunk that displaces vertices along the FULL wind vector, scaled by
  * height. Three layers: a steady down-wind lean (direction reads in a still
  * frame), a gust wave travelling down-wind (direction reads in motion), and a
  * turbulence-scaled cross-wind flutter. All phases derive from uWorldTime and
  * a seeded per-plant hash of the world anchor — never the wall clock.
+ *
+ * The lean is authored in WORLD space and pulled back into object space
+ * through the transpose of the model (and instance) rotation, so a plant the
+ * set dresser rotated 90° still bends down the world wind instead of down
+ * its local +X. The pull-back is re-normalised to the world magnitude, so
+ * scaled instances sway proportionally to their size, not to scale².
  */
 export const WORLD_SURFACE_VEGETATION_SWAY_CHUNK = /* glsl */ `
 {
   float height = max(transformed.y, 0.0);
   vec2 anchor = modelMatrix[3].xz;
+  mat3 swayFrame = mat3(modelMatrix);
 #ifdef USE_INSTANCING
   anchor += instanceMatrix[3].xz;
+  swayFrame = swayFrame * mat3(instanceMatrix);
 #endif
   float plantPhase = fract(sin(dot(anchor, vec2(127.1, 311.7)) + uWorldSeed * 1.618) * 43758.5453) * 6.2831853;
   float along = dot(anchor, uWorldWindDir);
@@ -261,8 +273,12 @@ export const WORLD_SURFACE_VEGETATION_SWAY_CHUNK = /* glsl */ `
   float flutter = uWorldWindTurbulence
     * (sin(uWorldTime * 6.3 + plantPhase * 3.1 + transformed.y * 2.0) * 0.7
       + sin(uWorldTime * 9.7 + plantPhase * 5.3 + 2.1) * 0.3);
-  vec2 swayOffset = uWorldWindDir * sway + crossDir * (flutter * 0.35);
-  transformed.xz += swayOffset * (uWorldWindStrength * height * 0.055);
+  vec2 swayWorld = uWorldWindDir * sway + crossDir * (flutter * 0.35);
+  // v * M multiplies by transpose(M) — the inverse of the rotation part.
+  vec3 swayLocal = vec3(swayWorld.x, 0.0, swayWorld.y) * swayFrame;
+  float swayLocalLength = length(swayLocal);
+  if (swayLocalLength > 1e-6) swayLocal *= length(swayWorld) / swayLocalLength;
+  transformed.xyz += swayLocal * (uWorldWindStrength * height * 0.055);
 }
 `;
 
@@ -270,12 +286,16 @@ export const WORLD_SURFACE_VEGETATION_SWAY_CHUNK = /* glsl */ `
  * GLSL chunk that darkens diffuse colour by wetness (porosity model), pools
  * seeded low-lying puddles on near-horizontal faces, and blends snow on
  * upward-facing surfaces with a noise-broken cover edge.
+ *
+ * Darkening GROWS with porosity (Lagarde): absorbed water darkens porous
+ * dielectrics hardest while a metal's albedo, being specular, barely moves.
+ * Endpoints live in worldSurfaceResponse next to their TS mirrors.
  */
 export const WORLD_SURFACE_COLOR_CHUNK = /* glsl */ `
 {
   float wet = clamp(uWorldWetness, 0.0, 1.0);
   float porosity = mix(0.55, 0.08, clamp(metalness, 0.0, 1.0));
-  diffuseColor.rgb *= mix(1.0, mix(0.55, 0.78, porosity), wet);
+  diffuseColor.rgb *= mix(1.0, mix(${WORLD_WET_ALBEDO_SCALE_POROSITY_0.toFixed(2)}, ${WORLD_WET_ALBEDO_SCALE_POROSITY_1.toFixed(2)}, porosity), wet);
   float puddleMask = 1.0;
   float basin = directorWorldValueNoise(vWorldSurfaceXZ * 0.45);
   float puddle = clamp(uWorldPuddle, 0.0, 1.0) * puddleMask
@@ -290,12 +310,17 @@ export const WORLD_SURFACE_COLOR_CHUNK = /* glsl */ `
 }
 `;
 
-/** GLSL chunk that reduces roughness by wetness (porosity model) and glazes puddles. */
+/**
+ * GLSL chunk that reduces roughness by wetness (porosity model) and glazes
+ * puddles. The water film smooths porous dielectrics into a sheen while
+ * metals keep most of their authored microsurface, so the reduction GROWS
+ * with porosity — same endpoints as the TS mirror in worldSurfaceResponse.
+ */
 export const WORLD_SURFACE_ROUGHNESS_CHUNK = /* glsl */ `
 {
   float wet = clamp(uWorldWetness, 0.0, 1.0);
   float porosity = mix(0.55, 0.08, clamp(metalnessFactor, 0.0, 1.0));
-  roughnessFactor *= mix(1.0, mix(0.22, 0.42, porosity), wet);
+  roughnessFactor *= mix(1.0, mix(${WORLD_WET_ROUGHNESS_SCALE_POROSITY_0.toFixed(2)}, ${WORLD_WET_ROUGHNESS_SCALE_POROSITY_1.toFixed(2)}, porosity), wet);
   float puddleMask = 1.0;
   float basin = directorWorldValueNoise(vWorldSurfaceXZ * 0.45);
   float puddle = clamp(uWorldPuddle, 0.0, 1.0) * puddleMask
