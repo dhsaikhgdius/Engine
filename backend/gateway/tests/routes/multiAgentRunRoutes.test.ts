@@ -4,10 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentProfileRegistry } from "../../agents/agentProfileRegistry";
 import type { MultiAgentRunStore } from "../../multiAgent/multiAgentRunStore";
-import {
-  DEFAULT_FILM_GRAPH,
-  type ProductionRunOrchestrator,
-} from "../../multiAgent/productionRunOrchestrator";
+import { DEFAULT_FILM_GRAPH, type ProductionRunOrchestrator } from "../../multiAgent/productionRunOrchestrator";
 import { handleMultiAgentRunRoute, type MultiAgentRunRouteDependencies } from "../../routes/multiAgentRunRoutes";
 
 const TARGET = {
@@ -29,25 +26,31 @@ function dependencies(
     profileAvailable?: boolean;
     targetAvailable?: boolean;
     profiles?: Record<string, { provider?: "api" | "codex"; available?: boolean; tools?: boolean; vision?: boolean }>;
+    storedRun?: unknown;
   } = {},
 ) {
   const json = vi.fn();
   const create = vi.fn().mockResolvedValue({ id: "run-created" });
+  const resume = vi.fn().mockResolvedValue({ id: "run-resumed" });
   const store = {
     list: vi.fn().mockResolvedValue([]),
-    get: vi.fn().mockResolvedValue(null),
+    get: vi.fn().mockResolvedValue(options.storedRun ?? null),
   } as unknown as MultiAgentRunStore;
   const orchestrator = {
     create,
-    resume: vi.fn(),
+    resume,
     cancel: vi.fn(),
     resolveRoleProfiles: vi.fn(
-      (input: { profileId: string; profileByRole?: Record<string, string>; roles?: string[] }) =>
+      (input: {
+        profileId: string;
+        profileByRole?: Record<string, string>;
+        roles?: string[];
+        graph?: { nodes: Array<{ roleId: string }> };
+      }) =>
         Object.fromEntries(
-          (input.roles ?? DEFAULT_FILM_GRAPH).map((roleId) => [
-            roleId,
-            input.profileByRole?.[roleId] ?? input.profileId,
-          ]),
+          (input.graph ? input.graph.nodes.map((node) => node.roleId) : (input.roles ?? DEFAULT_FILM_GRAPH)).map(
+            (roleId) => [roleId, input.profileByRole?.[roleId] ?? input.profileId],
+          ),
         ),
     ),
   } as unknown as ProductionRunOrchestrator;
@@ -72,7 +75,7 @@ function dependencies(
     profiles,
     isTargetAvailable: vi.fn().mockReturnValue(options.targetAvailable ?? true),
   };
-  return { dependencies: result, json, create };
+  return { dependencies: result, json, create, resume };
 }
 
 describe("multi-agent production run routes", () => {
@@ -297,6 +300,112 @@ describe("multi-agent production run routes", () => {
       expect.objectContaining({ code: "target_unavailable" }),
     );
     expect(fixture.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts an explicit observe-only production graph and starts the run", async () => {
+    const fixture = dependencies({
+      objective: "Run a diamond graph of observe-only departments.",
+      graph: {
+        nodes: [
+          { id: "brief", roleId: "showrunner" },
+          { id: "script", roleId: "screenwriter", dependsOn: ["brief"] },
+          { id: "sound", roleId: "sound-designer", dependsOn: ["brief"] },
+        ],
+      },
+      target: TARGET,
+    });
+
+    await handleMultiAgentRunRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/agent/runs"),
+      fixture.dependencies,
+    );
+
+    expect(fixture.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        graph: {
+          nodes: [
+            { id: "brief", roleId: "showrunner", dependsOn: [] },
+            { id: "script", roleId: "screenwriter", dependsOn: ["brief"] },
+            { id: "sound", roleId: "sound-designer", dependsOn: ["brief"] },
+          ],
+        },
+      }),
+      undefined,
+    );
+    expect(fixture.json).toHaveBeenCalledWith(expect.anything(), 202, { run: { id: "run-created" } });
+  });
+
+  it("rejects cyclic graphs, unknown edges, and mixed roles+graph requests at the boundary", async () => {
+    const cyclic = dependencies({
+      objective: "Reject a cyclic production graph.",
+      graph: {
+        nodes: [
+          { id: "a", roleId: "showrunner", dependsOn: ["b"] },
+          { id: "b", roleId: "screenwriter", dependsOn: ["a"] },
+        ],
+      },
+      target: TARGET,
+    });
+    await handleMultiAgentRunRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/agent/runs"),
+      cyclic.dependencies,
+    );
+    expect(cyclic.json).toHaveBeenCalledWith(
+      expect.anything(),
+      400,
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+    expect(cyclic.create).not.toHaveBeenCalled();
+
+    const mixed = dependencies({
+      objective: "Reject a request that provides both roles and a graph.",
+      roles: ["showrunner"],
+      graph: { nodes: [{ id: "brief", roleId: "showrunner" }] },
+      target: TARGET,
+    });
+    await handleMultiAgentRunRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/agent/runs"),
+      mixed.dependencies,
+    );
+    expect(mixed.json).toHaveBeenCalledWith(
+      expect.anything(),
+      400,
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+    expect(mixed.create).not.toHaveBeenCalled();
+  });
+
+  it("resumes from a durable checkpoint node and rejects unknown checkpoints", async () => {
+    const storedRun = { id: "run-existing", nodes: [{ id: "script" }, { id: "cut" }] };
+    const fixture = dependencies({ from_node_id: "script" }, { storedRun });
+    await handleMultiAgentRunRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/agent/runs/run-existing/resume"),
+      fixture.dependencies,
+    );
+    expect(fixture.resume).toHaveBeenCalledWith("run-existing", undefined, { fromNodeId: "script" });
+    expect(fixture.json).toHaveBeenCalledWith(expect.anything(), 202, { run: { id: "run-resumed" } });
+
+    const unknown = dependencies({ from_node_id: "missing" }, { storedRun });
+    await handleMultiAgentRunRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/agent/runs/run-existing/resume"),
+      unknown.dependencies,
+    );
+    expect(unknown.json).toHaveBeenCalledWith(
+      expect.anything(),
+      404,
+      expect.objectContaining({ code: "checkpoint_not_found" }),
+    );
+    expect(unknown.resume).not.toHaveBeenCalled();
   });
 
   it("returns a controlled boundary error for a malformed percent-encoded run id", async () => {

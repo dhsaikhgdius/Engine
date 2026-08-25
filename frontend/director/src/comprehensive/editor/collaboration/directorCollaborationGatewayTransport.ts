@@ -18,7 +18,18 @@ type GatewayTransportOptions = {
   reconnect?: boolean;
   setReconnectTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
   clearReconnectTimer?: (timer: ReturnType<typeof setTimeout>) => void;
+  /**
+   * Room invite capability token, required when the gateway runs with
+   * `DIRECTOR_COLLAB_ROOM_AUTH=required`. Local trust gateways ignore it.
+   */
+  inviteToken?: string;
 };
+
+/** Resolves the deployment-provided invite token, if any. */
+function defaultCollaborationInviteToken(): string | undefined {
+  const configured: unknown = import.meta.env.VITE_DIRECTOR_COLLAB_INVITE_TOKEN;
+  return typeof configured === "string" && configured.trim() ? configured.trim() : undefined;
+}
 
 function toWebSocketUrl(gatewayUrl: string, browserToken: string) {
   const url = new URL(gatewayUrl);
@@ -48,6 +59,7 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
   private generation = 0;
   private joined = false;
   private closed = false;
+  private readonly inviteToken: string | undefined;
 
   readonly roomId: string;
 
@@ -57,6 +69,7 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
     options: GatewayTransportOptions = {},
   ) {
     this.roomId = directorCollaborationRoomSchema.parse(roomId);
+    this.inviteToken = options.inviteToken ?? defaultCollaborationInviteToken();
     this.options = {
       gatewayUrl: options.gatewayUrl ?? DEFAULT_GATEWAY_URL,
       getBrowserToken: options.getBrowserToken ?? (async () => (await bootstrapDirectorAgent()).browserToken),
@@ -122,6 +135,7 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
             type: "collab.join",
             room: this.roomId,
             awareness_client_id: this.awarenessClientId,
+            ...(this.inviteToken ? { invite_token: this.inviteToken } : {}),
           }),
         );
       });
@@ -177,12 +191,14 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
  *
  * @param roomId - The collaboration room identifier.
  * @param awarenessClientId - The Yjs awareness client ID for this peer.
+ * @param options - Optional transport overrides such as a room invite token.
  * @returns A new GatewayWebSocketDirectorTransport or null.
  */
 export function createGatewayWebSocketDirectorTransport(
   roomId: string,
   awarenessClientId: number,
+  options: GatewayTransportOptions = {},
 ): GatewayWebSocketDirectorTransport | null {
   if (typeof window === "undefined" || typeof WebSocket === "undefined") return null;
-  return new GatewayWebSocketDirectorTransport(roomId, awarenessClientId);
+  return new GatewayWebSocketDirectorTransport(roomId, awarenessClientId, options);
 }

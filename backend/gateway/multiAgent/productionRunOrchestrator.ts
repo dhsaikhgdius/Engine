@@ -12,6 +12,7 @@ import {
   type ProductionArtifact,
   type ProductionRoleProfileMap,
   type ProductionRun,
+  type ProductionRunNode,
 } from "@director/agent-engine";
 import type { AgentEvent, AgentProvider } from "@director/agent-engine";
 import type { DirectorAgentTargetWire } from "../../../packages/protocol/src/agentGatewayProtocol";
@@ -115,6 +116,48 @@ function relevantArtifactsForRole(artifacts: ProductionArtifact[], roleId: FilmR
   return artifacts.filter((artifact) => upstreamRoles.has(artifact.roleId));
 }
 
+/** Collects the output artifacts of the given upstream nodes, in artifact order. */
+function dependencyArtifacts(run: ProductionRun, dependencyIds: readonly string[]): ProductionArtifact[] {
+  const dependencySet = new Set(dependencyIds);
+  const outputIds = new Set(
+    run.nodes.filter((node) => dependencySet.has(node.id)).flatMap((node) => node.outputArtifactIds),
+  );
+  return run.artifacts.filter((artifact) => outputIds.has(artifact.id));
+}
+
+/**
+ * Resolves the effective dependency edges of a run. Graph runs persist
+ * explicit `dependsOn` edges; serial-list runs (including every legacy
+ * snapshot) fall back to the implicit linear chain in array order.
+ */
+export function executionDependencies(nodes: readonly ProductionRunNode[]): Map<string, readonly string[]> {
+  const explicit = nodes.some((node) => node.dependsOn !== undefined);
+  if (explicit) return new Map(nodes.map((node) => [node.id, node.dependsOn ?? []]));
+  return new Map(nodes.map((node, index) => [node.id, index === 0 ? [] : [nodes[index - 1]!.id]]));
+}
+
+/**
+ * Computes the node ids to reset for a checkpoint resume: the checkpoint node
+ * itself plus every transitive dependent, so downstream work never consumes a
+ * stale mix of old and re-produced artifacts.
+ */
+export function checkpointResetIds(nodes: readonly ProductionRunNode[], fromNodeId: string): Set<string> {
+  const dependencies = executionDependencies(nodes);
+  const reset = new Set([fromNodeId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of nodes) {
+      if (reset.has(node.id)) continue;
+      if ((dependencies.get(node.id) ?? []).some((dependency) => reset.has(dependency))) {
+        reset.add(node.id);
+        changed = true;
+      }
+    }
+  }
+  return reset;
+}
+
 export class ProductionRunOrchestrator {
   private readonly controllers = new Map<string, AbortController>();
   private readonly executions = new Map<string, Promise<void>>();
@@ -130,7 +173,7 @@ export class ProductionRunOrchestrator {
    * The result is materialized into each node at create time so resume is deterministic.
    */
   resolveRoleProfiles(input: CreateProductionRunRequest): ProductionRoleProfileMap {
-    const roles = input.roles ?? DEFAULT_FILM_GRAPH;
+    const roles = input.graph ? input.graph.nodes.map((node) => node.roleId) : (input.roles ?? DEFAULT_FILM_GRAPH);
     return Object.fromEntries(
       [...new Set(roles)].map((roleId) => [
         roleId,
@@ -141,8 +184,34 @@ export class ProductionRunOrchestrator {
 
   async create(input: CreateProductionRunRequest, project?: DirectorProject) {
     const now = new Date().toISOString();
-    const roles = input.roles ?? DEFAULT_FILM_GRAPH;
     const profileByRole = this.resolveRoleProfiles(input);
+    const blankNode = {
+      sessionId: null,
+      status: "pending",
+      attempt: 0,
+      startedAt: null,
+      completedAt: null,
+      inputArtifactIds: [],
+      outputArtifactIds: [],
+      error: null,
+    };
+    // Graph runs persist their explicit edges; serial-list runs keep the
+    // legacy implicit chain (array order) so existing snapshots, artifact
+    // inheritance, and resume semantics are byte-compatible.
+    const nodes = input.graph
+      ? input.graph.nodes.map((node) => ({
+          ...blankNode,
+          id: node.id,
+          roleId: node.roleId,
+          profileId: node.profileId ?? profileByRole[node.roleId] ?? input.profileId,
+          dependsOn: [...node.dependsOn],
+        }))
+      : (input.roles ?? DEFAULT_FILM_GRAPH).map((roleId, index) => ({
+          ...blankNode,
+          id: `node-${String(index + 1).padStart(2, "0")}-${roleId}`,
+          roleId,
+          profileId: profileByRole[roleId] ?? input.profileId,
+        }));
     const run = productionRunSchema.parse({
       version: 2,
       id: `run-${crypto.randomUUID()}`,
@@ -156,19 +225,7 @@ export class ProductionRunOrchestrator {
       createdAt: now,
       updatedAt: now,
       activeNodeId: null,
-      nodes: roles.map((roleId, index) => ({
-        id: `node-${String(index + 1).padStart(2, "0")}-${roleId}`,
-        roleId,
-        profileId: profileByRole[roleId] ?? input.profileId,
-        sessionId: null,
-        status: "pending",
-        attempt: 0,
-        startedAt: null,
-        completedAt: null,
-        inputArtifactIds: [],
-        outputArtifactIds: [],
-        error: null,
-      })),
+      nodes,
       artifacts: [],
     });
     await this.store.create(run);
@@ -176,9 +233,12 @@ export class ProductionRunOrchestrator {
     return run;
   }
 
-  async resume(id: string, project?: DirectorProject) {
+  async resume(id: string, project?: DirectorProject, options: { fromNodeId?: string } = {}) {
     let run = await this.store.get(id);
     if (!run) throw new Error("Production run 不存在");
+    if (options.fromNodeId && !run.nodes.some((node) => node.id === options.fromNodeId)) {
+      throw new Error(`Production run checkpoint node ${options.fromNodeId} 不存在`);
+    }
     const activeExecution = this.executions.get(id);
     if (activeExecution) {
       if (["queued", "running", "waiting_approval"].includes(run.status)) return run;
@@ -186,16 +246,32 @@ export class ProductionRunOrchestrator {
       run = await this.store.get(id);
       if (!run) throw new Error("Production run 不存在");
     }
-    const queued = await this.store.update(id, (current) => ({
-      ...current,
-      status: "queued",
-      activeNodeId: null,
-      nodes: current.nodes.map((node) =>
-        node.status === "succeeded"
-          ? node
-          : { ...node, status: "pending", error: null, startedAt: null, completedAt: null },
-      ),
-    }));
+    const queued = await this.store.update(id, (current) => {
+      const resetIds = options.fromNodeId ? checkpointResetIds(current.nodes, options.fromNodeId) : null;
+      const droppedArtifactIds = new Set(
+        resetIds ? current.nodes.filter((node) => resetIds.has(node.id)).flatMap((node) => node.outputArtifactIds) : [],
+      );
+      return {
+        ...current,
+        status: "queued",
+        activeNodeId: null,
+        artifacts: current.artifacts.filter((artifact) => !droppedArtifactIds.has(artifact.id)),
+        nodes: current.nodes.map((node) => {
+          const checkpointReset = resetIds?.has(node.id) ?? false;
+          if (node.status === "succeeded" && !checkpointReset) return node;
+          return {
+            ...node,
+            status: "pending",
+            error: null,
+            startedAt: null,
+            completedAt: null,
+            // Checkpoint resets re-inherit inputs so re-produced upstream
+            // artifacts are consumed instead of a stale mix.
+            ...(checkpointReset ? { inputArtifactIds: [], outputArtifactIds: [] } : {}),
+          };
+        }),
+      };
+    });
     // A concurrent resume may have started the execution while this update was
     // waiting on the durable store lock. Only the first caller owns the start.
     if (!this.controllers.has(id)) this.start(id, project);
@@ -235,65 +311,25 @@ export class ProductionRunOrchestrator {
   private async execute(id: string, project: DirectorProject | undefined, signal: AbortSignal) {
     try {
       await this.store.update(id, (run) => ({ ...run, status: "running" }));
-      let run = (await this.store.get(id))!;
-      for (const node of run.nodes) {
+      // Wave scheduler: every node whose dependencies have all succeeded runs
+      // concurrently. Serial-list runs degrade to one node per wave through
+      // their implicit linear chain, preserving the legacy execution order.
+      for (;;) {
         if (signal.aborted) throw signal.reason;
-        if (node.status === "succeeded") continue;
-        const inputs = run.artifacts.filter((artifact) => node.inputArtifactIds.includes(artifact.id));
-        const inheritedInputs = inputs.length ? inputs : relevantArtifactsForRole(run.artifacts, node.roleId);
-        const session = this.harness.createSession({
-          provider: run.provider,
-          profileId: node.profileId,
-          roleId: node.roleId,
-          title: `${node.roleId} · ${run.objective.slice(0, 80)}`,
-        });
-        await this.store.update(id, (current) => ({
-          ...current,
-          activeNodeId: node.id,
-          nodes: current.nodes.map((candidate) =>
-            candidate.id === node.id
-              ? {
-                  ...candidate,
-                  sessionId: session.id,
-                  status: "running",
-                  attempt: candidate.attempt + 1,
-                  startedAt: new Date().toISOString(),
-                  inputArtifactIds: inheritedInputs.map((artifact) => artifact.id),
-                  error: null,
-                }
-              : candidate,
-          ),
-        }));
-        const output = await this.runNode(
-          session.id,
-          [
-            `Production objective: ${run.objective}`,
-            `Production brief: ${JSON.stringify(run.brief ?? filmProductionBriefSchema.parse({}))}`,
-            `Assigned role: ${node.roleId}`,
-            ROLE_INSTRUCTIONS[node.roleId],
-            `Upstream immutable artifacts:\n${JSON.stringify(inheritedInputs.map((artifact) => ({ id: artifact.id, kind: artifact.kind, payload: artifact.payload })))}`,
-            ROLE_OUTPUT_CONTRACT,
-          ].join("\n\n"),
-          project,
-          run,
-          signal,
+        const run = (await this.store.get(id))!;
+        const remaining = run.nodes.filter((node) => node.status !== "succeeded");
+        if (remaining.length === 0) break;
+        const dependencies = executionDependencies(run.nodes);
+        const succeeded = new Set(run.nodes.filter((node) => node.status === "succeeded").map((node) => node.id));
+        const ready = remaining.filter((node) =>
+          (dependencies.get(node.id) ?? []).every((dependency) => succeeded.has(dependency)),
         );
-        const artifact = this.artifact(node.roleId, output);
-        run = await this.store.update(id, (current) => ({
-          ...current,
-          artifacts: [...current.artifacts, artifact],
-          activeNodeId: null,
-          nodes: current.nodes.map((candidate) =>
-            candidate.id === node.id
-              ? {
-                  ...candidate,
-                  status: "succeeded",
-                  completedAt: new Date().toISOString(),
-                  outputArtifactIds: [artifact.id],
-                }
-              : candidate,
-          ),
-        }));
+        if (ready.length === 0) {
+          throw new Error(`Production graph 无法继续：${remaining.map((node) => node.id).join(", ")} 的依赖不可满足`);
+        }
+        const wave = await Promise.allSettled(ready.map((node) => this.executeNode(id, node.id, project, signal)));
+        const failure = wave.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (failure) throw failure.reason;
       }
       await this.store.update(id, (runValue) => ({ ...runValue, status: "completed", activeNodeId: null }));
     } catch (error) {
@@ -317,6 +353,76 @@ export class ProductionRunOrchestrator {
     } finally {
       if (this.controllers.get(id)?.signal === signal) this.controllers.delete(id);
     }
+  }
+
+  /**
+   * Executes one graph node end to end: resolves its input artifacts, opens a
+   * pinned session, runs the role, and persists the produced artifact.
+   */
+  private async executeNode(runId: string, nodeId: string, project: DirectorProject | undefined, signal: AbortSignal) {
+    if (signal.aborted) throw signal.reason;
+    const run = (await this.store.get(runId))!;
+    const node = run.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) throw new Error(`Production run node ${nodeId} 不存在`);
+    const previousInputs = run.artifacts.filter((artifact) => node.inputArtifactIds.includes(artifact.id));
+    const inheritedInputs = previousInputs.length
+      ? previousInputs
+      : node.dependsOn !== undefined
+        ? dependencyArtifacts(run, node.dependsOn)
+        : relevantArtifactsForRole(run.artifacts, node.roleId);
+    const session = this.harness.createSession({
+      provider: run.provider,
+      profileId: node.profileId,
+      roleId: node.roleId,
+      title: `${node.roleId} · ${run.objective.slice(0, 80)}`,
+    });
+    await this.store.update(runId, (current) => ({
+      ...current,
+      activeNodeId: node.id,
+      nodes: current.nodes.map((candidate) =>
+        candidate.id === node.id
+          ? {
+              ...candidate,
+              sessionId: session.id,
+              status: "running",
+              attempt: candidate.attempt + 1,
+              startedAt: new Date().toISOString(),
+              inputArtifactIds: inheritedInputs.map((artifact) => artifact.id),
+              error: null,
+            }
+          : candidate,
+      ),
+    }));
+    const output = await this.runNode(
+      session.id,
+      [
+        `Production objective: ${run.objective}`,
+        `Production brief: ${JSON.stringify(run.brief ?? filmProductionBriefSchema.parse({}))}`,
+        `Assigned role: ${node.roleId}`,
+        ROLE_INSTRUCTIONS[node.roleId],
+        `Upstream immutable artifacts:\n${JSON.stringify(inheritedInputs.map((artifact) => ({ id: artifact.id, kind: artifact.kind, payload: artifact.payload })))}`,
+        ROLE_OUTPUT_CONTRACT,
+      ].join("\n\n"),
+      project,
+      run,
+      signal,
+    );
+    const artifact = this.artifact(node.roleId, output);
+    await this.store.update(runId, (current) => ({
+      ...current,
+      artifacts: [...current.artifacts, artifact],
+      activeNodeId: current.activeNodeId === node.id ? null : current.activeNodeId,
+      nodes: current.nodes.map((candidate) =>
+        candidate.id === node.id
+          ? {
+              ...candidate,
+              status: "succeeded",
+              completedAt: new Date().toISOString(),
+              outputArtifactIds: [artifact.id],
+            }
+          : candidate,
+      ),
+    }));
   }
 
   private runNode(

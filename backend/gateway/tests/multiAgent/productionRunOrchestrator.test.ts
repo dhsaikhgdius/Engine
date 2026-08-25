@@ -5,10 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentEvent } from "@director/agent-engine";
-import type {
-  CreateProductionRunRequest,
-  ProductionRun,
-} from "@director/agent-engine";
+import type { CreateProductionRunRequest, ProductionRun } from "@director/agent-engine";
 import type { FilmRoleId } from "../../../../packages/protocol/src/filmProductionProtocol";
 import { MultiAgentRunStore } from "../../multiAgent/multiAgentRunStore";
 import {
@@ -431,5 +428,175 @@ describe("ProductionRunOrchestrator", () => {
       kind: "generation-plan",
       payload: { text: "I claim that rendering succeeded." },
     });
+  });
+});
+
+describe("ProductionRunOrchestrator configurable graphs", () => {
+  const DIAMOND_GRAPH = {
+    nodes: [
+      { id: "brief", roleId: "showrunner" as const, dependsOn: [] },
+      { id: "script", roleId: "screenwriter" as const, dependsOn: ["brief"] },
+      { id: "sound", roleId: "sound-designer" as const, dependsOn: ["brief"] },
+      { id: "cut", roleId: "editor" as const, dependsOn: ["script", "sound"] },
+    ],
+  };
+
+  function graphRequest(graph: typeof DIAMOND_GRAPH): CreateProductionRunRequest {
+    return {
+      objective: "Assemble a verified diamond-shaped production graph.",
+      provider: "api",
+      profileId: "api-default",
+      graph,
+      target: TARGET,
+    };
+  }
+
+  it("completes a non-serial diamond graph and hands each node exactly its dependency artifacts", async () => {
+    const { store, harness, orchestrator } = setup({
+      showrunner: [{ type: "success", text: "brief-artifact" }],
+      screenwriter: [{ type: "success", text: "script-artifact" }],
+      "sound-designer": [{ type: "success", text: "sound-artifact" }],
+      editor: [{ type: "success", text: "cut-artifact" }],
+    });
+
+    const created = await orchestrator.create(graphRequest(DIAMOND_GRAPH));
+    expect(created.nodes.map((node) => [node.id, node.dependsOn])).toEqual([
+      ["brief", []],
+      ["script", ["brief"]],
+      ["sound", ["brief"]],
+      ["cut", ["script", "sound"]],
+    ]);
+
+    const completed = await waitForRun(store, created.id, (run) => run.status === "completed");
+    expect(completed.nodes.every((node) => node.status === "succeeded" && node.attempt === 1)).toBe(true);
+
+    // The scheduler must respect the edges: brief first, cut last, branches in between.
+    const promptedRoles = harness.prompts.map((entry) => entry.roleId);
+    expect(promptedRoles[0]).toBe("showrunner");
+    expect(promptedRoles[3]).toBe("editor");
+    expect(promptedRoles.slice(1, 3).sort()).toEqual(["screenwriter", "sound-designer"]);
+
+    // Both branches consume the brief; the join consumes both branch artifacts.
+    const nodeById = new Map(completed.nodes.map((node) => [node.id, node]));
+    expect(nodeById.get("script")?.inputArtifactIds).toEqual(nodeById.get("brief")?.outputArtifactIds);
+    expect(nodeById.get("sound")?.inputArtifactIds).toEqual(nodeById.get("brief")?.outputArtifactIds);
+    expect(new Set(nodeById.get("cut")?.inputArtifactIds)).toEqual(
+      new Set([
+        ...(nodeById.get("script")?.outputArtifactIds ?? []),
+        ...(nodeById.get("sound")?.outputArtifactIds ?? []),
+      ]),
+    );
+    const editorPrompt = harness.prompts.find((entry) => entry.roleId === "editor")?.prompt ?? "";
+    expect(editorPrompt).toContain("script-artifact");
+    expect(editorPrompt).toContain("sound-artifact");
+    expect(harness.listenerCount()).toBe(0);
+  });
+
+  it("runs independent branches concurrently instead of as a serial list", async () => {
+    const { store, harness, orchestrator } = setup({
+      showrunner: [{ type: "success", text: "brief-artifact" }],
+      screenwriter: [{ type: "hang" }],
+      "sound-designer": [{ type: "success", text: "sound-artifact" }],
+    });
+
+    const created = await orchestrator.create(graphRequest(DIAMOND_GRAPH));
+    // The sound branch completes while the script branch is still running —
+    // impossible under the legacy fixed serial list, where sound-designer
+    // would only ever start after screenwriter finished.
+    const observed = await waitForRun(store, created.id, (run) => {
+      const script = run.nodes.find((node) => node.id === "script");
+      const sound = run.nodes.find((node) => node.id === "sound");
+      return script?.status === "running" && sound?.status === "succeeded";
+    });
+    expect(observed.nodes.find((node) => node.id === "cut")?.status).toBe("pending");
+
+    await orchestrator.cancel(created.id);
+    await waitForRun(store, created.id, (run) => run.status === "cancelled");
+    expect(harness.interruptedSessionIds).toHaveLength(1);
+    expect(harness.listenerCount()).toBe(0);
+  });
+
+  it("resumes from a checkpoint node, re-running it and its transitive dependents only", async () => {
+    const { store, harness, orchestrator } = setup({
+      showrunner: [{ type: "success", text: "brief-artifact" }],
+      screenwriter: [
+        { type: "success", text: "script-v1" },
+        { type: "success", text: "script-v2" },
+      ],
+      "sound-designer": [{ type: "success", text: "sound-artifact" }],
+      editor: [
+        { type: "success", text: "cut-v1" },
+        { type: "success", text: "cut-v2" },
+      ],
+    });
+
+    const created = await orchestrator.create(graphRequest(DIAMOND_GRAPH));
+    await waitForRun(store, created.id, (run) => run.status === "completed");
+
+    await orchestrator.resume(created.id, undefined, { fromNodeId: "script" });
+    const resumed = await waitForRun(
+      store,
+      created.id,
+      (run) => run.status === "completed" && run.nodes.every((node) => node.status === "succeeded"),
+    );
+
+    expect(resumed.nodes.map((node) => [node.id, node.attempt])).toEqual([
+      ["brief", 1],
+      ["script", 2],
+      ["sound", 1],
+      ["cut", 2],
+    ]);
+    // Replaced artifacts are dropped; the re-run join consumed the new script.
+    const texts = resumed.artifacts.map((artifact) => (artifact.payload as { text: string }).text);
+    expect(texts).toContain("script-v2");
+    expect(texts).toContain("cut-v2");
+    expect(texts).not.toContain("script-v1");
+    expect(texts).not.toContain("cut-v1");
+    const finalEditorPrompt = harness.prompts.filter((entry) => entry.roleId === "editor").at(-1)?.prompt ?? "";
+    expect(finalEditorPrompt).toContain("script-v2");
+    expect(finalEditorPrompt).toContain("sound-artifact");
+    expect(harness.listenerCount()).toBe(0);
+  });
+
+  it("rejects a checkpoint resume for an unknown node id", async () => {
+    const { store, orchestrator } = setup({
+      showrunner: [{ type: "success", text: "brief-artifact" }],
+    });
+    const created = await orchestrator.create(request(["showrunner"]));
+    await waitForRun(store, created.id, (run) => run.status === "completed");
+    await expect(orchestrator.resume(created.id, undefined, { fromNodeId: "missing-node" })).rejects.toThrow(
+      /checkpoint node/,
+    );
+  });
+
+  it("supports checkpoint resume on legacy serial runs through the implicit chain", async () => {
+    const { store, harness, orchestrator } = setup({
+      showrunner: [{ type: "success", text: "brief-v1" }],
+      screenwriter: [
+        { type: "success", text: "script-v1" },
+        { type: "success", text: "script-v2" },
+      ],
+      "shot-planner": [
+        { type: "success", text: "plan-v1" },
+        { type: "success", text: "plan-v2" },
+      ],
+    });
+    const created = await orchestrator.create(request(["showrunner", "screenwriter", "shot-planner"]));
+    await waitForRun(store, created.id, (run) => run.status === "completed");
+
+    await orchestrator.resume(created.id, undefined, { fromNodeId: "node-02-screenwriter" });
+    const resumed = await waitForRun(
+      store,
+      created.id,
+      (run) => run.status === "completed" && run.nodes.every((node) => node.status === "succeeded"),
+    );
+    expect(resumed.nodes.map((node) => node.attempt)).toEqual([1, 2, 2]);
+    expect(harness.prompts.map((entry) => entry.roleId)).toEqual([
+      "showrunner",
+      "screenwriter",
+      "shot-planner",
+      "screenwriter",
+      "shot-planner",
+    ]);
   });
 });

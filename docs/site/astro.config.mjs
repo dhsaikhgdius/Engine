@@ -85,6 +85,7 @@ export default defineConfig({
           page("Feature Status", "reference/feature-status", "功能状态"),
           page("Reference Integration Matrix", "reference/reference-integration-matrix", "参考项目集成矩阵"),
           page("Configuration", "reference/configuration", "配置"),
+          page("Production Deployment Checklist", "reference/production-deployment", "生产部署清单"),
           page("Gateway HTTP API", "reference/http-api", "Gateway HTTP API"),
           page("Command Map", "reference/commands", "命令地图"),
           page("Repository Structure", "reference/repository-structure", "仓库结构"),

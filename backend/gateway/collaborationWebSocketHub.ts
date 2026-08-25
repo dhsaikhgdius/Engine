@@ -7,7 +7,9 @@ import {
   encodeDirectorCollaborationGatewayPayload,
   type DirectorCollaborationGatewayClientMessage,
   type DirectorCollaborationGatewayServerMessage,
+  type DirectorCollaborationRoomRole,
 } from "../../packages/protocol/src/directorCollaborationGatewayProtocol";
+import type { CollaborationRoomAuthorizer, CollaborationRoomDenialReason } from "./collaborationRoomAuth";
 
 const MAX_ROOMS = 256;
 const MAX_PEERS_PER_ROOM = 64;
@@ -15,9 +17,28 @@ const MAX_AWARENESS_PAYLOAD_BYTES = 64 * 1024;
 const MAX_AWARENESS_ENTRIES = 8;
 const MAX_AWARENESS_STATE_BYTES = 32 * 1024;
 
+const DENIAL_MESSAGES: Record<CollaborationRoomDenialReason, string> = {
+  missing_token: "This gateway requires a collaboration invite token to join a room.",
+  malformed_token: "The collaboration invite token is malformed.",
+  bad_signature: "The collaboration invite token signature is invalid.",
+  expired: "The collaboration invite token has expired.",
+  room_mismatch: "The collaboration invite token does not grant access to this room.",
+};
+
 type ClientMembership = {
   roomId: string;
   awarenessClientId: number;
+  role: DirectorCollaborationRoomRole;
+};
+
+/**
+ * Optional durable room operations consumed by the hub: seed snapshots,
+ * append valid updates, and quarantine corrupt ones.
+ */
+export type CollaborationRoomPersistence = {
+  loadSnapshot(room: string): Promise<Uint8Array | null>;
+  appendUpdate(room: string, update: Uint8Array): Promise<unknown>;
+  quarantine(room: string, update: Uint8Array, reason: string): Promise<unknown>;
 };
 
 type CollaborationRoom = {
@@ -86,13 +107,31 @@ function payloadMessage(
 /**
  * Authenticated /ws collaboration router.
  *
- * The HTTP upgrade boundary owns origin/token authentication. This class only
- * accepts already-authenticated sockets and deliberately has no knowledge of
- * terminal, Stage, or Agent messages.
+ * The HTTP upgrade boundary owns origin/token authentication. On top of that,
+ * an optional room authorizer enforces per-room invite capabilities: in
+ * `invite-required` mode a join must present a valid invite token, and the
+ * granted role gates document mutation (`viewer` peers receive updates and
+ * share awareness but cannot write). The default authorizer preserves the
+ * local trust mode where every authenticated socket is an editor.
+ *
+ * This class deliberately has no knowledge of terminal, Stage, or Agent
+ * messages.
  */
 export class DirectorCollaborationWebSocketHub {
   private readonly rooms = new Map<string, CollaborationRoom>();
   private readonly memberships = new Map<WebSocket, ClientMembership>();
+  private readonly authorizer: CollaborationRoomAuthorizer;
+  private readonly persistence: CollaborationRoomPersistence | null;
+
+  constructor(options: { authorizer?: CollaborationRoomAuthorizer; persistence?: CollaborationRoomPersistence } = {}) {
+    this.authorizer = options.authorizer ?? { mode: "local-trust", authorize: () => ({ ok: true, role: "editor" }) };
+    this.persistence = options.persistence ?? null;
+  }
+
+  /** The active room authorization mode. */
+  get authMode() {
+    return this.authorizer.mode;
+  }
 
   /** Number of active collaboration rooms. */
   get roomCount() {
@@ -141,7 +180,7 @@ export class DirectorCollaborationWebSocketHub {
    */
   handle(client: WebSocket, message: DirectorCollaborationGatewayClientMessage) {
     if (message.type === "collab.join") {
-      this.join(client, message.room, message.awareness_client_id);
+      this.join(client, message.room, message.awareness_client_id, message.invite_token);
       return;
     }
     if (message.type === "collab.leave") {
@@ -176,11 +215,23 @@ export class DirectorCollaborationWebSocketHub {
     }
 
     if (message.type === "collab.document-update") {
+      if (membership.role !== "editor") {
+        this.error(client, "forbidden", "This collaboration invite grants view-only access.", message.room);
+        return;
+      }
       try {
         Y.applyUpdate(room.doc, payload, client);
       } catch {
+        if (this.persistence) {
+          void this.persistence
+            .quarantine(membership.roomId, payload, "document update failed to apply")
+            .catch(() => undefined);
+        }
         this.error(client, "invalid_payload", "The document update is not a valid Yjs update.", message.room);
         return;
+      }
+      if (this.persistence) {
+        void this.persistence.appendUpdate(membership.roomId, payload).catch(() => undefined);
       }
       this.broadcast(room, message, client);
       return;
@@ -266,10 +317,16 @@ export class DirectorCollaborationWebSocketHub {
     this.memberships.clear();
   }
 
-  private join(client: WebSocket, roomId: string, awarenessClientId: number) {
+  private join(client: WebSocket, roomId: string, awarenessClientId: number, inviteToken?: string) {
+    const authorization = this.authorizer.authorize(roomId, inviteToken);
+    if (!authorization.ok) {
+      this.error(client, "unauthorized", DENIAL_MESSAGES[authorization.reason], roomId);
+      return;
+    }
     const current = this.memberships.get(client);
     if (current?.roomId === roomId && current.awarenessClientId === awarenessClientId) {
-      send(client, { type: "collab.ready", room: roomId });
+      current.role = authorization.role;
+      send(client, { type: "collab.ready", room: roomId, role: authorization.role });
       return;
     }
     if (current) this.disconnect(client);
@@ -284,6 +341,7 @@ export class DirectorCollaborationWebSocketHub {
       awareness.setLocalState(null);
       room = { doc, awareness, clients: new Set(), awarenessOwners: new Map() };
       this.rooms.set(roomId, room);
+      this.seedPersistedSnapshot(roomId, room);
     }
     if (room.clients.size >= MAX_PEERS_PER_ROOM) {
       this.error(client, "room_full", "This collaboration room has reached its peer limit.", roomId);
@@ -296,8 +354,8 @@ export class DirectorCollaborationWebSocketHub {
     }
 
     room.clients.add(client);
-    this.memberships.set(client, { roomId, awarenessClientId });
-    send(client, { type: "collab.ready", room: roomId });
+    this.memberships.set(client, { roomId, awarenessClientId, role: authorization.role });
+    send(client, { type: "collab.ready", room: roomId, role: authorization.role });
 
     const serverDocument = payloadMessage("collab.document-update", roomId, Y.encodeStateAsUpdate(room.doc));
     if (serverDocument) send(client, serverDocument);
@@ -314,6 +372,24 @@ export class DirectorCollaborationWebSocketHub {
     }
     const syncRequest = payloadMessage("collab.sync-request", roomId, new Uint8Array([0]));
     if (syncRequest) send(client, syncRequest);
+  }
+
+  /**
+   * Applies the durable room snapshot after room creation and forwards it to
+   * every connected peer. Yjs merges are idempotent, so peers that joined
+   * before the asynchronous load completes converge on the same state.
+   */
+  private seedPersistedSnapshot(roomId: string, room: CollaborationRoom) {
+    if (!this.persistence) return;
+    void this.persistence
+      .loadSnapshot(roomId)
+      .then((snapshot) => {
+        if (!snapshot || this.rooms.get(roomId) !== room) return;
+        Y.applyUpdate(room.doc, snapshot, this);
+        const seeded = payloadMessage("collab.document-update", roomId, Y.encodeStateAsUpdate(room.doc));
+        if (seeded) this.broadcast(room, seeded);
+      })
+      .catch(() => undefined);
   }
 
   private broadcast(
