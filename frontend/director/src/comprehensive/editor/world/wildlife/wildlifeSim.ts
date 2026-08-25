@@ -1,11 +1,15 @@
 import {
   DIRECTOR_WORLD_SIMULATION_HZ,
   WORLD_WILDLIFE_SPECIES_ARCHETYPE,
+  type DirectorWorldWeather,
   type DirectorWorldWildlifeGroup,
+  type DirectorWorldWind,
+  type WorldWeatherPreset,
   type WorldWildlifeArchetype,
   type WorldWildlifeSpecies,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { hashCombine, hashUint32, worldStreamId } from "../worldRandom";
+import { writeWorldWindVector } from "../worldWind";
 import { createWildlifeSpatialHash } from "./wildlifeSpatialHash";
 
 /**
@@ -53,6 +57,78 @@ export const WILDLIFE_BEHAVIOR_WALK = 0;
 export const WILDLIFE_BEHAVIOR_GRAZE = 1;
 /** Agent is returning to the herd center after being pushed out. */
 export const WILDLIFE_BEHAVIOR_REGROUP = 2;
+/** Short high-speed burst: rabbit dash or wolf chase lope. */
+export const WILDLIFE_BEHAVIOR_SPRINT = 3;
+/** Startled bolt away from the herd (sheep), resolved by a regroup. */
+export const WILDLIFE_BEHAVIOR_FLEE = 4;
+
+// ---------------------------------------------------------------------------
+// Environment input (wind + weather)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wind and weather snapshot the sim consumes. These are the AUTHORED settings
+ * (not the per-frame evaluated wind vector): the sim re-evaluates the shared
+ * deterministic gust model per tick from `wind`, so wind at tick T is a pure
+ * function of tick and seek stays bit-stable. Changing any consumed field
+ * changes the config key, which discards the sim and replays fresh — the same
+ * lifecycle as every other simulation-relevant config change.
+ */
+export interface WildlifeEnvironment {
+  /** Authored wind settings (direction, mean speed, gustiness). */
+  wind: DirectorWorldWind;
+  /** Authored weather block; only `preset` and `intensity` drive behavior. */
+  weather: DirectorWorldWeather;
+}
+
+/** Default environment: still air, clear sky. Keeps older call sites valid. */
+export const WILDLIFE_CALM_ENVIRONMENT: WildlifeEnvironment = {
+  wind: { directionDegrees: 0, speedMps: 0, gustiness: 0, turbulence: 0 },
+  weather: { preset: "clear", intensity: 0, wetness: 0, cloudCover: 0 },
+};
+
+/**
+ * Weather response tables at intensity 1; every factor lerps from the clear
+ * value by `weather.intensity`. Only the five protocol presets exist — do not
+ * add rows without a protocol change.
+ */
+const WEATHER_HERD_SPEED_AT_FULL: Record<WorldWeatherPreset, number> = {
+  clear: 1,
+  overcast: 0.95,
+  rain: 0.8,
+  snow: 0.7,
+  storm: 0.55,
+};
+const WEATHER_HERD_CLUSTER_AT_FULL: Record<WorldWeatherPreset, number> = {
+  clear: 1,
+  overcast: 0.95,
+  rain: 0.75,
+  snow: 0.65,
+  storm: 0.5,
+};
+const WEATHER_HERD_GRAZE_SCALE_AT_FULL: Record<WorldWeatherPreset, number> = {
+  clear: 1,
+  overcast: 1,
+  rain: 1.25,
+  snow: 1.35,
+  storm: 1.5,
+};
+/** Flock downwind steering bias (accel per m/s of wind) at intensity 1. */
+const WEATHER_WIND_BIAS_AT_FULL: Record<WorldWeatherPreset, number> = {
+  clear: 0.06,
+  overcast: 0.12,
+  rain: 0.3,
+  snow: 0.25,
+  storm: 0.8,
+};
+
+function lerpByIntensity(clearValue: number, fullValue: number, intensity: number): number {
+  const t = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
+  return clearValue + (fullValue - clearValue) * t;
+}
+
+/** Wolves' shared prowl anchor orbits the area once every 90 seconds. */
+const PACK_ANCHOR_RAD_PER_S = TWO_PI / 90;
 
 /** Nominal cruise/walk speed per species (m/s) before `speedScale`. */
 export const WILDLIFE_CRUISE_SPEED_MPS: Record<WorldWildlifeSpecies, number> = {
@@ -204,6 +280,18 @@ interface ResolvedSimConfig {
   containAccel: number;
   maxAccel: number;
   flutterAccel: number;
+  /** Butterflies: slow circling drift that reads as meandering. */
+  wanderAccel: number;
+  /** Birds: spring toward a per-agent preferred altitude (layered flight). */
+  layerAccel: number;
+  /**
+   * Scale on the VERTICAL component of alignment + cohesion. Birds use a
+   * small value so the layer spring owns the Y axis (strata don't collapse
+   * onto the flock's mean height); everyone else keeps full 3D flocking.
+   */
+  flockVerticalFactor: number;
+  /** Flock downwind steering bias, acceleration per m/s of wind. */
+  windBiasAccel: number;
   /** Absolute altitude band (flock) or [unused, soft ceiling] (school). */
   bandMinY: number;
   bandMaxY: number;
@@ -213,14 +301,133 @@ interface ResolvedSimConfig {
   turnRate: number;
   accel: number;
   herdSeparationRadius: number;
+  /** Scales walk-target distance from the anchor (sheep small → knot up). */
+  walkRadiusScale: number;
+  /** Graze pause range in seconds (wolves short/restless, sheep long/placid). */
+  grazeMinS: number;
+  grazeMaxS: number;
+  /** Probability of a sprint burst when leaving a graze (rabbits, wolves). */
+  sprintProbability: number;
+  sprintSpeedMult: number;
+  sprintMinS: number;
+  sprintMaxS: number;
+  /** Probability of a startle flee when leaving a graze (sheep). */
+  fleeProbability: number;
+  fleeSpeedMult: number;
+  fleeMinS: number;
+  fleeMaxS: number;
+  /** Wolves: 0..1 pull of walk/chase targets toward the roaming pack anchor. */
+  packPull: number;
+  // Weather (already folded with intensity; 1 = no effect)
+  weatherSpeedFactor: number;
+  weatherClusterFactor: number;
+  weatherGrazeScale: number;
 }
 
-function resolveSimConfig(group: DirectorWorldWildlifeGroup, groundHeight: number): ResolvedSimConfig {
+interface HerdSpeciesTuning {
+  turnRate: number;
+  accel: number;
+  walkRadiusScale: number;
+  grazeMinS: number;
+  grazeMaxS: number;
+  sprintProbability: number;
+  sprintSpeedMult: number;
+  sprintMinS: number;
+  sprintMaxS: number;
+  fleeProbability: number;
+  fleeSpeedMult: number;
+  fleeMinS: number;
+  fleeMaxS: number;
+  packPull: number;
+}
+
+/**
+ * Herd species character:
+ * - deer: baseline alternation of walking and grazing.
+ * - rabbits: frequent short sprint bursts between grazes.
+ * - wolves: restless rangers; short grazes, targets pulled toward a roaming
+ *   pack anchor, occasional chase lopes after the anchor's lead point.
+ * - sheep: placid and clustered near the centre, with rare startle bolts
+ *   that resolve into a regroup.
+ */
+const HERD_SPECIES_TUNING: Record<"deer" | "rabbits" | "wolves" | "sheep", HerdSpeciesTuning> = {
+  deer: {
+    turnRate: 2.5,
+    accel: 2.5,
+    walkRadiusScale: 1,
+    grazeMinS: 2,
+    grazeMaxS: 8,
+    sprintProbability: 0,
+    sprintSpeedMult: 1,
+    sprintMinS: 0,
+    sprintMaxS: 0,
+    fleeProbability: 0,
+    fleeSpeedMult: 1,
+    fleeMinS: 0,
+    fleeMaxS: 0,
+    packPull: 0,
+  },
+  rabbits: {
+    turnRate: 4,
+    accel: 6,
+    walkRadiusScale: 0.9,
+    grazeMinS: 2,
+    grazeMaxS: 6,
+    sprintProbability: 0.45,
+    sprintSpeedMult: 2.3,
+    sprintMinS: 0.7,
+    sprintMaxS: 1.4,
+    fleeProbability: 0,
+    fleeSpeedMult: 1,
+    fleeMinS: 0,
+    fleeMaxS: 0,
+    packPull: 0,
+  },
+  wolves: {
+    turnRate: 2.8,
+    accel: 3,
+    walkRadiusScale: 0.5,
+    grazeMinS: 1,
+    grazeMaxS: 3,
+    sprintProbability: 0.3,
+    sprintSpeedMult: 1.9,
+    sprintMinS: 1.5,
+    sprintMaxS: 3,
+    fleeProbability: 0,
+    fleeSpeedMult: 1,
+    fleeMinS: 0,
+    fleeMaxS: 0,
+    packPull: 0.65,
+  },
+  sheep: {
+    turnRate: 2,
+    accel: 1.5,
+    walkRadiusScale: 0.45,
+    grazeMinS: 3,
+    grazeMaxS: 9,
+    sprintProbability: 0,
+    sprintSpeedMult: 1,
+    sprintMinS: 0,
+    sprintMaxS: 0,
+    fleeProbability: 0.12,
+    fleeSpeedMult: 1.8,
+    fleeMinS: 1.2,
+    fleeMaxS: 2,
+    packPull: 0,
+  },
+};
+
+function resolveSimConfig(
+  group: DirectorWorldWildlifeGroup,
+  groundHeight: number,
+  environment: WildlifeEnvironment,
+): ResolvedSimConfig {
   const species = group.species;
   const archetype = WORLD_WILDLIFE_SPECIES_ARCHETYPE[species];
   const [centerX, centerY, centerZ] = group.area.center;
   const radius = group.area.radius;
   const cruise = WILDLIFE_CRUISE_SPEED_MPS[species] * group.speedScale;
+  const { preset, intensity } = environment.weather;
 
   const config: ResolvedSimConfig = {
     archetype,
@@ -240,6 +447,10 @@ function resolveSimConfig(group: DirectorWorldWildlifeGroup, groundHeight: numbe
     containAccel: cruise * 3,
     maxAccel: cruise * 3.5,
     flutterAccel: 0,
+    wanderAccel: 0,
+    layerAccel: 0,
+    flockVerticalFactor: 1,
+    windBiasAccel: 0,
     bandMinY: centerY,
     bandMaxY: centerY,
     bandHardMinY: centerY,
@@ -247,7 +458,26 @@ function resolveSimConfig(group: DirectorWorldWildlifeGroup, groundHeight: numbe
     turnRate: 2.5,
     accel: 2.5,
     herdSeparationRadius: 1.6,
+    walkRadiusScale: 1,
+    grazeMinS: 2,
+    grazeMaxS: 8,
+    sprintProbability: 0,
+    sprintSpeedMult: 1,
+    sprintMinS: 0,
+    sprintMaxS: 0,
+    fleeProbability: 0,
+    fleeSpeedMult: 1,
+    fleeMinS: 0,
+    fleeMaxS: 0,
+    packPull: 0,
+    weatherSpeedFactor: lerpByIntensity(1, WEATHER_HERD_SPEED_AT_FULL[preset], intensity),
+    weatherClusterFactor: lerpByIntensity(1, WEATHER_HERD_CLUSTER_AT_FULL[preset], intensity),
+    weatherGrazeScale: lerpByIntensity(1, WEATHER_HERD_GRAZE_SCALE_AT_FULL[preset], intensity),
   };
+
+  // Downwind steering bias only applies to airborne archetypes; the per-tick
+  // wind vector itself is evaluated inside the step from `environment.wind`.
+  const windBiasBase = lerpByIntensity(WEATHER_WIND_BIAS_AT_FULL.clear, WEATHER_WIND_BIAS_AT_FULL[preset], intensity);
 
   if (archetype === "flock") {
     const defaults = WILDLIFE_DEFAULT_ALTITUDE_BAND_M[species === "birds" ? "birds" : "butterflies"];
@@ -261,35 +491,53 @@ function resolveSimConfig(group: DirectorWorldWildlifeGroup, groundHeight: numbe
     if (species === "birds") {
       config.neighborRadius = 6;
       config.separationRadius = 2.2;
+      // Layered flight: each bird holds a preferred slice of the altitude
+      // band, so the flock reads as stacked strata instead of one sheet.
+      // Vertical cohesion/alignment shrink so the layer spring owns Y.
+      config.layerAccel = cruise * 0.8;
+      config.flockVerticalFactor = 0.2;
+      config.windBiasAccel = windBiasBase;
     } else {
-      // Butterflies: loose micro-flock with strong per-agent flutter.
+      // Butterflies: loose micro-flock with strong per-agent flutter plus a
+      // slow circling wander; they are light, so wind moves them harder.
       config.neighborRadius = 2;
       config.separationRadius = 0.5;
-      config.alignWeight = 0.8;
-      config.cohesionWeight = 0.6;
+      config.alignWeight = 0.5;
+      config.cohesionWeight = 0.35;
       config.flutterAccel = 3;
+      config.wanderAccel = 2.5;
+      config.windBiasAccel = windBiasBase * 1.6;
     }
   } else if (archetype === "school") {
     // area.center.y is the water surface; fish live in the sphere below it.
-    config.neighborRadius = 2.5;
-    config.separationRadius = 0.7;
-    config.alignWeight = 2;
-    config.cohesionWeight = 2.4;
-    config.separationWeight = 5;
+    // Tighter than the aerial flock: a longer sensing radius (the school
+    // finds itself instead of fragmenting), shorter separation, and stronger
+    // cohesion/alignment produce the dense bait-ball look.
+    config.neighborRadius = 5;
+    config.separationRadius = 0.45;
+    config.alignWeight = 2.6;
+    config.cohesionWeight = 3.6;
+    config.separationWeight = 4;
     config.bandMinY = centerY - radius;
     config.bandMaxY = centerY - Math.min(0.5, radius * 0.6); // soft ceiling
     config.bandHardMaxY = centerY - Math.min(0.05, radius * 0.1); // hard ceiling
     config.bandHardMinY = centerY - radius;
   } else {
-    const herdTuning: Record<string, { turnRate: number; accel: number }> = {
-      deer: { turnRate: 2.5, accel: 2.5 },
-      rabbits: { turnRate: 4, accel: 6 },
-      wolves: { turnRate: 2.8, accel: 3 },
-      sheep: { turnRate: 2, accel: 1.5 },
-    };
-    const tuning = herdTuning[species] ?? { turnRate: 2.5, accel: 2.5 };
+    const tuning = HERD_SPECIES_TUNING[species as keyof typeof HERD_SPECIES_TUNING] ?? HERD_SPECIES_TUNING.deer;
     config.turnRate = tuning.turnRate;
     config.accel = tuning.accel;
+    config.walkRadiusScale = tuning.walkRadiusScale;
+    config.grazeMinS = tuning.grazeMinS;
+    config.grazeMaxS = tuning.grazeMaxS;
+    config.sprintProbability = tuning.sprintProbability;
+    config.sprintSpeedMult = tuning.sprintSpeedMult;
+    config.sprintMinS = tuning.sprintMinS;
+    config.sprintMaxS = tuning.sprintMaxS;
+    config.fleeProbability = tuning.fleeProbability;
+    config.fleeSpeedMult = tuning.fleeSpeedMult;
+    config.fleeMinS = tuning.fleeMinS;
+    config.fleeMaxS = tuning.fleeMaxS;
+    config.packPull = tuning.packPull;
   }
   return config;
 }
@@ -298,11 +546,16 @@ function resolveSimConfig(group: DirectorWorldWildlifeGroup, groundHeight: numbe
  * Identity of a sim run. Any field that influences simulation state is part
  * of the key; render-only fields (sizeScale, assetId, name, visible, locked)
  * are deliberately excluded so tweaking them never resets the simulation.
+ * From the environment, only the consumed fields participate: wind direction,
+ * speed, and gustiness plus weather preset and intensity. Turbulence,
+ * wetness, and cloud cover never touch the sim, so editing them (or letting
+ * an evolution system drift wetness) must not reset herds mid-shot.
  */
 export function wildlifeSimConfigKey(
   group: DirectorWorldWildlifeGroup,
   worldSeed: number,
   groundHeight: number,
+  environment: WildlifeEnvironment = WILDLIFE_CALM_ENVIRONMENT,
 ): string {
   const altitude = group.altitude ? `${group.altitude.minM},${group.altitude.maxM}` : "default";
   return [
@@ -316,6 +569,11 @@ export function wildlifeSimConfigKey(
     altitude,
     worldSeed,
     groundHeight,
+    environment.wind.directionDegrees,
+    environment.wind.speedMps,
+    environment.wind.gustiness,
+    environment.weather.preset,
+    environment.weather.intensity,
   ].join("|");
 }
 
@@ -325,8 +583,9 @@ export function shouldRecreateWildlifeSim(
   group: DirectorWorldWildlifeGroup,
   worldSeed: number,
   groundHeight: number,
+  environment: WildlifeEnvironment = WILDLIFE_CALM_ENVIRONMENT,
 ): boolean {
-  return sim.configKey !== wildlifeSimConfigKey(group, worldSeed, groundHeight);
+  return sim.configKey !== wildlifeSimConfigKey(group, worldSeed, groundHeight, environment);
 }
 
 // ---------------------------------------------------------------------------
@@ -351,22 +610,32 @@ function wrapAngle(angle: number): number {
  *
  * All state lives in preallocated SoA typed arrays; stepping performs zero
  * allocations. The sim is a pure function of (group config, world seed,
- * groundHeight, quantized tick) — no three.js, no scene, no DOM.
+ * groundHeight, environment settings, quantized tick) — no three.js, no
+ * scene, no DOM. Per-tick wind is re-derived from the authored settings via
+ * the shared gust model, never sampled from the frame, so seeks replay the
+ * exact same wind history as continuous playback.
  *
  * @param group - The wildlife group configuration from the world system.
  * @param worldSeed - The world-level seed for deterministic RNG.
  * @param groundHeight - Flat ground-plane Y for the sim (terrain is applied in render).
+ * @param environment - Authored wind + weather settings (defaults to calm/clear).
  * @returns A WildlifeSim ready to stepTo any target time.
  */
 export function createWildlifeSim(
   group: DirectorWorldWildlifeGroup,
   worldSeed: number,
   groundHeight: number,
+  environment: WildlifeEnvironment = WILDLIFE_CALM_ENVIRONMENT,
 ): WildlifeSim {
-  const config = resolveSimConfig(group, groundHeight);
-  const configKey = wildlifeSimConfigKey(group, worldSeed, groundHeight);
+  const config = resolveSimConfig(group, groundHeight, environment);
+  const configKey = wildlifeSimConfigKey(group, worldSeed, groundHeight, environment);
   const n = config.count;
   const rng = createWildlifeRng(hashCombine(worldSeed, group.seedOffset, worldStreamId(group.id)));
+  // Per-tick wind scratch (allocation-free) and the wolves' pack anchor
+  // phase, both derived deterministically from config/seed.
+  const windScratch: [number, number, number] = [0, 0, 0];
+  const packAnchorPhase =
+    (hashUint32(hashCombine(worldSeed, group.seedOffset, worldStreamId(group.id), 0x9e77)) / 4_294_967_296) * TWO_PI;
 
   // Live SoA state -----------------------------------------------------------
   const posX = new Float32Array(n);
@@ -554,14 +823,29 @@ export function createWildlifeSim(
       containAccel,
       maxAccel,
       flutterAccel,
+      wanderAccel,
+      layerAccel,
+      flockVerticalFactor,
+      windBiasAccel,
     } = config;
     const isSchool = config.archetype === "school";
     const neighborR2 = neighborRadius * neighborRadius;
     const separationR2 = separationRadius * separationRadius;
     const softRadius = radius * SOFT_CONTAINMENT_SCALE;
     const hardRadius = radius * HARD_CONTAINMENT_SCALE;
-    const bandEdge = Math.max((config.bandMaxY - config.bandMinY) * 0.2, 0.1);
+    const bandSpan = config.bandMaxY - config.bandMinY;
+    const bandEdge = Math.max(bandSpan * 0.2, 0.1);
     const stateSeconds = simTick * DT;
+
+    // Downwind steering bias: the shared gust model evaluated at the tick's
+    // own time, so replay from a checkpoint sees the identical wind history.
+    let windAx = 0;
+    let windAz = 0;
+    if (windBiasAccel > 0) {
+      writeWorldWindVector(windScratch, environment.wind, stateSeconds);
+      windAx = windScratch[0] * windBiasAccel;
+      windAz = windScratch[2] * windBiasAccel;
+    }
 
     // Phase 1: per-agent neighbor gather against the pre-step snapshot. The
     // spatial hash is rebuilt from pre-step positions and every agent's
@@ -633,10 +917,10 @@ export function createWildlifeSim(
       if (neighbors > 0) {
         const inv = 1 / neighbors;
         ax += (accAliX[i] * inv - vx) * alignWeight;
-        ay += (accAliY[i] * inv - vy) * alignWeight;
+        ay += (accAliY[i] * inv - vy) * alignWeight * flockVerticalFactor;
         az += (accAliZ[i] * inv - vz) * alignWeight;
         ax += (accCohX[i] * inv - px) * cohesionWeight;
-        ay += (accCohY[i] * inv - py) * cohesionWeight;
+        ay += (accCohY[i] * inv - py) * cohesionWeight * flockVerticalFactor;
         az += (accCohZ[i] * inv - pz) * cohesionWeight;
       }
 
@@ -680,6 +964,27 @@ export function createWildlifeSim(
         ay += Math.sin(stateSeconds * 7.3 + flutterPhase) * flutterAccel * 1.6;
         az += Math.cos(stateSeconds * 4.3 + flutterPhase * 2.3) * flutterAccel;
       }
+
+      // Butterfly wander: a slow, per-agent circling drift (much lower
+      // frequency than the flutter) that reads as aimless meandering.
+      if (wanderAccel > 0) {
+        const wanderPhase = phase[i];
+        ax += Math.sin(stateSeconds * 0.83 + wanderPhase * 3.7) * wanderAccel;
+        az += Math.cos(stateSeconds * 0.67 + wanderPhase * 2.9) * wanderAccel;
+      }
+
+      // Bird layering: every agent holds a preferred slice of the altitude
+      // band (a pure function of its immutable phase), so the flock stacks
+      // into visible strata instead of collapsing onto one plane.
+      if (layerAccel > 0) {
+        const preferredY = config.bandMinY + bandSpan * (0.1 + 0.8 * (phase[i] / TWO_PI));
+        const normalized = (preferredY - py) / Math.max(bandSpan * 0.25, 0.5);
+        ay += Math.min(Math.max(normalized, -1), 1) * layerAccel;
+      }
+
+      // Downwind bias (weather-scaled): storms visibly push fliers along.
+      ax += windAx;
+      az += windAz;
 
       const accel2 = ax * ax + ay * ay + az * az;
       if (accel2 > maxAccel * maxAccel) {
@@ -769,11 +1074,32 @@ export function createWildlifeSim(
 
   // --- Herd step ---------------------------------------------------------------
 
+  /**
+   * Wolves' shared prowl anchor: a point orbiting the area centre, a pure
+   * function of the tick. Walk/chase targets pull toward it so the pack roves
+   * together with a common direction instead of milling around the centre.
+   * `leadSeconds` aims ahead of the orbit — chase lopes pursue that lead
+   * point like a quarry.
+   */
+  function packAnchorX(leadSeconds: number): number {
+    const anchorAngle = packAnchorPhase + (simTick * DT + leadSeconds) * PACK_ANCHOR_RAD_PER_S;
+    return config.centerX + Math.sin(anchorAngle) * config.radius * 0.5 * config.packPull * config.weatherClusterFactor;
+  }
+
+  function packAnchorZ(leadSeconds: number): number {
+    const anchorAngle = packAnchorPhase + (simTick * DT + leadSeconds) * PACK_ANCHOR_RAD_PER_S;
+    return config.centerZ + Math.cos(anchorAngle) * config.radius * 0.5 * config.packPull * config.weatherClusterFactor;
+  }
+
   function pickWalkTarget(i: number): void {
     const angle = rng.next() * TWO_PI;
-    const dist = config.radius * (0.12 + 0.68 * rng.next());
-    targetX[i] = config.centerX + Math.sin(angle) * dist;
-    targetZ[i] = config.centerZ + Math.cos(angle) * dist;
+    // Species spread scale keeps sheep knotted near the anchor while deer
+    // range wide; bad weather shrinks the roaming ring further (clustering).
+    const dist = config.radius * (0.12 + 0.68 * rng.next()) * config.walkRadiusScale * config.weatherClusterFactor;
+    const anchorX = config.packPull > 0 ? packAnchorX(0) : config.centerX;
+    const anchorZ = config.packPull > 0 ? packAnchorZ(0) : config.centerZ;
+    targetX[i] = anchorX + Math.sin(angle) * dist;
+    targetZ[i] = anchorZ + Math.cos(angle) * dist;
     behaviorTimer[i] = 4 + 6 * rng.next();
   }
 
@@ -783,6 +1109,37 @@ export function createWildlifeSim(
     targetX[i] = config.centerX + Math.sin(angle) * dist;
     targetZ[i] = config.centerZ + Math.cos(angle) * dist;
     behaviorTimer[i] = 8 + 4 * rng.next();
+  }
+
+  /** Sprint burst: rabbit dash from the current spot, or a wolf chase lope. */
+  function pickSprintTarget(i: number, px: number, pz: number): void {
+    const angle = rng.next() * TWO_PI;
+    const dash = config.radius * (0.15 + 0.25 * rng.next());
+    if (config.packPull > 0) {
+      // Chase the pack anchor's lead point (with a little scatter) so
+      // several wolves lope the same way — reads as pursuit, not panic.
+      targetX[i] = packAnchorX(15) + Math.sin(angle) * dash * 0.3;
+      targetZ[i] = packAnchorZ(15) + Math.cos(angle) * dash * 0.3;
+    } else {
+      targetX[i] = px + Math.sin(angle) * dash;
+      targetZ[i] = pz + Math.cos(angle) * dash;
+    }
+    behaviorTimer[i] = config.sprintMinS + (config.sprintMaxS - config.sprintMinS) * rng.next();
+  }
+
+  /** Startle bolt: outward from the herd centre with bearing jitter. */
+  function pickFleeTarget(i: number, px: number, pz: number): void {
+    const outward = Math.atan2(px - config.centerX, pz - config.centerZ);
+    const bearing = outward + (rng.next() - 0.5) * 1.2;
+    const dash = config.radius * (0.3 + 0.3 * rng.next());
+    targetX[i] = px + Math.sin(bearing) * dash;
+    targetZ[i] = pz + Math.cos(bearing) * dash;
+    behaviorTimer[i] = config.fleeMinS + (config.fleeMaxS - config.fleeMinS) * rng.next();
+  }
+
+  /** Graze pause draw, stretched by bad weather (animals hunker down). */
+  function drawGrazeTimer(minS: number, maxS: number): number {
+    return (minS + (maxS - minS) * rng.next()) * config.weatherGrazeScale;
   }
 
   function stepHerd(): void {
@@ -834,8 +1191,20 @@ export function createWildlifeSim(
         pickRegroupTarget(i);
       } else if (state === WILDLIFE_BEHAVIOR_GRAZE) {
         if (behaviorTimer[i] <= 0) {
-          state = WILDLIFE_BEHAVIOR_WALK;
-          pickWalkTarget(i);
+          // Species character: sheep may startle, rabbits dash, wolves lope
+          // after the pack anchor; everyone else just walks. One roll per
+          // graze exit keeps the draw pattern state-driven and replay-safe.
+          const roll = rng.next();
+          if (roll < config.fleeProbability) {
+            state = WILDLIFE_BEHAVIOR_FLEE;
+            pickFleeTarget(i, px, pz);
+          } else if (roll < config.fleeProbability + config.sprintProbability) {
+            state = WILDLIFE_BEHAVIOR_SPRINT;
+            pickSprintTarget(i, px, pz);
+          } else {
+            state = WILDLIFE_BEHAVIOR_WALK;
+            pickWalkTarget(i);
+          }
         }
       } else if (state === WILDLIFE_BEHAVIOR_WALK) {
         const toTargetX = targetX[i] - px;
@@ -843,11 +1212,24 @@ export function createWildlifeSim(
         const arrived = toTargetX * toTargetX + toTargetZ * toTargetZ < 0.64;
         if (arrived || behaviorTimer[i] <= 0) {
           state = WILDLIFE_BEHAVIOR_GRAZE;
-          behaviorTimer[i] = 2 + 6 * rng.next(); // graze pause 2–8 s
+          behaviorTimer[i] = drawGrazeTimer(config.grazeMinS, config.grazeMaxS);
+        }
+      } else if (state === WILDLIFE_BEHAVIOR_SPRINT) {
+        const toTargetX = targetX[i] - px;
+        const toTargetZ = targetZ[i] - pz;
+        const arrived = toTargetX * toTargetX + toTargetZ * toTargetZ < 1;
+        if (arrived || behaviorTimer[i] <= 0) {
+          state = WILDLIFE_BEHAVIOR_GRAZE; // catch breath after the burst
+          behaviorTimer[i] = drawGrazeTimer(config.grazeMinS, config.grazeMaxS);
+        }
+      } else if (state === WILDLIFE_BEHAVIOR_FLEE) {
+        if (behaviorTimer[i] <= 0) {
+          state = WILDLIFE_BEHAVIOR_REGROUP; // startle resolves into a regroup
+          pickRegroupTarget(i);
         }
       } else if (centerDist2 < regroupDone2) {
         state = WILDLIFE_BEHAVIOR_GRAZE;
-        behaviorTimer[i] = 1 + 2 * rng.next();
+        behaviorTimer[i] = drawGrazeTimer(1, 3);
       } else if (behaviorTimer[i] <= 0) {
         pickRegroupTarget(i);
       }
@@ -867,20 +1249,34 @@ export function createWildlifeSim(
       dirX += accSepX[i] * 0.8;
       dirZ += accSepZ[i] * 0.8;
 
+      // Burst states commit harder: doubled turn-in and acceleration so a
+      // dash or startle reads as an impulse rather than a gentle lane change.
+      const burst = state === WILDLIFE_BEHAVIOR_SPRINT || state === WILDLIFE_BEHAVIOR_FLEE ? 2 : 1;
+
       // Turn-rate-limited heading keeps motion animal-like (no pivoting).
       let yaw = heading[i];
       if (dirX * dirX + dirZ * dirZ > 1e-8) {
         const desiredYaw = Math.atan2(dirX, dirZ);
         const delta = wrapAngle(desiredYaw - yaw);
-        const maxTurn = turnRate * DT;
+        const maxTurn = turnRate * burst * DT;
         yaw = wrapAngle(yaw + Math.min(Math.max(delta, -maxTurn), maxTurn));
       }
 
-      const targetSpeed =
-        state === WILDLIFE_BEHAVIOR_GRAZE ? 0 : state === WILDLIFE_BEHAVIOR_REGROUP ? cruise * 1.25 : cruise;
+      const speedMult =
+        state === WILDLIFE_BEHAVIOR_GRAZE
+          ? 0
+          : state === WILDLIFE_BEHAVIOR_REGROUP
+            ? 1.25
+            : state === WILDLIFE_BEHAVIOR_SPRINT
+              ? config.sprintSpeedMult
+              : state === WILDLIFE_BEHAVIOR_FLEE
+                ? config.fleeSpeedMult
+                : 1;
+      // Bad weather slows every beast (storm at full intensity ≈ half speed).
+      const targetSpeed = cruise * speedMult * config.weatherSpeedFactor;
       let speed = speedCur[i];
       const speedDelta = targetSpeed - speed;
-      const maxSpeedStep = accel * DT;
+      const maxSpeedStep = accel * burst * DT;
       speed += Math.min(Math.max(speedDelta, -maxSpeedStep), maxSpeedStep);
 
       const vx = Math.sin(yaw) * speed;

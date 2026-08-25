@@ -33,6 +33,7 @@ import {
   createWildlifeSim,
   shouldRecreateWildlifeSim,
   WILDLIFE_CRUISE_SPEED_MPS,
+  type WildlifeEnvironment,
   type WildlifeSim,
 } from "./wildlifeSim";
 import {
@@ -264,11 +265,18 @@ function WildlifeGroupInstances({
 
 function WildlifeGroup({ group, context }: { group: DirectorWorldWildlifeGroup; context: LivingWorldFrameContext }) {
   // Sim identity follows the simulation-relevant config (count, species,
-  // area, speedScale, seeds, ground). Any change discards the sim and replays
-  // fresh, which keeps state a pure function of (config, worldSeconds).
+  // area, speedScale, seeds, ground, authored wind/weather). Any change
+  // discards the sim and replays fresh, which keeps state a pure function of
+  // (config, worldSeconds). The AUTHORED settings go in — never the per-frame
+  // evaluated `context.windVector` — so the sim re-derives per-tick wind
+  // deterministically and scrubbing replays the identical wind history.
+  const environment: WildlifeEnvironment = { wind: context.settings.wind, weather: context.settings.weather };
   const simRef = useRef<WildlifeSim | null>(null);
-  if (!simRef.current || shouldRecreateWildlifeSim(simRef.current, group, context.seed, context.groundHeight)) {
-    simRef.current = createWildlifeSim(group, context.seed, context.groundHeight);
+  if (
+    !simRef.current ||
+    shouldRecreateWildlifeSim(simRef.current, group, context.seed, context.groundHeight, environment)
+  ) {
+    simRef.current = createWildlifeSim(group, context.seed, context.groundHeight, environment);
   }
   const sim = simRef.current;
 
