@@ -184,14 +184,18 @@ describe("Director DSH workbench plugin gateway client", () => {
       ],
       guidance: "Omit provider/model to inherit the current route. Never guess provider or model ids.",
     });
-    expect(section).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "director:workbench",
-        text: expect.stringMatching(
-          /workflow result of null.*child failed[\s\S]*Shell output.*never mutation evidence[\s\S]*Never claim a workspace was changed[\s\S]*image_attached=false/,
-        ),
-      }),
-    );
+    const guidanceCall = section.mock.calls
+      .map(([registered]) => registered as { name: string; text: string })
+      .find((registered) => registered.name === "director:workbench");
+    expect(guidanceCall).toBeDefined();
+    for (const principle of [
+      "workflow result of null means its child failed",
+      "never mutation evidence",
+      "Never claim a workspace was changed",
+      "image_attached=false",
+    ]) {
+      expect(guidanceCall?.text).toContain(principle);
+    }
   });
 
   it("uses the live DSH session and returns captures as durable image blocks", async () => {
@@ -333,6 +337,78 @@ describe("Director DSH workbench plugin gateway client", () => {
     });
     expect(saveImage).not.toHaveBeenCalled();
     expect(definition.output.render({}, value)).toEqual([{ type: "text", text: JSON.stringify(value) }]);
+  });
+
+  it("summarizes an oversized observe before returning it to DSH", async () => {
+    const definitions = new Map<string, any>();
+    const objects = Array.from({ length: 60 }, (_, index) => ({
+      id: `prop-${index}`,
+      name: `道具${index}`,
+      kind: "prop",
+      transform: { position: [index, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+    }));
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            result: {
+              project_revision: "rev-big",
+              counts: { objects: 60, cameras: 1 },
+              objects,
+              active_camera_id: "camera-main",
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    registerDirectorWorkbenchPlugin(
+      { tools: { register: (tool: any) => definitions.set(tool.name, tool) } },
+      (definition) => definition,
+      { fetchImpl: fetchImpl as unknown as typeof fetch, gatewayToken: TEST_GATEWAY_TOKEN },
+    );
+
+    const value = await definitions.get("director_workbench").execute({ op: "observe" }, { agent: { id: "big-s" } });
+
+    expect(value.result).toMatchObject({
+      observe_mode: "summary",
+      projection_reason: "heavy_collection",
+      project_revision: "rev-big",
+      counts: { objects: 60, cameras: 1 },
+      active_camera_id: "camera-main",
+      objects: { count: 60, omitted: 36 },
+    });
+    expect(value.counts).toEqual({ objects: 60, cameras: 1 });
+    expect(value.project_revision).toBe("rev-big");
+    expect(String(value.result.retrieval_hint)).toContain("inspect");
+    expect(JSON.stringify(value)).not.toContain("prop-59");
+  });
+
+  it("keeps a small observe result untouched", async () => {
+    const definitions = new Map<string, any>();
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            result: {
+              project_revision: "rev-small",
+              counts: { objects: 1 },
+              objects: [{ id: "prop-1", name: "道具", kind: "prop" }],
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    registerDirectorWorkbenchPlugin(
+      { tools: { register: (tool: any) => definitions.set(tool.name, tool) } },
+      (definition) => definition,
+      { fetchImpl: fetchImpl as unknown as typeof fetch, gatewayToken: TEST_GATEWAY_TOKEN },
+    );
+
+    const value = await definitions.get("director_workbench").execute({ op: "observe" }, { agent: { id: "small-s" } });
+    expect(value.result.objects).toEqual([{ id: "prop-1", name: "道具", kind: "prop" }]);
+    expect(value.result).not.toHaveProperty("observe_mode");
   });
 
   it("rejects an incomplete catalog call before contacting the Gateway", async () => {

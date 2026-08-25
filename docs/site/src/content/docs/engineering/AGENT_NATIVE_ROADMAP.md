@@ -223,14 +223,13 @@ media bytes still never enter Yjs.
 
 ### Shipped
 
-Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP, the local Agent harness, the hosted API adapter, and the raw gateway HTTP tool boundary share it:
+Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP, the Multi-Agent production runner, and the raw gateway HTTP tool boundary share it:
 
-| Surface        | Binding                                                                                                                                                                                                                        |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| MCP            | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                                                                                                                                                                        |
-| Local harness  | `agentAdapters.ts` prompt + `filmRoleToolPolicyRejection` before tool dispatch                                                                                                                                                 |
-| Hosted adapter | `openAiCompatibleAdapter.ts` visibility + rejection                                                                                                                                                                            |
-| Raw HTTP / CLI | `backend/gateway/agents/httpToolGovernance.ts` on every `/api/tools/*` route (`x-director-film-role` header, then `DIRECTOR_FILM_ROLE`; same 403 rejection body as MCP; covers the Stage CLI and the DSH plugin, which POST to the same routes) |
+| Surface          | Binding                                                                                                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| MCP              | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                                                                                                                                                                        |
+| Multi-Agent runs | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` and its run routes                                                                                                                                                 |
+| Raw HTTP / CLI   | `backend/gateway/agents/httpToolGovernance.ts` on every `/api/tools/*` route (`x-director-film-role` header, then `DIRECTOR_FILM_ROLE`; same 403 rejection body as MCP; covers the Stage CLI and the DSH plugin, which POST to the same routes) |
 
 #### 3.1 Raw HTTP and CLI permissions
 

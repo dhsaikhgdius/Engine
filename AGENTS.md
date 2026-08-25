@@ -13,7 +13,7 @@ every coding agent; per-agent rule files only point back here.
 | `backend/gateway/`               | TypeScript Gateway, jobs, media, collaboration, and tool HTTP for DSH / MCP                                                                    |
 | `packages/`                      | Shared npm workspaces: protocol, agent-engine, dsh-plugin-workbench, project-schema, stage-protocol, dcc-*, model-provider, di, scene-pipeline |
 | `packages/dsh-plugin-workbench/` | Director Stage / Canvas / Video / Blender tools as a DeepSeek Harness plugin                                                                   |
-| `vendor/`                        | Official third-party Git submodules: DeepSeek Harness, LTX-2, Hunyuan3D-2, TRELLIS, ARDY. Do not fork them in-tree.             |
+| `vendor/`                        | Official third-party Git submodules: DeepSeek Harness, LTX-2, Hunyuan3D-2, TRELLIS, ARDY. Do not fork them in-tree.                            |
 | `integrations/`                  | Blender live kernel, `.blend` interchange, portable Agent plugin                                                                               |
 | `assets/`                        | Asset catalogs, manifests, provenance, and license metadata                                                                                    |
 | `docs/site/`                     | Product and engineering documentation site                                                                                                     |
@@ -36,7 +36,7 @@ store fork, or focused copy of DSH workspace/web/job tools.
 - `npm run test:e2e` — Playwright end-to-end tests.
 - `npm run lint` — ESLint plus server import-boundary check. `npm run format:check` for Prettier.
 - `npm run build` — typecheck, Vite build, chunk budget, and the portable MCP plugin.
-- `npm run repo:check` — open-source boundary plus native agent integration checks (CI runs this).
+- `npm run repo:check` — open-source boundary, native agent integration, and documentation truth checks (documented `backend/gateway/**` paths must exist; removed-module and unwired-capability language is rejected). CI runs this.
 - `npm run --silent stage -- director_workbench '{"op":"observe"}'` — gateway smoke test through the Stage CLI. Prefer MCP `director_workbench` when that server is connected; `npm run --silent stage -- --help` lists tools. Legacy `stage_*` names are HTTP-compatible only. `npm run stage --` prints an npm banner that breaks `JSON.parse`; use `--silent` or `node tools/scripts/stage-cli.mjs`.
 - `npm run eval` — agent golden-task evals against an isolated gateway + headless workbench tab (see `tools/evals/README.md`).
 - `npm run dsh` — prepare the Director workbench overlay and launch the pinned DeepSeek Harness Web profile on `:3080`.
@@ -70,15 +70,22 @@ semantic operation exists.
 ## Conventions
 
 - TypeScript is strict; validate untrusted data with Zod at system boundaries.
+- The four agent teaching channels are ranked (declared in the skill's "Canonical source order"):
+  `capabilities`/`describe` are the only canonical vocabulary; the workbench skill and the DSH
+  system guidance teach principles and pointers; tool descriptions stay short routing envelopes;
+  rejection messages carry the corrective call. Do not add a fifth teaching channel; do not grow
+  prose channels into a second parameter reference.
 - Frontend tests live in `frontend/director/tests/` (mirroring `src/`). Gateway tests live in
   `backend/gateway/tests/` grouped by domain (mirroring gateway source; shared fixtures in
   `tests/fixtures/`). Shared npm packages under `packages/`
   keep tests in a sibling `tests/` directory (same layout as DeepSeek Harness). Vitest (jsdom)
   runs both.
 - Stage scenes instance catalog meshes, Blender-authored geometry, or promoted generated-3D
-  assets. White-box is a clay look, not a stack of Stage boxes. Public
-  `director_workbench` author calls that set `geometry_type` are rejected; model missing
-  architecture with `blender_native` or generate with `generated_3d`.
+  assets. White-box is a clay look (metric, untextured, readable silhouettes), not a stack of
+  Stage boxes. Public `director_workbench` author calls that set `geometry_type` are rejected;
+  model missing architecture with `blender_native` (`create_blockout` shells, `create_opening`
+  doors/windows) or generate with `generated_3d`. Visual acceptance is a 35–65 mm capture, not
+  `audit.ready`.
 - UI copy is written in Simplified Chinese as the source language; add English translations to
   `frontend/director/src/comprehensive/i18n/en-US.json`.
 - The workbench skill lives in `.claude/skills/director-workbench/`. `npm run sync:skills` generates

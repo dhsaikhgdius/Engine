@@ -211,14 +211,13 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
 
 ### 已交付
 
-角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP、本地 Agent harness、托管 API adapter 与原始 gateway HTTP 工具边界共用：
+角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP、Multi-Agent production runner 与原始 gateway HTTP 工具边界共用：
 
-| 入口           | 绑定                                                                                                                                                                                          |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MCP            | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`                                                                                                                                     |
-| 本地 harness   | `agentAdapters.ts` 的 prompt + 派发前的 `filmRoleToolPolicyRejection`                                                                                                                         |
-| 托管 adapter   | `openAiCompatibleAdapter.ts` 的可见性与拒绝                                                                                                                                                   |
-| 原始 HTTP / CLI | `backend/gateway/agents/httpToolGovernance.ts` 应用于每条 `/api/tools/*` 路由（`x-director-film-role` header，其次 `DIRECTOR_FILM_ROLE`；403 拒绝体与 MCP 一致；Stage CLI 与 DSH plugin 走同一批路由，因此同样被覆盖） |
+| 入口             | 绑定                                                                                                                                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP              | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`                                                                                                                                     |
+| Multi-Agent runs | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` 及其 run 路由                                                                                                                     |
+| 原始 HTTP / CLI  | `backend/gateway/agents/httpToolGovernance.ts` 应用于每条 `/api/tools/*` 路由（`x-director-film-role` header，其次 `DIRECTOR_FILM_ROLE`；403 拒绝体与 MCP 一致；Stage CLI 与 DSH plugin 走同一批路由，因此同样被覆盖） |
 
 #### 3.1 原始 HTTP 与 CLI 权限
 

@@ -115,7 +115,7 @@ All control surfaces converge on the same gateway execution and validation layer
 | Live `DirectorProject` | Browser store                  | `frontend/director/src/comprehensive/editor/store/directorStore.ts`        |
 | Agent observe/author   | Same store (browser execution) | `frontend/director/src/agent/directorWorkbenchExecutor.ts`, `frontend/director/src/agent/gatewayClient.ts` |
 | Wire contract          | Shared Zod schema              | `packages/protocol/src/agentGatewayProtocol.ts`                            |
-| Agent sessions/events  | SQLite WAL                     | `backend/gateway/agentSessionStore.ts`                                     |
+| Agent sessions/events  | DeepSeek Harness               | `vendor/deepseek-harness` (DSH-owned session storage)                      |
 
 
 - Selective `observe {"fields":[...]}` slices avoid stale full-project snapshots
@@ -241,8 +241,7 @@ Browser (gatewayClient.ts, directorStore)
 agent-gateway.ts (composition root)
     ├─ stageRoutes.ts → commandEngine / browser workbench executor
     ├─ mcp-server.ts (stdio; filmRoleToolPolicy via DIRECTOR_FILM_ROLE)
-    ├─ AgentHarness + agentAdapters (Codex/Claude; same policy)
-    ├─ openAiCompatibleAdapter (same filmRoleToolPolicy)
+    ├─ POST /api/tools/:name ← DeepSeek Harness plugin (packages/dsh-plugin-workbench; same policy)
     ├─ ProductionRunOrchestrator (multi-agent)
     └─ controlPlaneRoutes / video / dcc
 ```

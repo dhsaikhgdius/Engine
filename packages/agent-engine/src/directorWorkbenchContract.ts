@@ -1139,10 +1139,10 @@ function missingAuthoringFieldMessage(input: unknown, path: PropertyKey[]) {
 }
 
 export const BLENDER_NATIVE_APPLY_HINT =
-  'Native Blender modeling uses blender_native, not director_workbench. Call blender_native {"op":"apply","operations":[{"op":"create_primitive","id":"hero-plinth","primitive":"cube"}]}. Stage instances catalog, project, or generated meshes with author.add_object; it rejects geometry_type assembly. Describe typed Blender ops with blender_native {"op":"describe","target":"create_primitive"}; describe RNA with blender_native {"op":"describe","operator":"mesh.bevel"}.';
+  'Native Blender modeling uses blender_native, not director_workbench. Call blender_native {"op":"apply","operations":[{"op":"create_blockout","preset":"room","idPrefix":"shell","width":12,"depth":8,"height":4}]} for architecture shells (presets floor/wall/room/corridor/stairs, metres), create_opening for doors/windows, or create_primitive for one volume. Stage instances catalog, project, or generated meshes with author.add_object; it rejects geometry_type assembly. Describe typed Blender ops with blender_native {"op":"describe","target":"create_blockout"}; describe RNA with blender_native {"op":"describe","operator":"mesh.bevel"}.';
 
 export const STAGE_PRIMITIVE_ASSEMBLY_ERROR =
-  "director_workbench does not allow assembling a scene from Stage primitives (box/sphere/cylinder/cone/pyramid/torus). Instance catalog assets, model with blender_native (edits sync back to this project), or generate with generated_3d then place.";
+  "director_workbench does not allow assembling a scene from Stage primitives (box/sphere/cylinder/cone/pyramid/torus). Instance catalog assets, model with blender_native (edits sync back to this project), or generate with generated_3d then place. For white-box architecture use blender_native apply create_blockout (presets floor/wall/room/corridor/stairs, metric metres, wallThickness) and cut doors/windows with create_opening; do not fake openings with darker boxes.";
 
 function valueUsesStagePrimitiveGeometry(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(valueUsesStagePrimitiveGeometry);

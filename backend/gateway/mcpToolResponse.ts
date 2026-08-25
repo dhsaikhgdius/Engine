@@ -12,6 +12,12 @@ import {
   stageSceneHintSchema,
   type StageGatewayExecution,
 } from "@director/agent-engine";
+import {
+  directorAgentModelEnvelope,
+  directorAgentToolResultNeedsProjection,
+  projectDirectorAgentToolEnvelope,
+  stripEncodedMediaPayloads,
+} from "./agents/agentToolResultProjection";
 
 /** Schema for the structured output returned by every MCP tool invocation. */
 export const mcpToolStructuredOutputSchema = z.strictObject({
@@ -111,16 +117,53 @@ function recoverySuggestion(code: string | null): string | null {
 }
 
 /**
+ * Projects the model-facing slice of an execution when it is oversized.
+ *
+ * The measurement excludes the embedded `scene` (target-tracking data that
+ * never reaches the model). A full-project observe or heavy catalog page is
+ * summarized to counts, id samples, and a retrieval hint so the MCP client's
+ * context is not flooded; small results pass through untouched. Feedback keeps
+ * the strict {@link mcpToolStructuredOutputSchema} shape: slimmed keys are
+ * adopted only when they stay schema-valid.
+ */
+function projectExecutionForModel(execution: StageGatewayExecution, tool?: string): StageGatewayExecution {
+  const envelope = directorAgentModelEnvelope(execution as unknown as Record<string, unknown>);
+  const decision = directorAgentToolResultNeedsProjection(envelope, { tool: tool ?? "", input: undefined });
+  if (!decision.needed || !decision.reason) return execution;
+  const projected = projectDirectorAgentToolEnvelope(
+    { ...envelope, feedback: execution.feedback },
+    decision.reason,
+    undefined,
+    tool,
+  );
+  const projectedContext = stageFeedbackContextSchema.safeParse(record(projected.feedback)?.context);
+  const feedback = execution.feedback
+    ? {
+        ...execution.feedback,
+        context: projectedContext.success ? projectedContext.data : { objects: [], tracks: [] },
+      }
+    : undefined;
+  return {
+    ...execution,
+    result: projected.result,
+    ...(feedback ? { feedback } : {}),
+  };
+}
+
+/**
  * Builds an MCP tool response from a {@link StageGatewayExecution}.
  *
  * Produces a structured JSON payload with outcome, feedback, and recovery
- * hints, and optionally attaches a Stage viewport capture image.
+ * hints, and optionally attaches a Stage viewport capture image. Oversized
+ * results are summarized before they reach the model.
  *
- * @param execution - The Stage gateway execution result.
+ * @param rawExecution - The Stage gateway execution result.
+ * @param tool - The Director tool that produced the execution.
  * @returns An object with structured content, MCP-compatible text/image
  *          content blocks, and an error flag.
  */
-export function createMcpToolResponse(execution: StageGatewayExecution) {
+export function createMcpToolResponse(rawExecution: StageGatewayExecution, tool?: string) {
+  const execution = projectExecutionForModel(rawExecution, tool);
   const fallbackFeedback = {
     changed: { object_ids: [], track_ids: [], scene_settings: false },
     scene_hint: createStageSceneHint(execution.scene),

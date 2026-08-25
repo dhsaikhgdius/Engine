@@ -12,6 +12,7 @@
     "./gateway": "./src/gatewayClient.ts",
     "./register": "./src/register.ts",
     "./cordis": "./src/cordis.ts",
+    "./tool-result-projection": "./src/toolResultProjection.ts",
     "./package.json": "./package.json"
   },
   "dependencies": {
