@@ -21,8 +21,26 @@ import { WORLD_EFFECT_KINDS, type EffectRenderPassId } from "./effectPresets";
  * material opts in via `material.fog` AND the scene carries a fog — three only
  * then defines USE_FOG and refreshes the fog uniforms.
  *
+ * Wind coupling: `uWind` carries the MEAN wind velocity (already scaled by
+ * `windInfluence`), and the vertex shader integrates the same three gust
+ * bands as the CPU model (worldWind.ts) in closed form over each particle's
+ * age. A gust therefore bends the trajectory smoothly from the moment it
+ * rises instead of teleporting particles already in flight — the artifact
+ * the old `uWind * age` constant-wind advection produced.
+ *
+ * Precipitation occlusion: rain/snow sample the camera-centred world height
+ * map in the VERTEX shader and collapse covered drops' footprint to zero
+ * (the AC4-style trick from the living-world survey §3.5) — cheaper than a
+ * per-fragment discard and equally deterministic, since camera state is
+ * per-frame data. A fraction of weather rain renders as ground splash rings
+ * (`uSplash`, `uGroundY`) instead of falling streaks.
+ *
  * Fire is a two-pass kind: the "fire" ramp is the alpha-blended body (occludes
  * bright backdrops) and "fire-glow" is the additive heat shimmer drawn on top.
+ * Both erode a teardrop sprite with scrolling value noise — flipbook-style
+ * temporal variation without an authored atlas, pure in `(uTime, hash)` —
+ * and shade it on a blackbody-anchored ramp. `uBurn` (from fireSystem.ts)
+ * smothers suppressed fires toward dark smolder.
  *
  * Scene-light coupling: scattering media (SCENE_LIT_EFFECT_VARIANTS) multiply
  * their ramp COLOR — never alpha — by `uSceneLightColor * uSceneLightLevel`,
@@ -43,13 +61,31 @@ export interface EffectShaderSource {
 export type EffectShaderVariant = WorldEffectKind | "fire-glow";
 
 /**
+ * Sprite atlas channel per variant (see softParticleTexture.ts): the shared
+ * 128x128 RGBA texture packs four masks — soft disc (a), flame teardrop (r),
+ * snow crystal (g), splash ring (b). Rain blends streak/ring by `vSplash`.
+ */
+export const EFFECT_SPRITE_MASK_CHANNELS: Record<EffectShaderVariant, string> = {
+  fire: "spriteTexel.r",
+  "fire-glow": "spriteTexel.r",
+  smoke: "spriteTexel.a",
+  steam: "spriteTexel.a",
+  sparks: "spriteTexel.a",
+  fireflies: "spriteTexel.a",
+  dust: "spriteTexel.a",
+  rain: "mix(spriteTexel.a, spriteTexel.b, vSplash)",
+  snow: "spriteTexel.g",
+};
+
+/**
  * Shared vertex shader for all particle effect kinds.
  *
  * Evaluates a closed-form analytic trajectory per particle from hashed
- * spawn, velocity, gravity, wind advection, and turbulence — no per-frame
- * CPU attribute writes. Camera-following precipitation wraps positions
- * around uOrigin so the volume stays filled while individual drops remain
- * world-anchored.
+ * spawn, velocity, gravity, gust-integrated wind advection, and turbulence —
+ * no per-frame CPU attribute writes. Camera-following precipitation wraps
+ * positions around uOrigin so the volume stays filled while individual drops
+ * remain world-anchored, kills drops under cover via the world height map,
+ * and renders a hashed fraction as expanding ground splash rings.
  */
 export const EFFECT_VERTEX_SHADER = /* glsl */ `
 attribute float aParticleIndex;
@@ -61,6 +97,7 @@ uniform float uIntensity;
 uniform float uSizeScale;
 uniform float uSpeedScale;
 uniform vec3 uWind;
+uniform float uGustiness;
 uniform float uEmitterMode;
 uniform vec3 uEmitterExtents;
 uniform vec2 uLifetime;
@@ -72,13 +109,21 @@ uniform vec2 uTurbFrequency;
 uniform vec2 uSize;
 uniform float uSpin;
 uniform float uStretch;
+uniform float uUpright;
 uniform float uPulse;
+uniform float uSplash;
+uniform float uGroundY;
 uniform vec3 uWrapExtents;
+uniform sampler2D uOcclusionMap;
+uniform vec3 uOcclusionOrigin;
+uniform float uOcclusionSize;
+uniform float uOcclusionBlend;
 
 varying vec2 vUv;
 varying float vAgeNorm;
 varying float vRand;
 varying float vFade;
+varying float vSplash;
 varying vec3 vParticleWorld;
 
 #include <fog_pars_vertex>
@@ -98,13 +143,34 @@ float prand(float cycleSeed, float slot) {
   return hash11(cycleSeed * 911.317 + slot * 27.1828);
 }
 
+// Gust bands mirror worldWind.ts getWorldWindSpeedMps: three incommensurate
+// sines modulating the mean speed by up to +/- 0.6 * gustiness.
+float windGustSignal(float t) {
+  return 0.55 * sin(t * 0.9) + 0.3 * sin(t * 2.33 + 1.7) + 0.15 * sin(t * 5.71 + 4.2);
+}
+
+// Antiderivative of windGustSignal: wind displacement is the exact integral
+// of the gusting speed over [spawnTime, now], so gusts bend trajectories
+// smoothly instead of teleporting particles already in flight.
+float windGustIntegral(float t) {
+  return -(0.55 / 0.9) * cos(t * 0.9) - (0.3 / 2.33) * cos(t * 2.33 + 1.7) - (0.15 / 5.71) * cos(t * 5.71 + 4.2);
+}
+
+${WORLD_HEIGHT_MAP_SAMPLE_GLSL}
+
 void main() {
   float index = aParticleIndex;
 
   // Per-particle constants: lifetime and phase offset stagger the cycles.
   float lifeRand = hash11(index * 7.313 + uSeed.x);
   float phase = hash11(index * 3.171 + uSeed.y);
+  // Splash designation is per-particle (not per-cycle) so the streak/ring
+  // split stays frame-stable while scrubbing.
+  float splashPick = hash11(index * 5.483 + uSeed.y * 1.37);
+  float isSplash = (uSplash > 0.0 && splashPick < uSplash) ? 1.0 : 0.0;
   float lifetime = max(mix(uLifetime.x, uLifetime.y, lifeRand), 0.05);
+  // Splash rings live much shorter than the fall cycles they punctuate.
+  lifetime = mix(lifetime, max(lifetime * 0.3, 0.05), isSplash);
 
   // Analytic lifecycle: age loops inside [0, lifetime); cycleIndex reseeds
   // every respawn so no two loops of one particle look identical.
@@ -157,8 +223,16 @@ void main() {
     cos(age * uTurbFrequency.x * 1.13 + turbPhaseA) + 0.5 * cos(age * uTurbFrequency.y * 0.71 + turbPhaseB)
   ) * turbGain;
 
+  // Closed-form gusting wind advection: displacement = integral of the
+  // gust-modulated wind speed over the particle's age.
+  float spawnTime = localTime - age;
+  float gustDrift = 0.6 * uGustiness * (windGustIntegral(localTime) - windGustIntegral(spawnTime));
+  vec3 windDrift = uWind * (age + gustDrift);
+
   // Closed-form trajectory: spawn + v*t + 0.5*g*t^2 + wind advection + wiggle.
-  vec3 displaced = spawn + velocity * age + 0.5 * uGravity * age * age + uWind * age + turbulence;
+  vec3 displaced = spawn + velocity * age + 0.5 * uGravity * age * age + windDrift + turbulence;
+  // Splash rings hold their hashed ground cell instead of falling.
+  displaced = mix(displaced, spawn, isSplash);
 
   // Camera-following precipitation wraps positions around uOrigin so the
   // volume stays filled while individual drops remain world-anchored.
@@ -167,24 +241,46 @@ void main() {
     offsetFromOrigin = mod(displaced - uOrigin + 0.5 * uWrapExtents, uWrapExtents) - 0.5 * uWrapExtents;
   }
   vec3 particlePos = uOrigin + offsetFromOrigin;
+  particlePos.y = mix(particlePos.y, uGroundY, isSplash);
   vParticleWorld = (modelMatrix * vec4(particlePos, 1.0)).xyz;
 
   float sizeRand = mix(0.72, 1.35, r6);
   float size = mix(uSize.x, uSize.y, ageNorm) * uSizeScale * sizeRand;
+  // Splash rings expand from a droplet hit into a fading ripple.
+  size = mix(size, (0.12 + 0.55 * ageNorm) * uSizeScale * sizeRand, isSplash);
+
+  // Precipitation cover: collapse drops under roofs/terrain recorded in the
+  // camera-centred height map — a vertex-shader kill (survey §3.5, AC4-style)
+  // that costs nothing per fragment. Soft 0.45 m band avoids edge popping.
+  if (uOcclusionBlend > 0.001) {
+    vec2 hUv = directorWorldHeightMapUv(vParticleWorld, uOcclusionOrigin, uOcclusionSize);
+    float inMap = step(0.01, hUv.x) * step(hUv.x, 0.99) * step(0.01, hUv.y) * step(hUv.y, 0.99);
+    float occluderY = directorWorldUnpackHeight(texture2D(uOcclusionMap, hUv).r);
+    float covered = smoothstep(0.0, 0.45, occluderY - (vParticleWorld.y + ${WORLD_RAIN_OCCLUSION_CLEARANCE_M.toFixed(3)}));
+    size *= 1.0 - inMap * uOcclusionBlend * covered;
+  }
 
   vec4 viewCenter = modelViewMatrix * vec4(particlePos, 1.0);
   vec2 corner = position.xy;
-  if (uStretch > 0.0) {
-    // Stretch the quad along the analytic velocity (rain streaks, sparks).
-    vec3 velocityNow = velocity + uGravity * age + uWind;
+  if (isSplash > 0.5) {
+    // Ground-aligned ripple quad lying flat on the splash plane.
+    vec3 ripple = vec3(corner.x, 0.0, corner.y) * size;
+    viewCenter = modelViewMatrix * vec4(particlePos + ripple, 1.0);
+  } else if (uStretch > 0.0) {
+    // Stretch the quad along the analytic velocity (rain streaks, sparks),
+    // slanted by the instantaneous gusting wind.
+    vec3 velocityNow = velocity + uGravity * age + uWind * (1.0 + 0.6 * uGustiness * windGustSignal(localTime));
     vec3 velocityView = (modelViewMatrix * vec4(velocityNow, 0.0)).xyz;
     float planar = length(velocityView.xy);
     vec2 axisAlong = planar > 0.001 ? velocityView.xy / planar : vec2(0.0, 1.0);
     vec2 axisAcross = vec2(axisAlong.y, -axisAlong.x);
     viewCenter.xy += axisAcross * (corner.x * size * 0.18) + axisAlong * (corner.y * size * uStretch);
   } else {
-    // Spherical billboard with per-cycle base rotation plus optional spin.
-    float spinAngle = r7 * TAU + uSpin * age * (r8 * 2.0 - 1.0);
+    // Upright kinds (fire's teardrop) wobble around the screen-up axis;
+    // everything else takes a random per-cycle base rotation. Both add the
+    // optional spin over the lifetime.
+    float baseAngle = uUpright > 0.0 ? (r7 * 2.0 - 1.0) * uUpright : r7 * TAU;
+    float spinAngle = baseAngle + uSpin * age * (r8 * 2.0 - 1.0);
     float cosSpin = cos(spinAngle);
     float sinSpin = sin(spinAngle);
     corner = vec2(corner.x * cosSpin - corner.y * sinSpin, corner.x * sinSpin + corner.y * cosSpin);
@@ -202,6 +298,7 @@ void main() {
   vUv = uv;
   vAgeNorm = ageNorm;
   vRand = r9;
+  vSplash = isSplash;
 
   // Fireflies pulse on a per-particle clock; every other kind passes 1.0.
   float pulse = 1.0;
@@ -213,100 +310,170 @@ void main() {
 `;
 
 /**
+ * Two-octave value noise shared by the volumetric-ish fragment ramps (fire
+ * erosion, smoke/steam billows). Pure in its inputs, so scrubbing to the
+ * same `uTime` always reproduces the identical frame.
+ */
+export const EFFECT_NOISE_GLSL = /* glsl */ `
+float effectHash21(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+// Bilinear value noise: cheap ALU-only detail for sprite erosion.
+float effectValueNoise(vec2 p) {
+  vec2 cell = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = effectHash21(cell);
+  float b = effectHash21(cell + vec2(1.0, 0.0));
+  float c = effectHash21(cell + vec2(0.0, 1.0));
+  float d = effectHash21(cell + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+`;
+
+/**
+ * Blackbody-anchored fire palette (survey §3.2): deep ember red near 1000 K
+ * through orange (~1500 K) to a yellow-white core (~2000 K). Shared by the
+ * fire body and glow passes so both cool along the same locus.
+ */
+export const EFFECT_FIRE_BLACKBODY_GLSL = /* glsl */ `
+vec3 effectFireBlackbody(float heat) {
+  vec3 c = mix(vec3(0.05, 0.03, 0.03), vec3(0.52, 0.09, 0.02), smoothstep(0.0, 0.28, heat));
+  c = mix(c, vec3(0.96, 0.38, 0.05), smoothstep(0.28, 0.6, heat));
+  c = mix(c, vec3(1.0, 0.78, 0.28), smoothstep(0.6, 0.84, heat));
+  return mix(c, vec3(1.0, 0.96, 0.8), smoothstep(0.84, 1.0, heat));
+}
+`;
+
+/**
  * Per-variant color/alpha ramp over the particle lifetime. Signature:
  * `vec4 effectRamp(float ageN, float rand, float mask)` returning rgb color
- * + FINAL alpha — each ramp owns how the soft-disc mask shapes its alpha
- * (the fire body widens it, everything else multiplies it straight in).
+ * + FINAL alpha. Ramps may additionally read the varyings (vUv, vSplash) and
+ * their declared uniforms (uTime for animated ramps, uBurn for fire) — all
+ * deterministic per-frame inputs.
  */
 export const EFFECT_FRAGMENT_RAMPS: Record<EffectShaderVariant, string> = {
   fire: /* glsl */ `
 vec4 effectRamp(float ageN, float rand, float mask) {
-  // Alpha-blended flame BODY: a dark-to-saturated ramp that occludes the
-  // backdrop, so fire stays legible on bright scenes where pure additive
-  // blending washes out. The additive glow pass layers heat back on top.
-  vec3 core = vec3(0.92, 0.5, 0.1);
-  vec3 mid = vec3(0.74, 0.2, 0.035);
-  vec3 ember = vec3(0.24, 0.05, 0.02);
-  // Per-particle ramp pacing: neighbours sit at different points of the same
-  // gradient, so a dense stack keeps visible tongues instead of averaging into
-  // one flat sheet.
+  // Alpha-blended flame BODY: the teardrop sprite is eroded by scrolling
+  // two-octave value noise — flipbook-style temporal variation without an
+  // authored atlas, pure f(uTime, rand) so scrubbing is exact. The ramp
+  // occludes the backdrop so fire stays legible on bright scenes.
   float paced = clamp(ageN * (0.72 + 0.56 * rand), 0.0, 1.0);
-  vec3 color = mix(core, mid, smoothstep(0.06, 0.42, paced));
-  color = mix(color, ember, smoothstep(0.42, 0.9, paced));
-  color *= 0.68 + 0.3 * rand;
-  float alpha = smoothstep(0.0, 0.08, ageN) * (1.0 - smoothstep(0.5, 1.0, ageN));
-  // Widened footprint (mask^0.6) keeps the stacked flame core near-opaque.
-  return vec4(color, alpha * pow(mask, 0.6) * 0.85);
+  vec2 flameUv = vUv * vec2(2.6, 3.4) + vec2(rand * 23.7, rand * 12.9 - uTime * (2.0 + 1.6 * rand));
+  float erosion = effectValueNoise(flameUv) * 0.62 + effectValueNoise(flameUv * 2.17 + 7.31) * 0.38;
+  float field = mask * (0.5 + 0.5 * erosion);
+  // Erosion threshold advances with age: each tongue tears apart as it rises.
+  float body = smoothstep(0.06 + 0.5 * paced, 0.36 + 0.5 * paced, field);
+  // Blackbody heat: hot young cores cool toward ember red; suppressed (wet)
+  // fires smolder darker and greyer via uBurn (see fireSystem.ts).
+  float heat = clamp(body * (1.25 - 0.85 * paced) * (0.75 + 0.25 * rand), 0.0, 1.0) * mix(0.55, 1.0, uBurn);
+  vec3 color = effectFireBlackbody(heat);
+  color = mix(vec3(0.21, 0.2, 0.19), color, mix(0.6, 1.0, uBurn));
+  float alpha = smoothstep(0.0, 0.08, ageN) * (1.0 - smoothstep(0.55, 1.0, ageN));
+  return vec4(color, alpha * body * 0.9);
 }
 `,
   "fire-glow": /* glsl */ `
 vec4 effectRamp(float ageN, float rand, float mask) {
-  // Additive heat GLOW over the body pass: emissive shimmer for dark scenes;
-  // legibility on bright scenes comes from the occluding body underneath.
-  vec3 core = vec3(1.0, 0.93, 0.72);
-  vec3 mid = vec3(1.0, 0.5, 0.12);
-  vec3 ember = vec3(0.42, 0.07, 0.02);
-  vec3 color = mix(core, mid, smoothstep(0.04, 0.4, ageN));
-  color = mix(color, ember, smoothstep(0.4, 0.92, ageN));
-  // The bloom term is gated hard on the disc centre (mask^5) and the glow pass
-  // carries a low alpha: a dense flame stacks additively without clipping the
-  // whole core to featureless white.
-  color += vec3(0.7, 0.48, 0.22) * pow(mask, 5.0) * (1.0 - ageN) * (0.6 + 0.5 * rand);
+  // Additive heat GLOW over the body pass: emissive core flicker for dark
+  // scenes; legibility on bright scenes comes from the occluding body.
+  float flick = 0.72 + 0.28 * sin(uTime * (9.0 + 6.0 * rand) + rand * 51.3);
+  float heat = clamp((1.0 - ageN) * mask * (0.8 + 0.4 * rand), 0.0, 1.0) * mix(0.4, 1.0, uBurn);
+  vec3 color = effectFireBlackbody(0.55 + 0.45 * heat);
+  // The bloom term is gated hard on the sprite core (mask^5) so a dense
+  // flame stacks additively without clipping the whole core to white.
+  color += vec3(0.65, 0.44, 0.2) * pow(mask, 5.0) * (1.0 - ageN) * flick;
   float alpha = smoothstep(0.0, 0.07, ageN) * (1.0 - smoothstep(0.5, 1.0, ageN));
   float selectedGlow = smoothstep(0.56, 0.86, rand);
-  return vec4(color, alpha * mask * 0.22 * selectedGlow);
+  return vec4(color, alpha * mask * 0.22 * selectedGlow * flick * mix(0.35, 1.0, uBurn));
 }
 `,
   smoke: /* glsl */ `
 vec4 effectRamp(float ageN, float rand, float mask) {
-  vec3 color = mix(vec3(0.26, 0.26, 0.28), vec3(0.52, 0.52, 0.55), 0.35 * rand + 0.45 * ageN);
-  float alpha = smoothstep(0.0, 0.22, ageN) * (1.0 - smoothstep(0.55, 1.0, ageN));
-  return vec4(color, alpha * mask * 0.3);
+  // Billowing erosion: slow scrolling noise breaks the disc into lobes that
+  // dissipate as the puff ages — volumetric-ish without a raymarch.
+  vec2 puffUv = vUv * 2.4 + vec2(rand * 31.7 + uTime * 0.06, rand * 17.3 - uTime * 0.13);
+  float billow = effectValueNoise(puffUv) * 0.6 + effectValueNoise(puffUv * 2.31 + 3.7) * 0.4;
+  float density = mask * smoothstep(0.18 + 0.45 * ageN, 0.62 + 0.38 * ageN, billow * 0.65 + mask * 0.5);
+  // Dense cores self-shadow darker; thin rims read lighter.
+  vec3 color = mix(vec3(0.5, 0.5, 0.54), vec3(0.24, 0.24, 0.26), density) * (0.85 + 0.3 * rand);
+  float alpha = smoothstep(0.0, 0.2, ageN) * (1.0 - smoothstep(0.55, 1.0, ageN));
+  return vec4(color, alpha * density * 0.45);
 }
 `,
   steam: /* glsl */ `
 vec4 effectRamp(float ageN, float rand, float mask) {
-  vec3 color = vec3(0.82, 0.85, 0.88);
+  // Wispy condensation: finer, faster noise than smoke, bright and quick to
+  // dissolve as the plume cools.
+  vec2 wispUv = vUv * 3.4 + vec2(rand * 21.3, rand * 9.7 - uTime * 0.55);
+  float wisp = effectValueNoise(wispUv) * 0.65 + effectValueNoise(wispUv * 2.4 + 5.1) * 0.35;
+  float density = mask * smoothstep(0.25 + 0.5 * ageN, 0.75 + 0.25 * ageN, wisp * 0.7 + mask * 0.45);
+  vec3 color = vec3(0.85, 0.88, 0.92);
   float alpha = smoothstep(0.0, 0.15, ageN) * (1.0 - smoothstep(0.4, 1.0, ageN));
-  return vec4(color, alpha * mask * (0.16 + 0.1 * rand));
+  return vec4(color, alpha * density * (0.2 + 0.12 * rand));
 }
 `,
   sparks: /* glsl */ `
 vec4 effectRamp(float ageN, float rand, float mask) {
-  vec3 hot = vec3(1.0, 0.92, 0.6);
-  vec3 cool = vec3(1.0, 0.45, 0.1);
-  vec3 color = mix(hot, cool, smoothstep(0.0, 0.7, ageN));
-  float alpha = 1.0 - smoothstep(0.6, 1.0, ageN);
+  // White-hot core cooling along the blackbody-ish locus; the leading tip
+  // (vUv.y = 1 along the velocity axis) stays hottest.
+  vec3 color = mix(vec3(1.0, 0.97, 0.82), vec3(1.0, 0.62, 0.16), smoothstep(0.0, 0.45, ageN));
+  color = mix(color, vec3(0.85, 0.25, 0.04), smoothstep(0.45, 0.85, ageN));
+  color += vec3(0.3, 0.25, 0.15) * smoothstep(0.6, 1.0, vUv.y) * (1.0 - ageN);
+  // Per-spark shimmer as the ember tumbles through the air.
+  float flick = 0.72 + 0.28 * sin(uTime * (34.0 + 21.0 * rand) + rand * 61.0);
+  float alpha = (1.0 - smoothstep(0.55, 1.0, ageN)) * flick;
   // Mild mask boost: keeps the tiny additive streaks readable on bright scenes.
-  return vec4(color, alpha * min(1.0, mask * 1.25));
+  return vec4(color, alpha * min(1.0, mask * 1.3));
 }
 `,
   fireflies: /* glsl */ `
 vec4 effectRamp(float ageN, float rand, float mask) {
-  vec3 color = mix(vec3(1.0, 0.85, 0.35), vec3(0.75, 1.0, 0.42), rand);
+  // Tight bioluminescent core inside a wide soft halo; the pulse itself
+  // arrives via vFade from the vertex shader.
+  vec3 color = mix(vec3(1.0, 0.86, 0.38), vec3(0.72, 1.0, 0.45), rand);
+  float core = pow(mask, 4.0);
+  float halo = mask * 0.45;
   float alpha = smoothstep(0.0, 0.12, ageN) * (1.0 - smoothstep(0.82, 1.0, ageN));
-  return vec4(color, alpha * min(1.0, mask * 1.2));
+  return vec4(color * (0.7 + 0.6 * core), alpha * min(1.0, core * 1.4 + halo));
 }
 `,
   dust: /* glsl */ `
 vec4 effectRamp(float ageN, float rand, float mask) {
-  vec3 color = vec3(0.78, 0.74, 0.66);
+  vec3 color = vec3(0.8, 0.75, 0.66);
+  // Slow mote shimmer as grains catch and lose the light.
+  float shimmer = 0.7 + 0.3 * sin(uTime * (0.6 + 0.9 * rand) + rand * 37.0);
   float alpha = smoothstep(0.0, 0.25, ageN) * (1.0 - smoothstep(0.7, 1.0, ageN));
-  return vec4(color, alpha * mask * (0.1 + 0.08 * rand));
+  return vec4(color, alpha * mask * (0.1 + 0.08 * rand) * shimmer);
 }
 `,
   rain: /* glsl */ `
 vec4 effectRamp(float ageN, float rand, float mask) {
-  vec3 color = vec3(0.6, 0.71, 0.85);
+  if (vSplash > 0.5) {
+    // Expanding crown ripple where a hashed drop column meets the splash
+    // plane; brightest at birth, fading as it grows.
+    float fade = (1.0 - ageN) * (1.0 - ageN);
+    return vec4(vec3(0.7, 0.79, 0.92), fade * mask * 0.5);
+  }
+  // Falling streak: the leading tip (vUv.y = 1 along the velocity axis)
+  // stays brightest, selling per-drop motion direction.
+  vec3 color = mix(vec3(0.56, 0.66, 0.82), vec3(0.84, 0.9, 1.0), smoothstep(0.35, 1.0, vUv.y));
+  float head = 0.55 + 0.45 * smoothstep(0.5, 0.95, vUv.y);
   float alpha = smoothstep(0.0, 0.06, ageN) * (1.0 - smoothstep(0.92, 1.0, ageN));
-  return vec4(color, alpha * mask * 0.32);
+  return vec4(color, alpha * mask * 0.4 * head);
 }
 `,
   snow: /* glsl */ `
 vec4 effectRamp(float ageN, float rand, float mask) {
-  vec3 color = vec3(0.93, 0.95, 1.0);
+  // Crystal glint: an occasional specular flash as the flake tumbles.
+  float glint = pow(max(0.0, sin(uTime * (1.7 + 2.3 * rand) + rand * 47.1)), 10.0);
+  vec3 color = vec3(0.93, 0.95, 1.0) * (1.0 + glint * 0.8);
   float alpha = smoothstep(0.0, 0.08, ageN) * (1.0 - smoothstep(0.85, 1.0, ageN));
-  return vec4(color, alpha * mask * (0.75 + 0.2 * rand));
+  return vec4(color, min(1.0, alpha * mask * (0.72 + 0.2 * rand + 0.4 * glint)));
 }
 `,
 };
@@ -318,42 +485,47 @@ vec4 effectRamp(float ageN, float rand, float mask) {
  */
 export const SCENE_LIT_EFFECT_VARIANTS: readonly EffectShaderVariant[] = ["smoke", "steam", "dust", "rain", "snow"];
 
+/**
+ * Variants whose fragment ramp animates over `uTime` (noise erosion, glints,
+ * flicker). Rain and fireflies animate purely through vertex-stage inputs.
+ */
+export const TIME_ANIMATED_EFFECT_VARIANTS: readonly EffectShaderVariant[] = [
+  "fire",
+  "fire-glow",
+  "smoke",
+  "steam",
+  "sparks",
+  "dust",
+  "snow",
+];
+
+/** Variants that read the fire weather suppression factor `uBurn`. */
+export const BURN_EFFECT_VARIANTS: readonly EffectShaderVariant[] = ["fire", "fire-glow"];
+
+/** Variants whose ramps sample the shared value-noise helpers. */
+const NOISE_EFFECT_VARIANTS: readonly EffectShaderVariant[] = ["fire", "fire-glow", "smoke", "steam"];
+
 function buildFragmentShader(variant: EffectShaderVariant): string {
   const sceneLit = SCENE_LIT_EFFECT_VARIANTS.includes(variant);
   const nightBoosted = variant === "fireflies";
-  const roofOccluded = variant === "rain" || variant === "snow";
+  const timeAnimated = TIME_ANIMATED_EFFECT_VARIANTS.includes(variant);
+  const burnDriven = BURN_EFFECT_VARIANTS.includes(variant);
+  const noisy = NOISE_EFFECT_VARIANTS.includes(variant);
+  const fiery = variant === "fire" || variant === "fire-glow";
   const uniformDeclarations = [
     "uniform sampler2D uMap;",
     "uniform vec3 uTint;",
     "uniform float uTintFlag;",
+    ...(timeAnimated ? ["uniform float uTime;"] : []),
+    ...(burnDriven ? ["uniform float uBurn;"] : []),
     ...(sceneLit ? ["uniform vec3 uSceneLightColor;", "uniform float uSceneLightLevel;"] : []),
     ...(nightBoosted ? ["uniform float uNightBoost;"] : []),
-    ...(roofOccluded
-      ? [
-          "uniform sampler2D uOcclusionMap;",
-          "uniform vec3 uOcclusionOrigin;",
-          "uniform float uOcclusionSize;",
-          "uniform float uOcclusionBlend;",
-        ]
-      : []),
   ].join("\n");
   // Scene light scales COLOR only: alpha stays authored so coverage/occlusion
   // does not change with time of day, only the perceived brightness does.
   const colorStage = sceneLit ? "  color *= uSceneLightColor * uSceneLightLevel;\n" : "";
   const alphaStage = nightBoosted ? "  alpha *= uNightBoost;\n" : "";
-  const occlusionHelpers = roofOccluded ? WORLD_HEIGHT_MAP_SAMPLE_GLSL : "";
-  const occlusionStage = roofOccluded
-    ? /* glsl */ `
-  float occlusion = 0.0;
-  if (uOcclusionBlend > 0.001) {
-    vec2 hUv = directorWorldHeightMapUv(vParticleWorld, uOcclusionOrigin, uOcclusionSize);
-    float inMap = step(0.01, hUv.x) * step(hUv.x, 0.99) * step(0.01, hUv.y) * step(hUv.y, 0.99);
-    float occluderY = directorWorldUnpackHeight(texture2D(uOcclusionMap, hUv).r);
-    occlusion = inMap * uOcclusionBlend * step(vParticleWorld.y + ${WORLD_RAIN_OCCLUSION_CLEARANCE_M.toFixed(3)}, occluderY);
-  }
-  alpha *= (1.0 - occlusion);
-`
-    : "";
+  const helpers = `${noisy ? EFFECT_NOISE_GLSL : ""}${fiery ? EFFECT_FIRE_BLACKBODY_GLSL : ""}`;
   return /* glsl */ `
 ${uniformDeclarations}
 
@@ -361,19 +533,20 @@ varying vec2 vUv;
 varying float vAgeNorm;
 varying float vRand;
 varying float vFade;
+varying float vSplash;
 varying vec3 vParticleWorld;
 
 #include <fog_pars_fragment>
-
+${helpers}
 ${EFFECT_FRAGMENT_RAMPS[variant]}
-${occlusionHelpers}
 
 void main() {
-  float mask = texture2D(uMap, vUv).a;
+  vec4 spriteTexel = texture2D(uMap, vUv);
+  float mask = ${EFFECT_SPRITE_MASK_CHANNELS[variant]};
   vec4 ramp = effectRamp(vAgeNorm, vRand, mask);
   vec3 color = mix(ramp.rgb, ramp.rgb * uTint, uTintFlag);
 ${colorStage}  float alpha = ramp.a * vFade;
-${alphaStage}${occlusionStage}  if (alpha < 0.004) discard;
+${alphaStage}  if (alpha < 0.004) discard;
   gl_FragColor = vec4(color, alpha);
   #include <fog_fragment>
 }
