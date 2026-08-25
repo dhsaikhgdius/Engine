@@ -43,6 +43,10 @@ import {
   Workflow,
   X,
 } from "lucide-react";
+import {
+  dispatchCreativeWorkspaceOperations,
+  type CreativeWorkspaceOperationInput,
+} from "../../../agent/dispatchCreativeWorkspaceOperations";
 import { useLanguage } from "../../i18n/language";
 import { buildScriptToCanvasPlan } from "../assistant/scriptToProductionPipeline";
 import { ComfyNodesDialog, isComfyNodeAvailabilityError } from "../comfy/ComfyNodesDialog";
@@ -216,18 +220,16 @@ export function CanvasWorkspace() {
   const workspacePrefs = useDirectorCreativeWorkspaceStore((state) => state.workspacePrefs);
   const viewport = useDirectorCreativeWorkspaceStore((state) => state.boardViewport);
   const selectedNodeId = useDirectorCreativeWorkspaceStore((state) => state.selectedBoardNodeId);
-  const addBoardNode = useDirectorCreativeWorkspaceStore((state) => state.addBoardNode);
+  // Node/edge/layout authoring dispatches through the shared agent contract
+  // (dispatchCreativeWorkspaceOperations); only drag-batch intermediate samples,
+  // view state, and section bookkeeping keep direct store mutators.
   const updateBoardNode = useDirectorCreativeWorkspaceStore((state) => state.updateBoardNode);
   const bringBoardNodeToFront = useDirectorCreativeWorkspaceStore((state) => state.bringBoardNodeToFront);
-  const removeBoardNode = useDirectorCreativeWorkspaceStore((state) => state.removeBoardNode);
   const selectBoardNode = useDirectorCreativeWorkspaceStore((state) => state.selectBoardNode);
   const setBoardViewport = useDirectorCreativeWorkspaceStore((state) => state.setBoardViewport);
   const addBoardSection = useDirectorCreativeWorkspaceStore((state) => state.addBoardSection);
   const applyScriptCanvasPlan = useDirectorCreativeWorkspaceStore((state) => state.applyScriptCanvasPlan);
   const assignBoardNodeSection = useDirectorCreativeWorkspaceStore((state) => state.assignBoardNodeSection);
-  const addBoardEdge = useDirectorCreativeWorkspaceStore((state) => state.addBoardEdge);
-  const removeBoardEdge = useDirectorCreativeWorkspaceStore((state) => state.removeBoardEdge);
-  const layoutBoardDag = useDirectorCreativeWorkspaceStore((state) => state.layoutBoardDag);
   const beginHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.beginHistoryBatch);
   const endHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.endHistoryBatch);
   const canUndo = useDirectorCreativeWorkspaceStore((state) => state.canUndo);
@@ -267,6 +269,22 @@ export function CanvasWorkspace() {
       autoDismiss: options.autoDismiss ?? severity !== "error",
     });
   };
+  /**
+   * Shared UI entry into the creative workspace agent contract. Applies one
+   * atomic mutation (or batch) and surfaces contract rejections in the Canvas
+   * status bar instead of silently no-oping.
+   */
+  const dispatchCanvas = useCallback(
+    (operations: CreativeWorkspaceOperationInput | CreativeWorkspaceOperationInput[], failureTitle: string) => {
+      const receipt = dispatchCreativeWorkspaceOperations(operations);
+      if (!receipt.ok) {
+        setComfyNodesHintVisible(false);
+        setImportMessage({ text: `${failureTitle}：${receipt.error}`, severity: "error", autoDismiss: false });
+      }
+      return receipt;
+    },
+    [],
+  );
   const updatePipelineProgress = (run: (typeof boardPipelineRuns)[number]) => {
     if (!pipelineMountedRef.current) return;
     const completed = run.nodeRuns.filter((nodeRun) => COMPLETED_PIPELINE_NODE_STATUSES.has(nodeRun.status)).length;
@@ -338,13 +356,13 @@ export function CanvasWorkspace() {
         const target = event.target;
         if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
         event.preventDefault();
-        removeBoardNode(selectedNodeId);
+        dispatchCanvas({ op: "canvas.node.remove", node_id: selectedNodeId }, t("节点删除失败"));
       }
       if (event.key === "Escape") setConnectSourceId(null);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [removeBoardNode, selectedNodeId]);
+  }, [dispatchCanvas, selectedNodeId, t]);
 
   function canvasPoint(clientX: number, clientY: number) {
     const bounds = surfaceRef.current?.getBoundingClientRect();
@@ -367,15 +385,19 @@ export function CanvasWorkspace() {
       showImportMessage(error instanceof Error ? error.message : t("素材导入失败"), "error");
       return;
     }
-    addBoardNode({
-      kind: getMediaNodeKind(item),
-      title: item.name,
-      body: item.subtitle,
-      mediaId,
-      x: (x ?? fallback.x) - 160,
-      y: (y ?? fallback.y) - 110,
-      accent: getNodeAccent(item),
-    });
+    dispatchCanvas(
+      {
+        op: "canvas.node.add",
+        kind: getMediaNodeKind(item),
+        title: item.name,
+        body: item.subtitle,
+        media_id: mediaId,
+        x: (x ?? fallback.x) - 160,
+        y: (y ?? fallback.y) - 110,
+        accent: getNodeAccent(item),
+      },
+      t("节点创建失败"),
+    );
   }
 
   function addNote() {
@@ -384,13 +406,17 @@ export function CanvasWorkspace() {
       (bounds?.left ?? 0) + (bounds?.width ?? 800) / 2,
       (bounds?.top ?? 0) + (bounds?.height ?? 600) / 2,
     );
-    addBoardNode({
-      kind: "note",
-      title: "新想法",
-      body: "双击右侧属性开始编辑。",
-      x: point.x - 140,
-      y: point.y - 78,
-    });
+    dispatchCanvas(
+      {
+        op: "canvas.node.add",
+        kind: "note",
+        title: "新想法",
+        body: "双击右侧属性开始编辑。",
+        x: point.x - 140,
+        y: point.y - 78,
+      },
+      t("节点创建失败"),
+    );
   }
 
   function addFrame() {
@@ -399,13 +425,17 @@ export function CanvasWorkspace() {
       (bounds?.left ?? 0) + (bounds?.width ?? 800) / 2,
       (bounds?.top ?? 0) + (bounds?.height ?? 600) / 2,
     );
-    addBoardNode({
-      kind: "frame",
-      title: "镜头组",
-      body: "用分组整理同一场景、角色或生成阶段的素材。",
-      x: point.x - 340,
-      y: point.y - 210,
-    });
+    dispatchCanvas(
+      {
+        op: "canvas.node.add",
+        kind: "frame",
+        title: "镜头组",
+        body: "用分组整理同一场景、角色或生成阶段的素材。",
+        x: point.x - 340,
+        y: point.y - 210,
+      },
+      t("节点创建失败"),
+    );
   }
 
   function addIdeaNode(
@@ -419,14 +449,18 @@ export function CanvasWorkspace() {
       (bounds?.left ?? 0) + (bounds?.width ?? 800) / 2,
       (bounds?.top ?? 0) + (bounds?.height ?? 600) / 2,
     );
-    addBoardNode({
-      kind,
-      title,
-      body,
-      x: point.x - 160,
-      y: point.y - 110,
-      accent,
-    });
+    dispatchCanvas(
+      {
+        op: "canvas.node.add",
+        kind,
+        title,
+        body,
+        x: point.x - 160,
+        y: point.y - 110,
+        accent,
+      },
+      t("节点创建失败"),
+    );
     setAddMenuOpen(false);
   }
 
@@ -573,18 +607,23 @@ export function CanvasWorkspace() {
             (bounds?.left ?? 0) + (bounds?.width ?? 800) / 2,
             (bounds?.top ?? 0) + (bounds?.height ?? 600) / 2,
           );
-        addBoardNode({
+        const receipt = dispatchCreativeWorkspaceOperations({
+          op: "canvas.node.add",
           kind: asset.kind,
           title: asset.name,
           body:
             asset.kind === "image"
               ? `${asset.width ?? "?"} × ${asset.height ?? "?"}`
               : `${(asset.durationSec ?? 0).toFixed(2)}s · ${asset.mimeType}`,
-          mediaId: asset.id,
+          media_id: asset.id,
           x: point.x - 160 + index * 26,
           y: point.y - 110 + index * 26,
           accent: asset.kind === "audio" ? "#4fae9d" : asset.kind === "video" ? "#d96d83" : "#8f83d9",
         });
+        if (!receipt.ok) {
+          failures.push(`${file.name}: ${receipt.error}`);
+          continue;
+        }
         imported += 1;
       } catch (error) {
         failures.push(`${file.name}: ${error instanceof Error ? error.message : t("素材导入失败")}`);
@@ -640,10 +679,14 @@ export function CanvasWorkspace() {
     if (tool === "connect") {
       if (!connectSourceId) setConnectSourceId(node.id);
       else {
-        const added = addBoardEdge(connectSourceId, node.id);
+        const receipt = dispatchCreativeWorkspaceOperations({
+          op: "canvas.edge.add",
+          source_node_id: connectSourceId,
+          target_node_id: node.id,
+        });
         showImportMessage(
-          added ? t("依赖连接已创建") : t("无法连接：重复连接或会形成循环"),
-          added ? "success" : "error",
+          receipt.ok ? t("依赖连接已创建") : `${t("无法连接")}：${receipt.error}`,
+          receipt.ok ? "success" : "error",
         );
         setConnectSourceId(null);
       }
@@ -730,8 +773,9 @@ export function CanvasWorkspace() {
   }
 
   function autoLayoutDag() {
-    if (!layoutBoardDag({ direction: "horizontal" })) {
-      showImportMessage(t("依赖图包含循环或无效连接，无法自动排列"), "error");
+    const receipt = dispatchCreativeWorkspaceOperations({ op: "canvas.dag.layout", direction: "horizontal" });
+    if (!receipt.ok) {
+      showImportMessage(`${t("无法自动排列")}：${receipt.error}`, "error");
       return;
     }
     showImportMessage(
@@ -1108,7 +1152,11 @@ export function CanvasWorkspace() {
               const y2 = target.y + target.height / 2;
               const bend = Math.max(64, Math.abs(x2 - x1) * 0.45);
               return (
-                <g className="creative-board-edge" key={edge.id} onClick={() => removeBoardEdge(edge.id)}>
+                <g
+                  className="creative-board-edge"
+                  key={edge.id}
+                  onClick={() => dispatchCanvas({ op: "canvas.edge.remove", edge_id: edge.id }, t("连接删除失败"))}
+                >
                   <path
                     className="creative-board-edge-hit"
                     d={`M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`}

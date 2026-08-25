@@ -127,8 +127,10 @@ flowchart LR
 characters/motion/IK, lights, world, scene, storyboard, and entity animation now route through
 `dispatchDirectorAuthoringActions` (batches 1a–1c plus lights/world; see the
 [parity inventory](/engineering/ui-agent-parity-inventory/) for the exact per-mutator status and
-legacy fallbacks). Timeline audio, annotations/measurements, layers, materials, asset flows, and
-the whole of Canvas/Video (1e/1f) still patch state directly, so M1 is **not complete**.
+legacy fallbacks). Discrete Canvas/Video mutators (1e/1f) now route through
+`dispatchCreativeWorkspaceOperations` over the shared creative contract. Timeline audio,
+annotations/measurements, layers, materials, asset flows, and Canvas/Video creation flows and
+continuous drag streams still patch state directly, so M1 is **not complete**.
 
 **Goal:** UI and agents share one mutation path; eliminate dual writes.
 
@@ -143,7 +145,7 @@ the whole of Canvas/Video (1e/1f) still patch state directly, so M1 is **not com
   - calls `applyDirectorAuthoringActions` internally.
 - UI patch → action compilers live in
   `frontend/director/src/agent/compileDirectorUiAuthoringActions.ts`.
-- Same pattern for Canvas/Video via `creativeWorkspaceAgentContract` — **open**.
+- Same pattern for Canvas/Video — shipped as `dispatchCreativeWorkspaceOperations`, which fills the snapshot-fingerprint guard and idempotency key and executes the same `creativeWorkspaceAgentContract` envelope agents use.
 
 #### 1.2 Migrate UI mutations in batches
 
@@ -153,8 +155,8 @@ the whole of Canvas/Video (1e/1f) still patch state directly, so M1 is **not com
 | **1b** | Cameras and shots       | `add_camera`, `update_camera`, `set_active_camera`     | Shared                                            |
 | **1c** | Characters and motion   | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | Shared                          |
 | **1d** | Timeline / coverage     | `add_coverage_shot`, `add_performance_take`, timeline audio | Storyboard + entity animation shared; timeline audio open |
-| **1e** | Canvas nodes / edges    | creative `author` batches                              | Open                                              |
-| **1f** | Video tracks / clips    | creative `author` batches                              | Open                                              |
+| **1e** | Canvas nodes / edges    | `canvas.node.*` / `canvas.edge.*` / `canvas.dag.layout` via `dispatchCreativeWorkspaceOperations` | **Shipped** |
+| **1f** | Video tracks / clips    | `edit.clip.*` / `edit.track.*` / `edit.settings.update` via `dispatchCreativeWorkspaceOperations` | **Shipped** |
 
 #### 1.3 Semantic equivalents for interactive controls
 
@@ -172,6 +174,7 @@ the whole of Canvas/Video (1e/1f) still patch state directly, so M1 is **not com
 
 - Parity harness covers batches **1a–1d** with matching revisions on UI and agent paths
   (1a–1c plus lights/world/storyboard covered today; timeline audio open).
+  Batches **1e–1f** are covered by `frontend/director/tests/agent/dispatchCreativeWorkspaceOperations.test.ts`, which diffs normalized snapshots between the UI dispatch and the agent envelope.
 - No new high-priority "UI-only, no agent twin" gaps.
 - Existing MCP / HTTP / CLI integration tests pass.
 

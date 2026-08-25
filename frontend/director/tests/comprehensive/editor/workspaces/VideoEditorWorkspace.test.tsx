@@ -54,6 +54,17 @@ vi.mock("../../../../src/comprehensive/editor/media/persistentCreativeMediaStore
       importBlob: mediaImportMocks.importBlob,
       importFile: mediaImportMocks.importFile,
       setPlaybackPreference: mediaImportMocks.setPlaybackPreference,
+      // The shared creative agent contract observes this store when the UI
+      // dispatches mutations; an empty ready library keeps snapshots valid.
+      store: {
+        getState: () => ({
+          status: "ready" as const,
+          storageMode: "memory" as const,
+          warning: null,
+          error: null,
+          assets: [],
+        }),
+      },
     },
   };
 });

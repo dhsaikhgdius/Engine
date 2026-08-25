@@ -1,0 +1,400 @@
+/**
+ * Parity harness for the creative workspace UI dispatch layer.
+ *
+ * The same operation scripts run once through dispatchCreativeWorkspaceOperations
+ * (the UI executor) and once through the public Agent envelope
+ * (executeCreativeWorkspaceAgentRequest with an explicit snapshot guard).
+ * Their final revisions must be identical after normalizing generated ids;
+ * a mismatch fails with a structural diff of the two snapshots. The harness
+ * also proves the migrated UI behaviors (ripple delete, cross dissolve)
+ * still match the legacy direct-store mutators they replaced.
+ */
+
+import { beforeEach, describe, expect, it } from "vitest";
+import { useDirectorCreativeWorkspaceStore } from "../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
+import type {
+  CreativeMediaAsset,
+  PersistentCreativeMediaState,
+} from "../../src/comprehensive/editor/media/persistentCreativeMediaStore";
+import {
+  creativeWorkspaceAgentRequestSchema,
+  executeCreativeWorkspaceAgentOperation,
+  executeCreativeWorkspaceAgentRequest,
+  observeCreativeWorkspaceAgentSnapshot,
+  type CreativeWorkspaceAgentContext,
+  type CreativeWorkspaceAgentSnapshot,
+} from "../../src/agent/creativeWorkspaceAgentContract";
+import {
+  dispatchCreativeWorkspaceOperations,
+  type CreativeWorkspaceOperationInput,
+} from "../../src/agent/dispatchCreativeWorkspaceOperations";
+
+const MEDIA_ASSETS: CreativeMediaAsset[] = [
+  {
+    id: "media:image:poster",
+    kind: "image",
+    name: "Poster",
+    fileName: "poster.png",
+    mimeType: "image/png",
+    size: 1_024,
+    createdAt: "2026-07-31T08:00:00.000Z",
+    lastModified: null,
+    durationSec: null,
+    width: 1_920,
+    height: 1_080,
+    source: "test",
+    objectUrl: "blob:poster-preview",
+  },
+  {
+    id: "media:video:take",
+    kind: "video",
+    name: "Take",
+    fileName: "take.webm",
+    mimeType: "video/webm",
+    size: 4_096,
+    createdAt: "2026-07-31T08:01:00.000Z",
+    lastModified: null,
+    durationSec: 12,
+    width: 1_920,
+    height: 1_080,
+    source: "test",
+    objectUrl: "blob:take-preview",
+  },
+];
+
+function mediaState(): PersistentCreativeMediaState {
+  return {
+    status: "ready",
+    storageMode: "memory",
+    warning: null,
+    error: null,
+    assets: MEDIA_ASSETS,
+  };
+}
+
+function context(): CreativeWorkspaceAgentContext {
+  return {
+    workspace: { getState: () => useDirectorCreativeWorkspaceStore.getState() },
+    media: { getState: () => mediaState() },
+  };
+}
+
+/** Executes one operation and returns its result payload; throws on rejection. */
+type ParityExecutor = (operation: CreativeWorkspaceOperationInput) => Record<string, unknown>;
+
+function uiExecutor(runtime: CreativeWorkspaceAgentContext): ParityExecutor {
+  return (operation) => {
+    const receipt = dispatchCreativeWorkspaceOperations(operation, { context: runtime });
+    if (!receipt.ok) throw new Error(`UI dispatch rejected ${JSON.stringify(operation)}: ${receipt.error}`);
+    return receipt.execution.result;
+  };
+}
+
+let agentRequestCounter = 0;
+
+/** Mirrors a live agent loop: observe, then execute with the fingerprint guard. */
+function agentExecutor(runtime: CreativeWorkspaceAgentContext): ParityExecutor {
+  return (operation) => {
+    const observed = observeCreativeWorkspaceAgentSnapshot(runtime);
+    const result = executeCreativeWorkspaceAgentRequest(
+      creativeWorkspaceAgentRequestSchema.parse({
+        op: "execute",
+        operation,
+        idempotency_key: `agent-parity:${(agentRequestCounter += 1)}`,
+        expected_snapshot_fingerprint: observed.snapshot_fingerprint,
+      }),
+      runtime,
+    );
+    if (result.op !== "execute") throw new Error(`Unexpected tool result "${result.op}"`);
+    if (!result.execution.success) {
+      throw new Error(`Agent envelope rejected ${JSON.stringify(operation)}: ${result.execution.error}`);
+    }
+    return result.execution.result;
+  };
+}
+
+/**
+ * Generated entity ids are random per run, so both executors would trivially
+ * diverge. Rewrite every generated id to a stable alias in first-appearance
+ * order (creation order) and drop the fingerprint, which hashes the raw ids.
+ */
+function normalizedRevision(snapshot: CreativeWorkspaceAgentSnapshot): Record<string, unknown> {
+  const { snapshot_fingerprint: _fingerprint, ...rest } = snapshot;
+  const aliases = new Map<string, string>();
+  const normalized = JSON.stringify(rest).replace(
+    /(board-node|board-edge|edit-clip|gallery-folder)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g,
+    (match, prefix: string) => {
+      let alias = aliases.get(match);
+      if (!alias) {
+        alias = `${prefix}#${aliases.size + 1}`;
+        aliases.set(match, alias);
+      }
+      return alias;
+    },
+  );
+  return JSON.parse(normalized) as Record<string, unknown>;
+}
+
+function resetWorkspace() {
+  useDirectorCreativeWorkspaceStore.getState().resetCreativeWorkspaces();
+}
+
+/** Runs the same script against a fresh workspace per executor and returns both revisions. */
+function compareExecutors(script: (execute: ParityExecutor) => void) {
+  resetWorkspace();
+  const uiRuntime = context();
+  script(uiExecutor(uiRuntime));
+  const uiRevision = normalizedRevision(observeCreativeWorkspaceAgentSnapshot(uiRuntime));
+
+  resetWorkspace();
+  const agentRuntime = context();
+  script(agentExecutor(agentRuntime));
+  const agentRevision = normalizedRevision(observeCreativeWorkspaceAgentSnapshot(agentRuntime));
+
+  return { uiRevision, agentRevision };
+}
+
+function createdId(result: Record<string, unknown>, key: string): string {
+  return (result[key] as { id: string }).id;
+}
+
+beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+  window.history.replaceState(null, "", "/");
+  resetWorkspace();
+});
+
+describe("creative workspace UI/agent parity harness", () => {
+  it("produces identical revisions for the Canvas batch (node add/remove, edge connect/remove, layout)", () => {
+    const { uiRevision, agentRevision } = compareExecutors((execute) => {
+      const note = execute({ op: "canvas.node.add", kind: "note", title: "灵感", body: "旁白基调", x: 80, y: 64 });
+      const poster = execute({
+        op: "canvas.node.add",
+        kind: "image",
+        title: "Poster",
+        media_id: "media:image:poster",
+        x: 480,
+        y: 64,
+        accent: "#8f83d9",
+      });
+      const edge = execute({
+        op: "canvas.edge.add",
+        source_node_id: createdId(note, "node"),
+        target_node_id: createdId(poster, "node"),
+      });
+      execute({ op: "canvas.dag.layout", direction: "horizontal" });
+      const doomed = execute({ op: "canvas.node.add", kind: "frame", title: "镜头组", x: 40, y: 400 });
+      execute({ op: "canvas.node.remove", node_id: createdId(doomed, "node") });
+      execute({ op: "canvas.edge.remove", edge_id: createdId(edge, "edge") });
+      execute({
+        op: "canvas.edge.add",
+        source_node_id: createdId(note, "node"),
+        target_node_id: createdId(poster, "node"),
+      });
+    });
+    expect(uiRevision).toEqual(agentRevision);
+  });
+
+  it("produces identical revisions for the Video batch (clip split/transition/ripple, tracks, settings)", () => {
+    const { uiRevision, agentRevision } = compareExecutors((execute) => {
+      execute({ op: "edit.track.add", kind: "video", name: "叠化层" });
+      const takeA = execute({
+        op: "edit.clip.add",
+        track_id: "video-1",
+        media_id: "media:video:take",
+        name: "Take A",
+        start_sec: 0,
+        duration_sec: 4,
+        source_duration_sec: 12,
+      });
+      const takeB = execute({
+        op: "edit.clip.add",
+        track_id: "video-1",
+        media_id: "media:video:take",
+        name: "Take B",
+        start_sec: 4,
+        duration_sec: 4,
+        source_duration_sec: 12,
+      });
+      execute({
+        op: "edit.clip.update",
+        clip_id: createdId(takeB, "clip"),
+        patch: { transition_in_sec: 0.5, fade_out_sec: 0.25 },
+      });
+      execute({ op: "edit.clip.split", clip_id: createdId(takeA, "clip"), at_sec: 2 });
+      execute({ op: "edit.clip.remove", clip_id: createdId(takeA, "clip"), ripple: true });
+      execute({ op: "edit.track.update", track_id: "audio-1", patch: { muted: true, name: "对白" } });
+      execute({
+        op: "edit.settings.update",
+        patch: { frame_rate: { numerator: 24_000, denominator: 1_001 }, snap_enabled: false, aspect_ratio: "9 / 16" },
+      });
+    });
+    expect(uiRevision).toEqual(agentRevision);
+  });
+
+  it("keeps the legacy direct-store ripple delete and cross dissolve semantics", () => {
+    const seedTimeline = (runtime: CreativeWorkspaceAgentContext) => {
+      const executed = agentExecutor(runtime);
+      const first = executed({
+        op: "edit.clip.add",
+        track_id: "video-1",
+        media_id: "media:video:take",
+        name: "Head",
+        start_sec: 0,
+        duration_sec: 3,
+        source_duration_sec: 12,
+      });
+      const second = executed({
+        op: "edit.clip.add",
+        track_id: "video-1",
+        media_id: "media:video:take",
+        name: "Tail",
+        start_sec: 3,
+        duration_sec: 5,
+        source_duration_sec: 12,
+      });
+      return { firstId: createdId(first, "clip"), secondId: createdId(second, "clip") };
+    };
+
+    // Legacy path: the direct store mutators the Video Editor used to call.
+    resetWorkspace();
+    const legacyRuntime = context();
+    const legacySeed = seedTimeline(legacyRuntime);
+    useDirectorCreativeWorkspaceStore.getState().setClipTransition(legacySeed.secondId, 0.5);
+    useDirectorCreativeWorkspaceStore.getState().rippleRemoveClip(legacySeed.firstId);
+    const legacyRevision = normalizedRevision(observeCreativeWorkspaceAgentSnapshot(legacyRuntime));
+
+    // Migrated path: the shared dispatch the Video Editor calls today.
+    resetWorkspace();
+    const dispatchRuntime = context();
+    const dispatchSeed = seedTimeline(dispatchRuntime);
+    const executed = uiExecutor(dispatchRuntime);
+    executed({ op: "edit.clip.update", clip_id: dispatchSeed.secondId, patch: { transition_in_sec: 0.5 } });
+    executed({ op: "edit.clip.remove", clip_id: dispatchSeed.firstId, ripple: true });
+    const dispatchRevision = normalizedRevision(observeCreativeWorkspaceAgentSnapshot(dispatchRuntime));
+
+    expect(dispatchRevision).toEqual(legacyRevision);
+  });
+
+  it("reports ripple receipts with the shifted clips", () => {
+    const runtime = context();
+    const executed = uiExecutor(runtime);
+    const first = executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:video:take",
+      name: "Head",
+      start_sec: 0,
+      duration_sec: 3,
+      source_duration_sec: 12,
+    });
+    const second = executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:video:take",
+      name: "Tail",
+      start_sec: 3,
+      duration_sec: 5,
+      source_duration_sec: 12,
+    });
+    const removal = executed({ op: "edit.clip.remove", clip_id: createdId(first, "clip"), ripple: true });
+    expect(removal).toMatchObject({
+      removed_id: createdId(first, "clip"),
+      track_id: "video-1",
+      ripple_shift_sec: 3,
+      shifted_clip_ids: [createdId(second, "clip")],
+    });
+    const state = useDirectorCreativeWorkspaceStore.getState();
+    const survivor = state.editTracks.find((track) => track.id === "video-1")?.clips[0];
+    expect(survivor?.id).toBe(createdId(second, "clip"));
+    expect(survivor?.startSec).toBe(0);
+  });
+
+  it("fills the snapshot guard and a fresh idempotency key on every dispatch", () => {
+    const runtime = context();
+    const before = observeCreativeWorkspaceAgentSnapshot(runtime).snapshot_fingerprint;
+    const first = dispatchCreativeWorkspaceOperations(
+      { op: "edit.settings.update", patch: { snap_enabled: false } },
+      { context: runtime },
+    );
+    if (!first.ok) throw new Error(first.error);
+    expect(first.snapshot_fingerprint_before).toBe(before);
+    expect(first.snapshot_fingerprint_after).toBe(observeCreativeWorkspaceAgentSnapshot(runtime).snapshot_fingerprint);
+    expect(first.execution.result.idempotency).toMatchObject({ key: first.idempotency_key, replayed: false });
+
+    // Repeating the same intent must not be swallowed by idempotency replay.
+    const second = dispatchCreativeWorkspaceOperations(
+      { op: "edit.settings.update", patch: { snap_enabled: true } },
+      { context: runtime },
+    );
+    if (!second.ok) throw new Error(second.error);
+    expect(second.idempotency_key).not.toBe(first.idempotency_key);
+    expect(useDirectorCreativeWorkspaceStore.getState().editSettings.snapEnabled).toBe(true);
+  });
+
+  it("surfaces contract rejections instead of silent no-ops and leaves the revision untouched", () => {
+    const runtime = context();
+    const executed = uiExecutor(runtime);
+    const clip = executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:video:take",
+      name: "Solo",
+      start_sec: 2,
+      duration_sec: 4,
+      source_duration_sec: 12,
+    });
+    const before = observeCreativeWorkspaceAgentSnapshot(runtime).snapshot_fingerprint;
+
+    // A cross dissolve needs an adjacent predecessor; the store used to no-op.
+    const transition = dispatchCreativeWorkspaceOperations(
+      { op: "edit.clip.update", clip_id: createdId(clip, "clip"), patch: { transition_in_sec: 0.5 } },
+      { context: runtime },
+    );
+    expect(transition).toMatchObject({ ok: false, code: "conflict" });
+    if (transition.ok) throw new Error("expected rejection");
+    expect(transition.error).toContain("predecessor");
+
+    executed({ op: "edit.track.update", track_id: "video-1", patch: { locked: true } });
+    const lockedFingerprint = observeCreativeWorkspaceAgentSnapshot(runtime).snapshot_fingerprint;
+    const removal = dispatchCreativeWorkspaceOperations(
+      { op: "edit.clip.remove", clip_id: createdId(clip, "clip"), ripple: true },
+      { context: runtime },
+    );
+    expect(removal).toMatchObject({ ok: false, code: "locked" });
+    expect(observeCreativeWorkspaceAgentSnapshot(runtime).snapshot_fingerprint).toBe(lockedFingerprint);
+    expect(before).not.toBe(lockedFingerprint);
+  });
+
+  it("dispatches multi-operation arrays as one atomic batch that rolls back on failure", () => {
+    const runtime = context();
+    const before = observeCreativeWorkspaceAgentSnapshot(runtime);
+
+    const failed = dispatchCreativeWorkspaceOperations(
+      [
+        { op: "canvas.node.add", kind: "note", title: "第一步", x: 0, y: 0 },
+        { op: "canvas.node.remove", node_id: "board-node-missing" },
+      ],
+      { context: runtime },
+    );
+    expect(failed).toMatchObject({ ok: false, code: "not_found" });
+    if (failed.ok) throw new Error("expected batch rejection");
+    expect(failed.execution?.result).toMatchObject({ failed_step_id: "ui-step-2", rolled_back: true });
+    // The fingerprint is a revision counter that advances across the rollback,
+    // so equality is asserted on the normalized content instead.
+    const after = observeCreativeWorkspaceAgentSnapshot(runtime);
+    expect(after.counts.board_nodes).toBe(before.counts.board_nodes);
+    expect(normalizedRevision(after)).toEqual(normalizedRevision(before));
+
+    const succeeded = dispatchCreativeWorkspaceOperations(
+      [
+        { op: "canvas.node.add", kind: "note", title: "第一步", x: 0, y: 0 },
+        { op: "canvas.node.add", kind: "note", title: "第二步", x: 320, y: 0 },
+      ],
+      { context: runtime },
+    );
+    if (!succeeded.ok) throw new Error(succeeded.error);
+    expect(observeCreativeWorkspaceAgentSnapshot(runtime).counts.board_nodes).toBe(before.counts.board_nodes + 2);
+  });
+});

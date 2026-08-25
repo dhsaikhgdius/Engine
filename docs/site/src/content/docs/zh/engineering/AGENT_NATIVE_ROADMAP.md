@@ -118,8 +118,9 @@ flowchart LR
 **状态：Partial**（核验于 2026-08-25）。Stage 的对象、相机、角色/motion/IK、灯光、世界、场景、
 Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAuthoringActions` 执行
 （1a–1c 批次加灯光/世界；每个 mutator 的精确状态与旧路径回退见
-[对等清单](/zh/engineering/ui-agent-parity-inventory/)）。Timeline 音频、标注/测量、图层、材质、
-资产流程以及整个 Canvas/Video（1e/1f）仍直接 patch 状态，因此 M1 **尚未完成**。
+[对等清单](/zh/engineering/ui-agent-parity-inventory/)）。Canvas/Video 离散 mutator（1e/1f）现已经
+`dispatchCreativeWorkspaceOperations` 走共享 Creative 契约执行。Timeline 音频、标注/测量、图层、材质、
+资产流程以及 Canvas/Video 的创建流程与连续拖拽流仍直接 patch 状态，因此 M1 **尚未完成**。
 
 **目标：** UI 与 Agent 共享同一 mutation 路径，消除「双轨写入」。
 
@@ -134,7 +135,7 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
   - 内部仍调用 `applyDirectorAuthoringActions`。
 - UI patch → action 编译器在
   `frontend/director/src/agent/compileDirectorUiAuthoringActions.ts`。
-- Canvas / Video 同理：Creative workspace 经 `creativeWorkspaceAgentContract` 执行，UI 不再直接 patch snapshot — **未完成**。
+- Canvas / Video 同理 — 已交付 `dispatchCreativeWorkspaceOperations`：自动填充 snapshot-fingerprint guard 与 idempotency key，执行 Agent 同一份 `creativeWorkspaceAgentContract` envelope。
 
 #### 1.2 分批迁移 UI mutation（按 inventory 优先级）
 
@@ -144,8 +145,8 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
 | **1b** | 相机与镜头           | `add_camera`, `update_camera`, `set_active_camera`     | 已 shared                                          |
 | **1c** | 角色与 motion        | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | 已 shared                       |
 | **1d** | Timeline / coverage  | `add_coverage_shot`, `add_performance_take`, timeline 音频 | Storyboard + 实体动画已 shared；timeline 音频未完成 |
-| **1e** | Canvas nodes / edges | creative `author` batch                                | 未完成                                             |
-| **1f** | Video tracks / clips | creative `author` batch                                | 未完成                                             |
+| **1e** | Canvas nodes / edges | `canvas.node.*` / `canvas.edge.*` / `canvas.dag.layout` 经 `dispatchCreativeWorkspaceOperations` | **已交付** |
+| **1f** | Video tracks / clips | `edit.clip.*` / `edit.track.*` / `edit.settings.update` 经 `dispatchCreativeWorkspaceOperations` | **已交付** |
 
 #### 1.3 交互式操控的 semantic 等价物
 
@@ -163,6 +164,7 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
 
 - Parity harness 覆盖 **1a–1d** 批次，UI 与 Agent 路径 revision 一致
   （目前已覆盖 1a–1c 加灯光/世界/Storyboard；timeline 音频未完成）。
+  **1e–1f** 由 `frontend/director/tests/agent/dispatchCreativeWorkspaceOperations.test.ts` 覆盖，对 UI dispatch 与 Agent envelope 的归一化 snapshot 做 diff。
 - 无新增「UI 直连 store、Agent 无等价」的高优先级 gap。
 - 现有 MCP / HTTP / CLI 集成测试全部通过。
 

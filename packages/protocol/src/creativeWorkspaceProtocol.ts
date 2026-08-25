@@ -328,6 +328,9 @@ const editClipPatchFields = {
   position_y: boundedNumber(-MAX_CLIP_POSITION_PX, MAX_CLIP_POSITION_PX).optional(),
   rotation_deg: boundedNumber(-MAX_CLIP_ROTATION_DEG, MAX_CLIP_ROTATION_DEG).optional(),
   fit: creativeWorkspaceFitSchema.optional(),
+  // Cross-dissolve duration into this clip from its same-track predecessor.
+  // Values above 0 require an adjacent predecessor clip at execution time.
+  transition_in_sec: boundedNumber(0, MAX_CLIP_DURATION_SEC).optional(),
 };
 const editClipAddOptionalFields = {
   source_duration_sec: editClipPatchFields.source_duration_sec,
@@ -459,7 +462,12 @@ const editClipSplitSchema = strictOperation("edit.clip.split", {
   at_sec: boundedNumber(0, MAX_TIMELINE_SEC),
 });
 
-const editClipRemoveSchema = strictOperation("edit.clip.remove", { clip_id: creativeWorkspaceIdSchema });
+const editClipRemoveSchema = strictOperation("edit.clip.remove", {
+  clip_id: creativeWorkspaceIdSchema,
+  // When true, later clips on the same track ripple earlier to close the gap
+  // (the Video Editor's ripple delete). Defaults to a plain lift delete.
+  ripple: z.boolean().optional(),
+});
 
 const rangeTrackIdsSchema = z
   .array(creativeWorkspaceIdSchema)

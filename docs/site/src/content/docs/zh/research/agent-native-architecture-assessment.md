@@ -52,7 +52,7 @@ Director 文档明确自定位为 **Agent-native，而非「可被 Agent 控制�
 
 **缺口：**
 
-- `directorStore` 多数 mutator（相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体、故事板）已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring；仍直连 store 的路径为创建流程（资产拖放、预设角色、人群、机位创建）、UI-only 分组（对象列表、人群标签）、gizmo/滑杆拖拽批次与 Canvas/Video store — 每个 mutator 的状态见 [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/)
+- `directorStore` 多数 mutator（相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体、故事板）已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring；Canvas/Video 离散 mutator（节点增删、连接增删、DAG 排列、剪辑分割/删除/转场、轨道管理、剪辑设置）经 `dispatchCreativeWorkspaceOperations` 走 Agent 同一份 `creativeWorkspaceAgentContract`；仍直连 store 的路径为创建流程（资产拖放、预设角色、人群、机位创建）、UI-only 分组（对象列表、人群标签）与 gizmo/滑杆/裁剪拖拽流 — 每个 mutator 的状态见 [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/)
 - 视口拖拽、pilot 等交互式操控缺少完整 semantic 等价物；滑块/gizmo 撤销批次有意保留轻量直接写入
 
 **评级：3.5/5**
@@ -232,7 +232,7 @@ agent-gateway.ts (composition root)
 
 ## 主要差距
 
-1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除、单次变换、相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体与故事板已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring。仍直连 store 的路径：创建流程（资产拖放、预设角色、人群、机位创建）、UI-only 对象列表/人群分组、gizmo 拖拽批次与 Canvas/Video store — 每个 mutator 的状态见 [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/)
+1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除、单次变换、相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体与故事板已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring，Canvas/Video 离散 mutator 也经 `dispatchCreativeWorkspaceOperations` 走共享 Creative 契约。仍直连 store 的路径：创建流程（资产拖放、预设角色、人群、机位创建）、UI-only 对象列表/人群分组与 gizmo/裁剪/滑杆拖拽流 — 每个 mutator 的状态见 [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/)
 2. **Governance 入口未完全统一** — MCP、本地 harness、托管 adapter 以及（自 2026-08-25 起）原始 HTTP/CLI 已共享 `filmRoleToolPolicy` 并接入按 source 标记的统一审计轨迹；人类 UI 操作仍绕过 film role
 3. **Protocol breadth** — MCP 强且已发布 HTTP tool manifest；A2A 已评估并拒绝 runtime（ADR 0004；提供 discovery-only card）；multi-agent 为自定义串行 graph
 4. **Dual surface 遗留** — `stage_*` 兼容层 vs `director_workbench` 完整模型仍并存
@@ -244,7 +244,7 @@ agent-gateway.ts (composition root)
 
 按 ROI 排序（详细里程碑见 [Agent-Native 优化路线图](/zh/engineering/agent_native_roadmap/)）：
 
-1. **继续把 UI mutator 收敛到 shared authoring dispatch** — 相机 / 姿态 / 时间线 / Canvas·Video 仍有双写
+1. **继续把 UI mutator 收敛到 shared authoring dispatch** — 创建流程与连续拖拽流仍直连 store；相机 / 姿态 / 时间线 / Canvas·Video 离散路径已共用 dispatch
 2. **完成人类 UI 的剩余治理与可选只读 mode** — 原始 HTTP/CLI 已共享 `filmRoleToolPolicy.ts` 并接入统一审计轨迹
 3. **补 team/observability 层** — collaboration auth、agent trace/cost dashboard
 4. **跨 app 编排** — tool manifest 导出已交付（`GET /api/control-plane/tool-manifest`）；A2A spike 已在 ADR 0004 得出结论（runtime no-go；discovery-only card 位于 `GET /api/control-plane/a2a-agent-card`）；仅当合作方需要 A2A task 执行时重启；cross-app 回执交接 recipe 继续保留

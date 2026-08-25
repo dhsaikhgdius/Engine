@@ -61,7 +61,7 @@ Conclusion: Director is an **agent-native product architecture, not bolt-on AI**
 
 **Gaps:**
 
-- Most `directorStore` mutators (camera panel, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, storyboard) now route through `dispatchDirectorAuthoringActions` shared with Agent authoring; remaining direct-store paths are creation flows (asset drop, preset characters, crowds, camera shots), UI-only grouping (object lists, crowd labels), gizmo/slider drag batches, and the Canvas/Video stores — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)
+- Most `directorStore` mutators (camera panel, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, storyboard) now route through `dispatchDirectorAuthoringActions` shared with Agent authoring, and discrete Canvas/Video mutators (node add/remove, edge connect/remove, DAG layout, clip split/remove/transition, track management, edit settings) dispatch through `dispatchCreativeWorkspaceOperations` over the same `creativeWorkspaceAgentContract` agents use; remaining direct-store paths are creation flows (asset drop, preset characters, crowds, camera shots), UI-only grouping (object lists, crowd labels), and gizmo/slider/trim drag streams — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)
 - Viewport drag, pilot, and other interactive controls lack full semantic equivalents; slider/gizmo undo batches intentionally keep the lightweight direct writer
 
 **Rating: 3.5/5**
@@ -263,7 +263,7 @@ agent-gateway.ts (composition root)
 
 ## Main gaps
 
-1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, gizmo drag batches, and the Canvas/Video stores — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)
+1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring, and discrete Canvas/Video mutators go through `dispatchCreativeWorkspaceOperations` over the shared creative contract. Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, and gizmo/trim/slider drag streams — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)
 2. **Incomplete governance surfaces** — MCP, local harness, hosted adapter, and (since 2026-08-25) raw HTTP/CLI share `filmRoleToolPolicy` with a unified per-source audit trail; human UI actions still bypass film roles
 3. **Protocol breadth** — MCP is strong and the HTTP tool manifest is published; A2A evaluated and rejected for a runtime (ADR 0004; discovery-only card served); multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
@@ -277,7 +277,7 @@ agent-gateway.ts (composition root)
 
 See the full phased plan in [Agent-Native Optimization Roadmap](/engineering/agent_native_roadmap/).
 
-1. **Keep routing UI mutators through shared authoring dispatch** — camera / pose / timeline / Canvas·Video still dual-write
+1. **Keep routing UI mutators through shared authoring dispatch** — creation flows and continuous drag streams still write the stores directly; camera / pose / timeline / discrete Canvas·Video paths already share dispatch
 2. **Finish remaining governance on human UI and the optional read-only mode** — raw HTTP/CLI already share `filmRoleToolPolicy.ts` with a unified audit trail
 3. **Strengthen team/observability layers** — collaboration auth, agent trace/cost dashboard
 4. **Cross-app orchestration** — the tool manifest export shipped (`GET /api/control-plane/tool-manifest`); the A2A spike concluded in ADR 0004 (runtime no-go; discovery-only card at `GET /api/control-plane/a2a-agent-card`); revisit only if a partner requires A2A task execution; the cross-app receipt handoff recipe remains
