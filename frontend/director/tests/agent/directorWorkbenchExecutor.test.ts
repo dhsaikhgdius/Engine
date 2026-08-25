@@ -14,6 +14,35 @@ import {
 } from "../../src/comprehensive/editor/assistant/pageStateBridge";
 import { useTimelineRuntimeStore } from "../../src/comprehensive/editor/runtime/timelineRuntimeStore";
 
+/**
+ * Public-wire authoring rejects `geometry_type` (white-box stays a clay look,
+ * not Stage boxes), so tests instance a project asset instead: one
+ * `upsert_asset` plus an `add_object` bound to it.
+ */
+function assetInstanceActions(objectId: string, name: string, extras: Record<string, unknown> = {}) {
+  const assetId = `asset-${objectId}`;
+  return [
+    {
+      action: "upsert_asset" as const,
+      asset: {
+        id: assetId,
+        kind: "prop" as const,
+        sourceType: "model" as const,
+        fileName: `${objectId}.glb`,
+        url: `https://assets.example.test/${objectId}.glb`,
+      },
+    },
+    {
+      action: "add_object" as const,
+      id: objectId,
+      name,
+      kind: "prop" as const,
+      asset_id: assetId,
+      ...extras,
+    },
+  ];
+}
+
 describe("Director workbench executor", () => {
   beforeEach(() => {
     const values = new Map<string, string>();
@@ -91,15 +120,7 @@ describe("Director workbench executor", () => {
   it("queries objects by name_pattern without a spatial bound", () => {
     executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
-      actions: [
-        {
-          action: "add_object",
-          id: "wood-door",
-          name: "木门",
-          kind: "prop",
-          geometry_type: "box",
-        },
-      ],
+      actions: assetInstanceActions("wood-door", "木门"),
     });
     const queried = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "query_objects",
@@ -121,19 +142,13 @@ describe("Director workbench executor", () => {
     executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
       actions: [
-        {
-          action: "add_object",
-          id: "hierarchy-root",
-          name: "Hierarchy Root",
-          kind: "prop",
-          geometry_type: "box",
-        },
+        ...assetInstanceActions("hierarchy-root", "Hierarchy Root"),
         {
           action: "add_object",
           id: "hierarchy-child",
           name: "Hierarchy Child",
           kind: "prop",
-          geometry_type: "box",
+          asset_id: "asset-hierarchy-root",
           parent_id: "hierarchy-root",
         },
       ],
@@ -165,13 +180,16 @@ describe("Director workbench executor", () => {
     const sinceRevision = getDirectorProjectRevision(useDirectorStore.getState().project);
     executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
-      actions: ["a", "b", "c"].map((suffix) => ({
-        action: "add_object" as const,
-        id: `revision-${suffix}`,
-        name: `Revision ${suffix}`,
-        kind: "prop" as const,
-        geometry_type: "box" as const,
-      })),
+      actions: [
+        ...assetInstanceActions("revision-a", "Revision a"),
+        ...["b", "c"].map((suffix) => ({
+          action: "add_object" as const,
+          id: `revision-${suffix}`,
+          name: `Revision ${suffix}`,
+          kind: "prop" as const,
+          asset_id: "asset-revision-a",
+        })),
+      ],
     });
 
     const observed = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
@@ -1331,6 +1349,10 @@ describe("Director workbench executor", () => {
   });
 
   it("applies a validated project patch as an undoable edit", () => {
+    executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
+      op: "author",
+      actions: [assetInstanceActions("agent-box", "Agent Box")[0]!],
+    });
     const execution = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "patch",
       patches: [
@@ -1343,7 +1365,7 @@ describe("Director workbench executor", () => {
             kind: "prop",
             visible: true,
             locked: false,
-            geometryType: "box",
+            assetRefId: "asset-agent-box",
             color: "#ffaa00",
             transform: { position: [1, 0, 2], rotation: [0, 0, 0], scale: [1, 1, 1] },
           },
@@ -1361,21 +1383,16 @@ describe("Director workbench executor", () => {
     const execution = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
       actions: [
-        {
-          action: "add_object",
-          id: "agent-sphere",
-          name: "Agent Sphere",
-          kind: "prop",
-          geometry_type: "sphere",
+        ...assetInstanceActions("agent-sphere", "Agent Sphere", {
           placement_mode: "grounded",
           transform: { position: [2, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
-        },
+        }),
         { action: "set_scene", patch: { backgroundColor: "#172033", groundOpacity: 0.6 } },
       ],
     });
     expect(execution).toMatchObject({
       success: true,
-      result: { changed: true, created: { object_ids: ["agent-sphere"] }, action_count: 2 },
+      result: { changed: true, created: { object_ids: ["agent-sphere"] }, action_count: 3 },
     });
     const audit = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "audit",
@@ -1636,16 +1653,9 @@ describe("Director workbench executor", () => {
   it("does not block authoring on optional spatial diagnostics", () => {
     const execution = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
-      actions: [
-        {
-          action: "add_object",
-          id: "floating-building",
-          name: "Floating Building",
-          kind: "prop",
-          geometry_type: "box",
-          transform: { position: [0, 3.1, 0], rotation: [0, 0, 0], scale: [4, 3.1, 6] },
-        },
-      ],
+      actions: assetInstanceActions("floating-building", "Floating Building", {
+        transform: { position: [0, 3.1, 0], rotation: [0, 0, 0], scale: [4, 3.1, 6] },
+      }),
     });
     expect(execution).toMatchObject({
       success: true,
@@ -2015,16 +2025,7 @@ describe("Director workbench executor", () => {
     const turnId = (baseline.result as { turn_id: string }).turn_id;
     executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
-      actions: [
-        {
-          action: "add_object",
-          id: "diff-box",
-          name: "Diff Box",
-          kind: "prop",
-          geometry_type: "box",
-          placement_mode: "grounded",
-        },
-      ],
+      actions: assetInstanceActions("diff-box", "Diff Box", { placement_mode: "grounded" }),
     });
 
     const observed = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {

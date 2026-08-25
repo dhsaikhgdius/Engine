@@ -46,11 +46,21 @@ function recordScriptedSession() {
       op: "author",
       actions: [
         {
+          action: "upsert_asset",
+          asset: {
+            id: "asset-recorder-box",
+            kind: "prop",
+            sourceType: "model",
+            fileName: "recorder-box.glb",
+            url: "https://assets.example.test/recorder-box.glb",
+          },
+        },
+        {
           action: "add_object",
           id: "recorder_box",
           name: "Recorder Box",
           kind: "prop",
-          geometry_type: "box",
+          asset_id: "asset-recorder-box",
           transform: { position: [2, 0.5, -1], rotation: [0, 0, 0], scale: [1, 1, 1] },
         },
       ],
