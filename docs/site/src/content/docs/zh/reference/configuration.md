@@ -154,6 +154,21 @@ artifact route 读取。
 原生 launcher 会把 `BLENDER_USER_SCRIPTS` 指向 `integrations/blender/live`，并禁止输出
 Python bytecode。除非某个制片明确拥有另一条路径，应把项目文件保留在配置的数据根目录中。
 
+## 引擎连接器（Unreal / Unity / Godot）
+
+| 变量                         | 默认值                                  | 用途                                                              |
+| ---------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
+| `DIRECTOR_UNREAL_EDITOR_BIN` | 常见安装路径，其次 `PATH` 发现          | 无头 Unreal 交接用的 `UnrealEditor-Cmd`                           |
+| `DIRECTOR_UNREAL_PROJECT`    | 未设置                                  | 已安装 `DirectorBridge` 插件的 `.uproject`                        |
+| `DIRECTOR_UNITY_BIN`         | 常见安装路径，其次 `PATH` 发现          | `-batchmode` 交接用的 Unity 编辑器可执行文件                      |
+| `DIRECTOR_UNITY_PROJECT`     | 未设置                                  | 含 `com.director.bridge` 包的 Unity 工程目录                      |
+| `DIRECTOR_GODOT_BIN`         | `PATH` 上的 `godot`/`godot4`，常见路径  | Godot 4 `--headless` 交接可执行文件                               |
+| `DIRECTOR_GODOT_PROJECT`     | 未设置                                  | 已启用 `director_bridge` 插件的 Godot 工程目录                    |
+
+探测到可执行文件只会使提供商 `installed`，绝不会变成 `nativeReady`。原生引擎操作要求完整健康检查
+通过（连接器文件、带版本探测的可执行文件、已配置工程、工程内已安装连接器）。引擎作业产物在
+`data/dcc-jobs/<provider>/`。
+
 ## 应用命令
 
 | 命令                               | 用途                                 |

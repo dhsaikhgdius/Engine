@@ -7,7 +7,7 @@ This page is the status source of truth for shipped Director capabilities. Produ
 explain workflows; engineering records explain design. When either disagrees with this page,
 verify the evidence below and update all three in the same change.
 
-Last verified: **2026-08-18**.
+Last verified: **2026-08-25**.
 
 ## Status vocabulary
 

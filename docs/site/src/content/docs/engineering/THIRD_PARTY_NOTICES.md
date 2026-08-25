@@ -1,6 +1,7 @@
 ---
-
-## title: Third-party notices
+title: Third-party notices
+description: Source, asset, and license notices for Director's third-party dependencies and reference projects.
+---
 
 The source and asset reuse decisions for the seven repositories in Director's
 competitive-union study are maintained in

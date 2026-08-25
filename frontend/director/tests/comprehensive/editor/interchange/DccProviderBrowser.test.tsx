@@ -1,7 +1,10 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { DirectorDccProviderCatalog, DirectorDccProviderStatus } from "../../../../src/dcc/directorDccProviderContract";
+import type {
+  DirectorDccProviderCatalog,
+  DirectorDccProviderStatus,
+} from "../../../../src/dcc/directorDccProviderContract";
 import { LanguageProvider } from "../../../../src/comprehensive/i18n/language";
 
 const client = vi.hoisted(() => ({ discover: vi.fn(), exportPackage: vi.fn(), sendToEngine: vi.fn() }));

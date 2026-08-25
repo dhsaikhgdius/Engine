@@ -1,9 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import type {
-  DirectorBlendSceneImportPlanV1,
-  DirectorBlendSceneManifestV1,
-} from "@director/dcc-protocol";
+import type { DirectorBlendSceneImportPlanV1, DirectorBlendSceneManifestV1 } from "@director/dcc-protocol";
 import type { BlenderBridge } from "../../dcc/blenderBridge";
 import type { BlenderSceneImporter } from "../../dcc/blenderSceneImport";
 import type { BlenderReturnImporter } from "../../dcc/blenderReturnImport";
@@ -836,7 +833,13 @@ describe("DCC engine handoff routes", () => {
       engineReturnImporters: { unreal: unrealImporter },
       applyAuthoring,
     });
-    expect(unrealImporter.applyImportPlan).toHaveBeenCalledWith(plan, project, revision, "engine-apply-1", applyAuthoring);
+    expect(unrealImporter.applyImportPlan).toHaveBeenCalledWith(
+      plan,
+      project,
+      revision,
+      "engine-apply-1",
+      applyAuthoring,
+    );
     expect(blenderImporter.applyImportPlan).not.toHaveBeenCalled();
     expect(json).toHaveBeenCalledWith(expect.anything(), 200, {
       success: true,

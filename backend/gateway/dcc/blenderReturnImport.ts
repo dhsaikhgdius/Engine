@@ -5,10 +5,7 @@ import { Euler, Quaternion, Vector3 } from "three";
 import { z } from "zod";
 import type { DirectorAuthoringAction } from "@director/agent-engine";
 import type { DirectorWorkbenchOperation } from "@director/agent-engine";
-import type {
-  DirectorProject,
-  DirectorTransform,
-} from "@director/project-schema";
+import type { DirectorProject, DirectorTransform } from "@director/project-schema";
 import { getDirectorProjectRevision } from "@director/project-schema";
 import {
   blenderTransformToDirector,
@@ -752,11 +749,7 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
     return null;
   }
 
-  async function buildImportPlan(
-    packageDir: string,
-    project: DirectorProject,
-    options?: DccReturnImportPlanOptions,
-  ) {
+  async function buildImportPlan(packageDir: string, project: DirectorProject, options?: DccReturnImportPlanOptions) {
     const validated = await validatePackageCached(packageDir);
     const baseline =
       validated.manifest.sourceRevision === getDirectorProjectRevision(project)
@@ -785,11 +778,7 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
       );
     }
     if (!submitted.ready || submitted.conflicts.length) {
-      throw new DirectorDccImportError(
-        "conflict_unresolved",
-        "The DCC return plan contains blocking conflicts.",
-        409,
-      );
+      throw new DirectorDccImportError("conflict_unresolved", "The DCC return plan contains blocking conflicts.", 409);
     }
     const validated = await validatePackageCached(submitted.packageDir);
     if (validated.manifest.packageId !== submitted.packageId || validated.manifestHash !== submitted.manifestHash) {

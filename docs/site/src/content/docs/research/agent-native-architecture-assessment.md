@@ -1,7 +1,7 @@
 ---
-
-## title: Agent-Native Architecture Assessment
+title: Agent-Native Architecture Assessment
 description: Evaluate Director against the Builder.io agent-native architecture framework across five principles and stack dimensions.
+---
 
 This document evaluates Director against the framework in
 [Builder.io: Agent-Native — The Next Architecture for Software](https://www.builder.io/blog/agent-native-architecture#where-agent-native-fits-in-the-software-stack).

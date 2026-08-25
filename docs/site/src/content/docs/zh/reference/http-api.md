@@ -213,6 +213,56 @@ Blender 原生解析器的 OS 或 container sandbox；私有 job 路径、限制
 变得安全。不可信文件必须先在容器或虚拟机中处理。支持与降级边界见
 [交换格式与 DCC 交接](/zh/pipelines/interchange/)。
 
+## 引擎交接（Unreal / Unity / Godot）
+
+`director_dcc` 还会通过 `integrations/{unreal,unity,godot}` 中的 Director 官方连接器跑无头引擎往返。
+先查就绪状态；`nativeReady` 要求连接器文件、带版本探测的可执行文件，以及连接器已安装到配置的引擎工程：
+
+```bash
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"status","provider":"godot"}}' | jq
+```
+
+把当前项目送入引擎。Gateway 把交换包导出到私有作业目录，调用固定连接器入口（绝不用请求提供的脚本），
+并返回经 schema 校验的主机报告：
+
+```bash
+curl -sS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"send_to_engine","provider":"godot","formats":["glb"]}}' | jq
+```
+
+连接器未就绪时，路由返回 `409 engine_not_ready` 以及结构化 `diagnostics`（`provider`、`mode`、
+`ready`、`warnings`、`recovery`），而不是裸失败。按 recovery 步骤设置 `DIRECTOR_GODOT_BIN` /
+`DIRECTOR_GODOT_PROJECT` 并安装插件，或回退到 `export_exchange_package`。
+
+把引擎侧编辑带回来时，使用与 Blender 回传相同的预览再 Apply 协议。引擎回传包携带 canonical
+Director 空间变换，因此必须显式传入产生该包的提供商：
+
+```bash
+PREVIEW="$(curl -sS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"receive_from_engine","provider":"godot","package_dir":"JOB_ID/return-package"}}')"
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "$(printf '%s' "$PREVIEW" | jq '{input:{
+    op:"apply_import_plan",
+    provider:"godot",
+    plan:.result.plan,
+    expected_revision:.result.plan.targetRevision,
+    idempotency_key:("godot-return-" + .result.plan.packageId)
+  }}')" | jq
+```
+
+`receive_from_engine` 接受与 `import_return_package` 相同的可选 `skip_director_ids` 列表。Apply
+受 revision 保护且幂等；冲突返回 `409` 以及只读计划。
+
 ## 分析参考图片
 
 `POST /api/reconstruction/reference-scene/analyze` 接收版本化

@@ -4,7 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { LanguageProvider } from "../../../../src/comprehensive/i18n/language";
 import { applyDirectorAuthoringActions } from "@director/agent-engine";
-import { createDefaultDirectorProject, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
+import {
+  createDefaultDirectorProject,
+  useDirectorStore,
+} from "../../../../src/comprehensive/editor/store/directorStore";
 import {
   setDirectorCreativeWorkspaceScope,
   useDirectorCreativeWorkspaceStore,

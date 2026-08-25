@@ -44,16 +44,7 @@ import type { DirectorMeshExportReport } from "./mesh";
 import "./DirectorInterchangeMenu.css";
 
 type DirectorInterchangeFormat =
-  | "project"
-  | "otio"
-  | "otioz"
-  | "fountain"
-  | "gltf"
-  | "glb"
-  | "usda"
-  | "usdz"
-  | "obj"
-  | "stl";
+  "project" | "otio" | "otioz" | "fountain" | "gltf" | "glb" | "usda" | "usdz" | "obj" | "stl";
 
 type DirectorInterchangeFormatEntry = { id: DirectorInterchangeFormat; label: string; detail: string };
 
