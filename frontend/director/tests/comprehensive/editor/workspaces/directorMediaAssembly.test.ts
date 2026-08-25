@@ -6,7 +6,11 @@ import {
   isDirectorMediaAssembled,
   buildDirectorMediaAssemblyTree,
 } from "../../../../src/comprehensive/editor/workspaces/directorMediaAssembly";
-import type { DirectorBoardNode, DirectorBoardEdge, DirectorEditTrack } from "../../../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
+import type {
+  DirectorBoardNode,
+  DirectorBoardEdge,
+  DirectorEditTrack,
+} from "../../../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
 
 function node(
   id: string,

@@ -1,6 +1,9 @@
 import * as Y from "yjs";
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
-import { DirectorCollaborationSession, type DirectorSharedState } from "../../../../src/comprehensive/editor/collaboration/directorCollaboration";
+import {
+  DirectorCollaborationSession,
+  type DirectorSharedState,
+} from "../../../../src/comprehensive/editor/collaboration/directorCollaboration";
 
 const IDENTITY = { id: "asset-auditor", name: "Asset Auditor", color: "#118ab2" };
 

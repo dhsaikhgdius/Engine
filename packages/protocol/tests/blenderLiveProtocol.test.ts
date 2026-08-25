@@ -61,9 +61,7 @@ describe("Blender live contract", () => {
       blenderLiveCommandBatchSchema.parse({
         requestId: "83a521f0-7fe3-4fd7-8e06-8457e806c6b4",
         expectedSceneEpoch: sceneEpoch,
-        operations: [
-          { op: "set_rna_property", target: { kind: "scene" }, path: ["eevee", "use_gtao"], value: true },
-        ],
+        operations: [{ op: "set_rna_property", target: { kind: "scene" }, path: ["eevee", "use_gtao"], value: true }],
       }).operations[0],
     ).toEqual({
       op: "set_rna_property",
@@ -839,9 +837,7 @@ describe("Blender live contract", () => {
       "sketchfab_search",
     ]);
     expect(blenderLiveReadOperationNames).toContain("export_scene_preview");
-    expect(blenderLiveReadOperationNames).toEqual(
-      expect.arrayContaining(["polyhaven_search", "sketchfab_search"]),
-    );
+    expect(blenderLiveReadOperationNames).toEqual(expect.arrayContaining(["polyhaven_search", "sketchfab_search"]));
     expect(() =>
       blenderNativeToolRequestSchema.parse({
         op: "capture",

@@ -69,9 +69,7 @@ describe("useStageTimelineAudioRehearsal stage mute", () => {
   it("does not start speaker playback while stage sound is muted", async () => {
     setStageViewportAudioEnabled(false);
     createSource.mockResolvedValue(makeSource());
-    renderHook(() =>
-      useStageTimelineAudioRehearsal({ enabled: true, endFrame: 47, isPlaying: true, timeline }),
-    );
+    renderHook(() => useStageTimelineAudioRehearsal({ enabled: true, endFrame: 47, isPlaying: true, timeline }));
     await Promise.resolve();
     expect(createSource).not.toHaveBeenCalled();
   });
@@ -79,9 +77,7 @@ describe("useStageTimelineAudioRehearsal stage mute", () => {
   it("stops an active rehearsal graph when stage sound is turned off", async () => {
     const source = makeSource();
     createSource.mockResolvedValue(source);
-    renderHook(() =>
-      useStageTimelineAudioRehearsal({ enabled: true, endFrame: 47, isPlaying: true, timeline }),
-    );
+    renderHook(() => useStageTimelineAudioRehearsal({ enabled: true, endFrame: 47, isPlaying: true, timeline }));
     await waitFor(() => expect(source.start).toHaveBeenCalledTimes(1));
     act(() => setStageViewportAudioEnabled(false));
     await waitFor(() => expect(source.stop).toHaveBeenCalled());
@@ -92,9 +88,7 @@ describe("useStageTimelineAudioRehearsal stage mute", () => {
     const first = makeSource();
     const second = makeSource();
     createSource.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
-    renderHook(() =>
-      useStageTimelineAudioRehearsal({ enabled: true, endFrame: 47, isPlaying: true, timeline }),
-    );
+    renderHook(() => useStageTimelineAudioRehearsal({ enabled: true, endFrame: 47, isPlaying: true, timeline }));
     await waitFor(() => expect(first.start).toHaveBeenCalledTimes(1));
     act(() => setStageViewportAudioEnabled(false));
     await waitFor(() => expect(first.stop).toHaveBeenCalled());

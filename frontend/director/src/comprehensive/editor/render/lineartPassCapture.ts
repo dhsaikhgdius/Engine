@@ -178,7 +178,9 @@ export function detectDirectorNormalEdges(
   }
   const edges = new Uint8Array(width * height);
   const dot = (a: number, b: number): number =>
-    normals[a * 3]! * normals[b * 3]! + normals[a * 3 + 1]! * normals[b * 3 + 1]! + normals[a * 3 + 2]! * normals[b * 3 + 2]!;
+    normals[a * 3]! * normals[b * 3]! +
+    normals[a * 3 + 1]! * normals[b * 3 + 1]! +
+    normals[a * 3 + 2]! * normals[b * 3 + 2]!;
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {

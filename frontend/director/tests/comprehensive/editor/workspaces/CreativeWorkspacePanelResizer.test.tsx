@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { CreativeWorkspacePanelResizer, useCreativeWorkspacePanelLayout } from "../../../../src/comprehensive/editor/workspaces/CreativeWorkspacePanelResizer";
+import {
+  CreativeWorkspacePanelResizer,
+  useCreativeWorkspacePanelLayout,
+} from "../../../../src/comprehensive/editor/workspaces/CreativeWorkspacePanelResizer";
 
 const STORAGE_KEY = "director.creative-panel-widths.v1";
 

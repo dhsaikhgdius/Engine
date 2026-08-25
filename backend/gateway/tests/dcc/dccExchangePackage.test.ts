@@ -12,7 +12,10 @@ import {
 import { directorDccProviderDescriptorSchema } from "@director/dcc-protocol";
 import { getDirectorProjectRevision } from "@director/project-schema";
 import { createTestDirectorProject } from "../fixtures/createTestDirectorProject";
-import { createDirectorDccExchangePackager, type CreateDirectorDccExchangePackagerOptions } from "../../dcc/dccExchangePackage";
+import {
+  createDirectorDccExchangePackager,
+  type CreateDirectorDccExchangePackagerOptions,
+} from "../../dcc/dccExchangePackage";
 
 const roots: string[] = [];
 

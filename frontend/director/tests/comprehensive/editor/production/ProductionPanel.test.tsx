@@ -1,9 +1,15 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
-import { resetDirectorSessionRuntime, updateDirectorSessionRuntime } from "../../../../src/comprehensive/editor/session/directorSessionRuntime";
+import {
+  resetDirectorSessionRuntime,
+  updateDirectorSessionRuntime,
+} from "../../../../src/comprehensive/editor/session/directorSessionRuntime";
 import { createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
-import { rememberSceneCameraThumbnail, resetSceneCameraThumbnailCache } from "../../../../src/comprehensive/editor/production/sceneCameraThumbnailCache";
+import {
+  rememberSceneCameraThumbnail,
+  resetSceneCameraThumbnailCache,
+} from "../../../../src/comprehensive/editor/production/sceneCameraThumbnailCache";
 
 const client = vi.hoisted(() => ({
   create: vi.fn(),

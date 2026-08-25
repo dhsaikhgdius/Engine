@@ -55,10 +55,7 @@ export type AgentMutation =
   | {
       tool: "director_workbench";
       operation:
-        | WorkbenchMutation
-        | WorkbenchProductionMutation
-        | WorkbenchGenerated3DPromotion
-        | WorkbenchStoryboardMutation;
+        WorkbenchMutation | WorkbenchProductionMutation | WorkbenchGenerated3DPromotion | WorkbenchStoryboardMutation;
     }
   | { tool: "director_creative"; operation: CreativeMutation };
 type AgentDurableJobMutation = { tool: "director_workbench"; operation: WorkbenchDurableJobMutation };
@@ -280,10 +277,7 @@ function durableJobReceipt(
 export function isWorkbenchMutation(
   operation: DirectorWorkbenchOperation,
 ): operation is
-  | WorkbenchMutation
-  | WorkbenchProductionMutation
-  | WorkbenchGenerated3DPromotion
-  | WorkbenchStoryboardMutation {
+  WorkbenchMutation | WorkbenchProductionMutation | WorkbenchGenerated3DPromotion | WorkbenchStoryboardMutation {
   return (
     ["patch", "author", "run_macro", "correct", "replace_project", "undo"].includes(operation.op) ||
     (operation.op === "production" && operation.command.action !== "observe") ||

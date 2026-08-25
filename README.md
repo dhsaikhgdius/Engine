@@ -58,15 +58,15 @@ to select a workspace.
 
 ## Highlights
 
-| Domain                    | What you get                                                                                                                                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Domain                    | What you get                                                                                                                                                                                                |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **3D Stage**              | Catalog meshes, Blender-authored geometry, or promoted generated-3D assets; Mixamo characters; pose/IK; physical cameras; animation tracks; storyboard coverage; clean capture and diagnostic render passes |
-| **Canvas & Video Editor** | Graph authoring and a durable multimodal production DAG, picture/audio/caption tracks, rational frame rates, SMPTE timecode, waveform display, proxy selection, and offline relink                           |
-| **Agent control plane**   | Exact target tokens, revision/fingerprint guards, idempotency keys, audit/correct/deliver loops, persistent sessions, and role-to-model Profile routing                                                      |
-| **Production automation** | A durable serial multi-Agent graph from planning through visual critique, repair, generation, and editorial reporting                                                                                        |
-| **Interchange**           | Tested Director subsets for Fountain, OTIO/OTIOZ, glTF/GLB, USDA/USDZ, plus reviewable `.blend` import and a revision-guarded Blender round trip                                                             |
-| **Generative production** | Durable ComfyUI image/video/audio jobs, Meshy/Tripo 3D jobs, transcription/captions, Shot IR and verified Shot Packages, plus an optional LTX-2.3 Python worker                                              |
-| **Collaboration**         | Yjs synchronization, presence, anchored review comments, named versions, comparison, and restore for one Director gateway deployment                                                                         |
+| **Canvas & Video Editor** | Graph authoring and a durable multimodal production DAG, picture/audio/caption tracks, rational frame rates, SMPTE timecode, waveform display, proxy selection, and offline relink                          |
+| **Agent control plane**   | Exact target tokens, revision/fingerprint guards, idempotency keys, audit/correct/deliver loops, persistent sessions, and role-to-model Profile routing                                                     |
+| **Production automation** | A durable serial multi-Agent graph from planning through visual critique, repair, generation, and editorial reporting                                                                                       |
+| **Interchange**           | Tested Director subsets for Fountain, OTIO/OTIOZ, glTF/GLB, USDA/USDZ, plus reviewable `.blend` import and a revision-guarded Blender round trip                                                            |
+| **Generative production** | Durable ComfyUI image/video/audio jobs, Meshy/Tripo 3D jobs, transcription/captions, Shot IR and verified Shot Packages, plus an optional LTX-2.3 Python worker                                             |
+| **Collaboration**         | Yjs synchronization, presence, anchored review comments, named versions, comparison, and restore for one Director gateway deployment                                                                        |
 
 The [feature status matrix](./docs/site/src/content/docs/reference/feature-status.md) separates
 stable, experimental, limited, and planned behavior. “Supported interchange” does not mean
@@ -96,41 +96,41 @@ armature. See [the backend layout](./backend/README.md) and
 
 ### Repository layout
 
-| Path                             | Responsibility                                                                                                                |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `frontend/director/`             | React Director product and browser workspaces                                                                                 |
-| `backend/gateway/`               | TypeScript Gateway, jobs, media, collaboration, and tool HTTP for DSH / MCP                                                   |
-| `packages/`                      | Shared npm workspaces: protocol, agent-engine, dsh-plugin-workbench, project-schema, stage-protocol, dcc-*, model-provider, di, scene-pipeline |
-| `packages/dsh-plugin-workbench/` | Director Stage / Canvas / Video / Blender tools as a DeepSeek Harness plugin                                                  |
-| `vendor/`                        | Official third-party Git submodules: DeepSeek Harness, LTX-2, Hunyuan3D-2, TRELLIS, ARDY. Do not fork them in-tree            |
-| `integrations/blender/live/`     | Blender live modeling kernel (`worldengine_studio`)                                                                           |
-| `integrations/blender/interchange/` | Trusted `.blend` import and Director scene round-trip                                                                      |
-| `integrations/plugins/`          | Portable Agent/MCP plugin built from the same workbench contracts                                                             |
-| `assets/`                        | Asset catalogs, manifests, provenance, and license metadata                                                                   |
-| `data/`                          | Mutable runtime state; only JSON Schemas and the README stay in Git                                                           |
-| `docs/site/`                     | Product and engineering documentation site                                                                                    |
-| `docs/research/`                 | Paper drafts, literature review, and research notes                                                                           |
-| `tools/`                         | Vite, Vitest, ESLint, TypeScript, PostCSS/Tailwind configs; scripts, Playwright, evals                                        |
+| Path                                | Responsibility                                                                                                                                 |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontend/director/`                | React Director product and browser workspaces                                                                                                  |
+| `backend/gateway/`                  | TypeScript Gateway, jobs, media, collaboration, and tool HTTP for DSH / MCP                                                                    |
+| `packages/`                         | Shared npm workspaces: protocol, agent-engine, dsh-plugin-workbench, project-schema, stage-protocol, dcc-*, model-provider, di, scene-pipeline |
+| `packages/dsh-plugin-workbench/`    | Director Stage / Canvas / Video / Blender tools as a DeepSeek Harness plugin                                                                   |
+| `vendor/`                           | Official third-party Git submodules: DeepSeek Harness, LTX-2, Hunyuan3D-2, TRELLIS, ARDY. Do not fork them in-tree                             |
+| `integrations/blender/live/`        | Blender live modeling kernel (`worldengine_studio`)                                                                                            |
+| `integrations/blender/interchange/` | Trusted `.blend` import and Director scene round-trip                                                                                          |
+| `integrations/plugins/`             | Portable Agent/MCP plugin built from the same workbench contracts                                                                              |
+| `assets/`                           | Asset catalogs, manifests, provenance, and license metadata                                                                                    |
+| `data/`                             | Mutable runtime state; only JSON Schemas and the README stay in Git                                                                            |
+| `docs/site/`                        | Product and engineering documentation site                                                                                                     |
+| `docs/research/`                    | Paper drafts, literature review, and research notes                                                                                            |
+| `tools/`                            | Vite, Vitest, ESLint, TypeScript, PostCSS/Tailwind configs; scripts, Playwright, evals                                                         |
 
 Generated scenes, build trees, and local checkpoints live under the ignored `.runtime/` directory.
 
 ## Per-directory READMEs
 
-| README | Purpose |
-| --- | --- |
-| [`frontend/director/`](./frontend/director/README.md) | React + R3F browser product with Stage/Canvas/Video/Gallery workspaces |
-| [`backend/`](./backend/README.md) | Backend layer overview (gateway; official model sources live in `vendor/`) |
-| [`backend/gateway/`](./backend/gateway/README.md) | TypeScript gateway: jobs, media, collaboration, HTTP/MCP |
-| [`vendor/`](./vendor/README.md) | Official third-party Git submodules and lock files |
-| [`packages/`](./packages/README.md) | Shared transport contracts and runtime packages |
-| [`integrations/`](./integrations/README.md) | Blender live kernel, interchange, and portable Agent plugin |
-| [`assets/`](./assets/README.md) | Asset catalogs, manifests, and license metadata |
-| [`tools/`](./tools/README.md) | Vite, Vitest, ESLint, TypeScript, and PostCSS/Tailwind configs |
-| [`tools/scripts/`](./tools/scripts/README.md) | Repository automation, local launchers, and checks |
-| [`tools/evals/`](./tools/evals/README.md) | Agent golden-task evals |
-| [`tools/e2e/`](./tools/e2e/README.md) | Playwright end-to-end tests |
-| [`docs/site/`](./docs/site/README.md) | Astro/Starlight bilingual documentation site |
-| [`data/`](./data/README.md) | Mutable runtime state (only schema and README in Git) |
+| README                                                | Purpose                                                                    |
+| ----------------------------------------------------- | -------------------------------------------------------------------------- |
+| [`frontend/director/`](./frontend/director/README.md) | React + R3F browser product with Stage/Canvas/Video/Gallery workspaces     |
+| [`backend/`](./backend/README.md)                     | Backend layer overview (gateway; official model sources live in `vendor/`) |
+| [`backend/gateway/`](./backend/gateway/README.md)     | TypeScript gateway: jobs, media, collaboration, HTTP/MCP                   |
+| [`vendor/`](./vendor/README.md)                       | Official third-party Git submodules and lock files                         |
+| [`packages/`](./packages/README.md)                   | Shared transport contracts and runtime packages                            |
+| [`integrations/`](./integrations/README.md)           | Blender live kernel, interchange, and portable Agent plugin                |
+| [`assets/`](./assets/README.md)                       | Asset catalogs, manifests, and license metadata                            |
+| [`tools/`](./tools/README.md)                         | Vite, Vitest, ESLint, TypeScript, and PostCSS/Tailwind configs             |
+| [`tools/scripts/`](./tools/scripts/README.md)         | Repository automation, local launchers, and checks                         |
+| [`tools/evals/`](./tools/evals/README.md)             | Agent golden-task evals                                                    |
+| [`tools/e2e/`](./tools/e2e/README.md)                 | Playwright end-to-end tests                                                |
+| [`docs/site/`](./docs/site/README.md)                 | Astro/Starlight bilingual documentation site                               |
+| [`data/`](./data/README.md)                           | Mutable runtime state (only schema and README in Git)                      |
 
 ## Agent-native workflow
 
@@ -224,20 +224,20 @@ npm --prefix docs/site install
 npm run docs:dev
 ```
 
-| Goal                              | Guide                                                                                                  |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Install and verify                | [Install & Run](./docs/site/src/content/docs/getting-started/install.md)                               |
-| Produce a first accepted shot     | [End-to-end verified shot](./docs/site/src/content/docs/tutorials/verified-shot.md)                    |
-| Operate the 3D Stage              | [3D Editor](./docs/site/src/content/docs/editor/index.md)                                              |
-| Pose, IK, and animate characters  | [Characters](./docs/site/src/content/docs/editor/characters.md)                                        |
-| Connect an Agent                  | [Agent Control](./docs/site/src/content/docs/agents/index.md)                                          |
-| Route roles to different models   | [Multi-Agent production](./docs/site/src/content/docs/agents/multi-agent.md)                           |
-| Let Agents select real assets     | [Asset discovery](./docs/site/src/content/docs/agents/assets.md)                                       |
-| Restore external runtime assets   | [Open-source assets](./docs/site/src/content/docs/development/open-source-assets.md)                   |
-| Integrate HTTP                    | [Gateway HTTP API](./docs/site/src/content/docs/reference/http-api.md)                                 |
-| Exchange with DCC/editorial tools | [Interchange](./docs/site/src/content/docs/pipelines/interchange.md)                                   |
-| Understand maturity and limits    | [Feature status](./docs/site/src/content/docs/reference/feature-status.md)                             |
-| Contribute safely                 | [Development guide](./docs/site/src/content/docs/development/index.md)                                 |
+| Goal                              | Guide                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------ |
+| Install and verify                | [Install & Run](./docs/site/src/content/docs/getting-started/install.md)             |
+| Produce a first accepted shot     | [End-to-end verified shot](./docs/site/src/content/docs/tutorials/verified-shot.md)  |
+| Operate the 3D Stage              | [3D Editor](./docs/site/src/content/docs/editor/index.md)                            |
+| Pose, IK, and animate characters  | [Characters](./docs/site/src/content/docs/editor/characters.md)                      |
+| Connect an Agent                  | [Agent Control](./docs/site/src/content/docs/agents/index.md)                        |
+| Route roles to different models   | [Multi-Agent production](./docs/site/src/content/docs/agents/multi-agent.md)         |
+| Let Agents select real assets     | [Asset discovery](./docs/site/src/content/docs/agents/assets.md)                     |
+| Restore external runtime assets   | [Open-source assets](./docs/site/src/content/docs/development/open-source-assets.md) |
+| Integrate HTTP                    | [Gateway HTTP API](./docs/site/src/content/docs/reference/http-api.md)               |
+| Exchange with DCC/editorial tools | [Interchange](./docs/site/src/content/docs/pipelines/interchange.md)                 |
+| Understand maturity and limits    | [Feature status](./docs/site/src/content/docs/reference/feature-status.md)           |
+| Contribute safely                 | [Development guide](./docs/site/src/content/docs/development/index.md)               |
 
 Deep schemas and engineering notes remain under
 [`docs/site/src/content/docs/engineering/`](./docs/site/src/content/docs/engineering/).

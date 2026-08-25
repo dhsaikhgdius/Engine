@@ -166,7 +166,8 @@ function readLtx2LockMeta() {
     return {
       repository: lock.repository,
       commit: lock.commit,
-      pipelineVersion: typeof lock.packages?.["ltx-pipelines"] === "string" ? lock.packages["ltx-pipelines"] : undefined,
+      pipelineVersion:
+        typeof lock.packages?.["ltx-pipelines"] === "string" ? lock.packages["ltx-pipelines"] : undefined,
     };
   } catch {
     return undefined;
@@ -751,9 +752,9 @@ export function publicControlPlaneCapabilities(config: DirectorControlPlaneConfi
         "ltx-2.3": {
           configured: Boolean(
             config.video.ltx23.sourceRoot &&
-              config.video.ltx23.distilledCheckpointPath &&
-              config.video.ltx23.spatialUpsamplerPath &&
-              config.video.ltx23.gemmaRoot,
+            config.video.ltx23.distilledCheckpointPath &&
+            config.video.ltx23.spatialUpsamplerPath &&
+            config.video.ltx23.gemmaRoot,
           ),
           model: config.video.ltx23.model,
         },

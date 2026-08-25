@@ -16,9 +16,7 @@ it("owns its own grid layout instead of depending on missing interchange rules",
   expect(css).toMatch(
     /\.blender-live-panel\.is-sidebar \.blender-live-fields,\s*\n\.blender-live-panel\.is-sidebar \.blender-live-presets\s*\{[\s\S]*?display:\s*grid;/,
   );
-  expect(css).toMatch(
-    /\.blender-live-panel\.is-sidebar \.blender-mesh-editor\s*\{[\s\S]*?display:\s*grid;/,
-  );
+  expect(css).toMatch(/\.blender-live-panel\.is-sidebar \.blender-mesh-editor\s*\{[\s\S]*?display:\s*grid;/);
   expect(css).toMatch(
     /\.blender-live-panel\.is-sidebar \.blender-mesh-facts\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/,
   );
@@ -28,9 +26,7 @@ it("uses segmented tabs instead of overflowing pill chips", () => {
   expect(css).toMatch(
     /\.blender-live-panel\.is-sidebar \.blender-live-tool-tabs,\s*\n\.blender-live-panel\.is-sidebar \.blender-mesh-tabs,\s*\n\.blender-live-panel\.is-sidebar \.blender-mesh-segments\s*\{[\s\S]*?display:\s*grid;[\s\S]*?border-radius:\s*10px;/,
   );
-  expect(css).not.toMatch(
-    /\.blender-live-panel\.is-sidebar \.blender-live-tool-tabs[\s\S]*?border-radius:\s*999px;/,
-  );
+  expect(css).not.toMatch(/\.blender-live-panel\.is-sidebar \.blender-live-tool-tabs[\s\S]*?border-radius:\s*999px;/);
 });
 
 it("embeds mesh editing into the properties inspector without a standalone heading row", () => {
@@ -43,7 +39,5 @@ it("keeps sidebar chrome typographic instead of decorative cards", () => {
   expect(css).toMatch(
     /\.blender-live-panel\.is-sidebar \.blender-live-status\s*\{[\s\S]*?display:\s*flex;[\s\S]*?overflow:\s*visible;/,
   );
-  expect(css).toMatch(
-    /\.blender-live-panel\.is-sidebar \.blender-live-status-copy\s*\{[\s\S]*?display:\s*flex;/,
-  );
+  expect(css).toMatch(/\.blender-live-panel\.is-sidebar \.blender-live-status-copy\s*\{[\s\S]*?display:\s*flex;/);
 });

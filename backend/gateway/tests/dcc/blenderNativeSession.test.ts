@@ -175,9 +175,7 @@ describe("Blender native session", () => {
     );
     const session = createBlenderNativeSession({ fetcher });
 
-    await expect(session.previewGlb("21c84665-2730-4248-9a0e-45b798b5b3fe")).rejects.toThrow(
-      /invalid scene headers/i,
-    );
+    await expect(session.previewGlb("21c84665-2730-4248-9a0e-45b798b5b3fe")).rejects.toThrow(/invalid scene headers/i);
   });
 
   it("rejects binary previews that declare more than the binary byte cap", async () => {
@@ -194,9 +192,7 @@ describe("Blender native session", () => {
     );
     const session = createBlenderNativeSession({ fetcher });
 
-    await expect(session.previewGlb("21c84665-2730-4248-9a0e-45b798b5b3fe")).rejects.toThrow(
-      /binary size limit/i,
-    );
+    await expect(session.previewGlb("21c84665-2730-4248-9a0e-45b798b5b3fe")).rejects.toThrow(/binary size limit/i);
   });
 
   it("surfaces the native 404 for unknown or consumed previews", async () => {

@@ -3,7 +3,10 @@ import type {
   DirectorWorldEffect,
   DirectorWorldWeather,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
-import { EFFECT_PRESETS, WEATHER_PRECIPITATION_BOX_SIZE } from "../../../../../src/comprehensive/editor/world/effects/effectPresets";
+import {
+  EFFECT_PRESETS,
+  WEATHER_PRECIPITATION_BOX_SIZE,
+} from "../../../../../src/comprehensive/editor/world/effects/effectPresets";
 import {
   EMITTER_MODE_BOX,
   EMITTER_MODE_DISC,

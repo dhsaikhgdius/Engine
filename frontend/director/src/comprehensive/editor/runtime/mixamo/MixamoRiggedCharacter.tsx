@@ -141,7 +141,10 @@ const RUNTIME_LOCOMOTION_MOTIONS = RUNTIME_LOCOMOTION_CLIP_IDS.map((clipId) =>
   getDirectorCharacterMotion(clipId),
 ).filter((motion): motion is NonNullable<ReturnType<typeof getDirectorCharacterMotion>> => motion !== null);
 
-class MixamoRuntimeErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { hasError: boolean }> {
+class MixamoRuntimeErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
   state = { hasError: false };
 
   static getDerivedStateFromError() {

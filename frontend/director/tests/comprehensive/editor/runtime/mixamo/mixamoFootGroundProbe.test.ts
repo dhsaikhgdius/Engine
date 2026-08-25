@@ -6,7 +6,10 @@ import { describe, expect, it, vi } from "vitest";
 import { localAssetIt } from "../../../../../../../packages/protocol/tests/localAssetTest";
 import { configureDirectorGLTFLoader } from "../../../../../src/comprehensive/editor/runtime/gltfLoader";
 import { prepareMixamoCharacterInstance } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterPrepare";
-import { MixamoFootGroundProbe, isMixamoWalkableGroundHit } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootGroundProbe";
+import {
+  MixamoFootGroundProbe,
+  isMixamoWalkableGroundHit,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootGroundProbe";
 
 function plane(width = 8, height = 8) {
   const mesh = new Mesh(new PlaneGeometry(width, height), new MeshBasicMaterial());

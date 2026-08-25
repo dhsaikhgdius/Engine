@@ -268,11 +268,21 @@ it("captures opt-in author evidence against the committed project revision", asy
         actions: [
           { action: "upsert_asset", asset: getDirectorAgentCatalogAsset("flick:animals:cat.glb")!.asset },
           {
+            action: "upsert_asset",
+            asset: {
+              id: "asset-evidence-box",
+              kind: "prop",
+              sourceType: "model",
+              fileName: "evidence-box.glb",
+              url: "https://assets.example.test/evidence-box.glb",
+            },
+          },
+          {
             action: "add_object",
             id: "evidence-box",
             name: "Evidence box",
             kind: "prop",
-            asset_id: "flick:animals:cat.glb",
+            asset_id: "asset-evidence-box",
           },
         ],
         evidence: {},

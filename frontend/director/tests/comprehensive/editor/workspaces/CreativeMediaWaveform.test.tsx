@@ -1,7 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
 import type { CreativeMediaWaveformData } from "../../../../src/comprehensive/editor/media/creativeMediaEngineering";
-import { buildCreativeMediaWaveformPath, CreativeMediaWaveform } from "../../../../src/comprehensive/editor/workspaces/CreativeMediaWaveform";
+import {
+  buildCreativeMediaWaveformPath,
+  CreativeMediaWaveform,
+} from "../../../../src/comprehensive/editor/workspaces/CreativeMediaWaveform";
 
 const WAVEFORM: CreativeMediaWaveformData = {
   version: 1,

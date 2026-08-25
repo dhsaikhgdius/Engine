@@ -459,10 +459,7 @@ describe("Blender native mesh editor", () => {
     };
 
     expect(findPreferredBlenderMeshId(snapshot, "asset-root")).toBe("mesh-b");
-    expect(findBlenderMeshesForObject(snapshot, "asset-root").map((mesh) => mesh.id)).toEqual([
-      "mesh-a",
-      "mesh-b",
-    ]);
+    expect(findBlenderMeshesForObject(snapshot, "asset-root").map((mesh) => mesh.id)).toEqual(["mesh-a", "mesh-b"]);
   });
 
   it("keeps object editing and creation inside the current Director project", async () => {

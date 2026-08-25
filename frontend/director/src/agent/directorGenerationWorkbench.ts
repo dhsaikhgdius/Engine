@@ -1,11 +1,5 @@
-import type {
-  ComfyGenerationSubmitRequest,
-  ComfyWorkflowRecord,
-} from "@director/protocol/comfyGenerationProtocol";
-import type {
-  ProductionJobArtifact,
-  ProductionJobRecord,
-} from "@director/protocol/productionJobProtocol";
+import type { ComfyGenerationSubmitRequest, ComfyWorkflowRecord } from "@director/protocol/comfyGenerationProtocol";
+import type { ProductionJobArtifact, ProductionJobRecord } from "@director/protocol/productionJobProtocol";
 import { probeCreativeMediaFile } from "../comprehensive/editor/media/creativeMediaProbe";
 import {
   persistentCreativeMediaLibrary,

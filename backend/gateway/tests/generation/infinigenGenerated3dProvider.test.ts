@@ -111,7 +111,10 @@ describe("Infinigen generated-3D provider", () => {
       return current.status === "succeeded" ? current : null;
     });
     const argv = JSON.parse(
-      await readFile(new URL("argv.json", `${snapshot.modelUrl!.slice(0, snapshot.modelUrl!.lastIndexOf("/"))}/`), "utf8"),
+      await readFile(
+        new URL("argv.json", `${snapshot.modelUrl!.slice(0, snapshot.modelUrl!.lastIndexOf("/"))}/`),
+        "utf8",
+      ),
     ) as string[];
     expect(argv).toContain("--kind");
     expect(argv[argv.indexOf("--kind") + 1]).toBe("environment");

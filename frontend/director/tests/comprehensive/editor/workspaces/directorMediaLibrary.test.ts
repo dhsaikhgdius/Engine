@@ -38,7 +38,10 @@ import {
   useDirectorMediaLibrary,
   type DirectorMediaItem,
 } from "../../../../src/comprehensive/editor/workspaces/directorMediaLibrary";
-import { setDirectorCreativeWorkspaceScope, useDirectorCreativeWorkspaceStore } from "../../../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
+import {
+  setDirectorCreativeWorkspaceScope,
+  useDirectorCreativeWorkspaceStore,
+} from "../../../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
 
 const WAVEFORM: CreativeMediaWaveformData = {
   version: 1,

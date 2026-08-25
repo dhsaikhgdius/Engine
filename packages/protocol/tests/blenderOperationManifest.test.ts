@@ -26,9 +26,7 @@ describe("blender operation manifest", () => {
 
   it("declares transaction behavior used by both gateway and Blender", () => {
     expect(BLENDER_READ_OPERATION_NAMES).toContain("inspect_object");
-    expect(BLENDER_READ_OPERATION_NAMES).toEqual(
-      expect.arrayContaining(["polyhaven_search", "sketchfab_search"]),
-    );
+    expect(BLENDER_READ_OPERATION_NAMES).toEqual(expect.arrayContaining(["polyhaven_search", "sketchfab_search"]));
     expect(blenderOperationRequiresSceneGuard("polyhaven_search")).toBe(false);
     expect(blenderOperationRequiresSceneGuard("polyhaven_import")).toBe(true);
     expect(BLENDER_SELECTION_OPERATION_NAMES).toContain("set_selection");

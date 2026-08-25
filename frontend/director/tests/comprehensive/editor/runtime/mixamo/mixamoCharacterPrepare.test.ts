@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { localAssetIt } from "../../../../../../../packages/protocol/tests/localAssetTest";
 import { DEFAULT_DIRECTOR_CHARACTER_HEIGHT_M } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
-import { prepareMixamoCharacterInstance, resetMixamoCharacterScaleCache } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterPrepare";
+import {
+  prepareMixamoCharacterInstance,
+  resetMixamoCharacterScaleCache,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterPrepare";
 
 const HERO_FBX_URL = "/director-characters/models/Standing%20Idle.fbx";
 
@@ -37,7 +40,8 @@ localAssetIt("prepares the bundled hero FBX at the catalog height and reuses sca
 });
 
 it("normalizes layout with a cached scale factor", async () => {
-  const { normalizeMixamoCharacterLayout } = await import("../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig");
+  const { normalizeMixamoCharacterLayout } =
+    await import("../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig");
   const { BoxGeometry, Group, Mesh, MeshStandardMaterial } = await import("three");
   const character = new Group();
   const body = new Mesh(new BoxGeometry(0.8, 180, 0.4), new MeshStandardMaterial());

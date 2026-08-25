@@ -538,12 +538,7 @@ export function useViewportChromeDrag(
       const handleMove = (moveEvent: PointerEvent) => {
         const drag = dragRef.current;
         if (!drag || moveEvent.pointerId !== drag.pointerId) return;
-        pendingOffset = resolveViewportChromeOffsetFromPointer(
-          moveEvent,
-          drag.grabOffset,
-          drag.panelSize,
-          drag.bounds,
-        );
+        pendingOffset = resolveViewportChromeOffsetFromPointer(moveEvent, drag.grabOffset, drag.panelSize, drag.bounds);
         if (animationFrameId === null) {
           animationFrameId = window.requestAnimationFrame(() => {
             animationFrameId = null;

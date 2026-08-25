@@ -1,5 +1,8 @@
 import { expect, it } from "vitest";
-import { DEFAULT_DIRECTOR_GALLERY_PREFS, createDefaultDirectorGalleryMediaRecord } from "../../../../src/comprehensive/editor/workspaces/directorGallery";
+import {
+  DEFAULT_DIRECTOR_GALLERY_PREFS,
+  createDefaultDirectorGalleryMediaRecord,
+} from "../../../../src/comprehensive/editor/workspaces/directorGallery";
 import { selectDirectorGalleryItems } from "../../../../src/comprehensive/editor/workspaces/directorGalleryView";
 import type { DirectorMediaItem } from "../../../../src/comprehensive/editor/workspaces/directorMediaLibrary";
 

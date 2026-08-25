@@ -8,10 +8,7 @@
  * integrations/blender/live/addons/worldengine_studio/kernel_policy.py in sync.
  */
 
-import {
-  BLENDER_LONGTAIL_OPERATION_NAMES,
-  BLENDER_TYPED_OPERATION_NAMES,
-} from "./blenderOperationManifest";
+import { BLENDER_LONGTAIL_OPERATION_NAMES, BLENDER_TYPED_OPERATION_NAMES } from "./blenderOperationManifest";
 
 /** Error code returned when a Blender operator is denied by the kernel policy. */
 export const BLENDER_KERNEL_POLICY_CODE = "blender_operator_denied" as const;
@@ -121,9 +118,7 @@ export function isAllowedBlenderRnaWrite(operation: {
  * @param operations - The operations to validate.
  * @throws {@link BlenderKernelPolicyError} When any operation violates the policy.
  */
-export function assertBlenderKernelPolicy(
-  operations: readonly ({ op: string } & Record<string, unknown>)[],
-): void {
+export function assertBlenderKernelPolicy(operations: readonly ({ op: string } & Record<string, unknown>)[]): void {
   for (const operation of operations) {
     if (operation.op === "invoke_operator" || operation.op === "describe_operator") {
       const operator = "operator" in operation && typeof operation.operator === "string" ? operation.operator : null;

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DirectorTimelineAudioClip, DirectorTimelineAudioTrack } from "../../../../src/comprehensive/editor/schema/directorProject";
+import type {
+  DirectorTimelineAudioClip,
+  DirectorTimelineAudioTrack,
+} from "../../../../src/comprehensive/editor/schema/directorProject";
 import {
   createDirectorStageAudioSource,
   getStageAudioClipGainAt,

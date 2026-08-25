@@ -70,7 +70,6 @@ export async function handleSceneGenerationRoute(
     deps.json(response, 400, { error: "Invalid request body" });
     return true;
   }
-
   const parsed = generateSceneRequestSchema.safeParse(body);
   if (!parsed.success) {
     deps.json(response, 400, {
@@ -102,10 +101,36 @@ export async function handleSceneGenerationRoute(
   const json = withHttpToolAudit(deps.json, auditContext);
   const providerId = input.providerId ?? "deepseek";
   let provider: ModelProvider;
-  try { provider = await deps.resolveProvider(providerId); } catch (err) { json(response, 503, { error: `Model provider "${providerId}" is not available`, detail: err instanceof Error ? err.message : String(err) }); return true; }
   try {
-    const output = await runScenePipeline(provider, { prompt: input.prompt, style: input.style, room: input.room, cameraCount: input.cameraCount, constraints: input.constraints });
-    json(response, 200, { success: true, layout: input.summary ? undefined : output.layout, summary: input.summary ? summarizePipelineOutput(output) : undefined, warnings: output.warnings, timing: output.timing });
+    provider = await deps.resolveProvider(providerId);
+  } catch (err) {
+    json(response, 503, {
+      error: `Model provider "${providerId}" is not available`,
+      detail: err instanceof Error ? err.message : String(err),
+    });
     return true;
-  } catch (err) { json(response, 500, { error: "Scene generation failed", detail: err instanceof Error ? err.message : String(err) }); return true; }
+  }
+  try {
+    const output = await runScenePipeline(provider, {
+      prompt: input.prompt,
+      style: input.style,
+      room: input.room,
+      cameraCount: input.cameraCount,
+      constraints: input.constraints,
+    });
+    json(response, 200, {
+      success: true,
+      layout: input.summary ? undefined : output.layout,
+      summary: input.summary ? summarizePipelineOutput(output) : undefined,
+      warnings: output.warnings,
+      timing: output.timing,
+    });
+    return true;
+  } catch (err) {
+    json(response, 500, {
+      error: "Scene generation failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+    return true;
+  }
 }

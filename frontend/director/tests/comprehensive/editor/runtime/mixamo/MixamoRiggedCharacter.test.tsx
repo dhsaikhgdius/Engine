@@ -23,7 +23,10 @@ vi.mock("../../../../../src/comprehensive/editor/runtime/gltfLoader", async (imp
 });
 
 vi.mock("../../../../../src/comprehensive/editor/runtime/mixamo/mixamoLocomotionRuntime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../../src/comprehensive/editor/runtime/mixamo/mixamoLocomotionRuntime")>();
+  const actual =
+    await importOriginal<
+      typeof import("../../../../../src/comprehensive/editor/runtime/mixamo/mixamoLocomotionRuntime")
+    >();
   return {
     ...actual,
     readDirectorCharacterLocomotionRuntimeState: () => runtimeState.current,
@@ -31,7 +34,8 @@ vi.mock("../../../../../src/comprehensive/editor/runtime/mixamo/mixamoLocomotion
 });
 
 vi.mock("../../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion")>();
+  const actual =
+    await importOriginal<typeof import("../../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion")>();
   return {
     ...actual,
     applyDirectorCharacterWeightedMotionFrame: applyWeightedMotionFrame,

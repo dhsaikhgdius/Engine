@@ -146,7 +146,9 @@
   color: rgb(var(--text-rgb));
   background: rgb(var(--field-rgb) / 0.4);
   text-align: left;
-  transition: border-color 120ms ease, background-color 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
 }
 
 .director-template-card:hover,
@@ -275,7 +277,9 @@
   color: rgb(var(--text-rgb));
   background: rgb(var(--field-rgb) / 0.4);
   text-align: left;
-  transition: border-color 120ms ease, background-color 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
 }
 
 .director-template-menu-entry:hover,

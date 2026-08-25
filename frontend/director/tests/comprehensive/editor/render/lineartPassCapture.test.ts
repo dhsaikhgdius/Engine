@@ -75,7 +75,12 @@ describe("unpackDirectorRgbaDepth", () => {
 
 describe("decodeDirectorViewNormals", () => {
   it("decodes encoded unit vectors", () => {
-    const { rgba, width, height } = buildNormalRgba([[[1, 0, 0], [0, 0, 1]]]);
+    const { rgba, width, height } = buildNormalRgba([
+      [
+        [1, 0, 0],
+        [0, 0, 1],
+      ],
+    ]);
     const normals = decodeDirectorViewNormals(rgba, width, height);
     expect(normals[0]).toBeCloseTo(1, 1);
     expect(normals[5]).toBeCloseTo(1, 1);
@@ -92,9 +97,7 @@ describe("detectDirectorDepthEdges", () => {
   it("marks a depth step as an edge", () => {
     const width = 8;
     const height = 4;
-    const depth = new Float32Array(
-      grid(width, height, (x) => (x < width / 2 ? 0.3 : 0.6)).flat(),
-    );
+    const depth = new Float32Array(grid(width, height, (x) => (x < width / 2 ? 0.3 : 0.6)).flat());
     const edges = detectDirectorDepthEdges(depth, width, height);
     const row = Array.from(edges.slice(0, width));
     expect(row[3]).toBe(1);

@@ -256,6 +256,7 @@ it("undoes and redoes scene edits from the viewport toolbar buttons", async () =
     redoStack: [],
     historyUndoStack: [],
     historyRedoStack: [],
+    historyBusy: false,
   });
   render(<ViewportToolbar />);
 

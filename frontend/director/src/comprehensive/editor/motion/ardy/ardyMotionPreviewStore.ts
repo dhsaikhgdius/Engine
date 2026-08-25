@@ -29,7 +29,6 @@ export const useArdyMotionPreviewStore = create<ArdyMotionPreviewState>((set) =>
   clip: null,
   session: 0,
   playing: false,
-  startPreview: (objectId, clip) =>
-    set((state) => ({ objectId, clip, playing: true, session: state.session + 1 })),
+  startPreview: (objectId, clip) => set((state) => ({ objectId, clip, playing: true, session: state.session + 1 })),
   stopPreview: () => set({ objectId: null, clip: null, playing: false }),
 }));

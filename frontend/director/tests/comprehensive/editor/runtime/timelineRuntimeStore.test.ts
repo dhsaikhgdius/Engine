@@ -1,5 +1,8 @@
 import { beforeEach, expect, it } from "vitest";
-import { MAX_TRAJECTORY_DRAWING_POINTS, useTimelineRuntimeStore } from "../../../../src/comprehensive/editor/runtime/timelineRuntimeStore";
+import {
+  MAX_TRAJECTORY_DRAWING_POINTS,
+  useTimelineRuntimeStore,
+} from "../../../../src/comprehensive/editor/runtime/timelineRuntimeStore";
 
 beforeEach(() => useTimelineRuntimeStore.getState().reset());
 

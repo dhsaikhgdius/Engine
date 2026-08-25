@@ -76,12 +76,7 @@ export class BlenderNativeSessionError extends Error {
   /** Optional structured result payload attached to the error. */
   readonly result?: Record<string, unknown>;
 
-  constructor(
-    message: string,
-    status = 502,
-    code = "blender_session_error",
-    result?: Record<string, unknown>,
-  ) {
+  constructor(message: string, status = 502, code = "blender_session_error", result?: Record<string, unknown>) {
     super(message);
     this.name = "BlenderNativeSessionError";
     this.status = status;
@@ -145,11 +140,7 @@ function isTransientNativeFetchError(error: unknown): boolean {
 function toSessionError(error: unknown, baseUrl: string): BlenderNativeSessionError {
   if (error instanceof BlenderNativeSessionError) return error;
   if (error instanceof Error && error.name === "AbortError") {
-    return new BlenderNativeSessionError(
-      "Blender native session request timed out.",
-      504,
-      "blender_timeout",
-    );
+    return new BlenderNativeSessionError("Blender native session request timed out.", 504, "blender_timeout");
   }
   return new BlenderNativeSessionError(
     `Blender native session is unavailable at ${baseUrl}. ${error instanceof Error ? error.message : String(error)}`,
@@ -181,9 +172,7 @@ async function failedResponseError(response: Response): Promise<BlenderNativeSes
  * @param options - Connection options including loopback URL, token, and timeout.
  * @returns A session client with status, snapshot, submit, job, and previewGlb methods.
  */
-export function createBlenderNativeSession(
-  options: CreateBlenderNativeSessionOptions = {},
-): BlenderNativeSession {
+export function createBlenderNativeSession(options: CreateBlenderNativeSessionOptions = {}): BlenderNativeSession {
   const baseUrl = normalizeLoopbackUrl(options.baseUrl);
   const fetcher = options.fetcher ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;

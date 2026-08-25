@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { DirectorCameraShot, DirectorEntityAnimation, DirectorObject } from "../../../../src/comprehensive/editor/schema/directorProject";
+import type {
+  DirectorCameraShot,
+  DirectorEntityAnimation,
+  DirectorObject,
+} from "../../../../src/comprehensive/editor/schema/directorProject";
 import {
   evaluateDirectorCameraAtFrame,
   evaluateDirectorObjectAtFrame,

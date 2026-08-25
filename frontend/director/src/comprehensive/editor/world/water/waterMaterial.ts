@@ -1,4 +1,14 @@
-import { Color, DoubleSide, ShaderMaterial, Vector2, Vector3, Vector4, type CubeTexture, type IUniform, type Texture } from "three";
+import {
+  Color,
+  DoubleSide,
+  ShaderMaterial,
+  Vector2,
+  Vector3,
+  Vector4,
+  type CubeTexture,
+  type IUniform,
+  type Texture,
+} from "three";
 import type { DirectorWorldWaterBody } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext } from "../livingWorldContracts";
 import { evaluateWorldTimeOfDayHours } from "../worldTime";

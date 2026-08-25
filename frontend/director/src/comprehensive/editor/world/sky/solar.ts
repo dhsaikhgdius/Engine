@@ -245,9 +245,7 @@ export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSecond
   const sunIntensity = sunUp
     ? SKY_NOON_SUN_INTENSITY * smoothstep(0, 0.25, arc.altitudeSin) * directWeather
     : SKY_NOON_SUN_INTENSITY * SKY_MOONLIGHT_INTENSITY_RATIO * smoothstep(0, 0.25, -arc.altitudeSin) * directWeather;
-  const sunColor = sunUp
-    ? lerpColor(SUN_COLOR_NOON, atmosphere.sunColor, 0.7)
-    : [...MOON_COLOR];
+  const sunColor = sunUp ? lerpColor(SUN_COLOR_NOON, atmosphere.sunColor, 0.7) : [...MOON_COLOR];
 
   const cloudLift = 1 + 0.3 * cloudCover * daylight;
   const ambientIntensity =
@@ -258,11 +256,7 @@ export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSecond
     AMBIENT_COLOR_OVERCAST,
     cloudCover * daylight,
   );
-  const groundColor: [number, number, number] = [
-    ambientColor[0] * 0.35,
-    ambientColor[1] * 0.33,
-    ambientColor[2] * 0.3,
-  ];
+  const groundColor: [number, number, number] = [ambientColor[0] * 0.35, ambientColor[1] * 0.33, ambientColor[2] * 0.3];
   const aerialFogColor = chromaticityOf(lerpColor(atmosphere.aerialNearColor, atmosphere.horizonColor, 0.35));
   const aerialFogDensity =
     PRESET_AERIAL_FOG_DENSITY[weather.preset] *

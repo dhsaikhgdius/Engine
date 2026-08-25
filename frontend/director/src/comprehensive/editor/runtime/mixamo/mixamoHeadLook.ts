@@ -120,7 +120,10 @@ export function getMixamoHeadLookWeight(runtime: Pick<MixamoHeadLookRuntime, "pr
  * on their targets, i.e. re-rendering would not move the skeleton anymore.
  */
 export function isMixamoHeadLookSettled(
-  runtime: Pick<MixamoHeadLookRuntime, "pitchRad" | "pitchTargetRad" | "progress" | "targetActive" | "yawRad" | "yawTargetRad">,
+  runtime: Pick<
+    MixamoHeadLookRuntime,
+    "pitchRad" | "pitchTargetRad" | "progress" | "targetActive" | "yawRad" | "yawTargetRad"
+  >,
 ): boolean {
   if (runtime.progress !== (runtime.targetActive ? 1 : 0)) return false;
   return (
@@ -130,6 +133,10 @@ export function isMixamoHeadLookSettled(
 }
 
 function wrapAngleRad(value: number) {
+  // Keep in-range angles bit-exact: the atan2/sin/cos round trip can perturb
+  // them by one ulp, which would make the damped angles snap onto a target
+  // that is not the caller's requested gaze.
+  if (value > -Math.PI && value <= Math.PI) return value;
   return Math.atan2(Math.sin(value), Math.cos(value));
 }
 

@@ -3,7 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { applyDirectorAuthoringActions } from "@director/agent-engine";
-import { createDefaultDirectorProject, createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
+import {
+  createDefaultDirectorProject,
+  createInitialDirectorState,
+  useDirectorStore,
+} from "../../../../src/comprehensive/editor/store/directorStore";
 import { ProceduralToolsDialog } from "../../../../src/comprehensive/editor/procedural/ProceduralToolsDialog";
 
 beforeEach(() => {

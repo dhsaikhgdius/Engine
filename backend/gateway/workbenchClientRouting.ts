@@ -34,9 +34,7 @@ export function rankUntargetedWorkbenchClients<Client>(
 ) {
   const captureRequired = workbenchOperationRequiresCapture(operation);
   return entries
-    .filter(([, registration]) =>
-      captureRequired ? registration.captureReady : true,
-    )
+    .filter(([, registration]) => (captureRequired ? registration.captureReady : true))
     .sort(
       (left, right) =>
         workbenchCapabilityRank(right[1]) - workbenchCapabilityRank(left[1]) ||

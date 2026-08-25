@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createStarFieldPositions, STAR_FIELD_DEPTH, STAR_FIELD_RADIUS } from "../../../../../src/comprehensive/editor/world/sky/starField";
+import {
+  createStarFieldPositions,
+  STAR_FIELD_DEPTH,
+  STAR_FIELD_RADIUS,
+} from "../../../../../src/comprehensive/editor/world/sky/starField";
 
 describe("seeded star field", () => {
   it("reproduces the identical dome for the same seed and differs across seeds", () => {

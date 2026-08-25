@@ -177,9 +177,7 @@ export async function listComfyGenerationJobs(limit = 50, signal?: AbortSignal) 
  * @returns The production job record validated against the schema.
  */
 export async function inspectComfyGenerationJob(jobId: string, signal?: AbortSignal) {
-  const body = await jsonResponse(
-    await bridgeFetch(`/api/generation/jobs/${encodeURIComponent(jobId)}`, { signal }),
-  );
+  const body = await jsonResponse(await bridgeFetch(`/api/generation/jobs/${encodeURIComponent(jobId)}`, { signal }));
   return productionJobRecordSchema.parse(body.job);
 }
 
@@ -241,15 +239,12 @@ export async function uploadComfyGenerationInputImage(input: {
   });
   return comfyUploadedInputImageSchema.parse(
     await jsonResponse(
-      await bridgeFetch(
-        `/api/generation/nodes/${encodeURIComponent(input.nodeId)}/input-images?${query}`,
-        {
-          method: "POST",
-          headers: { "content-type": input.blob.type || input.mimeType },
-          body: input.blob,
-          signal: input.signal,
-        },
-      ),
+      await bridgeFetch(`/api/generation/nodes/${encodeURIComponent(input.nodeId)}/input-images?${query}`, {
+        method: "POST",
+        headers: { "content-type": input.blob.type || input.mimeType },
+        body: input.blob,
+        signal: input.signal,
+      }),
     ),
   );
 }

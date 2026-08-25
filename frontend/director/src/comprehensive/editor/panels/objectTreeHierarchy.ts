@@ -184,9 +184,7 @@ export function collectSceneTreeRevealPath<
 ): { ancestors: string[]; itemId: string } | null {
   const matchesExact = (node: T) =>
     Boolean(target.crowdId && node.crowdId === target.crowdId) ||
-    Boolean(
-      target.objectId && (node.id === target.objectId || node.object?.id === target.objectId),
-    );
+    Boolean(target.objectId && (node.id === target.objectId || node.object?.id === target.objectId));
 
   const matchesContained = (node: T) => Boolean(target.objectId && node.objectIds?.includes(target.objectId));
 
