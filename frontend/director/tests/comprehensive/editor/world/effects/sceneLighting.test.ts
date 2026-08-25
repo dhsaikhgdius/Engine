@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorWorldSettings } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
-import { FIREFLY_DAY_BOOST, evaluateEffectsSceneLighting } from "../../../../../src/comprehensive/editor/world/effects/sceneLighting";
+import {
+  FIREFLY_DAY_BOOST,
+  evaluateEffectsSceneLighting,
+} from "../../../../../src/comprehensive/editor/world/effects/sceneLighting";
 
 interface SettingsOverrides {
   hours?: number;

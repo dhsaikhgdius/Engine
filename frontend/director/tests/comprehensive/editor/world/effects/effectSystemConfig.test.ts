@@ -3,7 +3,13 @@ import type {
   DirectorWorldEffect,
   DirectorWorldWeather,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
-import { EFFECT_PRESETS, WEATHER_PRECIPITATION_BOX_SIZE } from "../../../../../src/comprehensive/editor/world/effects/effectPresets";
+import {
+  EFFECT_PRESETS,
+  RAIN_SPLASH_FRACTION,
+  STORM_SIZE_MULTIPLIER,
+  STORM_SPLASH_FRACTION,
+  WEATHER_PRECIPITATION_BOX_SIZE,
+} from "../../../../../src/comprehensive/editor/world/effects/effectPresets";
 import {
   EMITTER_MODE_BOX,
   EMITTER_MODE_DISC,
@@ -136,6 +142,9 @@ describe("effect system parameterization", () => {
       ],
     });
     expect(storm?.windInfluence).toBeGreaterThan(1);
+    // Storm streaks render heavier and a larger share becomes splash rings.
+    expect(storm?.sizeScale).toBe(STORM_SIZE_MULTIPLIER);
+    expect(storm?.splashFraction).toBe(STORM_SPLASH_FRACTION);
 
     expect(buildWeatherSystemConfig(createWeather({ preset: "clear" }), WORLD_SEED)).toBeNull();
 
@@ -144,8 +153,19 @@ describe("effect system parameterization", () => {
     expect(storm?.seedHash).not.toBe(effectConfig.seedHash);
   });
 
-  it("keeps anchored effects unwrapped", () => {
+  it("splashes weather rain but never weather snow", () => {
+    const rain = buildWeatherSystemConfig(createWeather({ preset: "rain", intensity: 1 }), WORLD_SEED);
+    expect(rain?.splashFraction).toBe(RAIN_SPLASH_FRACTION);
+    expect(rain?.sizeScale).toBe(1);
+    const snow = buildWeatherSystemConfig(createWeather({ preset: "snow", intensity: 1 }), WORLD_SEED);
+    expect(snow?.splashFraction).toBe(0);
+  });
+
+  it("keeps anchored effects unwrapped and splash-free", () => {
+    // Anchored emitters have no reliable splash plane: splashes are a
+    // weather-system feature keyed to the camera-following volume.
     const config = buildEffectSystemConfig(createEffect({ kind: "rain" }), WORLD_SEED);
     expect(config.wrapExtents).toBeNull();
+    expect(config.splashFraction).toBe(0);
   });
 });

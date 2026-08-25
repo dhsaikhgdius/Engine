@@ -3,7 +3,10 @@ import type { DirectorWorldEffect } from "../../../../../../../packages/protocol
 import type { ResolvedWorldEffect } from "../../../../../src/comprehensive/editor/world/livingWorldContracts";
 import {
   FIRE_LIGHT_BASE_INTENSITY,
+  FIRE_LIGHT_FLICKER_MAX,
+  FIRE_LIGHT_FLICKER_MIN,
   FIRE_LIGHT_MAX_DISTANCE,
+  FIRE_LIGHT_MIN_BURN_DIM,
   FIRE_LIGHT_MIN_DISTANCE,
   FIRE_SHADOW_BIAS,
   FIRE_SHADOW_CAMERA_NEAR,
@@ -159,5 +162,70 @@ describe("fire light flicker", () => {
     );
     // Tiny embers keep a usable 8 m floor.
     expect(computeFireLightState(createEffect({ sizeScale: 0.1, intensity: 0.1 }), WORLD_SEED, 0).distance).toBe(8);
+  });
+});
+
+describe("fire light environment coupling", () => {
+  it("defaults to the calm dry state so legacy call sites are unchanged", () => {
+    const effect = createEffect();
+    for (const time of [0, 3.7, 12.5]) {
+      expect(computeFireLightState(effect, WORLD_SEED, time)).toEqual(
+        computeFireLightState(effect, WORLD_SEED, time, {}),
+      );
+      expect(computeFireLightState(effect, WORLD_SEED, time)).toEqual(
+        computeFireLightState(effect, WORLD_SEED, time, { burnFactor: 1, windSpeedMps: 0 }),
+      );
+    }
+  });
+
+  it("dims the light with the burn factor down to the residual floor", () => {
+    const effect = createEffect();
+    const dry = computeFireLightState(effect, WORLD_SEED, 5);
+    const damp = computeFireLightState(effect, WORLD_SEED, 5, { burnFactor: 0.5 });
+    const soaked = computeFireLightState(effect, WORLD_SEED, 5, { burnFactor: 0 });
+    expect(damp.intensity).toBeLessThan(dry.intensity);
+    expect(soaked.intensity).toBeLessThan(damp.intensity);
+    expect(soaked.intensity).toBeCloseTo(dry.intensity * FIRE_LIGHT_MIN_BURN_DIM, 10);
+    // Burn never touches the flicker signal itself — only the amplitude.
+    expect(soaked.flicker).toBe(dry.flicker);
+  });
+
+  it("deepens the flicker with wind while staying inside the hard clamp", () => {
+    const effect = createEffect({ windInfluence: 1 });
+    let calmMin = Number.POSITIVE_INFINITY;
+    let calmMax = Number.NEGATIVE_INFINITY;
+    let windyMin = Number.POSITIVE_INFINITY;
+    let windyMax = Number.NEGATIVE_INFINITY;
+    for (let step = 0; step < 400; step += 1) {
+      const time = step * 0.083;
+      const calm = computeFireLightState(effect, WORLD_SEED, time).flicker;
+      const windy = computeFireLightState(effect, WORLD_SEED, time, { windSpeedMps: 12 }).flicker;
+      calmMin = Math.min(calmMin, calm);
+      calmMax = Math.max(calmMax, calm);
+      windyMin = Math.min(windyMin, windy);
+      windyMax = Math.max(windyMax, windy);
+      expect(windy).toBeGreaterThanOrEqual(FIRE_LIGHT_FLICKER_MIN);
+      expect(windy).toBeLessThanOrEqual(FIRE_LIGHT_FLICKER_MAX);
+    }
+    // Wind widens the gutter band on both sides.
+    expect(windyMin).toBeLessThan(calmMin);
+    expect(windyMax).toBeGreaterThan(calmMax);
+  });
+
+  it("shields sheltered fires (windInfluence 0) from wind guttering", () => {
+    const sheltered = createEffect({ windInfluence: 0 });
+    for (const time of [0.4, 2.9, 7.3]) {
+      expect(computeFireLightState(sheltered, WORLD_SEED, time, { windSpeedMps: 20 }).flicker).toBe(
+        computeFireLightState(sheltered, WORLD_SEED, time).flicker,
+      );
+    }
+  });
+
+  it("stays a pure function of its full input tuple", () => {
+    const effect = createEffect();
+    const environment = { burnFactor: 0.4, windSpeedMps: 8 };
+    expect(computeFireLightState(effect, WORLD_SEED, 9.1, environment)).toEqual(
+      computeFireLightState(effect, WORLD_SEED, 9.1, { ...environment }),
+    );
   });
 });
