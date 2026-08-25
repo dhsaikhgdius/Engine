@@ -123,6 +123,12 @@ export interface DirectorDccAuthoringResponse {
 export interface DccReturnImportPlanOptions {
   /** Director IDs whose changes are skipped instead of applied or conflicted. */
   skipDirectorIds?: readonly string[];
+  /**
+   * Opt in to `object_addition` changes (objects that gained a fresh
+   * director_id in the DCC after the export snapshot). Off by default:
+   * additions are listed as reviewable skips, never applied silently.
+   */
+  includeNewObjects?: boolean;
 }
 
 /** Backwards-compatible alias for the Blender-era option name. */
@@ -212,6 +218,10 @@ function refinedAssetId(directorId: string, hash: string): string {
   return `asset-${safeSegment(directorId)}-refined-${hash.slice(0, 12)}`;
 }
 
+function additionAssetId(directorId: string, hash: string): string {
+  return `asset-${safeSegment(directorId)}-added-${hash.slice(0, 12)}`;
+}
+
 const finiteVec3Schema = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
 
 /**
@@ -269,6 +279,8 @@ export interface DirectorDccImportPlanBuildOptions {
   baseline?: DirectorDccSourceBaseline | null;
   /** Changes for these director_ids are skipped instead of applied or conflicting. */
   skipDirectorIds?: readonly string[];
+  /** Opt in to `object_addition` changes; off by default (reviewed skips). */
+  includeNewObjects?: boolean;
 }
 
 const BASELINE_TOLERANCE = 1e-6;
@@ -519,6 +531,44 @@ export function buildDirectorDccImportPlan(
       });
       continue;
     }
+    if (change.kind === "object_addition") {
+      const existing =
+        project.objects.find((candidate) => candidate.id === change.directorId) ??
+        project.cameras.find((candidate) => candidate.id === change.directorId) ??
+        (project.lights ?? []).find((candidate) => candidate.id === change.directorId);
+      if (existing) {
+        const reason =
+          `Stable ID ${change.directorId} already exists in the live project; a new DCC object cannot reuse it. ` +
+          "Assign a fresh director_id in the DCC and re-export the return package.";
+        operations.push({ op: "skip", directorId: change.directorId, reason });
+        conflicts.push({ directorId: change.directorId, code: "duplicate_director_id", reason });
+        continue;
+      }
+      if (!options.includeNewObjects) {
+        // Additions are never auto-imported: without the explicit opt-in the
+        // plan lists them as reviewable skips and stays ready to apply.
+        operations.push({
+          op: "skip",
+          directorId: change.directorId,
+          reason:
+            `New DCC object "${change.name}" (${change.directorId}) is available but not imported; ` +
+            "rebuild the plan with include_new_objects to import it after review.",
+        });
+        continue;
+      }
+      const hash = manifest.fileHashes[change.meshFile]!;
+      operations.push({
+        op: "create_prop",
+        objectId: change.directorId,
+        name: change.name,
+        assetId: additionAssetId(change.directorId, hash),
+        assetLabel: change.assetLabel ?? `${change.name} (DCC)`,
+        glbPath: change.meshFile,
+        hash,
+        transform: space.toDirector(change.transform, world),
+      });
+      continue;
+    }
     const object = project.objects.find((candidate) => candidate.id === change.directorId);
     const camera = project.cameras.find((candidate) => candidate.id === change.directorId);
     const light = (project.lights ?? []).find((candidate) => candidate.id === change.directorId);
@@ -735,6 +785,33 @@ function authoringActionsForPlan(
       const patch = objectPatches.get(object.id) ?? { force: true };
       patch.asset_id = operation.assetId;
       objectPatches.set(object.id, patch);
+      continue;
+    }
+    if (operation.op === "create_prop") {
+      const copiedAsset = copied.get(operation.assetId);
+      if (!copiedAsset) {
+        throw new DirectorDccImportError("package_invalid", `Prepared asset ${operation.assetId} is unavailable.`);
+      }
+      actions.push({
+        action: "upsert_asset",
+        asset: {
+          id: operation.assetId,
+          kind: "prop",
+          sourceType: "model",
+          fileName: copiedAsset.fileName,
+          name: operation.assetLabel,
+          url: copiedAsset.url,
+          assetSource: "local",
+        },
+      });
+      actions.push({
+        action: "add_object",
+        id: operation.objectId,
+        name: operation.name,
+        kind: "prop",
+        asset_id: operation.assetId,
+        transform: operation.transform,
+      });
       continue;
     }
     if (operation.op === "update_camera_optics") {
@@ -1026,6 +1103,7 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
     return buildDirectorDccImportPlan(validated, project, {
       baseline,
       skipDirectorIds: options?.skipDirectorIds,
+      includeNewObjects: options?.includeNewObjects,
     });
   }
 
@@ -1057,14 +1135,15 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
       );
     }
     // The submitted plan only pins identity (packageId/manifestHash/targetRevision)
-    // and the skip intent; the applied operations always come from a server-side
-    // rebuild against the validated package and the live project.
+    // and the skip/addition intent; the applied operations always come from a
+    // server-side rebuild against the validated package and the live project.
     const skipDirectorIds = submitted.operations.flatMap((operation) =>
       operation.op === "skip" ? [operation.directorId] : [],
     );
+    const includeNewObjects = submitted.operations.some((operation) => operation.op === "create_prop");
     const baseline =
       validated.manifest.sourceRevision === currentRevision ? null : await loadSourceBaseline(validated.manifest);
-    const plan = buildDirectorDccImportPlan(validated, project, { baseline, skipDirectorIds });
+    const plan = buildDirectorDccImportPlan(validated, project, { baseline, skipDirectorIds, includeNewObjects });
     if (!plan.ready || plan.conflicts.length) {
       throw new DirectorDccImportError(
         "conflict_unresolved",
@@ -1079,7 +1158,7 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
     const copied = new Map<string, { url: string; fileName: string }>();
     const copiedAssets: Array<{ assetId: string; url: string; hash: string }> = [];
     for (const operation of plan.operations) {
-      if (operation.op !== "link_refined_asset") continue;
+      if (operation.op !== "link_refined_asset" && operation.op !== "create_prop") continue;
       const source = validated.files.get(operation.glbPath);
       if (!source) {
         throw new DirectorDccImportError("package_invalid", `Validated mesh is unavailable: ${operation.glbPath}.`);

@@ -19,6 +19,10 @@ import {
   type BlenderNativeToolRequest,
   type BlenderObjectInspection,
 } from "../../../../../../packages/protocol/src/blenderLiveProtocol";
+import {
+  blenderLiveLinkPollSchema,
+  type BlenderLiveLinkPoll,
+} from "../../../../../../packages/protocol/src/blenderLiveLinkProtocol";
 import { directorControlPlaneFetch } from "./directorControlPlaneClient";
 
 const errorEnvelopeSchema = z.object({
@@ -200,6 +204,27 @@ export async function getBlenderLivePreviewGlb(options: { signal?: AbortSignal }
   }
 
   return { blob: await response.blob(), revision, sceneEpoch };
+}
+
+/**
+ * Polls the preview-only live-link delta feed from the Blender live kernel.
+ *
+ * Frames are NEVER authoritative and never write into the Director project:
+ * they only exist so the Stage can mirror an in-progress Blender edit with
+ * low latency. Without a cursor the kernel answers with a resync directive;
+ * with `(sceneEpoch, since)` it serves the contiguous frames after that
+ * sequence number or an explicit resync.
+ *
+ * @param cursor - The `(sceneEpoch, since)` cursor from the replay guard, or undefined on first contact.
+ * @param options - Optional abort signal for cancellation.
+ * @returns The live-link poll response (frames or a resync directive).
+ */
+export function pollBlenderLiveLink(
+  cursor?: { sceneEpoch: string; since: number },
+  options: { signal?: AbortSignal } = {},
+): Promise<BlenderLiveLinkPoll> {
+  const query = cursor ? `?epoch=${encodeURIComponent(cursor.sceneEpoch)}&since=${cursor.since}` : "";
+  return readResult(`/api/dcc/blender/live-link${query}`, blenderLiveLinkPollSchema, { signal: options.signal });
 }
 
 /**

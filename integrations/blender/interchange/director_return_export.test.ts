@@ -507,6 +507,110 @@ print(json.dumps({"kinds": [change["kind"] for change in result["changes"]], "wa
     expect(result.warnings).toEqual([expect.stringContaining("pose sample was omitted")]);
   });
 
+  it("stamps the pose bone map, per-bone baselines, and unmapped fingerprint in the bridge", async () => {
+    const bridge = await import("node:fs/promises").then(({ readFile }) => readFile(bridgeScript, "utf8"));
+    expect(bridge).toContain("def stamp_pose_bone_baselines(");
+    expect(bridge).toContain("resolve_pose_bone_roles");
+    expect(bridge).toContain("root[POSE_BONE_MAP_PROPERTY]");
+    expect(bridge).toContain("root[POSE_BONE_BASELINE_PROPERTY]");
+    expect(bridge).toContain("root[SOURCE_UNMAPPED_POSE_FINGERPRINT_PROPERTY]");
+  });
+
+  it("reconciles mapped pose-bone edits into a pose_update and lets explicit control edits win", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, math, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+class Vec:
+    def __init__(self, x, y, z):
+        self.x, self.y, self.z = float(x), float(y), float(z)
+class Quat:
+    def __init__(self, w, x, y, z):
+        self.w, self.x, self.y, self.z = float(w), float(x), float(y), float(z)
+class Basis:
+    def __init__(self, loc, rot, scale):
+        self._parts = (Vec(*loc), Quat(*rot), Vec(*scale))
+    def decompose(self):
+        return self._parts
+class FakeBone:
+    def __init__(self, name, basis):
+        self.name, self.matrix_basis = name, basis
+
+identity_basis = ([0,0,0], [1,0,0,0], [1,1,1])
+half = math.radians(30.0) / 2.0
+bones = {
+    "mixamorig:LeftForeArm": FakeBone("mixamorig:LeftForeArm", Basis([0,0,0], [math.cos(half),0,0,math.sin(half)], [1,1,1])),
+    "mixamorig:Head": FakeBone("mixamorig:Head", Basis(*identity_basis)),
+    "mixamorig:Hips": FakeBone("mixamorig:Hips", Basis([0,0.25,0], [1,0,0,0], [1,1,1])),
+}
+class Pose:
+    class BoneLookup:
+        def get(self, name):
+            return bones.get(name)
+    bones = BoneLookup()
+class Armature:
+    def __init__(self):
+        self.type, self.name, self.pose, self.children_recursive = "ARMATURE", "Rig", Pose(), []
+
+identity = {"location":[0,0,0],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]}
+baseline_controls = {"leftElbow.bend": 15.0, "head.yaw": 0.0, "body.pitch": 0.0}
+bone_map = {"armature": "Rig", "bones": {"leftElbow": "mixamorig:LeftForeArm", "head": "mixamorig:Head", "body": "mixamorig:Hips"}}
+bone_baselines = {
+    "leftElbow": {"rotation":[1,0,0,0],"location":[0,0,0],"scale":[1,1,1]},
+    "head": {"rotation":[1,0,0,0],"location":[0,0,0],"scale":[1,1,1]},
+    "body": {"rotation":[1,0,0,0],"location":[0,0,0],"scale":[1,1,1]},
+}
+class Root(dict):
+    def __init__(self):
+        super().__init__(
+            director_id="character-1",
+            director_source_transform=json.dumps(identity),
+            director_source_mesh_signature="same",
+            director_pose_controls=json.dumps(baseline_controls),
+            director_source_pose_bones="fingerprint-at-import",
+            director_pose_bone_map=json.dumps(bone_map),
+            director_pose_bone_baseline=json.dumps(bone_baselines),
+            director_source_unmapped_pose_bones="unmapped-at-import",
+        )
+        for control, value in baseline_controls.items():
+            self["director_pose." + control] = float(value)
+        self["director_pose.head.yaw"] = 40.0  # explicit custom-prop edit
+        self.name, self.type, self.parent = "Hero", "EMPTY", None
+        self.children_recursive = [Armature()]
+root = Root()
+bones["mixamorig:Head"] = FakeBone("mixamorig:Head", Basis([0,0,0], [math.cos(math.radians(5)),0,math.sin(math.radians(5)),0], [1,1,1]))
+module.bpy = type("Bpy", (), {"context": type("Context", (), {"scene": type("Scene", (), {"objects": [root]})()})(), "app": type("App", (), {"version_string": "test"})()})()
+module.blender_transform = lambda unused: identity
+module.descendant_meshes = lambda unused: [object()]
+module.mesh_content_signature = lambda unused: "same"
+module.armature_pose_fingerprint = lambda unused, exclude=None: "fingerprint-after-edit" if exclude is None else "unmapped-after-edit"
+source = {"packageId":"source", "sourceRevision":"director-project-revision:v1:sha256:" + "0" * 64, "objects":[{"id":"character-1","name":"Hero","kind":"character","transform":identity}], "cameras":[]}
+with tempfile.TemporaryDirectory() as directory:
+    result = module.build_return_package(source, Path(directory))
+print(json.dumps({"changes": result["changes"], "warnings": result["warnings"]}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      kind: "pose_update",
+      directorId: "character-1",
+      entityType: "object",
+    });
+    // The 30-degree elbow bend reconciles on top of the 15-degree baseline; the
+    // explicit head.yaw custom property wins over the direct head bone edit.
+    expect(result.changes[0].controls["leftElbow.bend"]).toBeCloseTo(45, 4);
+    expect(result.changes[0].controls["head.yaw"]).toBeCloseTo(40, 6);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("outside the Director character binding were edited"),
+      expect.stringContaining("bone translations have no portable Director control"),
+      expect.stringContaining("explicit custom-property value wins"),
+    ]);
+    expect(result.warnings[1]).toContain("director_pose.body.offsetY");
+  });
+
   it("warns about direct armature pose-bone edits instead of pretending to reconcile them", async () => {
     const { stdout } = await runPython(String.raw`
 import importlib.util, json, sys, tempfile

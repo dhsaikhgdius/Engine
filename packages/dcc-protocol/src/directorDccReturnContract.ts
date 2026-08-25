@@ -96,6 +96,8 @@ export const directorDccReturnPoseControlsSchema = z
  * - `camera_update`: camera transform and/or optics (focal length, aperture, focus, clipping, sensor format).
  * - `light_update`: properties of a light that kept its Director `director_id`.
  * - `pose_update`: a portable pose-control sample for a Director character binding, with optional root motion.
+ * - `object_addition`: a DCC object that gained a fresh `director_id` after the export snapshot.
+ *   Import is reviewed and opt-in; Director never auto-imports unmarked DCC objects.
  */
 export const directorDccReturnChangeSchema = z.discriminatedUnion("kind", [
   strictKind("mesh_replacement", {
@@ -103,6 +105,14 @@ export const directorDccReturnChangeSchema = z.discriminatedUnion("kind", [
     entityType: z.literal("object"),
     meshFile: safeRelativePath,
     transform: directorDccTransformSchema.optional(),
+    assetLabel: z.string().trim().min(1).max(240).optional(),
+  }),
+  strictKind("object_addition", {
+    directorId: nonEmpty.max(200),
+    entityType: z.literal("object"),
+    name: z.string().trim().min(1).max(240),
+    meshFile: safeRelativePath,
+    transform: directorDccTransformSchema,
     assetLabel: z.string().trim().min(1).max(240).optional(),
   }),
   strictKind("transform_update", {
@@ -237,7 +247,10 @@ export const directorDccReturnManifestSchema = z
         });
       }
       seen.add(key);
-      if (change.kind === "mesh_replacement" && manifest.fileHashes[change.meshFile] === undefined) {
+      if (
+        (change.kind === "mesh_replacement" || change.kind === "object_addition") &&
+        manifest.fileHashes[change.meshFile] === undefined
+      ) {
         context.addIssue({
           code: "custom",
           path: ["changes", index, "meshFile"],
@@ -313,6 +326,9 @@ const importPlanOperationSchema = z.discriminatedUnion("op", [
     objectId: nonEmpty.max(200),
     name: nonEmpty.max(240),
     assetId: nonEmpty.max(240),
+    assetLabel: nonEmpty.max(240),
+    glbPath: safeRelativePath,
+    hash: sha256,
     transform: directorTransformSchema,
   }),
   strictOperation("skip", {
@@ -341,7 +357,12 @@ export const directorDccImportPlanSchema = z
       .array(
         z.strictObject({
           directorId: nonEmpty.max(200),
-          code: z.enum(["stale_source_revision", "unknown_director_id", "entity_type_mismatch"]),
+          code: z.enum([
+            "stale_source_revision",
+            "unknown_director_id",
+            "entity_type_mismatch",
+            "duplicate_director_id",
+          ]),
           reason: nonEmpty.max(2_000),
         }),
       )
@@ -368,6 +389,8 @@ export const directorDccReturnReportSchema = z.strictObject({
   lightCount: z.number().int().nonnegative().optional(),
   /** Number of pose_update changes; optional on pre-optics exporters. */
   poseCount: z.number().int().nonnegative().optional(),
+  /** Number of object_addition changes; optional on pre-addition exporters. */
+  additionCount: z.number().int().nonnegative().optional(),
   warnings: z.array(z.string().max(2_000)),
   blenderVersion: nonEmpty.max(200),
 });

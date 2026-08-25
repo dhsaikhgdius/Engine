@@ -24,7 +24,18 @@ _INTERCHANGE_DIR = str(Path(__file__).resolve().parent)
 if _INTERCHANGE_DIR not in sys.path:
     sys.path.insert(0, _INTERCHANGE_DIR)
 
+from director_pose_bones import (
+    LOCATION_TOLERANCE,
+    MIN_DELTA_DEGREES,
+    SCALE_TOLERANCE,
+    pose_bone_rotation_delta,
+    reconcile_pose_bone_deltas,
+    rotation_angle_degrees,
+    vectors_close,
+)
 from director_properties import (
+    POSE_BONE_BASELINE_PROPERTY,
+    POSE_BONE_MAP_PROPERTY,
     POSE_CONTROL_PREFIX,
     POSE_CONTROLS_BASELINE_PROPERTY,
     SOURCE_CAMERA_OPTICS_PROPERTY,
@@ -32,6 +43,7 @@ from director_properties import (
     SOURCE_MESH_SIGNATURE_PROPERTY,
     SOURCE_POSE_FINGERPRINT_PROPERTY,
     SOURCE_TRANSFORM_PROPERTY,
+    SOURCE_UNMAPPED_POSE_FINGERPRINT_PROPERTY,
 )
 from director_signature import armature_pose_fingerprint, mesh_content_signature
 
@@ -271,12 +283,157 @@ def pose_controls_changed(
     return any(not scalar_close(sample[control], float(value), tolerance) for control, value in baseline.items())
 
 
+def reconcile_pose_bones(root: Any, pose_baseline: dict[str, Any]) -> tuple[dict[str, float], list[str]] | None:
+    """Reconcile direct pose-bone edits into portable director_pose.* controls.
+
+    Uses the bone map plus per-bone baselines stamped by director_bridge.py.
+    Only local rotations of mapped bones reconcile (as per-axis degree deltas
+    added to the exported control baseline); bone translations, bone scale,
+    unmapped bones, and rotation components without a portable control are
+    warned about and omitted. Returns ``None`` when this .blend predates the
+    stamped bone map, in which case the caller keeps the blanket warning.
+    """
+    bone_map = _stored_json_object(root, POSE_BONE_MAP_PROPERTY)
+    bone_baselines = _stored_json_object(root, POSE_BONE_BASELINE_PROPERTY)
+    if not bone_map or not bone_baselines or not isinstance(bone_map.get("bones"), dict):
+        return None
+    warnings: list[str] = []
+    armature = next(
+        (item for item in descendants(root) if item.type == "ARMATURE" and item.name == bone_map.get("armature")),
+        None,
+    )
+    if armature is None:
+        warnings.append(
+            f"the mapped armature {bone_map.get('armature')!r} was renamed or removed; direct pose-bone edits "
+            "were not reconciled."
+        )
+        return {}, warnings
+    stored_unmapped = root.get(SOURCE_UNMAPPED_POSE_FINGERPRINT_PROPERTY)
+    if isinstance(stored_unmapped, str):
+        live_unmapped = armature_pose_fingerprint(
+            root, exclude={(armature.name, str(name)) for name in bone_map["bones"].values()}
+        )
+        if live_unmapped is not None and live_unmapped != stored_unmapped:
+            warnings.append(
+                "pose bones outside the Director character binding were edited; those edits have no portable "
+                "director_pose.* controls and were omitted."
+            )
+    deltas: dict[str, tuple[float, float, float, float]] = {}
+    for role in sorted(bone_map["bones"]):
+        bone_name = str(bone_map["bones"][role])
+        baseline = bone_baselines.get(role)
+        if not isinstance(baseline, dict) or not isinstance(baseline.get("rotation"), list):
+            continue
+        bone = armature.pose.bones.get(bone_name)
+        if bone is None:
+            warnings.append(f"mapped {role} bone {bone_name!r} no longer exists; its pose edit was omitted.")
+            continue
+        location, rotation, scale = bone.matrix_basis.decompose()
+        if isinstance(baseline.get("location"), list) and not vectors_close(
+            (location.x, location.y, location.z), baseline["location"], LOCATION_TOLERANCE
+        ):
+            hint = " (edit the director_pose.body.offsetY custom property instead)" if role == "body" else ""
+            warnings.append(
+                f"{role} bone {bone_name!r} was translated; bone translations have no portable Director "
+                f"control and were omitted{hint}."
+            )
+        if isinstance(baseline.get("scale"), list) and not vectors_close(
+            (scale.x, scale.y, scale.z), baseline["scale"], SCALE_TOLERANCE
+        ):
+            warnings.append(
+                f"{role} bone {bone_name!r} was scaled; bone scale has no portable Director control and was omitted."
+            )
+        delta = pose_bone_rotation_delta(baseline["rotation"], (rotation.w, rotation.x, rotation.y, rotation.z))
+        if rotation_angle_degrees(delta) >= MIN_DELTA_DEGREES:
+            deltas[role] = delta
+    controls, reconcile_warnings = reconcile_pose_bone_deltas(deltas, pose_baseline)
+    warnings.extend(reconcile_warnings)
+    return controls, warnings
+
+
 def descendants(root: Any) -> list[Any]:
     return [root, *list(root.children_recursive)]
 
 
 def descendant_meshes(root: Any) -> list[Any]:
     return [item for item in descendants(root) if item.type == "MESH"]
+
+
+# Object types the Director return contract tracks. Everything else is either
+# baked by the GLB exporter (curves, text) or silently dropped (grease pencil),
+# so an addition carrying them must say so instead of pretending fidelity.
+ADDITION_TRACKED_TYPES = frozenset({"MESH", "EMPTY", "ARMATURE"})
+
+# Default Blender datablock names; an addition keeping one becomes an equally
+# anonymous Director object, which is worth a review warning.
+_DEFAULT_BLENDER_NAMES = frozenset(
+    name.lower()
+    for name in (
+        "cube",
+        "sphere",
+        "icosphere",
+        "cylinder",
+        "cone",
+        "torus",
+        "plane",
+        "circle",
+        "grid",
+        "monkey",
+        "suzanne",
+        "empty",
+        "text",
+        "curve",
+        "surface",
+        "mball",
+    )
+)
+
+
+def is_default_blender_name(name: Any) -> bool:
+    """True for unnamed/auto-named datablocks like ``Cube`` or ``Cube.001``."""
+    if not isinstance(name, str) or not name.strip():
+        return True
+    stem = re.sub(r"\.\d{3,}$", "", name.strip())
+    return stem.lower() in _DEFAULT_BLENDER_NAMES
+
+
+def addition_review_warnings(root: Any) -> list[str]:
+    """Review notes for a new Blender object before it becomes a Director prop.
+
+    The addition is still exported; these warnings surface unnamed datablocks,
+    untracked datablock types, and linked-library provenance so the reviewer
+    can reject the plan instead of discovering silent loss later.
+    """
+    director_id = root.get("director_id")
+    warnings: list[str] = []
+    if is_default_blender_name(getattr(root, "name", None)):
+        warnings.append(
+            f"{director_id}: new object keeps the default Blender name {getattr(root, 'name', '')!r}; "
+            "rename it before import so the Director object is identifiable."
+        )
+    for item in descendants(root):
+        if item.type not in ADDITION_TRACKED_TYPES:
+            warnings.append(
+                f"{director_id}: {item.name} is a {item.type} datablock that Director does not track; "
+                "the GLB exporter may bake or drop it, so verify the imported mesh."
+            )
+        if getattr(item, "library", None) is not None or getattr(getattr(item, "data", None), "library", None) is not None:
+            warnings.append(
+                f"{director_id}: {item.name} uses a linked library datablock; the return package embeds a baked "
+                "copy and Director does not track the library reference."
+            )
+    return warnings
+
+
+def has_director_ancestor(root: Any) -> bool:
+    """True when any ancestor carries its own director_id (root is inside a tracked object)."""
+    parent = getattr(root, "parent", None)
+    while parent is not None:
+        parent_id = parent.get("director_id")
+        if isinstance(parent_id, str) and parent_id.strip():
+            return True
+        parent = getattr(parent, "parent", None)
+    return False
 
 
 def unapplied_modifier_warnings(root: Any) -> list[str]:
@@ -504,6 +661,7 @@ def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, 
     file_hashes: dict[str, str] = {}
     used_stems: set[str] = set()
 
+    seen_addition_ids: set[str] = set()
     for root in director_roots(bpy.context.scene.objects):
         director_id = str(root.get("director_id"))
         source_object = source_objects.get(director_id)
@@ -511,7 +669,48 @@ def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, 
         source_light = source_lights.get(director_id)
         current_transform = blender_transform(root)
         if source_object is None and source_camera is None and source_light is None:
-            warnings.append(f"{root.name}: director_id {director_id!r} was not present in the source manifest; skipped.")
+            # A director_id the snapshot never issued marks a new Blender object
+            # offered for reviewed, opt-in import. Only explicitly marked roots
+            # are considered; the whole .blend is never swept for additions.
+            if has_director_ancestor(root):
+                warnings.append(
+                    f"{root.name}: new director_id {director_id!r} sits inside an existing Director object; "
+                    "it was not exported as an addition (refine the parent object's mesh instead)."
+                )
+                continue
+            if director_id in seen_addition_ids:
+                warnings.append(
+                    f"{root.name}: duplicate new director_id {director_id!r}; only the first object was exported."
+                )
+                continue
+            if not descendant_meshes(root):
+                warnings.append(
+                    f"{root.name}: new director_id {director_id!r} has no mesh geometry; Director additions import "
+                    "as mesh props, so it was skipped."
+                )
+                continue
+            seen_addition_ids.add(director_id)
+            warnings.extend(addition_review_warnings(root))
+            warnings.extend(unapplied_modifier_warnings(root))
+            stem = safe_file_stem(director_id)
+            if stem in used_stems:
+                stem = f"{stem}-{hashlib.sha256(director_id.encode('utf-8')).hexdigest()[:8]}"
+            used_stems.add(stem)
+            relative_path = f"meshes/{stem}.glb"
+            mesh_path = ensure_inside(output_dir, output_dir / relative_path)
+            export_glb(root, mesh_path, {"id": director_id, "kind": "prop"})
+            file_hashes[relative_path] = sha256_file(mesh_path)
+            changes.append(
+                {
+                    "kind": "object_addition",
+                    "directorId": director_id,
+                    "entityType": "object",
+                    "name": str(root.name)[:240],
+                    "meshFile": relative_path,
+                    "transform": current_transform,
+                    "assetLabel": f"{str(root.name)[:230]} (Blender)",
+                }
+            )
             continue
         if source_light is not None:
             if root.type != "LIGHT":
@@ -588,19 +787,41 @@ def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, 
         pose_baseline = _stored_json_object(root, POSE_CONTROLS_BASELINE_PROPERTY)
         pose_changed = False
         pose_sample: dict[str, float] = {}
+        explicit_controls: set[str] = set()
         if pose_baseline:
             pose_sample, pose_warnings = current_pose_controls(root, pose_baseline)
             warnings.extend(f"{director_id}: {message}" for message in pose_warnings)
-            pose_changed = pose_controls_changed(pose_baseline, pose_sample)
+            explicit_controls = {
+                control for control, value in pose_baseline.items() if not scalar_close(pose_sample[control], float(value))
+            }
+            pose_changed = bool(explicit_controls)
         stored_pose_fingerprint = root.get(SOURCE_POSE_FINGERPRINT_PROPERTY)
         if isinstance(stored_pose_fingerprint, str):
             live_pose_fingerprint = armature_pose_fingerprint(root)
             if live_pose_fingerprint is not None and live_pose_fingerprint != stored_pose_fingerprint:
-                warnings.append(
-                    f"{director_id}: armature pose bones were edited directly in Blender; those edits are not "
-                    "reconciled to Director. Only director_pose.* control values round-trip — bake the intent "
-                    "into those controls, or export the refined mesh instead."
-                )
+                reconciled = reconcile_pose_bones(root, pose_baseline) if pose_baseline else None
+                if reconciled is None:
+                    # Legacy .blend without a stamped bone map, or an armature
+                    # object with no Director pose binding: stay warn-and-omit.
+                    warnings.append(
+                        f"{director_id}: armature pose bones were edited directly in Blender; those edits are not "
+                        "reconciled to Director. Only director_pose.* control values round-trip — bake the intent "
+                        "into those controls, or export the refined mesh instead."
+                    )
+                else:
+                    bone_controls, bone_warnings = reconciled
+                    warnings.extend(f"{director_id}: {message}" for message in bone_warnings)
+                    for control in sorted(bone_controls):
+                        if control in explicit_controls:
+                            # Custom-property edits are explicit intent; a bone
+                            # edit on the same control never overrides them.
+                            warnings.append(
+                                f"{director_id}: pose control {control!r} was edited both as a custom property and "
+                                "through its mapped pose bone; the explicit custom-property value wins."
+                            )
+                            continue
+                        pose_sample[control] = bone_controls[control]
+                        pose_changed = True
 
         if mesh_changed:
             if not isinstance(source_mesh_signature, str):
@@ -667,7 +888,10 @@ def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, 
                 "return package, so it was not included."
             )
             continue
-        warnings.append(f"{item.name}: top-level Blender object has no director_id and was not included in the return package.")
+        warnings.append(
+            f"{item.name}: top-level Blender object has no director_id and was not included in the return package. "
+            "Assign a fresh director_id custom property to offer it as a reviewed, opt-in addition."
+        )
 
     return {
         "schemaVersion": 1,
@@ -716,6 +940,7 @@ def main() -> int:
             "cameraCount": sum(change["kind"] == "camera_update" for change in manifest["changes"]),
             "lightCount": sum(change["kind"] == "light_update" for change in manifest["changes"]),
             "poseCount": sum(change["kind"] == "pose_update" for change in manifest["changes"]),
+            "additionCount": sum(change["kind"] == "object_addition" for change in manifest["changes"]),
             "warnings": manifest["warnings"],
             "blenderVersion": manifest["blenderVersion"],
         }

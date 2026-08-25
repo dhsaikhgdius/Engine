@@ -20,6 +20,11 @@ import {
   type BlenderAgentOperation,
   type BlenderLiveSceneSnapshot,
 } from "../../../../../../packages/protocol/src/blenderLiveProtocol";
+import {
+  createBlenderLiveLinkReplayGuard,
+  type BlenderLiveLinkFrame,
+  type BlenderLiveLinkReplayGuard,
+} from "../../../../../../packages/protocol/src/blenderLiveLinkProtocol";
 import type { PlayerRaycastMesh } from "../player/playerRaycastAcceleration";
 import type { PlayerStaticEnvironment } from "../player/playerStaticEnvironment";
 import { configureDirectorGLTFLoader } from "../runtime/gltfLoader";
@@ -40,6 +45,7 @@ import {
   getBlenderLiveScene,
   getBlenderLiveStatus,
   inspectBlenderLiveObject,
+  pollBlenderLiveLink,
   uploadBlenderModelAsset,
   blenderSetSceneFrameOperation,
 } from "../api/blenderLiveClient";
@@ -728,6 +734,28 @@ function blenderSnapshotDepth(id: string, parentById: ReadonlyMap<string, string
   return depth;
 }
 
+/** Re-poses one mounted node so its scene-space transform matches the given components. */
+function rePoseBlenderNode(
+  scene: Object3D,
+  node: Object3D,
+  position: readonly [number, number, number],
+  rotation: readonly [number, number, number],
+  scale: readonly [number, number, number] | undefined,
+) {
+  const desiredSceneMatrix = new Matrix4().compose(
+    new Vector3(...position),
+    new Quaternion().setFromEuler(new Euler(rotation[0], rotation[1], rotation[2], "XYZ")),
+    scale ? new Vector3(...scale) : new Vector3(1, 1, 1),
+  );
+  const desiredWorldMatrix = new Matrix4().multiplyMatrices(scene.matrixWorld, desiredSceneMatrix);
+  const desiredLocalMatrix = node.parent
+    ? new Matrix4().copy(node.parent.matrixWorld).invert().multiply(desiredWorldMatrix)
+    : desiredWorldMatrix;
+  desiredLocalMatrix.decompose(node.position, node.quaternion, node.scale);
+  node.updateMatrix();
+  node.updateWorldMatrix(false, true);
+}
+
 /**
  * Re-poses the mounted preview scene from a structured snapshot instead of
  * re-downloading and re-parsing the whole GLB. Only called when the kernel
@@ -782,20 +810,71 @@ export function applyBlenderSnapshotTransforms(
   applies.sort((left, right) => left.depth - right.depth);
   scene.updateWorldMatrix(true, true);
   for (const { entry, node } of applies) {
-    const desiredSceneMatrix = new Matrix4().compose(
-      new Vector3(...entry.position),
-      new Quaternion().setFromEuler(new Euler(entry.rotation[0], entry.rotation[1], entry.rotation[2], "XYZ")),
-      entry.scale ? new Vector3(...entry.scale) : new Vector3(1, 1, 1),
-    );
-    const desiredWorldMatrix = new Matrix4().multiplyMatrices(scene.matrixWorld, desiredSceneMatrix);
-    const desiredLocalMatrix = node.parent
-      ? new Matrix4().copy(node.parent.matrixWorld).invert().multiply(desiredWorldMatrix)
-      : desiredWorldMatrix;
-    desiredLocalMatrix.decompose(node.position, node.quaternion, node.scale);
-    node.updateMatrix();
-    node.updateWorldMatrix(false, true);
+    rePoseBlenderNode(scene, node, entry.position, entry.rotation, entry.scale);
   }
   return true;
+}
+
+/**
+ * Re-poses mounted preview nodes from preview-only live-link transform frames.
+ *
+ * Live-link frames are NEVER authoritative: this helper touches only the
+ * mounted Three.js scene — never the Director store, project revision, or
+ * Blender itself — so disconnecting the feed always leaves the last committed
+ * revision intact. Updates whose node is absent from the exported GLB (hidden
+ * datablocks) or that carry non-finite components are skipped; the
+ * authoritative snapshot poll corrects any divergence on its next pass.
+ *
+ * @param scene - The mounted Blender preview scene.
+ * @param frames - Contiguous transform frames accepted by the replay guard.
+ * @param parentById - Optional parent map from the authoritative snapshot so parents re-pose before children.
+ * @returns True when at least one node was re-posed.
+ */
+export function applyBlenderLiveLinkFrames(
+  scene: Object3D,
+  frames: readonly BlenderLiveLinkFrame[],
+  parentById?: ReadonlyMap<string, string | null>,
+): boolean {
+  const nodeIndex = getBlenderNodeIndex(scene);
+  let applied = false;
+  for (const frame of frames) {
+    if (frame.kind !== "transform") continue;
+    const updates: Array<{
+      depth: number;
+      id: string;
+      position: readonly [number, number, number];
+      rotation: readonly [number, number, number];
+      scale?: readonly [number, number, number];
+    }> = [];
+    for (const update of frame.objects) {
+      updates.push({
+        depth: parentById ? blenderSnapshotDepth(update.id, parentById) : 0,
+        id: update.id,
+        position: update.position,
+        rotation: update.rotation,
+        scale: update.scale,
+      });
+    }
+    for (const update of frame.lights) {
+      updates.push({ depth: 0, id: update.id, position: update.position, rotation: update.rotation });
+    }
+    const applies: Array<{ depth: number; node: Object3D; update: (typeof updates)[number] }> = [];
+    for (const update of updates) {
+      const node = nodeIndex.get(update.id);
+      if (!node) continue;
+      const components = [...update.position, ...update.rotation, ...(update.scale ?? [])];
+      if (!components.every((value) => Number.isFinite(value))) continue;
+      applies.push({ depth: update.depth, node, update });
+    }
+    if (!applies.length) continue;
+    applies.sort((left, right) => left.depth - right.depth);
+    scene.updateWorldMatrix(true, true);
+    for (const { node, update } of applies) {
+      rePoseBlenderNode(scene, node, update.position, update.rotation, update.scale);
+    }
+    applied = true;
+  }
+  return applied;
 }
 
 export function prepareBlenderPreviewScene(scene: Object3D) {
@@ -905,6 +984,33 @@ function isDocumentActive() {
   return document.visibilityState !== "hidden" && document.hasFocus();
 }
 
+/** Dedupe key for active-camera preview publishes from snapshots and live-link frames. */
+function blenderActiveCameraSignature(
+  sceneEpoch: string,
+  camera: BlenderLiveSceneSnapshot["cameras"][number] | null,
+  cameraAspectRatio: number,
+) {
+  return camera
+    ? JSON.stringify([
+        sceneEpoch,
+        camera.id,
+        camera.position,
+        camera.rotation,
+        camera.projectionType,
+        camera.focalLengthMm,
+        camera.sensorFit,
+        camera.sensorWidthMm,
+        camera.sensorHeightMm,
+        camera.shiftX,
+        camera.shiftY,
+        camera.clipStart,
+        camera.clipEnd,
+        camera.orthographicScale,
+        cameraAspectRatio,
+      ])
+    : `${sceneEpoch}:none`;
+}
+
 function BlenderSelectionHelper({
   active,
   id,
@@ -1009,6 +1115,7 @@ export function BlenderSceneLayer({
   cameraAspectRatio = 16 / 9,
   interactionEnabled = true,
   isPlaying = false,
+  liveLinkPollIntervalMs = 250,
   loadScene = parseBlenderPreviewGlb,
   onActiveCameraChange,
   onCollisionEnvironmentChange,
@@ -1021,6 +1128,8 @@ export function BlenderSceneLayer({
   cameraAspectRatio?: number;
   interactionEnabled?: boolean;
   isPlaying?: boolean;
+  /** Poll cadence for the preview-only live-link delta feed. Zero disables the fast preview. */
+  liveLinkPollIntervalMs?: number;
   loadScene?: BlenderSceneLoader;
   onActiveCameraChange?: (camera: BlenderCameraViewSnapshot | null) => void;
   onCollisionEnvironmentChange?: (environment: PlayerStaticEnvironment | null) => void;
@@ -1049,6 +1158,7 @@ export function BlenderSceneLayer({
   const publishRuntimeStatus = useBlenderRuntimeStore((state) => state.publishStatus);
   const publishPreviewActive = useBlenderRuntimeStore((state) => state.publishPreviewActive);
   const refreshRequestId = useBlenderRuntimeStore((state) => state.refreshRequestId);
+  const requestRuntimeRefresh = useBlenderRuntimeStore((state) => state.requestRefresh);
   const completeRuntimeRefresh = useBlenderRuntimeStore((state) => state.completeRefresh);
   const nativeRigCapabilities = useBlenderRuntimeStore((state) => state.nativeRigCapabilities);
   const publishNativeRigCapability = useBlenderRuntimeStore((state) => state.publishNativeRigCapability);
@@ -1082,6 +1192,11 @@ export function BlenderSceneLayer({
   const lastStatusRef = useRef<BlenderSceneLayerStatus | null>(null);
   const activeCameraSignatureRef = useRef("");
   const sequenceRef = useRef(0);
+  /** Replay guard for the preview-only live-link feed; frames never write into the Director project. */
+  const liveLinkGuardRef = useRef<BlenderLiveLinkReplayGuard | null>(null);
+  if (liveLinkGuardRef.current === null) liveLinkGuardRef.current = createBlenderLiveLinkReplayGuard();
+  /** True while a structural change or replay gap waits for the authoritative snapshot to resync. */
+  const liveLinkAwaitingSnapshotRef = useRef(false);
   const authoritativeSnapshot =
     runtimeSnapshot && (!projectId || !runtimeSnapshot.projectId || runtimeSnapshot.projectId === projectId)
       ? runtimeSnapshot
@@ -1208,25 +1323,7 @@ export function BlenderSceneLayer({
       }
 
       const activeCamera = snapshot.cameras.find((camera) => camera.active) ?? null;
-      const signature = activeCamera
-        ? JSON.stringify([
-            snapshot.sceneEpoch,
-            activeCamera.id,
-            activeCamera.position,
-            activeCamera.rotation,
-            activeCamera.projectionType,
-            activeCamera.focalLengthMm,
-            activeCamera.sensorFit,
-            activeCamera.sensorWidthMm,
-            activeCamera.sensorHeightMm,
-            activeCamera.shiftX,
-            activeCamera.shiftY,
-            activeCamera.clipStart,
-            activeCamera.clipEnd,
-            activeCamera.orthographicScale,
-            cameraAspectRatio,
-          ])
-        : `${snapshot.sceneEpoch}:none`;
+      const signature = blenderActiveCameraSignature(snapshot.sceneEpoch, activeCamera, cameraAspectRatio);
       if (signature === activeCameraSignatureRef.current) return;
       activeCameraSignatureRef.current = signature;
       onActiveCameraChangeRef.current?.(
@@ -1260,11 +1357,21 @@ export function BlenderSceneLayer({
     const poll = async () => {
       let targetVersion: BlenderSceneVersion | null = null;
       let receivedLiveStatus = false;
+      // Live-link seq published alongside the status. Read before the snapshot
+      // download, it is <= the seq baked into the snapshot; frames in between
+      // re-apply idempotent absolute transforms instead of being lost.
+      let liveLinkStatusSeq: number | null = null;
+      const markLiveLinkSynced = (sceneEpoch: string) => {
+        if (liveLinkStatusSeq === null) return;
+        liveLinkGuardRef.current!.markSynced(sceneEpoch, liveLinkStatusSeq);
+        liveLinkAwaitingSnapshotRef.current = false;
+      };
       try {
         const status = await getBlenderLiveStatus({ signal: abortController.signal });
         if (stopped || sequenceRef.current !== sequence) return;
         receivedLiveStatus = true;
         publishRuntimeStatus(status);
+        liveLinkStatusSeq = status.available ? (status.liveLink?.seq ?? null) : null;
         if (!status.available) {
           publishStatus({
             phase: loadedVersionRef.current === null ? "offline" : "stale",
@@ -1352,6 +1459,7 @@ export function BlenderSceneLayer({
           loadedVersionRef.current = snapshotVersion;
           appliedSnapshotRef.current = snapshot;
           failedVersionRef.current = null;
+          markLiveLinkSynced(snapshotVersion.sceneEpoch);
           setNativeTransformSyncEpoch((epoch) => epoch + 1);
           invalidate();
           publishStatus({ phase: "ready", revision: snapshot.revision });
@@ -1384,6 +1492,7 @@ export function BlenderSceneLayer({
         // path re-applies every transform against the fresh scene.
         appliedSnapshotRef.current = sameVersion(previewVersion, snapshotVersion) ? snapshot : null;
         failedVersionRef.current = null;
+        markLiveLinkSynced(previewVersion.sceneEpoch);
         applyDirectorOwnedBlenderVisibility(nextScene, hiddenVisualIdsRef.current);
         setCollisionSource({
           meshes: collectBlenderStaticMeshes(nextScene),
@@ -1452,6 +1561,105 @@ export function BlenderSceneLayer({
     refreshRequestId,
     visible,
   ]);
+
+  // Read-only live-link preview: mirrors in-progress Blender edits onto the
+  // mounted preview scene and the active-camera preview ahead of the slower
+  // authoritative snapshot poll. Frames are never authoritative — nothing here
+  // calls syncBlenderScene, updateObjectTransform, or any store mutator, so
+  // disconnecting (kernel loss, tab blur, unmount) always leaves the last
+  // committed Director revision intact.
+  useEffect(() => {
+    if (!visible || !documentActive || !scene || liveLinkPollIntervalMs <= 0) return;
+    const abortController = new AbortController();
+    let timer: number | null = null;
+    let stopped = false;
+
+    const poll = async () => {
+      let delayMs = Math.max(100, liveLinkPollIntervalMs);
+      try {
+        const guard = liveLinkGuardRef.current!;
+        const cursor = guard.cursor();
+        // Delta polling only makes sense on top of a synced authoritative
+        // snapshot; wait for the main poll to (re)establish that baseline.
+        if (cursor.sceneEpoch === null || liveLinkAwaitingSnapshotRef.current) return;
+        const pollResult = await pollBlenderLiveLink(
+          { sceneEpoch: cursor.sceneEpoch, since: cursor.seq },
+          { signal: abortController.signal },
+        );
+        if (stopped) return;
+        const result = guard.accept(pollResult);
+        if (result.resyncRequired) {
+          // "initial" only means the guard has not synced yet; every other
+          // reason (epoch change, evicted history, sequence gap) needs a
+          // fresh authoritative snapshot before deltas may resume.
+          if (result.reason !== "initial") {
+            liveLinkAwaitingSnapshotRef.current = true;
+            requestRuntimeRefresh();
+          }
+          return;
+        }
+        if (!result.apply.length) return;
+        const structureIndex = result.apply.findIndex((frame) => frame.kind === "structure");
+        const transformFrames = structureIndex === -1 ? result.apply : result.apply.slice(0, structureIndex);
+        const mountedScene = mountedSceneRef.current;
+        if (mountedScene && transformFrames.length) {
+          const authoritative = useBlenderRuntimeStore.getState().snapshot;
+          const parentById = authoritative
+            ? new Map<string, string | null>(
+                authoritative.objects.map((object) => [object.id, object.parentId ?? null]),
+              )
+            : undefined;
+          if (applyBlenderLiveLinkFrames(mountedScene, transformFrames, parentById)) {
+            // Live-link re-posed nodes directly, so the last applied snapshot
+            // no longer describes the mounted scene. Drop the delta source and
+            // the next authoritative snapshot re-poses everything it tracks.
+            appliedSnapshotRef.current = null;
+            setNativeTransformSyncEpoch((epoch) => epoch + 1);
+            invalidate();
+          }
+          for (const frame of transformFrames) {
+            for (const update of frame.cameras) {
+              if (!update.active) continue;
+              const baseCamera = authoritative?.cameras.find((camera) => camera.id === update.id);
+              if (!baseCamera) continue;
+              const previewCamera = {
+                ...baseCamera,
+                position: update.position,
+                rotation: update.rotation,
+                focalLengthMm: update.focalLengthMm,
+                active: true,
+              };
+              const signature = blenderActiveCameraSignature(cursor.sceneEpoch, previewCamera, cameraAspectRatio);
+              if (signature === activeCameraSignatureRef.current) continue;
+              activeCameraSignatureRef.current = signature;
+              onActiveCameraChangeRef.current?.(getBlenderCameraViewSnapshot(previewCamera, cameraAspectRatio));
+            }
+          }
+        }
+        if (structureIndex !== -1) {
+          // Something beyond bare transforms changed (created/deleted
+          // datablocks, mesh edits, renames); only the authoritative snapshot
+          // can represent that, so pause deltas until it lands.
+          liveLinkAwaitingSnapshotRef.current = true;
+          requestRuntimeRefresh();
+        }
+      } catch {
+        if (stopped || abortController.signal.aborted) return;
+        // Preview-only feed: failures never touch the Director project and
+        // the authoritative status poll owns availability reporting. Back off.
+        delayMs = Math.max(2_000, liveLinkPollIntervalMs);
+      } finally {
+        if (!stopped) timer = window.setTimeout(() => void poll(), delayMs);
+      }
+    };
+
+    void poll();
+    return () => {
+      stopped = true;
+      abortController.abort();
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [cameraAspectRatio, documentActive, liveLinkPollIntervalMs, requestRuntimeRefresh, scene, visible]);
 
   useEffect(() => {
     if (!visible || !projectId || !authoritativeSnapshot) return;

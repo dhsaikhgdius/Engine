@@ -80,6 +80,10 @@ interface FixtureOptions {
   withTable?: boolean;
   /** Add a Blender-side transform_update change for the table to the return manifest. */
   tableChange?: boolean;
+  /** Add an object_addition change (a new Blender object with a fresh director_id). */
+  addition?: boolean;
+  /** Use a directorId for the addition that already exists in the live project. */
+  additionIdCollision?: boolean;
   /** Director-side edits applied to the live project after the export. */
   mutateLive?: (project: DirectorProject) => void;
 }
@@ -126,6 +130,19 @@ async function fixture(options: FixtureOptions = {}) {
       transform: directorTransformToBlender({ position: [3, 0, -1], rotation: [0, 0, 0], scale: [1, 1, 1] }, world),
     });
   }
+  const additionMesh = new TextEncoder().encode("fresh blender lamp glb fixture");
+  if (options.addition) {
+    await writeFile(resolve(packageDirectory, "meshes", "lamp-new.glb"), additionMesh);
+    changes.push({
+      kind: "object_addition",
+      directorId: options.additionIdCollision ? "table" : "lamp-new",
+      entityType: "object",
+      name: "Desk Lamp",
+      meshFile: "meshes/lamp-new.glb",
+      transform: directorTransformToBlender({ position: [0, 1, -2], rotation: [0, 0, 0], scale: [1, 1, 1] }, world),
+      assetLabel: "Desk Lamp (Blender)",
+    });
+  }
   const manifest: DirectorDccReturnManifestV1 = {
     schemaVersion: 1,
     contract: "director-dcc-return-v1",
@@ -142,7 +159,10 @@ async function fixture(options: FixtureOptions = {}) {
     },
     changes,
     warnings: ["fixture warning"],
-    fileHashes: { "meshes/chair.glb": options.badHash ? "f".repeat(64) : digest(mesh) },
+    fileHashes: {
+      "meshes/chair.glb": options.badHash ? "f".repeat(64) : digest(mesh),
+      ...(options.addition ? { "meshes/lamp-new.glb": digest(additionMesh) } : {}),
+    },
   };
   await writeFile(resolve(packageDirectory, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
 
@@ -357,6 +377,112 @@ describe("Blender return import", () => {
     expect(result.copiedAssets).toEqual([]);
     const operation = applyAuthoring.mock.calls[0]![0] as { actions: Array<Record<string, unknown>> };
     expect(operation.actions).toEqual([expect.objectContaining({ action: "update_object", object_id: "table" })]);
+  });
+
+  it("lists new Blender objects as reviewable skips unless include_new_objects opts in", async () => {
+    const setup = await fixture({ addition: true });
+    const plan = await setup.importer.buildImportPlan("job-1/return-package", setup.project);
+    expect(plan.ready).toBe(true);
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.operations).not.toContainEqual(expect.objectContaining({ op: "create_prop" }));
+    expect(plan.operations).toContainEqual(
+      expect.objectContaining({
+        op: "skip",
+        directorId: "lamp-new",
+        reason: expect.stringContaining("include_new_objects"),
+      }),
+    );
+  });
+
+  it("plans create_prop with hash and Director-space transform when new objects are opted in", async () => {
+    const setup = await fixture({ addition: true });
+    const plan = await setup.importer.buildImportPlan("job-1/return-package", setup.project, {
+      includeNewObjects: true,
+    });
+    expect(plan.ready).toBe(true);
+    const createProp = plan.operations.find((operation) => operation.op === "create_prop");
+    expect(createProp).toMatchObject({
+      objectId: "lamp-new",
+      name: "Desk Lamp",
+      assetLabel: "Desk Lamp (Blender)",
+      glbPath: "meshes/lamp-new.glb",
+      hash: setup.manifest.fileHashes["meshes/lamp-new.glb"],
+    });
+    const position = (createProp as { transform: { position: [number, number, number] } }).transform.position;
+    expect(position[0]).toBeCloseTo(0, 6);
+    expect(position[1]).toBeCloseTo(1, 6);
+    expect(position[2]).toBeCloseTo(-2, 6);
+  });
+
+  it("conflicts additions whose director_id already exists in the live project", async () => {
+    const setup = await fixture({ addition: true, additionIdCollision: true, withTable: true });
+    const plan = await setup.importer.buildImportPlan("job-1/return-package", setup.project, {
+      includeNewObjects: true,
+    });
+    expect(plan.ready).toBe(false);
+    expect(plan.conflicts).toContainEqual(
+      expect.objectContaining({ directorId: "table", code: "duplicate_director_id" }),
+    );
+    expect(plan.operations).not.toContainEqual(expect.objectContaining({ op: "create_prop" }));
+  });
+
+  it("applies an opted-in addition as one immutable asset copy plus upsert_asset and add_object", async () => {
+    const setup = await fixture({ addition: true });
+    const plan = await setup.importer.buildImportPlan("job-1/return-package", setup.project, {
+      includeNewObjects: true,
+    });
+    const applyAuthoring = vi.fn().mockResolvedValue({ success: true });
+    const result = await setup.importer.applyImportPlan(
+      plan,
+      setup.project,
+      getDirectorProjectRevision(setup.project),
+      "addition-apply-1",
+      applyAuthoring,
+    );
+    const additionAsset = result.copiedAssets.find((asset) =>
+      asset.hash === setup.manifest.fileHashes["meshes/lamp-new.glb"],
+    );
+    expect(additionAsset).toBeDefined();
+    expect(
+      await readFile(resolve(setup.workspaceRoot, "assets", "generated", additionAsset!.url.slice(1)), "utf8"),
+    ).toBe("fresh blender lamp glb fixture");
+    const operation = applyAuthoring.mock.calls[0]![0] as { actions: Array<Record<string, unknown>> };
+    expect(operation.actions).toContainEqual(
+      expect.objectContaining({
+        action: "upsert_asset",
+        asset: expect.objectContaining({ kind: "prop", name: "Desk Lamp (Blender)" }),
+      }),
+    );
+    expect(operation.actions).toContainEqual(
+      expect.objectContaining({
+        action: "add_object",
+        id: "lamp-new",
+        name: "Desk Lamp",
+        kind: "prop",
+        transform: expect.objectContaining({ position: [expect.closeTo(0, 6), expect.closeTo(1, 6), expect.closeTo(-2, 6)] }),
+      }),
+    );
+    const upsertIndex = operation.actions.findIndex(
+      (action) => action.action === "upsert_asset" && (action.asset as { name?: string }).name === "Desk Lamp (Blender)",
+    );
+    const addIndex = operation.actions.findIndex((action) => action.action === "add_object");
+    expect(upsertIndex).toBeGreaterThanOrEqual(0);
+    expect(addIndex).toBeGreaterThan(upsertIndex);
+  });
+
+  it("keeps a submitted plan's addition opt-in across the server-side rebuild on apply", async () => {
+    const setup = await fixture({ addition: true });
+    const optedOut = await setup.importer.buildImportPlan("job-1/return-package", setup.project);
+    const applyOptedOut = vi.fn().mockResolvedValue({ success: true });
+    await setup.importer.applyImportPlan(
+      optedOut,
+      setup.project,
+      getDirectorProjectRevision(setup.project),
+      "addition-optout-1",
+      applyOptedOut,
+    );
+    const optedOutOperation = applyOptedOut.mock.calls[0]![0] as { actions: Array<Record<string, unknown>> };
+    expect(optedOutOperation.actions).not.toContainEqual(expect.objectContaining({ action: "add_object" }));
   });
 
   it("applies a plan whose JSON key order differs from the server serialization", async () => {
