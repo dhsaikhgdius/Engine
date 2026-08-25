@@ -93,9 +93,11 @@ export default function WildlifeGltfHerd({
 }) {
   const agents = useMemo(
     () => buildAgents(binding, group),
-    // Only count/size/species/id shape the clones; area/speed changes flow
-    // through the sim without rebuilding them.
-    [binding, group],
+    // Only count/size/species/id shape the clones. Keying on those fields
+    // (not the group object identity) keeps area drags and speedScale edits
+    // from rebuilding N skeletons and resetting their actions mid-shot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+    [binding, group.count, group.id, group.sizeScale, group.species],
   );
 
   useEffect(
@@ -110,11 +112,32 @@ export default function WildlifeGltfHerd({
     [agents],
   );
 
-  const lastComposeRef = useRef<{ agents: WildlifeGltfAgent[]; sim: WildlifeSim; seconds: number } | null>(null);
+  // Same skip-cache contract as the instanced path: recompose when the sim,
+  // time, context identity, or the terrain height probed at the area centre
+  // changes (so terrain streaming in under a paused playhead re-grounds the
+  // herd). Mutated in place — useFrame stays allocation-free.
+  const lastComposeRef = useRef({
+    agents: null as WildlifeGltfAgent[] | null,
+    sim: null as WildlifeSim | null,
+    context: null as LivingWorldFrameContext | null,
+    seconds: Number.NaN,
+    centerGroundY: Number.POSITIVE_INFINITY,
+  });
 
   useFrame(() => {
+    const centerGroundY = context.sampleGroundHeight
+      ? (context.sampleGroundHeight(group.area.center[0], group.area.center[2]) ?? Number.POSITIVE_INFINITY)
+      : Number.POSITIVE_INFINITY;
     const last = lastComposeRef.current;
-    if (last && last.agents === agents && last.sim === sim && last.seconds === context.worldSeconds) return;
+    if (
+      last.agents === agents &&
+      last.sim === sim &&
+      last.context === context &&
+      last.seconds === context.worldSeconds &&
+      last.centerGroundY === centerGroundY
+    ) {
+      return;
+    }
     sim.stepTo(context.worldSeconds);
     const render = sim.readRenderState();
     const { prev, curr, alpha } = render;
@@ -160,7 +183,11 @@ export default function WildlifeGltfHerd({
         agent.mixer.setTime(wildlifeMixerTimeSeconds(context.worldSeconds, prev.phase[i], group.speedScale));
       }
     }
-    lastComposeRef.current = { agents, sim, seconds: context.worldSeconds };
+    last.agents = agents;
+    last.sim = sim;
+    last.context = context;
+    last.seconds = context.worldSeconds;
+    last.centerGroundY = centerGroundY;
   });
 
   return (
