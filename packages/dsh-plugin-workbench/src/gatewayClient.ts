@@ -113,6 +113,39 @@ async function getGatewayToken(
 }
 
 /**
+ * GETs one authenticated Director gateway JSON resource (bootstrap token flow
+ * included). Used for non-tool reads such as the agent workspace prompt.
+ */
+export async function fetchDirectorGatewayJson(
+  path: string,
+  config: DirectorWorkbenchGatewayConfig = {},
+  signal?: AbortSignal,
+): Promise<DirectorWorkbenchGatewayResult> {
+  const gatewayUrl = (config.gatewayUrl ?? trimEnv(process.env.STAGE_GATEWAY_URL) ?? "http://127.0.0.1:8787").replace(
+    /\/$/,
+    "",
+  );
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const request = (gatewayToken: string) =>
+    gatewayFetch(
+      fetchImpl,
+      `${gatewayUrl}${path}`,
+      { headers: { accept: "application/json", "x-director-browser-token": gatewayToken }, signal },
+      gatewayUrl,
+    );
+  let response = await request(await getGatewayToken(gatewayUrl, config, fetchImpl, signal));
+  if (response.status === 401) {
+    gatewayTokens.delete(gatewayUrl);
+    response = await request(await bootstrapGatewayToken(gatewayUrl, fetchImpl, signal));
+  }
+  const raw: unknown = await response.json().catch(() => ({}));
+  return {
+    status: response.status,
+    body: asRecord(raw) ?? { success: false, error: "Director gateway returned a non-object response" },
+  };
+}
+
+/**
  * POSTs one Director domain tool call to the Gateway `/api/tools/:name` surface.
  * DeepSeek Harness owns the loop; this client is the plugin's only Director hop.
  */

@@ -6,6 +6,7 @@ import {
 import { flattenDirectorToolResult } from "./flattenToolResult";
 import { dispatchDirectorWorkbenchTool, type DirectorWorkbenchGatewayConfig } from "./gatewayClient";
 import { DIRECTOR_AGENT_GUIDANCE } from "./guidance";
+import { registerDirectorWorkspacePrompt } from "./workspacePrompt";
 import { DIRECTOR_TOOL_TIMEOUT_MS, directorToolIsConcurrencySafe, dynamicToolTimeoutMs } from "./toolPolicy";
 import { finalizeDirectorAgentToolEnvelope } from "./toolResultProjection";
 
@@ -387,5 +388,6 @@ export function registerDirectorWorkbenchPlugin(
   }
   registerDirectorModelRoutes(context, defineTool);
   registerDirectorAgentGuidance(context);
+  registerDirectorWorkspacePrompt(context, config);
   registerDirectorHarnessHealth(context);
 }

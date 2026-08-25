@@ -106,6 +106,8 @@ import {
   mergeHostedAgentProfiles,
 } from "./agents/agentApiProviderStore";
 import { handleAgentApiProviderRoute } from "./routes/agentApiProviderRoutes";
+import { AgentWorkspaceStore } from "./agents/agentWorkspaceStore";
+import { handleAgentWorkspaceRoute } from "./routes/agentWorkspaceRoutes";
 import { MultiAgentRunStore } from "./multiAgent/multiAgentRunStore";
 import { ProductionRunOrchestrator } from "./multiAgent/productionRunOrchestrator";
 import { HostedProductionAgentRunner } from "./multiAgent/hostedProductionAgentRunner";
@@ -296,6 +298,7 @@ const localCliAvailability = probeLocalAgentCliAvailability();
 const agentProfileRegistry = new AgentProfileRegistry(controlPlaneConfig, localCliAvailability);
 const agentApiProviderStore = new AgentApiProviderStore(dataDirectory);
 await agentApiProviderStore.load();
+const agentWorkspaceStore = new AgentWorkspaceStore(dataDirectory);
 const applyHostedApiProfiles = (profiles: readonly HostedAgentProfileConfig[]) => {
   agentProfileRegistry.replaceExtraHostedProfiles(profiles);
 };
@@ -1918,6 +1921,14 @@ const server = createServer(async (request, response) => {
         store: agentApiProviderStore,
         environmentProfiles: controlPlaneConfig.agents.profiles,
         applyHostedProfiles: applyHostedApiProfiles,
+      })
+    )
+      return;
+    if (
+      await handleAgentWorkspaceRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: agentWorkspaceStore,
       })
     )
       return;
