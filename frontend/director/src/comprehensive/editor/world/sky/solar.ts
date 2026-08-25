@@ -1,4 +1,5 @@
 import type { DirectorWorldSettings, DirectorWorldWeather } from "../../schema/directorProject";
+import { blendWorldPresetScalar, type WorldClimateState } from "../worldClimate";
 import { evaluateWorldTimeOfDayHours } from "../worldTime";
 import {
   ATMOSPHERE_SUN_SCALE_BASE,
@@ -18,6 +19,12 @@ import { evaluateSkyWeatherMood } from "./skyWeather";
  * solar arc is intentionally simple previz lighting, not an ephemeris:
  * sunrise at 6h, solar noon at 12h, sunset at 18h, with the sun sweeping
  * east (+X) through south (-Z) to west (-X).
+ *
+ * Climate coupling: every evaluator accepts an optional evaluated climate
+ * state. Without one (or in `static` evolution mode) the legacy authored
+ * weather path runs unchanged; with an evolving climate the per-preset
+ * lighting tables blend across the active transition so weather ramps never
+ * pop the sun or ambient intensity.
  */
 
 type WeatherPreset = DirectorWorldWeather["preset"];
@@ -129,10 +136,33 @@ const PRESET_TURBIDITY: Record<WeatherPreset, number> = {
   storm: 8,
 };
 
-/** Fraction of direct key light surviving cloud cover, weather preset, and intensity. */
-function getDirectWeatherTransmission(weather: DirectorWorldWeather): number {
-  return evaluateSkyWeatherMood(weather).directTransmission;
+/**
+ * Per-preset scalar under an optional climate: static reads the table
+ * directly (bit-exact legacy), an evolving climate blends the entries across
+ * the active transition.
+ */
+function presetScalar(
+  table: Record<WeatherPreset, number>,
+  weather: DirectorWorldWeather,
+  climate?: WorldClimateState,
+): number {
+  if (!climate?.evolving) return table[weather.preset];
+  return blendWorldPresetScalar(table, climate);
 }
+
+/** Storm darkening on the key light; ramps with the evaluated storm factor. */
+function getStormDarkening(weather: DirectorWorldWeather, climate?: WorldClimateState): number {
+  if (climate?.evolving) return lerp(1, 0.45, clamp01(weather.intensity) * climate.stormFactor);
+  return weather.preset === "storm" ? lerp(1, 0.45, clamp01(weather.intensity)) : 1;
+}
+
+/** Fraction of direct key light surviving cloud cover, weather preset, and storm darkening. */
+function getDirectWeatherTransmission(weather: DirectorWorldWeather, climate?: WorldClimateState): number {
+  return (
+    (1 - 0.72 * clamp01(weather.cloudCover)) *
+    presetScalar(PRESET_DIRECT_LIGHT, weather, climate) *
+    getStormDarkening(weather, climate)
+  );}
 
 const SUN_COLOR_NOON: readonly [number, number, number] = [1, 0.975, 0.93];
 const SUN_COLOR_HORIZON: readonly [number, number, number] = [1, 0.6, 0.3];
@@ -148,20 +178,48 @@ const PRESET_AERIAL_FOG_DENSITY: Record<WeatherPreset, number> = {
   storm: 0.00215,
 };
 
-function evaluateAtmosphereForSky(settings: DirectorWorldSettings, worldSeconds: number): AtmosphereSolution {
+/**
+ * Steps per weather ramp for the LUT bake inputs. The Nishita bake is cached
+ * on quantized keys, so evolving-climate inputs are snapped to this grid —
+ * otherwise a 30–120 s ramp would re-bake the LUT every frame.
+ */
+const ATMOSPHERE_CLIMATE_STEPS = 24;
+
+/** Coarse climate proxy whose atmosphere-relevant fields are quantized. */
+function quantizeClimateForAtmosphere(climate: WorldClimateState): WorldClimateState {
+  const q = (value: number) => Math.round(value * ATMOSPHERE_CLIMATE_STEPS) / ATMOSPHERE_CLIMATE_STEPS;
+  return {
+    ...climate,
+    blend: q(climate.blend),
+    stormFactor: q(climate.stormFactor),
+    weather: {
+      ...climate.weather,
+      intensity: q(climate.weather.intensity),
+      cloudCover: q(climate.weather.cloudCover),
+    },
+  };
+}
+
+function evaluateAtmosphereForSky(
+  settings: DirectorWorldSettings,
+  worldSeconds: number,
+  climate?: WorldClimateState,
+): AtmosphereSolution {
   const hours = evaluateWorldTimeOfDayHours(settings.timeOfDay, worldSeconds);
   const arc = getSkySolarArc(hours);
   const trueSunDir = directionFromAngles(arc.elevationRadians, arc.azimuthRadians);
   const daylight = smoothstep(-0.12, 0.25, arc.altitudeSin);
-  const transmission = getDirectWeatherTransmission(settings.weather);
+  const bakeClimate = climate?.evolving ? quantizeClimateForAtmosphere(climate) : climate;
+  const weather = bakeClimate ? bakeClimate.weather : settings.weather;
+  const transmission = getDirectWeatherTransmission(weather, bakeClimate);
   // Keep a little residual sun scale at night so the LUT still has twilight
   // structure instead of collapsing to a black cubemap.
   const sunScale = ATMOSPHERE_SUN_SCALE_BASE * transmission * lerp(0.08, 1, daylight);
   return solveAtmosphere({
     sunDir: trueSunDir,
     sunScale,
-    groundAlbedo: getAtmosphereGroundAlbedo(settings.weather),
-    mieScale: getAtmosphereMieScale(settings.weather),
+    groundAlbedo: getAtmosphereGroundAlbedo(weather, bakeClimate?.evolving ? bakeClimate : undefined),
+    mieScale: getAtmosphereMieScale(weather, bakeClimate?.evolving ? bakeClimate : undefined),
   });
 }
 
@@ -198,14 +256,17 @@ export function getWorldSkyLightScale(authoredLitLightCount: number): number {
  * pick up the same blue fill / warm key the dome shows. Ground is a dimmed
  * sky, not a grass bounce.
  */
-export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSeconds: number): SkyLightingState {
+export function evaluateSkyLighting(
+  settings: DirectorWorldSettings,
+  worldSeconds: number,
+  climate?: WorldClimateState,
+): SkyLightingState {
   const hours = evaluateWorldTimeOfDayHours(settings.timeOfDay, worldSeconds);
   const arc = getSkySolarArc(hours);
-  const weather = settings.weather;
-  const mood = evaluateSkyWeatherMood(weather);
-  const cloudCover = mood.effectiveCloudCover;
-  const atmosphere = evaluateAtmosphereForSky(settings, worldSeconds);
-
+  const weather = climate ? climate.weather : settings.weather;
+  const cloudCover = clamp01(weather.cloudCover);
+  const stormDarkening = getStormDarkening(weather, climate);
+  const atmosphere = evaluateAtmosphereForSky(settings, worldSeconds, climate);
   // 0 at deep night, 1 in full daylight, easing through twilight.
   const daylight = smoothstep(-0.12, 0.25, arc.altitudeSin);
   const horizonWarmth = 1 - clamp01(arc.altitudeSin / 0.45);
@@ -215,7 +276,7 @@ export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSecond
     ? directionFromAngles(arc.elevationRadians, arc.azimuthRadians)
     : directionFromAngles(-arc.elevationRadians, arc.azimuthRadians + Math.PI);
 
-  const directWeather = mood.directTransmission;
+  const directWeather = getDirectWeatherTransmission(weather, climate);
   const sunIntensity = sunUp
     ? SKY_NOON_SUN_INTENSITY * smoothstep(0, 0.25, arc.altitudeSin) * directWeather
     : SKY_NOON_SUN_INTENSITY * SKY_MOONLIGHT_INTENSITY_RATIO * smoothstep(0, 0.25, -arc.altitudeSin) * directWeather;
@@ -225,7 +286,8 @@ export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSecond
   const sunColor = sunUp ? lerpColor(SUN_COLOR_NOON, atmosphere.sunColor, sunWarmthBlend) : [...MOON_COLOR];
 
   const cloudLift = 1 + 0.3 * cloudCover * daylight;
-  const ambientIntensity = lerp(0.14, 0.85, daylight) * cloudLift * mood.ambientScale;
+  const ambientIntensity =
+    lerp(0.14, 0.85, daylight) * cloudLift * presetScalar(PRESET_AMBIENT_LIGHT, weather, climate) * stormDarkening;
   const skyFill = chromaticityOf(atmosphere.skyIrradianceUp);
   const ambientColor = lerpColor(
     lerpColor(AMBIENT_COLOR_NIGHT, skyFill, daylight),
@@ -234,15 +296,17 @@ export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSecond
   );
   const groundColor: [number, number, number] = [ambientColor[0] * 0.35, ambientColor[1] * 0.33, ambientColor[2] * 0.3];
   const aerialFogColor = chromaticityOf(lerpColor(atmosphere.aerialNearColor, atmosphere.horizonColor, 0.35));
+  const stormFogBoost = climate?.evolving
+    ? lerp(1, 1.35, clamp01(weather.intensity) * climate.stormFactor)
+    : weather.preset === "storm"
+      ? lerp(1, 1.35, clamp01(weather.intensity))
+      : 1;
   const aerialFogDensity =
-    PRESET_AERIAL_FOG_DENSITY[weather.preset] *
-    (1 + 0.55 * cloudCover) *
-    (weather.preset === "clear" ? 1 : lerp(1, 1.35, clamp01(weather.intensity)));
+    presetScalar(PRESET_AERIAL_FOG_DENSITY, weather, climate) * (1 + 0.55 * cloudCover) * stormFogBoost;
 
   const nightFactor = 1 - smoothstep(-0.18, 0.03, arc.altitudeSin);
-  const starsOpacity = clamp01(nightFactor * (1 - cloudCover) * mood.starVisibility);
-
-  const skyTurbidity = clamp(2.2 + 9 * cloudCover + PRESET_TURBIDITY[weather.preset], 2, 20);
+  const starsOpacity = clamp01(nightFactor * (1 - cloudCover) * presetScalar(PRESET_STARS, weather, climate));
+  const skyTurbidity = clamp(2.2 + 9 * cloudCover + presetScalar(PRESET_TURBIDITY, weather, climate), 2, 20);
   const skyRayleigh = clamp(1 + 2.4 * horizonWarmth * daylight, 0.3, 4);
 
   return {
@@ -263,8 +327,12 @@ export function evaluateSkyLighting(settings: DirectorWorldSettings, worldSecond
 }
 
 /** Shared LUT used by the sky dome so lighting and pixels stay on one bake. */
-export function evaluateSkyAtmosphere(settings: DirectorWorldSettings, worldSeconds: number): AtmosphereSolution {
-  return evaluateAtmosphereForSky(settings, worldSeconds);
+export function evaluateSkyAtmosphere(
+  settings: DirectorWorldSettings,
+  worldSeconds: number,
+  climate?: WorldClimateState,
+): AtmosphereSolution {
+  return evaluateAtmosphereForSky(settings, worldSeconds, climate);
 }
 
 /** The disc hides once the sun drops below civil-twilight depth. */
@@ -297,7 +365,11 @@ export interface SkySunDiscState {
  * dimmed by the same weather transmission that attenuates the key light, so a
  * stormy noon shows only a faint smudge where the sun sits.
  */
-export function evaluateSunDiscState(settings: DirectorWorldSettings, worldSeconds: number): SkySunDiscState {
+export function evaluateSunDiscState(
+  settings: DirectorWorldSettings,
+  worldSeconds: number,
+  climate?: WorldClimateState,
+): SkySunDiscState {
   const hours = evaluateWorldTimeOfDayHours(settings.timeOfDay, worldSeconds);
   const arc = getSkySolarArc(hours);
   const direction = directionFromAngles(arc.elevationRadians, arc.azimuthRadians);
@@ -310,9 +382,9 @@ export function evaluateSunDiscState(settings: DirectorWorldSettings, worldSecon
     SKY_SUN_DISC_FULL_ELEVATION_RADIANS,
     arc.elevationRadians,
   );
-  const transmission = getDirectWeatherTransmission(settings.weather);
+  const transmission = getDirectWeatherTransmission(climate ? climate.weather : settings.weather, climate);
   const horizonWarmth = 1 - clamp01(arc.altitudeSin / 0.45);
-  const atmosphere = evaluateAtmosphereForSky(settings, worldSeconds);
+  const atmosphere = evaluateAtmosphereForSky(settings, worldSeconds, climate);
   return {
     visible,
     direction,

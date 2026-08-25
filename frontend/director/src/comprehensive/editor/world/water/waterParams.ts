@@ -2,6 +2,7 @@ import type {
   DirectorWorldWaterBody,
   DirectorWorldWeather,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
+import type { WorldClimateState } from "../worldClimate";
 import { worldRandom01, worldStreamId } from "../worldRandom";
 import { createGerstnerWaveSet, type GerstnerSurfaceParams, type GerstnerWaveSetInput } from "./gerstner";
 
@@ -351,9 +352,24 @@ const SKY_ZENITH_NIGHT: readonly [number, number, number] = [0.02, 0.03, 0.07];
 const SKY_HORIZON_OVERCAST: readonly [number, number, number] = [0.78, 0.81, 0.86];
 const SKY_ZENITH_OVERCAST: readonly [number, number, number] = [0.52, 0.56, 0.62];
 
-/** How much of the sky reflection survives the weather preset, by intensity. */
-function weatherSkyDimming(weather: DirectorWorldWeather): number {
+/** Lerp whose endpoints are bit-exact; keeps climate holds on the preset numbers. */
+function exactLerp(from: number, to: number, t: number): number {
+  if (t <= 0) return from;
+  if (t >= 1) return to;
+  return from + (to - from) * t;
+}
+
+/**
+ * How much of the sky reflection survives the weather, by intensity. An
+ * evolving climate ramps the dimming with the evaluated rain presence and
+ * storm factor instead of stepping on the preset gate.
+ */
+function weatherSkyDimming(weather: DirectorWorldWeather, climate?: WorldClimateState): number {
   const intensity = clamp(weather.intensity, 0, 1);
+  if (climate?.evolving) {
+    const dimmed = exactLerp(0.85, 0.72, clamp(climate.stormFactor, 0, 1));
+    return exactLerp(1, dimmed, clamp(climate.rainPresence, 0, 1) * intensity);
+  }
   if (weather.preset === "storm") return lerp(1, 0.72, intensity);
   if (weather.preset === "rain") return lerp(1, 0.85, intensity);
   return 1;
@@ -384,11 +400,12 @@ export function computeWaterSkyReflectionInto(
   zenithTarget: WaterColorLike,
   hours: number,
   weather: DirectorWorldWeather,
+  climate?: WorldClimateState,
 ): void {
   const daylight = waterDaylight(hours);
   const warmth = waterHorizonWarmth(hours);
   const cloud = clamp(weather.cloudCover, 0, 1);
-  const dimming = weatherSkyDimming(weather);
+  const dimming = weatherSkyDimming(weather, climate);
   // Overcast skies stay bright by day but must not glow at night.
   const overcastLevel = lerp(0.08, 1, daylight);
 
@@ -479,12 +496,19 @@ export function computeWaterSunColorInto(target: WaterColorLike, hours: number):
  * rain/storm presets so stormy water reads darker without touching the sky
  * reflection contrast.
  */
-export function computeWaterBodyLightLevel(hours: number, weather: DirectorWorldWeather): number {
+export function computeWaterBodyLightLevel(
+  hours: number,
+  weather: DirectorWorldWeather,
+  climate?: WorldClimateState,
+): number {
   const daylight = waterDaylight(hours);
   const cloud = clamp(weather.cloudCover, 0, 1);
   const intensity = clamp(weather.intensity, 0, 1);
   let presetFactor = 1;
-  if (weather.preset === "storm") presetFactor = lerp(1, 0.8, intensity);
+  if (climate?.evolving) {
+    const dimmed = exactLerp(0.9, 0.8, clamp(climate.stormFactor, 0, 1));
+    presetFactor = exactLerp(1, dimmed, clamp(climate.rainPresence, 0, 1) * intensity);
+  } else if (weather.preset === "storm") presetFactor = lerp(1, 0.8, intensity);
   else if (weather.preset === "rain") presetFactor = lerp(1, 0.9, intensity);
   return clamp(lerp(0.12, 1, daylight) * (1 - 0.25 * cloud) * presetFactor, 0.05, 1.2);
 }
@@ -512,10 +536,19 @@ const RAIN_AGITATION_BY_PRESET: Record<DirectorWorldWeather["preset"], number> =
 /**
  * Strength [0, 1] of the animated rain-pocking micro-normal noise: raindrops
  * churn the surface into a sparkling, broken-up sheen. Deterministic — the
- * shader animates it purely from uTime.
+ * shader animates it purely from uTime. An evolving climate ramps the
+ * agitation with the evaluated rain/snow presence so sparkle fades in with
+ * the rain instead of snapping at the preset switch.
  */
-export function computeWaterRainAgitation(weather: DirectorWorldWeather): number {
+export function computeWaterRainAgitation(weather: DirectorWorldWeather, climate?: WorldClimateState): number {
   const intensity = clamp(weather.intensity, 0, 1);
+  if (climate?.evolving) {
+    const rainBase = exactLerp(RAIN_AGITATION_BY_PRESET.rain, RAIN_AGITATION_BY_PRESET.storm, clamp(climate.stormFactor, 0, 1));
+    const agitation =
+      rainBase * clamp(climate.rainPresence, 0, 1) * intensity +
+      RAIN_AGITATION_BY_PRESET.snow * clamp(climate.snowPresence, 0, 1) * intensity;
+    return clamp(agitation, 0, 1);
+  }
   return clamp(RAIN_AGITATION_BY_PRESET[weather.preset] * intensity, 0, 1);
 }
 

@@ -5,6 +5,7 @@ import {
   type DirectorWorldWaterBody,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext } from "../../../../../src/comprehensive/editor/world/livingWorldContracts";
+import { evaluateWorldClimate } from "../../../../../src/comprehensive/editor/world/worldClimate";
 import { buildRiverRibbonData } from "../../../../../src/comprehensive/editor/world/river/riverGeometry";
 import {
   RIVER_FRAGMENT_SHADER,
@@ -147,6 +148,7 @@ describe("river surface shader", () => {
       isPlaying: true,
       seed: 42,
       settings,
+      climate: evaluateWorldClimate(settings, 12),
       windVector: [6, 0, 0],
       groundHeight: 0,
     };

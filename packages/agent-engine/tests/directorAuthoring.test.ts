@@ -1500,6 +1500,102 @@ describe("living world authoring", () => {
     expect(patched.notes).toEqual([]);
   });
 
+  it("authors weather evolution: set, merge-preserving period, and remove", () => {
+    const enabled = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      { action: "set_world_settings", settings: { weather: { evolution: { mode: "cycle", period_seconds: 120 } } } },
+    ]);
+    expect(enabled.project.world?.settings.weather.evolution).toEqual({ mode: "cycle", periodSeconds: 120 });
+
+    // Re-patching without period_seconds keeps the authored period.
+    const repatched = applyDirectorAuthoringActions(enabled.project, [
+      { action: "set_world_settings", settings: { weather: { evolution: { mode: "cycle" } } } },
+    ]);
+    expect(repatched.project.world?.settings.weather.evolution).toEqual({ mode: "cycle", periodSeconds: 120 });
+
+    // Sibling weather fields survive an evolution patch and vice versa.
+    const sibling = applyDirectorAuthoringActions(repatched.project, [
+      { action: "set_world_settings", settings: { weather: { wetness: 0.4 } } },
+    ]);
+    expect(sibling.project.world?.settings.weather).toMatchObject({
+      wetness: 0.4,
+      evolution: { mode: "cycle", periodSeconds: 120 },
+    });
+
+    // null removes the block entirely (static weather, old-project shape).
+    const removed = applyDirectorAuthoringActions(sibling.project, [
+      { action: "set_world_settings", settings: { weather: { evolution: null } } },
+    ]);
+    expect(removed.project.world?.settings.weather.evolution).toBeUndefined();
+    expect("evolution" in (removed.project.world?.settings.weather ?? {})).toBe(false);
+
+    // Defaults fill in when only the mode is provided on a fresh project.
+    const defaulted = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      { action: "set_world_settings", settings: { weather: { evolution: { mode: "cycle" } } } },
+    ]);
+    expect(defaulted.project.world?.settings.weather.evolution).toEqual({ mode: "cycle", periodSeconds: 300 });
+
+    expect(
+      directorAuthoringActionSchema.safeParse({
+        action: "set_world_settings",
+        settings: { weather: { evolution: { mode: "cycle", period_seconds: 5 } } },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("authors fire propagation on unbound fire effects only", () => {
+    const created = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      { action: "add_world_effect", kind: "fire", id: "fx_camp", propagation: { enabled: true } },
+    ]);
+    const camp = created.project.world?.effects.find((effect) => effect.id === "fx_camp");
+    expect(camp?.propagation).toEqual({ enabled: true, radiusM: 12, spreadRate: 1 });
+
+    // Partial update merges with the existing block.
+    const widened = applyDirectorAuthoringActions(created.project, [
+      { action: "update_world_effect", effect_id: "fx_camp", patch: { propagation: { enabled: true, radius_m: 24 } } },
+    ]);
+    expect(
+      widened.project.world?.effects.find((effect) => effect.id === "fx_camp")?.propagation,
+    ).toEqual({ enabled: true, radiusM: 24, spreadRate: 1 });
+
+    // null removes the block.
+    const cleared = applyDirectorAuthoringActions(widened.project, [
+      { action: "update_world_effect", effect_id: "fx_camp", patch: { propagation: null } },
+    ]);
+    const clearedEffect = cleared.project.world?.effects.find((effect) => effect.id === "fx_camp");
+    expect(clearedEffect?.propagation).toBeUndefined();
+    expect("propagation" in (clearedEffect ?? {})).toBe(false);
+
+    // Non-fire kinds reject propagation.
+    expect(() =>
+      applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+        { action: "add_world_effect", kind: "smoke", propagation: { enabled: true } },
+      ]),
+    ).toThrow(/requires kind "fire"/);
+
+    // Object-bound anchors reject propagation (spread history must not move).
+    const withObject = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      { action: "add_object", id: "obj_torch", name: "火把", kind: "prop", geometry_type: "box" },
+    ]);
+    expect(() =>
+      applyDirectorAuthoringActions(withObject.project, [
+        {
+          action: "add_world_effect",
+          kind: "fire",
+          anchor: { object_id: "obj_torch" },
+          propagation: { enabled: true },
+        },
+      ]),
+    ).toThrow(/unbound anchor/);
+
+    expect(
+      directorAuthoringActionSchema.safeParse({
+        action: "add_world_effect",
+        kind: "fire",
+        propagation: { enabled: true, radius_m: 1000 },
+      }).success,
+    ).toBe(false);
+  });
+
   it("authors water bodies and wildlife groups with the documented defaults", () => {
     const result = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
       { action: "add_world_water_body" },

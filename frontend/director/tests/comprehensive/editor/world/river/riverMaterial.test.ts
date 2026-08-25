@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorWorldWaterBody } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext } from "../../../../../src/comprehensive/editor/world/livingWorldContracts";
+import { evaluateWorldClimate } from "../../../../../src/comprehensive/editor/world/worldClimate";
 import { computeWaterTroughLift } from "../../../../../src/comprehensive/editor/world/water/waterParams";
 import {
   RIVER_FRAGMENT_SHADER,
@@ -172,19 +173,21 @@ describe("river material environment probe", () => {
       widthM: 6,
     };
     expect(riverSurfaceMinY(body)).toBeCloseTo(0.02, 10);
+    const settings = {
+      enabled: true,
+      seed: 7,
+      wind: { directionDegrees: 0, speedMps: 0, gustiness: 0, turbulence: 0 },
+      timeOfDay: { mode: "fixed" as const, hours: 12, cycleMinutes: 12, drivesSky: false },
+      weather: { preset: "clear" as const, intensity: 0.5, wetness: 0, cloudCover: 0 },
+    };
     const context: LivingWorldFrameContext = {
       worldSeconds: 4,
       frame: 96,
       fps: 24,
       isPlaying: false,
       seed: 7,
-      settings: {
-        enabled: true,
-        seed: 7,
-        wind: { directionDegrees: 0, speedMps: 0, gustiness: 0, turbulence: 0 },
-        timeOfDay: { mode: "fixed", hours: 12, cycleMinutes: 12, drivesSky: false },
-        weather: { preset: "clear", intensity: 0.5, wetness: 0, cloudCover: 0 },
-      },
+      settings,
+      climate: evaluateWorldClimate(settings, 4),
       windVector: [0, 0, 0],
       groundHeight: 0,
     };
