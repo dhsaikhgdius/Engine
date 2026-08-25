@@ -9,11 +9,14 @@ import {
   transitionProductionJob,
   type ProductionJobRecord,
 } from "../../../packages/protocol/src/productionJobProtocol";
+import { projectProductionJobReceipt } from "../../../packages/protocol/src/productionJobReceipt";
 import {
   executeCanvasImageJob,
   ProductionJobIdempotencyConflictError,
   type ProductionJobStore,
 } from "../jobs/productionJobStore";
+import { registerProductionJobArtifactVersions } from "../artifacts/productionJobArtifactBridge";
+import type { ProductionArtifactStore } from "../artifacts/productionArtifactStore";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -32,6 +35,8 @@ export type ProductionJobRouteDependencies = {
     maxInputBytes: number;
     put: (bytes: Uint8Array, expectedSha256: string) => Promise<{ sha256: string; bytes: number }>;
   };
+  /** Immutable evidence store backing job → ArtifactVersion registration. */
+  artifactVersions?: ProductionArtifactStore;
   onBackgroundError?: (error: unknown) => void;
 };
 
@@ -261,7 +266,8 @@ async function enqueueJob(
   try {
     const job = await dependencies.store.enqueue({ ...parsed.data, createId: dependencies.createJobId });
     void runJob(dependencies, job.id);
-    dependencies.json(response, 202, { job: productionJobRecordSchema.parse(job) });
+    const parsedJob = productionJobRecordSchema.parse(job);
+    dependencies.json(response, 202, { job: parsedJob, receipt: projectProductionJobReceipt(parsedJob) });
   } catch (error) {
     if (error instanceof ProductionJobIdempotencyConflictError) {
       dependencies.json(response, 409, {
@@ -335,7 +341,66 @@ export async function handleProductionJobRoute(
       json(response, 404, { message: "Production job 不存在" });
       return true;
     }
-    json(response, 200, { job: productionJobRecordSchema.parse(job) });
+    const reconciled = productionJobRecordSchema.parse(job);
+    json(response, 200, { job: reconciled, receipt: projectProductionJobReceipt(reconciled) });
+    return true;
+  }
+
+  // The normalized, kind-independent receipt every control surface shares.
+  const receiptJobId = routeJobId(url.pathname, "/receipt");
+  if (request.method === "GET" && receiptJobId) {
+    const job = await store.get(receiptJobId);
+    if (!job) {
+      json(response, 404, { message: "Production job 不存在" });
+      return true;
+    }
+    json(response, 200, { receipt: projectProductionJobReceipt(productionJobRecordSchema.parse(job)) });
+    return true;
+  }
+
+  // Registers a succeeded job's immutable outputs as director_production
+  // artifact versions. Replaying the registration is idempotent.
+  const artifactVersionsJobId = routeJobId(url.pathname, "/artifact-versions");
+  if (request.method === "POST" && artifactVersionsJobId) {
+    if (!dependencies.artifactVersions) {
+      json(response, 503, {
+        code: "artifact_version_store_unavailable",
+        message: "Production artifact 版本库未配置",
+      });
+      return true;
+    }
+    const job = await store.get(artifactVersionsJobId);
+    if (!job) {
+      json(response, 404, { message: "Production job 不存在" });
+      return true;
+    }
+    if (job.status !== "succeeded") {
+      json(response, 409, {
+        code: "job_not_succeeded",
+        message: `只有 succeeded 状态的任务可以登记产物版本；当前状态为 ${job.status}`,
+      });
+      return true;
+    }
+    try {
+      const registrations = await registerProductionJobArtifactVersions(dependencies.artifactVersions, job);
+      json(response, 200, {
+        registrations: registrations.map((registration) => ({
+          version: registration.version,
+          replayed: registration.replayed,
+        })),
+        receipt: projectProductionJobReceipt(productionJobRecordSchema.parse(job)),
+      });
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "artifact_conflict" || code === "artifact_validation_error") {
+        json(response, code === "artifact_conflict" ? 409 : 400, {
+          code,
+          message: (error as Error).message,
+        });
+        return true;
+      }
+      throw error;
+    }
     return true;
   }
 
@@ -383,7 +448,8 @@ export async function handleProductionJobRoute(
       json(response, 404, { message: "Production job 不存在" });
       return true;
     }
-    json(response, 200, { job: productionJobRecordSchema.parse(job) });
+    const parsedJob = productionJobRecordSchema.parse(job);
+    json(response, 200, { job: parsedJob, receipt: projectProductionJobReceipt(parsedJob) });
     return true;
   }
 

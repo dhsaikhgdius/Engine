@@ -141,6 +141,8 @@ import { createReferenceSceneAnalyzer } from "./reconstruction/referenceSceneAna
 import { handleReferenceSceneRoute } from "./routes/referenceSceneRoutes";
 import { createMediaTranscriptionRuntime } from "./transcription/createMediaTranscriptionRuntime";
 import { createMediaTranscodeRuntime } from "./media/createMediaTranscodeRuntime";
+import { createCaptureReconstructionRuntime } from "./reconstruction/createCaptureReconstructionRuntime";
+import { handleCaptureReconstructionRoute } from "./routes/captureReconstructionRoutes";
 import { handleMediaTranscriptionRoute } from "./routes/mediaTranscriptionRoutes";
 import { ArdyMotionService } from "./motion/ardyMotionService";
 import { handleMotionGenerationRoute } from "./routes/motionGenerationRoutes";
@@ -366,6 +368,11 @@ const mediaTranscriptionRuntime = createMediaTranscriptionRuntime(
   productionJobStore,
 );
 const mediaTranscodeRuntime = createMediaTranscodeRuntime(controlPlaneConfig, dataDirectory, productionJobStore);
+const captureReconstructionRuntime = createCaptureReconstructionRuntime(
+  controlPlaneConfig,
+  productionJobStore,
+  mediaTranscodeRuntime.inputs,
+);
 const comfyGenerationRuntime = createComfyGenerationRuntime(controlPlaneConfig, dataDirectory, productionJobStore);
 const imagePromptExpander = createImagePromptExpander(controlPlaneConfig);
 const assetSizeEstimator = createAssetSizeEstimator(controlPlaneConfig);
@@ -2077,6 +2084,17 @@ const server = createServer(async (request, response) => {
     )
       return;
     if (
+      await handleCaptureReconstructionRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: productionJobStore,
+        executor: captureReconstructionRuntime.executor,
+        createJobId: () => `scenerecon-job-${crypto.randomUUID()}`,
+        onBackgroundError: (error) => console.error("Capture reconstruction job failed", error),
+      })
+    )
+      return;
+    if (
       await handleProductionJobRoute(request, response, url, {
         readBody: body,
         json,
@@ -2084,6 +2102,8 @@ const server = createServer(async (request, response) => {
         createJobId: () => `canvas-job-${crypto.randomUUID()}`,
         mediaTranscode: mediaTranscodeRuntime.executor,
         mediaInputs: mediaTranscodeRuntime.inputs,
+        captureReconstruction: captureReconstructionRuntime.executor,
+        artifactVersions: productionArtifactStore,
         onBackgroundError: (error) => console.error("Production job executor failed", error),
       })
     )
