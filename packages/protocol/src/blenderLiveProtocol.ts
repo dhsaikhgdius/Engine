@@ -874,7 +874,7 @@ export function liftBlenderNativeToolRequest(input: unknown): unknown {
   return next;
 }
 
-/** Native tool request surface: status, scene, catalog, describe, inspect, capture, capture_render, query, library search, and apply. */
+/** Native tool request surface: status, scene, catalog, describe, inspect, capture, capture_render, query, live_link, library search, and apply. */
 export const blenderNativeToolRequestSchema = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("status") }),
   z.strictObject({ op: z.literal("scene") }),
@@ -918,6 +918,12 @@ export const blenderNativeToolRequestSchema = z.discriminatedUnion("op", [
     queries: spatialQueriesSchema,
   }),
   z.strictObject({
+    /** Poll the preview-only live-link delta feed. Never authoritative. */
+    op: z.literal("live_link"),
+    sceneEpoch: sceneEpoch.optional(),
+    since: z.number().int().nonnegative().optional(),
+  }),
+  z.strictObject({
     op: z.literal("polyhaven_search"),
     assetType: z.enum(["hdris", "textures", "models", "all"]).default("models"),
     categories: z.string().trim().min(1).max(240).optional(),
@@ -954,6 +960,7 @@ export const blenderNativeReadOperationNames = [
   "capture",
   "capture_render",
   "query",
+  "live_link",
   "polyhaven_search",
   "sketchfab_search",
 ] as const;
@@ -1036,7 +1043,17 @@ export const blenderLightSchema = z.strictObject({
   visible: z.boolean(),
 });
 
-/** Health check response from the Blender live kernel: contract, scene epoch, revision, and busy flag. */
+/** Health stanza reported by the live kernel for the preview-only live-link delta feed. */
+export const blenderLiveLinkHealthSchema = z.strictObject({
+  seq: z.number().int().nonnegative(),
+  bufferedFrames: z.number().int().nonnegative(),
+  capacity: z.number().int().positive(),
+});
+
+/** A parsed live-link health stanza. */
+export type BlenderLiveLinkHealth = z.infer<typeof blenderLiveLinkHealthSchema>;
+
+/** Health check response from the Blender live kernel: contract, scene epoch, revision, busy flag, and live-link feed state. */
 export const blenderLiveHealthSchema = z.strictObject({
   ok: z.literal(true),
   contract: z.literal(BLENDER_LIVE_CONTRACT),
@@ -1046,6 +1063,8 @@ export const blenderLiveHealthSchema = z.strictObject({
   revision: z.number().int().nonnegative(),
   contentRevision: z.number().int().nonnegative().optional(),
   busy: z.boolean(),
+  /** Preview-only live-link delta feed state; optional for older kernels without the feed. */
+  liveLink: blenderLiveLinkHealthSchema.optional(),
 });
 
 /** Status of the Blender live kernel: healthy with metadata, or unavailable with a reason. */

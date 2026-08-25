@@ -350,3 +350,18 @@ export function directorWorldPointToCanonical(
 ): [number, number, number] {
   return tuple3(new Vector3(...point).applyMatrix4(matrixFromTransform(sceneTransform)));
 }
+
+/**
+ * Convert a canonical wire-space world point back to Director scene-local
+ * coordinates. Exact inverse of {@link directorWorldPointToCanonical}.
+ *
+ * @param point - A world-space point in canonical wire space.
+ * @param sceneTransform - The Director scene transform to invert.
+ * @returns The point in Director scene-local coordinates.
+ */
+export function canonicalWorldPointToDirector(
+  point: [number, number, number],
+  sceneTransform: DirectorTransform,
+): [number, number, number] {
+  return tuple3(new Vector3(...point).applyMatrix4(matrixFromTransform(sceneTransform).invert()));
+}

@@ -10,10 +10,13 @@ import {
   directorProjectSchema,
 } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectSchema";
 import { getDirectorCharacterAssetBindingIssues } from "../../../frontend/director/src/comprehensive/editor/modelLibrary/mixamoCharacterCatalog";
+import { resolveCharacterPoseControls } from "../../../frontend/director/src/comprehensive/editor/presets/mannequinPosePresets";
+import { DIRECTOR_CAMERA_SENSOR_FORMATS } from "../../../frontend/director/src/comprehensive/editor/schema/directorProject";
 import type {
   DirectorAnimationKeyframe,
   DirectorAssetRef,
   DirectorCameraShot,
+  DirectorLight,
   DirectorObject,
   DirectorProject,
   DirectorTransform,
@@ -85,6 +88,13 @@ const directorDccObjectSchema = z
     parentObjectId: z.string().optional(),
     transform: directorDccTransformSchema,
     animation: z.array(directorDccAnimationKeyframeSchema),
+    /**
+     * The character's resolved portable pose-control values at export time
+     * (preset merged with overrides). The Blender bridge stamps these as
+     * editable per-control custom properties so a reviewed return can carry
+     * a `pose_update` back to the same Director character binding.
+     */
+    poseControls: z.record(z.string(), finite).optional(),
   })
   .superRefine((object, context) => {
     if (object.kind === "character" && !object.assetRefId) {
@@ -104,6 +114,8 @@ const directorDccCameraSchema = z.strictObject({
   focalLengthMm: finite.positive(),
   sensorWidthMm: finite.positive(),
   sensorHeightMm: finite.positive(),
+  /** Director sensor gate id; optional so pre-optics-return packages still parse. */
+  sensorFormat: z.enum(DIRECTOR_CAMERA_SENSOR_FORMATS).optional(),
   apertureFStop: finite.positive(),
   focusDistanceM: finite.positive(),
   shutterAngle: finite.min(0).max(360),
@@ -114,6 +126,57 @@ const directorDccCameraSchema = z.strictObject({
   aspectRatio: directorCameraAspectRatioSchema,
   animation: z.array(directorDccAnimationKeyframeSchema),
 });
+
+/** Director light types that map onto a concrete Blender light datablock. */
+export const DIRECTOR_DCC_EXPORTABLE_LIGHT_TYPES = ["directional", "point", "spot", "rect-area"] as const;
+
+/**
+ * Deterministic Director-intensity → Blender-watts factors per light type.
+ * The factor is stamped into the exported package (and onto the Blender
+ * light) so the return exporter inverts the exact same mapping; the absolute
+ * values only affect preview brightness, never roundtrip fidelity.
+ * `directional` maps to Blender SUN irradiance (W/m²), the rest to watts.
+ */
+export const DIRECTOR_DCC_LIGHT_WATTS_PER_INTENSITY: Record<
+  (typeof DIRECTOR_DCC_EXPORTABLE_LIGHT_TYPES)[number],
+  number
+> = {
+  directional: 1,
+  point: 50,
+  spot: 50,
+  "rect-area": 100,
+};
+
+const directorDccLightSchema = z.strictObject({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(DIRECTOR_DCC_EXPORTABLE_LIGHT_TYPES),
+  /** Wire-space world position (Blender Z-up for Blender packages). */
+  position: vec3,
+  /** Wire-space world point the light is aimed at (directional/spot/rect-area). */
+  target: vec3.optional(),
+  color: z.string(),
+  /** Director light intensity (0-100). */
+  intensity: finite.min(0).max(100),
+  /** Precomputed Blender energy: intensity × wattsPerIntensity. */
+  energy: finite.nonnegative(),
+  /** The deterministic factor used to invert energy back to Director intensity. */
+  wattsPerIntensity: finite.positive(),
+  /** Spot half-angle in radians (Director convention; Blender spot_size is 2×). */
+  angleRad: finite
+    .positive()
+    .max(Math.PI / 2)
+    .optional(),
+  penumbra: finite.min(0).max(1).optional(),
+  /** Rect-area gate in metres. */
+  widthM: finite.positive().optional(),
+  heightM: finite.positive().optional(),
+  castShadow: z.boolean(),
+  visible: z.boolean(),
+});
+
+/** A single light record in a DCC scene package. */
+export type DirectorDccLight = z.infer<typeof directorDccLightSchema>;
 
 /**
  * The full DCC scene package, containing the scene, assets, objects, cameras,
@@ -156,6 +219,8 @@ export const directorDccScenePackageSchema = z
     assets: z.array(directorDccAssetSchema),
     objects: z.array(directorDccObjectSchema),
     cameras: z.array(directorDccCameraSchema),
+    /** Director lights with a Blender-mappable type; optional so older packages parse. */
+    lights: z.array(directorDccLightSchema).optional(),
     activeCameraId: z.string().nullable(),
     warnings: z.array(z.string()),
   })
@@ -395,6 +460,23 @@ export function directorWorldPointToBlender(
   return tuple3(directorWorld.applyMatrix4(DIRECTOR_TO_BLENDER_BASIS));
 }
 
+/**
+ * Convert a Blender world-space point back to Director coordinates,
+ * inverting the scene transform to recover the scene-local position.
+ * Exact inverse of {@link directorWorldPointToBlender}.
+ *
+ * @param point - A world-space point in Blender coordinates.
+ * @param sceneTransform - The scene transform to invert.
+ * @returns The point in Director scene-local coordinates.
+ */
+export function blenderWorldPointToDirector(
+  point: [number, number, number],
+  sceneTransform: DirectorTransform,
+): [number, number, number] {
+  const directorWorld = new Vector3(...point).applyMatrix4(BLENDER_TO_DIRECTOR_BASIS);
+  return tuple3(directorWorld.applyMatrix4(matrixFromTransform(sceneTransform).invert()));
+}
+
 /** Resolution status for a single asset during DCC package building. */
 export type DirectorDccAssetResolution = {
   status: "resolved" | "missing" | "unsupported";
@@ -442,6 +524,8 @@ function buildDccObject(
   const sceneTransform = sceneAsTransform(project);
   const asset = object.assetRefId ? assetById.get(object.assetRefId) : undefined;
   const sourcePath = asset?.sourcePath;
+  const poseControls =
+    object.kind === "character" && object.characterRig ? resolveCharacterPoseControls(object.characterRig) : undefined;
   return {
     id: object.id,
     name: object.name,
@@ -454,6 +538,54 @@ function buildDccObject(
     ...(object.parentObjectId ? { parentObjectId: object.parentObjectId } : {}),
     transform: directorTransformToBlender(object.transform, sceneTransform),
     animation: animationKeyframes(object.animation?.keyframes, sceneTransform),
+    ...(poseControls && Object.keys(poseControls).length ? { poseControls: { ...poseControls } } : {}),
+  };
+}
+
+function isExportableLightType(type: DirectorLight["type"]): type is DirectorDccLight["type"] {
+  return (DIRECTOR_DCC_EXPORTABLE_LIGHT_TYPES as readonly string[]).includes(type);
+}
+
+/**
+ * Build the DCC record of one Director light, or a warning when the light
+ * cannot be represented as a Blender light datablock. Ambient and hemisphere
+ * lights are environment terms, not objects; they stay authoritative in
+ * Director (Preserve) and are reported, never silently flattened.
+ */
+function buildDccLight(
+  light: DirectorLight,
+  project: DirectorProject,
+): { light: DirectorDccLight } | { warning: string } {
+  if (!isExportableLightType(light.type)) {
+    return {
+      warning: `Light ${light.id} (${light.type}) has no Blender light-object equivalent; it stays authoritative in Director and is not exported.`,
+    };
+  }
+  if (!light.position) {
+    return {
+      warning: `Light ${light.id} (${light.type}) has no position; it stays authoritative in Director and is not exported.`,
+    };
+  }
+  const sceneTransform = sceneAsTransform(project);
+  const wattsPerIntensity = DIRECTOR_DCC_LIGHT_WATTS_PER_INTENSITY[light.type];
+  return {
+    light: {
+      id: light.id,
+      name: light.name,
+      type: light.type,
+      position: directorWorldPointToBlender(light.position, sceneTransform),
+      ...(light.target ? { target: directorWorldPointToBlender(light.target, sceneTransform) } : {}),
+      color: light.color,
+      intensity: light.intensity,
+      energy: light.intensity * wattsPerIntensity,
+      wattsPerIntensity,
+      ...(light.type === "spot" && light.angle !== undefined ? { angleRad: light.angle } : {}),
+      ...(light.type === "spot" && light.penumbra !== undefined ? { penumbra: light.penumbra } : {}),
+      ...(light.type === "rect-area" && light.width !== undefined ? { widthM: light.width } : {}),
+      ...(light.type === "rect-area" && light.height !== undefined ? { heightM: light.height } : {}),
+      castShadow: light.castShadow ?? false,
+      visible: light.visible,
+    },
   };
 }
 
@@ -481,6 +613,7 @@ function buildDccCamera(camera: DirectorCameraShot, project: DirectorProject) {
     focalLengthMm,
     sensorWidthMm: sensor.width,
     sensorHeightMm: sensor.height,
+    sensorFormat,
     apertureFStop: optics.apertureFStop,
     focusDistanceM: optics.focusDistanceM,
     shutterAngle: optics.shutterAngle,
@@ -552,6 +685,13 @@ export function buildDirectorDccScenePackage(
     throw new Error(`DCC export camera "${requestedCameraId}" does not exist.`);
   }
 
+  const lights: DirectorDccLight[] = [];
+  for (const light of project.lights ?? []) {
+    const built = buildDccLight(light, project);
+    if ("warning" in built) warnings.push(built.warning);
+    else lights.push(built.light);
+  }
+
   const sceneTransform = sceneAsTransform(project);
   return directorDccScenePackageSchema.parse({
     schemaVersion: 1,
@@ -582,6 +722,7 @@ export function buildDirectorDccScenePackage(
     assets,
     objects,
     cameras: project.cameras.map((camera) => buildDccCamera(camera, project)),
+    lights,
     activeCameraId: requestedCameraId ?? project.cameras[0]?.id ?? null,
     warnings,
   });

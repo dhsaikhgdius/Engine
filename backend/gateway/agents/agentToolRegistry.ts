@@ -53,6 +53,7 @@ const PARALLEL_BLENDER_OPS = new Set([
   "capture",
   "capture_render",
   "query",
+  "live_link",
   "polyhaven_search",
   "sketchfab_search",
 ]);

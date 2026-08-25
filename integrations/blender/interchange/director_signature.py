@@ -125,3 +125,28 @@ def mesh_content_signature(root: Any) -> str:
                 _hash_text(digest, f"{label}.bone.parent", bone.parent.name if bone.parent else "")
                 _hash_numbers(digest, f"{label}.bone.matrix", (value for row in bone.matrix_local for value in row))
     return digest.hexdigest()
+
+
+def armature_pose_fingerprint(root: Any) -> str | None:
+    """Fingerprint the current pose-bone basis matrices under a Director root.
+
+    ``mesh_content_signature`` hashes rest bones; this fingerprint tracks the
+    live pose instead so the return exporter can detect direct pose-bone edits
+    and warn honestly that they are not reconciled (only the portable
+    ``director_pose.*`` control values round-trip). Returns ``None`` when the
+    root has no armature descendants.
+    """
+    armatures = sorted(
+        (item for item in [root, *list(root.children_recursive)] if item.type == "ARMATURE"),
+        key=lambda item: item.name,
+    )
+    if not armatures:
+        return None
+    digest = hashlib.sha256()
+    for armature in armatures:
+        _hash_text(digest, "armature.name", armature.name)
+        pose = getattr(armature, "pose", None)
+        for bone in sorted(getattr(pose, "bones", []), key=lambda candidate: candidate.name):
+            _hash_text(digest, "pose.bone.name", bone.name)
+            _hash_numbers(digest, "pose.bone.matrix_basis", (value for row in bone.matrix_basis for value in row))
+    return digest.hexdigest()

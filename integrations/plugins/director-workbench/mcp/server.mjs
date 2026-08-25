@@ -55861,6 +55861,12 @@ var blenderNativeToolRequestSchema = external_exports.discriminatedUnion("op", [
     queries: spatialQueriesSchema
   }),
   external_exports.strictObject({
+    /** Poll the preview-only live-link delta feed. Never authoritative. */
+    op: external_exports.literal("live_link"),
+    sceneEpoch: sceneEpoch.optional(),
+    since: external_exports.number().int().nonnegative().optional()
+  }),
+  external_exports.strictObject({
     op: external_exports.literal("polyhaven_search"),
     assetType: external_exports.enum(["hdris", "textures", "models", "all"]).default("models"),
     categories: external_exports.string().trim().min(1).max(240).optional(),
@@ -55893,6 +55899,7 @@ var blenderNativeReadOperationNames = [
   "capture",
   "capture_render",
   "query",
+  "live_link",
   "polyhaven_search",
   "sketchfab_search"
 ];
@@ -55954,6 +55961,11 @@ var blenderLightSchema = external_exports.strictObject({
   size: finite6.nonnegative(),
   visible: external_exports.boolean()
 });
+var blenderLiveLinkHealthSchema = external_exports.strictObject({
+  seq: external_exports.number().int().nonnegative(),
+  bufferedFrames: external_exports.number().int().nonnegative(),
+  capacity: external_exports.number().int().positive()
+});
 var blenderLiveHealthSchema = external_exports.strictObject({
   ok: external_exports.literal(true),
   contract: external_exports.literal(BLENDER_LIVE_CONTRACT),
@@ -55962,7 +55974,9 @@ var blenderLiveHealthSchema = external_exports.strictObject({
   blenderVersion: external_exports.string(),
   revision: external_exports.number().int().nonnegative(),
   contentRevision: external_exports.number().int().nonnegative().optional(),
-  busy: external_exports.boolean()
+  busy: external_exports.boolean(),
+  /** Preview-only live-link delta feed state; optional for older kernels without the feed. */
+  liveLink: blenderLiveLinkHealthSchema.optional()
 });
 var blenderLiveStatusSchema = external_exports.discriminatedUnion("available", [
   blenderLiveHealthSchema.extend({ available: external_exports.literal(true) }),
@@ -133205,6 +133219,396 @@ MIXAMO_CHARACTER_CATALOG2.forEach((item) => {
   });
 });
 
+// frontend/director/src/comprehensive/editor/presets/mannequinPosePresets.json
+var mannequinPosePresets_default2 = [
+  {
+    id: "stand",
+    label: "\u7AD9\u7ACB",
+    controls: {}
+  },
+  {
+    id: "t-pose",
+    label: "T\u578B",
+    controls: {
+      "leftShoulder.spread": -70,
+      "rightShoulder.spread": 70,
+      "leftShoulder.pitch": 15,
+      "rightShoulder.pitch": 15,
+      "leftElbow.bend": 10,
+      "rightElbow.bend": 10
+    }
+  },
+  {
+    id: "walk",
+    label: "\u884C\u8D70",
+    controls: {
+      "leftShoulder.pitch": 20,
+      "rightShoulder.pitch": -20,
+      "leftHip.pitch": -20,
+      "rightHip.pitch": 20,
+      "leftKnee.bend": 12,
+      "rightKnee.bend": 4
+    }
+  },
+  {
+    id: "run",
+    label: "\u8DD1\u6B65",
+    controls: {
+      "leftShoulder.pitch": 42,
+      "rightShoulder.pitch": -42,
+      "leftHip.pitch": -35,
+      "rightHip.pitch": 40,
+      "leftKnee.bend": 28,
+      "rightKnee.bend": 18
+    }
+  },
+  {
+    id: "sit",
+    label: "\u5750\u59FF",
+    controls: {
+      "torso.pitch": -10,
+      "leftHip.pitch": 80,
+      "rightHip.pitch": 80,
+      "leftKnee.bend": 90,
+      "rightKnee.bend": 90
+    }
+  },
+  {
+    id: "crouch",
+    label: "\u8E72\u4E0B",
+    controls: {
+      "body.offsetY": -0.43,
+      "body.pitch": -26,
+      "torso.pitch": -24,
+      "head.pitch": 22,
+      "leftHip.pitch": 92,
+      "rightHip.pitch": 92,
+      "leftKnee.bend": 112,
+      "rightKnee.bend": 112,
+      "leftShoulder.pitch": 52,
+      "rightShoulder.pitch": 50,
+      "leftShoulder.spread": -10,
+      "rightShoulder.spread": 10,
+      "leftElbow.bend": 80,
+      "rightElbow.bend": 76
+    }
+  },
+  {
+    id: "kneel-one",
+    label: "\u5355\u819D\u8DEA",
+    controls: {
+      "body.offsetY": -0.42,
+      "body.pitch": -16,
+      "torso.pitch": -10,
+      "head.pitch": 12,
+      "leftHip.pitch": 68,
+      "leftKnee.bend": 86,
+      "leftFoot.pitch": 20,
+      "rightHip.pitch": -15,
+      "rightKnee.bend": 80,
+      "rightFoot.pitch": 60,
+      "leftShoulder.pitch": 5,
+      "leftShoulder.spread": 10,
+      "leftShoulder.twist": -10,
+      "leftElbow.bend": 30,
+      "rightShoulder.pitch": -18,
+      "rightShoulder.spread": 10,
+      "rightElbow.bend": 18
+    }
+  },
+  {
+    id: "kneel-two",
+    label: "\u53CC\u819D\u8DEA",
+    controls: {
+      "body.offsetY": -0.4,
+      "body.pitch": 2,
+      "torso.pitch": 8,
+      "head.pitch": -2,
+      "leftShoulder.pitch": -10,
+      "rightShoulder.pitch": -10,
+      "leftShoulder.spread": -5,
+      "rightShoulder.spread": 5,
+      "leftElbow.bend": 8,
+      "rightElbow.bend": 8,
+      "leftHip.pitch": -8,
+      "rightHip.pitch": -8,
+      "leftKnee.bend": 126,
+      "rightKnee.bend": 126,
+      "leftFoot.pitch": -20,
+      "rightFoot.pitch": -20
+    }
+  },
+  {
+    id: "hands-on-hips",
+    label: "\u53C9\u8170",
+    controls: {
+      "leftShoulder.pitch": -36,
+      "rightShoulder.pitch": -36,
+      "leftShoulder.spread": 0,
+      "rightShoulder.spread": 0,
+      "leftShoulder.twist": 80,
+      "rightShoulder.twist": -80,
+      "leftElbow.bend": 86,
+      "rightElbow.bend": 86,
+      "leftHand.roll": -35,
+      "rightHand.roll": 35
+    }
+  },
+  {
+    id: "lean",
+    label: "\u501A\u9760",
+    controls: {
+      "body.roll": -10,
+      "leftHip.spread": -8,
+      "rightHip.spread": 8,
+      "head.roll": 6
+    }
+  },
+  {
+    id: "bow",
+    label: "\u97A0\u8EAC",
+    controls: {
+      "body.pitch": -46,
+      "torso.pitch": -10,
+      "head.pitch": 20,
+      "leftHip.pitch": 49,
+      "rightHip.pitch": 49,
+      "leftShoulder.pitch": 5,
+      "rightShoulder.pitch": 5,
+      "leftShoulder.spread": 10,
+      "rightShoulder.spread": -10,
+      "leftElbow.bend": 12,
+      "rightElbow.bend": 12
+    }
+  },
+  {
+    id: "think",
+    label: "\u601D\u8003",
+    controls: {
+      "rightShoulder.pitch": 8,
+      "rightShoulder.spread": 0,
+      "rightShoulder.twist": -40,
+      "rightElbow.bend": 90,
+      "rightHand.roll": -40,
+      "rightHand.pitch": 15,
+      "rightHand.twist": -10,
+      "leftShoulder.pitch": 8,
+      "leftShoulder.spread": 0,
+      "leftShoulder.twist": 40,
+      "leftElbow.bend": 90
+    }
+  },
+  {
+    id: "fight",
+    label: "\u683C\u6597",
+    controls: {
+      "body.yaw": -10,
+      "body.pitch": 5,
+      "torso.yaw": 8,
+      "head.yaw": 8,
+      "leftShoulder.pitch": 48,
+      "leftShoulder.spread": -16,
+      "leftShoulder.twist": 22,
+      "rightShoulder.pitch": 30,
+      "rightShoulder.spread": 0,
+      "rightShoulder.twist": -22,
+      "leftElbow.bend": 86,
+      "rightElbow.bend": 84,
+      "leftHip.spread": -18,
+      "rightHip.spread": 22,
+      "leftHip.pitch": 4,
+      "rightHip.pitch": -6,
+      "leftKnee.bend": 12,
+      "rightKnee.bend": 18
+    }
+  },
+  {
+    id: "kick",
+    label: "\u8E22\u7403",
+    controls: {
+      "leftHip.pitch": -8,
+      "rightHip.pitch": 58,
+      "rightKnee.bend": 35,
+      "leftShoulder.pitch": 18,
+      "rightShoulder.pitch": -24
+    }
+  },
+  {
+    id: "throw",
+    label: "\u6295\u63B7",
+    controls: {
+      "body.offsetY": -0.12,
+      "body.pitch": 5,
+      "body.yaw": 14,
+      "torso.yaw": -10,
+      "head.yaw": 8,
+      "rightShoulder.pitch": 76,
+      "rightShoulder.spread": -14,
+      "rightShoulder.twist": 28,
+      "rightElbow.bend": 86,
+      "rightHand.roll": 18,
+      "rightHand.pitch": -12,
+      "leftShoulder.pitch": 34,
+      "leftShoulder.spread": 10,
+      "leftShoulder.twist": 8,
+      "leftElbow.bend": 54,
+      "leftHand.pitch": -10,
+      "leftHip.spread": -12,
+      "rightHip.spread": 18,
+      "leftHip.pitch": 24,
+      "rightHip.pitch": -10,
+      "leftKnee.bend": 30,
+      "rightKnee.bend": 14,
+      "leftFoot.pitch": -8,
+      "rightFoot.roll": 6
+    }
+  },
+  {
+    id: "push",
+    label: "\u63A8\u8FDB",
+    controls: {
+      "body.offsetY": -0.16,
+      "body.pitch": 5,
+      "body.yaw": 38,
+      "torso.pitch": -4,
+      "head.pitch": 6,
+      "leftShoulder.pitch": 92,
+      "rightShoulder.pitch": 92,
+      "leftShoulder.spread": -11,
+      "rightShoulder.spread": 11,
+      "leftShoulder.twist": 6,
+      "rightShoulder.twist": -6,
+      "leftElbow.bend": 6,
+      "rightElbow.bend": 6,
+      "leftHand.pitch": -14,
+      "rightHand.pitch": -14,
+      "leftHip.spread": -12,
+      "rightHip.spread": 14,
+      "leftHip.pitch": 38,
+      "rightHip.pitch": -20,
+      "leftKnee.bend": 42,
+      "rightKnee.bend": 20,
+      "leftFoot.pitch": -6,
+      "rightFoot.roll": 8
+    }
+  },
+  {
+    id: "wave",
+    label: "\u62DB\u624B",
+    controls: {
+      "rightShoulder.pitch": 60,
+      "rightShoulder.spread": 0,
+      "rightShoulder.twist": 30,
+      "rightElbow.bend": 90,
+      "rightHand.roll": -20,
+      "rightHand.pitch": 12,
+      "rightHand.twist": 10,
+      "leftShoulder.pitch": -10,
+      "leftShoulder.spread": 8,
+      "leftElbow.bend": 18,
+      "leftHand.pitch": -8
+    }
+  },
+  {
+    id: "reach",
+    label: "\u4F38\u624B",
+    controls: {
+      "rightShoulder.pitch": 50,
+      "rightElbow.bend": 12,
+      "body.pitch": 0
+    }
+  },
+  {
+    id: "cross-arms",
+    label: "\u62B1\u81C2",
+    controls: {
+      "leftShoulder.pitch": 50,
+      "leftShoulder.spread": -55,
+      "leftShoulder.twist": 75,
+      "leftElbow.bend": 50,
+      "leftHand.roll": 0,
+      "leftHand.pitch": -10,
+      "rightShoulder.pitch": 90,
+      "rightShoulder.spread": 55,
+      "rightShoulder.twist": -45,
+      "rightElbow.bend": 50,
+      "rightHand.roll": 18,
+      "rightHand.pitch": -10
+    }
+  },
+  {
+    id: "phone",
+    label: "\u770B\u624B\u673A",
+    controls: {
+      "head.pitch": 18,
+      "rightShoulder.pitch": 34,
+      "rightShoulder.spread": -4,
+      "rightShoulder.twist": -12,
+      "rightElbow.bend": 82,
+      "rightHand.roll": -12,
+      "rightHand.pitch": 14,
+      "rightHand.twist": -8,
+      "leftShoulder.pitch": -10,
+      "leftShoulder.spread": 8,
+      "leftElbow.bend": 16,
+      "leftHand.pitch": -8
+    }
+  },
+  {
+    id: "punch",
+    label: "\u51FA\u62F3",
+    controls: {
+      "body.pitch": 8,
+      "body.yaw": 12,
+      "torso.yaw": -10,
+      "rightShoulder.pitch": 90,
+      "rightShoulder.spread": 5,
+      "rightShoulder.twist": -8,
+      "rightElbow.bend": 12,
+      "leftShoulder.pitch": 42,
+      "leftShoulder.spread": -12,
+      "leftElbow.bend": 86,
+      "leftHip.pitch": 18,
+      "rightHip.pitch": -12,
+      "leftKnee.bend": 24,
+      "rightKnee.bend": 12
+    }
+  },
+  {
+    id: "block",
+    label: "\u683C\u6321",
+    controls: {
+      "body.pitch": -5,
+      "torso.yaw": 10,
+      "leftShoulder.pitch": 68,
+      "leftShoulder.spread": -18,
+      "leftShoulder.twist": 16,
+      "leftElbow.bend": 112,
+      "rightShoulder.pitch": 56,
+      "rightShoulder.spread": 14,
+      "rightShoulder.twist": -12,
+      "rightElbow.bend": 104,
+      "leftHip.pitch": -8,
+      "rightHip.pitch": 12,
+      "leftKnee.bend": 18,
+      "rightKnee.bend": 22
+    }
+  }
+];
+
+// frontend/director/src/comprehensive/editor/presets/mannequinPosePresets.ts
+var poseIds2 = new Set(POSE_PRESET_IDS2);
+var controlKeys2 = new Set(CHARACTER_POSE_CONTROL_KEYS2);
+if (mannequinPosePresets_default2.length !== poseIds2.size || mannequinPosePresets_default2.some(
+  (preset) => !poseIds2.delete(preset.id) || Object.keys(preset.controls).some((key) => !controlKeys2.has(key))
+)) {
+  throw new Error("Mannequin pose preset data does not match the shared pose protocol.");
+}
+var MANNEQUIN_POSE_PRESETS2 = mannequinPosePresets_default2;
+var MANNEQUIN_POSE_PRESET_BY_ID2 = new Map(
+  MANNEQUIN_POSE_PRESETS2.map((preset) => [preset.id, preset])
+);
+
 // frontend/director/src/comprehensive/editor/timeline/frameRate.ts
 var DIRECTOR_COMMON_FRAME_RATES2 = Object.freeze({
   /** 23.976 fps (24000/1001). */
@@ -133266,6 +133670,27 @@ var safeRelativePath2 = external_exports.string().trim().min(1).max(1024).refine
 }).refine((value) => !value.includes("\\"), { message: "path must use forward slashes" }).refine((value) => value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."), {
   message: "path cannot contain empty, dot, or parent segments"
 });
+var hexColor = external_exports.string().regex(/^#[0-9a-fA-F]{6}$/, "expected #RRGGBB hex color");
+var wireVec3 = directorDccVec3Schema;
+var finiteWire = directorDccFiniteSchema;
+var directorDccReturnCameraOpticsSchema = external_exports.strictObject({
+  focalLengthMm: finiteWire.positive().max(1e4).optional(),
+  apertureFStop: finiteWire.positive().max(1e3).optional(),
+  focusDistanceM: finiteWire.positive().max(1e6).optional(),
+  nearClipM: finiteWire.positive().max(1e6).optional(),
+  farClipM: finiteWire.positive().max(1e8).optional(),
+  sensorFormat: external_exports.enum(DIRECTOR_CAMERA_SENSOR_FORMATS4).optional()
+}).refine((value) => Object.keys(value).length > 0, { message: "camera optics update cannot be empty" });
+var directorDccReturnLightPropertiesSchema = external_exports.strictObject({
+  position: wireVec3.optional(),
+  target: wireVec3.optional(),
+  color: hexColor.optional(),
+  intensity: finiteWire.min(0).max(100).optional()
+}).refine((value) => Object.keys(value).length > 0, { message: "light update cannot be empty" });
+var poseControlKeySchema = external_exports.enum(CHARACTER_POSE_CONTROL_KEYS2);
+var directorDccReturnPoseControlsSchema = external_exports.partialRecord(poseControlKeySchema, external_exports.number().finite()).refine((controls) => Object.keys(controls).length > 0, { message: "pose update cannot be empty" }).refine((controls) => Object.keys(controls).length <= CHARACTER_POSE_CONTROL_KEYS2.length, {
+  message: "pose update exceeds the portable control set"
+});
 var directorDccReturnChangeSchema = external_exports.discriminatedUnion("kind", [
   strictKind("mesh_replacement", {
     directorId: nonEmpty3.max(200),
@@ -133278,6 +133703,32 @@ var directorDccReturnChangeSchema = external_exports.discriminatedUnion("kind", 
     directorId: nonEmpty3.max(200),
     entityType: directorAnimationEntityTypeSchema2,
     transform: directorDccTransformSchema
+  }),
+  strictKind("camera_update", {
+    directorId: nonEmpty3.max(200),
+    entityType: external_exports.literal("camera"),
+    transform: directorDccTransformSchema.optional(),
+    optics: directorDccReturnCameraOpticsSchema.optional()
+  }).superRefine((change, context) => {
+    if (!change.transform && !change.optics) {
+      context.addIssue({
+        code: "custom",
+        path: ["optics"],
+        message: "camera_update must carry a transform, optics, or both"
+      });
+    }
+  }),
+  strictKind("light_update", {
+    directorId: nonEmpty3.max(200),
+    entityType: external_exports.literal("light"),
+    properties: directorDccReturnLightPropertiesSchema
+  }),
+  strictKind("pose_update", {
+    directorId: nonEmpty3.max(200),
+    entityType: external_exports.literal("object"),
+    controls: directorDccReturnPoseControlsSchema,
+    /** Character root motion sampled together with the pose, if the root moved. */
+    transform: directorDccTransformSchema.optional()
   })
 ]);
 var directorDccBlenderReturnCoordinateSystemSchema = external_exports.strictObject({
@@ -133366,11 +133817,41 @@ var directorDccReturnManifestSchema = external_exports.strictObject({
     }
   });
 });
+var opticsLimit = (key) => external_exports.number().finite().min(DIRECTOR_CAMERA_OPTICS_LIMITS2[key].min).max(DIRECTOR_CAMERA_OPTICS_LIMITS2[key].max);
+var directorDccImportPlanCameraOpticsSchema = external_exports.strictObject({
+  focal_length_mm: external_exports.number().finite().min(12).max(200).optional(),
+  aperture_f_stop: opticsLimit("apertureFStop").optional(),
+  focus_distance_m: opticsLimit("focusDistanceM").optional(),
+  near_clip_m: opticsLimit("nearClipM").optional(),
+  far_clip_m: opticsLimit("farClipM").optional(),
+  sensor_format: external_exports.enum(DIRECTOR_CAMERA_SENSOR_FORMATS4).optional()
+}).refine((value) => Object.keys(value).length > 0, { message: "camera optics patch cannot be empty" });
+var directorVec3Schema3 = external_exports.tuple([external_exports.number().finite(), external_exports.number().finite(), external_exports.number().finite()]);
+var directorDccImportPlanLightPatchSchema = external_exports.strictObject({
+  color: hexColor.optional(),
+  intensity: external_exports.number().finite().min(0).max(100).optional(),
+  position: directorVec3Schema3.optional(),
+  target: directorVec3Schema3.optional()
+}).refine((value) => Object.keys(value).length > 0, { message: "light patch cannot be empty" });
 var importPlanOperationSchema = external_exports.discriminatedUnion("op", [
   strictOperation("update_transform", {
     entityType: directorAnimationEntityTypeSchema2,
     objectId: nonEmpty3.max(200),
     transform: directorTransformSchema2
+  }),
+  strictOperation("update_camera_optics", {
+    objectId: nonEmpty3.max(200),
+    optics: directorDccImportPlanCameraOpticsSchema
+  }),
+  strictOperation("update_light", {
+    lightId: nonEmpty3.max(200),
+    patch: directorDccImportPlanLightPatchSchema
+  }),
+  strictOperation("set_character_pose", {
+    objectId: nonEmpty3.max(200),
+    controls: external_exports.array(external_exports.strictObject({ control: external_exports.enum(CHARACTER_POSE_CONTROL_KEYS2), value: external_exports.number().finite() })).min(1).max(CHARACTER_POSE_CONTROL_KEYS2.length).refine((entries) => new Set(entries.map((entry) => entry.control)).size === entries.length, {
+      message: "pose controls must be unique"
+    })
   }),
   strictOperation("link_refined_asset", {
     objectId: nonEmpty3.max(200),
@@ -133420,6 +133901,12 @@ var directorDccReturnReportSchema = external_exports.strictObject({
   manifestPath: nonEmpty3.max(2048),
   changeCount: external_exports.number().int().nonnegative(),
   meshCount: external_exports.number().int().nonnegative(),
+  /** Number of camera_update changes; optional on pre-optics exporters. */
+  cameraCount: external_exports.number().int().nonnegative().optional(),
+  /** Number of light_update changes; optional on pre-optics exporters. */
+  lightCount: external_exports.number().int().nonnegative().optional(),
+  /** Number of pose_update changes; optional on pre-optics exporters. */
+  poseCount: external_exports.number().int().nonnegative().optional(),
   warnings: external_exports.array(external_exports.string().max(2e3)),
   blenderVersion: nonEmpty3.max(200)
 });
@@ -133431,7 +133918,7 @@ var directorEngineSceneProviderSchema = external_exports.enum(["unreal", "unity"
 var nonEmpty4 = external_exports.string().trim().min(1);
 var finite8 = external_exports.number().finite();
 var sha2565 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
-var hexColor = external_exports.string().regex(/^#[0-9a-fA-F]{6}$/, "expected #rrggbb hex color");
+var hexColor2 = external_exports.string().regex(/^#[0-9a-fA-F]{6}$/, "expected #rrggbb hex color");
 var safeRelativePath3 = external_exports.string().trim().min(1).max(1024).refine((value) => !value.startsWith("/") && !value.startsWith("\\") && !/^[A-Za-z]:/.test(value), {
   message: "path must be relative"
 }).refine((value) => !value.includes("\\"), { message: "path must use forward slashes" }).refine((value) => value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."), {
@@ -133503,7 +133990,7 @@ var engineLightSchema = external_exports.strictObject({
   sourceId: nonEmpty4.max(240),
   name: nonEmpty4.max(240),
   type: engineLightTypeSchema,
-  color: hexColor,
+  color: hexColor2,
   /** Director-normalized intensity (0..100); exporters document their mapping. */
   intensity: finite8.min(0).max(100),
   /** Director-space world position in meters (omitted for ambient light). */
@@ -133707,7 +134194,7 @@ var importOperationSchema2 = external_exports.discriminatedUnion("op", [
     lightId: nonEmpty4.max(200),
     name: nonEmpty4.max(240),
     type: engineLightTypeSchema,
-    color: hexColor,
+    color: hexColor2,
     intensity: finite8.min(0).max(100),
     position: external_exports.tuple([finite8, finite8, finite8]).optional(),
     target: external_exports.tuple([finite8, finite8, finite8]).optional(),
@@ -134102,7 +134589,11 @@ var DIRECTOR_DCC_PROVIDERS = Object.freeze([
       { id: "stable_ids", level: "native", layer: "director-manifest" },
       { id: "roundtrip", level: "native", layer: "connector" },
       { id: "headless", level: "native", layer: "connector" },
-      { id: "live_link", level: "planned", layer: "connector" }
+      // Preview-only delta feed from the native live kernel (sequence numbers,
+      // replay protection, resync on epoch change/eviction). Never
+      // authoritative: committed Director state only changes through the
+      // revision-guarded live command batches or the reviewed return import.
+      { id: "live_link", level: "native", layer: "connector" }
     ],
     connectorDirectory: "integrations/blender"
   }),
@@ -134147,7 +134638,14 @@ var directorDccObjectSchema = external_exports.strictObject({
   sourcePath: external_exports.string().optional(),
   parentObjectId: external_exports.string().optional(),
   transform: directorDccTransformSchema,
-  animation: external_exports.array(directorDccAnimationKeyframeSchema)
+  animation: external_exports.array(directorDccAnimationKeyframeSchema),
+  /**
+   * The character's resolved portable pose-control values at export time
+   * (preset merged with overrides). The Blender bridge stamps these as
+   * editable per-control custom properties so a reviewed return can carry
+   * a `pose_update` back to the same Director character binding.
+   */
+  poseControls: external_exports.record(external_exports.string(), finite9).optional()
 }).superRefine((object3, context) => {
   if (object3.kind === "character" && !object3.assetRefId) {
     context.addIssue({
@@ -134165,6 +134663,8 @@ var directorDccCameraSchema = external_exports.strictObject({
   focalLengthMm: finite9.positive(),
   sensorWidthMm: finite9.positive(),
   sensorHeightMm: finite9.positive(),
+  /** Director sensor gate id; optional so pre-optics-return packages still parse. */
+  sensorFormat: external_exports.enum(DIRECTOR_CAMERA_SENSOR_FORMATS4).optional(),
   apertureFStop: finite9.positive(),
   focusDistanceM: finite9.positive(),
   shutterAngle: finite9.min(0).max(360),
@@ -134174,6 +134674,31 @@ var directorDccCameraSchema = external_exports.strictObject({
   anamorphicSqueeze: finite9.min(1).max(2.5),
   aspectRatio: directorCameraAspectRatioSchema,
   animation: external_exports.array(directorDccAnimationKeyframeSchema)
+});
+var DIRECTOR_DCC_EXPORTABLE_LIGHT_TYPES = ["directional", "point", "spot", "rect-area"];
+var directorDccLightSchema = external_exports.strictObject({
+  id: external_exports.string(),
+  name: external_exports.string(),
+  type: external_exports.enum(DIRECTOR_DCC_EXPORTABLE_LIGHT_TYPES),
+  /** Wire-space world position (Blender Z-up for Blender packages). */
+  position: vec37,
+  /** Wire-space world point the light is aimed at (directional/spot/rect-area). */
+  target: vec37.optional(),
+  color: external_exports.string(),
+  /** Director light intensity (0-100). */
+  intensity: finite9.min(0).max(100),
+  /** Precomputed Blender energy: intensity × wattsPerIntensity. */
+  energy: finite9.nonnegative(),
+  /** The deterministic factor used to invert energy back to Director intensity. */
+  wattsPerIntensity: finite9.positive(),
+  /** Spot half-angle in radians (Director convention; Blender spot_size is 2×). */
+  angleRad: finite9.positive().max(Math.PI / 2).optional(),
+  penumbra: finite9.min(0).max(1).optional(),
+  /** Rect-area gate in metres. */
+  widthM: finite9.positive().optional(),
+  heightM: finite9.positive().optional(),
+  castShadow: external_exports.boolean(),
+  visible: external_exports.boolean()
 });
 var directorDccScenePackageSchema = external_exports.strictObject({
   schemaVersion: external_exports.literal(1),
@@ -134209,6 +134734,8 @@ var directorDccScenePackageSchema = external_exports.strictObject({
   assets: external_exports.array(directorDccAssetSchema),
   objects: external_exports.array(directorDccObjectSchema),
   cameras: external_exports.array(directorDccCameraSchema),
+  /** Director lights with a Blender-mappable type; optional so older packages parse. */
+  lights: external_exports.array(directorDccLightSchema).optional(),
   activeCameraId: external_exports.string().nullable(),
   warnings: external_exports.array(external_exports.string())
 }).superRefine((scenePackage, context) => {
