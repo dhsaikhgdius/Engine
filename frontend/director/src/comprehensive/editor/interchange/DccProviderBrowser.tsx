@@ -4,7 +4,7 @@
  * @module dcc-provider-browser
  */
 
-import { Box, CheckCircle2, Download, RefreshCw, TriangleAlert } from "lucide-react";
+import { Box, CheckCircle2, Download, RefreshCw, Send, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   DirectorDccExchangeFormat,
@@ -13,10 +13,13 @@ import type {
   DirectorDccProviderId,
   DirectorDccProviderStatus,
 } from "../../../dcc/directorDccProviderContract";
+import { directorDccEngineIdSchema, type DirectorDccEngineId } from "../../../dcc/directorDccEngineSpace";
 import { useLanguage } from "../../i18n/language";
 import {
   discoverDirectorDccProviders,
   exportDirectorDccExchangePackage,
+  sendDirectorProjectToEngine,
+  type DirectorDccEngineSendResult,
   type DirectorDccExchangePackageResult,
 } from "../api/dccProviderClient";
 import "./DccProviderBrowser.css";
@@ -24,6 +27,7 @@ import "./DccProviderBrowser.css";
 /** Props for the DccProviderBrowser component. */
 export interface DccProviderBrowserProps {
   onPackageExported?: (result: DirectorDccExchangePackageResult) => void;
+  onEngineSendCompleted?: (result: DirectorDccEngineSendResult) => void;
 }
 
 function formatLabel(format: string) {
@@ -38,6 +42,12 @@ function preferredPortableFormat(status: DirectorDccProviderStatus): DirectorDcc
   const preferred = status.provider.preferredFormat;
   if (isPortableFormat(preferred)) return preferred;
   return status.provider.exchangeFormats.find(isPortableFormat) ?? null;
+}
+
+function engineSendTarget(status: DirectorDccProviderStatus): DirectorDccEngineId | null {
+  if (status.provider.integration !== "engine-headless") return null;
+  const parsed = directorDccEngineIdSchema.safeParse(status.provider.id);
+  return parsed.success ? parsed.data : null;
 }
 
 type DirectorLocale = "zh-CN" | "en-US";
@@ -90,13 +100,14 @@ function ProviderReadiness({ status }: { status: DirectorDccProviderStatus }) {
  * DCC 提供方浏览器，自动发现本地 DCC 工具并展示连接状态和交换包生成能力。
  * @param onPackageExported - 交换包生成成功后的回调。
  */
-export function DccProviderBrowser({ onPackageExported }: DccProviderBrowserProps) {
+export function DccProviderBrowser({ onPackageExported, onEngineSendCompleted }: DccProviderBrowserProps) {
   const { locale, t } = useLanguage();
   const requestRef = useRef<AbortController | null>(null);
   const [catalog, setCatalog] = useState<DirectorDccProviderCatalog | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exportingProvider, setExportingProvider] = useState<DirectorDccProviderId | null>(null);
+  const [sendingProvider, setSendingProvider] = useState<DirectorDccProviderId | null>(null);
   const [providerMessages, setProviderMessages] = useState<Partial<Record<DirectorDccProviderId, string>>>({});
 
   const discover = useCallback(async () => {
@@ -122,10 +133,33 @@ export function DccProviderBrowser({ onPackageExported }: DccProviderBrowserProp
     return () => requestRef.current?.abort();
   }, [discover]);
 
+  async function sendToEngine(status: DirectorDccProviderStatus) {
+    const engine = engineSendTarget(status);
+    if (!engine || !status.nativeReady || sendingProvider || exportingProvider) return;
+    setSendingProvider(status.provider.id);
+    setProviderMessages((current) => ({ ...current, [status.provider.id]: t("正在通过原生连接器发送到引擎…") }));
+    try {
+      const result = await sendDirectorProjectToEngine({ provider: engine });
+      const sceneNote = result.report.scenePath ? ` · ${result.report.scenePath}` : "";
+      setProviderMessages((current) => ({
+        ...current,
+        [status.provider.id]: `${t("引擎已导入")} ${result.report.importedObjectCount + result.report.importedCameraCount} ${t("个实体")}${sceneNote}`,
+      }));
+      onEngineSendCompleted?.(result);
+    } catch (sendError) {
+      setProviderMessages((current) => ({
+        ...current,
+        [status.provider.id]: sendError instanceof Error ? sendError.message : t("引擎发送失败"),
+      }));
+    } finally {
+      setSendingProvider(null);
+    }
+  }
+
   async function exportPackage(status: DirectorDccProviderStatus) {
     const provider = status.provider;
     const format = preferredPortableFormat(status);
-    if (!status.exchangeReady || !format || exportingProvider) return;
+    if (!status.exchangeReady || !format || exportingProvider || sendingProvider) return;
     setExportingProvider(provider.id);
     setProviderMessages((current) => ({ ...current, [provider.id]: t("正在生成交换包…") }));
     try {
@@ -184,6 +218,8 @@ export function DccProviderBrowser({ onPackageExported }: DccProviderBrowserProp
             const provider = status.provider;
             const portableFormat = preferredPortableFormat(status);
             const exporting = exportingProvider === provider.id;
+            const engineTarget = engineSendTarget(status);
+            const sending = sendingProvider === provider.id;
             return (
               <li className="director-dcc-provider-card" data-provider-id={provider.id} key={provider.id}>
                 <div className="director-dcc-provider-title">
@@ -210,7 +246,7 @@ export function DccProviderBrowser({ onPackageExported }: DccProviderBrowserProp
                 <button
                   aria-label={`${t("为")} ${provider.label} ${t("生成")} ${portableFormat ? formatLabel(portableFormat) : ""} ${t("交换包")}`}
                   className="director-dcc-provider-export"
-                  disabled={!status.exchangeReady || !portableFormat || Boolean(exportingProvider)}
+                  disabled={!status.exchangeReady || !portableFormat || Boolean(exportingProvider) || Boolean(sendingProvider)}
                   onClick={() => void exportPackage(status)}
                   type="button"
                 >
@@ -221,6 +257,19 @@ export function DccProviderBrowser({ onPackageExported }: DccProviderBrowserProp
                       ? `${t("生成")} ${formatLabel(portableFormat)} ${t("交换包")}`
                       : t("无可移植交换格式")}
                 </button>
+                {engineTarget ? (
+                  <button
+                    aria-label={`${t("通过原生连接器发送到")} ${provider.label}`}
+                    className="director-dcc-provider-send"
+                    disabled={!status.nativeReady || Boolean(sendingProvider) || Boolean(exportingProvider)}
+                    onClick={() => void sendToEngine(status)}
+                    title={status.nativeReady ? undefined : t("原生连接器未就绪；请先配置引擎项目与可执行文件")}
+                    type="button"
+                  >
+                    <Send aria-hidden size={12} />
+                    {sending ? t("发送中…") : t("无头发送到引擎")}
+                  </button>
+                ) : null}
               </li>
             );
           })}

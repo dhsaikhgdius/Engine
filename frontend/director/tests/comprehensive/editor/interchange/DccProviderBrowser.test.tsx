@@ -4,10 +4,11 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { DirectorDccProviderCatalog, DirectorDccProviderStatus } from "../../../../src/dcc/directorDccProviderContract";
 import { LanguageProvider } from "../../../../src/comprehensive/i18n/language";
 
-const client = vi.hoisted(() => ({ discover: vi.fn(), exportPackage: vi.fn() }));
+const client = vi.hoisted(() => ({ discover: vi.fn(), exportPackage: vi.fn(), sendToEngine: vi.fn() }));
 vi.mock("../../../../src/comprehensive/editor/api/dccProviderClient", () => ({
   discoverDirectorDccProviders: client.discover,
   exportDirectorDccExchangePackage: client.exportPackage,
+  sendDirectorProjectToEngine: client.sendToEngine,
 }));
 
 import { DccProviderBrowser } from "../../../../src/comprehensive/editor/interchange/DccProviderBrowser";
@@ -26,7 +27,7 @@ function status(
       id,
       label: blender ? "Blender" : id === "maya" ? "Autodesk Maya" : "Godot",
       category: id === "godot" ? "engine" : "dcc",
-      integration: blender ? "native-roundtrip" : "exchange-package",
+      integration: blender ? "native-roundtrip" : id === "godot" ? "engine-headless" : "exchange-package",
       preferredFormat: blender ? "blend" : id === "godot" ? "glb" : "usda",
       exchangeFormats: blender ? ["blend", "usda", "glb"] : id === "godot" ? ["glb"] : ["usda", "glb"],
       capabilities: [
@@ -171,6 +172,68 @@ it("chooses a portable format per provider and reports the generated package", a
   await waitFor(() => expect(onPackageExported).toHaveBeenCalledWith(exportResult()));
   expect(screen.getByText(/USD 交换包已生成/)).toHaveTextContent(
     "USD 交换包已生成 · /workspace/data/dcc-jobs/exchange/maya",
+  );
+});
+
+it("shows a disabled headless send action for engines whose native connector is not ready", async () => {
+  renderBrowser();
+
+  const godot = (await screen.findByText("Godot")).closest("li");
+  expect(godot).not.toBeNull();
+  const send = within(godot!).getByRole("button", { name: "通过原生连接器发送到 Godot" });
+  expect(send).toBeDisabled();
+  expect(send).toHaveAttribute("title", "原生连接器未就绪；请先配置引擎项目与可执行文件");
+  // Non-engine providers never present a native send action.
+  const maya = screen.getByText("Autodesk Maya").closest("li");
+  expect(within(maya!).queryByRole("button", { name: /通过原生连接器发送到/ })).not.toBeInTheDocument();
+  expect(client.sendToEngine).not.toHaveBeenCalled();
+});
+
+it("runs the headless engine handoff when the native connector is ready", async () => {
+  const user = userEvent.setup();
+  client.discover.mockResolvedValue({
+    contract: "director-dcc-provider-catalog-v1",
+    providers: [status("godot", { nativeReady: true, exchangeReady: true, installed: true })],
+  });
+  client.sendToEngine.mockResolvedValue({
+    contract: "director-dcc-engine-send-v1" as const,
+    jobId: "550e8400-e29b-41d4-a716-446655440001",
+    provider: "godot",
+    packagePath: "/workspace/data/dcc-jobs/godot/job",
+    manifestPath: "/workspace/data/dcc-jobs/godot/job/manifest.json",
+    manifestSha256: hash,
+    packageDigest: hash,
+    sourceRevision: `director-project-revision:v1:sha256:${hash}`,
+    reportPath: "/workspace/data/dcc-jobs/godot/job/report.json",
+    report: {
+      ok: true as const,
+      contract: "director-dcc-engine-report-v1" as const,
+      provider: "godot",
+      hostVersion: "4.3.stable",
+      connectorVersion: "0.1.0",
+      packageId: "director-dcc:abc:0",
+      sourceRevision: `director-project-revision:v1:sha256:${hash}`,
+      importedObjectCount: 3,
+      importedCameraCount: 1,
+      scenePath: "res://director/director_scene.tscn",
+      returnPackageDir: "return-package",
+      warnings: [],
+    },
+    returnPackagePath: "/workspace/data/dcc-jobs/godot/job/return-package",
+    warnings: [],
+  });
+  renderBrowser();
+
+  const godot = (await screen.findByText("Godot")).closest("li");
+  const send = within(godot!).getByRole("button", { name: "通过原生连接器发送到 Godot" });
+  expect(send).toBeEnabled();
+  await user.click(send);
+
+  expect(client.sendToEngine).toHaveBeenCalledWith({ provider: "godot" });
+  await waitFor(() =>
+    expect(within(godot!).getByText(/引擎已导入 4 个实体/)).toHaveTextContent(
+      "引擎已导入 4 个实体 · res://director/director_scene.tscn",
+    ),
   );
 });
 

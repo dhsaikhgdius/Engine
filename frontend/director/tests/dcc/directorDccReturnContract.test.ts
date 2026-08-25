@@ -84,6 +84,67 @@ describe("Director DCC return contract", () => {
       }).success,
     ).toBe(false);
     expect(directorDccReturnManifestSchema.safeParse({ ...valid, fileHashes: {} }).success).toBe(false);
+    // A Blender package cannot drop blenderVersion or claim the canonical stanza.
+    expect(directorDccReturnManifestSchema.safeParse({ ...valid, blenderVersion: undefined }).success).toBe(false);
+    expect(
+      directorDccReturnManifestSchema.safeParse({
+        ...valid,
+        coordinateSystem: {
+          source: "right-handed-y-up-negative-z-forward",
+          destination: "right-handed-y-up-negative-z-forward",
+          unit: "meter",
+          linearMap: "identity",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts engine return manifests in canonical Director space with host provenance", () => {
+    const project = createDefaultDirectorProject();
+    const engineManifest = {
+      schemaVersion: 1,
+      contract: "director-dcc-return-v1",
+      packageId: "return-3",
+      sourcePackageId: "5f6b0f1e-8a4e-4f57-9d2b-0f30a1b2c3d4",
+      sourceRevision: "director-project-revision:v1:sha256:" + "a".repeat(64),
+      exportedAt: "2026-08-03T10:00:00.000Z",
+      provider: "godot",
+      hostVersion: "4.3.stable",
+      connectorVersion: "0.1.0",
+      coordinateSystem: {
+        source: "right-handed-y-up-negative-z-forward",
+        destination: "right-handed-y-up-negative-z-forward",
+        unit: "meter",
+        linearMap: "identity",
+      },
+      changes: [
+        {
+          kind: "transform_update",
+          directorId: project.objects[0]!.id,
+          entityType: "object",
+          transform: { location: [1, 2, 3], rotationQuaternion: [0, 0, 0, 1], scale: [1, 1, 1] },
+        },
+      ],
+      warnings: [],
+      fileHashes: {},
+    };
+    expect(directorDccReturnManifestSchema.safeParse(engineManifest).success).toBe(true);
+    // Engine packages must carry the host version and the canonical stanza.
+    expect(directorDccReturnManifestSchema.safeParse({ ...engineManifest, hostVersion: undefined }).success).toBe(
+      false,
+    );
+    expect(
+      directorDccReturnManifestSchema.safeParse({
+        ...engineManifest,
+        coordinateSystem: {
+          source: "right-handed-z-up-negative-z-camera-forward",
+          destination: "right-handed-y-up-negative-z-forward",
+          unit: "meter",
+          linearMap: "(x,y,z)->(x,z,-y)",
+        },
+      }).success,
+    ).toBe(false);
+    expect(directorDccReturnManifestSchema.safeParse({ ...engineManifest, provider: "maya" }).success).toBe(false);
   });
 
   it("accepts dry-run and revision-guarded apply operations", () => {

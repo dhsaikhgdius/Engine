@@ -6,6 +6,7 @@ import {
 } from "../comprehensive/editor/schema/directorProjectSchema";
 import { strictKind, strictOperation } from "../../../../packages/protocol/src/strictProtocolVariant";
 import { directorDccTransformSchema } from "./directorDccSharedContract";
+import { directorDccConnectorProviderIdSchema } from "./directorDccEngineSpace";
 
 /** Contract identifier for the DCC → Director return manifest. */
 export const DIRECTOR_DCC_RETURN_CONTRACT = "director-dcc-return-v1" as const;
@@ -44,10 +45,38 @@ export const directorDccReturnChangeSchema = z.discriminatedUnion("kind", [
 ]);
 
 /**
+ * Coordinate stanza for Blender-authored return packages: transforms are in
+ * Blender's Z-up space and Director converts them on import.
+ */
+export const directorDccBlenderReturnCoordinateSystemSchema = z.strictObject({
+  source: z.literal("right-handed-z-up-negative-z-camera-forward"),
+  destination: z.literal("right-handed-y-up-negative-z-forward"),
+  unit: z.literal("meter"),
+  linearMap: z.literal("(x,y,z)->(x,z,-y)"),
+});
+
+/**
+ * Coordinate stanza for engine-authored return packages: the Director-authored
+ * connector already converted transforms to canonical Director space at the
+ * provider boundary, so the wire transforms need no basis change on import.
+ */
+export const directorDccCanonicalReturnCoordinateSystemSchema = z.strictObject({
+  source: z.literal("right-handed-y-up-negative-z-forward"),
+  destination: z.literal("right-handed-y-up-negative-z-forward"),
+  unit: z.literal("meter"),
+  linearMap: z.literal("identity"),
+});
+
+/**
  * DCC return manifest schema.
  *
  * Describes the changes a DCC tool made to the exported scene package,
  * so the gateway can plan how to import those changes back into Director.
+ *
+ * Blender packages (the historical default) declare `blenderVersion` and the
+ * Blender Z-up coordinate stanza. Engine packages declare `provider`,
+ * `hostVersion`, and the canonical Director-space stanza, because engine
+ * connectors convert at the provider boundary.
  */
 export const directorDccReturnManifestSchema = z
   .strictObject({
@@ -57,18 +86,54 @@ export const directorDccReturnManifestSchema = z
     sourcePackageId: nonEmpty.max(320),
     sourceRevision: z.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
     exportedAt: z.string().datetime({ offset: true }),
-    blenderVersion: nonEmpty.max(200),
-    coordinateSystem: z.strictObject({
-      source: z.literal("right-handed-z-up-negative-z-camera-forward"),
-      destination: z.literal("right-handed-y-up-negative-z-forward"),
-      unit: z.literal("meter"),
-      linearMap: z.literal("(x,y,z)->(x,z,-y)"),
-    }),
+    /** Producing connector; omitted on historical Blender packages. */
+    provider: directorDccConnectorProviderIdSchema.optional(),
+    blenderVersion: nonEmpty.max(200).optional(),
+    /** Host application version for engine-authored packages. */
+    hostVersion: nonEmpty.max(200).optional(),
+    /** Director connector version for engine-authored packages. */
+    connectorVersion: nonEmpty.max(60).optional(),
+    coordinateSystem: z.union([
+      directorDccBlenderReturnCoordinateSystemSchema,
+      directorDccCanonicalReturnCoordinateSystemSchema,
+    ]),
     changes: z.array(directorDccReturnChangeSchema).max(20_000),
     warnings: z.array(z.string().max(2_000)).max(20_000),
     fileHashes: z.record(safeRelativePath, sha256),
   })
   .superRefine((manifest, context) => {
+    const provider = manifest.provider ?? "blender";
+    if (provider === "blender") {
+      if (!manifest.blenderVersion) {
+        context.addIssue({
+          code: "custom",
+          path: ["blenderVersion"],
+          message: "Blender return packages must declare blenderVersion",
+        });
+      }
+      if (manifest.coordinateSystem.source !== "right-handed-z-up-negative-z-camera-forward") {
+        context.addIssue({
+          code: "custom",
+          path: ["coordinateSystem", "source"],
+          message: "Blender return packages must use the Blender Z-up coordinate stanza",
+        });
+      }
+    } else {
+      if (!manifest.hostVersion) {
+        context.addIssue({
+          code: "custom",
+          path: ["hostVersion"],
+          message: `${provider} return packages must declare the host application version`,
+        });
+      }
+      if (manifest.coordinateSystem.source !== "right-handed-y-up-negative-z-forward") {
+        context.addIssue({
+          code: "custom",
+          path: ["coordinateSystem", "source"],
+          message: `${provider} connectors must convert transforms to Director canonical space at the provider boundary`,
+        });
+      }
+    }
     const seen = new Set<string>();
     manifest.changes.forEach((change, index) => {
       const key = `${change.entityType}:${change.directorId}`;

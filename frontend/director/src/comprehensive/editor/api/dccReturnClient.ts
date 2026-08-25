@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { directorDccImportPlanSchema, type DirectorDccImportPlanV1 } from "../../../dcc/directorDccReturnContract";
+import type { DirectorDccConnectorProviderId } from "../../../dcc/directorDccEngineSpace";
 import { directorControlPlaneFetch } from "./directorControlPlaneClient";
 
 const summarySchema = z.strictObject({
@@ -14,6 +15,7 @@ const previewResponseSchema = z.looseObject({
   code: z.string().optional(),
   result: z.strictObject({
     ready: z.boolean(),
+    provider: z.string().optional(),
     dry_run: z.boolean(),
     summary: summarySchema,
     plan: directorDccImportPlanSchema,
@@ -23,6 +25,7 @@ const previewResponseSchema = z.looseObject({
 const applyResponseSchema = z.strictObject({
   success: z.literal(true),
   result: z.strictObject({
+    provider: z.string().optional(),
     plan: directorDccImportPlanSchema,
     authoring: z.unknown().nullable(),
     copiedAssets: z.array(z.strictObject({ assetId: z.string(), url: z.string(), hash: z.string() })),
@@ -60,7 +63,7 @@ async function json(response: Response): Promise<unknown> {
 function throwGatewayError(response: Response, body: unknown): never {
   const parsed = errorResponseSchema.safeParse(body);
   throw new DirectorDccReturnClientError(
-    parsed.success ? parsed.data.error || "Blender return request failed" : "Blender return response is invalid",
+    parsed.success ? parsed.data.error || "DCC return request failed" : "DCC return response is invalid",
     response.status,
     parsed.success ? parsed.data.code : undefined,
     parsed.success ? parsed.data.recovery : undefined,
@@ -71,16 +74,26 @@ function throwGatewayError(response: Response, body: unknown): never {
  * Previews a DCC return package import without applying it.
  *
  * Performs a dry run of the import to surface conflicts, operation counts,
- * and the import plan before committing changes.
+ * and the import plan before committing changes. Blender packages go through
+ * `import_return_package`; engine packages go through `receive_from_engine`
+ * so the gateway resolves them against the correct connector job root.
  *
  * @param packageDir - The gateway-side package directory path.
+ * @param provider - The connector that produced the package (defaults to Blender).
  * @returns The preview result with the import plan and summary.
  */
-export async function previewDirectorDccReturnPackage(packageDir: string) {
+export async function previewDirectorDccReturnPackage(
+  packageDir: string,
+  provider: DirectorDccConnectorProviderId = "blender",
+) {
+  const input =
+    provider === "blender"
+      ? { op: "import_return_package", package_dir: packageDir, dry_run: true }
+      : { op: "receive_from_engine", provider, package_dir: packageDir, dry_run: true };
   const response = await directorControlPlaneFetch("/api/tools/director_dcc", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input: { op: "import_return_package", package_dir: packageDir, dry_run: true } }),
+    body: JSON.stringify({ input }),
   });
   const body = await json(response);
   const parsed = previewResponseSchema.safeParse(body);
@@ -96,12 +109,14 @@ export async function previewDirectorDccReturnPackage(packageDir: string) {
  * application.
  *
  * @param plan - The import plan to apply.
+ * @param provider - The connector whose job root holds the package (defaults to Blender).
  * @param idempotencyKey - A unique key to prevent duplicate application.
  * @returns The apply result with copied assets and authoring data.
  */
 export async function applyDirectorDccImportPlan(
   plan: DirectorDccImportPlanV1,
-  idempotencyKey = `blender-return-${plan.packageId}-${plan.manifestHash.slice(0, 12)}`,
+  provider: DirectorDccConnectorProviderId = "blender",
+  idempotencyKey = `${provider}-return-${plan.packageId}-${plan.manifestHash.slice(0, 12)}`,
 ) {
   const response = await directorControlPlaneFetch("/api/tools/director_dcc", {
     method: "POST",
@@ -110,6 +125,7 @@ export async function applyDirectorDccImportPlan(
       input: {
         op: "apply_import_plan",
         plan,
+        ...(provider === "blender" ? {} : { provider }),
         expected_revision: plan.targetRevision,
         idempotency_key: idempotencyKey,
       },

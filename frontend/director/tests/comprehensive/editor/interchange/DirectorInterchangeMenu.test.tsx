@@ -441,11 +441,52 @@ it("previews Blender return conflicts before enabling Apply", async () => {
     </LanguageProvider>,
   );
   await user.click(screen.getByRole("button", { name: "交换" }));
-  await user.type(screen.getByLabelText("Blender 回传包路径"), "job-1/return-package");
+  await user.type(screen.getByLabelText("回传包路径"), "job-1/return-package");
   await user.click(screen.getByRole("button", { name: "预览差异" }));
   await waitFor(() => expect(screen.getByText("回传计划存在冲突 · 1 项冲突")).toBeInTheDocument());
   expect(screen.getByText("Stable ID no longer exists.")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "应用 Blender 回传" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "应用 DCC 回传" })).toBeDisabled();
+  expect(dccReturnClient.previewDirectorDccReturnPackage).toHaveBeenCalledWith("job-1/return-package", "blender");
+});
+
+it("routes engine return previews through the selected connector provider", async () => {
+  const user = userEvent.setup();
+  const preview = vi.spyOn(dccReturnClient, "previewDirectorDccReturnPackage").mockResolvedValue({
+    ready: true,
+    dry_run: true,
+    summary: { operation_count: 1, skipped_count: 0, conflict_count: 0, warning_count: 0 },
+    plan: {
+      contract: "director-dcc-import-plan-v1",
+      ready: true,
+      packageId: "return-godot-1",
+      packageDir: "job-godot/return-package",
+      manifestHash: "a".repeat(64),
+      sourceRevision: `director-project-revision:v1:sha256:${"b".repeat(64)}`,
+      targetRevision: `director-project-revision:v1:sha256:${"b".repeat(64)}`,
+      operations: [
+        {
+          op: "update_transform",
+          entityType: "object",
+          objectId: "obj-1",
+          transform: { position: [1, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        },
+      ],
+      conflicts: [],
+      warnings: [],
+    },
+  });
+  render(
+    <LanguageProvider>
+      <DirectorInterchangeMenu />
+    </LanguageProvider>,
+  );
+  await user.click(screen.getByRole("button", { name: "交换" }));
+  await user.selectOptions(screen.getByLabelText("回传提供方"), "godot");
+  await user.type(screen.getByLabelText("回传包路径"), "job-godot/return-package");
+  await user.click(screen.getByRole("button", { name: "预览差异" }));
+  await waitFor(() => expect(screen.getByText("回传计划可应用 · 1 项更新")).toBeInTheDocument());
+  expect(preview).toHaveBeenCalledWith("job-godot/return-package", "godot");
+  expect(screen.getByRole("button", { name: "应用 DCC 回传" })).toBeEnabled();
 });
 
 it("uploads a Blender scene, rebuilds camera selection, and applies the reviewed plan", async () => {

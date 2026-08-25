@@ -476,8 +476,13 @@
 
 .director-dcc-return > div:not(.director-interchange-section-heading):not(.director-dcc-return-plan) {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 6px;
+}
+
+.director-dcc-return select.ui-field {
+  width: auto;
+  max-width: 132px;
 }
 
 .director-dcc-return input,
