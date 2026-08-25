@@ -1764,7 +1764,9 @@ async function handleAssistantApplyRequest(payload: AssistantApplyRequest, respo
         operationResults.push({
           id: operation.id,
           tool: operation.tool,
-          result: await executeBlenderNativeTool(blenderNativeSession, parsedInput.data),
+          result: await executeBlenderNativeTool(blenderNativeSession, parsedInput.data, {
+            loadDirectorProject: () => readPersistedWorkbenchProject(),
+          }),
         });
       } catch (error) {
         const outcomeUnknown = error instanceof BlenderNativeSessionError && error.code === "outcome_unknown";
@@ -2097,6 +2099,7 @@ const server = createServer(async (request, response) => {
         readBody: body,
         json,
         session: blenderNativeSession,
+        loadDirectorProject: () => readPersistedWorkbenchProject(),
       })
     )
       return;

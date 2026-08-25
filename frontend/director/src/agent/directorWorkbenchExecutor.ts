@@ -49,6 +49,12 @@ import { DIRECTOR_CHARACTER_MOTION_CATALOG } from "@director/agent-engine/charac
 import { stableJson } from "@director/protocol/stableJson";
 import { DIRECTOR_AGENT_ASSET_CATALOG, getDirectorAgentCatalogAsset } from "@director/agent-engine/asset-catalog";
 import {
+  describeDirectorCameraKernelOwnership,
+  describeDirectorLightKernelOwnership,
+  describeDirectorObjectKernelOwnership,
+  type DirectorKernelOwnership,
+} from "@director/agent-engine/kernel-ownership";
+import {
   DIRECTOR_WORLD_MAX_EFFECTS,
   DIRECTOR_WORLD_MAX_ROAD_VEHICLES,
   DIRECTOR_WORLD_MAX_ROADS,
@@ -1417,14 +1423,21 @@ function executeDirectorWorkbenchOperationCore(
       // -- Entity lookup by type + id --
       case "inspect": {
         let result: unknown;
+        let kernelOwnership: DirectorKernelOwnership | undefined;
         if (operation.entity === "catalog_asset") {
           result = getDirectorAgentCatalogAsset(operation.id);
         } else if (operation.entity === "object") {
-          result = store.project.objects.find((item) => item.id === operation.id);
+          const object = store.project.objects.find((item) => item.id === operation.id);
+          result = object;
+          if (object) kernelOwnership = describeDirectorObjectKernelOwnership(object, store.project.assets);
         } else if (operation.entity === "light") {
-          result = store.project.lights?.find((item) => item.id === operation.id);
+          const light = store.project.lights?.find((item) => item.id === operation.id);
+          result = light;
+          if (light) kernelOwnership = describeDirectorLightKernelOwnership(light);
         } else if (operation.entity === "camera") {
           result = inspectCamera(store, operation.id);
+          const camera = store.project.cameras.find((item) => item.id === operation.id);
+          if (camera) kernelOwnership = describeDirectorCameraKernelOwnership(camera);
         } else if (operation.entity === "asset") {
           result = store.project.assets.find((item) => item.id === operation.id);
         } else if (operation.entity === "storyboard_shot") {
@@ -1439,7 +1452,14 @@ function executeDirectorWorkbenchOperationCore(
             .find((item) => item.id === operation.id);
         }
         return result
-          ? { success: true, result: { entity: operation.entity, value: result } }
+          ? {
+              success: true,
+              result: {
+                entity: operation.entity,
+                value: result,
+                ...(kernelOwnership ? { kernel_ownership: kernelOwnership } : {}),
+              },
+            }
           : {
               success: false,
               error:

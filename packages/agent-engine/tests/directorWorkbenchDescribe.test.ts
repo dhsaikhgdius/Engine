@@ -44,6 +44,22 @@ describe("director workbench describe", () => {
     expect(result.author_actions).toBeUndefined();
   });
 
+  it("embeds the kernel-ownership result vocabulary on the inspect operation", () => {
+    const result = describedResult("inspect");
+    expect(result.json_schema).toBeDefined();
+    expect(JSON.stringify(result.json_schema)).toContain("kernel_ownership");
+    const ownership = result.result_schemas?.kernel_ownership;
+    expect(ownership).toBeDefined();
+    const serialized = JSON.stringify(ownership);
+    expect(serialized).toContain("blender_native");
+    expect(serialized).toContain("generated_3d");
+    expect(serialized).toContain("stage_catalog");
+    expect(serialized).toContain("stage_patchable_fields");
+    expect(serialized).toContain("rejected_stage_patches");
+    expect(serialized).toContain("deletes_with_blender");
+    expect(describedResult("capture").result_schemas).toBeUndefined();
+  });
+
   it("returns one author action schema on demand", () => {
     const result = describedResult("author.add_object");
     expect(result.kind).toBe("author_action");
