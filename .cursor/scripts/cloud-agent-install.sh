@@ -16,22 +16,25 @@ echo "[director-install] workspace: $ROOT"
 npm ci
 npm --prefix docs/site ci
 
-# Vendor submodules required by repo:check and optional inference sources
-git submodule update --init --depth 1 \
-  vendor/deepseek-harness \
-  vendor/ltx-2 \
-  vendor/hunyuan3d \
-  vendor/trellis \
-  vendor/ardy
+# The agent harness (npm run dsh, evals overlay) needs vendor/deepseek-harness.
+# repo:check does not read vendor checkouts. The inference sources (LTX-2,
+# Hunyuan3D-2, TRELLIS, ARDY) are only needed for local model work; opt in with
+# DIRECTOR_INSTALL_INFERENCE_VENDORS=1 instead of paying the clone cost on every boot.
+git submodule update --init --depth 1 vendor/deepseek-harness
+if [ "${DIRECTOR_INSTALL_INFERENCE_VENDORS:-0}" = "1" ]; then
+  git submodule update --init --depth 1 \
+    vendor/ltx-2 \
+    vendor/hunyuan3d \
+    vendor/trellis \
+    vendor/ardy
+fi
 
 # Runtime directories
 mkdir -p data/blender .runtime
 
-# Agent skill copies and MCP plugin bundle
-npm run sync:skills
-npm run build:mcp-plugin
-
-# Repository boundary checks
+# Repository boundary checks. Do not regenerate committed artifacts here
+# (sync:skills / build:mcp-plugin rewrite tracked files and would leave the
+# workspace dirty at boot); regenerating them belongs to the dev loop.
 npm run repo:check
 
 echo "[director-install] Blender: $($BLENDER_BIN --version 2>/dev/null | head -1 || echo 'not found')"
