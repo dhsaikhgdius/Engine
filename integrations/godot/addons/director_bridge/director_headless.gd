@@ -12,11 +12,13 @@
 ## - import   import a Director exchange package into a saved scene under
 ##            res://director/scenes/ with stable director_id metadata: object
 ##            payload instances (GLB), restored parent hierarchy, cameras with
-##            optics, Omni/Spot/Directional lights, Director PBR material
-##            overrides, tagged bind-pose skeletons, externalized hashed
-##            payload textures, and — when the Gateway pinned an animation
-##            bake — an AnimationPlayer/AnimationLibrary keyed on the rational
-##            timebase. Echoes a canonical-space return package.
+##            optics, Omni/Spot/Directional lights, an ambient/hemisphere
+##            WorldEnvironment term, Director PBR material overrides, tagged
+##            bind-pose skeletons, externalized hashed payload textures, and —
+##            when the Gateway pinned an animation bake — an AnimationPlayer/
+##            AnimationLibrary keyed on the rational timebase including
+##            discrete Camera3D.current storyboard camera cuts. Echoes a
+##            canonical-space return package.
 ## - export   export a director-dcc-return-v1 package with the canonical
 ##            transforms of every director_id-tagged object/camera node that
 ##            moved relative to the exchange package baseline.
@@ -208,15 +210,20 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 		by_director_id[camera_entity["id"]] = camera
 		camera_count += 1
 
-	var light_count := DirectorLights.import_lights(root, scene, project.get("lights", []), warnings)
+	var light_receipt := DirectorLights.import_lights(root, scene, project.get("lights", []), warnings)
 
+	# Storyboard shots stay on the scene root as durable metadata; the
+	# animation bake additionally maps them to discrete Camera3D.current
+	# camera-cut keys (director_shots.gd). Without a pinned bake there is no
+	# rational timebase to key against, so the cuts warn-and-omit.
 	var storyboard: Dictionary = project.get("storyboard", {})
 	if not storyboard.is_empty() and not storyboard.get("shots", []).is_empty():
 		root.set_meta("director_shots", storyboard["shots"])
-		warnings.append(
-			"Godot has no built-in shot timeline; storyboard shots were preserved as "
-			+ "director_shots metadata on the scene root."
-		)
+		if not arguments.has("animation"):
+			warnings.append(
+				"Storyboard shots were preserved as director_shots metadata only: no animation "
+				+ "bake was pinned, so no Camera3D.current cut track was keyed (warn-and-omit)."
+			)
 
 	# Key the Gateway's hash-pinned animation bake after the hierarchy is
 	# final, so track paths and local-space conversion are both correct. An
@@ -283,16 +290,22 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 			return_package_dir = "return"
 
 	var transform_track_count := int(animation_receipt.get("transformTrackCount", 0))
+	var shot_cut_track_count := int(animation_receipt.get("shotCutTrackCount", 0))
+	var has_player := transform_track_count > 0 or shot_cut_track_count > 0
 	var godot_receipt := {
-		"animationPlayerPath": scene_path if transform_track_count > 0 else null,
+		"animationPlayerPath": scene_path if has_player else null,
 		"animationLibrary": animation_receipt.get("animationLibrary"),
 		"displayRate": animation_receipt.get("displayRate"),
 		"bakedKeyCount": int(animation_receipt.get("bakedKeyCount", 0)),
 		"transformTrackCount": transform_track_count,
 		"fovTrackCount": int(animation_receipt.get("fovTrackCount", 0)),
+		"shotCutTrackCount": shot_cut_track_count,
+		"mappedShotCount": int(animation_receipt.get("mappedShotCount", 0)),
 		"payloadAnimationPlayerCount": payload_animation_players,
 		"importedSkeletonCount": skeleton_count,
-		"importedLightCount": light_count,
+		"importedLightCount": int(light_receipt["importedLightCount"]),
+		"worldEnvironmentAmbient": bool(light_receipt["worldEnvironmentAmbient"]),
+		"omittedLightCount": int(light_receipt["omittedLightCount"]),
 		"appliedMaterialCount": applied_material_count,
 		"externalizedTextureCount": externalized_textures,
 	}

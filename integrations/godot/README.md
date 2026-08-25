@@ -20,7 +20,11 @@ so the boundary stays explicit and testable.
     `parent_world^-1 * child_world`, exact under negative scale and mirrored
     transforms) with cycle detection;
   - Director lights as `OmniLight3D` / `SpotLight3D` / `DirectionalLight3D`
-    nodes with `director_id`; ambient/hemisphere/rect lights warn-and-omit;
+    nodes with `director_id`; the first visible ambient/hemisphere light bakes
+    into a `WorldEnvironment` ambient term (hemisphere flattens its sky/ground
+    gradient with an approximation code); rect-area and duplicate ambient
+    lights warn-and-omit with structured codes
+    (`light_rect_area_unsupported`, `light_ambient_duplicate`);
   - glTF PBR payload materials as `StandardMaterial3D`, Director PBR
     overrides applied on top; unsupported channels (e.g. transmission) and
     custom `ShaderMaterial`s warn-and-omit;
@@ -35,13 +39,16 @@ so the boundary stays explicit and testable.
     scene root keyed from the hash-verified sidecar on the rational timebase
     (`seconds = frame * denominator / numerator`); glTF payload animations
     are preserved as their own AnimationPlayers;
-  - storyboard shots preserved as `director_shots` metadata on the scene root
-    (Godot has no built-in shot timeline; warn-and-omit rather than silently
-    flattening);
+  - storyboard shot ranges from the hash-pinned bake mapped onto discrete
+    `Camera3D.current` cut tracks inside the timeline animation (playing it
+    performs the storyboard's camera cuts), with the raw shots additionally
+    preserved as `director_shots` metadata; shots without a mappable camera
+    warn-and-omit with structured codes (`shot_no_camera_binding`,
+    `shot_camera_not_imported`, `shot_target_not_camera`);
   - a `director-dcc-engine-report-v1` receipt with a Godot-specific `godot`
-    block (track/key counts, light/skeleton/material/texture counts) that is
-    read back from the saved scene, plus an echoed canonical-space return
-    package.
+    block (track/key/shot-cut counts, light/skeleton/material/texture counts,
+    `worldEnvironmentAmbient`, `omittedLightCount`) that is read back from the
+    saved scene, plus an echoed canonical-space return package.
 - **Export** (`--mode export`): reloads the Director scene and writes a
   `director-dcc-return-v1` package containing the canonical transforms of every
   `director_id`-tagged object/camera node that moved relative to the exchange
@@ -88,19 +95,36 @@ All connector modules are referenced through `preload`, never global
 `class_name` lookup: a fresh project that was never opened in the editor has no
 global class cache, and the headless entry must work there.
 
+## Live preview (outbound only)
+
+The editor plugin's **Director: Toggle Live Preview** tool menu item streams
+ephemeral, sequence-numbered preview frames of `director_id`-tagged nodes to
+the Director Gateway's token-guarded live-link routes
+(`director-godot-live-link-v1`: hello → frame… → bye). The transport is
+strictly outbound — Godot never opens a listening port and never exposes a
+scripting endpoint — and preview frames are never authoritative: durable
+changes still travel only through the reviewed `director-dcc-return-v1`
+package path. Stale or replayed sequence numbers are rejected by the Gateway,
+and a dropped connection (missed bye) is swept by the Gateway's idle timeout
+without touching the last committed Director revision. Configure the target
+with `DIRECTOR_GATEWAY_URL` and `DIRECTOR_GATEWAY_TOKEN`.
+
 ## Capability honesty
 
 Implemented and versioned (backed by host-free goldens plus a skip-if-missing
 real headless roundtrip in `backend/gateway/tests/dcc/godot*.test.ts`): headless
 import/export, stable `director_id` round trip, scene hierarchy including
 negative scale and mirrored transforms, cameras with animated vertical fov,
-Gateway-baked transform animation on a rational timebase, skinned GLB skeletons
-in bind pose, `StandardMaterial3D` translation with hashed external textures,
-and Omni/Spot/Directional lights.
+Gateway-baked transform animation on a rational timebase, storyboard shot
+ranges as `Camera3D.current` camera-cut tracks, skinned GLB skeletons in bind
+pose, `StandardMaterial3D` translation with hashed external textures,
+Omni/Spot/Directional lights plus a `WorldEnvironment` ambient bake, and the
+outbound-only live preview link (sequence, replay, and disconnect goldens in
+`backend/gateway/tests/dcc/godotLiveLink.test.ts`).
 
-Still planned (warn-and-omit, never silently flattened): shot timeline mapping
-beyond metadata, rig pose channels and character motion clips (only world
-transforms are baked), ambient/hemisphere/rect lights, custom shader
-translation, and live link. A future live-preview transport must be outbound to
-Director only — never an unauthenticated scripting port — and needs disconnect
-tests before the `live_link` capability claim moves from `planned`.
+Still warn-and-omit, never silently flattened: rig pose channels and character
+motion clips (only world transforms are baked — the bake carries structured
+`omittedDetail` naming the affected pose controls and clips), rect-area
+lights, duplicate ambient sources, and custom shader translation. Every
+omission carries a structured code so agents can act on it instead of parsing
+prose.
