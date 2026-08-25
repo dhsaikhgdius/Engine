@@ -13,7 +13,13 @@ import {
 } from "@director/project-schema";
 import { createDefaultDirectorProject } from "../src/directorDefaultProject";
 import { applyDirectorAuthoringActions, directorAuthoringActionSchema } from "../src/directorAuthoring";
-import { describeDirectorCameraMoveFromProject, directorFramingSubjectForObject } from "../src/directorFraming";
+import {
+  describeDirectorCameraMoveFromProject,
+  directorCameraShotLanguageReport,
+  directorFramingSubjectForObject,
+  resolveDirectorFramingSubjectObject,
+} from "../src/directorFraming";
+import { observeDirectorProject } from "../src/directorWorkbenchObserve";
 
 const CAMERA_ID = "cam-frame";
 const SUBJECT_ID = "hero";
@@ -290,5 +296,62 @@ describe("describe_camera_move", () => {
     expect(() =>
       describeDirectorCameraMoveFromProject(project, { camera_id: CAMERA_ID, subject_object_id: SUBJECT_ID }),
     ).toThrow(/mark_camera_move/);
+  });
+});
+
+describe("shared shot language for observe and the viewfinder", () => {
+  it("reads a camera against its tracked object, else the nearest character", () => {
+    let project = applyDirectorAuthoringActions(stageWithHeroAndCamera(), [
+      {
+        action: "add_object",
+        id: "extra",
+        name: "配角",
+        kind: "character",
+        placement_mode: "grounded",
+        transform: { position: [30, 0, 30], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    ]).project;
+
+    const camera = () => project.cameras.find((item) => item.id === CAMERA_ID)!;
+    // Aim near the hero: nearest visible character wins.
+    project = frameShot(project, { size: "medium" }).project;
+    expect(resolveDirectorFramingSubjectObject(project, camera())?.id).toBe(SUBJECT_ID);
+
+    // A tracked target object overrides proximity.
+    project = applyDirectorAuthoringActions(project, [
+      { action: "update_camera", camera_id: CAMERA_ID, patch: { target_object_id: "extra" } },
+    ]).project;
+    expect(resolveDirectorFramingSubjectObject(project, camera())?.id).toBe("extra");
+
+    const report = directorCameraShotLanguageReport(project, camera());
+    expect(report?.subject_object_id).toBe("extra");
+    expect(report?.slate).toContain("MM");
+  });
+
+  it("returns null in a scene with no framable subject", () => {
+    const project = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      { action: "start_scene" },
+      {
+        action: "add_camera",
+        id: "cam-lonely",
+        object_id: "cam-lonely-rig",
+        name: "空景机位",
+        position: [0, 1.6, 8],
+        target: [0, 1.2, 0],
+      },
+    ]).project;
+    const camera = project.cameras.find((item) => item.id === "cam-lonely")!;
+    expect(directorCameraShotLanguageReport(project, camera)).toBeNull();
+  });
+
+  it("publishes the same framing report through observe cameras", () => {
+    const project = frameShot(stageWithHeroAndCamera(), { size: "medium", view: "front-quarter", side: "right" }).project;
+    const observed = observeDirectorProject(project, ["cameras"]);
+    const cameras = observed.cameras as Array<{ id: string; framing: { slate: string; size: string } | null }>;
+    const framed = cameras.find((item) => item.id === CAMERA_ID)!;
+    expect(framed.framing?.size).toBe("medium");
+    expect(framed.framing?.slate).toBe(
+      directorCameraShotLanguageReport(project, project.cameras.find((item) => item.id === CAMERA_ID)!)?.slate,
+    );
   });
 });

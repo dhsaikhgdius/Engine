@@ -20,6 +20,7 @@ import {
   type DirectorCameraMoveDescription,
   type DirectorCameraShot,
   type DirectorFramingSubject,
+  type DirectorShotLanguageReport,
 } from "@director/project-schema";
 import { strictAction } from "@director/protocol/strictProtocolVariant";
 import { directorCameraAspectRatioSchema } from "@director/protocol/directorCameraProtocol";
@@ -100,6 +101,63 @@ export function directorFramingSubjectForObject(
     yawRad: object.transform.rotation[1],
     heightM,
   };
+}
+
+/**
+ * Resolves the subject a camera's framing should be read against: the
+ * camera's tracked target object when it has one, otherwise the visible
+ * character nearest to the camera's aim point. Returns null when the scene
+ * offers no subject to frame.
+ */
+export function resolveDirectorFramingSubjectObject(
+  project: DirectorProject,
+  camera: DirectorCameraShot,
+): DirectorObject | null {
+  if (camera.targetObjectId) {
+    const tracked = project.objects.find((object) => object.id === camera.targetObjectId);
+    if (tracked && tracked.kind !== "camera") return tracked;
+  }
+  let nearest: DirectorObject | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const object of project.objects) {
+    if (object.kind !== "character" || object.visible === false) continue;
+    const distance = Math.hypot(
+      object.transform.position[0] - camera.target[0],
+      object.transform.position[2] - camera.target[2],
+    );
+    if (distance < nearestDistance) {
+      nearest = object;
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
+}
+
+/**
+ * Derives the crew-vocabulary reading of one camera against its resolved
+ * subject — the same report observe, audit, the Stage viewfinder, and
+ * generation prompts share. Null when the scene has no subject.
+ */
+export function directorCameraShotLanguageReport(
+  project: DirectorProject,
+  camera: DirectorCameraShot,
+): (DirectorShotLanguageReport & { subject_object_id: string }) | null {
+  const subjectObject = resolveDirectorFramingSubjectObject(project, camera);
+  if (!subjectObject) return null;
+  const subject = directorFramingSubjectForObject(subjectObject, project);
+  const view = getCameraViewSnapshotFromShot(camera);
+  const language = deriveDirectorShotLanguage(
+    {
+      position: view.position,
+      target: view.target,
+      focalLengthMm:
+        camera.focalLengthMm ?? getFocalLengthFromVerticalFov(camera.fov, camera.aspectRatio, camera.sensorFormat),
+      aspectRatio: camera.aspectRatio,
+      sensorFormat: camera.sensorFormat,
+    },
+    subject,
+  );
+  return { subject_object_id: subjectObject.id, ...directorShotLanguageReport(language) };
 }
 
 function requireFramingCamera(project: DirectorProject, cameraId: string): DirectorCameraShot {
