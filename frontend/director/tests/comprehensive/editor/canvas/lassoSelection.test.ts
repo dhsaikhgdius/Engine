@@ -9,7 +9,10 @@ import {
   PerspectiveCamera,
 } from "three";
 import { expect, it } from "vitest";
-import { getLassoObjectScreenBounds, getLassoSelectionIds } from "../../../../src/comprehensive/editor/canvas/lassoSelection";
+import {
+  getLassoObjectScreenBounds,
+  getLassoSelectionIds,
+} from "../../../../src/comprehensive/editor/canvas/lassoSelection";
 
 const scene = {
   backgroundColor: "#373a40",

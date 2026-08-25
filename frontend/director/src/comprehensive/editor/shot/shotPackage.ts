@@ -4,10 +4,7 @@ import type { DirectorShotIr } from "./shotIr";
 import { normalizeDirectorTimebase, serializeDirectorFrameRate } from "../timeline/frameRate";
 import { formatDirectorTimelineTimecode } from "../timeline/timecode";
 import defaultRenderPasses from "./defaultRenderPasses.json";
-import {
-  DIRECTOR_SHOT_RENDER_PASS_IDS,
-  type DirectorShotRenderPassId,
-} from "@director/protocol/workbench-ui";
+import { DIRECTOR_SHOT_RENDER_PASS_IDS, type DirectorShotRenderPassId } from "@director/protocol/workbench-ui";
 
 export { DIRECTOR_SHOT_RENDER_PASS_IDS, type DirectorShotRenderPassId };
 
@@ -335,9 +332,11 @@ function toBytes(content: string | Uint8Array): Uint8Array {
 }
 
 async function sha256(value: string | Uint8Array): Promise<`sha256:${string}`> {
+  // Pass the typed-array view directly: WebCrypto accepts BufferSource views
+  // structurally across realms, while a sliced ArrayBuffer fails Node's
+  // realm-sensitive brand check under the jsdom test environment.
   const bytes = toBytes(value);
-  const source = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", source));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   const hex = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
   return `sha256:${hex}`;
 }

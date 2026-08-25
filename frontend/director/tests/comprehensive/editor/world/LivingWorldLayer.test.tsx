@@ -1,7 +1,11 @@
 import { act, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultDirectorWorld } from "../../../../../../packages/protocol/src/worldSystemsProtocol";
-import { createDefaultDirectorProject, createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
+import {
+  createDefaultDirectorProject,
+  createInitialDirectorState,
+  useDirectorStore,
+} from "../../../../src/comprehensive/editor/store/directorStore";
 import type { LivingWorldFrameContext } from "../../../../src/comprehensive/editor/world/livingWorldContracts";
 import { LivingWorldLayer } from "../../../../src/comprehensive/editor/world/LivingWorldLayer";
 import { advanceWorldAmbientClock, useWorldClockStore } from "../../../../src/comprehensive/editor/world/worldClock";

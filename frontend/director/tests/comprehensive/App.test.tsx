@@ -3,15 +3,27 @@ import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { createInitialDirectorState, useDirectorStore } from "../../src/comprehensive/editor/store/directorStore";
 import { DIRECTOR_THEME_STORAGE_KEY } from "../../src/comprehensive/app/theme/directorTheme";
-import { STAGE_VIEWPORT_AUDIO_STORAGE_KEY, setStageViewportAudioEnabled } from "../../src/comprehensive/editor/audio/stageViewportAudio";
-import { resetDirectorSessionRuntime, updateDirectorSessionRuntime } from "../../src/comprehensive/editor/session/directorSessionRuntime";
+import {
+  STAGE_VIEWPORT_AUDIO_STORAGE_KEY,
+  setStageViewportAudioEnabled,
+} from "../../src/comprehensive/editor/audio/stageViewportAudio";
+import {
+  resetDirectorSessionRuntime,
+  updateDirectorSessionRuntime,
+} from "../../src/comprehensive/editor/session/directorSessionRuntime";
 import {
   getDirectorCreativeWorkspaceScope,
   setDirectorCreativeWorkspaceScope,
   useDirectorCreativeWorkspaceStore,
 } from "../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
-import { MIN_RIGHT_PANEL_WIDTH, RIGHT_PANEL_COLLAPSE_OVERDRAG_PX } from "../../src/comprehensive/app/layout/workspaceLayout";
-import { requestViewportCaptureHost, resetViewportCaptureHostRequest } from "../../src/comprehensive/editor/io/captureBridge";
+import {
+  MIN_RIGHT_PANEL_WIDTH,
+  RIGHT_PANEL_COLLAPSE_OVERDRAG_PX,
+} from "../../src/comprehensive/app/layout/workspaceLayout";
+import {
+  requestViewportCaptureHost,
+  resetViewportCaptureHostRequest,
+} from "../../src/comprehensive/editor/io/captureBridge";
 
 const hostBridgeMocks = vi.hoisted(() => ({
   clear: vi.fn(),

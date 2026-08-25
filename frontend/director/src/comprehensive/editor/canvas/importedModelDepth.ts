@@ -1,10 +1,4 @@
-import {
-  Mesh,
-  SkinnedMesh,
-  type BufferGeometry,
-  type Material,
-  type Object3D,
-} from "three";
+import { Mesh, SkinnedMesh, type BufferGeometry, type Material, type Object3D } from "three";
 
 /**
  * Architectural GLBs (large walls + flush window frames) often author two
@@ -60,13 +54,15 @@ function collectCoplanarSurfaces(root: Object3D) {
 
 function detachMeshMaterials(mesh: Mesh): Material[] {
   const source = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
-  const detached = source.filter((material): material is Material => Boolean(material)).map((material) => {
-    const clone = material.clone();
-    clone.polygonOffset = material.polygonOffset;
-    clone.polygonOffsetFactor = material.polygonOffsetFactor;
-    clone.polygonOffsetUnits = material.polygonOffsetUnits;
-    return clone;
-  });
+  const detached = source
+    .filter((material): material is Material => Boolean(material))
+    .map((material) => {
+      const clone = material.clone();
+      clone.polygonOffset = material.polygonOffset;
+      clone.polygonOffsetFactor = material.polygonOffsetFactor;
+      clone.polygonOffsetUnits = material.polygonOffsetUnits;
+      return clone;
+    });
   if (!detached.length) return [];
   mesh.material = Array.isArray(mesh.material) ? detached : detached[0]!;
   return detached;

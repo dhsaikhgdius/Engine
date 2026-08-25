@@ -81,8 +81,8 @@ it("splits a multi-material facade so the larger wall group sits behind the trim
     "position",
     new BufferAttribute(
       new Float32Array([
-        -10, -10, 0, 10, -10, 0, 10, 10, 0, -10, -10, 0, 10, 10, 0, -10, 10, 0, -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1,
-        0, 1, 1, 0, -1, 1, 0,
+        -10, -10, 0, 10, -10, 0, 10, 10, 0, -10, -10, 0, 10, 10, 0, -10, 10, 0, -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0,
+        1, 1, 0, -1, 1, 0,
       ]),
       3,
     ),

@@ -91,7 +91,11 @@ describeGateway("agent gateway HTTP boundary", () => {
     const fakePlanner = `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
-const prompt = args.at(-1) || "";
+// Real codex reads the prompt from stdin for a "-" positional, and claude
+// --print reads stdin when no positional prompt is given. The gateway pipes
+// the prompt this way because it can exceed the OS argument limit (E2BIG).
+const positional = args.at(-1) || "";
+const prompt = positional === "-" || positional === "" ? fs.readFileSync(0, "utf8") : positional;
 const outputIndex = args.indexOf("--output-last-message");
 const outputPath = outputIndex >= 0 ? args[outputIndex + 1] : null;
 if (prompt.includes("DRAFT_DECODER_TEST")) {
@@ -352,6 +356,33 @@ process.exit(17);
         })
       ).status,
     ).toBe(404);
+  });
+
+  it("answers malformed and oversized request bodies with client errors, not 500", async () => {
+    const headers = { "content-type": "application/json", "x-director-browser-token": GATEWAY_TOKEN };
+
+    const malformed = await fetch(`${baseUrl}/api/tools/director_workbench`, {
+      method: "POST",
+      headers,
+      body: "{not json",
+    });
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toMatchObject({
+      error: expect.stringContaining("not valid JSON"),
+    });
+
+    const oversized = await fetch(`${baseUrl}/api/tools/director_workbench`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ session_id: "s", input: { op: "observe", padding: "x".repeat(9 * 1024 * 1024) } }),
+    });
+    expect(oversized.status).toBe(413);
+    await expect(oversized.json()).resolves.toMatchObject({
+      error: expect.stringContaining("too large"),
+    });
+
+    // The boundary stays healthy after rejecting hostile bodies.
+    expect((await fetch(`${baseUrl}/health`)).status).toBe(200);
   });
 
   it("loads an explicit exchange-only DCC provider configuration at gateway startup", async () => {

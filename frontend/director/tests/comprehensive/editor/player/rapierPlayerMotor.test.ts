@@ -1,6 +1,10 @@
 import { expect, it, vi } from "vitest";
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial } from "three";
-import { createPlayerLocomotionState, PLAYER_CONTROLLER_CONFIG, type PlayerInput } from "../../../../src/comprehensive/editor/player/playerLocomotion";
+import {
+  createPlayerLocomotionState,
+  PLAYER_CONTROLLER_CONFIG,
+  type PlayerInput,
+} from "../../../../src/comprehensive/editor/player/playerLocomotion";
 import { createRapierPlayerMotor } from "../../../../src/comprehensive/editor/player/rapierPlayerMotor";
 import { buildPlayerCollisionMeshesFromFlatMeshes } from "../../../../src/comprehensive/editor/player/playerCollisionMesh";
 

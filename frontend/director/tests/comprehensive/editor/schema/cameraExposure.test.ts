@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DIRECTOR_RENDERER_EXPOSURE_MULTIPLIER_LIMITS, calculateDirectorCameraExposure } from "../../../../src/comprehensive/editor/schema/cameraExposure";
+import {
+  DIRECTOR_RENDERER_EXPOSURE_MULTIPLIER_LIMITS,
+  calculateDirectorCameraExposure,
+} from "../../../../src/comprehensive/editor/schema/cameraExposure";
 
 describe("calculateDirectorCameraExposure", () => {
   it("uses the Director camera default as the neutral renderer exposure", () => {

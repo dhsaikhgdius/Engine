@@ -2,7 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LinearCastingHud } from "../../../../../src/comprehensive/editor/player/linearCasting/LinearCastingHud";
 import { setLinearCastingHudRuntime } from "../../../../../src/comprehensive/editor/player/linearCasting/linearCastingHudBridge";
-import { setLinearCastingEnabled, setLinearCastingPaused } from "../../../../../src/comprehensive/editor/player/linearCasting/linearCastingSession";
+import {
+  setLinearCastingEnabled,
+  setLinearCastingPaused,
+} from "../../../../../src/comprehensive/editor/player/linearCasting/linearCastingSession";
 
 function mockRuntime(overrides: Record<string, unknown> = {}) {
   return {

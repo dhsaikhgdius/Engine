@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { PLAYER_ROAM_EMOTES } from "../../../../../src/comprehensive/editor/player/playerEmotes";
-import { isPlayerMovementKey, PLAYER_CONTROLLER_RESERVED_CODES, PLAYER_VEHICLE_TOGGLE_CODE } from "../../../../../src/comprehensive/editor/player/playerInput";
+import {
+  isPlayerMovementKey,
+  PLAYER_CONTROLLER_RESERVED_CODES,
+  PLAYER_VEHICLE_TOGGLE_CODE,
+} from "../../../../../src/comprehensive/editor/player/playerInput";
 import {
   LINEAR_CASTING_ABILITY_CODES,
   LINEAR_CASTING_CLEAR_CODE,

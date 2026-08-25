@@ -1,10 +1,6 @@
 import { z } from "zod";
 import { hostedAgentDriverSchema, MAX_AGENT_API_PROVIDER_MODELS, type HostedAgentDriver } from "@director/agent-engine";
-import {
-  fetchModelJson,
-  ModelDriverHttpError,
-  type FetchImplementation,
-} from "@director/model-provider/runtime";
+import { fetchModelJson, ModelDriverHttpError, type FetchImplementation } from "@director/model-provider/runtime";
 
 const httpUrlSchema = z
   .string()

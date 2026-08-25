@@ -1,12 +1,6 @@
 import { z } from "zod";
-import {
-  episodePackageJobInputSchema,
-  type EpisodePackageJobInput,
-} from "@director/protocol/episode";
-import {
-  productionJobRecordSchema,
-  type ProductionJobRecord,
-} from "@director/protocol/production-job";
+import { episodePackageJobInputSchema, type EpisodePackageJobInput } from "@director/protocol/episode";
+import { productionJobRecordSchema, type ProductionJobRecord } from "@director/protocol/production-job";
 import { directorControlPlaneFetch } from "../api/directorControlPlaneClient";
 
 /** Structured error thrown when the episode package API returns a non-2xx response. */

@@ -6,8 +6,14 @@ import {
   getDirectorNotifications,
 } from "../../../../src/comprehensive/app/notifications/directorNotificationStore";
 import { LanguageProvider } from "../../../../src/comprehensive/i18n/language";
-import { createDefaultDirectorProject, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
-import { DirectorTemplateDialog, isDirectorProjectFactoryDefault } from "../../../../src/comprehensive/editor/templates/DirectorTemplateDialog";
+import {
+  createDefaultDirectorProject,
+  useDirectorStore,
+} from "../../../../src/comprehensive/editor/store/directorStore";
+import {
+  DirectorTemplateDialog,
+  isDirectorProjectFactoryDefault,
+} from "../../../../src/comprehensive/editor/templates/DirectorTemplateDialog";
 import { DIRECTOR_SCENE_TEMPLATES } from "../../../../src/comprehensive/editor/templates/index";
 
 function renderDialog(onClose = vi.fn()) {
@@ -74,21 +80,15 @@ it("当前是空白默认工程时点选模板直接载入并发成功通知", a
 it("当前工程被改动过时需要内联确认，确认后载入且可撤销恢复", async () => {
   const user = userEvent.setup();
   loadModifiedDefaultProject();
-  const modifiedCharacter = useDirectorStore
-    .getState()
-    .project.objects.find((object) => object.kind === "character");
+  const modifiedCharacter = useDirectorStore.getState().project.objects.find((object) => object.kind === "character");
   const onClose = renderDialog();
 
   await user.click(screen.getByRole("button", { name: "使用模板 环绕展示" }));
   expect(screen.getByText("将替换当前 3D 片场工程（可用撤销恢复）")).toBeInTheDocument();
-  expect(useDirectorStore.getState().project.objects.some((object) => object.id === "char_orbit_subject")).toBe(
-    false,
-  );
+  expect(useDirectorStore.getState().project.objects.some((object) => object.id === "char_orbit_subject")).toBe(false);
 
   await user.click(screen.getByRole("button", { name: /确认替换/ }));
-  expect(useDirectorStore.getState().project.objects.some((object) => object.id === "char_orbit_subject")).toBe(
-    true,
-  );
+  expect(useDirectorStore.getState().project.objects.some((object) => object.id === "char_orbit_subject")).toBe(true);
   expect(onClose).toHaveBeenCalledOnce();
 
   useDirectorStore.getState().undo();

@@ -208,9 +208,7 @@ function mapEntryFrame(
   if (originMs === null) {
     throw new SessionEpisodeExportError("missing-at-ms", "session-elapsed mapping requires atMs on the first entry");
   }
-  const frame = Math.round(
-    ((entry.atMs - originMs) * frameRate.numerator) / (1000 * frameRate.denominator),
-  );
+  const frame = Math.round(((entry.atMs - originMs) * frameRate.numerator) / (1000 * frameRate.denominator));
   if (!Number.isSafeInteger(frame) || frame < 0) {
     throw new SessionEpisodeExportError(
       "negative-frame",
@@ -226,10 +224,7 @@ function mapRecords(record: SessionRecord, mapping: SessionEpisodeTimeMapping): 
   if (mapping === "session-elapsed" && record.records.length > 0) {
     const first = record.records[0];
     if (first.atMs === undefined) {
-      throw new SessionEpisodeExportError(
-        "missing-at-ms",
-        "session-elapsed mapping requires atMs on the first entry",
-      );
+      throw new SessionEpisodeExportError("missing-at-ms", "session-elapsed mapping requires atMs on the first entry");
     }
     originMs = first.atMs;
   }

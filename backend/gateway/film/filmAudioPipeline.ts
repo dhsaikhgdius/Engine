@@ -1,7 +1,11 @@
 import { access, mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FilmCharacter, ShotSpec } from "../../../packages/protocol/src/filmPipelineProtocol";
-import { ModelDriverHttpError, ModelDriverResponseError, redactModelDriverText } from "@director/model-provider/runtime";
+import {
+  ModelDriverHttpError,
+  ModelDriverResponseError,
+  redactModelDriverText,
+} from "@director/model-provider/runtime";
 import { runFfmpeg } from "./filmFfmpeg";
 
 /**
@@ -22,8 +26,7 @@ import { runFfmpeg } from "./filmFfmpeg";
 
 /** A single audio cue parsed from a shot audioDesc. */
 export type AudioCue =
-  | { kind: "dialogue"; speaker: string; emotion: string | null; text: string }
-  | { kind: "effect"; text: string };
+  { kind: "dialogue"; speaker: string; emotion: string | null; text: string } | { kind: "effect"; text: string };
 
 type DialogueCue = Extract<AudioCue, { kind: "dialogue" }>;
 

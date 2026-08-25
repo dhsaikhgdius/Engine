@@ -141,9 +141,7 @@ async function failQueuedJobsWithoutLocalExecutor(dependencies: ProductionJobRou
       job.kind === "scene.reconstruct"
         ? "Capture reconstruction executor unavailable"
         : "Media transcode executor unavailable";
-    const running = await dependencies.store.update(
-      transitionProductionJob(job, "running", { progress: 0, message }),
-    );
+    const running = await dependencies.store.update(transitionProductionJob(job, "running", { progress: 0, message }));
     await dependencies.store.update(
       transitionProductionJob(running, "failed", {
         progress: 0,

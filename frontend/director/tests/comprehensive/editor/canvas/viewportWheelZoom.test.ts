@@ -165,9 +165,9 @@ describe("viewport wheel zoom", () => {
     expect(getViewportGridDensityFade(VIEWPORT_GRID_MINOR_DENSITY_FADE.end)).toBe(0);
     expect(getViewportGridDensityFade(0.6)).toBeGreaterThan(0);
     expect(getViewportGridDensityFade(0.6)).toBeLessThan(1);
-    expect(
-      getViewportGridDensityFade(0.6, VIEWPORT_GRID_MAJOR_DENSITY_FADE),
-    ).toBeGreaterThan(getViewportGridDensityFade(0.6, VIEWPORT_GRID_MINOR_DENSITY_FADE));
+    expect(getViewportGridDensityFade(0.6, VIEWPORT_GRID_MAJOR_DENSITY_FADE)).toBeGreaterThan(
+      getViewportGridDensityFade(0.6, VIEWPORT_GRID_MINOR_DENSITY_FADE),
+    );
   });
 
   it("keeps geometry visible across the expanded zoom range while fading only the editor grid", () => {

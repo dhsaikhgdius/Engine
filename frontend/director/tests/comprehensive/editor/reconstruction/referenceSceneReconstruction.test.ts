@@ -1,8 +1,15 @@
 import { beforeEach, expect, it } from "vitest";
 import type { ReferenceSceneReconstructionPlan } from "../../../../../../packages/protocol/src/referenceSceneReconstructionProtocol";
 import { getDirectorProjectRevision } from "../../../../src/comprehensive/editor/schema/directorProjectRevision";
-import { createDefaultDirectorProject, createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
-import { ReferenceScenePlanConflictError, applyReferenceSceneReconstructionPlan } from "../../../../src/comprehensive/editor/reconstruction/referenceSceneReconstruction";
+import {
+  createDefaultDirectorProject,
+  createInitialDirectorState,
+  useDirectorStore,
+} from "../../../../src/comprehensive/editor/store/directorStore";
+import {
+  ReferenceScenePlanConflictError,
+  applyReferenceSceneReconstructionPlan,
+} from "../../../../src/comprehensive/editor/reconstruction/referenceSceneReconstruction";
 
 function plan(): ReferenceSceneReconstructionPlan {
   const source = createDefaultDirectorProject();

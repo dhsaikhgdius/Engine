@@ -1,6 +1,9 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { CharacterModel, getDefaultDirectorCharacterUrl } from "../../../../src/comprehensive/editor/runtime/CharacterModel";
+import {
+  CharacterModel,
+  getDefaultDirectorCharacterUrl,
+} from "../../../../src/comprehensive/editor/runtime/CharacterModel";
 
 vi.mock("../../../../src/comprehensive/editor/runtime/MixamoCharacterModel", () => ({
   MixamoCharacterModel: ({

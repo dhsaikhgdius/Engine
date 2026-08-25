@@ -13,11 +13,17 @@ import {
   Quaternion,
   Vector3,
 } from "three";
-import { clearViewportCaptureHandler, requestViewportCapture } from "../../../../src/comprehensive/editor/io/captureBridge";
+import {
+  clearViewportCaptureHandler,
+  requestViewportCapture,
+} from "../../../../src/comprehensive/editor/io/captureBridge";
 import { getCameraViewSnapshotFromShot } from "../../../../src/comprehensive/editor/schema/cameraGeometry";
 import { calculateDirectorCameraExposure } from "../../../../src/comprehensive/editor/schema/cameraExposure";
 import { evaluateDirectorCameraAtFrame } from "../../../../src/comprehensive/editor/schema/directorAnimation";
-import { createModelLibraryDragPayload, MODEL_LIBRARY_DRAG_MIME } from "../../../../src/comprehensive/editor/modelLibrary/modelLibraryDrag";
+import {
+  createModelLibraryDragPayload,
+  MODEL_LIBRARY_DRAG_MIME,
+} from "../../../../src/comprehensive/editor/modelLibrary/modelLibraryDrag";
 import { getMixamoCharacterCatalogItem } from "../../../../src/comprehensive/editor/modelLibrary/mixamoCharacterCatalog";
 import {
   resetPerformanceConfigOverrides,
@@ -1849,7 +1855,10 @@ it("renders the neutral previz viewport grid", () => {
   expect(screen.getByTestId("viewport-grid")).toHaveAttribute("data-section-color", DIRECTOR_PREVIZ_PALETTE.gridMajor);
   expect(screen.getByTestId("viewport-grid")).toHaveAttribute("data-section-size", "10");
   expect(screen.getByTestId("viewport-grid")).toHaveAttribute("data-fade-distance", String(fadeDistance));
-  expect(screen.getByTestId("viewport-grid")).toHaveAttribute("data-fade-strength", String(VIEWPORT_GRID_FADE_STRENGTH));
+  expect(screen.getByTestId("viewport-grid")).toHaveAttribute(
+    "data-fade-strength",
+    String(VIEWPORT_GRID_FADE_STRENGTH),
+  );
   expect(screen.getByTestId("viewport-grid")).toHaveAttribute("data-follow-camera", "true");
   expect(screen.getByTestId("viewport-grid")).toHaveAttribute("data-infinite-grid", "true");
 });

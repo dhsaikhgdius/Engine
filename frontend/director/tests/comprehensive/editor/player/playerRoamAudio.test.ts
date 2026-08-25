@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setStageViewportAudioEnabled } from "../../../../src/comprehensive/editor/audio/stageViewportAudio";
-import { detectPlayerFootfall, getPlayerFootstepIntensity, PlayerRoamAudio } from "../../../../src/comprehensive/editor/player/playerRoamAudio";
+import {
+  detectPlayerFootfall,
+  getPlayerFootstepIntensity,
+  PlayerRoamAudio,
+} from "../../../../src/comprehensive/editor/player/playerRoamAudio";
 
 const gaitSample = {
   crouching: false,

@@ -287,8 +287,7 @@ it("sets a predecessor-clamped cross-dissolve transition as a single undo step",
   let clipId = "";
   act(() => {
     store.addClip({ trackId: "video-1", mediaId: "shot:prev", name: "Prev", startSec: 0, durationSec: 1 });
-    clipId = store.addClip({ trackId: "video-1", mediaId: "shot:next", name: "Next", startSec: 1, durationSec: 4 })!
-      .id;
+    clipId = store.addClip({ trackId: "video-1", mediaId: "shot:next", name: "Next", startSec: 1, durationSec: 4 })!.id;
   });
   act(() => useDirectorCreativeWorkspaceStore.getState().setClipTransition(clipId, 3));
   let state = useDirectorCreativeWorkspaceStore.getState();
@@ -309,9 +308,21 @@ it("ignores transitions on locked tracks or clips without an adjacent predecesso
   let gappedId = "";
   let lockedId = "";
   act(() => {
-    lonelyId = store.addClip({ trackId: "video-1", mediaId: "shot:lonely", name: "Lonely", startSec: 5, durationSec: 2 })!.id;
+    lonelyId = store.addClip({
+      trackId: "video-1",
+      mediaId: "shot:lonely",
+      name: "Lonely",
+      startSec: 5,
+      durationSec: 2,
+    })!.id;
     store.addClip({ trackId: "video-2", mediaId: "shot:prev", name: "Prev", startSec: 0, durationSec: 2 });
-    gappedId = store.addClip({ trackId: "video-2", mediaId: "shot:gapped", name: "Gapped", startSec: 2.002, durationSec: 2 })!.id;
+    gappedId = store.addClip({
+      trackId: "video-2",
+      mediaId: "shot:gapped",
+      name: "Gapped",
+      startSec: 2.002,
+      durationSec: 2,
+    })!.id;
   });
   act(() => {
     const live = useDirectorCreativeWorkspaceStore.getState();
@@ -329,7 +340,13 @@ it("ignores transitions on locked tracks or clips without an adjacent predecesso
   act(() => {
     const live = useDirectorCreativeWorkspaceStore.getState();
     live.addClip({ trackId: "video-1", mediaId: "shot:before", name: "Before", startSec: 3, durationSec: 2 });
-    lockedId = live.addClip({ trackId: "video-1", mediaId: "shot:locked", name: "Locked", startSec: 5, durationSec: 2 })!.id;
+    lockedId = live.addClip({
+      trackId: "video-1",
+      mediaId: "shot:locked",
+      name: "Locked",
+      startSec: 5,
+      durationSec: 2,
+    })!.id;
     live.toggleTrackLock("video-1");
   });
   act(() => useDirectorCreativeWorkspaceStore.getState().setClipTransition(lockedId, 1));
@@ -368,11 +385,17 @@ it("clamps transitionInSec through updateClip like other numeric clip fields", (
       transitionInSec: 99,
     })!.id;
   });
-  expect(findDirectorEditClip(useDirectorCreativeWorkspaceStore.getState().editTracks, clipId)?.clip.transitionInSec).toBe(4);
+  expect(
+    findDirectorEditClip(useDirectorCreativeWorkspaceStore.getState().editTracks, clipId)?.clip.transitionInSec,
+  ).toBe(4);
   act(() => useDirectorCreativeWorkspaceStore.getState().updateClip(clipId, { transitionInSec: -3 }));
-  expect(findDirectorEditClip(useDirectorCreativeWorkspaceStore.getState().editTracks, clipId)?.clip.transitionInSec).toBe(0);
+  expect(
+    findDirectorEditClip(useDirectorCreativeWorkspaceStore.getState().editTracks, clipId)?.clip.transitionInSec,
+  ).toBe(0);
   act(() => useDirectorCreativeWorkspaceStore.getState().updateClip(clipId, { transitionInSec: 2.5 }));
-  expect(findDirectorEditClip(useDirectorCreativeWorkspaceStore.getState().editTracks, clipId)?.clip.transitionInSec).toBe(2.5);
+  expect(
+    findDirectorEditClip(useDirectorCreativeWorkspaceStore.getState().editTracks, clipId)?.clip.transitionInSec,
+  ).toBe(2.5);
 });
 
 it("keeps the transition on the left half of a split and resets the right half", () => {
@@ -838,8 +861,7 @@ it("round-trips a clip transition through v4 persistence", () => {
   let clipId = "";
   act(() => {
     store.addClip({ trackId: "video-1", mediaId: "shot:prev", name: "Prev", startSec: 0, durationSec: 3 });
-    clipId = store.addClip({ trackId: "video-1", mediaId: "shot:next", name: "Next", startSec: 3, durationSec: 3 })!
-      .id;
+    clipId = store.addClip({ trackId: "video-1", mediaId: "shot:next", name: "Next", startSec: 3, durationSec: 3 })!.id;
     useDirectorCreativeWorkspaceStore.getState().setClipTransition(clipId, 1.25);
   });
   const restored = parseDirectorCreativeWorkspacePersistedState(

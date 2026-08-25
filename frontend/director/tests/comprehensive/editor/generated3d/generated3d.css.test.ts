@@ -25,5 +25,7 @@ it("centers compact header icon buttons instead of inheriting padded ui-icon-but
   expect(css).toMatch(
     /\.generated3d-header > \.ui-icon-button,\s*\n\.generated3d-queue > header > \.ui-icon-button\s*\{[\s\S]*?place-items:\s*center;[\s\S]*?padding:\s*0;/,
   );
-  expect(css).toMatch(/\.generated3d-queue > header > \.ui-icon-button\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;/);
+  expect(css).toMatch(
+    /\.generated3d-queue > header > \.ui-icon-button\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;/,
+  );
 });

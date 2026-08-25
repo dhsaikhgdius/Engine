@@ -1661,7 +1661,7 @@ describe("executeBlenderNativeTool", () => {
     });
 
     if (!("result" in result)) {
-      throw new Error("Expected inspect result");
+      throw new Error("Expected an inspect result payload");
     }
     expect(result.result).toMatchObject({ id: "cube-a", position: [0, 0.5, 0] });
     const graphs = (result.result as { materialGraphs?: Array<{ nodes: Array<{ inputs: unknown[] }> }> })

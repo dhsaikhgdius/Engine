@@ -526,10 +526,15 @@ async function readCodexPlannerOutput(path: string, fallback: string) {
  *
  * @param command - The executable to spawn.
  * @param args - Command-line arguments for the executable.
- * @param timeoutMs - Hard deadline in milliseconds; defaults to {@link AGENT_PLAN_TIMEOUT_MS}.
+ * @param options - Optional stdin payload and hard deadline (defaults to {@link AGENT_PLAN_TIMEOUT_MS}).
  * @returns A {@link PlannerRunResult} capturing stdout, stderr, and termination flags.
  */
-function runProcess(command: string, args: string[], timeoutMs = AGENT_PLAN_TIMEOUT_MS): Promise<PlannerRunResult> {
+function runProcess(
+  command: string,
+  args: string[],
+  options: { stdinInput?: string; timeoutMs?: number } = {},
+): Promise<PlannerRunResult> {
+  const { stdinInput, timeoutMs = AGENT_PLAN_TIMEOUT_MS } = options;
   return new Promise((resolveRun) => {
     const output = new BoundedTextBuffer(
       AGENT_PLAN_STDOUT_MAX_BYTES,
@@ -552,15 +557,32 @@ function runProcess(command: string, args: string[], timeoutMs = AGENT_PLAN_TIME
     };
     let child;
     try {
-      child = spawn(command, args, {
-        cwd: root,
-        env: process.env,
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: SPAWN_IN_OWN_PROCESS_GROUP,
-      });
+      // Two literal stdio tuples keep the ChildProcessByStdio overloads, so
+      // stdout/stderr stay typed as non-null streams in both branches.
+      child =
+        stdinInput === undefined
+          ? spawn(command, args, {
+              cwd: root,
+              env: process.env,
+              stdio: ["ignore", "pipe", "pipe"],
+              detached: SPAWN_IN_OWN_PROCESS_GROUP,
+            })
+          : spawn(command, args, {
+              cwd: root,
+              env: process.env,
+              stdio: ["pipe", "pipe", "pipe"],
+              detached: SPAWN_IN_OWN_PROCESS_GROUP,
+            });
     } catch (error) {
       finish({ output: "", error: error instanceof Error ? error.message : String(error) });
       return;
+    }
+    if (stdinInput !== undefined && child.stdin) {
+      // The planner may exit before consuming the whole prompt; a surfaced
+      // EPIPE here would crash the gateway, so the close handler owns the
+      // failure report instead.
+      child.stdin.on("error", () => {});
+      child.stdin.end(stdinInput);
     }
     const terminate = () => {
       if (termination) return;
@@ -657,20 +679,28 @@ async function runAgentPlanner(
     const temporaryDirectory = await mkdtemp(resolve(tmpdir(), "director-codex-plan-"));
     const outputPath = resolve(temporaryDirectory, "plan.json");
     try {
-      const result = await runProcess("codex", [
-        "exec",
-        "--sandbox",
-        "read-only",
-        "--ephemeral",
-        "--skip-git-repo-check",
-        "--output-schema",
-        agentPlanSchemaPath,
-        "--output-last-message",
-        outputPath,
-        "--cd",
-        root,
-        prompt,
-      ]);
+      // The prompt embeds full authoring/creative JSON schemas plus live
+      // observations, which can exceed the OS single-argument limit
+      // (Linux MAX_ARG_STRLEN, 128 KiB) and fail spawn with E2BIG. The "-"
+      // sentinel makes codex exec read the whole prompt from stdin instead.
+      const result = await runProcess(
+        "codex",
+        [
+          "exec",
+          "--sandbox",
+          "read-only",
+          "--ephemeral",
+          "--skip-git-repo-check",
+          "--output-schema",
+          agentPlanSchemaPath,
+          "--output-last-message",
+          outputPath,
+          "--cd",
+          root,
+          "-",
+        ],
+        { stdinInput: prompt },
+      );
       if (result.outputLimitExceeded) {
         return outputLimitFailure(agent, `Codex stdout exceeded the safety limit\nretained_tail=${result.output}`);
       }
@@ -702,24 +732,29 @@ async function runAgentPlanner(
     }
   }
 
-  const result = await runProcess("claude", [
-    "--print",
-    "--permission-mode",
-    "plan",
-    "--no-session-persistence",
-    "--effort",
-    "low",
-    "--output-format",
-    "json",
-    "--json-schema",
-    JSON.stringify(AGENT_PLAN_SCHEMA),
-    // Claude treats --tools as a variadic option. The -- delimiter keeps the
-    // planner prompt from being consumed as another tool name.
-    "--tools",
-    "",
-    "--",
-    prompt,
-  ]);
+  // The prompt is piped through stdin: claude --print reads it there when no
+  // positional prompt is given, and stdin has no OS argument-length limit
+  // (the argv form can fail spawn with E2BIG once schemas plus observations
+  // pass Linux MAX_ARG_STRLEN). This also keeps the variadic --tools option
+  // from consuming the prompt as another tool name.
+  const result = await runProcess(
+    "claude",
+    [
+      "--print",
+      "--permission-mode",
+      "plan",
+      "--no-session-persistence",
+      "--effort",
+      "low",
+      "--output-format",
+      "json",
+      "--json-schema",
+      JSON.stringify(AGENT_PLAN_SCHEMA),
+      "--tools",
+      "",
+    ],
+    { stdinInput: prompt },
+  );
   if (result.outputLimitExceeded) {
     return outputLimitFailure(agent, `Claude stdout exceeded the safety limit\nretained_tail=${result.output}`);
   }
@@ -754,10 +789,25 @@ function json(response: ServerResponse, status: number, body: unknown) {
 }
 
 /**
+ * A malformed or oversized request body is the caller's fault, so it carries
+ * the client-error status the top-level handler should answer with instead of
+ * being folded into the generic 500 path.
+ */
+class RequestBodyError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RequestBodyError";
+  }
+}
+
+/**
  * Reads and parses the JSON request body, enforcing an 8 MiB size limit.
  *
  * @returns The parsed JSON value, or an empty object when the body is empty.
- * @throws {Error} When the body exceeds 8 MiB or is not valid JSON.
+ * @throws {RequestBodyError} 413 when the body exceeds 8 MiB, 400 when it is not valid JSON.
  */
 async function body(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -765,10 +815,18 @@ async function body(request: IncomingMessage): Promise<unknown> {
   for await (const chunk of request) {
     const buffer = Buffer.from(chunk);
     size += buffer.length;
-    if (size > 8 * 1024 * 1024) throw new Error("Request body is too large");
+    if (size > 8 * 1024 * 1024) throw new RequestBodyError(413, "Request body is too large");
     chunks.push(buffer);
   }
-  return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch (error) {
+    throw new RequestBodyError(
+      400,
+      `Request body is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /** Atomically writes the current in-memory scene to the durable scene file. */
@@ -2210,6 +2268,15 @@ const server = createServer(async (request, response) => {
       return;
     return json(response, 404, { error: "Not found" });
   } catch (error) {
+    if (error instanceof RequestBodyError) {
+      // The client may still be streaming the rejected body on this socket.
+      // Closing the connection keeps a poisoned keep-alive stream from
+      // stalling the next request that would otherwise reuse it. The socket
+      // is torn down only after the error response has been flushed.
+      response.setHeader("connection", "close");
+      response.once("finish", () => request.destroy());
+      return json(response, error.status, { error: error.message });
+    }
     return json(response, 500, { error: error instanceof Error ? error.message : String(error) });
   }
 });

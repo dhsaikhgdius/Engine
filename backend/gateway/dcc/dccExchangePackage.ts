@@ -16,10 +16,7 @@ import {
   type DirectorDccProviderId,
 } from "@director/dcc-protocol";
 import type { DirectorProject } from "@director/project-schema";
-import {
-  evaluateDirectorCameraAtFrame,
-  evaluateDirectorObjectAtFrame,
-} from "@director/project-schema";
+import { evaluateDirectorCameraAtFrame, evaluateDirectorObjectAtFrame } from "@director/project-schema";
 import { getDirectorProjectRevision } from "@director/project-schema";
 import { createDirectorInterchangeManifest } from "@director/dcc-interchange";
 import { exportDirectorProjectToGlb } from "@director/dcc-interchange";

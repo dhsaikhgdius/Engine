@@ -5,7 +5,9 @@ import type {
 } from "../../../../src/dcc/directorBlendSceneImportContract";
 
 const transport = vi.hoisted(() => ({ fetch: vi.fn() }));
-vi.mock("../../../../src/comprehensive/editor/api/directorControlPlaneClient", () => ({ directorControlPlaneFetch: transport.fetch }));
+vi.mock("../../../../src/comprehensive/editor/api/directorControlPlaneClient", () => ({
+  directorControlPlaneFetch: transport.fetch,
+}));
 
 import {
   applyDirectorBlendSceneImport,

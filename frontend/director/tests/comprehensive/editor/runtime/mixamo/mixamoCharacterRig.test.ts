@@ -34,8 +34,14 @@ import {
   restoreMixamoRestPose,
   scaleMixamoCharacterToTargetHeight,
 } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
-import { configureDirectorCharacterMotionAction, retargetMixamoAnimationClip } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion";
-import { applyMixamoFootGrounding, createMixamoFootGroundingState } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootGrounding";
+import {
+  configureDirectorCharacterMotionAction,
+  retargetMixamoAnimationClip,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion";
+import {
+  applyMixamoFootGrounding,
+  createMixamoFootGroundingState,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootGrounding";
 
 async function loadPackagedMixamoCharacter(fileName: string) {
   const binary = readFileSync(resolve(process.cwd(), "assets/library/mixamo-characters/models", fileName));

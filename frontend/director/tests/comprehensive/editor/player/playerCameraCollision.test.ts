@@ -1,6 +1,9 @@
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { expect, it, vi } from "vitest";
-import { isPlayerCameraCollisionRoot, PlayerCameraCollisionProbe } from "../../../../src/comprehensive/editor/player/playerCameraCollision";
+import {
+  isPlayerCameraCollisionRoot,
+  PlayerCameraCollisionProbe,
+} from "../../../../src/comprehensive/editor/player/playerCameraCollision";
 import { collectPlayerRaycastMeshes } from "../../../../src/comprehensive/editor/player/playerRaycastAcceleration";
 
 const target = new Vector3(0, 1, 0);

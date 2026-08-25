@@ -59,9 +59,7 @@ export function projectBlenderRuntimeTransaction(
 
 function publishTransaction(result: BlenderNativeApplyResult, operations: readonly BlenderLiveOperation[]) {
   const runtime = useBlenderRuntimeStore.getState();
-  const projected = runtime.snapshot
-    ? projectBlenderRuntimeTransaction(runtime.snapshot, result, operations)
-    : null;
+  const projected = runtime.snapshot ? projectBlenderRuntimeTransaction(runtime.snapshot, result, operations) : null;
   if (projected) runtime.publishSnapshot(projected);
 
   const needsImmediateRefresh =

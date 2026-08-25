@@ -6,7 +6,10 @@ vi.mock("../../../../src/comprehensive/editor/api/directorControlPlaneClient", (
   directorControlPlaneFetch: clientMocks.directorControlPlaneFetch,
 }));
 
-import { AssetSizeClientError, estimateAssetRealWorldSize } from "../../../../src/comprehensive/editor/api/assetSizeClient";
+import {
+  AssetSizeClientError,
+  estimateAssetRealWorldSize,
+} from "../../../../src/comprehensive/editor/api/assetSizeClient";
 
 function response(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });

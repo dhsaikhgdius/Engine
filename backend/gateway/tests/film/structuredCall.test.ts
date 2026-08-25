@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { ModelCompletionRequest, ModelDriver } from "@director/model-provider/runtime";
-import { extractJsonCandidate, FilmStructuredCaller, formatInstructions, parseJsonTolerant } from "../../film/structuredCall";
+import {
+  extractJsonCandidate,
+  FilmStructuredCaller,
+  formatInstructions,
+  parseJsonTolerant,
+} from "../../film/structuredCall";
 
 function scriptedDriver(replies: string[]): ModelDriver & { requests: ModelCompletionRequest[] } {
   const requests: ModelCompletionRequest[] = [];

@@ -72,10 +72,7 @@ function getPerspectiveVerticalFov(camera: BlenderPhysicalViewSnapshot) {
 }
 
 /** Converts a raw Blender camera into a view snapshot with computed vertical FOV. */
-export function getBlenderCameraViewSnapshot(
-  camera: BlenderCamera,
-  aspectRatio = 16 / 9,
-): BlenderCameraViewSnapshot {
+export function getBlenderCameraViewSnapshot(camera: BlenderCamera, aspectRatio = 16 / 9): BlenderCameraViewSnapshot {
   const physicalCamera = {
     aspectRatio,
     clipEnd: camera.clipEnd,

@@ -2,7 +2,10 @@ import JSZip from "jszip";
 import { expect, it, vi } from "vitest";
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
 import { buildDirectorShotIr } from "../../../../src/comprehensive/editor/shot/shotIr";
-import { computeDirectorDenseMotionFlow, DIRECTOR_DENSE_MOTION_FLOW_SEMANTICS } from "../../../../src/comprehensive/editor/render/denseMotionFlow";
+import {
+  computeDirectorDenseMotionFlow,
+  DIRECTOR_DENSE_MOTION_FLOW_SEMANTICS,
+} from "../../../../src/comprehensive/editor/render/denseMotionFlow";
 import { exportDirectorMultimodalFramePackage } from "../../../../src/comprehensive/editor/video/multimodalFrameExport";
 
 function png(width = 2, height = 2, marker = 0): Uint8Array {
@@ -219,9 +222,7 @@ it("ships object-id and semantic decoding metadata without requiring instance an
   });
 
   const zip = await JSZip.loadAsync(await exported.archive.arrayBuffer());
-  const objectMetadata = JSON.parse(
-    await zip.file("metadata/segmentation/object-id/frame-000000.json")!.async("text"),
-  );
+  const objectMetadata = JSON.parse(await zip.file("metadata/segmentation/object-id/frame-000000.json")!.async("text"));
   const semanticMetadata = JSON.parse(
     await zip.file("metadata/segmentation/semantic/frame-000000.json")!.async("text"),
   );

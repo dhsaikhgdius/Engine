@@ -1,8 +1,16 @@
 import { Bone, Group, Quaternion, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { CSKEL27_JOINTS, CSKEL27_NEUTRAL, CSKEL27_NEUTRAL_MIN_Y } from "../../../../../src/comprehensive/editor/motion/ardy/cskel27";
+import {
+  CSKEL27_JOINTS,
+  CSKEL27_NEUTRAL,
+  CSKEL27_NEUTRAL_MIN_Y,
+} from "../../../../../src/comprehensive/editor/motion/ardy/cskel27";
 import type { ArdyMotionClip } from "../../../../../src/comprehensive/editor/motion/ardy/ardyNpz";
-import { applyArdyMotionFrame, prepareArdyRigBinding, restoreArdyRigBinding } from "../../../../../src/comprehensive/editor/motion/ardy/ardyRigPlayback";
+import {
+  applyArdyMotionFrame,
+  prepareArdyRigBinding,
+  restoreArdyRigBinding,
+} from "../../../../../src/comprehensive/editor/motion/ardy/ardyRigPlayback";
 
 const JOINT_INDEX = new Map<string, number>(CSKEL27_JOINTS.map((name, index) => [name, index]));
 

@@ -4,7 +4,11 @@ import { BoxGeometry, Group, Mesh, MeshBasicMaterial } from "three";
 import { describe, expect, it } from "vitest";
 import { applyDirectorAuthoringActions } from "@director/agent-engine";
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
-import { exportDirectorProjectToObj, exportDirectorProjectToObjArchive, exportDirectorProjectToStl } from "../../../../src/comprehensive/editor/interchange/mesh";
+import {
+  exportDirectorProjectToObj,
+  exportDirectorProjectToObjArchive,
+  exportDirectorProjectToStl,
+} from "../../../../src/comprehensive/editor/interchange/mesh";
 
 function projectWithPrimitives() {
   return applyDirectorAuthoringActions(createDefaultDirectorProject(), [

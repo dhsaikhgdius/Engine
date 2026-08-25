@@ -1,6 +1,9 @@
 import { Bone, Group, type Vector3 } from "three";
 import { describe, expect, it, vi } from "vitest";
-import { applyMixamoFootGrounding, createMixamoFootGroundingState } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootGrounding";
+import {
+  applyMixamoFootGrounding,
+  createMixamoFootGroundingState,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootGrounding";
 
 describe("Mixamo foot grounding", () => {
   it("reuses one world-position scratch vector across bones and frames", () => {

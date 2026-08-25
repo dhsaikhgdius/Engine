@@ -3,7 +3,11 @@ import { expect, it } from "vitest";
 import { Quaternion, Vector3 } from "three";
 import { createDefaultDirectorCarProfile } from "../../../../../../packages/protocol/src/vehicleProtocol";
 import { createDirectorVehicleRuntime } from "../../../../src/comprehensive/editor/vehicle/rapierVehicleRuntime";
-import type { DirectorVehicleControls, DirectorVehiclePose, DirectorVehicleRuntime } from "../../../../src/comprehensive/editor/vehicle/vehicleContracts";
+import type {
+  DirectorVehicleControls,
+  DirectorVehiclePose,
+  DirectorVehicleRuntime,
+} from "../../../../src/comprehensive/editor/vehicle/vehicleContracts";
 
 let rapierReadyPromise: Promise<void> | null = null;
 

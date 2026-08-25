@@ -17,10 +17,7 @@ import {
   type Texture,
   type WebGLRenderer,
 } from "three";
-import {
-  DIRECTOR_MOTION_MAGNITUDE_DIAGONAL_FRACTION,
-  getDirectorMotionMaxMagnitudePx,
-} from "./motionVectorPass";
+import { DIRECTOR_MOTION_MAGNITUDE_DIAGONAL_FRACTION, getDirectorMotionMaxMagnitudePx } from "./motionVectorPass";
 import {
   captureDirectorObjectBatchColorState,
   clearDirectorObjectBatchColors,

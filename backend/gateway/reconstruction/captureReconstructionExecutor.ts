@@ -440,14 +440,10 @@ export class CaptureReconstructionExecutor {
     let settled = false;
     const workerPromise = (async () => {
       try {
-        return await this.runProcess(
-          this.options.config.pythonBin,
-          ["-m", "scenerecon", "--task-dir", taskDir],
-          {
-            timeoutMs: remainingMs,
-            env: { PYTHONPATH: this.options.config.workerDir },
-          },
-        );
+        return await this.runProcess(this.options.config.pythonBin, ["-m", "scenerecon", "--task-dir", taskDir], {
+          timeoutMs: remainingMs,
+          env: { PYTHONPATH: this.options.config.workerDir },
+        });
       } finally {
         settled = true;
       }

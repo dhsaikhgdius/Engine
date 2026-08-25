@@ -135,12 +135,8 @@ it("opens timeline create-action menus above the bottom dock", () => {
   expect(timelineCss).toMatch(
     /\.animation-timeline-trajectory-menu\s*\{[\s\S]*?bottom:\s*calc\(100% \+ 6px\);[\s\S]*?top:\s*auto;/,
   );
-  expect(timelineCss).not.toMatch(
-    /\.animation-timeline-recipe-panel\s*\{[\s\S]*?top:\s*calc\(100% \+ 6px\);/,
-  );
-  expect(timelineCss).not.toMatch(
-    /\.animation-timeline-trajectory-menu\s*\{[\s\S]*?top:\s*calc\(100% \+ 6px\);/,
-  );
+  expect(timelineCss).not.toMatch(/\.animation-timeline-recipe-panel\s*\{[\s\S]*?top:\s*calc\(100% \+ 6px\);/);
+  expect(timelineCss).not.toMatch(/\.animation-timeline-trajectory-menu\s*\{[\s\S]*?top:\s*calc\(100% \+ 6px\);/);
 });
 
 it("matches the provided top bar and view switch dimensions", () => {
@@ -726,7 +722,5 @@ it("promotes camera chrome to a compositor layer while dragging", () => {
   expect(css).toMatch(
     /\.camera-picture-in-picture\[data-pip-frozen\]\s*\.camera-picture-in-picture__freeze\s*\{[\s\S]*?display:\s*block;/,
   );
-  expect(css).toMatch(
-    /\.camera-picture-in-picture__modes\.is-dragging\s*\{[\s\S]*?backdrop-filter:\s*none;/,
-  );
+  expect(css).toMatch(/\.camera-picture-in-picture__modes\.is-dragging\s*\{[\s\S]*?backdrop-filter:\s*none;/);
 });

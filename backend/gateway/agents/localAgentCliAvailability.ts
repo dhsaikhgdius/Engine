@@ -1,10 +1,11 @@
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import type { AgentProvider } from "@director/agent-engine";
 
-type VersionProbe = (command: string, args: readonly string[], options: { stdio: "ignore"; timeout: number }) => Pick<
-  SpawnSyncReturns<Buffer>,
-  "status"
->;
+type VersionProbe = (
+  command: string,
+  args: readonly string[],
+  options: { stdio: "ignore"; timeout: number },
+) => Pick<SpawnSyncReturns<Buffer>, "status">;
 
 /**
  * Probe used by local Codex/Claude profiles.
@@ -34,4 +35,3 @@ export function probeLocalAgentCliAvailability(
     claude: commandAvailable(environment.CLAUDE_CLI_COMMAND?.trim() || "claude", spawn),
   };
 }
-

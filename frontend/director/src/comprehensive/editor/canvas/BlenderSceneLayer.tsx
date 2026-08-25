@@ -322,10 +322,7 @@ function directorLightLinearColor(value: string) {
   ) as [number, number, number];
 }
 
-function sameBlenderTransform(
-  object: DirectorObject,
-  nativeObject: BlenderLiveSceneSnapshot["objects"][number],
-) {
+function sameBlenderTransform(object: DirectorObject, nativeObject: BlenderLiveSceneSnapshot["objects"][number]) {
   return (
     object.transform.position.every((value, index) => sameBlenderValue(value, nativeObject.position[index])) &&
     sameBlenderRotation(object.transform.rotation, nativeObject.rotation) &&
@@ -1768,9 +1765,7 @@ export function BlenderSceneLayer({
   }, [directorObjects, selectedObjectId, selectedObjectIds.length]);
   const selectedNativeTarget = useMemo(
     () =>
-      scene && selectedNativeObject
-        ? findBlenderSceneObject(scene, selectedNativeObject.nativeSource!.objectId)
-        : null,
+      scene && selectedNativeObject ? findBlenderSceneObject(scene, selectedNativeObject.nativeSource!.objectId) : null,
     [scene, selectedNativeObject],
   );
   const nativeTransformEnabled = Boolean(
@@ -1783,10 +1778,7 @@ export function BlenderSceneLayer({
 
   const commitNativeTransform = useCallback(() => {
     if (!scene || !selectedNativeObject || !selectedNativeTarget) return;
-    updateObjectTransform(
-      selectedNativeObject.id,
-      getDirectorTransformFromBlenderObject(selectedNativeTarget, scene),
-    );
+    updateObjectTransform(selectedNativeObject.id, getDirectorTransformFromBlenderObject(selectedNativeTarget, scene));
   }, [scene, selectedNativeObject, selectedNativeTarget, updateObjectTransform]);
 
   useEffect(() => {

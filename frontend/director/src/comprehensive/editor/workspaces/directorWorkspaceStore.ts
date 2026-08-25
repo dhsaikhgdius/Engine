@@ -737,10 +737,7 @@ export function resolveDirectorTrackOverwrite(
  * end edge touches this clip's start within the frame-snap tolerance
  * (1e-3s). Returns null when the clip has no adjacent predecessor.
  */
-export function findDirectorTransitionPredecessor(
-  track: DirectorEditTrack,
-  clipId: string,
-): DirectorEditClip | null {
+export function findDirectorTransitionPredecessor(track: DirectorEditTrack, clipId: string): DirectorEditClip | null {
   const clip = track.clips.find((item) => item.id === clipId);
   if (!clip) return null;
   return (
@@ -1608,7 +1605,11 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
               opacity: clamp(finiteNumberOr(patch.opacity, current.opacity), 0, 1),
               volume: clamp(finiteNumberOr(patch.volume, current.volume), 0, 1),
               ...fades,
-              transitionInSec: clamp(finiteNumberOr(patch.transitionInSec, current.transitionInSec ?? 0), 0, nextDuration),
+              transitionInSec: clamp(
+                finiteNumberOr(patch.transitionInSec, current.transitionInSec ?? 0),
+                0,
+                nextDuration,
+              ),
               scale: clamp(finiteNumberOr(patch.scale, current.scale ?? 1), MIN_CLIP_SCALE, MAX_CLIP_SCALE),
               positionX: clamp(
                 finiteNumberOr(patch.positionX, current.positionX ?? 0),

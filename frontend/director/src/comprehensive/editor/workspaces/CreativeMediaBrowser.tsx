@@ -49,7 +49,10 @@ function setMediaDragData(event: DragEvent, item: DirectorMediaItem) {
 /** Cards with a thumbnail render an <img>, so a missing <video> is expected. */
 function playCardVideoPreview(event: PointerEvent<HTMLElement>) {
   // play() may return undefined outside real browsers (e.g. jsdom).
-  void event.currentTarget.querySelector("video")?.play()?.catch(() => undefined);
+  void event.currentTarget
+    .querySelector("video")
+    ?.play()
+    ?.catch(() => undefined);
 }
 
 function resetCardVideoPreview(event: PointerEvent<HTMLElement>) {
