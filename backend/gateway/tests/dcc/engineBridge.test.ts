@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -122,7 +123,13 @@ describe("DirectorDccEngineBridge", () => {
       const health = await bridge.health(provider);
       expect(health.ready).toBe(true);
       expect(health.hostVersion).toBe(`${provider} 9.9 fixture`);
-      expect(health.connectorVersion).toBe("0.1.0");
+      // Health must surface the version of the committed connector manifest
+      // (each engine versions its connector independently, e.g. unity 0.2.x).
+      const committedManifest = JSON.parse(
+        readFileSync(resolve(repositoryRoot, "integrations", provider, "connector.json"), "utf8"),
+      ) as { version: string };
+      expect(health.connectorVersion).toBe(committedManifest.version);
+      expect(health.connectorVersion).toMatch(/^\d+\.\d+\.\d+$/);
       expect((await bridge.diagnostics(provider)).mode).toBe("native");
     },
   );
