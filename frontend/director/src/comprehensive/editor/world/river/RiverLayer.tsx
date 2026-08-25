@@ -7,6 +7,7 @@ import type {
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext, RiverLayerProps } from "../livingWorldContracts";
 import { acquireWaterEnvProbe, releaseWaterEnvProbe, type WaterEnvProbe } from "../water/waterEnvProbe";
+import { computeWaterEnvBlendScale } from "../water/waterParams";
 import { buildRiverRibbonData } from "./riverGeometry";
 import { createRiverSurfaceMaterial, resolveRiverOccluderHeight, writeRiverFrameUniforms } from "./riverMaterial";
 
@@ -19,6 +20,7 @@ function createRiverGeometry(id: string, river: DirectorWorldRiver) {
   geometry.setAttribute("aFlowTangent", new BufferAttribute(data.flowTangents, 3));
   geometry.setAttribute("aSlope", new BufferAttribute(data.slopes, 1));
   geometry.setAttribute("aCurvature", new BufferAttribute(data.curvatures, 1));
+  geometry.setAttribute("aWidthFactor", new BufferAttribute(data.widthFactors, 1));
   geometry.setIndex(new BufferAttribute(data.indices, 1));
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
@@ -78,7 +80,11 @@ function RiverSurface({ body, context }: { body: DirectorWorldWaterBody; context
       if (probe === null) return;
       probe.handleBeforeRender(renderer, scene, camera, context.worldSeconds);
       material.uniforms.uEnvMap.value = probe.getTexture();
-      material.uniforms.uEnvBlend.value = probe.getEnvBlend();
+      // Agitated water (storm churn, strong wind) breaks the mirror up: the
+      // probe blend recedes toward the weather-dimmed procedural sky.
+      material.uniforms.uEnvBlend.value =
+        probe.getEnvBlend() *
+        computeWaterEnvBlendScale(Math.hypot(context.windVector[0], context.windVector[2]), context.settings.weather);
     },
     [material, body, context],
   );

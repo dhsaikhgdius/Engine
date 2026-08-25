@@ -32,9 +32,10 @@ export const GERSTNER_GRAVITY_MPS2 = 9.81;
 /**
  * Anti-loop headroom. The classic Gerstner constraint is Q·k·A·N ≤ 1; going
  * right up to 1 produces cusps (zero-length tangents) when phases align, so
- * we keep 8% margin.
+ * we keep 8% margin. Exported so tests can assert the loop-safety invariant
+ * holds under any wind/weather scaling.
  */
-const STEEPNESS_LOOP_SAFETY = 0.92;
+export const GERSTNER_STEEPNESS_LOOP_SAFETY = 0.92;
 
 /** Angular spread (radians) around the base travel direction, per wave. */
 const WAVE_DIRECTION_SPREAD_RADIANS = [
@@ -157,7 +158,9 @@ export function createGerstnerWaveSet(input: GerstnerWaveSetInput): GerstnerWave
 
     const steepness = 0.55 + 0.3 * worldRandom01(seed, bodyStream, index, STREAM_STEEPNESS);
     const steepnessLimit =
-      amplitudeM > 0 ? Math.min(1, STEEPNESS_LOOP_SAFETY / (waveNumber * amplitudeM * WATER_GERSTNER_WAVE_COUNT)) : 1;
+      amplitudeM > 0
+        ? Math.min(1, GERSTNER_STEEPNESS_LOOP_SAFETY / (waveNumber * amplitudeM * WATER_GERSTNER_WAVE_COUNT))
+        : 1;
 
     // Deep-water dispersion plus flow advection: still bodies (flow 0) keep
     // the √(g·k) term, so the surface always undulates.
@@ -198,12 +201,19 @@ export function getGerstnerWaveDirectionRadians(baseDirectionRadians: number, wa
 }
 
 /**
- * Effective per-wave steepness: base Q × wind choppiness, capped by the
- * anti-loop limit (rescaled for the wind amplitude boost) and by 1 so the
- * horizontal swing of a wave never exceeds its own amplitude.
+ * Effective per-wave steepness: base Q × wind/weather choppiness, capped by
+ * the anti-loop limit (rescaled for the amplitude boost) and by 1 so the
+ * horizontal swing of a wave never exceeds its own amplitude. This cap is why
+ * arbitrary wind × weather scaling can never loop the surface:
+ * Q·k·(A·ampScale)·N ≤ GERSTNER_STEEPNESS_LOOP_SAFETY holds by construction.
+ * Exported for buoyancy consumers and the ΣQ safety tests.
  * MIRRORED in GERSTNER_SHARED_GLSL.
  */
-function effectiveSteepness(wave: GerstnerWave, amplitudeScale: number, steepnessScale: number): number {
+export function computeEffectiveGerstnerSteepness(
+  wave: GerstnerWave,
+  amplitudeScale: number,
+  steepnessScale: number,
+): number {
   return Math.min(Math.min(wave.steepness * steepnessScale, wave.steepnessLimit / Math.max(amplitudeScale, 0.001)), 1);
 }
 
@@ -242,7 +252,7 @@ export function evaluateGerstnerSurfaceInto(
   for (const wave of params.waves) {
     const amplitude = wave.amplitudeM * params.amplitudeScale;
     if (amplitude <= 0) continue;
-    const q = effectiveSteepness(wave, params.amplitudeScale, params.steepnessScale);
+    const q = computeEffectiveGerstnerSteepness(wave, params.amplitudeScale, params.steepnessScale);
     const direction = getGerstnerWaveDirectionRadians(params.baseDirectionRadians, wave);
     const dirX = Math.sin(direction);
     const dirZ = Math.cos(direction);
@@ -326,8 +336,8 @@ void directorGerstnerEvaluate(in vec2 planeXZ, in float time, out vec3 surfaceOf
     vec2 dir = waveA.xy;
     float k = waveA.z;
     float amplitude = waveB.x * uGerstnerAmplitudeScale;
-    // effectiveSteepness(): base Q × choppiness, capped by the rescaled
-    // anti-loop limit and by 1.
+    // computeEffectiveGerstnerSteepness(): base Q × choppiness, capped by the
+    // rescaled anti-loop limit and by 1.
     float q = min(min(waveB.y * uGerstnerSteepnessScale, waveB.z / max(uGerstnerAmplitudeScale, 0.001)), 1.0);
     float phase = k * dot(dir, planeXZ) - waveA.w * time + waveB.w;
     float c = cos(phase);
