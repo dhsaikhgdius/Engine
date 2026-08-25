@@ -101,6 +101,7 @@ describe("executeBlenderNativeTool", () => {
         busy: false,
       }),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(boundScene),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -132,6 +133,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn(),
       submit: vi.fn(),
       job: vi.fn(),
@@ -154,6 +156,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(before),
       submit: vi.fn(async (batch) => ({
         contract: BLENDER_LIVE_CONTRACT,
@@ -200,6 +203,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(before),
       submit: vi.fn(async (batch) => ({
         contract: BLENDER_LIVE_CONTRACT,
@@ -250,6 +254,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(before),
       submit: vi.fn(async (batch) => ({
         contract: BLENDER_LIVE_CONTRACT,
@@ -296,6 +301,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(before),
       submit: vi.fn().mockRejectedValue(
         new BlenderNativeSessionError("Native submit timed out.", 504, "blender_timeout"),
@@ -340,6 +346,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(before),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -423,6 +430,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -480,6 +488,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -537,6 +546,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(current),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -641,6 +651,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(current),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -758,6 +769,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(current),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -813,6 +825,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(current),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -877,6 +890,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(current),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -979,6 +993,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(current),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1171,6 +1186,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(current),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1225,6 +1241,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(current),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1277,6 +1294,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1369,6 +1387,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1432,6 +1451,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue({ ...scene(4), sceneEpoch: nextSceneEpoch }),
       submit: vi.fn(),
       job: vi.fn(),
@@ -1454,6 +1474,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(scene(4)),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1525,6 +1546,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn(),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1634,6 +1656,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn(),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1708,6 +1731,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(scene(5, [cube("cube-a")])),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1841,6 +1865,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn().mockRejectedValue(new BlenderNativeSessionError("Unknown preview", 404)),
+      liveLink: vi.fn(),
       snapshot: vi.fn(),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1886,6 +1911,7 @@ describe("executeBlenderNativeTool", () => {
       const session: BlenderNativeSession = {
         status: vi.fn(),
         previewGlb: vi.fn(),
+        liveLink: vi.fn(),
         snapshot: vi.fn(),
         submit: vi.fn().mockResolvedValue({
           contract: BLENDER_LIVE_CONTRACT,
@@ -1927,6 +1953,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn(),
       submit: vi.fn(),
       job: vi.fn(),
@@ -1951,6 +1978,7 @@ describe("executeBlenderNativeTool", () => {
     const session: BlenderNativeSession = {
       status: vi.fn(),
       previewGlb: vi.fn(),
+      liveLink: vi.fn(),
       snapshot: vi.fn(),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,

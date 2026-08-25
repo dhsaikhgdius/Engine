@@ -6,10 +6,21 @@ import { z } from "zod";
 import type { DirectorAuthoringAction } from "@director/agent-engine";
 import type { DirectorWorkbenchOperation } from "@director/agent-engine";
 import type { DirectorProject, DirectorTransform } from "@director/project-schema";
-import { getDirectorProjectRevision } from "@director/project-schema";
+import {
+  DEFAULT_DIRECTOR_CAMERA_ASPECT_RATIO,
+  DEFAULT_DIRECTOR_CAMERA_SENSOR_FORMAT,
+  DIRECTOR_CAMERA_OPTICS_LIMITS,
+  getCharacterPoseControlValueLimits,
+  getDirectorProjectRevision,
+  getFocalLengthFromVerticalFov,
+  normalizeDirectorCameraOptics,
+  resolveCharacterPoseControls,
+} from "@director/project-schema";
 import {
   blenderTransformToDirector,
+  blenderWorldPointToDirector,
   canonicalDccTransformToDirector,
+  canonicalWorldPointToDirector,
   directorDccConnectorProviderIdSchema,
   directorDccTransformSchema,
   directorTransformToBlender,
@@ -25,6 +36,8 @@ import {
   directorDccImportPlanSchema,
   directorDccReturnManifestSchema,
   type DirectorDccExchangePackageManifest,
+  type DirectorDccImportPlanCameraOptics,
+  type DirectorDccImportPlanLightPatch,
   type DirectorDccImportPlanV1,
   type DirectorDccReturnManifestV1,
 } from "@director/dcc-protocol";
@@ -218,6 +231,7 @@ const directorDccSourceBaselineSchema = z.looseObject({
       geometryType: z.string().optional(),
       color: z.string().optional(),
       parentObjectId: z.string().optional(),
+      poseControls: z.record(z.string(), z.number().finite()).optional(),
     }),
   ),
   cameras: z.array(
@@ -225,8 +239,25 @@ const directorDccSourceBaselineSchema = z.looseObject({
       id: z.string(),
       transform: directorDccTransformSchema,
       target: finiteVec3Schema,
+      focalLengthMm: z.number().finite().optional(),
+      apertureFStop: z.number().finite().optional(),
+      focusDistanceM: z.number().finite().optional(),
+      nearClipM: z.number().finite().optional(),
+      farClipM: z.number().finite().optional(),
+      sensorFormat: z.string().optional(),
     }),
   ),
+  lights: z
+    .array(
+      z.looseObject({
+        id: z.string(),
+        position: finiteVec3Schema,
+        target: finiteVec3Schema.optional(),
+        color: z.string(),
+        intensity: z.number().finite(),
+      }),
+    )
+    .optional(),
 });
 
 /** The parsed export-time baseline snapshot from a DCC scene package. */
@@ -264,42 +295,123 @@ interface DccReturnSpace {
   toDirector(transform: DirectorDccTransform, world: DirectorTransform): DirectorTransform;
   fromDirector(transform: DirectorTransform, world: DirectorTransform): DirectorDccTransform;
   worldPointFromDirector(point: [number, number, number], world: DirectorTransform): [number, number, number];
+  worldPointToDirector(point: [number, number, number], world: DirectorTransform): [number, number, number];
 }
 
 const BLENDER_RETURN_SPACE: DccReturnSpace = {
   toDirector: (transform, world) => blenderTransformToDirector(transform, world),
   fromDirector: (transform, world) => directorTransformToBlender(transform, world),
   worldPointFromDirector: (point, world) => directorWorldPointToBlender(point, world),
+  worldPointToDirector: (point, world) => blenderWorldPointToDirector(point, world),
 };
 
 const CANONICAL_RETURN_SPACE: DccReturnSpace = {
   toDirector: (transform, world) => canonicalDccTransformToDirector(transform, world),
   fromDirector: (transform, world) => directorTransformToCanonicalDcc(transform, world),
   worldPointFromDirector: (point, world) => directorWorldPointToCanonical(point, world),
+  worldPointToDirector: (point, world) => canonicalWorldPointToDirector(point, world),
 };
 
 function returnSpaceForProvider(provider: DirectorDccConnectorProviderId): DccReturnSpace {
   return provider === "blender" ? BLENDER_RETURN_SPACE : CANONICAL_RETURN_SPACE;
 }
 
+/** The optics a Director camera would export today, mirroring the scene-package builder. */
+function liveCameraExportedOptics(camera: DirectorProject["cameras"][number]) {
+  const optics = normalizeDirectorCameraOptics(camera);
+  const aspectRatio = camera.aspectRatio ?? DEFAULT_DIRECTOR_CAMERA_ASPECT_RATIO;
+  const sensorFormat = camera.sensorFormat ?? DEFAULT_DIRECTOR_CAMERA_SENSOR_FORMAT;
+  const focalLengthMm = camera.focalLengthMm ?? getFocalLengthFromVerticalFov(camera.fov, aspectRatio, sensorFormat);
+  return {
+    focalLengthMm,
+    apertureFStop: optics.apertureFStop,
+    focusDistanceM: optics.focusDistanceM,
+    nearClipM: optics.nearClipM,
+    farClipM: optics.farClipM,
+    sensorFormat,
+  };
+}
+
+function scalarsClose(left: number | undefined, right: number | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return Math.abs(left - right) <= Math.max(Math.abs(left), Math.abs(right), 1) * 1e-6;
+}
+
+function cameraOpticsDiverged(
+  camera: DirectorProject["cameras"][number],
+  snapshot: DirectorDccSourceBaseline["cameras"][number],
+): boolean {
+  if (snapshot.focalLengthMm === undefined) {
+    // Pre-optics export snapshots cannot verify optics edits; be conservative.
+    return true;
+  }
+  const live = liveCameraExportedOptics(camera);
+  return (
+    !scalarsClose(live.focalLengthMm, snapshot.focalLengthMm) ||
+    !scalarsClose(live.apertureFStop, snapshot.apertureFStop) ||
+    !scalarsClose(live.focusDistanceM, snapshot.focusDistanceM) ||
+    !scalarsClose(live.nearClipM, snapshot.nearClipM) ||
+    !scalarsClose(live.farClipM, snapshot.farClipM) ||
+    (snapshot.sensorFormat !== undefined && live.sensorFormat !== snapshot.sensorFormat)
+  );
+}
+
+function poseControlsClose(
+  left: Record<string, number> | undefined,
+  right: Record<string, number> | undefined,
+): boolean {
+  const leftEntries = left ?? {};
+  const rightEntries = right ?? {};
+  const keys = new Set([...Object.keys(leftEntries), ...Object.keys(rightEntries)]);
+  for (const key of keys) {
+    if (!scalarsClose(leftEntries[key] ?? 0, rightEntries[key] ?? 0)) return false;
+  }
+  return true;
+}
+
 function directorSideDivergence(
   change: DirectorDccReturnManifestV1["changes"][number],
-  entity: DirectorProject["objects"][number] | DirectorProject["cameras"][number],
+  entity:
+    | DirectorProject["objects"][number]
+    | DirectorProject["cameras"][number]
+    | NonNullable<DirectorProject["lights"]>[number],
   world: DirectorTransform,
   baseline: DirectorDccSourceBaseline,
   space: DccReturnSpace,
 ): string | null {
+  if (change.kind === "light_update") {
+    const light = entity as NonNullable<DirectorProject["lights"]>[number];
+    const snapshot = (baseline.lights ?? []).find((candidate) => candidate.id === change.directorId);
+    if (!snapshot) {
+      return `Light ${change.directorId} is not part of the export snapshot, so its Director-side edits cannot be verified.`;
+    }
+    const positionMoved =
+      light.position !== undefined &&
+      !vectorsClose(space.worldPointFromDirector(light.position, world), snapshot.position);
+    const targetMoved =
+      light.target !== undefined &&
+      snapshot.target !== undefined &&
+      !vectorsClose(space.worldPointFromDirector(light.target, world), snapshot.target);
+    if (positionMoved || targetMoved || light.color !== snapshot.color || !scalarsClose(light.intensity, snapshot.intensity)) {
+      return `Light ${change.directorId} changed in Director after the export, and the return package also updates it.`;
+    }
+    return null;
+  }
   if (change.entityType === "camera") {
     const camera = entity as DirectorProject["cameras"][number];
     const snapshot = baseline.cameras.find((candidate) => candidate.id === change.directorId);
     if (!snapshot) {
       return `Camera ${change.directorId} is not part of the export snapshot, so its Director-side edits cannot be verified.`;
     }
-    if (!dccTransformsEqual(space.fromDirector(camera.transform, world), snapshot.transform)) {
+    const checkTransform = change.kind !== "camera_update" || change.transform !== undefined;
+    if (checkTransform && !dccTransformsEqual(space.fromDirector(camera.transform, world), snapshot.transform)) {
       return `Camera ${change.directorId} moved in Director after the export, and the return package also updates it.`;
     }
-    if (!vectorsClose(space.worldPointFromDirector(camera.target, world), snapshot.target)) {
+    if (checkTransform && !vectorsClose(space.worldPointFromDirector(camera.target, world), snapshot.target)) {
       return `Camera ${change.directorId} target changed in Director after the export, and the return package also updates it.`;
+    }
+    if (change.kind === "camera_update" && change.optics && cameraOpticsDiverged(camera, snapshot)) {
+      return `Camera ${change.directorId} optics changed in Director after the export (or the export snapshot predates optics returns), and the return package also updates them.`;
     }
     return null;
   }
@@ -311,6 +423,15 @@ function directorSideDivergence(
   const transformChanged =
     !dccTransformsEqual(space.fromDirector(object.transform, world), snapshot.transform) ||
     (object.parentObjectId ?? null) !== (snapshot.parentObjectId ?? null);
+  if (change.kind === "pose_update") {
+    if (!poseControlsClose(snapshot.poseControls, resolveCharacterPoseControls(object.characterRig ?? null))) {
+      return `Character ${change.directorId} pose controls changed in Director after the export, and the return package also updates them.`;
+    }
+    if (change.transform && transformChanged) {
+      return `Object ${change.directorId} transform changed in Director after the export, and the return package also updates it.`;
+    }
+    return null;
+  }
   if (change.kind === "mesh_replacement") {
     const geometryChanged =
       (object.assetRefId ?? null) !== (snapshot.assetRefId ?? null) ||
@@ -374,6 +495,15 @@ export function buildDirectorDccImportPlan(
     );
   }
 
+  const clamp = (value: number, min: number, max: number, label: string): number => {
+    if (value < min || value > max) {
+      const clamped = Math.min(max, Math.max(min, value));
+      warnings.push(`${label} ${value} is outside Director's ${min}-${max} range and was baked to ${clamped}.`);
+      return clamped;
+    }
+    return value;
+  };
+
   for (const change of manifest.changes) {
     if (requestedSkips.has(change.directorId)) {
       matchedSkips.add(change.directorId);
@@ -386,18 +516,25 @@ export function buildDirectorDccImportPlan(
     }
     const object = project.objects.find((candidate) => candidate.id === change.directorId);
     const camera = project.cameras.find((candidate) => candidate.id === change.directorId);
-    const expected = change.entityType === "camera" ? camera : object;
-    const opposite = change.entityType === "camera" ? object : camera;
+    const light = (project.lights ?? []).find((candidate) => candidate.id === change.directorId);
+    const expected = change.entityType === "camera" ? camera : change.entityType === "light" ? light : object;
     if (!expected) {
-      const reason = opposite
-        ? `Stable ID ${change.directorId} resolves to ${change.entityType === "camera" ? "an object" : "a camera"}, not ${change.entityType}.`
+      const actualKind = object ? "an object" : camera ? "a camera" : light ? "a light" : null;
+      const reason = actualKind
+        ? `Stable ID ${change.directorId} resolves to ${actualKind}, not ${change.entityType}.`
         : `Stable ID ${change.directorId} no longer exists in the live project.`;
       operations.push({ op: "skip", directorId: change.directorId, reason });
       conflicts.push({
         directorId: change.directorId,
-        code: opposite ? "entity_type_mismatch" : "unknown_director_id",
+        code: actualKind ? "entity_type_mismatch" : "unknown_director_id",
         reason,
       });
+      continue;
+    }
+    if (change.kind === "pose_update" && (object!.kind !== "character" || !object!.characterRig)) {
+      const reason = `Stable ID ${change.directorId} is not a rigged Director character, so its pose sample cannot be applied.`;
+      operations.push({ op: "skip", directorId: change.directorId, reason });
+      conflicts.push({ directorId: change.directorId, code: "entity_type_mismatch", reason });
       continue;
     }
 
@@ -425,6 +562,83 @@ export function buildDirectorDccImportPlan(
           op: "update_transform",
           entityType: "object",
           objectId: object!.id,
+          transform: space.toDirector(change.transform, world),
+        });
+      }
+      continue;
+    }
+
+    if (change.kind === "camera_update") {
+      if (change.transform) {
+        operations.push({
+          op: "update_transform",
+          entityType: "camera",
+          objectId: change.directorId,
+          transform: space.toDirector(change.transform, world),
+        });
+      }
+      if (change.optics) {
+        const optics: DirectorDccImportPlanCameraOptics = {};
+        const label = (field: string) => `Camera ${change.directorId} ${field}`;
+        if (change.optics.focalLengthMm !== undefined) {
+          optics.focal_length_mm = clamp(change.optics.focalLengthMm, 12, 200, label("focal length (mm)"));
+        }
+        if (change.optics.apertureFStop !== undefined) {
+          const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.apertureFStop;
+          optics.aperture_f_stop = clamp(change.optics.apertureFStop, min, max, label("aperture (f-stop)"));
+        }
+        if (change.optics.focusDistanceM !== undefined) {
+          const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.focusDistanceM;
+          optics.focus_distance_m = clamp(change.optics.focusDistanceM, min, max, label("focus distance (m)"));
+        }
+        if (change.optics.nearClipM !== undefined) {
+          const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.nearClipM;
+          optics.near_clip_m = clamp(change.optics.nearClipM, min, max, label("near clip (m)"));
+        }
+        if (change.optics.farClipM !== undefined) {
+          const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.farClipM;
+          optics.far_clip_m = clamp(change.optics.farClipM, min, max, label("far clip (m)"));
+        }
+        if (change.optics.sensorFormat !== undefined) {
+          optics.sensor_format = change.optics.sensorFormat;
+        }
+        operations.push({ op: "update_camera_optics", objectId: change.directorId, optics });
+      }
+      continue;
+    }
+
+    if (change.kind === "light_update") {
+      const patch: DirectorDccImportPlanLightPatch = {};
+      if (change.properties.color !== undefined) patch.color = change.properties.color.toLowerCase();
+      if (change.properties.intensity !== undefined) {
+        patch.intensity = clamp(change.properties.intensity, 0, 100, `Light ${change.directorId} intensity`);
+      }
+      if (change.properties.position !== undefined) {
+        patch.position = space.worldPointToDirector(change.properties.position, world);
+      }
+      if (change.properties.target !== undefined) {
+        patch.target = space.worldPointToDirector(change.properties.target, world);
+      }
+      operations.push({ op: "update_light", lightId: change.directorId, patch });
+      continue;
+    }
+
+    if (change.kind === "pose_update") {
+      const controls = Object.entries(change.controls)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([control, value]) => {
+          const limits = getCharacterPoseControlValueLimits(control, object!.bodyType ?? null);
+          return {
+            control: control as keyof typeof change.controls,
+            value: clamp(value, limits.min, limits.max, `Character ${change.directorId} pose control ${control}`),
+          };
+        });
+      operations.push({ op: "set_character_pose", objectId: change.directorId, controls });
+      if (change.transform) {
+        operations.push({
+          op: "update_transform",
+          entityType: "object",
+          objectId: change.directorId,
           transform: space.toDirector(change.transform, world),
         });
       }
@@ -470,6 +684,18 @@ function cameraTargetForTransform(project: DirectorProject, cameraId: string, tr
   return [target.x, target.y, target.z] as [number, number, number];
 }
 
+/** The Director `update_camera` patch shape assembled from plan operations. */
+interface CameraPatchAccumulator {
+  position?: [number, number, number];
+  target?: [number, number, number];
+  focal_length_mm?: number;
+  aperture_f_stop?: number;
+  focus_distance_m?: number;
+  near_clip_m?: number;
+  far_clip_m?: number;
+  sensor_format?: DirectorDccImportPlanCameraOptics["sensor_format"];
+}
+
 function authoringActionsForPlan(
   plan: DirectorDccImportPlanV1,
   project: DirectorProject,
@@ -479,6 +705,7 @@ function authoringActionsForPlan(
     string,
     { asset_id?: string; transform?: Partial<DirectorTransform>; force: boolean }
   >();
+  const cameraPatches = new Map<string, CameraPatchAccumulator>();
   const actions: DirectorAuthoringAction[] = [];
 
   for (const operation of plan.operations) {
@@ -505,21 +732,57 @@ function authoringActionsForPlan(
       objectPatches.set(object.id, patch);
       continue;
     }
+    if (operation.op === "update_camera_optics") {
+      const patch = cameraPatches.get(operation.objectId) ?? {};
+      if (operation.optics.focal_length_mm !== undefined) patch.focal_length_mm = operation.optics.focal_length_mm;
+      if (operation.optics.aperture_f_stop !== undefined) patch.aperture_f_stop = operation.optics.aperture_f_stop;
+      if (operation.optics.focus_distance_m !== undefined) patch.focus_distance_m = operation.optics.focus_distance_m;
+      if (operation.optics.near_clip_m !== undefined) patch.near_clip_m = operation.optics.near_clip_m;
+      if (operation.optics.far_clip_m !== undefined) patch.far_clip_m = operation.optics.far_clip_m;
+      if (operation.optics.sensor_format !== undefined) patch.sensor_format = operation.optics.sensor_format;
+      cameraPatches.set(operation.objectId, patch);
+      continue;
+    }
+    if (operation.op === "update_light") {
+      actions.push({
+        action: "update_light",
+        light_id: operation.lightId,
+        patch: {
+          ...(operation.patch.color !== undefined ? { color: operation.patch.color } : {}),
+          ...(operation.patch.intensity !== undefined ? { intensity: operation.patch.intensity } : {}),
+          ...(operation.patch.position !== undefined ? { position: operation.patch.position } : {}),
+          ...(operation.patch.target !== undefined ? { target: operation.patch.target } : {}),
+        },
+        force: true,
+      });
+      continue;
+    }
+    if (operation.op === "set_character_pose") {
+      actions.push({
+        action: "set_character_pose_controls",
+        object_id: operation.objectId,
+        controls: operation.controls.map((entry) => ({ control: entry.control, value: entry.value })),
+        mode: "replace",
+        force: true,
+      });
+      continue;
+    }
     if (operation.op !== "update_transform") continue;
     if (operation.entityType === "camera") {
-      actions.push({
-        action: "update_camera",
-        camera_id: operation.objectId,
-        patch: {
-          position: operation.transform.position,
-          target: cameraTargetForTransform(project, operation.objectId, operation.transform),
-        },
-      });
+      const patch = cameraPatches.get(operation.objectId) ?? {};
+      patch.position = operation.transform.position;
+      patch.target = cameraTargetForTransform(project, operation.objectId, operation.transform);
+      cameraPatches.set(operation.objectId, patch);
       continue;
     }
     const patch = objectPatches.get(operation.objectId) ?? { force: true };
     patch.transform = operation.transform;
     objectPatches.set(operation.objectId, patch);
+  }
+
+  // One update_camera action per camera keeps transform + optics atomic.
+  for (const [cameraId, patch] of cameraPatches) {
+    actions.push({ action: "update_camera", camera_id: cameraId, patch: { ...patch } });
   }
 
   for (const [objectId, value] of objectPatches) {

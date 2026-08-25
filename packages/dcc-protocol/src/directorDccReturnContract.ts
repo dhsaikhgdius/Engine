@@ -4,8 +4,11 @@ import {
   directorAnimationEntityTypeSchema,
   directorTransformSchema,
 } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectSchema";
+import { DIRECTOR_CAMERA_SENSOR_FORMATS } from "../../../frontend/director/src/comprehensive/editor/schema/directorProject";
+import { DIRECTOR_CAMERA_OPTICS_LIMITS } from "../../../frontend/director/src/comprehensive/editor/schema/cameraGeometry";
+import { CHARACTER_POSE_CONTROL_KEYS } from "../../../frontend/director/src/comprehensive/editor/schema/poseSchema";
 import { strictKind, strictOperation } from "@director/protocol/strictProtocolVariant";
-import { directorDccTransformSchema } from "./directorDccSharedContract";
+import { directorDccFiniteSchema, directorDccTransformSchema, directorDccVec3Schema } from "./directorDccSharedContract";
 import { directorDccConnectorProviderIdSchema } from "./directorDccEngineSpace";
 
 /** Contract identifier for the DCC return manifest. */
@@ -29,10 +32,65 @@ const safeRelativePath = z
     message: "path cannot contain empty, dot, or parent segments",
   });
 
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "expected #RRGGBB hex color");
+const wireVec3 = directorDccVec3Schema;
+const finiteWire = directorDccFiniteSchema;
+
+/**
+ * Camera optics reported by a DCC return package, in the DCC's native units
+ * (millimetres and metres — identical on both sides of the wire). Values
+ * outside Director's optics limits are baked to the nearest limit at plan
+ * build time, with a warning; they are never silently dropped.
+ */
+export const directorDccReturnCameraOpticsSchema = z
+  .strictObject({
+    focalLengthMm: finiteWire.positive().max(10_000).optional(),
+    apertureFStop: finiteWire.positive().max(1_000).optional(),
+    focusDistanceM: finiteWire.positive().max(1_000_000).optional(),
+    nearClipM: finiteWire.positive().max(1_000_000).optional(),
+    farClipM: finiteWire.positive().max(100_000_000).optional(),
+    sensorFormat: z.enum(DIRECTOR_CAMERA_SENSOR_FORMATS).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, { message: "camera optics update cannot be empty" });
+
+/**
+ * Light properties reported by a DCC return package. Points are wire-space
+ * world points (Blender Z-up for Blender packages, canonical Director space
+ * for engine packages). `intensity` is already mapped back to Director's
+ * 0-100 range by the exporter (deterministic inverse of the stamped
+ * watts-per-intensity factor), with clamping reported as a manifest warning.
+ */
+export const directorDccReturnLightPropertiesSchema = z
+  .strictObject({
+    position: wireVec3.optional(),
+    target: wireVec3.optional(),
+    color: hexColor.optional(),
+    intensity: finiteWire.min(0).max(100).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, { message: "light update cannot be empty" });
+
+const poseControlKeySchema = z.enum(CHARACTER_POSE_CONTROL_KEYS);
+
+/**
+ * A full sample of Director's portable humanoid pose controls. Keys must be
+ * portable control keys; unknown keys are rejected at the schema boundary so
+ * a DCC-side typo cannot silently produce a no-op pose.
+ */
+export const directorDccReturnPoseControlsSchema = z
+  .record(poseControlKeySchema, z.number().finite())
+  .refine((controls) => Object.keys(controls).length > 0, { message: "pose update cannot be empty" })
+  .refine((controls) => Object.keys(controls).length <= CHARACTER_POSE_CONTROL_KEYS.length, {
+    message: "pose update exceeds the portable control set",
+  });
+
 /**
  * A single change in the DCC return package.
- * Supports mesh replacement (with optional transform and asset label) and
- * transform updates for objects and cameras.
+ *
+ * - `mesh_replacement`: replace an object's mesh (with optional transform and asset label).
+ * - `transform_update`: move an object or camera.
+ * - `camera_update`: camera transform and/or optics (focal length, aperture, focus, clipping, sensor format).
+ * - `light_update`: properties of a light that kept its Director `director_id`.
+ * - `pose_update`: a portable pose-control sample for a Director character binding, with optional root motion.
  */
 export const directorDccReturnChangeSchema = z.discriminatedUnion("kind", [
   strictKind("mesh_replacement", {
@@ -46,6 +104,32 @@ export const directorDccReturnChangeSchema = z.discriminatedUnion("kind", [
     directorId: nonEmpty.max(200),
     entityType: directorAnimationEntityTypeSchema,
     transform: directorDccTransformSchema,
+  }),
+  strictKind("camera_update", {
+    directorId: nonEmpty.max(200),
+    entityType: z.literal("camera"),
+    transform: directorDccTransformSchema.optional(),
+    optics: directorDccReturnCameraOpticsSchema.optional(),
+  }).superRefine((change, context) => {
+    if (!change.transform && !change.optics) {
+      context.addIssue({
+        code: "custom",
+        path: ["optics"],
+        message: "camera_update must carry a transform, optics, or both",
+      });
+    }
+  }),
+  strictKind("light_update", {
+    directorId: nonEmpty.max(200),
+    entityType: z.literal("light"),
+    properties: directorDccReturnLightPropertiesSchema,
+  }),
+  strictKind("pose_update", {
+    directorId: nonEmpty.max(200),
+    entityType: z.literal("object"),
+    controls: directorDccReturnPoseControlsSchema,
+    /** Character root motion sampled together with the pose, if the root moved. */
+    transform: directorDccTransformSchema.optional(),
   }),
 ]);
 
@@ -158,11 +242,60 @@ export const directorDccReturnManifestSchema = z
     });
   });
 
+const opticsLimit = (key: keyof typeof DIRECTOR_CAMERA_OPTICS_LIMITS) =>
+  z.number().finite().min(DIRECTOR_CAMERA_OPTICS_LIMITS[key].min).max(DIRECTOR_CAMERA_OPTICS_LIMITS[key].max);
+
+/**
+ * The Director-side camera optics patch of an import plan, expressed in the
+ * exact ranges the Director authoring surface accepts. Plan building bakes
+ * out-of-range DCC values to these limits and records a warning.
+ */
+export const directorDccImportPlanCameraOpticsSchema = z
+  .strictObject({
+    focal_length_mm: z.number().finite().min(12).max(200).optional(),
+    aperture_f_stop: opticsLimit("apertureFStop").optional(),
+    focus_distance_m: opticsLimit("focusDistanceM").optional(),
+    near_clip_m: opticsLimit("nearClipM").optional(),
+    far_clip_m: opticsLimit("farClipM").optional(),
+    sensor_format: z.enum(DIRECTOR_CAMERA_SENSOR_FORMATS).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, { message: "camera optics patch cannot be empty" });
+
+const directorVec3Schema = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
+
+/** The Director-side light patch of an import plan (Director space and units). */
+export const directorDccImportPlanLightPatchSchema = z
+  .strictObject({
+    color: hexColor.optional(),
+    intensity: z.number().finite().min(0).max(100).optional(),
+    position: directorVec3Schema.optional(),
+    target: directorVec3Schema.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, { message: "light patch cannot be empty" });
+
 const importPlanOperationSchema = z.discriminatedUnion("op", [
   strictOperation("update_transform", {
     entityType: directorAnimationEntityTypeSchema,
     objectId: nonEmpty.max(200),
     transform: directorTransformSchema,
+  }),
+  strictOperation("update_camera_optics", {
+    objectId: nonEmpty.max(200),
+    optics: directorDccImportPlanCameraOpticsSchema,
+  }),
+  strictOperation("update_light", {
+    lightId: nonEmpty.max(200),
+    patch: directorDccImportPlanLightPatchSchema,
+  }),
+  strictOperation("set_character_pose", {
+    objectId: nonEmpty.max(200),
+    controls: z
+      .array(z.strictObject({ control: z.enum(CHARACTER_POSE_CONTROL_KEYS), value: z.number().finite() }))
+      .min(1)
+      .max(CHARACTER_POSE_CONTROL_KEYS.length)
+      .refine((entries) => new Set(entries.map((entry) => entry.control)).size === entries.length, {
+        message: "pose controls must be unique",
+      }),
   }),
   strictOperation("link_refined_asset", {
     objectId: nonEmpty.max(200),
@@ -230,6 +363,18 @@ export const directorDccReturnReportSchema = z.strictObject({
 
 /** A single change in a DCC return package. */
 export type DirectorDccReturnChange = z.infer<typeof directorDccReturnChangeSchema>;
+
+/** Camera optics carried by a `camera_update` return change. */
+export type DirectorDccReturnCameraOptics = z.infer<typeof directorDccReturnCameraOpticsSchema>;
+
+/** Light properties carried by a `light_update` return change. */
+export type DirectorDccReturnLightProperties = z.infer<typeof directorDccReturnLightPropertiesSchema>;
+
+/** The Director-side camera optics patch of an import plan operation. */
+export type DirectorDccImportPlanCameraOptics = z.infer<typeof directorDccImportPlanCameraOpticsSchema>;
+
+/** The Director-side light patch of an import plan operation. */
+export type DirectorDccImportPlanLightPatch = z.infer<typeof directorDccImportPlanLightPatchSchema>;
 
 /** The full DCC return manifest (v1). */
 export type DirectorDccReturnManifestV1 = z.infer<typeof directorDccReturnManifestSchema>;
