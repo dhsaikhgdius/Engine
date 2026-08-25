@@ -58,16 +58,16 @@ const BOOLEAN_MODIFIER_NOTE =
 /** Common hallucinated or authoring-style names → canonical typed apply ops. */
 function applyOperationNote(operationName: string): string {
   if (operationName === "assign_material") {
-    return 'Reuse existing materials by exact, case, or separator-insensitive name. Omitted createIfMissing creates a Principled material. createIfMissing:false skips a still-missing name; the rest of the batch still applies. inspect lists sceneMaterials.';
+    return "Reuse existing materials by exact, case, or separator-insensitive name. Omitted createIfMissing creates a Principled material. createIfMissing:false skips a still-missing name; the rest of the batch still applies. inspect lists sceneMaterials.";
   }
   if (operationName === "create_blockout") {
     return 'White-box architecture shells in metric metres: preset room = floor + 4 walls, corridor = floor + 2 walls, stairs = one flight (depth is total run, height total rise, stepCount steps), wall/floor = one slab. Created objects get stable ids "<idPrefix>:1..n" (room: 1 floor, then north/south/east/west walls) with a neutral clay material. Prefer one preset over hand-placing several create_primitive cubes; cut doors/windows afterwards with create_opening on a returned wall id.';
   }
   if (operationName === "create_opening") {
-    return 'Cuts a real door or window hole through an existing mesh wall with an editable BOOLEAN modifier. width/height/sillHeight/offset are metres; sillHeight lifts a window above the wall base; offset slides the opening along the wall. Never fake an opening with a darker box on the wall.';
+    return "Cuts a real door or window hole through an existing mesh wall with an editable BOOLEAN modifier. width/height/sillHeight/offset are metres; sillHeight lifts a window above the wall base; offset slides the opening along the wall. Never fake an opening with a darker box on the wall.";
   }
   if (operationName === "create_primitive") {
-    return 'dimensions is the only metric size (transform has no scale) and grounded:true puts the local origin at the floor-centre pivot. For a room, corridor, stair flight, or single wall/floor slab prefer create_blockout instead of assembling cubes.';
+    return "dimensions is the only metric size (transform has no scale) and grounded:true puts the local origin at the floor-centre pivot. For a room, corridor, stair flight, or single wall/floor slab prefer create_blockout instead of assembling cubes.";
   }
   return 'Use this object inside blender_native {"op":"apply","operations":[...]}.';
 }

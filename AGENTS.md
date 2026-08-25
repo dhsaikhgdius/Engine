@@ -13,7 +13,7 @@ every coding agent; per-agent rule files only point back here.
 | `backend/gateway/`               | TypeScript Gateway, jobs, media, collaboration, and tool HTTP for DSH / MCP                                                                    |
 | `packages/`                      | Shared npm workspaces: protocol, agent-engine, dsh-plugin-workbench, project-schema, stage-protocol, dcc-*, model-provider, di, scene-pipeline |
 | `packages/dsh-plugin-workbench/` | Director Stage / Canvas / Video / Blender tools as a DeepSeek Harness plugin                                                                   |
-| `vendor/`                        | Official third-party Git submodules: DeepSeek Harness, LTX-2, Hunyuan3D-2, TRELLIS, ARDY. Do not fork them in-tree.             |
+| `vendor/`                        | Official third-party Git submodules: DeepSeek Harness, LTX-2, Hunyuan3D-2, TRELLIS, ARDY. Do not fork them in-tree.                            |
 | `integrations/`                  | Blender live kernel, `.blend` interchange, portable Agent plugin                                                                               |
 | `assets/`                        | Asset catalogs, manifests, provenance, and license metadata                                                                                    |
 | `docs/site/`                     | Product and engineering documentation site                                                                                                     |
@@ -76,11 +76,11 @@ semantic operation exists.
   keep tests in a sibling `tests/` directory (same layout as DeepSeek Harness). Vitest (jsdom)
   runs both.
 - Stage scenes instance catalog meshes, Blender-authored geometry, or promoted generated-3D
- assets. White-box is a clay look (metric, untextured, readable silhouettes), not a stack of
- Stage boxes. Public `director_workbench` author calls that set `geometry_type` are rejected;
- model missing architecture with `blender_native` (`create_blockout` shells, `create_opening`
- doors/windows) or generate with `generated_3d`. Visual acceptance is a 35–65 mm capture, not
- `audit.ready`.
+  assets. White-box is a clay look (metric, untextured, readable silhouettes), not a stack of
+  Stage boxes. Public `director_workbench` author calls that set `geometry_type` are rejected;
+  model missing architecture with `blender_native` (`create_blockout` shells, `create_opening`
+  doors/windows) or generate with `generated_3d`. Visual acceptance is a 35–65 mm capture, not
+  `audit.ready`.
 - UI copy is written in Simplified Chinese as the source language; add English translations to
   `frontend/director/src/comprehensive/i18n/en-US.json`.
 - The workbench skill lives in `.claude/skills/director-workbench/`. `npm run sync:skills` generates

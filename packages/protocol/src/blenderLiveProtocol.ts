@@ -370,7 +370,9 @@ const agentOperationSchemas = [
   z.strictObject({
     op: z.literal("create_opening"),
     id: identifier.describe("Stable id for the created cutter object."),
-    targetId: identifier.describe("Existing mesh wall to cut. A create_blockout room returns walls as <idPrefix>:2..5."),
+    targetId: identifier.describe(
+      "Existing mesh wall to cut. A create_blockout room returns walls as <idPrefix>:2..5.",
+    ),
     kind: openingKindSchema.default("door"),
     name: z.string().trim().min(1).max(240).optional(),
     width: finite.positive().default(0.9).describe("Opening width in metres."),
@@ -420,13 +422,13 @@ const agentOperationSchemas = [
       .max(10_000)
       .default(6)
       .describe("Metres. Corridor preset: length. Stairs preset: total run."),
-    height: finite
+    height: finite.positive().min(0.05).max(10_000).default(3).describe("Metres. Stairs preset: total rise."),
+    wallThickness: finite
       .positive()
-      .min(0.05)
-      .max(10_000)
-      .default(3)
-      .describe("Metres. Stairs preset: total rise."),
-    wallThickness: finite.positive().min(0.01).max(10).default(0.18).describe("Wall and floor slab thickness in metres."),
+      .min(0.01)
+      .max(10)
+      .default(0.18)
+      .describe("Wall and floor slab thickness in metres."),
     stepCount: z.number().int().min(1).max(256).default(12).describe("Step count for the stairs preset."),
   }),
   z.strictObject({
@@ -843,9 +845,7 @@ function nameQueryFromText(value: string) {
 
 function liftQueryList(value: unknown): unknown[] | undefined {
   if (Array.isArray(value) && value.length > 0) {
-    return value.map((item) =>
-      typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item,
-    );
+    return value.map((item) => (typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item));
   }
   if (value && typeof value === "object" && !Array.isArray(value)) return [value];
   return undefined;
@@ -861,9 +861,7 @@ export function liftBlenderNativeToolRequest(input: unknown): unknown {
   if (record.op !== "query") return input;
   const next = { ...record };
   const namedPattern =
-    asNonEmptyString(next.name_pattern) ??
-    asNonEmptyString(next.namePattern) ??
-    asNonEmptyString(next.query);
+    asNonEmptyString(next.name_pattern) ?? asNonEmptyString(next.namePattern) ?? asNonEmptyString(next.query);
   const queries =
     liftQueryList(next.queries) ??
     liftQueryList(typeof next.query === "string" ? undefined : next.query) ??
