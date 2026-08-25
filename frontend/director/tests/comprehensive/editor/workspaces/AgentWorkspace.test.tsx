@@ -51,6 +51,20 @@ it("shows the launch commands when DSH Web is down", async () => {
   expect(screen.getByText("npm run dsh")).toBeInTheDocument();
 });
 
+it("walks humans through gateway, repo-root launch, and automatic reconnect when DSH is down", async () => {
+  vi.mocked(fetch).mockRejectedValue(new Error("failed to fetch"));
+  render(<AgentWorkspace />);
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: "用 DeepSeek Harness 驱动导演台" })).toBeInTheDocument();
+  });
+  expect(screen.getByText("npm run dev:gateway")).toBeInTheDocument();
+  expect(screen.getByText(/启动 Gateway/)).toBeInTheDocument();
+  expect(screen.getByText(/在仓库根目录运行/)).toBeInTheDocument();
+  expect(screen.getByText("本页会自动重连；也可以手动刷新。")).toBeInTheDocument();
+  // Surfaces the DSH built-in capabilities without requiring them in the health payload.
+  expect(screen.getByText(/skill、todo、后台任务、网页与 bash/)).toBeInTheDocument();
+});
+
 it("rejects a reachable bare DSH instance without the Director plugin", async () => {
   vi.mocked(fetch).mockImplementation(async (input) => {
     if (String(input).endsWith(DIRECTOR_DSH_HEALTH_PATH)) return new Response("<html></html>");
@@ -59,10 +73,23 @@ it("rejects a reachable bare DSH instance without the Director plugin", async ()
   render(<AgentWorkspace />);
   expect(await screen.findByRole("heading", { name: "DeepSeek Harness 未加载 Director 插件" })).toBeInTheDocument();
   expect(screen.queryByTitle("DeepSeek Harness")).not.toBeInTheDocument();
+  expect(
+    screen.getByText("从仓库根目录启动才会加载 Director overlay 插件与 director-workbench 技能。"),
+  ).toBeInTheDocument();
+  expect(screen.getByText("npm run dsh")).toBeInTheDocument();
 });
 
 it("requires all Director domain tools in the health payload", () => {
   expect(isDirectorDshHealth(directorHealth)).toBe(true);
   expect(isDirectorDshHealth({ ...directorHealth, tools: ["director_workbench"] })).toBe(false);
   expect(isDirectorDshHealth({ ...directorHealth, tools: directorHealth.tools.slice(0, -1) })).toBe(false);
+});
+
+it("never requires DSH built-in tool names in the health contract but tolerates them", () => {
+  // skill/todo/jobs/web/bash live in DSH itself; the contract gates Director tools only.
+  const withBuiltins = {
+    ...directorHealth,
+    tools: [...directorHealth.tools, "skill", "todo_write", "job_list", "web_search", "bash"],
+  };
+  expect(isDirectorDshHealth(withBuiltins)).toBe(true);
 });
