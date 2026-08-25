@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../comprehensive/editor/schema/directorProjectRevision";
 import { directorDccEngineIdSchema } from "./directorDccEngineSpace";
+import { directorUnrealSequencerReceiptSchema } from "./directorUnrealSequencerContract";
 
 /** Contract identifier for a Director-authored engine connector manifest. */
 export const DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT = "director-dcc-connector-v1" as const;
@@ -75,6 +76,12 @@ export const directorDccEngineReportSchema = z.strictObject({
   /** Relative directory of an echoed return package when the connector produced one. */
   returnPackageDir: safeRelativePathSchema.nullable(),
   warnings: z.array(z.string().max(2_000)).max(20_000),
+  /** Unreal-only: Sequencer receipt read back from the authored LevelSequence. */
+  sequencer: directorUnrealSequencerReceiptSchema.optional(),
+  /** Unreal-only: number of skinned GLB payloads imported as skeletal meshes. */
+  importedSkeletalMeshCount: z.number().int().nonnegative().optional(),
+  /** Unreal-only: number of Director PBR materials applied as material instances. */
+  appliedMaterialCount: z.number().int().nonnegative().optional(),
 });
 
 /** A validated engine connector run report. */

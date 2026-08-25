@@ -21,6 +21,7 @@ import {
 } from "@director/dcc-protocol";
 import type { DirectorProject } from "@director/project-schema";
 import type { DirectorDccExchangePackager } from "./dccExchangePackage";
+import { writeUnrealSequencerBake, type UnrealSequencerBakeFile } from "./unrealSequencerBake";
 
 /** Environment variable naming the engine editor binary, per engine. */
 export const DIRECTOR_ENGINE_BINARY_ENV: Record<DirectorDccEngineId, string> = {
@@ -569,6 +570,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     reportPath: string,
     returnDirectory: string,
     logPath: string,
+    unrealBake?: UnrealSequencerBakeFile,
   ): string[] {
     if (provider === "unreal") {
       const script = resolve(projectResolution.projectDirectory, UNREAL_HEADLESS_ENTRY);
@@ -582,6 +584,16 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
         quoteForUnrealScriptArgument(reportPath),
         "--return-dir",
         quoteForUnrealScriptArgument(returnDirectory),
+        // The Sequencer bake is hash-pinned so the connector can refuse a
+        // sidecar that does not match what the Gateway wrote.
+        ...(unrealBake
+          ? [
+              "--animation",
+              quoteForUnrealScriptArgument(unrealBake.bakePath),
+              "--animation-sha256",
+              unrealBake.bakeSha256,
+            ]
+          : []),
       ].join(" ");
       return [
         projectResolution.projectPath,
@@ -663,6 +675,22 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     const returnDirectory = resolve(jobDirectory, "return");
     const logPath = resolve(jobDirectory, "host.log");
 
+    // Unreal-only: bake time-sampled animation into a hash-pinned sidecar the
+    // connector keys into LevelSequence tracks. A bake failure downgrades to a
+    // static import with a warning rather than failing the whole handoff.
+    let unrealBake: UnrealSequencerBakeFile | undefined;
+    const bakeWarnings: string[] = [];
+    if (provider === "unreal") {
+      try {
+        unrealBake = await writeUnrealSequencerBake(project, exchange.jobId, exchange.sourceRevision, jobDirectory);
+        bakeWarnings.push(...unrealBake.bake.warnings);
+      } catch (error) {
+        bakeWarnings.push(
+          `Sequencer animation bake failed (${error instanceof Error ? error.message : String(error)}); the import continues without baked animation.`,
+        );
+      }
+    }
+
     const args = engineArguments(
       provider,
       { projectPath: currentHealth.projectPath, projectDirectory },
@@ -670,6 +698,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       reportPath,
       returnDirectory,
       logPath,
+      unrealBake,
     );
     try {
       await runProcess(currentHealth.executable, args, jobTimeoutMs);
@@ -748,7 +777,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       reportPath,
       report,
       returnPackagePath,
-      warnings: [...exchange.warnings, ...report.warnings],
+      warnings: [...exchange.warnings, ...bakeWarnings, ...report.warnings],
     });
   }
 

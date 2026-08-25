@@ -248,6 +248,14 @@ When the connector is not ready, the route responds `409 engine_not_ready` with 
 Follow the recovery steps (set `DIRECTOR_GODOT_BIN` / `DIRECTOR_GODOT_PROJECT`, install the addon)
 or fall back to `export_exchange_package`.
 
+For `provider: "unreal"`, the Gateway additionally samples the project's animation into a
+hash-pinned `director-unreal-sequencer-bake-v1` sidecar inside the private job directory. The
+connector keys LevelSequence tracks from it, and the returned report can carry Unreal-only fields:
+a `sequencer` receipt (display rate, tick resolution, start timecode, playback range, track and key
+counts read back from the authored asset) plus `importedSkeletalMeshCount` and
+`appliedMaterialCount`. A bake failure downgrades to a static import with a warning; a tampered
+sidecar fails the job.
+
 Bring engine edits back with the same preview-then-apply protocol as Blender returns. Engine return
 packages carry canonical Director-space transforms, so pass the producing provider explicitly:
 
