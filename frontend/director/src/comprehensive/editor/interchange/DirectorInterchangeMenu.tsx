@@ -21,6 +21,10 @@ import type {
   DirectorBlendSceneManifestV1,
 } from "../../../dcc/directorBlendSceneImportContract";
 import type { DirectorDccImportPlanV1 } from "../../../dcc/directorDccReturnContract";
+import {
+  directorDccConnectorProviderIdSchema,
+  type DirectorDccConnectorProviderId,
+} from "../../../dcc/directorDccEngineSpace";
 import { useLanguage } from "../../i18n/language";
 import {
   applyDirectorBlendSceneImport,
@@ -40,16 +44,7 @@ import type { DirectorMeshExportReport } from "./mesh";
 import "./DirectorInterchangeMenu.css";
 
 type DirectorInterchangeFormat =
-  | "project"
-  | "otio"
-  | "otioz"
-  | "fountain"
-  | "gltf"
-  | "glb"
-  | "usda"
-  | "usdz"
-  | "obj"
-  | "stl";
+  "project" | "otio" | "otioz" | "fountain" | "gltf" | "glb" | "usda" | "usdz" | "obj" | "stl";
 
 type DirectorInterchangeFormatEntry = { id: DirectorInterchangeFormat; label: string; detail: string };
 
@@ -138,6 +133,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   const [blendApplied, setBlendApplied] = useState(false);
   const [dccPackageDir, setDccPackageDir] = useState("");
   const [dccPlan, setDccPlan] = useState<DirectorDccImportPlanV1 | null>(null);
+  const [dccReturnProvider, setDccReturnProvider] = useState<DirectorDccConnectorProviderId>("blender");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const blendInputRef = useRef<HTMLInputElement | null>(null);
   const entryRef = useRef<HTMLDivElement | null>(null);
@@ -327,9 +323,9 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
     if (!dccPackageDir.trim()) return;
     setBusy(true);
     setDccPlan(null);
-    note("busy", t("正在校验 Blender 回传包…"));
+    note("busy", t("正在校验 DCC 回传包…"));
     try {
-      const preview = await previewDirectorDccReturnPackage(dccPackageDir.trim());
+      const preview = await previewDirectorDccReturnPackage(dccPackageDir.trim(), dccReturnProvider);
       setDccPlan(preview.plan);
       note(
         preview.ready ? "success" : "warning",
@@ -338,7 +334,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
           : `${t("回传计划存在冲突")} · ${preview.summary.conflict_count} ${t("项冲突")}`,
       );
     } catch (error) {
-      note("error", error instanceof Error ? error.message : t("Blender 回传包校验失败"));
+      note("error", error instanceof Error ? error.message : t("DCC 回传包校验失败"));
     } finally {
       setBusy(false);
     }
@@ -347,13 +343,13 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   async function applyDccReturn() {
     if (!dccPlan?.ready) return;
     setBusy(true);
-    note("busy", t("正在按稳定 ID 合并 Blender 回传…"));
+    note("busy", t("正在按稳定 ID 合并 DCC 回传…"));
     try {
-      const result = await applyDirectorDccImportPlan(dccPlan);
-      note("success", `${t("Blender 回传已应用")} · ${result.copiedAssets.length} ${t("个细化资产")}`);
+      const result = await applyDirectorDccImportPlan(dccPlan, dccReturnProvider);
+      note("success", `${t("DCC 回传已应用")} · ${result.copiedAssets.length} ${t("个细化资产")}`);
       setDccPlan(null);
     } catch (error) {
-      note("error", error instanceof Error ? error.message : t("Blender 回传应用失败"));
+      note("error", error instanceof Error ? error.message : t("DCC 回传应用失败"));
     } finally {
       setBusy(false);
     }
@@ -747,19 +743,36 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                       </div>
                     ) : null}
                   </section>
-                  <section aria-label={t("Blender 回传")} className="director-dcc-return">
+                  <section aria-label={t("DCC 回传")} className="director-dcc-return">
                     <div className="director-interchange-section-heading">
                       <span aria-hidden className="director-interchange-section-icon is-return">
                         <RefreshCw size={14} />
                       </span>
                       <div>
-                        <strong>{t("Blender 回传")}</strong>
+                        <strong>{t("DCC 回传")}</strong>
                         <small>{t("先预览 stable ID 差异，再合并 mesh 与变换")}</small>
                       </div>
                     </div>
                     <div>
+                      <select
+                        aria-label={t("回传提供方")}
+                        className="ui-field"
+                        disabled={busy}
+                        onChange={(event) => {
+                          const parsed = directorDccConnectorProviderIdSchema.safeParse(event.currentTarget.value);
+                          if (!parsed.success) return;
+                          setDccReturnProvider(parsed.data);
+                          setDccPlan(null);
+                        }}
+                        value={dccReturnProvider}
+                      >
+                        <option value="blender">Blender</option>
+                        <option value="unreal">Unreal Engine</option>
+                        <option value="unity">Unity</option>
+                        <option value="godot">Godot</option>
+                      </select>
                       <input
-                        aria-label={t("Blender 回传包路径")}
+                        aria-label={t("回传包路径")}
                         className="ui-field"
                         disabled={busy}
                         onChange={(event) => {
@@ -798,7 +811,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                           </ul>
                         ) : null}
                         <button disabled={busy || !dccPlan.ready} onClick={() => void applyDccReturn()} type="button">
-                          {t("应用 Blender 回传")}
+                          {t("应用 DCC 回传")}
                         </button>
                       </div>
                     ) : null}

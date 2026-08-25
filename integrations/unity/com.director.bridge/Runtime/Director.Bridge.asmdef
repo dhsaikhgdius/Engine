@@ -1,0 +1,9 @@
+{
+  "name": "Director.Bridge",
+  "rootNamespace": "Director.Bridge",
+  "references": [],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": true
+}

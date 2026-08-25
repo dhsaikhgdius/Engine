@@ -54908,9 +54908,11 @@ var blenderOperationManifest_default = {
     { op: "delete_object", surface: "typed", effect: "content" },
     { op: "duplicate_object", surface: "typed", effect: "content" },
     { op: "create_camera", surface: "typed", effect: "content" },
+    { op: "set_camera_data", surface: "typed", effect: "content" },
     { op: "set_active_camera", surface: "typed", effect: "content" },
     { op: "set_world_environment", surface: "typed", effect: "content" },
     { op: "create_light", surface: "typed", effect: "content" },
+    { op: "set_light_data", surface: "typed", effect: "content" },
     { op: "create_opening", surface: "typed", effect: "content" },
     { op: "move_to_collection", surface: "typed", effect: "content" },
     { op: "set_parent", surface: "typed", effect: "content" },
@@ -54950,6 +54952,11 @@ var blenderOperationManifest_default = {
     { op: "remove_nla_strip", surface: "typed", effect: "content" },
     { op: "invoke_operator", surface: "longtail", effect: "content" },
     { op: "set_rna_property", surface: "longtail", effect: "content" },
+    { op: "execute_code", surface: "longtail", effect: "content" },
+    { op: "polyhaven_search", surface: "typed", effect: "read" },
+    { op: "polyhaven_import", surface: "typed", effect: "content" },
+    { op: "sketchfab_search", surface: "typed", effect: "read" },
+    { op: "sketchfab_import", surface: "typed", effect: "content" },
     { op: "undo_scene", surface: "typed", effect: "history" },
     { op: "redo_scene", surface: "typed", effect: "history" },
     { op: "capture_render", surface: "typed", effect: "read" },
@@ -55165,6 +55172,12 @@ var rnaTargetSchema = external_exports.discriminatedUnion("kind", [
   external_exports.strictObject({
     kind: external_exports.enum(["material", "collection"]),
     name: external_exports.string().trim().min(1).max(240)
+  }),
+  external_exports.strictObject({
+    kind: external_exports.literal("scene")
+  }),
+  external_exports.strictObject({
+    kind: external_exports.literal("world")
   })
 ]);
 var spatialQueryExcludeIds = external_exports.array(identifier).max(64);
@@ -55193,6 +55206,11 @@ var spatialQuerySchema = external_exports.discriminatedUnion("kind", [
     kind: external_exports.literal("GROUND"),
     id: identifier,
     excludeIds: spatialQueryExcludeIds.optional()
+  }),
+  external_exports.strictObject({
+    kind: external_exports.literal("NAME"),
+    namePattern: external_exports.string().trim().min(1).max(120),
+    maxResults: external_exports.number().int().min(1).max(200).default(50)
   })
 ]);
 var spatialQueriesSchema = external_exports.array(spatialQuerySchema).min(1).max(32);
@@ -55304,6 +55322,23 @@ var agentOperationSchemas = [
     sensorWidthMm: finite6.positive().min(1).max(100).default(36)
   }),
   external_exports.strictObject({
+    op: external_exports.literal("set_camera_data"),
+    id: identifier,
+    projectionType: external_exports.enum(["PERSPECTIVE", "ORTHOGRAPHIC"]),
+    focalLengthMm: finite6.positive().min(1).max(1e3),
+    sensorFit: external_exports.enum(["AUTO", "HORIZONTAL", "VERTICAL"]),
+    sensorWidthMm: finite6.positive().min(1).max(100),
+    sensorHeightMm: finite6.positive().min(1).max(100),
+    shiftX: finite6,
+    shiftY: finite6,
+    clipStart: finite6.positive(),
+    clipEnd: finite6.positive(),
+    orthographicScale: finite6.positive()
+  }).refine((camera) => camera.clipEnd > camera.clipStart, {
+    path: ["clipEnd"],
+    message: "clipEnd must be greater than clipStart"
+  }),
+  external_exports.strictObject({
     op: external_exports.literal("set_active_camera"),
     id: identifier
   }),
@@ -55322,6 +55357,14 @@ var agentOperationSchemas = [
     color: vec36.default([1, 0.94, 0.86]),
     energy: finite6.nonnegative().default(1e3),
     size: finite6.positive().default(4)
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("set_light_data"),
+    id: identifier,
+    kind: lightKindSchema,
+    color: rgb,
+    energy: finite6.nonnegative(),
+    size: finite6.nonnegative()
   }),
   external_exports.strictObject({
     op: external_exports.literal("create_opening"),
@@ -55397,7 +55440,8 @@ var agentOperationSchemas = [
     op: external_exports.literal("assign_material"),
     id: identifier,
     materialName,
-    createIfMissing: external_exports.boolean().default(false),
+    /** Omitted creates a Principled material. `false` skips a still-missing name instead of aborting the batch. */
+    createIfMissing: external_exports.boolean().default(true),
     faceScope: external_exports.enum(["PRESERVE", "ALL", "SELECTED"]).default("ALL"),
     parameters: external_exports.strictObject({
       baseColor: rgb.optional(),
@@ -55603,6 +55647,37 @@ var agentOperationSchemas = [
     path: external_exports.array(external_exports.union([external_exports.string().trim().min(1).max(240), external_exports.number().int()])).min(1),
     value: external_exports.json()
   }),
+  external_exports.strictObject({
+    op: external_exports.literal("execute_code"),
+    code: external_exports.string().min(1).max(1e5).refine((value) => value.trim().length > 0, "code must not be empty")
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("polyhaven_search"),
+    assetType: external_exports.enum(["hdris", "textures", "models", "all"]).default("models"),
+    categories: external_exports.string().trim().min(1).max(240).optional(),
+    query: external_exports.string().trim().max(240).default(""),
+    limit: external_exports.number().int().min(1).max(50).default(20)
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("polyhaven_import"),
+    assetId: external_exports.string().trim().min(1).max(240),
+    assetType: external_exports.enum(["hdris", "textures", "models"]),
+    resolution: external_exports.enum(["1k", "2k", "4k"]).default("1k"),
+    fileFormat: external_exports.string().trim().min(1).max(40).optional(),
+    objectId: identifier.optional(),
+    targetHeightM: finite6.positive().max(1e4).optional()
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("sketchfab_search"),
+    query: external_exports.string().trim().min(1).max(240),
+    count: external_exports.number().int().min(1).max(24).default(5)
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("sketchfab_import"),
+    uid: external_exports.string().trim().regex(/^[A-Za-z0-9_-]{8,64}$/, "uid must be a Sketchfab model id"),
+    objectId: identifier.optional(),
+    targetSizeM: finite6.positive().max(50).default(1)
+  }),
   external_exports.strictObject({ op: external_exports.literal("undo_scene") }),
   external_exports.strictObject({ op: external_exports.literal("redo_scene") }),
   external_exports.strictObject({
@@ -55690,7 +55765,7 @@ assertBlenderOperationManifestCoverage([
 ]);
 var blenderAgentOperationSchema = external_exports.discriminatedUnion("op", agentOperationSchemas);
 var blenderAgentOperationNames = blenderAgentOperationSchema.options.map((option) => option.shape.op.value);
-var BLENDER_NATIVE_DESCRIBE_XOR_MESSAGE = 'describe requires exactly one of operator (allowlisted Blender RNA, e.g. "mesh.bevel") or target (typed apply op, e.g. "apply" or "create_primitive")';
+var BLENDER_NATIVE_DESCRIBE_XOR_MESSAGE = 'describe requires exactly one of operator (Blender RNA, e.g. "mesh.bevel") or target (typed apply op, e.g. "apply" or "create_primitive")';
 var blenderLiveOperationSchema = external_exports.discriminatedUnion("op", [
   ...agentOperationSchemas,
   exportScenePreviewOperationSchema,
@@ -55712,6 +55787,35 @@ var blenderLiveCommandBatchSchema = external_exports.strictObject({
     });
   }
 });
+function asNonEmptyString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : void 0;
+}
+function nameQueryFromText(value) {
+  return { kind: "NAME", namePattern: value };
+}
+function liftQueryList(value) {
+  if (Array.isArray(value) && value.length > 0) {
+    return value.map(
+      (item) => typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item
+    );
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) return [value];
+  return void 0;
+}
+function liftBlenderNativeToolRequest(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const record2 = input;
+  if (record2.op !== "query") return input;
+  const next = { ...record2 };
+  const namedPattern = asNonEmptyString(next.name_pattern) ?? asNonEmptyString(next.namePattern) ?? asNonEmptyString(next.query);
+  const queries = liftQueryList(next.queries) ?? liftQueryList(typeof next.query === "string" ? void 0 : next.query) ?? (namedPattern ? [nameQueryFromText(namedPattern)] : void 0);
+  if (!queries) return input;
+  delete next.query;
+  delete next.name_pattern;
+  delete next.namePattern;
+  next.queries = queries;
+  return next;
+}
 var blenderNativeToolRequestSchema = external_exports.discriminatedUnion("op", [
   external_exports.strictObject({ op: external_exports.literal("status") }),
   external_exports.strictObject({ op: external_exports.literal("scene") }),
@@ -55742,8 +55846,27 @@ var blenderNativeToolRequestSchema = external_exports.discriminatedUnion("op", [
     transparent: external_exports.boolean().default(false)
   }),
   external_exports.strictObject({
+    op: external_exports.literal("capture_render"),
+    cameraId: identifier.optional(),
+    width: external_exports.number().int().min(64).max(2048).default(640),
+    height: external_exports.number().int().min(64).max(2048).default(360),
+    transparent: external_exports.boolean().default(false)
+  }),
+  external_exports.strictObject({
     op: external_exports.literal("query"),
     queries: spatialQueriesSchema
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("polyhaven_search"),
+    assetType: external_exports.enum(["hdris", "textures", "models", "all"]).default("models"),
+    categories: external_exports.string().trim().min(1).max(240).optional(),
+    query: external_exports.string().trim().max(240).default(""),
+    limit: external_exports.number().int().min(1).max(50).default(20)
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("sketchfab_search"),
+    query: external_exports.string().trim().min(1).max(240),
+    count: external_exports.number().int().min(1).max(24).default(5)
   }),
   external_exports.strictObject({
     op: external_exports.literal("apply"),
@@ -55753,6 +55876,10 @@ var blenderNativeToolRequestSchema = external_exports.discriminatedUnion("op", [
     operations: external_exports.array(blenderAgentOperationSchema).min(1).max(128)
   })
 ]);
+var blenderNativeToolRequestInputSchema = external_exports.preprocess(
+  liftBlenderNativeToolRequest,
+  blenderNativeToolRequestSchema
+);
 var blenderNativeReadOperationNames = [
   "status",
   "scene",
@@ -55760,7 +55887,10 @@ var blenderNativeReadOperationNames = [
   "describe",
   "inspect",
   "capture",
-  "query"
+  "capture_render",
+  "query",
+  "polyhaven_search",
+  "sketchfab_search"
 ];
 var blenderObjectSchema = external_exports.strictObject({
   id: identifier,
@@ -55953,6 +56083,7 @@ var blenderObjectInspectionSchema = external_exports.looseObject({
   type: external_exports.string(),
   mode: blenderMode,
   dimensions: vec36,
+  position: vec36.optional(),
   evaluatedBounds: external_exports.strictObject({
     min: vec36,
     max: vec36,
@@ -117747,7 +117878,9 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
     material: directorPbrMaterialSchema.optional(),
     pose_preset_id: posePresetId.optional(),
     asset_id: id3.optional(),
-    geometry_type: geometryType.optional(),
+    geometry_type: geometryType.optional().describe(
+      "Rejected on the public director_workbench agent wire. Instance catalog or project meshes with asset_id, or model with blender_native / generated_3d."
+    ),
     placement_mode: placementMode.optional(),
     parent_id: id3.optional(),
     look_target_object_id: id3.optional(),
@@ -118629,10 +118762,10 @@ var directorObjectSpatialQuerySchema = external_exports.discriminatedUnion("mode
     radius_m: external_exports.number().positive().max(1e6)
   })
 ]);
-var QUERY_OBJECTS_SHAPE_HINT = 'query_objects \u9700\u8981 spatial\u3001name_pattern \u6216 kind\u3002\u4F8B\u5982 {"op":"query_objects","name_pattern":"door"} \u6216 {"op":"query_objects","spatial":{"mode":"frustum"}}\u3002\u6309\u540D\u5B57\u8FC7\u6EE4\u4E5F\u53EF\u5199 {"op":"query_objects","filter":{"name_pattern":"door"}}';
-var DIFF_SHAPE_HINT = 'diff \u5FC5\u987B\u4E8C\u9009\u4E00\uFF1Asince_turn \u6216 since_audit\u3002\u4F8B\u5982 {"op":"diff","since_turn":"<turn-id>"} \u6216 {"op":"diff","since_audit":"<audit-token>"}\u3002\u8FD9\u4E24\u4E2A\u503C\u6765\u81EA\u6700\u8FD1\u4E00\u6B21\u6210\u529F\u7684 observe\u3001author \u6216 audit \u7ED3\u679C\uFF0C\u4E0D\u8981\u731C\u6570\u5B57\uFF0C\u4E5F\u4E0D\u8981\u53EA\u4F20 {"op":"diff"}\u3002';
-var INSPECT_ENTITY_NAMES = "object\u3001light\u3001camera\u3001asset\u3001catalog_asset\u3001storyboard_shot\u3001performance_take\u3001coverage_sequence\u3001coverage_shot";
-var INSPECT_SHAPE_HINT = `inspect \u9700\u8981 entity \u548C id\u3002entity \u4E3A ${INSPECT_ENTITY_NAMES}\u3002\u4F8B\u5982 {"op":"inspect","entity":"object","id":"door-1"} \u6216 {"op":"inspect","entity":"camera","id":"cam-main"}\u3002\u4E0D\u8981\u628A spill \u5B9A\u4F4D\u7B26\u3001\u540D\u5B57\u6216 object_id \u5F53\u6210 entity\u3002`;
+var QUERY_OBJECTS_SHAPE_HINT = 'query_objects requires spatial, name_pattern, or kind. Example {"op":"query_objects","name_pattern":"door"} or {"op":"query_objects","spatial":{"mode":"frustum"}}. Name filter may also be {"op":"query_objects","filter":{"name_pattern":"door"}}';
+var DIFF_SHAPE_HINT = 'diff requires exactly one of since_turn or since_audit. Example {"op":"diff","since_turn":"<turn-id>"} or {"op":"diff","since_audit":"<audit-token>"}. Copy those values from the last successful observe, author, or audit result; do not guess numbers or send {"op":"diff"} alone.';
+var INSPECT_ENTITY_NAMES = "object, light, camera, asset, catalog_asset, storyboard_shot, performance_take, coverage_sequence, coverage_shot";
+var INSPECT_SHAPE_HINT = `inspect requires entity and id. entity is one of ${INSPECT_ENTITY_NAMES}. Example {"op":"inspect","entity":"object","id":"door-1"} or {"op":"inspect","entity":"camera","id":"cam-main"}. Do not treat a spill locator, name, or object_id as entity.`;
 var directorMacroCommandSchema = external_exports.discriminatedUnion("action", [
   strictAction("list", {
     query: external_exports.string().trim().max(200).optional(),
@@ -120114,7 +120247,7 @@ function recoverySuggestion(code) {
       return "Open or switch the intended target to 3D Stage, wait for its viewport to finish mounting, then observe again before retrying capture or delivery.";
     case "workbench_unavailable":
     case "creative_workspace_unavailable":
-      return "Open the intended Director workspace, wait for its gateway connection, and call observe again.";
+      return "Open the intended Director workspace and retry. Durable observe/audit can use the last persisted project or live Blender kernel; mutations and capture still need a visible tab. Use blender_native scene/inspect for native geometry.";
     default:
       return null;
   }
@@ -133087,6 +133220,40 @@ var DIRECTOR_COMMON_FRAME_RATES2 = Object.freeze({
 });
 var COMMON_RATE_LIST2 = Object.values(DIRECTOR_COMMON_FRAME_RATES2);
 
+// packages/dcc-protocol/src/directorDccEngineSpace.ts
+var directorDccEngineIdSchema = external_exports.enum(["unreal", "unity", "godot"]);
+var directorDccConnectorProviderIdSchema = external_exports.enum(["blender", "unreal", "unity", "godot"]);
+var DIRECTOR_DCC_ENGINE_SPACES = Object.freeze(
+  {
+    unreal: {
+      handedness: "left",
+      upAxis: "Z",
+      forwardAxis: "+X",
+      unitsPerMeter: 100,
+      linearMap: "(x,y,z)->(-z*100,x*100,y*100)"
+    },
+    unity: {
+      handedness: "left",
+      upAxis: "Y",
+      forwardAxis: "+Z",
+      unitsPerMeter: 1,
+      linearMap: "(x,y,z)->(x,y,-z)"
+    },
+    godot: {
+      handedness: "right",
+      upAxis: "Y",
+      forwardAxis: "-Z",
+      unitsPerMeter: 1,
+      linearMap: "(x,y,z)->(x,y,z)"
+    }
+  }
+);
+var ENGINE_PERMUTATIONS = {
+  unreal: new Matrix4().set(0, 0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1),
+  unity: new Matrix4().set(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1),
+  godot: new Matrix4().identity()
+};
+
 // packages/dcc-protocol/src/directorDccReturnContract.ts
 var DIRECTOR_DCC_RETURN_CONTRACT = "director-dcc-return-v1";
 var DIRECTOR_DCC_IMPORT_PLAN_CONTRACT = "director-dcc-import-plan-v1";
@@ -133111,6 +133278,18 @@ var directorDccReturnChangeSchema = external_exports.discriminatedUnion("kind", 
     transform: directorDccTransformSchema
   })
 ]);
+var directorDccBlenderReturnCoordinateSystemSchema = external_exports.strictObject({
+  source: external_exports.literal("right-handed-z-up-negative-z-camera-forward"),
+  destination: external_exports.literal("right-handed-y-up-negative-z-forward"),
+  unit: external_exports.literal("meter"),
+  linearMap: external_exports.literal("(x,y,z)->(x,z,-y)")
+});
+var directorDccCanonicalReturnCoordinateSystemSchema = external_exports.strictObject({
+  source: external_exports.literal("right-handed-y-up-negative-z-forward"),
+  destination: external_exports.literal("right-handed-y-up-negative-z-forward"),
+  unit: external_exports.literal("meter"),
+  linearMap: external_exports.literal("identity")
+});
 var directorDccReturnManifestSchema = external_exports.strictObject({
   schemaVersion: external_exports.literal(1),
   contract: external_exports.literal(DIRECTOR_DCC_RETURN_CONTRACT),
@@ -133118,17 +133297,53 @@ var directorDccReturnManifestSchema = external_exports.strictObject({
   sourcePackageId: nonEmpty3.max(320),
   sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
   exportedAt: external_exports.string().datetime({ offset: true }),
-  blenderVersion: nonEmpty3.max(200),
-  coordinateSystem: external_exports.strictObject({
-    source: external_exports.literal("right-handed-z-up-negative-z-camera-forward"),
-    destination: external_exports.literal("right-handed-y-up-negative-z-forward"),
-    unit: external_exports.literal("meter"),
-    linearMap: external_exports.literal("(x,y,z)->(x,z,-y)")
-  }),
+  /** Producing connector; omitted on historical Blender packages. */
+  provider: directorDccConnectorProviderIdSchema.optional(),
+  blenderVersion: nonEmpty3.max(200).optional(),
+  /** Host application version for engine-authored packages. */
+  hostVersion: nonEmpty3.max(200).optional(),
+  /** Director connector version for engine-authored packages. */
+  connectorVersion: nonEmpty3.max(60).optional(),
+  coordinateSystem: external_exports.union([
+    directorDccBlenderReturnCoordinateSystemSchema,
+    directorDccCanonicalReturnCoordinateSystemSchema
+  ]),
   changes: external_exports.array(directorDccReturnChangeSchema).max(2e4),
   warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4),
   fileHashes: external_exports.record(safeRelativePath2, sha2564)
 }).superRefine((manifest, context) => {
+  const provider = manifest.provider ?? "blender";
+  if (provider === "blender") {
+    if (!manifest.blenderVersion) {
+      context.addIssue({
+        code: "custom",
+        path: ["blenderVersion"],
+        message: "Blender return packages must declare blenderVersion"
+      });
+    }
+    if (manifest.coordinateSystem.source !== "right-handed-z-up-negative-z-camera-forward") {
+      context.addIssue({
+        code: "custom",
+        path: ["coordinateSystem", "source"],
+        message: "Blender return packages must use the Blender Z-up coordinate stanza"
+      });
+    }
+  } else {
+    if (!manifest.hostVersion) {
+      context.addIssue({
+        code: "custom",
+        path: ["hostVersion"],
+        message: `${provider} return packages must declare the host application version`
+      });
+    }
+    if (manifest.coordinateSystem.source !== "right-handed-y-up-negative-z-forward") {
+      context.addIssue({
+        code: "custom",
+        path: ["coordinateSystem", "source"],
+        message: `${provider} connectors must convert transforms to Director canonical space at the provider boundary`
+      });
+    }
+  }
   const seen = /* @__PURE__ */ new Set();
   manifest.changes.forEach((change, index) => {
     const key = `${change.entityType}:${change.directorId}`;
@@ -133285,7 +133500,15 @@ var directorDccProviderDescriptorSchema = external_exports.strictObject({
   id: directorDccProviderIdSchema,
   label: external_exports.string().trim().min(1).max(80),
   category: external_exports.enum(["dcc", "engine"]),
-  integration: external_exports.enum(["native-roundtrip", "exchange-package"]),
+  /**
+   * How Director integrates with the provider:
+   * - `native-roundtrip` — an in-process bridge drives the host end to end (Blender).
+   * - `engine-headless` — a Director-authored connector runs fixed headless
+   *   entry points inside the user's engine installation; scene content still
+   *   travels through the portable exchange package.
+   * - `exchange-package` — Director only prepares/consumes the portable package.
+   */
+  integration: external_exports.enum(["native-roundtrip", "engine-headless", "exchange-package"]),
   preferredFormat: directorDccExchangeFormatSchema,
   exchangeFormats: external_exports.array(directorDccExchangeFormatSchema).min(1),
   capabilities: external_exports.array(directorDccCapabilitySchema).min(1),
@@ -133421,6 +133644,37 @@ function exchangeProvider(id4, label, category, preferredFormat, exchangeFormats
     connectorDirectory: `integrations/${id4}`
   });
 }
+function engineProvider(id4, label, preferredFormat, exchangeFormats) {
+  return directorDccProviderDescriptorSchema.parse({
+    id: id4,
+    label,
+    category: "engine",
+    integration: "engine-headless",
+    preferredFormat,
+    exchangeFormats,
+    capabilities: [
+      // Scene layout and cameras still travel through the portable package;
+      // the connector performs the host-side import but the format carries them.
+      { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      // Animation, skeletons, and materials stay planned until a version-tested
+      // acceptance suite validates the host-side work end to end.
+      { id: "animation", level: "planned", layer: "connector" },
+      { id: "skeleton", level: "planned", layer: "connector" },
+      { id: "materials", level: "planned", layer: "connector" },
+      // The Director manifest and connector preserve stable director:id
+      // metadata on both directions of the handoff.
+      { id: "stable_ids", level: "native", layer: "director-manifest" },
+      // Headless import/return round trip is performed by the Director-authored
+      // connector; runtime availability is still gated by nativeReady.
+      { id: "roundtrip", level: "native", layer: "connector" },
+      { id: "headless", level: "native", layer: "connector" },
+      // No live preview transport ships yet; see MULTI_DCC_INTEGRATION.md.
+      { id: "live_link", level: "planned", layer: "connector" }
+    ],
+    connectorDirectory: `integrations/${id4}`
+  });
+}
 var DIRECTOR_DCC_PROVIDERS = Object.freeze([
   directorDccProviderDescriptorSchema.parse({
     id: "blender",
@@ -133443,12 +133697,12 @@ var DIRECTOR_DCC_PROVIDERS = Object.freeze([
     connectorDirectory: "integrations/blender"
   }),
   exchangeProvider("maya", "Autodesk Maya", "dcc", "usda", ["usda", "glb"]),
-  exchangeProvider("unreal", "Unreal Engine", "engine", "usda", ["usda", "glb"]),
+  engineProvider("unreal", "Unreal Engine", "usda", ["usda", "glb"]),
   exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
-  exchangeProvider("unity", "Unity", "engine", "glb", ["glb", "usda"]),
+  engineProvider("unity", "Unity", "glb", ["glb", "usda"]),
   exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
-  exchangeProvider("godot", "Godot", "engine", "glb", ["glb"])
+  engineProvider("godot", "Godot", "glb", ["glb"])
 ]);
 
 // packages/dcc-protocol/src/directorDccContract.ts
@@ -133577,12 +133831,25 @@ var directorDccOperationSchema = external_exports.discriminatedUnion("op", [
     camera_id: external_exports.string().trim().min(1).max(160).optional(),
     frame: external_exports.number().finite().nonnegative().optional()
   }),
+  strictOperation("send_to_engine", {
+    provider: directorDccEngineIdSchema,
+    formats: external_exports.array(directorDccPortableExchangeFormatSchema).min(1).max(2).optional(),
+    camera_id: external_exports.string().trim().min(1).max(160).optional(),
+    frame: external_exports.number().finite().nonnegative().optional()
+  }),
+  strictOperation("receive_from_engine", {
+    provider: directorDccEngineIdSchema,
+    package_dir: external_exports.string().trim().min(1).max(2048),
+    dry_run: external_exports.boolean().optional().default(true)
+  }),
   strictOperation("import_return_package", {
     package_dir: external_exports.string().trim().min(1).max(2048),
     dry_run: external_exports.boolean().optional().default(true)
   }),
   strictOperation("apply_import_plan", {
     plan: directorDccImportPlanSchema,
+    /** Connector provider whose job root holds the return package (defaults to blender). */
+    provider: directorDccConnectorProviderIdSchema.optional(),
     expected_revision: external_exports.string().trim().min(1).max(240),
     idempotency_key: external_exports.string().trim().min(1).max(240)
   }),
@@ -133602,10 +133869,104 @@ var directorDccOperationSchema = external_exports.discriminatedUnion("op", [
 var DIRECTOR_TO_BLENDER_BASIS = new Matrix4().set(1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1);
 var BLENDER_TO_DIRECTOR_BASIS = DIRECTOR_TO_BLENDER_BASIS.clone().invert();
 
+// packages/dcc-protocol/src/directorDccEngineContract.ts
+var DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT = "director-dcc-connector-v1";
+var DIRECTOR_DCC_ENGINE_REPORT_CONTRACT = "director-dcc-engine-report-v1";
+var DIRECTOR_DCC_ENGINE_HEALTH_CONTRACT = "director-dcc-engine-health-v1";
+var DIRECTOR_DCC_ENGINE_SEND_CONTRACT = "director-dcc-engine-send-v1";
+var nonEmpty4 = external_exports.string().trim().min(1);
+var sha256Schema = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
+var safeRelativePathSchema = external_exports.string().trim().min(1).max(1024).refine(
+  (path) => !path.startsWith("/") && !path.includes("\\") && !/^[A-Za-z]:/.test(path) && path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
+  { message: "path must be a safe relative path" }
+);
+var directorDccConnectorManifestSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT),
+  provider: directorDccEngineIdSchema,
+  /** Version of the Director-authored connector source. */
+  version: nonEmpty4.max(60),
+  /** Fixed entry points relative to the connector directory. */
+  entryPoints: external_exports.strictObject({
+    health: safeRelativePathSchema,
+    import: safeRelativePathSchema,
+    export: safeRelativePathSchema
+  }),
+  /** Human-readable host requirement, e.g. "Unreal Engine 5.3+". */
+  hostRequirement: nonEmpty4.max(200)
+});
+var directorDccEngineReportSchema = external_exports.strictObject({
+  ok: external_exports.literal(true),
+  contract: external_exports.literal(DIRECTOR_DCC_ENGINE_REPORT_CONTRACT),
+  provider: directorDccEngineIdSchema,
+  hostVersion: nonEmpty4.max(200),
+  connectorVersion: nonEmpty4.max(60),
+  /** The exchange package id this run consumed. */
+  packageId: nonEmpty4.max(240),
+  sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+  importedObjectCount: external_exports.number().int().nonnegative(),
+  importedCameraCount: external_exports.number().int().nonnegative(),
+  /** Host-side scene path (e.g. `/Game/Director/...`, `Assets/Director/...`, `res://director/...`). */
+  scenePath: external_exports.string().trim().min(1).max(1024).nullable(),
+  /** Relative directory of an echoed return package when the connector produced one. */
+  returnPackageDir: safeRelativePathSchema.nullable(),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4)
+});
+var directorDccEngineHealthCheckIdSchema = external_exports.enum([
+  "executable",
+  "host_version",
+  "connector_manifest",
+  "connector_entry",
+  "engine_project",
+  "project_connector"
+]);
+var directorDccEngineHealthSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_DCC_ENGINE_HEALTH_CONTRACT),
+  provider: directorDccEngineIdSchema,
+  ready: external_exports.boolean(),
+  executable: external_exports.string().nullable(),
+  hostVersion: external_exports.string().nullable(),
+  connectorVersion: external_exports.string().nullable(),
+  /** Workspace-relative connector source directory. */
+  connectorDirectory: nonEmpty4.max(240),
+  /** The configured engine project path, or null when not configured. */
+  projectPath: external_exports.string().nullable(),
+  checks: external_exports.array(
+    external_exports.strictObject({
+      id: directorDccEngineHealthCheckIdSchema,
+      ok: external_exports.boolean(),
+      detail: external_exports.string().max(2e3)
+    })
+  ),
+  warnings: external_exports.array(external_exports.string().max(2e3)),
+  recovery: external_exports.array(external_exports.string().max(2e3))
+});
+var directorDccEngineDiagnosticsSchema = external_exports.strictObject({
+  provider: directorDccEngineIdSchema,
+  mode: external_exports.enum(["native", "exchange"]),
+  ready: external_exports.boolean(),
+  warnings: external_exports.array(external_exports.string().max(2e3)),
+  recovery: external_exports.array(external_exports.string().max(2e3))
+});
+var directorDccEngineSendResultSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_DCC_ENGINE_SEND_CONTRACT),
+  jobId: external_exports.string().uuid(),
+  provider: directorDccEngineIdSchema,
+  packagePath: nonEmpty4.max(2048),
+  manifestPath: nonEmpty4.max(2048),
+  manifestSha256: sha256Schema,
+  packageDigest: sha256Schema,
+  sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+  reportPath: nonEmpty4.max(2048),
+  report: directorDccEngineReportSchema,
+  /** Absolute path of the echoed return package directory, when produced. */
+  returnPackagePath: external_exports.string().nullable(),
+  warnings: external_exports.array(external_exports.string().max(2e3))
+});
+
 // packages/dcc-protocol/src/directorDccExchangePackageContract.ts
 var DIRECTOR_DCC_EXCHANGE_PACKAGE_CONTRACT = "director-dcc-exchange-package-v1";
 var DIRECTOR_DCC_EXCHANGE_RESULT_CONTRACT = "director-dcc-exchange-result-v1";
-var sha256Schema = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var sha256Schema2 = external_exports.string().regex(/^[0-9a-f]{64}$/);
 var exchangeMimeTypeByFormat = {
   glb: "model/gltf-binary",
   usda: "model/vnd.usda"
@@ -133618,7 +133979,7 @@ function duplicateEntries(values) {
     return [];
   });
 }
-var safeRelativePathSchema = external_exports.string().trim().min(1).max(1024).refine(
+var safeRelativePathSchema2 = external_exports.string().trim().min(1).max(1024).refine(
   (path) => !path.startsWith("/") && !path.includes("\\") && path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
   { message: "path must be a safe package-relative path" }
 );
@@ -133627,15 +133988,15 @@ var directorDccExchangeArtifactSchema = external_exports.strictObject({
   fileName: external_exports.string().trim().min(1).max(240),
   path: external_exports.string().trim().min(1).max(2048),
   mimeType: external_exports.enum(["model/gltf-binary", "model/vnd.usda"]),
-  sha256: sha256Schema,
+  sha256: sha256Schema2,
   byteLength: external_exports.number().int().nonnegative()
 });
 var directorDccExchangeAssetSchema = external_exports.strictObject({
   assetRefId: external_exports.string().trim().min(1).max(240),
   fileName: external_exports.string().trim().min(1).max(240),
   path: external_exports.string().trim().min(1).max(2048),
-  relativePath: safeRelativePathSchema,
-  sha256: sha256Schema,
+  relativePath: safeRelativePathSchema2,
+  sha256: sha256Schema2,
   byteLength: external_exports.number().int().nonnegative()
 });
 var directorDccExchangePackageManifestSchema = external_exports.strictObject({
@@ -133655,16 +134016,16 @@ var directorDccExchangePackageManifestSchema = external_exports.strictObject({
   formats: external_exports.array(
     external_exports.strictObject({
       format: directorDccPortableExchangeFormatSchema,
-      relativePath: safeRelativePathSchema,
-      sha256: sha256Schema,
+      relativePath: safeRelativePathSchema2,
+      sha256: sha256Schema2,
       byteLength: external_exports.number().int().nonnegative()
     })
   ),
   assets: external_exports.array(
     external_exports.strictObject({
       assetRefId: external_exports.string().trim().min(1).max(240),
-      relativePath: safeRelativePathSchema,
-      sha256: sha256Schema,
+      relativePath: safeRelativePathSchema2,
+      sha256: sha256Schema2,
       byteLength: external_exports.number().int().nonnegative()
     })
   ),
@@ -133788,8 +134149,8 @@ var directorDccExchangePackageResultSchema = external_exports.strictObject({
   provider: directorDccProviderIdSchema,
   packagePath: external_exports.string().trim().min(1).max(2048),
   manifestPath: external_exports.string().trim().min(1).max(2048),
-  manifestSha256: sha256Schema,
-  packageDigest: sha256Schema,
+  manifestSha256: sha256Schema2,
+  packageDigest: sha256Schema2,
   sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
   formats: external_exports.array(directorDccExchangeArtifactSchema),
   assets: external_exports.array(directorDccExchangeAssetSchema),
@@ -133858,7 +134219,7 @@ var PRODUCTION_ARTIFACT_PROMOTION_CONTRACT = "director-artifact-promotion-v1";
 var PRODUCTION_APPROVAL_CONTRACT = "director-production-approval-v1";
 var idSchema2 = external_exports.string().trim().min(1).max(240);
 var nameSchema2 = external_exports.string().trim().min(1).max(512);
-var sha256Schema2 = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var sha256Schema3 = external_exports.string().regex(/^[0-9a-f]{64}$/);
 var fingerprintSchema = external_exports.string().trim().min(16).max(512);
 var isoDateSchema = external_exports.string().datetime({ offset: true });
 var fileNameSchema = external_exports.string().trim().min(1).max(512).refine((value) => value !== "." && value !== ".." && !/[\\/\0]/u.test(value), {
@@ -133881,7 +134242,7 @@ var productionArtifactKindSchema2 = external_exports.enum([
   "other"
 ]);
 var productionArtifactContentSchema = external_exports.strictObject({
-  sha256: sha256Schema2,
+  sha256: sha256Schema3,
   bytes: external_exports.number().int().nonnegative(),
   mimeType: external_exports.string().trim().min(1).max(240),
   fileName: fileNameSchema
@@ -134553,17 +134914,27 @@ function compactWireSchema(schema, description) {
 }
 var directorWorkbenchWireSchema = compactWireSchema(
   directorWorkbenchOperationSchema,
-  'Operation. Use {"op":"describe","target":"<op>"}, target "author.<action>", or target "author.evidence" for exact parameters. Other fields ride alongside op and are strictly validated by the Gateway.'
+  'Operation. Use {"op":"describe","target":"<op>"}, target "author.<action>", or target "author.evidence" when exact fields are unknown. Other fields ride alongside op and are strictly validated by the Gateway.'
 ).extend({
   catalog: directorWorkbenchCatalogIdSchema.optional().describe('Required for op="catalog". Use catalog, never target, collection, source, or catalog_type.'),
   spatial: directorObjectSpatialQuerySchema.optional().describe('Selector for op="query_objects".'),
-  max_results: external_exports.number().int().min(1).max(200).optional().describe('Result bound for op="query_objects".')
+  max_results: external_exports.number().int().min(1).max(200).optional().describe('Result bound for op="query_objects".'),
+  actions: external_exports.array(external_exports.looseObject({ action: external_exports.string().min(1) })).optional().describe(
+    'Required for op="author". Deletion is delete_objects with object_ids (remove_object + id is accepted).'
+  ),
+  fields: external_exports.array(external_exports.string()).optional().describe("Optional observe fields, e.g. counts, ui, objects."),
+  object_id: external_exports.string().optional().describe("Object id for inspect or a single-object author action."),
+  id: external_exports.string().optional(),
+  camera_id: external_exports.string().optional(),
+  frame: external_exports.number().int().optional()
 });
 var directorCreativeWireSchema = compactWireSchema(
   creativeWorkspaceAgentRequestSchema,
-  'Operation. Use {"op":"describe","target":"interchange"} for an exact contract or capabilities for the full surface. Other fields ride alongside op and are strictly validated by the Gateway.'
+  'Operation. Use {"op":"describe","target":"interchange"} when a request shape is unknown. Other fields ride alongside op and are strictly validated by the Gateway.'
 ).extend({
-  target: external_exports.string().trim().min(1).max(200).optional().describe('Required for op="describe".')
+  target: external_exports.string().trim().min(1).max(200).optional().describe('Required for op="describe".'),
+  operation: external_exports.looseObject({ op: external_exports.string().min(1) }).optional().describe('Required for op="execute".'),
+  steps: external_exports.array(external_exports.looseObject({ operation: external_exports.looseObject({ op: external_exports.string().min(1) }).optional() })).optional().describe('Required for op="execute_batch".')
 });
 var DIRECTOR_AGENT_WIRE_SCHEMAS = {
   director_workbench: directorWorkbenchWireSchema.superRefine((value, context) => {
@@ -134579,24 +134950,38 @@ var DIRECTOR_AGENT_WIRE_SCHEMAS = {
   stage_video: compactWireSchema(
     videoModelOperationSchema,
     "Operation. Use capabilities for providers and parameters; prepare validates, submit starts a durable job, and status polls it."
-  ),
+  ).extend({
+    prompt: external_exports.string().optional().describe("Prompt for prepare/submit when the provider needs one.")
+  }),
   blender_native: compactWireSchema(
     blenderNativeToolRequestSchema,
-    'Operation. apply executes one typed transaction; scene reads native state; {"op":"describe","target":"create_primitive"} reflects typed apply schemas without a live kernel; catalog and {"op":"describe","operator":"mesh.bevel"} discover allowlisted RNA.'
-  )
+    'Operation. apply executes typed ops including polyhaven_import and sketchfab_import; {"op":"query","query":"\u6E05\u534E"} finds Blender objects by name; polyhaven_search/sketchfab_search list CC0 or Sketchfab models; capture and capture_render take a native still; scene reads native state; {"op":"describe","target":"create_primitive"} reflects typed apply schemas without a live kernel.'
+  ).extend({
+    operations: external_exports.array(external_exports.looseObject({ op: external_exports.string().min(1) })).optional().describe('Required for op="apply". Typed ops include create_primitive, polyhaven_import, sketchfab_import, execute_code.'),
+    operator: external_exports.string().optional().describe('RNA id for op="describe", e.g. mesh.bevel.'),
+    target: external_exports.string().optional().describe('Typed apply op for op="describe", e.g. create_primitive or polyhaven_import.'),
+    query: external_exports.string().optional().describe('When op="query", Blender object name substring (e.g. "\u6E05\u534E"). Also search text for catalog, polyhaven_search, and sketchfab_search.'),
+    queries: external_exports.array(external_exports.looseObject({ kind: external_exports.string().min(1) })).optional().describe('Spatial or NAME queries for op="query". Prefer query:"\u6E05\u534E" for a name search.'),
+    id: external_exports.string().optional().describe('Object id for op="inspect".'),
+    cameraId: external_exports.string().optional().describe('Camera id for op="capture" or capture_render.'),
+    width: external_exports.number().int().optional(),
+    height: external_exports.number().int().optional(),
+    assetType: external_exports.enum(["hdris", "textures", "models", "all"]).optional().describe('For op="polyhaven_search".'),
+    uid: external_exports.string().optional().describe("Sketchfab model uid for sketchfab_import.")
+  })
 };
 var DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
   {
     type: "function",
     name: "director_creative",
-    description: 'Control Canvas, generation pipelines, Video Editor, interchange, collaboration comments, and versions. Observe current IDs and state with exactly {"op":"observe"}; it does not accept fields. Describe an unfamiliar request before the first attempt, for example {"op":"describe","target":"interchange"}.',
+    description: 'Control Canvas, generation pipelines, Video Editor, interchange, collaboration comments, and versions. Observe current IDs and state with exactly {"op":"observe"}; it does not accept fields. Describe an unfamiliar request when its fields are unknown, for example {"op":"describe","target":"interchange"}.',
     inputSchema: external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_creative),
     dshParameters: dshToolParameters(external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_creative))
   },
   {
     type: "function",
     name: "director_workbench",
-    description: `Control the live Director 3D workbench. Catalog exactly with {"op":"catalog","catalog":"assets"}; catalog is assets, character_assets, character_motions, or project_assets and never uses target. For active camera and totals, call observe with fields ["counts","ui"] and copy result.counts verbatim. For bounded camera context, call query_objects with spatial {"mode":"frustum","camera_id":"..."} and max_results (1-200). Common edits: update_object is {"action":"update_object","object_id":"...","patch":{...}}; update_camera also puts fields in patch; compose_blocking spacing_m is 0.9-8. Use author for scene edits and call describe before the first attempt when an action's exact fields are unknown; describe author.evidence for inline visual proof. Capture, delivery, and diagnostics are available when the user asks for them.`,
+    description: `Control the live Director 3D workbench. Do not assemble scenes from geometry_type primitives; instance catalog or project_assets meshes, model unique geometry with blender_native, or generate with generated_3d. Catalog exactly with {"op":"catalog","catalog":"assets"}; catalog is assets, character_assets, character_motions, or project_assets and never uses target. For active camera and totals, call observe with fields ["counts","ui"] and copy result.counts verbatim. For bounded camera context, call query_objects with spatial {"mode":"frustum","camera_id":"..."} and max_results (1-200). Common edits: update_object is {"action":"update_object","object_id":"...","patch":{...}}; update_camera also puts fields in patch; compose_blocking spacing_m is 0.9-8. Use author for scene edits and call describe when an action's exact fields are unknown; describe author.evidence for inline visual proof. Capture, delivery, and diagnostics are available when the user asks for them.`,
     inputSchema: external_exports.toJSONSchema(directorWorkbenchWireSchema),
     dshParameters: dshToolParameters(external_exports.toJSONSchema(directorWorkbenchWireSchema))
   },
@@ -134610,7 +134995,7 @@ var DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
   {
     type: "function",
     name: "blender_native",
-    description: `Operate Blender's native modeling and rig surface in the same Director project. Use typed apply directly; successful edits synchronize automatically, never via GLB re-import. Call scene when object IDs are unknown. Describe typed apply ops with {"op":"describe","target":"create_primitive"} (no live kernel). Missing scene epoch, revision, and intent id are filled by the gateway.`,
+    description: `Operate Blender's native modeling and rig surface in the same Director project. Use this for unique architecture and set pieces that are not in the catalog; successful edits synchronize automatically, never via GLB re-import. Call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search","assetType":"models","query":"chair"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Native stills are {"op":"capture"} or the alias {"op":"capture_render"}. Describe typed apply ops with {"op":"describe","target":"create_primitive"} when a field is unknown. invoke_operator covers most Blender RNA; execute_code runs Python when that is not enough. Missing scene epoch, revision, and intent id are filled by the gateway.`,
     inputSchema: external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native),
     dshParameters: dshToolParameters(external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native))
   }
@@ -134630,8 +135015,9 @@ var DIRECTOR_DSH_TOOL_NAMES = [
 // backend/gateway/agents/agentToolRegistry.ts
 var DIRECTOR_DYNAMIC_TOOLS = [...DIRECTOR_WORKBENCH_PLUGIN_TOOLS];
 var DIRECTOR_AGENT_PIPELINE_TOOLS = new Set(DIRECTOR_DYNAMIC_TOOLS.map((tool) => tool.name));
+var BLENDER_NATIVE_TOOL_TIMEOUT_MS = 3e5;
 function dynamicToolTimeoutMs(tool, input) {
-  if (tool === "blender_native") return 13e4;
+  if (tool === "blender_native") return BLENDER_NATIVE_TOOL_TIMEOUT_MS;
   const values = asRecord(input);
   if (tool === "director_creative" && values?.op === "pipeline") {
     const request = asRecord(values.request);
@@ -134670,7 +135056,20 @@ async function authenticatedGatewayFetch(path, init, retryUnauthorized = true) {
   const token = await getGatewayAuthToken();
   const headers = new Headers(init.headers);
   headers.set("x-director-browser-token", token);
-  const response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });
+  let response;
+  try {
+    response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });
+  } catch (error52) {
+    const message = error52 instanceof Error ? error52.message : String(error52);
+    try {
+      response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });
+    } catch (retryError) {
+      const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      throw new Error(
+        `Director gateway request to ${gatewayUrl}${path} failed: ${retryMessage || message}. Start npm run dev and reload the Director tab if this persists.`
+      );
+    }
+  }
   if (response.status === 401 && retryUnauthorized) {
     gatewayAuthToken = "";
     return authenticatedGatewayFetch(path, init, false);
@@ -134733,12 +135132,12 @@ var descriptions = {
     `Control Director's 3D scene, objects, characters, cameras, production scenes, timeline, storyboard, capture, and UI. Ops: ${directorWorkbenchOperationNames.join(", ")}.`,
     'describe returns the exact JSON Schema of one operation or author action on demand (target "<op>" or "author.<action>").',
     "Use catalog or a selective observe only when you need current IDs or state, then send one direct authoring operation.",
-    "Reuse catalog IDs and URLs exactly. Primitive positions are floor pivots and primitive scale is metric size.",
+    "Reuse catalog IDs and URLs exactly. Do not assemble scenes from geometry_type primitives; instance catalog meshes, model with blender_native, or generate with generated_3d.",
     "After an edit, one targeted inspect is enough when confirmation is useful. Use audit, correct, trace, capture, or deliver only when the user asks for diagnosis or an output artifact."
   ].join(" "),
   director_creative: `Control the live Director Canvas, multimodal generation graph, Video Editor, interchange export, and collaboration comments. Use capabilities or observe when current IDs are needed, then execute one direct operation or batch. Pipeline actions are start, status, and cancel; interchange uses plan-export followed by export. Preview and audit are optional diagnostics, not required steps. Edit operations: ${creativeWorkspaceAgentOperationNames.join(", ")}.`,
   stage_video: "Discover providers and prepare, submit, inspect, or cancel durable image-to-video jobs from the current validated 3D white-box scene. Ops: capabilities, prepare, render, submit, status, cancel. LTX-2.3 uses the isolated Python GPU worker; ComfyUI remains an optional workflow provider; minimax-h3 renders through the hosted MiniMax H3 multimodal API.",
-  blender_native: `Operate Blender's native modeling and rig surface. Use typed apply directly; call scene when object IDs are unknown. Describe typed apply ops with {"op":"describe","target":"create_primitive"} (no live kernel). catalog/describe with operator are for allowlisted invoke_operator. Missing scene epoch, revision, and intent id are filled by the gateway. inspect and capture are optional checks. status, scene, catalog, describe, inspect, and capture are read-only.`
+  blender_native: `Operate Blender's native modeling and rig surface. Use typed apply directly; call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Describe typed apply ops with {"op":"describe","target":"create_primitive"} when a field is unknown. catalog/describe with operator discover Blender RNA for invoke_operator. execute_code runs Python when a typed op or operator is not enough. Native stills use {"op":"capture"} or {"op":"capture_render"}. Do not quit Blender. Missing scene epoch, revision, and intent id are filled by the gateway. inspect and capture are optional checks. status, scene, catalog, describe, inspect, capture, capture_render, polyhaven_search, and sketchfab_search are read-only.`
 };
 function targetDescriptorFromEnvironment() {
   const source = process.env.DIRECTOR_TARGET_DESCRIPTOR?.trim();
@@ -135097,7 +135496,7 @@ registerVisibleTool("director_dcc", () => {
     "director_dcc",
     {
       title: "Director DCC Bridge",
-      description: "Discover and operate Director DCC providers. Call discover first: it reports nativeReady/exchangeReady, supported formats, and capability maturity for Blender, Maya, Unreal, Houdini, Cinema 4D, Unity, 3ds Max, Godot, and registered third-party providers. export_exchange_package creates a canonical metre/Y-up/stable-ID USD/GLB package without overstating native readiness. Blender additionally retains its revision-guarded export, raw-scene preview/apply, and stable-ID return workflow.",
+      description: "Discover and operate Director DCC providers. Call discover first: it reports nativeReady/exchangeReady, supported formats, and capability maturity for Blender, Maya, Unreal, Houdini, Cinema 4D, Unity, 3ds Max, Godot, and registered third-party providers. export_exchange_package creates a canonical metre/Y-up/stable-ID USD/GLB package without overstating native readiness. send_to_engine runs the Director-authored Unreal/Unity/Godot connector headlessly against the configured engine project (only when nativeReady; otherwise it returns structured diagnostics with recovery steps). receive_from_engine previews an engine return package as a revision-guarded import plan; apply_import_plan applies it with provider set to the engine. Blender additionally retains its revision-guarded export, raw-scene preview/apply, and stable-ID return workflow.",
       inputSchema: wireSchemas.director_dcc,
       outputSchema: directorDccOutputSchema,
       annotations: {

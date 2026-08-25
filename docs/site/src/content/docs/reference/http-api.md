@@ -219,6 +219,60 @@ job paths, limits, and timeouts do not make untrusted files safe. Do not import 
 outside a container or VM. See [Interchange & DCC Handoff](/pipelines/interchange/) for the
 preservation and degradation boundary.
 
+## Engine handoff (Unreal / Unity / Godot)
+
+`director_dcc` also runs headless engine round trips through the Director-authored connectors in
+`integrations/{unreal,unity,godot}`. Check readiness first; `nativeReady` requires the connector
+files, a version-probed executable, and the connector installed in the configured engine project:
+
+```bash
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"status","provider":"godot"}}' | jq
+```
+
+Send the current project into the engine. The Gateway exports an exchange package into a private
+job directory, invokes the fixed connector entry point (never a request-supplied script), and
+returns the schema-validated host report:
+
+```bash
+curl -sS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"send_to_engine","provider":"godot","formats":["glb"]}}' | jq
+```
+
+When the connector is not ready, the route responds `409 engine_not_ready` with structured
+`diagnostics` (`provider`, `mode`, `ready`, `warnings`, `recovery`) instead of a bare failure.
+Follow the recovery steps (set `DIRECTOR_GODOT_BIN` / `DIRECTOR_GODOT_PROJECT`, install the addon)
+or fall back to `export_exchange_package`.
+
+Bring engine edits back with the same preview-then-apply protocol as Blender returns. Engine return
+packages carry canonical Director-space transforms, so pass the producing provider explicitly:
+
+```bash
+PREVIEW="$(curl -sS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"receive_from_engine","provider":"godot","package_dir":"JOB_ID/return-package"}}')"
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "$(printf '%s' "$PREVIEW" | jq '{input:{
+    op:"apply_import_plan",
+    provider:"godot",
+    plan:.result.plan,
+    expected_revision:.result.plan.targetRevision,
+    idempotency_key:("godot-return-" + .result.plan.packageId)
+  }}')" | jq
+```
+
+`receive_from_engine` accepts the same optional `skip_director_ids` list as
+`import_return_package`. Apply is revision-guarded and idempotent; conflicts return `409` with a
+usable read-only plan.
+
 ## Analyze a reference image
 
 `POST /api/reconstruction/reference-scene/analyze` accepts the versioned

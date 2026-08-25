@@ -5,28 +5,32 @@ import { Euler, Quaternion, Vector3 } from "three";
 import { z } from "zod";
 import type { DirectorAuthoringAction } from "@director/agent-engine";
 import type { DirectorWorkbenchOperation } from "@director/agent-engine";
-import type {
-  DirectorProject,
-  DirectorTransform,
-} from "@director/project-schema";
+import type { DirectorProject, DirectorTransform } from "@director/project-schema";
 import { getDirectorProjectRevision } from "@director/project-schema";
 import {
   blenderTransformToDirector,
+  canonicalDccTransformToDirector,
+  directorDccConnectorProviderIdSchema,
   directorDccTransformSchema,
   directorTransformToBlender,
+  directorTransformToCanonicalDcc,
   directorWorldPointToBlender,
+  directorWorldPointToCanonical,
+  type DirectorDccConnectorProviderId,
   type DirectorDccTransform,
 } from "@director/dcc-protocol";
 import {
   DIRECTOR_DCC_IMPORT_PLAN_CONTRACT,
+  directorDccExchangePackageManifestSchema,
   directorDccImportPlanSchema,
   directorDccReturnManifestSchema,
+  type DirectorDccExchangePackageManifest,
   type DirectorDccImportPlanV1,
   type DirectorDccReturnManifestV1,
 } from "@director/dcc-protocol";
 
 /**
- * Machine-readable error codes for Blender return (round-trip) import failures.
+ * Machine-readable error codes for DCC return (round-trip) import failures.
  * Each code maps to a human-readable recovery hint in the `RECOVERY` table.
  */
 export type DirectorDccImportErrorCode =
@@ -42,8 +46,9 @@ export type DirectorDccImportErrorCode =
 const RECOVERY: Record<DirectorDccImportErrorCode, string> = {
   stale_source_revision:
     "Rebuild the import plan against the live project: unchanged objects merge automatically. Confirm each conflicting director_id in Director or exclude it with skip_director_ids; re-export only if the export job snapshot is missing.",
-  package_invalid: "Regenerate the return package with director_return_export.py and keep manifest/hash files intact.",
-  path_escape: "Use a package under data/dcc-jobs/blender only.",
+  package_invalid:
+    "Regenerate the return package with the Director connector's return export (Blender director_return_export.py or the engine connector's headless export) and keep manifest/hash files intact.",
+  path_escape: "Use a package under the provider's data/dcc-jobs/<provider> job root only.",
   unknown_director_id: "Edit a scene exported by Director and retain each object's director_id.",
   conflict_unresolved:
     "Confirm each conflicting object in Director or exclude it with skip_director_ids, rebuild the plan, then apply it.",
@@ -101,25 +106,30 @@ export interface DirectorDccAuthoringResponse {
   error?: string;
 }
 
-/** Options for building a Blender return import plan. */
-export interface BlenderReturnImportPlanOptions {
+/** Options for building a DCC return import plan. */
+export interface DccReturnImportPlanOptions {
   /** Director IDs whose changes are skipped instead of applied or conflicted. */
   skipDirectorIds?: readonly string[];
 }
 
+/** Backwards-compatible alias for the Blender-era option name. */
+export type BlenderReturnImportPlanOptions = DccReturnImportPlanOptions;
+
 /**
- * A Blender return importer validates a return package, builds an import plan
+ * A DCC return importer validates a return package, builds an import plan
  * against the live project, and applies the plan through the Director authoring
- * surface.
+ * surface. One importer instance serves one connector provider's job root.
  */
-export interface BlenderReturnImporter {
+export interface DccReturnImporter {
+  /** The connector provider whose return packages this importer accepts. */
+  readonly provider: DirectorDccConnectorProviderId;
   /** Validate a return package directory and hash-check every file. */
   validatePackage(packageDir: string): Promise<ValidatedDirectorDccReturnPackage>;
   /** Build an import plan from a validated package and live project. */
   buildImportPlan(
     packageDir: string,
     project: DirectorProject,
-    options?: BlenderReturnImportPlanOptions,
+    options?: DccReturnImportPlanOptions,
   ): Promise<DirectorDccImportPlanV1>;
   /** Apply a validated import plan, copying assets and issuing authoring actions. */
   applyImportPlan(
@@ -135,13 +145,21 @@ export interface BlenderReturnImporter {
   }>;
 }
 
-/** Configuration for creating a Blender return importer. */
-export interface CreateBlenderReturnImporterOptions {
+/** Backwards-compatible alias for the Blender-era importer name. */
+export type BlenderReturnImporter = DccReturnImporter;
+
+/** Configuration for creating a DCC return importer. */
+export interface CreateDccReturnImporterOptions {
   /** Absolute or relative workspace root path. */
   workspaceRoot: string;
   /** Directory under which DCC job data is persisted. */
   dataDirectory: string;
+  /** Connector provider whose job root and wire space apply (defaults to blender). */
+  provider?: DirectorDccConnectorProviderId;
 }
+
+/** Backwards-compatible alias for the Blender-era options name. */
+export type CreateBlenderReturnImporterOptions = CreateDccReturnImporterOptions;
 
 function isInside(parent: string, child: string): boolean {
   const value = relative(parent, child);
@@ -230,11 +248,38 @@ function vectorsClose(left: readonly number[], right: readonly number[]): boolea
   );
 }
 
-function blenderTransformsEqual(left: DirectorDccTransform, right: DirectorDccTransform): boolean {
+function dccTransformsEqual(left: DirectorDccTransform, right: DirectorDccTransform): boolean {
   if (!vectorsClose(left.location, right.location) || !vectorsClose(left.scale, right.scale)) return false;
   // q and -q encode the same rotation; both sides are normalized on export.
   const dot = left.rotationQuaternion.reduce((sum, value, index) => sum + value * right.rotationQuaternion[index]!, 0);
   return Math.abs(Math.abs(dot) - 1) <= BASELINE_TOLERANCE;
+}
+
+/**
+ * Coordinate boundary of a return package: Blender packages carry Blender
+ * Z-up transforms, while engine connectors already converted to Director's
+ * canonical space at the provider boundary (identity wire map).
+ */
+interface DccReturnSpace {
+  toDirector(transform: DirectorDccTransform, world: DirectorTransform): DirectorTransform;
+  fromDirector(transform: DirectorTransform, world: DirectorTransform): DirectorDccTransform;
+  worldPointFromDirector(point: [number, number, number], world: DirectorTransform): [number, number, number];
+}
+
+const BLENDER_RETURN_SPACE: DccReturnSpace = {
+  toDirector: (transform, world) => blenderTransformToDirector(transform, world),
+  fromDirector: (transform, world) => directorTransformToBlender(transform, world),
+  worldPointFromDirector: (point, world) => directorWorldPointToBlender(point, world),
+};
+
+const CANONICAL_RETURN_SPACE: DccReturnSpace = {
+  toDirector: (transform, world) => canonicalDccTransformToDirector(transform, world),
+  fromDirector: (transform, world) => directorTransformToCanonicalDcc(transform, world),
+  worldPointFromDirector: (point, world) => directorWorldPointToCanonical(point, world),
+};
+
+function returnSpaceForProvider(provider: DirectorDccConnectorProviderId): DccReturnSpace {
+  return provider === "blender" ? BLENDER_RETURN_SPACE : CANONICAL_RETURN_SPACE;
 }
 
 function directorSideDivergence(
@@ -242,6 +287,7 @@ function directorSideDivergence(
   entity: DirectorProject["objects"][number] | DirectorProject["cameras"][number],
   world: DirectorTransform,
   baseline: DirectorDccSourceBaseline,
+  space: DccReturnSpace,
 ): string | null {
   if (change.entityType === "camera") {
     const camera = entity as DirectorProject["cameras"][number];
@@ -249,10 +295,10 @@ function directorSideDivergence(
     if (!snapshot) {
       return `Camera ${change.directorId} is not part of the export snapshot, so its Director-side edits cannot be verified.`;
     }
-    if (!blenderTransformsEqual(directorTransformToBlender(camera.transform, world), snapshot.transform)) {
+    if (!dccTransformsEqual(space.fromDirector(camera.transform, world), snapshot.transform)) {
       return `Camera ${change.directorId} moved in Director after the export, and the return package also updates it.`;
     }
-    if (!vectorsClose(directorWorldPointToBlender(camera.target, world), snapshot.target)) {
+    if (!vectorsClose(space.worldPointFromDirector(camera.target, world), snapshot.target)) {
       return `Camera ${change.directorId} target changed in Director after the export, and the return package also updates it.`;
     }
     return null;
@@ -263,7 +309,7 @@ function directorSideDivergence(
     return `Object ${change.directorId} is not part of the export snapshot, so its Director-side edits cannot be verified.`;
   }
   const transformChanged =
-    !blenderTransformsEqual(directorTransformToBlender(object.transform, world), snapshot.transform) ||
+    !dccTransformsEqual(space.fromDirector(object.transform, world), snapshot.transform) ||
     (object.parentObjectId ?? null) !== (snapshot.parentObjectId ?? null);
   if (change.kind === "mesh_replacement") {
     const geometryChanged =
@@ -302,6 +348,7 @@ export function buildDirectorDccImportPlan(
   options: DirectorDccImportPlanBuildOptions = {},
 ): DirectorDccImportPlanV1 {
   const { manifest } = validated;
+  const space = returnSpaceForProvider(manifest.provider ?? "blender");
   const targetRevision = getDirectorProjectRevision(project);
   const operations: DirectorDccImportPlanV1["operations"] = [];
   const conflicts: DirectorDccImportPlanV1["conflicts"] = [];
@@ -333,7 +380,7 @@ export function buildDirectorDccImportPlan(
       operations.push({
         op: "skip",
         directorId: change.directorId,
-        reason: `Skipped on request (skip_director_ids); the Blender change for ${change.directorId} is not applied.`,
+        reason: `Skipped on request (skip_director_ids); the DCC change for ${change.directorId} is not applied.`,
       });
       continue;
     }
@@ -355,7 +402,7 @@ export function buildDirectorDccImportPlan(
     }
 
     if (baseline) {
-      const divergence = directorSideDivergence(change, expected, world, baseline);
+      const divergence = directorSideDivergence(change, expected, world, baseline, space);
       if (divergence) {
         operations.push({ op: "skip", directorId: change.directorId, reason: divergence });
         conflicts.push({ directorId: change.directorId, code: "stale_source_revision", reason: divergence });
@@ -378,7 +425,7 @@ export function buildDirectorDccImportPlan(
           op: "update_transform",
           entityType: "object",
           objectId: object!.id,
-          transform: blenderTransformToDirector(change.transform, world),
+          transform: space.toDirector(change.transform, world),
         });
       }
       continue;
@@ -388,7 +435,7 @@ export function buildDirectorDccImportPlan(
       op: "update_transform",
       entityType: change.entityType,
       objectId: change.directorId,
-      transform: blenderTransformToDirector(change.transform, world),
+      transform: space.toDirector(change.transform, world),
     });
   }
 
@@ -490,19 +537,24 @@ function authoringActionsForPlan(
 }
 
 /**
- * Creates a Blender return importer that validates round-trip packages,
+ * Creates a DCC return importer that validates round-trip packages,
  * builds import plans with conflict detection, and applies them through
  * the Director authoring surface.
  *
- * Return packages must reside under the DCC jobs root; all file paths are
- * validated against the manifest's SHA-256 hashes and path-escape checks.
+ * Return packages must reside under the provider's DCC jobs root; all file
+ * paths are validated against the manifest's SHA-256 hashes and path-escape
+ * checks. Blender packages are converted from Blender Z-up space; engine
+ * packages arrive in Director's canonical space (the connector converts at
+ * the provider boundary).
  *
- * @param options - Workspace root and data directory.
+ * @param options - Workspace root, data directory, and connector provider.
  * @returns An importer with validate, build, and apply methods.
  */
-export function createBlenderReturnImporter(options: CreateBlenderReturnImporterOptions): BlenderReturnImporter {
+export function createDccReturnImporter(options: CreateDccReturnImporterOptions): DccReturnImporter {
+  const provider = directorDccConnectorProviderIdSchema.parse(options.provider ?? "blender");
   const workspaceRoot = resolve(options.workspaceRoot);
-  const jobRoot = resolve(options.dataDirectory, "dcc-jobs", "blender");
+  const jobRoot = resolve(options.dataDirectory, "dcc-jobs", provider);
+  const exchangeJobRoot = resolve(options.dataDirectory, "dcc-jobs", "exchange", provider);
   const generatedImportRoot = resolve(workspaceRoot, "assets", "generated", "dcc-import");
 
   async function resolvePackageDirectory(input: string): Promise<{ absolute: string; relative: string }> {
@@ -563,6 +615,13 @@ export function createBlenderReturnImporter(options: CreateBlenderReturnImporter
         `Invalid return manifest at ${issue?.path.join(".") || "manifest"}: ${issue?.message ?? "invalid value"}.`,
       );
     }
+    const manifestProvider = parsed.data.provider ?? "blender";
+    if (manifestProvider !== provider) {
+      throw new DirectorDccImportError(
+        "package_invalid",
+        `Return manifest was produced by the ${manifestProvider} connector, but this importer serves ${provider}.`,
+      );
+    }
     const files = new Map<string, string>();
     for (const [relativePath, expectedHash] of Object.entries(parsed.data.fileHashes)) {
       const candidate = resolve(directory.absolute, relativePath);
@@ -615,7 +674,60 @@ export function createBlenderReturnImporter(options: CreateBlenderReturnImporter
     return validated;
   }
 
+  /**
+   * Build a canonical-space baseline from the exchange package manifest that
+   * was sent to the engine. Engine return transforms arrive in canonical
+   * Director space, so the baseline snapshot uses the same wire space with the
+   * export-time scene transform composed in.
+   */
+  function baselineFromExchangeManifest(manifest: DirectorDccExchangePackageManifest): DirectorDccSourceBaseline {
+    const world = sceneTransform(manifest.project);
+    return directorDccSourceBaselineSchema.parse({
+      contract: "director-dcc-scene-v1",
+      packageId: manifest.packageId,
+      sourceRevision: manifest.sourceRevision,
+      objects: manifest.project.objects.map((object) => ({
+        id: object.id,
+        transform: directorTransformToCanonicalDcc(object.transform, world),
+        ...(object.assetRefId ? { assetRefId: object.assetRefId } : {}),
+        ...(object.geometryType ? { geometryType: object.geometryType } : {}),
+        ...(object.color ? { color: object.color } : {}),
+        ...(object.parentObjectId ? { parentObjectId: object.parentObjectId } : {}),
+      })),
+      cameras: manifest.project.cameras.map((camera) => ({
+        id: camera.id,
+        transform: directorTransformToCanonicalDcc(camera.transform, world),
+        target: directorWorldPointToCanonical(camera.target, world),
+      })),
+    });
+  }
+
+  async function loadEngineSourceBaseline(
+    manifest: DirectorDccReturnManifestV1,
+  ): Promise<DirectorDccSourceBaseline | null> {
+    const canonicalExchangeRoot = await realpath(exchangeJobRoot).catch(() => null);
+    if (!canonicalExchangeRoot) return null;
+    const entries = await readdir(canonicalExchangeRoot, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const candidate = resolve(canonicalExchangeRoot, entry.name, "manifest.json");
+      let payload: unknown;
+      try {
+        payload = JSON.parse(await readFile(candidate, "utf8")) as unknown;
+      } catch {
+        continue;
+      }
+      const parsed = directorDccExchangePackageManifestSchema.safeParse(payload);
+      if (!parsed.success) continue;
+      if (parsed.data.packageId !== manifest.sourcePackageId) continue;
+      if (parsed.data.sourceRevision !== manifest.sourceRevision) continue;
+      return baselineFromExchangeManifest(parsed.data);
+    }
+    return null;
+  }
+
   async function loadSourceBaseline(manifest: DirectorDccReturnManifestV1): Promise<DirectorDccSourceBaseline | null> {
+    if (provider !== "blender") return loadEngineSourceBaseline(manifest);
     const canonicalJobRoot = await realpath(jobRoot).catch(() => null);
     if (!canonicalJobRoot) return null;
     const entries = await readdir(canonicalJobRoot, { withFileTypes: true }).catch(() => []);
@@ -637,11 +749,7 @@ export function createBlenderReturnImporter(options: CreateBlenderReturnImporter
     return null;
   }
 
-  async function buildImportPlan(
-    packageDir: string,
-    project: DirectorProject,
-    options?: BlenderReturnImportPlanOptions,
-  ) {
+  async function buildImportPlan(packageDir: string, project: DirectorProject, options?: DccReturnImportPlanOptions) {
     const validated = await validatePackageCached(packageDir);
     const baseline =
       validated.manifest.sourceRevision === getDirectorProjectRevision(project)
@@ -670,11 +778,7 @@ export function createBlenderReturnImporter(options: CreateBlenderReturnImporter
       );
     }
     if (!submitted.ready || submitted.conflicts.length) {
-      throw new DirectorDccImportError(
-        "conflict_unresolved",
-        "The Blender return plan contains blocking conflicts.",
-        409,
-      );
+      throw new DirectorDccImportError("conflict_unresolved", "The DCC return plan contains blocking conflicts.", 409);
     }
     const validated = await validatePackageCached(submitted.packageDir);
     if (validated.manifest.packageId !== submitted.packageId || validated.manifestHash !== submitted.manifestHash) {
@@ -771,5 +875,15 @@ export function createBlenderReturnImporter(options: CreateBlenderReturnImporter
     return { plan, authoring, copiedAssets };
   }
 
-  return { validatePackage, buildImportPlan, applyImportPlan };
+  return { provider, validatePackage, buildImportPlan, applyImportPlan };
+}
+
+/**
+ * Creates the Blender-scoped DCC return importer (backwards-compatible entry).
+ *
+ * @param options - Workspace root and data directory.
+ * @returns A return importer bound to the Blender job root.
+ */
+export function createBlenderReturnImporter(options: CreateDccReturnImporterOptions): DccReturnImporter {
+  return createDccReturnImporter({ ...options, provider: "blender" });
 }

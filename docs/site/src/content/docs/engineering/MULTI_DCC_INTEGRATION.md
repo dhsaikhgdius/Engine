@@ -6,10 +6,11 @@ description: A capability-driven, format-neutral architecture for connecting Dir
 ## Scope and status
 
 Director should interoperate with the tools already used for character animation,
-procedural environments, motion graphics, virtual production, and final rendering.
-It should not make Blender, Maya, Unreal Engine, Houdini, Cinema 4D, Unity, or 3ds
-Max into a second source of truth, and it should not require an Agent to understand
-each application's menu layout or private file format.
+procedural environments, motion graphics, virtual production, real-time rendering,
+and final rendering. It should not make Blender, Maya, Unreal Engine, Houdini,
+Cinema 4D, Unity, Godot, or 3ds Max into a second source of truth, and it should
+not require an Agent to understand each application's menu layout or private file
+format.
 
 This document defines the target architecture for that interoperability. It uses
 the following status vocabulary:
@@ -21,12 +22,30 @@ the following status vocabulary:
 - **Proposed** — an intended provider adapter or capability, not a claim about the
   current runtime.
 
-At the time of writing, Blender is the only implemented native DCC round trip.
-Director also has documented, deliberately limited glTF/GLB and USD interchange
-subsets. The Maya, Unreal Engine, Houdini, Cinema 4D, Unity, and 3ds Max native
-adapters described below are proposed. Detecting an installed executable does not
-make its native adapter ready. See [Blender Scene Import and Round Trip](/engineering/blender_bridge/)
-for the existing Blender behavior and [Interchange & DCC Handoff](/pipelines/interchange/)
+At the time of writing:
+
+- **Blender** is the implemented native DCC round trip (live kernel, `.blend`
+  import, and reviewed return packages).
+- **Unreal Engine, Unity, and Godot 4** have implemented Director-authored
+  **engine-headless connectors**: the Gateway can run a fixed connector entry
+  point inside the user's engine installation to import the exchange package
+  (`send_to_engine`) and to bring a `director-dcc-return-v1` package back as a
+  revision-guarded plan (`receive_from_engine` / `apply_import_plan`). The
+  covered workflow is scene layout, cameras, stable IDs, and transform-level
+  round trip. Animation, skeletons, materials, and live link remain **planned**
+  for all three engines; the exchange package can carry model payloads, but
+  Director does not claim host-side fidelity it has not validated.
+- Director also has documented, deliberately limited glTF/GLB and USD
+  interchange subsets.
+- The Maya, Houdini, Cinema 4D, and 3ds Max native adapters described below are
+  proposed.
+
+Detecting an installed executable never makes a native adapter ready. For the
+engine connectors, `nativeReady` additionally requires the Director-authored
+connector files, a versioned host probe, and the connector installed inside the
+configured engine project — all verified by a health check. See
+[Blender Scene Import and Round Trip](/engineering/blender_bridge/) for the
+existing Blender behavior and [Interchange & DCC Handoff](/pipelines/interchange/)
 for the tested portable subsets.
 
 ## Design goals
@@ -69,7 +88,7 @@ DirectorProject / Shot IR / stable asset identities
                     ▼
         3. Provider adapters
            Blender · Maya · Unreal · Houdini · Cinema 4D
-           Unity · 3ds Max
+           Unity · 3ds Max · Godot
            headless worker and/or in-host plug-in
 ```
 
@@ -210,12 +229,38 @@ Animation, skeletons, and materials are `connector: planned`, even though the US
 or glTF standards and some copied model payloads can represent versions of those
 concepts. Standard expressiveness is not Director connector maturity.
 
+Every built-in provider also declares its integration style:
+
+| Integration        | Meaning                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `native-roundtrip` | An in-process Director bridge drives the host end to end (Blender)                                                                          |
+| `engine-headless`  | A Director-authored connector runs fixed headless entry points inside the user's engine installation (Unreal, Unity, Godot)                 |
+| `exchange-package` | Director only prepares or consumes the portable package; the operator uses external import/export (Maya, Houdini, Cinema 4D, 3ds Max, etc.) |
+
+For the `engine-headless` providers, the connector promotes exactly the
+capabilities it performs and validates: `headless`, `roundtrip`, and
+`stable_ids` are `native`; `scene` and `camera` remain `exchange` because the
+portable format still carries them; `animation`, `skeleton`, `materials`, and
+`live_link` remain `planned`.
+
 Runtime readiness is separate:
 
 - `installed` means an executable was detected;
 - `exchangeReady` means Director can prepare the documented portable package;
 - `nativeReady` means the provider-specific connector and its prerequisites passed
   their readiness checks.
+
+For an engine connector, `nativeReady` is true only when the health check passes
+end to end: the Director-authored connector manifest and entry points exist in
+the repository, the engine executable was found and version-probed, the engine
+project is configured, and the connector is installed inside that project. The
+Gateway reads these locations from environment variables:
+
+| Provider | Executable                   | Engine project            |
+| -------- | ---------------------------- | ------------------------- |
+| Unreal   | `DIRECTOR_UNREAL_EDITOR_BIN` | `DIRECTOR_UNREAL_PROJECT` |
+| Unity    | `DIRECTOR_UNITY_BIN`         | `DIRECTOR_UNITY_PROJECT`  |
+| Godot    | `DIRECTOR_GODOT_BIN`         | `DIRECTOR_GODOT_PROJECT`  |
 
 An Agent must never infer `nativeReady` from `installed`.
 
@@ -225,15 +270,22 @@ The matrix below separates the current Director claim from upstream official
 capability. Upstream support makes an adapter feasible; it does not make the
 Director adapter implemented.
 
-| Provider         | Current Director maturity     | Preferred portable path | Official automation surface                        | Native/live target                                           | Priority |
-| ---------------- | ----------------------------- | ----------------------- | -------------------------------------------------- | ------------------------------------------------------------ | -------- |
-| Blender          | **Implemented native subset** | `.blend` + GLB/USDA     | Background CLI and Python API                      | Existing reviewed round trip; interactive live link proposed | P0       |
-| Autodesk Maya    | **Exchange**                  | USDA, then GLB          | `mayapy`, `maya.standalone`, Python API 2.0        | Headless export/import plus authenticated in-host connector  | P0       |
-| Unreal Engine    | **Exchange**                  | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Editor plug-in; Live Link only for preview                   | P0       |
-| SideFX Houdini   | **Exchange**                  | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional   | P1       |
-| Cinema 4D        | **Exchange**                  | USDA, then GLB          | Python SDK and `c4dpy`                             | Headless bake/export plus authenticated in-host connector    | P1       |
-| Unity            | **Exchange**                  | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | UPM Editor package; custom preview transport optional        | P2       |
-| Autodesk 3ds Max | **Exchange**                  | USDA, then GLB          | `3dsmaxbatch`, Python, MAXScript                   | Windows headless adapter and optional in-host plug-in        | P2       |
+| Provider         | Current Director maturity                          | Preferred portable path | Official automation surface                        | Native/live target                                                 | Priority |
+| ---------------- | -------------------------------------------------- | ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------ | -------- |
+| Blender          | **Implemented native subset**                      | `.blend` + GLB/USDA     | Background CLI and Python API                      | Existing reviewed round trip; interactive live link proposed       | P0       |
+| Autodesk Maya    | **Exchange**                                       | USDA, then GLB          | `mayapy`, `maya.standalone`, Python API 2.0        | Headless export/import plus authenticated in-host connector        | P0       |
+| Unreal Engine    | **Implemented headless connector (scene/cameras)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer camera cuts implemented; Live Link preview still planned | P0       |
+| SideFX Houdini   | **Exchange**                                       | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional         | P1       |
+| Cinema 4D        | **Exchange**                                       | USDA, then GLB          | Python SDK and `c4dpy`                             | Headless bake/export plus authenticated in-host connector          | P1       |
+| Unity            | **Implemented headless connector (scene/cameras)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline shot mapping implemented; preview transport still planned | P2       |
+| Autodesk 3ds Max | **Exchange**                                       | USDA, then GLB          | `3dsmaxbatch`, Python, MAXScript                   | Windows headless adapter and optional in-host plug-in              | P2       |
+| Godot 4          | **Implemented headless connector (scene/cameras)** | GLB                     | `godot --headless`, GDScript editor plug-ins       | Editor addon plus headless round trip; live preview still planned  | P2       |
+
+"Implemented headless connector" means the Director-authored connector performs
+the headless scene/camera import and transform-level return round trip verified
+by Director's host-free tests. It does not claim lossless animation, skeleton,
+or material transfer; those remain `planned` until version-pinned acceptance
+fixtures pass inside each engine.
 
 The table does not promise complete USD or glTF fidelity. Director only claims the
 subset covered by its schemas, fixtures, validators, and provider acceptance tests.
@@ -275,8 +327,11 @@ has no authentication and can execute commands with the user's privileges.
 
 ### Unreal Engine
 
-Unreal Engine is the first proposed engine adapter because it owns Sequencer,
+Unreal Engine is the first implemented engine adapter because it owns Sequencer,
 virtual production, camera evaluation, and high-quality final rendering workflows.
+The Director-authored connector lives at `integrations/unreal/` (the
+`DirectorBridge` Editor plugin with fixed Python entry points); the Gateway
+invokes it through `UnrealEditor-Cmd` with `-run=pythonscript`.
 
 Official capabilities:
 
@@ -295,14 +350,22 @@ Official capabilities:
 - [Remote Control](https://dev.epicgames.com/documentation/en-us/unreal-engine/remote-control-for-unreal-engine)
   exposes HTTP/WebSocket control but remains a Beta feature.
 
-Proposed Director boundary:
+Implemented Director boundary (see `integrations/unreal/README.md`):
 
-- use a commandlet for deterministic imports, exports, Sequencer baking, and CI;
-- use a Director-authored Editor plug-in for stable IDs and reviewed transactions;
-- map Shot/OTIO editorial ranges to Sequencer and object animation to USD samples;
-- use Live Link for temporary camera or pose preview, not durable scene authority;
-- treat Remote Control as optional rather than the security boundary; and
-- never parse or synthesize `.uasset` files outside Unreal.
+- headless import spawns actors and `CineCameraActor`s from the exchange
+  package, stamps `director:id` actor tags, maps storyboard shots to a
+  `LevelSequence` with camera cuts, and echoes a canonical-space return package;
+- headless export collects tagged actors, converts UE centimetre/Z-up transforms
+  back to Director canonical space, and diffs against the exchange baseline;
+- the connector runs only its fixed entry points from `connector.json`; a
+  request can never substitute its own script.
+
+Still planned:
+
+- object/skeletal animation transfer through USD samples;
+- Live Link for temporary camera or pose preview (never durable scene authority);
+- Remote Control stays optional rather than the security boundary; and
+- `.uasset` files are never parsed or synthesized outside Unreal.
 
 ### SideFX Houdini
 
@@ -363,8 +426,11 @@ Proposed Director boundary:
 
 ### Unity
 
-Unity is a proposed real-time engine and previs adapter. Its stable baseline differs
-from Unreal's because the official USD path is not yet a production round-trip.
+Unity is an implemented real-time engine and previs adapter. Its stable baseline
+differs from Unreal's because the official USD path is not yet a production
+round-trip. The Director-authored connector lives at `integrations/unity/`
+(the `com.director.bridge` UPM Editor package); the Gateway invokes it through
+`-batchmode -executeMethod` with fixed C# methods.
 
 Official capabilities:
 
@@ -377,16 +443,26 @@ Official capabilities:
 - the [USD Importer](https://docs.unity3d.com/Packages/com.unity.importer.usd%40latest/)
   is currently a pre-release package, while its exporter remains experimental.
 
-Proposed Director boundary:
+Implemented Director boundary (see `integrations/unity/README.md`):
 
-- ship a source UPM Editor package plus batch `executeMethod` entry points;
-- prefer GLB for portable runtime assets and the official FBX path for established
-  Unity animation/Timeline workflows;
-- keep USD import experimental until Director has version-pinned acceptance tests;
-- map Director shot ranges into Timeline without making Unity scene YAML an
-  exchange format; and
-- use an authenticated outbound connection for optional preview rather than an
-  exposed arbitrary C# execution endpoint.
+- a source UPM Editor package (`com.director.bridge`) with batch
+  `-executeMethod` entry points for health, import, and export;
+- headless import builds a Unity scene from the exchange package, stamps a
+  `DirectorId` component on every object and camera, maps Director storyboard
+  shots to a Timeline asset, and echoes a canonical-space return package;
+- headless export reopens the scene, collects `DirectorId` components, converts
+  Unity left-handed transforms back to Director canonical space, and diffs
+  against the exchange baseline;
+- GLB remains the preferred portable asset format; Unity scene YAML is never an
+  exchange format.
+
+Still planned:
+
+- animation/skeleton transfer through the official FBX path or a validated USD
+  importer (USD stays experimental until Director has version-pinned acceptance
+  tests); and
+- an authenticated outbound preview connection rather than an exposed arbitrary
+  C# execution endpoint.
 
 ### Autodesk 3ds Max
 
@@ -410,6 +486,42 @@ Proposed Director boundary:
 - bake unsupported modifiers and controllers with explicit warnings; and
 - add an interactive plug-in only after headless golden fixtures pass.
 
+### Godot 4
+
+Godot is an implemented open-source real-time engine adapter. Its coordinate
+system (right-handed, Y-up, metres, camera forward `-Z`) matches Director's
+canonical space exactly, which makes it the lowest-conversion-cost engine path.
+The Director-authored connector lives at `integrations/godot/` (the
+`director_bridge` editor addon with a fixed headless GDScript entry point); the
+Gateway invokes it through `godot --headless --script`.
+
+Official capabilities:
+
+- [Command line tutorial](https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html)
+  documents `--headless`, `--script`, and project-scoped execution;
+- [`GLTFDocument`](https://docs.godotengine.org/en/stable/classes/class_gltfdocument.html)
+  provides runtime and editor glTF 2.0 import/export;
+- [`EditorPlugin`](https://docs.godotengine.org/en/stable/classes/class_editorplugin.html)
+  and `plugin.cfg` addons are the supported editor extension surface; and
+- [Object metadata](https://docs.godotengine.org/en/stable/classes/class_object.html#class-object-method-set-meta)
+  (`set_meta`/`get_meta`) persists Director stable IDs on nodes and scenes.
+
+Implemented Director boundary (see `integrations/godot/README.md`):
+
+- headless import builds a `Node3D` scene from the exchange package,
+  instantiates GLB payloads through `GLTFDocument`, stamps `director_id`
+  metadata, preserves storyboard shots as scene metadata, saves
+  `res://director/` scenes, and echoes a canonical-space return package;
+- headless export collects tagged nodes and diffs their transforms against the
+  exchange baseline (an identity basis change, since Godot matches Director);
+- GLB is the only advertised portable format; USDA is deliberately not claimed
+  because Godot has no bundled USD importer.
+
+Still planned:
+
+- animation/skeleton transfer through glTF animation clips; and
+- an authenticated outbound preview transport (live link).
+
 ## Agent discover-first workflow
 
 An Agent must discover the environment before selecting a transport. The normalized
@@ -432,29 +544,41 @@ workflow is:
 11. Re-observe state, render clean evidence, and record the receipt.
 ```
 
-The common capability surface should converge on operations such as:
+The `director_dcc` tool implements this workflow today with:
 
-- inspect provider capabilities and readiness;
-- export scene or selection;
-- import a reviewed package;
-- synchronize a camera or animation take;
-- validate round-trip invariants;
-- commit a bounded patch; and
-- undo the committed transaction.
+- `discover` / `status` — provider descriptors, capability levels and layers,
+  and truthful `installed` / `exchangeReady` / `nativeReady` readiness;
+- `export_exchange_package` — portable GLB/USDA layout package for any provider;
+- `send_to_engine` — headless handoff into Unreal, Unity, or Godot through the
+  fixed Director-authored connector entry point (rejected with structured
+  diagnostics when the connector is not `nativeReady`);
+- `receive_from_engine` — validate an engine return package and build a
+  read-only import plan (`skip_director_ids` supported);
+- `import_return_package` / `apply_import_plan` — the same plan/apply path for
+  Blender and engine returns, guarded by the exact expected revision and an
+  idempotency key; and
+- `export_blend`, `preview_blend_scene_import`, `apply_blend_scene_import` —
+  the Blender-specific surfaces.
 
-These names describe the target provider-neutral surface. A capability is not
-available merely because it appears in this architecture document or a catalog
-descriptor. The live status result and feature-status documentation are authoritative.
+A capability is not available merely because it appears in this architecture
+document or a catalog descriptor. The live status result and feature-status
+documentation are authoritative.
 
-An Agent should return structured diagnostics instead of retrying blindly:
+When a native engine operation is not available, the Gateway returns structured
+diagnostics instead of a bare failure, and an Agent should follow `recovery`
+instead of retrying blindly:
 
 ```json
 {
-  "provider": "maya",
-  "mode": "exchange",
+  "provider": "unreal",
+  "mode": "native",
   "ready": false,
-  "warnings": ["Control rig requires deformation bake"],
-  "recovery": ["Install and enable the Director Maya connector", "Retry as USDA exchange"]
+  "warnings": ["unreal executable was not found"],
+  "recovery": [
+    "Set DIRECTOR_UNREAL_EDITOR_BIN to the UnrealEditor-Cmd executable.",
+    "Set DIRECTOR_UNREAL_PROJECT to the .uproject that hosts the DirectorBridge plugin.",
+    "Retry with export_exchange_package for a portable USDA/GLB handoff."
+  ]
 }
 ```
 
@@ -592,8 +716,9 @@ and pass/fail evidence.
 
 ### Phase 2 — Unreal virtual-production path
 
-- Add commandlet import/export and a Director Editor plug-in.
-- Map shot editorial data to Sequencer and scene animation to USD.
+- ✅ Headless import/export through the `DirectorBridge` Editor plug-in.
+- ✅ Shot editorial data mapped to Sequencer camera cuts.
+- Map scene animation to USD samples.
 - Add clean-frame render receipts.
 - Add Live Link preview without making it the durable scene channel.
 
@@ -608,9 +733,11 @@ and pass/fail evidence.
 - Add `c4dpy` batch conversion and source plug-in.
 - Define generator, deformer, MoGraph, material, and animation bake policies.
 
-### Phase 5 — Unity and 3ds Max paths
+### Phase 5 — Unity, Godot, and 3ds Max paths
 
-- Add the Unity UPM package and batch export around GLB/FBX and Timeline.
+- ✅ The Unity UPM package (`com.director.bridge`) with batch import/export and
+  Timeline shot mapping.
+- ✅ The Godot `director_bridge` addon with `--headless` import/export around GLB.
 - Add the Windows `3dsmaxbatch` worker around USD and validated fixtures.
 - Keep Unity USD export experimental until the upstream package and Director tests
   justify a stronger claim.

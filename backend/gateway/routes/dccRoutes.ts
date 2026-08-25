@@ -1,18 +1,19 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
-import { directorDccOperationSchema } from "@director/dcc-protocol";
+import { directorDccOperationSchema, type DirectorDccEngineId } from "@director/dcc-protocol";
 import { safeParseDirectorProject } from "@director/project-schema";
 import type { BlenderBridge } from "../dcc/blenderBridge";
 import { DirectorBlendSceneImportError, type BlenderSceneImporter } from "../dcc/blenderSceneImport";
 import {
   DirectorDccImportError,
-  type BlenderReturnImporter,
+  type DccReturnImporter,
   type DirectorDccAuthoringResponse,
 } from "../dcc/blenderReturnImport";
 import type { DirectorWorkbenchOperation } from "@director/agent-engine";
 import { directorDccProviderIdSchema } from "@director/dcc-protocol";
 import type { DirectorDccProviderRegistry } from "../dcc/dccProviderRegistry";
 import { DirectorDccExchangePackageError, type DirectorDccExchangePackager } from "../dcc/dccExchangePackage";
+import { DirectorDccEngineBridgeError, type DirectorDccEngineBridge } from "../dcc/engineBridge";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -23,19 +24,22 @@ const envelopeSchema = z.looseObject({
 const skipDirectorIdsSchema = z.array(z.string().trim().min(1).max(200)).max(20_000);
 
 /**
- * import_return_package accepts an optional skip_director_ids list on top of the
- * strict shared operation schema; extract it before strict parsing rejects it.
+ * import_return_package and receive_from_engine accept an optional
+ * skip_director_ids list on top of the strict shared operation schema;
+ * extract it before strict parsing rejects it.
  */
 function extractSkipDirectorIds(input: unknown): {
   operationInput: unknown;
   skipDirectorIds?: string[];
   error?: string;
 } {
+  const op =
+    input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>).op : undefined;
   if (
     !input ||
     typeof input !== "object" ||
     Array.isArray(input) ||
-    (input as Record<string, unknown>).op !== "import_return_package" ||
+    (op !== "import_return_package" && op !== "receive_from_engine") ||
     !("skip_director_ids" in input)
   ) {
     return { operationInput: input };
@@ -59,7 +63,11 @@ export interface DccRouteDependencies {
   providers?: DirectorDccProviderRegistry;
   exchangePackager?: DirectorDccExchangePackager;
   sceneImporter?: BlenderSceneImporter;
-  returnImporter?: BlenderReturnImporter;
+  returnImporter?: DccReturnImporter;
+  /** Headless engine connector bridge for Unreal/Unity/Godot send jobs. */
+  engineBridge?: DirectorDccEngineBridge;
+  /** Per-engine return importers scoped to each engine's job root. */
+  engineReturnImporters?: Partial<Record<DirectorDccEngineId, DccReturnImporter>>;
   applyAuthoring?: (operation: DirectorWorkbenchOperation) => Promise<DirectorDccAuthoringResponse | null>;
 }
 
@@ -79,6 +87,8 @@ export async function handleDccRoute(
     exchangePackager,
     sceneImporter,
     returnImporter,
+    engineBridge,
+    engineReturnImporters,
     applyAuthoring,
   } = dependencies;
 
@@ -282,6 +292,56 @@ export async function handleDccRoute(
       json(response, 200, { success: true, result });
       return true;
     }
+    if (parsed.data.op === "send_to_engine") {
+      if (!engineBridge) {
+        json(response, 503, {
+          success: false,
+          code: "engine_bridge_unavailable",
+          error: "The DCC engine bridge is not configured on this gateway.",
+        });
+        return true;
+      }
+      const result = await engineBridge.send(project, {
+        provider: parsed.data.provider,
+        formats: parsed.data.formats,
+        cameraId: parsed.data.camera_id,
+        frame: parsed.data.frame,
+      });
+      json(response, 200, { success: true, result });
+      return true;
+    }
+    if (parsed.data.op === "receive_from_engine") {
+      const engineImporter = engineReturnImporters?.[parsed.data.provider];
+      if (!engineImporter) {
+        json(response, 503, {
+          success: false,
+          code: "return_import_unavailable",
+          error: `The ${parsed.data.provider} return importer is not configured on this gateway.`,
+        });
+        return true;
+      }
+      const plan = skipDirectorIds
+        ? await engineImporter.buildImportPlan(parsed.data.package_dir, project, { skipDirectorIds })
+        : await engineImporter.buildImportPlan(parsed.data.package_dir, project);
+      json(response, plan.ready ? 200 : 409, {
+        success: plan.ready,
+        ...(plan.ready ? {} : { code: plan.conflicts[0]?.code ?? "conflict_unresolved" }),
+        result: {
+          ready: plan.ready,
+          provider: parsed.data.provider,
+          dry_run: parsed.data.dry_run,
+          summary: {
+            operation_count: plan.operations.filter((operation) => operation.op !== "skip" && operation.op !== "warn")
+              .length,
+            skipped_count: plan.operations.filter((operation) => operation.op === "skip").length,
+            conflict_count: plan.conflicts.length,
+            warning_count: plan.warnings.length,
+          },
+          plan,
+        },
+      });
+      return true;
+    }
     if (parsed.data.op === "preview_blend_scene_import") {
       if (!sceneImporter) {
         json(response, 503, {
@@ -322,15 +382,15 @@ export async function handleDccRoute(
       json(response, 200, { success: true, result });
       return true;
     }
-    if (!returnImporter) {
-      json(response, 503, {
-        success: false,
-        code: "return_import_unavailable",
-        error: "Blender return importer is not configured.",
-      });
-      return true;
-    }
     if (parsed.data.op === "import_return_package") {
+      if (!returnImporter) {
+        json(response, 503, {
+          success: false,
+          code: "return_import_unavailable",
+          error: "Blender return importer is not configured.",
+        });
+        return true;
+      }
       const plan = skipDirectorIds
         ? await returnImporter.buildImportPlan(parsed.data.package_dir, project, { skipDirectorIds })
         : await returnImporter.buildImportPlan(parsed.data.package_dir, project);
@@ -352,6 +412,16 @@ export async function handleDccRoute(
       });
       return true;
     }
+    const applyProvider = parsed.data.provider ?? "blender";
+    const applyImporter = applyProvider === "blender" ? returnImporter : engineReturnImporters?.[applyProvider];
+    if (!applyImporter) {
+      json(response, 503, {
+        success: false,
+        code: "return_import_unavailable",
+        error: `The ${applyProvider} return importer is not configured on this gateway.`,
+      });
+      return true;
+    }
     if (!applyAuthoring) {
       json(response, 503, {
         success: false,
@@ -360,15 +430,24 @@ export async function handleDccRoute(
       });
       return true;
     }
-    const result = await returnImporter.applyImportPlan(
+    const result = await applyImporter.applyImportPlan(
       parsed.data.plan,
       project,
       parsed.data.expected_revision,
       parsed.data.idempotency_key,
       applyAuthoring,
     );
-    json(response, 200, { success: true, result });
+    json(response, 200, { success: true, result: { provider: applyProvider, ...result } });
   } catch (error) {
+    if (error instanceof DirectorDccEngineBridgeError) {
+      json(response, error.status, {
+        success: false,
+        code: error.code,
+        error: error.message,
+        ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}),
+      });
+      return true;
+    }
     if (error instanceof DirectorDccExchangePackageError) {
       json(response, error.status, {
         success: false,

@@ -11,9 +11,15 @@ import {
   directorDccExchangePackageResultSchema,
   type DirectorDccExchangePackageResult,
 } from "../../../dcc/directorDccExchangePackageContract";
+import {
+  directorDccEngineSendResultSchema,
+  type DirectorDccEngineSendResult,
+} from "../../../dcc/directorDccEngineContract";
+import { directorDccEngineIdSchema, type DirectorDccEngineId } from "../../../dcc/directorDccEngineSpace";
 import { directorControlPlaneFetch } from "./directorControlPlaneClient";
 
 export type { DirectorDccExchangePackageResult } from "../../../dcc/directorDccExchangePackageContract";
+export type { DirectorDccEngineSendResult } from "../../../dcc/directorDccEngineContract";
 
 const providerCatalogResponseSchema = z.strictObject({
   success: z.literal(true),
@@ -25,11 +31,24 @@ const exportExchangePackageResponseSchema = z.strictObject({
   result: directorDccExchangePackageResultSchema,
 });
 
+const sendToEngineResponseSchema = z.strictObject({
+  success: z.literal(true),
+  result: directorDccEngineSendResultSchema,
+});
+
+const gatewayErrorDiagnosticsSchema = z.looseObject({
+  provider: directorDccEngineIdSchema,
+  ready: z.boolean(),
+  warnings: z.array(z.string()),
+  recovery: z.array(z.string()),
+});
+
 const gatewayErrorSchema = z.looseObject({
   success: z.literal(false).optional(),
   code: z.string().trim().min(1).optional(),
   error: z.string().trim().min(1).optional(),
   recovery: z.string().trim().min(1).optional(),
+  diagnostics: gatewayErrorDiagnosticsSchema.optional(),
 });
 
 const exportExchangePackageInputSchema = z.strictObject({
@@ -51,6 +70,14 @@ export interface DirectorDccExchangePackageRequest {
   frame?: number;
 }
 
+/** Structured not-ready diagnostics forwarded from the gateway, when present. */
+export interface DirectorDccProviderClientDiagnostics {
+  provider: DirectorDccEngineId;
+  ready: boolean;
+  warnings: string[];
+  recovery: string[];
+}
+
 /** Error thrown by DCC provider API calls when the gateway rejects the request. */
 export class DirectorDccProviderClientError extends Error {
   /** HTTP status code from the gateway response. */
@@ -59,13 +86,22 @@ export class DirectorDccProviderClientError extends Error {
   readonly code?: string;
   /** Optional recovery hint from the gateway. */
   readonly recovery?: string;
+  /** Structured engine diagnostics from the gateway, when present. */
+  readonly diagnostics?: DirectorDccProviderClientDiagnostics;
 
-  constructor(message: string, status: number, code?: string, recovery?: string) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    recovery?: string,
+    diagnostics?: DirectorDccProviderClientDiagnostics,
+  ) {
     super(message);
     this.name = "DirectorDccProviderClientError";
     this.status = status;
     this.code = code;
     this.recovery = recovery;
+    this.diagnostics = diagnostics;
   }
 }
 
@@ -81,6 +117,7 @@ function throwGatewayError(response: Response, body: unknown, fallback: string):
       response.status,
       parsed.data.code,
       parsed.data.recovery,
+      parsed.data.diagnostics,
     );
   }
   throw new DirectorDccProviderClientError(
@@ -147,6 +184,71 @@ export async function exportDirectorDccExchangePackage(
   if (result.provider !== request.provider) {
     throw new DirectorDccProviderClientError(
       `DCC exchange package response targeted ${result.provider}, not ${request.provider}`,
+      502,
+      "provider_mismatch",
+    );
+  }
+  return result;
+}
+
+const sendToEngineInputSchema = z.strictObject({
+  provider: directorDccEngineIdSchema,
+  formats: z.array(directorDccPortableExchangeFormatSchema).min(1).max(2).optional(),
+  cameraId: z.string().trim().min(1).max(160).optional(),
+  frame: z.number().finite().nonnegative().optional(),
+});
+
+/** Input shape for a headless send-to-engine handoff. */
+export interface DirectorDccEngineSendRequest {
+  /** The engine connector to target ("unreal", "unity", or "godot"). */
+  provider: DirectorDccEngineId;
+  /** Optional portable formats to include in the exchange package. */
+  formats?: DirectorDccPortableExchangeFormat[];
+  /** Optional camera id to snapshot from when exporting. */
+  cameraId?: string;
+  /** Optional frame number to snapshot at. */
+  frame?: number;
+}
+
+/**
+ * Runs a headless send-to-engine handoff through the gateway.
+ *
+ * The gateway exports an exchange package, invokes the fixed Director-authored
+ * connector entry point inside the user's engine installation, and returns the
+ * schema-validated host report. Rejected with structured diagnostics when the
+ * engine connector is not nativeReady.
+ *
+ * @param input - The send request specifying provider, formats, and optional camera/frame.
+ * @param options - Optional abort signal for cancellation.
+ * @returns The completed send result including the host report.
+ */
+export async function sendDirectorProjectToEngine(
+  input: DirectorDccEngineSendRequest,
+  options: { signal?: AbortSignal } = {},
+): Promise<DirectorDccEngineSendResult> {
+  const request = sendToEngineInputSchema.parse(input);
+  const response = await directorControlPlaneFetch("/api/tools/director_dcc", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      input: {
+        op: "send_to_engine",
+        provider: request.provider,
+        ...(request.formats ? { formats: request.formats } : {}),
+        ...(request.cameraId ? { camera_id: request.cameraId } : {}),
+        ...(request.frame !== undefined ? { frame: request.frame } : {}),
+      },
+    }),
+    signal: options.signal,
+  });
+  const body = await responseJson(response);
+  const parsed = sendToEngineResponseSchema.safeParse(body);
+  if (!parsed.success || !response.ok) return throwGatewayError(response, body, "Engine handoff failed");
+
+  const result = parsed.data.result;
+  if (result.provider !== request.provider) {
+    throw new DirectorDccProviderClientError(
+      `Engine handoff response targeted ${result.provider}, not ${request.provider}`,
       502,
       "provider_mismatch",
     );

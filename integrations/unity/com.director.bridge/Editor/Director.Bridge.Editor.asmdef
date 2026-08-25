@@ -1,0 +1,11 @@
+{
+  "name": "Director.Bridge.Editor",
+  "rootNamespace": "Director.Bridge.Editor",
+  "references": ["Director.Bridge", "Unity.Timeline"],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": true,
+  "precompiledReferences": ["Newtonsoft.Json.dll"],
+  "overrideReferences": true
+}

@@ -22,6 +22,7 @@ standard.
 | ASCII STL ZIP      | export        | All or selected supported Stage primitives, baked world transforms, stable-ID solid names, metric/Y-up manifest, and SHA-256 file receipts        | No materials, textures, hierarchy, cameras, lights, animation, or embedded unit declaration; the sidecar is required for full interpretation                     |
 | Blender `.blend`   | import        | Active-scene current-frame GLB snapshot, selected static perspective cameras, source-time audit metadata                                          | No deep editable hierarchy, animation playback/timeline remap, live sync, or safe processing of untrusted files; Blender-only semantics are unsupported or lossy |
 | Blender round trip | export/return | Validated scene/camera handoff, clay preview, stable-ID mesh/transform return                                                                     | Return is limited to hashed packages below the DCC job root; Blender-only objects and optics/light edits are not auto-imported                                   |
+| Engine handoff (Unreal/Unity/Godot) | send/receive | Headless connector import of scene layout, cameras, and shot ranges with `director:id` metadata; canonical-space transform return | Requires the Director-authored connector installed in the user's engine project (`nativeReady`); animation, skeletons, materials, and live link are not claimed |
 
 The editor's **Interchange** menu is the human entry point. Stage OTIO and Video workspace OTIO
 have separate adapters because they preserve different source models. Import always validates
@@ -174,7 +175,13 @@ Agent. Use the Interchange menu or a corresponding trusted host adapter, and nev
 without an actual user-selected file and validated result.
 
 For Stage acceptance and provider-neutral evidence, use `director_workbench` `shot_ir`,
-`shot_package`, or `deliver`. For Blender, discover and invoke `director_dcc` capabilities.
+`shot_package`, or `deliver`. For Blender and the engine connectors, discover and invoke
+`director_dcc` capabilities: `discover`/`status` report truthful readiness,
+`export_exchange_package` prepares the portable package for any provider, and
+`send_to_engine` / `receive_from_engine` / `apply_import_plan` run the headless
+Unreal/Unity/Godot round trip when the Director-authored connector is `nativeReady`.
+See [Multi-DCC Integration](/engineering/multi_dcc_integration/) for the engine
+readiness bar and structured not-ready diagnostics.
 
 ## Round-trip checklist
 

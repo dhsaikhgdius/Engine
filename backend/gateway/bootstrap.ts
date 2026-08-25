@@ -37,8 +37,9 @@ import { RefSessionRegistry } from "./refSessions";
 import { TerminalSessionManager } from "./terminalSessionManager";
 import { DirectorCollaborationWebSocketHub } from "./collaborationWebSocketHub";
 import { createBlenderBridge } from "./dcc/blenderBridge";
-import { createBlenderReturnImporter } from "./dcc/blenderReturnImport";
+import { createBlenderReturnImporter, createDccReturnImporter } from "./dcc/blenderReturnImport";
 import { createBlenderSceneImporter } from "./dcc/blenderSceneImport";
+import { createDirectorDccEngineBridge } from "./dcc/engineBridge";
 import { createDirectorDccProviderRegistry, registerConfiguredDirectorDccProviders } from "./dcc/dccProviderRegistry";
 import { createDirectorDccExchangePackager } from "./dcc/dccExchangePackage";
 import { createBlenderNativeSession } from "./dcc/blenderNativeSession";
@@ -218,6 +219,10 @@ export interface GatewayContext {
   dccProviders: ReturnType<typeof createDirectorDccProviderRegistry>;
   /** Packager for DCC exchange files. */
   dccExchangePackager: ReturnType<typeof createDirectorDccExchangePackager>;
+  /** Headless engine connector bridge for Unreal/Unity/Godot. */
+  dccEngineBridge: ReturnType<typeof createDirectorDccEngineBridge>;
+  /** Per-engine return importers for engine round trips. */
+  dccEngineReturnImporters: Record<"unreal" | "unity" | "godot", ReturnType<typeof createDccReturnImporter>>;
   /** Native Blender session for live Blender operations. */
   blenderNativeSession: ReturnType<typeof createBlenderNativeSession>;
   /** Registry of agent profile definitions. */
@@ -312,9 +317,19 @@ export async function createGatewayContext(): Promise<GatewayContext> {
   const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
   const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
   const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
-  const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge });
-  await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
   const dccExchangePackager = createDirectorDccExchangePackager({ workspaceRoot: root, dataDirectory });
+  const dccEngineBridge = createDirectorDccEngineBridge({
+    workspaceRoot: root,
+    dataDirectory,
+    exchangePackager: dccExchangePackager,
+  });
+  const dccEngineReturnImporters = {
+    unreal: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "unreal" }),
+    unity: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "unity" }),
+    godot: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "godot" }),
+  } as const;
+  const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge, engines: dccEngineBridge });
+  await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
   const blenderNativeSession = createBlenderNativeSession(controlPlaneConfig.dcc.blender);
 
   // Agent plan schema
@@ -327,10 +342,7 @@ export async function createGatewayContext(): Promise<GatewayContext> {
   await mkdir(dataDirectory, { recursive: true });
   await writeJsonAtomic(agentPlanSchemaPath, AGENT_PLAN_SCHEMA, { space: 0 });
 
-  const agentProfileRegistry = new AgentProfileRegistry(
-    controlPlaneConfig,
-    probeLocalAgentCliAvailability(),
-  );
+  const agentProfileRegistry = new AgentProfileRegistry(controlPlaneConfig, probeLocalAgentCliAvailability());
   const referenceSceneAnalyzer = createReferenceSceneAnalyzer({ profiles: agentProfileRegistry });
 
   // filmPipeline needs workbenchExecute which requires requestWorkbenchCommand — inject later
@@ -451,6 +463,8 @@ export async function createGatewayContext(): Promise<GatewayContext> {
     blenderSceneImporter,
     dccProviders,
     dccExchangePackager,
+    dccEngineBridge,
+    dccEngineReturnImporters,
     blenderNativeSession,
     agentProfileRegistry,
     filmPipeline,

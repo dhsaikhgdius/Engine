@@ -1,9 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import type {
-  DirectorBlendSceneImportPlanV1,
-  DirectorBlendSceneManifestV1,
-} from "@director/dcc-protocol";
+import type { DirectorBlendSceneImportPlanV1, DirectorBlendSceneManifestV1 } from "@director/dcc-protocol";
 import type { BlenderBridge } from "../../dcc/blenderBridge";
 import type { BlenderSceneImporter } from "../../dcc/blenderSceneImport";
 import type { BlenderReturnImporter } from "../../dcc/blenderReturnImport";
@@ -12,6 +9,7 @@ import { handleDccRoute } from "../../routes/dccRoutes";
 import { getDirectorDccProviderDescriptor } from "@director/dcc-protocol";
 import type { DirectorDccProviderRegistry } from "../../dcc/dccProviderRegistry";
 import { DirectorDccExchangePackageError, type DirectorDccExchangePackager } from "../../dcc/dccExchangePackage";
+import { DirectorDccEngineBridgeError, type DirectorDccEngineBridge } from "../../dcc/engineBridge";
 
 const BLEND_HASH = "a".repeat(64);
 const BLEND_REVISION = `director-project-revision:v1:sha256:${"b".repeat(64)}` as const;
@@ -472,7 +470,10 @@ describe("DCC routes", () => {
       applyAuthoring,
     });
     expect(returnImporter.applyImportPlan).toHaveBeenCalledWith(plan, project, revision, "return-1", applyAuthoring);
-    expect(json).toHaveBeenCalledWith(expect.anything(), 200, { success: true, result });
+    expect(json).toHaveBeenCalledWith(expect.anything(), 200, {
+      success: true,
+      result: { provider: "blender", ...result },
+    });
   });
 
   it("discovers all registered DCC providers without loading the live project", async () => {
@@ -629,6 +630,220 @@ describe("DCC routes", () => {
       success: false,
       code: "dcc_exchange_busy",
       error: "Too many exports.",
+    });
+  });
+});
+
+describe("DCC engine handoff routes", () => {
+  const blenderStub = { status: vi.fn(), exportBlend: vi.fn() };
+
+  it("returns 503 for send_to_engine when the engine bridge is not configured", async () => {
+    const json = vi.fn();
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      readBody: vi.fn().mockResolvedValue({ input: { op: "send_to_engine", provider: "godot" } }),
+      json,
+      getProject: vi.fn().mockResolvedValue(createTestDirectorProject()),
+      blender: blenderStub,
+    });
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      503,
+      expect.objectContaining({ success: false, code: "engine_bridge_unavailable" }),
+    );
+  });
+
+  it("rejects send_to_engine for non-engine providers before touching the bridge", async () => {
+    const json = vi.fn();
+    const engineBridge = { send: vi.fn() } as unknown as DirectorDccEngineBridge;
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      readBody: vi.fn().mockResolvedValue({ input: { op: "send_to_engine", provider: "blender" } }),
+      json,
+      getProject: vi.fn().mockResolvedValue(createTestDirectorProject()),
+      blender: blenderStub,
+      engineBridge,
+    });
+    expect(engineBridge.send).not.toHaveBeenCalled();
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      400,
+      expect.objectContaining({ success: false, error: expect.stringContaining("Invalid director_dcc input") }),
+    );
+  });
+
+  it("surfaces engine_not_ready diagnostics with the recovery steps", async () => {
+    const json = vi.fn();
+    const diagnostics = {
+      provider: "unreal" as const,
+      mode: "exchange" as const,
+      ready: false,
+      warnings: ["Unreal Engine executable was not detected."],
+      recovery: [
+        "Set DIRECTOR_UNREAL_EDITOR_BIN to the UnrealEditor-Cmd binary of a licensed Unreal Engine install.",
+        "Portable usda/glb exchange remains available.",
+      ],
+    };
+    const engineBridge = {
+      send: vi
+        .fn()
+        .mockRejectedValue(
+          new DirectorDccEngineBridgeError(
+            "engine_not_ready",
+            "unreal native connector is not ready; portable exchange export remains available.",
+            409,
+            diagnostics,
+          ),
+        ),
+    } as unknown as DirectorDccEngineBridge;
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      readBody: vi.fn().mockResolvedValue({ input: { op: "send_to_engine", provider: "unreal" } }),
+      json,
+      getProject: vi.fn().mockResolvedValue(createTestDirectorProject()),
+      blender: blenderStub,
+      engineBridge,
+    });
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      409,
+      expect.objectContaining({ success: false, code: "engine_not_ready", diagnostics }),
+    );
+  });
+
+  it("runs a ready send_to_engine job and returns the bridge result", async () => {
+    const json = vi.fn();
+    const sendResult = { contract: "director-dcc-engine-send-v1", jobId: "fixture", provider: "unity" };
+    const engineBridge = { send: vi.fn().mockResolvedValue(sendResult) } as unknown as DirectorDccEngineBridge;
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      readBody: vi
+        .fn()
+        .mockResolvedValue({ input: { op: "send_to_engine", provider: "unity", formats: ["glb"], frame: 12 } }),
+      json,
+      getProject: vi.fn().mockResolvedValue(createTestDirectorProject()),
+      blender: blenderStub,
+      engineBridge,
+    });
+    expect(engineBridge.send).toHaveBeenCalledWith(expect.anything(), {
+      provider: "unity",
+      formats: ["glb"],
+      cameraId: undefined,
+      frame: 12,
+    });
+    expect(json).toHaveBeenCalledWith(expect.anything(), 200, { success: true, result: sendResult });
+  });
+
+  it("builds receive_from_engine plans through the per-engine importer with skip support", async () => {
+    const json = vi.fn();
+    const plan = {
+      contract: "director-dcc-import-plan-v1",
+      ready: true,
+      packageId: "godot-return-1",
+      packageDir: "job-9/return",
+      manifestHash: "a".repeat(64),
+      sourceRevision: BLEND_REVISION,
+      targetRevision: BLEND_REVISION,
+      operations: [{ op: "skip", directorId: "chair", reason: "requested" }],
+      conflicts: [],
+      warnings: [],
+    };
+    const godotImporter = { buildImportPlan: vi.fn().mockResolvedValue(plan) } as unknown as BlenderReturnImporter;
+    const project = createTestDirectorProject();
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      readBody: vi.fn().mockResolvedValue({
+        input: {
+          op: "receive_from_engine",
+          provider: "godot",
+          package_dir: "job-9/return",
+          skip_director_ids: ["chair"],
+        },
+      }),
+      json,
+      getProject: vi.fn().mockResolvedValue(project),
+      blender: blenderStub,
+      engineReturnImporters: { godot: godotImporter },
+    });
+    expect(godotImporter.buildImportPlan).toHaveBeenCalledWith("job-9/return", project, {
+      skipDirectorIds: ["chair"],
+    });
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      200,
+      expect.objectContaining({
+        success: true,
+        result: expect.objectContaining({
+          provider: "godot",
+          summary: expect.objectContaining({ skipped_count: 1 }),
+        }),
+      }),
+    );
+  });
+
+  it("returns 503 for receive_from_engine when the provider importer is missing", async () => {
+    const json = vi.fn();
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      readBody: vi
+        .fn()
+        .mockResolvedValue({ input: { op: "receive_from_engine", provider: "unreal", package_dir: "job-1/return" } }),
+      json,
+      getProject: vi.fn().mockResolvedValue(createTestDirectorProject()),
+      blender: blenderStub,
+      engineReturnImporters: {},
+    });
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      503,
+      expect.objectContaining({ success: false, code: "return_import_unavailable" }),
+    );
+  });
+
+  it("routes apply_import_plan with an engine provider to that engine's importer", async () => {
+    const json = vi.fn();
+    const project = createTestDirectorProject();
+    const revision = `director-project-revision:v1:sha256:${"d".repeat(64)}` as const;
+    const plan = {
+      contract: "director-dcc-import-plan-v1" as const,
+      ready: true,
+      packageId: "unreal-return-1",
+      packageDir: "job-1/return",
+      manifestHash: "a".repeat(64),
+      sourceRevision: revision,
+      targetRevision: revision,
+      operations: [],
+      conflicts: [],
+      warnings: [],
+    };
+    const applyResult = { plan, authoring: { success: true }, copiedAssets: [] };
+    const unrealImporter = {
+      applyImportPlan: vi.fn().mockResolvedValue(applyResult),
+    } as unknown as BlenderReturnImporter;
+    const blenderImporter = { applyImportPlan: vi.fn() } as unknown as BlenderReturnImporter;
+    const applyAuthoring = vi.fn();
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      readBody: vi.fn().mockResolvedValue({
+        input: {
+          op: "apply_import_plan",
+          provider: "unreal",
+          plan,
+          expected_revision: revision,
+          idempotency_key: "engine-apply-1",
+        },
+      }),
+      json,
+      getProject: vi.fn().mockResolvedValue(project),
+      blender: blenderStub,
+      returnImporter: blenderImporter,
+      engineReturnImporters: { unreal: unrealImporter },
+      applyAuthoring,
+    });
+    expect(unrealImporter.applyImportPlan).toHaveBeenCalledWith(
+      plan,
+      project,
+      revision,
+      "engine-apply-1",
+      applyAuthoring,
+    );
+    expect(blenderImporter.applyImportPlan).not.toHaveBeenCalled();
+    expect(json).toHaveBeenCalledWith(expect.anything(), 200, {
+      success: true,
+      result: { provider: "unreal", ...applyResult },
     });
   });
 });

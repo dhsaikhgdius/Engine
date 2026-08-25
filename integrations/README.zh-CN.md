@@ -7,14 +7,23 @@
 Blender DCC 目录将 `connectorDirectory` 设为 `"integrations/blender"`——
 该路径是 Blender 集成**根目录**，而非每个 Python 文件所在目录。
 
-## 三个任务
+## 连接器目录
 
 | 路径 | 中文用途 |
 | --- | --- |
 | `blender/live/` | 无头 Blender 实时建模内核。`BLENDER_USER_SCRIPTS` 指向此处，Blender 自动加载 `addons/worldengine_studio/`。`npm run blender` 启动。 |
 | `blender/interchange/` | 可信 `.blend` 导入与 Director 场景往返（`director_bridge.py`、`director_scene_export.py`、`director_return_export.py`）。 |
+| `unreal/` | Director 自研 `DirectorBridge` Unreal 编辑器插件（Python），提供固定的无头导入/导出入口。配置 `DIRECTOR_UNREAL_EDITOR_BIN` + `DIRECTOR_UNREAL_PROJECT`。详见 `unreal/README.zh-CN.md`。 |
+| `unity/` | Director 自研 `com.director.bridge` UPM 编辑器包（C#），提供 `-batchmode -executeMethod` 入口。配置 `DIRECTOR_UNITY_BIN` + `DIRECTOR_UNITY_PROJECT`。详见 `unity/README.zh-CN.md`。 |
+| `godot/` | Director 自研 `director_bridge` Godot 4 编辑器插件（GDScript），提供固定的 `--headless` 入口。配置 `DIRECTOR_GODOT_BIN` + `DIRECTOR_GODOT_PROJECT`。详见 `godot/README.zh-CN.md`。 |
 | `plugins/director-workbench/` | 可移植 Agent/MCP 插件，基于同一套工作台合约构建。**勿手改**生成的 `mcp/server.mjs`。 |
 | `dcc-providers.example.json` | 声明式、仅交换的 DCC provider 目录模板。复制到旁边（如 `integrations/dcc-providers.json`）并将 `DIRECTOR_DCC_PROVIDER_CONFIG` 指向该副本。 |
+
+每个引擎连接器目录都带有 `connector.json` 清单（`director-dcc-connector-v1`），
+固定网关可调用的 health/import/export 入口。引擎交接通过 `director_dcc`
+（`send_to_engine`、`receive_from_engine`、`apply_import_plan`）执行，且仅在
+连接器健康检查通过（`nativeReady`）时可用；仅检测到可执行文件永远不够。
+仓库不捆绑任何引擎源码、SDK 或二进制。
 
 ## 外部 AI 桥接
 
@@ -42,6 +51,39 @@ Blender DCC 目录将 `connectorDirectory` 设为 `"integrations/blender"`——
 | `director_signature.py` | 共享的网格内容指纹（SHA-256），供 bridge 与 return-export 双向使用，保证字节级一致。 |
 | `director_scene_export.test.ts` | 场景导出脚本的 vitest 测试。 |
 | `director_return_export.test.ts` | 返回导出脚本的 vitest 测试。 |
+
+### `unreal/`
+
+| 路径 | 中文用途 |
+| --- | --- |
+| `connector.json` | 固定连接器清单（`director-dcc-connector-v1`），声明 health/import/export 入口。 |
+| `plugins/DirectorBridge/DirectorBridge.uplugin` | 编辑器插件描述（依赖 PythonScriptPlugin、EditorScriptingUtilities、LevelSequenceEditor）。 |
+| `plugins/DirectorBridge/Content/Python/director_space.py` | 纯 Python 的 Director ↔ Unreal 坐标转换，含自检用例。 |
+| `plugins/DirectorBridge/Content/Python/director_package.py` | 交换包读取器与返回包/报告写入器，含 SHA-256 收据。 |
+| `plugins/DirectorBridge/Content/Python/director_headless.py` | 固定无头入口：health、import（Actor + CineCamera + Sequencer 机位切换）、export（打标 Actor 返回差异）。 |
+| `plugins/DirectorBridge/Content/Python/init_unreal.py` | 编辑器菜单钩子，提供编辑器内健康检查。 |
+
+### `unity/`
+
+| 路径 | 中文用途 |
+| --- | --- |
+| `connector.json` | 固定连接器清单，声明 `Director.Bridge.Editor.DirectorBridgeCli` 批处理方法。 |
+| `com.director.bridge/package.json` | UPM 包清单（依赖 Timeline 与 Newtonsoft JSON）。 |
+| `com.director.bridge/Runtime/DirectorId.cs` | 在每个交接对象上持久化 Director 稳定 ID 的组件。 |
+| `com.director.bridge/Editor/DirectorSpace.cs` | Director ↔ Unity 坐标转换（左手系 Y-up）。 |
+| `com.director.bridge/Editor/DirectorExchange.cs` | 交换包读取器与返回包/报告写入器。 |
+| `com.director.bridge/Editor/DirectorBridgeCli.cs` | 固定批处理入口：health、import（场景 + Timeline）、export（DirectorId 返回差异）。 |
+
+### `godot/`
+
+| 路径 | 中文用途 |
+| --- | --- |
+| `connector.json` | 固定连接器清单，声明无头 GDScript 入口。 |
+| `addons/director_bridge/plugin.cfg` | Godot 4 编辑器插件描述。 |
+| `addons/director_bridge/director_space.gd` | Director ↔ Godot 转换（基变换为恒等；保留以对齐接口与世界合成）。 |
+| `addons/director_bridge/director_package.gd` | 交换包读取器与返回包/报告写入器。 |
+| `addons/director_bridge/director_headless.gd` | 固定无头入口：health、import（Node3D 场景 + GLB 实例化 + 元数据）、export（打标节点返回差异）。 |
+| `addons/director_bridge/director_bridge.gd` | 编辑器插件脚本，提供编辑器内健康检查。 |
 
 ### `plugins/director-workbench/`
 

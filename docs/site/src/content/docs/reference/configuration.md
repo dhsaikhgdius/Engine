@@ -164,6 +164,22 @@ The native launcher sets `BLENDER_USER_SCRIPTS` to `integrations/blender/live` a
 disables Python bytecode output. Keep the project file under the configured
 data root unless a production explicitly owns another path.
 
+## Engine connectors (Unreal / Unity / Godot)
+
+| Variable                    | Default                                     | Purpose                                                             |
+| --------------------------- | ------------------------------------------- | ------------------------------------------------------------------- |
+| `DIRECTOR_UNREAL_EDITOR_BIN` | common install paths, then `PATH` discovery | `UnrealEditor-Cmd` executable for headless Unreal handoff           |
+| `DIRECTOR_UNREAL_PROJECT`    | unset                                       | `.uproject` file hosting the installed `DirectorBridge` plugin      |
+| `DIRECTOR_UNITY_BIN`         | common install paths, then `PATH` discovery | Unity editor executable for `-batchmode` handoff                    |
+| `DIRECTOR_UNITY_PROJECT`     | unset                                       | Unity project directory containing the `com.director.bridge` package |
+| `DIRECTOR_GODOT_BIN`         | `godot`/`godot4` on `PATH`, common paths    | Godot 4 executable for `--headless` handoff                         |
+| `DIRECTOR_GODOT_PROJECT`     | unset                                       | Godot project directory with the `director_bridge` addon enabled    |
+
+Detecting an executable makes a provider `installed`, never `nativeReady`. Native
+engine operations require the full health check (connector files, versioned
+executable, configured project, and installed in-project connector) to pass. Engine
+job artifacts live under `data/dcc-jobs/<provider>/`.
+
 ## Application commands
 
 | Command                            | Purpose                                 |

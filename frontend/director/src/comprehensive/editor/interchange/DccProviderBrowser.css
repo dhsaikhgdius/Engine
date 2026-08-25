@@ -204,6 +204,32 @@
   opacity: 0.45;
 }
 
+.director-dcc-provider-send {
+  display: inline-flex;
+  width: 100%;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgb(var(--director-positive-rgb, 104 206 126) / 0.22);
+  border-radius: 7px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--director-positive-rgb, 104 206 126) / 0.08);
+  font-size: var(--interchange-control-size, 10.5px);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.director-dcc-provider-send:hover:not(:disabled) {
+  border-color: rgb(var(--director-positive-rgb, 104 206 126) / 0.38);
+  background: rgb(var(--director-positive-rgb, 104 206 126) / 0.14);
+}
+
+.director-dcc-provider-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .director-dcc-provider-message {
   display: -webkit-box;
   overflow: hidden;

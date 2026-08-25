@@ -80,8 +80,9 @@ import {
 } from "./plannerDraft";
 import { handleAssistantRoute } from "./routes/assistantRoutes";
 import { createBlenderBridge } from "./dcc/blenderBridge";
-import { createBlenderReturnImporter } from "./dcc/blenderReturnImport";
+import { createBlenderReturnImporter, createDccReturnImporter } from "./dcc/blenderReturnImport";
 import { createBlenderSceneImporter } from "./dcc/blenderSceneImport";
+import { createDirectorDccEngineBridge } from "./dcc/engineBridge";
 import { handleDccRoute } from "./routes/dccRoutes";
 import { createDirectorDccProviderRegistry, registerConfiguredDirectorDccProviders } from "./dcc/dccProviderRegistry";
 import { createDirectorDccExchangePackager } from "./dcc/dccExchangePackage";
@@ -248,9 +249,19 @@ const collaborationHub = new DirectorCollaborationWebSocketHub();
 const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
 const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
 const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
-const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge });
-await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
 const dccExchangePackager = createDirectorDccExchangePackager({ workspaceRoot: root, dataDirectory });
+const dccEngineBridge = createDirectorDccEngineBridge({
+  workspaceRoot: root,
+  dataDirectory,
+  exchangePackager: dccExchangePackager,
+});
+const dccEngineReturnImporters = {
+  unreal: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "unreal" }),
+  unity: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "unity" }),
+  godot: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "godot" }),
+};
+const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge, engines: dccEngineBridge });
+await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
 const blenderNativeSession = createBlenderNativeSession(controlPlaneConfig.dcc.blender);
 
 /** Hard deadline in milliseconds for a planner subprocess to produce output. */
@@ -2133,6 +2144,8 @@ const server = createServer(async (request, response) => {
         exchangePackager: dccExchangePackager,
         sceneImporter: blenderSceneImporter,
         returnImporter: blenderReturnImporter,
+        engineBridge: dccEngineBridge,
+        engineReturnImporters: dccEngineReturnImporters,
         applyAuthoring: async (operation) => {
           const remote = await requestWorkbenchCommand(operation);
           return remote

@@ -1,0 +1,11 @@
+{
+  "contract": "director-dcc-connector-v1",
+  "provider": "unreal",
+  "version": "0.1.0",
+  "entryPoints": {
+    "health": "plugins/DirectorBridge/Content/Python/director_headless.py",
+    "import": "plugins/DirectorBridge/Content/Python/director_headless.py",
+    "export": "plugins/DirectorBridge/Content/Python/director_headless.py"
+  },
+  "hostRequirement": "Unreal Engine 5.3+ with the Python Editor Script Plugin enabled"
+}

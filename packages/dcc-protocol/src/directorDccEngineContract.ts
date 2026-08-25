@@ -1,0 +1,163 @@
+import { z } from "zod";
+import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectRevision";
+import { directorDccEngineIdSchema } from "./directorDccEngineSpace";
+
+/** Contract identifier for a Director-authored engine connector manifest. */
+export const DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT = "director-dcc-connector-v1" as const;
+
+/** Contract identifier for the report an engine connector writes after a headless run. */
+export const DIRECTOR_DCC_ENGINE_REPORT_CONTRACT = "director-dcc-engine-report-v1" as const;
+
+/** Contract identifier for an engine connector health check result. */
+export const DIRECTOR_DCC_ENGINE_HEALTH_CONTRACT = "director-dcc-engine-health-v1" as const;
+
+/** Contract identifier for the gateway result of a headless send-to-engine job. */
+export const DIRECTOR_DCC_ENGINE_SEND_CONTRACT = "director-dcc-engine-send-v1" as const;
+
+const nonEmpty = z.string().trim().min(1);
+const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
+const safeRelativePathSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(1_024)
+  .refine(
+    (path) =>
+      !path.startsWith("/") &&
+      !path.includes("\\") &&
+      !/^[A-Za-z]:/.test(path) &&
+      path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
+    { message: "path must be a safe relative path" },
+  );
+
+/**
+ * The Director-authored connector manifest committed at
+ * `integrations/<provider>/connector.json`. The gateway reads this file to
+ * locate the fixed connector entry points; a request can never substitute its
+ * own script.
+ */
+export const directorDccConnectorManifestSchema = z.strictObject({
+  contract: z.literal(DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT),
+  provider: directorDccEngineIdSchema,
+  /** Version of the Director-authored connector source. */
+  version: nonEmpty.max(60),
+  /** Fixed entry points relative to the connector directory. */
+  entryPoints: z.strictObject({
+    health: safeRelativePathSchema,
+    import: safeRelativePathSchema,
+    export: safeRelativePathSchema,
+  }),
+  /** Human-readable host requirement, e.g. "Unreal Engine 5.3+". */
+  hostRequirement: nonEmpty.max(200),
+});
+
+/** A validated engine connector manifest. */
+export type DirectorDccConnectorManifest = z.infer<typeof directorDccConnectorManifestSchema>;
+
+/**
+ * The receipt an engine connector writes after a headless import run. The
+ * gateway schema-validates this file; a malformed or `ok:false` report fails
+ * the job with structured diagnostics.
+ */
+export const directorDccEngineReportSchema = z.strictObject({
+  ok: z.literal(true),
+  contract: z.literal(DIRECTOR_DCC_ENGINE_REPORT_CONTRACT),
+  provider: directorDccEngineIdSchema,
+  hostVersion: nonEmpty.max(200),
+  connectorVersion: nonEmpty.max(60),
+  /** The exchange package id this run consumed. */
+  packageId: nonEmpty.max(240),
+  sourceRevision: z.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+  importedObjectCount: z.number().int().nonnegative(),
+  importedCameraCount: z.number().int().nonnegative(),
+  /** Host-side scene path (e.g. `/Game/Director/...`, `Assets/Director/...`, `res://director/...`). */
+  scenePath: z.string().trim().min(1).max(1_024).nullable(),
+  /** Relative directory of an echoed return package when the connector produced one. */
+  returnPackageDir: safeRelativePathSchema.nullable(),
+  warnings: z.array(z.string().max(2_000)).max(20_000),
+});
+
+/** A validated engine connector run report. */
+export type DirectorDccEngineReport = z.infer<typeof directorDccEngineReportSchema>;
+
+/** Individual checks that make up an engine connector health probe. */
+export const directorDccEngineHealthCheckIdSchema = z.enum([
+  "executable",
+  "host_version",
+  "connector_manifest",
+  "connector_entry",
+  "engine_project",
+  "project_connector",
+]);
+
+/** Identifier of one engine health check. */
+export type DirectorDccEngineHealthCheckId = z.infer<typeof directorDccEngineHealthCheckIdSchema>;
+
+/**
+ * The result of an engine connector health probe. `ready` is true only when
+ * every check passed: the Director-authored connector files exist, the host
+ * executable was found and versioned, and the configured engine project
+ * contains the installed connector.
+ */
+export const directorDccEngineHealthSchema = z.strictObject({
+  contract: z.literal(DIRECTOR_DCC_ENGINE_HEALTH_CONTRACT),
+  provider: directorDccEngineIdSchema,
+  ready: z.boolean(),
+  executable: z.string().nullable(),
+  hostVersion: z.string().nullable(),
+  connectorVersion: z.string().nullable(),
+  /** Workspace-relative connector source directory. */
+  connectorDirectory: nonEmpty.max(240),
+  /** The configured engine project path, or null when not configured. */
+  projectPath: z.string().nullable(),
+  checks: z.array(
+    z.strictObject({
+      id: directorDccEngineHealthCheckIdSchema,
+      ok: z.boolean(),
+      detail: z.string().max(2_000),
+    }),
+  ),
+  warnings: z.array(z.string().max(2_000)),
+  recovery: z.array(z.string().max(2_000)),
+});
+
+/** A validated engine connector health result. */
+export type DirectorDccEngineHealth = z.infer<typeof directorDccEngineHealthSchema>;
+
+/**
+ * Structured diagnostics returned when a native engine operation is not
+ * available. Agents should follow `recovery` instead of retrying blindly.
+ */
+export const directorDccEngineDiagnosticsSchema = z.strictObject({
+  provider: directorDccEngineIdSchema,
+  mode: z.enum(["native", "exchange"]),
+  ready: z.boolean(),
+  warnings: z.array(z.string().max(2_000)),
+  recovery: z.array(z.string().max(2_000)),
+});
+
+/** Structured not-ready diagnostics for an engine operation. */
+export type DirectorDccEngineDiagnostics = z.infer<typeof directorDccEngineDiagnosticsSchema>;
+
+/**
+ * The gateway result of a completed headless send-to-engine job: the exchange
+ * package that was produced plus the schema-validated host report.
+ */
+export const directorDccEngineSendResultSchema = z.strictObject({
+  contract: z.literal(DIRECTOR_DCC_ENGINE_SEND_CONTRACT),
+  jobId: z.string().uuid(),
+  provider: directorDccEngineIdSchema,
+  packagePath: nonEmpty.max(2_048),
+  manifestPath: nonEmpty.max(2_048),
+  manifestSha256: sha256Schema,
+  packageDigest: sha256Schema,
+  sourceRevision: z.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+  reportPath: nonEmpty.max(2_048),
+  report: directorDccEngineReportSchema,
+  /** Absolute path of the echoed return package directory, when produced. */
+  returnPackagePath: z.string().nullable(),
+  warnings: z.array(z.string().max(2_000)),
+});
+
+/** The result of a completed headless send-to-engine job. */
+export type DirectorDccEngineSendResult = z.infer<typeof directorDccEngineSendResultSchema>;
