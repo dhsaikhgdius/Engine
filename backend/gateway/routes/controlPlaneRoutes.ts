@@ -12,6 +12,8 @@ export type ControlPlaneRouteDependencies = {
   /** Agent sessions that recently drove the workbench tool, newest first. */
   listAgentSessions: () => Array<{ sessionId: string; lastActiveAtMs: number }>;
   videoCapabilities: () => Promise<unknown>;
+  /** The gateway's configured Director film role (raw value), or null when unset. */
+  filmRole?: () => string | null;
 };
 
 // Untargeted HTTP callers that never identify themselves share this fallback
@@ -48,6 +50,12 @@ export async function handleControlPlaneRoute(
     const { host, port } = dependencies.config.http;
     const gatewayBaseUrl = `http://${host.includes(":") ? `[${host}]` : host}:${port}`;
     dependencies.json(response, 200, buildDirectorA2aAgentCard(gatewayBaseUrl));
+    return true;
+  }
+  if (url.pathname === "/api/control-plane/film-role") {
+    // Same policy source the tool routes govern with (DIRECTOR_FILM_ROLE); the
+    // browser applies the shared roleAllowsTool table to this value. No secrets.
+    dependencies.json(response, 200, { role: dependencies.filmRole?.() ?? null });
     return true;
   }
   if (url.pathname === "/api/agent/profiles") {

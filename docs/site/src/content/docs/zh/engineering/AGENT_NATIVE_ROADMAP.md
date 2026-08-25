@@ -61,7 +61,7 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 | **M0** | 基线与度量             | Planned     | UI/Agent parity 清单、parity harness                                             | 无               |
 | **M1** | Shared action registry | Planned     | UI 高频路径经 `applyDirectorAuthoringActions`                                    | M0               |
 | **M2** | Human-only 面消除      | **Implemented** | Interchange 导出与导入（`plan-import`/`import`）及全部 collab 评论/版本写操作均为 JSON；文件选择器仅作为本地文件的可选便捷入口保留 | M1（部分可并行） |
-| **M3** | Gateway 统一治理       | **Partial** | MCP / 本地 / 托管已共享 `filmRoleToolPolicy`；原始 HTTP/UI 与统一审计未完成      | M1               |
+| **M3** | Gateway 统一治理       | **Partial** | 策略、统一审计与确认边界已覆盖原始 HTTP/CLI；role 限制 UI 已交付；只读 mode 未完成 | M1               |
 | **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
 | **M5** | 可观测性               | Planned     | Trace、cost、长任务进度                                                          | M3               |
 | **M6** | 团队就绪               | Planned     | Collaboration auth、multi-agent 增强                                             | M3、M5           |
@@ -191,7 +191,7 @@ flowchart LR
 
 ## Milestone 3 — Gateway 统一治理
 
-**状态：Partial**（核验于 2026-08-13）。
+**状态：Partial**（核验于 2026-08-25）。
 
 **目标：** 任意控制面入口受同一 permission 与 audit 策略约束。
 
@@ -209,19 +209,20 @@ flowchart LR
 
 #### 3.1 原始 HTTP 与 UI 权限
 
-- 把 `filmRoleToolPolicy` 接到原始 `POST /api/tools/{tool-name}`（因此也覆盖 CLI）。
-- 可选：只读 mode、role 限制下的 UI 禁用 — 与 policy 同源。
+- 已交付（2026-08-25）：`backend/gateway/agents/httpToolGovernance.ts` 已把 `filmRoleToolPolicy` 接到所有原始 `POST /api/tools/{tool-name}`（因此也覆盖 CLI）。Role 依次取 `x-director-film-role` header、`DIRECTOR_FILM_ROLE` 环境变量，否则不受限；策略拒绝返回 HTTP 403。
+- 已交付（2026-08-25）：与 policy 同源的 role 限制 UI。Allow-table 移至 `packages/protocol/src/filmRoleToolPolicy.ts`（gateway 路径 re-export），`GET /api/control-plane/film-role` 暴露当前 role，`frontend/director/src/comprehensive/editor/api/filmRoleGate.ts` 对不可 author 的 role（如 `visual-critic`）禁用 Stage 写控件与 UI authoring dispatch；observe/capture 保持可用。
+- 可选（未完成）：完整只读 mode。
 
 #### 3.2 统一 audit trail
 
-- 所有 tool invocation 写入 `agentSessionStore`（含 UI-dispatched author，标记 `source: ui | mcp | http | cli`）。
-- 结构化字段：`tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`。
+- 已交付（2026-08-25）：所有 tool invocation 写入 JSON 持久化的 `backend/gateway/agentToolAuditStore.ts`（含 UI-dispatched author，标记 `source: ui | mcp | http | cli`），可经 `GET /api/agent/tool-audit` 读取。
+- 结构化字段：`tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`, `session_id`。
 
 #### 3.3 确认边界（governed execution）
 
-- 定义 **destructive / publish** action 列表（如 `deliver`, `export`, `version_restore`）。
-- Agent 路径：harness approval 或 explicit `confirm_token`；
-- UI 路径：现有 modal；两者共享同一 `confirm_token` 生成逻辑。
+- 已交付（2026-08-25）：`CONFIRMABLE_TOOL_OPERATIONS` 定义封闭的 destructive/publish 列表（`director_workbench` `deliver`；`director_creative` interchange `export`/`import`、collaboration `restore-version`/`delete-version`/`delete-comment`、`gallery.media.purge`）。这些操作在 `POST /api/tools/*`（HTTP、MCP、CLI）上仅当 schema 已定义的 protocol 级 `confirm: true` 字段存在、或携带有效的单次 `confirm_token` 时才执行；否则返回 403 `confirm_required`（含 issue-on-deny 重试信息），绝不执行。
+- Token 由 `POST /api/agent/confirm-token` 签发（需 gateway auth），2 分钟过期、单次使用、绑定 tool + operation + role + session，以 SHA-256 hash 存于 `backend/gateway/agentConfirmTokenStore.ts`（JSON + `writeJsonAtomic`，与审计 store 同目录）。调用方以 body 顶层 `confirm_token` 字段（MCP/CLI 会从 tool input 中提出；CLI 亦读取 `DIRECTOR_CONFIRM_TOKEN`）或 `x-director-confirm-token` header 传递。Role policy 优先：被拒绝的 role 在读取 token 之前即被拒绝。
+- UI modal 继续使用 protocol 级 `confirm: true`；不阻塞无关编辑。
 
 ### 验收（剩余项）
 
@@ -364,6 +365,6 @@ flowchart LR
 
 ## 下一步行动
 
-1. 完成剩余 M3：把 `filmRoleToolPolicy` 接到原始 HTTP/UI，然后统一审计轨迹
+1. 完成剩余 M3：可选的完整只读 mode（原始 HTTP/CLI 策略、统一审计轨迹、确认边界与 role 限制 UI 已于 2026-08-25 交付）
 2. 落地时在同一变更中更新 [Feature Status](/zh/reference/feature-status/) 与[架构符合性评估](/zh/research/agent-native-architecture-assessment/)
 3. M7 遗留已落地：ADR 0004 完成 A2A spike 结论（runtime no-go；已提供 discovery-only card），cross-app 回执 recipe 已写入 Control surfaces

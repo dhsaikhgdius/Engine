@@ -16,6 +16,12 @@ import {
   exportBlenderScenePreview,
   publicBlenderJob,
 } from "../dcc/blenderNativeTool";
+import {
+  evaluateHttpToolGovernance,
+  recordRejectedHttpToolCall,
+  withHttpToolAudit,
+  type HttpToolGovernanceDependencies,
+} from "../agents/httpToolGovernance";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -69,6 +75,8 @@ export type BlenderLiveRouteDependencies = {
   bindDirectorProject?: (input: { sessionId?: string; targetToken?: string }) => Promise<void>;
   /** Loads the persisted Director project so inspect results carry kernel ownership. */
   loadDirectorProject?: () => Promise<DirectorProject | null>;
+  /** Film-role/plan-mode policy overrides plus the audit trail for POST /api/tools. */
+  governance?: HttpToolGovernanceDependencies;
 };
 
 async function readNativeModelBytes(request: IncomingMessage) {
@@ -353,6 +361,28 @@ export async function handleBlenderLiveRoute(
       });
       return true;
     }
+    // Same film-role and plan-mode policy as MCP, checked before Blender dispatch.
+    const governance = evaluateHttpToolGovernance({
+      request,
+      tool: "blender_native",
+      toolInput: parsed.data.input,
+      sessionId: parsed.data.session_id,
+      dependencies: dependencies.governance,
+    });
+    const auditContext = {
+      store: dependencies.governance?.auditStore,
+      tool: "blender_native",
+      toolInput: parsed.data.input,
+      roleId: governance.roleId,
+      source: governance.source,
+      sessionId: parsed.data.session_id,
+    };
+    if (!governance.allowed) {
+      recordRejectedHttpToolCall(governance, auditContext);
+      json(response, governance.status, governance.body);
+      return true;
+    }
+    const auditedJson = withHttpToolAudit(json, auditContext);
     try {
       if (PROJECT_BOUND_NATIVE_OPERATIONS.has(parsed.data.input.op)) {
         await dependencies.bindDirectorProject?.({
@@ -371,14 +401,14 @@ export async function handleBlenderLiveRoute(
         capture && result && typeof result === "object"
           ? Object.fromEntries(Object.entries(result).filter(([key]) => key !== "capture"))
           : result;
-      json(response, 200, {
+      auditedJson(response, 200, {
         success: true,
         result: publicResult,
         ...(parsed.data.input.op === "apply" ? { director_project_sync: "automatic" } : {}),
         ...(capture ? { capture } : {}),
       });
     } catch (error) {
-      writeSessionError(response, json, error);
+      writeSessionError(response, auditedJson, error);
     }
     return true;
   }

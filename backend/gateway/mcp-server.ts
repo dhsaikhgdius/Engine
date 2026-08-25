@@ -87,6 +87,10 @@ async function authenticatedGatewayFetch(path: string, init: RequestInit, retryU
   const token = await getGatewayAuthToken();
   const headers = new Headers(init.headers);
   headers.set("x-director-browser-token", token);
+  // Defense in depth: the gateway re-checks the same film-role policy on raw
+  // HTTP and tags the unified audit trail with the MCP entry point.
+  headers.set("x-director-tool-source", "mcp");
+  if (filmRoleId) headers.set("x-director-film-role", filmRoleId);
   let response: Response;
   try {
     response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });
@@ -191,8 +195,9 @@ const descriptions: Record<Exclude<AgentToolName, StageCommandToolName>, string>
     "Use catalog or a selective observe only when you need current IDs or state, then send one direct authoring operation.",
     "Reuse catalog IDs and URLs exactly. Do not assemble scenes from geometry_type primitives; instance catalog meshes, model with blender_native (create_blockout shells, create_opening doors/windows), or generate with generated_3d.",
     "After an edit, one targeted inspect is enough when confirmation is useful. Use audit, correct, trace, capture, or deliver only when the user asks for diagnosis or an output artifact.",
+    "deliver is a publish operation: request a single-use token from POST /api/agent/confirm-token and pass it as confirm_token next to op, or the gateway returns confirm_required.",
   ].join(" "),
-  director_creative: `Control the live Director Canvas, multimodal generation graph, Video Editor, interchange export, and collaboration comments. Use capabilities or observe when current IDs are needed, then execute one direct operation or batch. Pipeline actions are start, status, and cancel; interchange uses plan-export followed by export. Preview and audit are optional diagnostics, not required steps. Edit operations: ${creativeWorkspaceAgentOperationNames.join(", ")}.`,
+  director_creative: `Control the live Director Canvas, multimodal generation graph, Video Editor, interchange export, and collaboration comments. Use capabilities or observe when current IDs are needed, then execute one direct operation or batch. Pipeline actions are start, status, and cancel; interchange uses plan-export followed by export. Preview and audit are optional diagnostics, not required steps. Destructive/publish requests (interchange export/import, collaboration restore-version/delete-version/delete-comment, gallery purge) need the protocol confirm:true field or a single-use confirm_token from POST /api/agent/confirm-token passed next to op. Edit operations: ${creativeWorkspaceAgentOperationNames.join(", ")}.`,
   stage_video:
     "Discover providers and prepare, submit, inspect, or cancel durable image-to-video jobs from the current validated 3D white-box scene. Ops: capabilities, prepare, render, submit, status, cancel. LTX-2.3 uses the isolated Python GPU worker; ComfyUI remains an optional workflow provider; minimax-h3 renders through the hosted MiniMax H3 multimodal API.",
   blender_native:
@@ -230,13 +235,27 @@ const toolMemory = createAgentToolSessionMemory();
  */
 async function callGateway(tool: AgentToolName, input: Record<string, unknown>): Promise<StageGatewayExecution> {
   const prepared = injectCachedWorkbenchRevision(tool, input, toolMemory);
-  const effectiveInput = prepared.input;
+  // Destructive/publish operations (e.g. deliver, interchange export) need a
+  // single-use confirm token from POST /api/agent/confirm-token. Models pass
+  // it as confirm_token next to op; it rides the envelope, not the strict
+  // tool input.
+  const preparedRecord =
+    prepared.input && typeof prepared.input === "object" && !Array.isArray(prepared.input)
+      ? (prepared.input as Record<string, unknown>)
+      : null;
+  const rawConfirmToken = preparedRecord?.confirm_token;
+  const confirmToken = typeof rawConfirmToken === "string" && rawConfirmToken.trim() ? rawConfirmToken : undefined;
+  const effectiveInput =
+    confirmToken && preparedRecord
+      ? Object.fromEntries(Object.entries(preparedRecord).filter(([key]) => key !== "confirm_token"))
+      : prepared.input;
   const response = await authenticatedGatewayFetch(`/api/tools/${tool}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       input: effectiveInput,
       session_id: sessionId,
+      ...(confirmToken ? { confirm_token: confirmToken } : {}),
       ...(boundTargetToken ? { target_token: boundTargetToken } : {}),
     }),
     signal: AbortSignal.timeout(dynamicToolTimeoutMs(tool, effectiveInput)),

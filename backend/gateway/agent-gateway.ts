@@ -119,6 +119,10 @@ import { handleProductionJobRoute } from "./routes/productionJobRoutes";
 import { ProductionJobStore } from "./jobs/productionJobStore";
 import { ProductionArtifactStore } from "./artifacts/productionArtifactStore";
 import { handleProductionArtifactRoute } from "./routes/productionArtifactRoutes";
+import { AgentToolAuditStore } from "./agentToolAuditStore";
+import { AgentConfirmTokenStore } from "./agentConfirmTokenStore";
+import { handleAgentToolAuditRoute } from "./routes/agentToolAuditRoutes";
+import { handleAgentConfirmTokenRoute } from "./routes/agentConfirmTokenRoutes";
 import { handleGeneratedAssetRoute } from "./routes/generatedAssetRoutes";
 import { handleGenerationRoute } from "./routes/generationRoutes";
 import { createComfyGenerationRuntime } from "./generation/createComfyGenerationRuntime";
@@ -336,6 +340,13 @@ const ardyMotionService = new ArdyMotionService({
   dataDirectory,
 });
 const productionJobStore = new ProductionJobStore(dataDirectory);
+// Unified tool-invocation audit trail shared by every POST /api/tools entry
+// point (HTTP, MCP, CLI) plus UI-dispatched authoring ingest. Destructive /
+// publish operations additionally consume single-use confirm tokens issued by
+// POST /api/agent/confirm-token and stored hashed next to the audit trail.
+const agentToolAuditStore = new AgentToolAuditStore(dataDirectory);
+const agentConfirmTokenStore = new AgentConfirmTokenStore(dataDirectory);
+const toolGovernance = { auditStore: agentToolAuditStore, confirmTokens: agentConfirmTokenStore };
 const mediaTranscriptionRuntime = createMediaTranscriptionRuntime(
   controlPlaneConfig,
   dataDirectory,
@@ -1914,6 +1925,7 @@ const server = createServer(async (request, response) => {
         listAgentProfiles: () => agentProfileRegistry.list(),
         listAgentSessions: () => listAgentSessionTargets("director_workbench"),
         videoCapabilities: () => videoGenerationService.capabilities(),
+        filmRole: () => process.env.DIRECTOR_FILM_ROLE?.trim() || null,
       })
     )
       return;
@@ -2098,6 +2110,7 @@ const server = createServer(async (request, response) => {
         json,
         session: blenderNativeSession,
         loadDirectorProject: () => readPersistedWorkbenchProject(),
+        governance: toolGovernance,
       })
     )
       return;
@@ -2147,6 +2160,7 @@ const server = createServer(async (request, response) => {
               }
             : null;
         },
+        governance: toolGovernance,
       })
     )
       return;
@@ -2174,6 +2188,7 @@ const server = createServer(async (request, response) => {
         headers,
         json,
         ...liveStageRouteDependencies(),
+        governance: toolGovernance,
       })
     )
       return;
@@ -2182,6 +2197,23 @@ const server = createServer(async (request, response) => {
         readBody: body,
         json,
         resolveProvider: async (providerId) => resolveModelProvider(providerId),
+        governance: toolGovernance,
+      })
+    )
+      return;
+    if (
+      await handleAgentToolAuditRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: agentToolAuditStore,
+      })
+    )
+      return;
+    if (
+      await handleAgentConfirmTokenRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: agentConfirmTokenStore,
       })
     )
       return;

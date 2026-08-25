@@ -137,7 +137,7 @@ A2A-aware 客户端指向 MCP 与 tool manifest —— 没有远程 A2A endpoint
 
 **评级：4/5**
 
-### 5. Governed Execution — 审计强 ✅，原始 HTTP/UI 仍未设闸 ⚠️
+### 5. Governed Execution — 审计强 ✅，人类 UI 仍未设闸 ⚠️
 
 **符合：**
 
@@ -149,9 +149,8 @@ A2A-aware 客户端指向 MCP 与 tool manifest —— 没有远程 A2A endpoint
 
 **缺口：**
 
-- 原始 HTTP `POST /api/tools/{tool-name}` 以及走该路径的 CLI **不应用** `filmRoleToolPolicy`
+- 已解决（2026-08-25）：原始 HTTP `POST /api/tools/{tool-name}`（以及走该路径的 CLI）现已应用 `filmRoleToolPolicy`，工具调用共享按 `source: ui | mcp | http | cli` 标记的 **统一审计轨迹**（`backend/gateway/agentToolAuditStore.ts`）
 - Human UI 操作无等价 permission gate
-- 工具调用尚未形成按 `source: ui | mcp | http | cli` 标记的 **统一审计轨迹**
 - Collaboration 生产房间鉴权、公网部署加固仍 **Limited**
 
 **评级：4/5**
@@ -232,7 +231,7 @@ agent-gateway.ts (composition root)
 ## 主要差距
 
 1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除、单次变换、相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体与故事板已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring。仍直连 store 的路径：创建流程（资产拖放、预设角色、人群、机位创建）、UI-only 对象列表/人群分组、gizmo 拖拽批次与 Canvas/Video store
-2. **Governance 入口未完全统一** — MCP、本地 harness 与托管 adapter 已共享 `filmRoleToolPolicy`；原始 HTTP 与人类 UI 仍绕过 film role，审计也未跨入口统一
+2. **Governance 入口未完全统一** — MCP、本地 harness、托管 adapter 以及（自 2026-08-25 起）原始 HTTP/CLI 已共享 `filmRoleToolPolicy` 并接入按 source 标记的统一审计轨迹；人类 UI 操作仍绕过 film role
 3. **Protocol breadth** — MCP 强且已发布 HTTP tool manifest；A2A 已评估并拒绝 runtime（ADR 0004；提供 discovery-only card）；multi-agent 为自定义串行 graph
 4. **Dual surface 遗留** — `stage_*` 兼容层 vs `director_workbench` 完整模型仍并存
 5. **Runtime workspace** — 无文章描述的 SQL-backed AGENTS.md / LEARNINGS.md 等产品内 workspace
@@ -244,7 +243,7 @@ agent-gateway.ts (composition root)
 按 ROI 排序（详细里程碑见 [Agent-Native 优化路线图](/zh/engineering/agent_native_roadmap/)）：
 
 1. **继续把 UI mutator 收敛到 shared authoring dispatch** — 相机 / 姿态 / 时间线 / Canvas·Video 仍有双写
-2. **把共享角色策略接到原始 HTTP 与 UI，并统一审计轨迹** — MCP / 本地 / 托管已共用 `filmRoleToolPolicy.ts`
+2. **完成人类 UI 的剩余治理与可选只读 mode** — 原始 HTTP/CLI 已共享 `filmRoleToolPolicy.ts` 并接入统一审计轨迹
 3. **补 team/observability 层** — collaboration auth、agent trace/cost dashboard
 4. **跨 app 编排** — tool manifest 导出已交付（`GET /api/control-plane/tool-manifest`）；A2A spike 已在 ADR 0004 得出结论（runtime no-go；discovery-only card 位于 `GET /api/control-plane/a2a-agent-card`）；仅当合作方需要 A2A task 执行时重启
 
