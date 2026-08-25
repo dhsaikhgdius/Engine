@@ -202,7 +202,7 @@ describe("raw HTTP film-role policy on POST /api/tools", () => {
       .mockResolvedValueOnce({
         client: {},
         target: TARGET,
-        response: { success: true, result: { project_revision: REVISION_A } },
+        response: { success: true, result: { project_revision: REVISION_A, characters: [] } },
       })
       .mockResolvedValueOnce({
         client: {},
