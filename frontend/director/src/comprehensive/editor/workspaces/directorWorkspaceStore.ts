@@ -343,7 +343,8 @@ const MAX_CLIP_DURATION_SEC = 60 * 60 * 24;
 const MIN_CLIP_DURATION_SEC = 0.1;
 // Clips whose edges differ by no more than this are treated as merely
 // touching, so drag snaps and float error never trigger overwrite trims.
-const CLIP_EDGE_EPSILON = 1e-6;
+export const DIRECTOR_CLIP_EDGE_EPSILON_SEC = 1e-6;
+const CLIP_EDGE_EPSILON = DIRECTOR_CLIP_EDGE_EPSILON_SEC;
 // Frame snapping leaves adjacent clips up to a frame-ish gap apart, so
 // cross-dissolve adjacency uses a looser tolerance than overwrite trims.
 /**

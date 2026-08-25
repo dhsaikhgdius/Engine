@@ -157,6 +157,8 @@ const projectedEditClipSchema = z.strictObject({
   volume: finiteNumber.min(0).max(1),
   fade_in_sec: finiteNumber.nonnegative(),
   fade_out_sec: finiteNumber.nonnegative(),
+  // Defaulted so snapshots serialized before transitions were projected keep validating.
+  transition_in_sec: finiteNumber.nonnegative().default(0),
   scale: finiteNumber.positive(),
   position_x: finiteNumber,
   position_y: finiteNumber,
