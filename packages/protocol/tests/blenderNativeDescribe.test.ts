@@ -78,6 +78,8 @@ describe("blender native typed describe", () => {
       if (!described.success) continue;
       expect(described.result.target).toBe("apply.create_opening");
       expect(described.result.note).toContain("create_opening");
+      // set_modifier is a strictObject; operation/object ride inside properties.
+      expect(described.result.note).toContain("set_modifier properties {");
     }
   });
 

@@ -75,7 +75,7 @@ function applyOperationNote(operationName: string): string {
 const BLOCKOUT_ALIAS_NOTE =
   '"{requested}" is not a typed op. Architecture shells use create_blockout with preset floor/wall/room/corridor/stairs (metric metres, stable ids "<idPrefix>:1..n"). Cut doors/windows afterwards with create_opening.';
 const OPENING_ALIAS_NOTE =
-  '"{requested}" is not a typed op. Door and window holes use create_opening on an existing mesh wall (width/height/sillHeight/offset in metres); custom cutters use add_modifier with modifierType "BOOLEAN" then set_modifier {operation:"DIFFERENCE", object:"<cutter id>"}.';
+  '"{requested}" is not a typed op. Door and window holes use create_opening on an existing mesh wall (width/height/sillHeight/offset in metres); custom cutters use add_modifier with modifierType "BOOLEAN" then set_modifier properties {operation:"DIFFERENCE", object:"<cutter id>"}.';
 
 const APPLY_TARGET_ALIASES: Record<string, ApplyTargetAlias> = {
   query: {

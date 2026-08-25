@@ -102,9 +102,9 @@ describe("Director DSH workbench plugin catalog", () => {
     expect(blender.properties?.operations).toBeDefined();
     expect(blender.properties?.query).toBeDefined();
     expect(blender.properties?.assetType).toBeDefined();
-    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({ op: "polyhaven_search", query: "chair" }).success).toBe(
-      true,
-    );
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({ op: "polyhaven_search", query: "chair" }).success,
+    ).toBe(true);
     expect(
       DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({
         op: "capture_render",

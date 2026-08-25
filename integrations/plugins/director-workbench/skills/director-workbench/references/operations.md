@@ -134,7 +134,14 @@ Chinese queries match the indexed `name_zh`, aliases, and `tags`:
 List the current project's uploaded or generated models with `project_assets`. Each item returns one prepared `add_object` action; the asset already exists in the project, so there is no upsert step:
 
 ```json
-{ "op": "catalog", "catalog": "project_assets", "query": "robot", "kind": "prop", "asset_source": "generated", "limit": 12 }
+{
+  "op": "catalog",
+  "catalog": "project_assets",
+  "query": "robot",
+  "kind": "prop",
+  "asset_source": "generated",
+  "limit": 12
+}
 ```
 
 ## Place a catalog asset by its measured size
@@ -224,9 +231,7 @@ not Blender datablocks; clearing the live Blender scene does not remove them.
 ```json
 {
   "op": "author",
-  "actions": [
-    { "action": "delete_objects", "object_ids": ["tree-left-1", "tree-left-2"] }
-  ]
+  "actions": [{ "action": "delete_objects", "object_ids": ["tree-left-1", "tree-left-2"] }]
 }
 ```
 
@@ -361,7 +366,12 @@ World actions ride in a normal `author` batch. The first one creates `project.wo
       "id": "river_north",
       "name": "North river",
       "river": {
-        "points": [[-20, 1, -12], [-6, 0.6, -2], [8, 0.2, 5], [22, 0, 16]],
+        "points": [
+          [-20, 1, -12],
+          [-6, 0.6, -2],
+          [8, 0.2, 5],
+          [22, 0, 16]
+        ],
         "width_m": 6,
         "width_profile": [0.7, 1, 1.2, 1.5]
       },
@@ -378,7 +388,13 @@ World actions ride in a normal `author` batch. The first one creates `project.wo
     {
       "action": "add_world_road",
       "id": "road_ring",
-      "points": [[18, 0.05, 12], [-18, 0.05, 12], [-18, 0.05, -12], [18, 0.05, -12], [18, 0.05, 12]],
+      "points": [
+        [18, 0.05, 12],
+        [-18, 0.05, 12],
+        [-18, 0.05, -12],
+        [18, 0.05, -12],
+        [18, 0.05, 12]
+      ],
       "width_m": 8,
       "vehicle_count": 8,
       "speed_kph": 45
@@ -415,9 +431,7 @@ Attach the tuned sedan defaults to an existing prop or scene object:
 ```json
 {
   "op": "author",
-  "actions": [
-    { "action": "set_vehicle_profile", "object_id": "car-hero" }
-  ]
+  "actions": [{ "action": "set_vehicle_profile", "object_id": "car-hero" }]
 }
 ```
 
@@ -495,9 +509,7 @@ Set a solid world without proxy sky geometry:
 ```json
 {
   "op": "apply",
-  "operations": [
-    { "op": "set_world_environment", "color": [0.08, 0.12, 0.2], "strength": 0.8 }
-  ]
+  "operations": [{ "op": "set_world_environment", "color": [0.08, 0.12, 0.2], "strength": 0.8 }]
 }
 ```
 
@@ -664,9 +676,7 @@ assets with typed ops (no `execute_code`):
 ```json
 {
   "op": "apply",
-  "operations": [
-    { "op": "polyhaven_import", "assetId": "modern_chair", "assetType": "models", "resolution": "1k" }
-  ]
+  "operations": [{ "op": "polyhaven_import", "assetId": "modern_chair", "assetType": "models", "resolution": "1k" }]
 }
 ```
 
@@ -823,7 +833,10 @@ openings, swinging door leaves, proxy item boxes, and one stage camera per
 capture key view.
 
 ```json
-{ "op": "reconstruction", "command": { "action": "submit", "source_media_id": "creative-media:video:room-walkthrough" } }
+{
+  "op": "reconstruction",
+  "command": { "action": "submit", "source_media_id": "creative-media:video:room-walkthrough" }
+}
 ```
 
 ```json
@@ -838,7 +851,10 @@ the revision guard and idempotency key for public callers):
 ```
 
 ```json
-{ "op": "reconstruction", "command": { "action": "apply", "job_id": "canvas-job-…", "mode": "replace", "include_cameras": true } }
+{
+  "op": "reconstruction",
+  "command": { "action": "apply", "job_id": "canvas-job-…", "mode": "replace", "include_cameras": true }
+}
 ```
 
 Close the authoring loop from the exact capture poses: `capture` renders

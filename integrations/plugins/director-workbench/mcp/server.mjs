@@ -55369,7 +55369,9 @@ var agentOperationSchemas = [
   external_exports.strictObject({
     op: external_exports.literal("create_opening"),
     id: identifier.describe("Stable id for the created cutter object."),
-    targetId: identifier.describe("Existing mesh wall to cut. A create_blockout room returns walls as <idPrefix>:2..5."),
+    targetId: identifier.describe(
+      "Existing mesh wall to cut. A create_blockout room returns walls as <idPrefix>:2..5."
+    ),
     kind: openingKindSchema.default("door"),
     name: external_exports.string().trim().min(1).max(240).optional(),
     width: finite6.positive().default(0.9).describe("Opening width in metres."),
@@ -55799,9 +55801,7 @@ function nameQueryFromText(value) {
 }
 function liftQueryList(value) {
   if (Array.isArray(value) && value.length > 0) {
-    return value.map(
-      (item) => typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item
-    );
+    return value.map((item) => typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item);
   }
   if (value && typeof value === "object" && !Array.isArray(value)) return [value];
   return void 0;
@@ -134695,9 +134695,7 @@ var directorWorkbenchWireSchema = compactWireSchema(
   catalog: directorWorkbenchCatalogIdSchema.optional().describe('Required for op="catalog". Use catalog, never target, collection, source, or catalog_type.'),
   spatial: directorObjectSpatialQuerySchema.optional().describe('Selector for op="query_objects".'),
   max_results: external_exports.number().int().min(1).max(200).optional().describe('Result bound for op="query_objects".'),
-  actions: external_exports.array(external_exports.looseObject({ action: external_exports.string().min(1) })).optional().describe(
-    'Required for op="author". Deletion is delete_objects with object_ids (remove_object + id is accepted).'
-  ),
+  actions: external_exports.array(external_exports.looseObject({ action: external_exports.string().min(1) })).optional().describe('Required for op="author". Deletion is delete_objects with object_ids (remove_object + id is accepted).'),
   fields: external_exports.array(external_exports.string()).optional().describe("Optional observe fields, e.g. counts, ui, objects."),
   object_id: external_exports.string().optional().describe("Object id for inspect or a single-object author action."),
   id: external_exports.string().optional(),
@@ -134738,7 +134736,9 @@ var DIRECTOR_AGENT_WIRE_SCHEMAS = {
     ),
     operator: external_exports.string().optional().describe('RNA id for op="describe", e.g. mesh.bevel.'),
     target: external_exports.string().optional().describe('Typed apply op for op="describe", e.g. create_primitive or polyhaven_import.'),
-    query: external_exports.string().optional().describe('When op="query", Blender object name substring (e.g. "\u6E05\u534E"). Also search text for catalog, polyhaven_search, and sketchfab_search.'),
+    query: external_exports.string().optional().describe(
+      'When op="query", Blender object name substring (e.g. "\u6E05\u534E"). Also search text for catalog, polyhaven_search, and sketchfab_search.'
+    ),
     queries: external_exports.array(external_exports.looseObject({ kind: external_exports.string().min(1) })).optional().describe('Spatial or NAME queries for op="query". Prefer query:"\u6E05\u534E" for a name search.'),
     id: external_exports.string().optional().describe('Object id for op="inspect".'),
     cameraId: external_exports.string().optional().describe('Camera id for op="capture" or capture_render.'),

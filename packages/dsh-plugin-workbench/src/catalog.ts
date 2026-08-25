@@ -81,10 +81,8 @@ const directorWorkbenchWireSchema = compactWireSchema(
   actions: z
     .array(z.looseObject({ action: z.string().min(1) }))
     .optional()
-    .describe(
-      'Required for op="author". Deletion is delete_objects with object_ids (remove_object + id is accepted).',
-    ),
-  fields: z.array(z.string()).optional().describe('Optional observe fields, e.g. counts, ui, objects.'),
+    .describe('Required for op="author". Deletion is delete_objects with object_ids (remove_object + id is accepted).'),
+  fields: z.array(z.string()).optional().describe("Optional observe fields, e.g. counts, ui, objects."),
   object_id: z.string().optional().describe("Object id for inspect or a single-object author action."),
   id: z.string().optional(),
   camera_id: z.string().optional(),
@@ -96,7 +94,10 @@ const directorCreativeWireSchema = compactWireSchema(
   'Operation. Use {"op":"describe","target":"interchange"} when a request shape is unknown. Other fields ride alongside op and are strictly validated by the Gateway.',
 ).extend({
   target: z.string().trim().min(1).max(200).optional().describe('Required for op="describe".'),
-  operation: z.looseObject({ op: z.string().min(1) }).optional().describe('Required for op="execute".'),
+  operation: z
+    .looseObject({ op: z.string().min(1) })
+    .optional()
+    .describe('Required for op="execute".'),
   steps: z
     .array(z.looseObject({ operation: z.looseObject({ op: z.string().min(1) }).optional() }))
     .optional()
@@ -131,8 +132,16 @@ export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
         'Required for op="apply". Typed ops include create_blockout (white-box shells: presets floor/wall/room/corridor/stairs, metres), create_opening (door/window holes), create_primitive (dimensions + grounded), polyhaven_import, sketchfab_import, execute_code.',
       ),
     operator: z.string().optional().describe('RNA id for op="describe", e.g. mesh.bevel.'),
-    target: z.string().optional().describe('Typed apply op for op="describe", e.g. create_primitive or polyhaven_import.'),
-    query: z.string().optional().describe('When op="query", Blender object name substring (e.g. "清华"). Also search text for catalog, polyhaven_search, and sketchfab_search.'),
+    target: z
+      .string()
+      .optional()
+      .describe('Typed apply op for op="describe", e.g. create_primitive or polyhaven_import.'),
+    query: z
+      .string()
+      .optional()
+      .describe(
+        'When op="query", Blender object name substring (e.g. "清华"). Also search text for catalog, polyhaven_search, and sketchfab_search.',
+      ),
     queries: z
       .array(z.looseObject({ kind: z.string().min(1) }))
       .optional()
