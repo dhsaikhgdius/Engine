@@ -5,7 +5,7 @@ description: 对照 Builder.io Agent-Native 架构框架，评估 Director 在�
 
 本文档对照 [Builder.io：Agent-Native — The Next Architecture for Software](https://www.builder.io/blog/agent-native-architecture#where-agent-native-fits-in-the-software-stack) 的框架，评估 Director 是否符合 **agent-native**（而非 bolt-on AI）产品架构。
 
-Last verified: **2026-08-13**。与 [Feature Status](/zh/reference/feature-status/) 对齐。
+Last verified: **2026-08-25**。与 [Feature Status](/zh/reference/feature-status/) 对齐。
 
 相关文档：
 
@@ -18,6 +18,8 @@ Last verified: **2026-08-13**。与 [Feature Status](/zh/reference/feature-statu
 Director **整体方向符合 agent-native 定义**。在核心控制面、协议暴露和证据闭环上，明显强于「侧边栏聊天 + 部分 API」类产品；但 **尚未完全达到文章描述的理想态**，主要差距在 UI/Agent 能力对等、统一 action registry，以及团队治理层。
 
 **综合评分：约 4/5** — 在 agent-native 产品里属于设计先行、实现较完整的一档。
+M2 的 JSON 缺口（interchange 导入、collaboration 评论/版本写操作）已于 2026-08-25 闭合；
+在 UI parity（M1）与统一治理（M3）落地前，综合评分保持 4/5。
 
 ---
 
@@ -43,13 +45,13 @@ Director 文档明确自定位为 **Agent-native，而非「可被 Agent 控制�
 
 **符合：**
 
-- 场景编排、相机、角色、时间线、Canvas/Video、interchange 导出、collaboration observe/comment、audit/deliver 等核心能力可通过 MCP / HTTP / CLI 完成
+- 场景编排、相机、角色、时间线、Canvas/Video、interchange 导出与导入、collaboration 评论与版本、audit/deliver 等核心能力可通过 MCP / HTTP / CLI 完成
+- **Interchange** 与 **Collaboration** 已完整暴露为 `director_creative` JSON 操作：interchange `capabilities` / `plan-export` / `export`，以及 `plan-import`（source 支持 inline、Gallery `media_id`、`workspace_path`）和受守卫的 `import`（`plan_id` + `expected_guard_fingerprint` + `confirm:true`）；collaboration `observe` / `list-comments` / `add-comment` / `resolve-comment` / `reopen-comment` / `update-comment` / `delete-comment` / `list-versions` / `compare` / `create-version` / `restore-version` / `delete-version`（`packages/protocol/src/creativeWorkspaceProtocol.ts`、`frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts`）。Feature Status 里仍为 **Limited** 的是格式子集与协作房间鉴权，而不是缺 JSON 操作
 - 禁止 DOM 坐标点击作为 authoring 契约（见 [Feature Status](/zh/reference/feature-status/)）
 - Agent 操作结果可在 UI 中 inspect（revision、diff、capture、receipts）
 
 **缺口：**
 
-- **Interchange** 与 **Collaboration** 已 **部分** 暴露为 `director_creative` JSON 操作。已交付：interchange `capabilities` / `plan-export` / `export`；collaboration `observe` / `list-comments` / `add-comment` / `list-versions` / `compare`。剩余：interchange **导入** 仍是 human-file-picker-only；collaboration **写操作** 仍缺 comment resolve 与 version create/restore
 - `directorStore` 多数 mutator（相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体、故事板）已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring；仍直连 store 的路径为创建流程（资产拖放、预设角色、人群、机位创建）、UI-only 分组（对象列表、人群标签）、gizmo/滑杆拖拽批次与 Canvas/Video store
 - 视口拖拽、pilot 等交互式操控缺少完整 semantic 等价物
 
@@ -109,7 +111,7 @@ Director 文档明确自定位为 **Agent-native，而非「可被 Agent 控制�
 
 **评级：4.5/5**
 
-### 4. Protocol-Ready by Design — MCP 强 ✅，A2A 弱 ⚠️
+### 4. Protocol-Ready by Design — MCP 强 ✅，A2A 已评估：runtime no-go ⚠️
 
 **符合：**
 
@@ -121,10 +123,16 @@ Director 文档明确自定位为 **Agent-native，而非「可被 Agent 控制�
 | **CLI**        | `npm run stage --`              | [Control surfaces](/zh/agents/control-surfaces/)                                   |
 
 MCP 工具全部转发 gateway，无重复业务逻辑。可分发插件含 `.mcp.json`、Skill、Codex plugin manifest。
+`GET /api/control-plane/tool-manifest` 发布机器可读的 `director-tool-manifest-v1` catalog
+（surface、op 枚举、HTTP 绑定、legacy `stage_*` 标记），由与执行校验相同的 Zod schema 派生
+（`backend/gateway/controlPlane/toolManifest.ts`）。
+`GET /api/control-plane/a2a-agent-card` 提供 discovery-only 的 A2A 风格 agent card，把
+A2A-aware 客户端指向 MCP 与 tool manifest —— 没有远程 A2A endpoint
+（`backend/gateway/controlPlane/a2aAgentCard.ts`）。
 
 **缺口：**
 
-- 无标准 **A2A（Agent-to-Agent）** 协议
+- 无标准 **A2A（Agent-to-Agent）** runtime，且是明确决策：[ADR 0004](/zh/engineering/adr/0004-a2a-gateway-spike/) 评估了把 gateway 包装为 live A2A agent，结论为 **no-go**（loopback/进程 token 鉴权不匹配、第二套执行协议、守卫无法映射）；仅提供 discovery-only card
 - Multi-agent 为固定串行 DAG，状态 **Experimental**
 
 **评级：4/5**
@@ -158,7 +166,7 @@ MCP 工具全部转发 gateway，无重复业务逻辑。可分发插件含 `.mc
 | ----------------- | -------------------- | -------------- | ------------------------------ | ----------------------------------------------------------------------------------------------- | ----- |
 | **控制权**        | 厂商                 | 用户 prompt    | 开发者/团队拥有 app            | 开源、本地 gateway、可改代码                                                                    | 5/5   |
 | **Human UI 质量** | 强                   | 弱/无          | 完整产品 UI                    | Canvas / 3D / Video 完整编辑器                                                                  | 4.5/5 |
-| **Agent 访问**    | 部分 bolt-on         | 广但无结构     | 通过 app actions 全访问        | 核心路径强；interchange 导出与 collab observe/comment 已是 JSON；导入与剩余 collab 写操作仍有限 | 4.5/5 |
+| **Agent 访问**    | 部分 bolt-on         | 广但无结构     | 通过 app actions 全访问        | 核心路径强；interchange 导出/导入与全部 collaboration 评论/版本写操作已是 JSON；格式子集与房间鉴权仍为 Limited | 4.5/5 |
 | **可定制性**      | 设置/插件            | prompt 一次性  | 代码/workflow 可 clone         | Profiles、Skills、MCP plugin                                                                    | 4/5   |
 | **数据所有权**    | 厂商 DB              | 依赖外部工具   | 自有 DB/schema                 | 本地 SQLite / JSON / 浏览器 media                                                               | 4.5/5 |
 | **Runtime 定制**  | 厂商 roadmap         | 一次性 chat    | SQL workspace、runtime tools   | 有 Skills/Profiles；无 SQL-backed workspace                                                     | 3/5   |
@@ -225,7 +233,7 @@ agent-gateway.ts (composition root)
 
 1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除、单次变换、相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体与故事板已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring。仍直连 store 的路径：创建流程（资产拖放、预设角色、人群、机位创建）、UI-only 对象列表/人群分组、gizmo 拖拽批次与 Canvas/Video store
 2. **Governance 入口未完全统一** — MCP、本地 harness 与托管 adapter 已共享 `filmRoleToolPolicy`；原始 HTTP 与人类 UI 仍绕过 film role，审计也未跨入口统一
-3. **Protocol breadth** — MCP 强，无标准 A2A；multi-agent 为自定义串行 graph
+3. **Protocol breadth** — MCP 强且已发布 HTTP tool manifest；A2A 已评估并拒绝 runtime（ADR 0004；提供 discovery-only card）；multi-agent 为自定义串行 graph
 4. **Dual surface 遗留** — `stage_*` 兼容层 vs `director_workbench` 完整模型仍并存
 5. **Runtime workspace** — 无文章描述的 SQL-backed AGENTS.md / LEARNINGS.md 等产品内 workspace
 
@@ -238,7 +246,7 @@ agent-gateway.ts (composition root)
 1. **继续把 UI mutator 收敛到 shared authoring dispatch** — 相机 / 姿态 / 时间线 / Canvas·Video 仍有双写
 2. **把共享角色策略接到原始 HTTP 与 UI，并统一审计轨迹** — MCP / 本地 / 托管已共用 `filmRoleToolPolicy.ts`
 3. **补 team/observability 层** — collaboration auth、agent trace/cost dashboard
-4. **评估 A2A 或 OpenAPI tool manifest 导出** — 便于跨 app agent 编排
+4. **跨 app 编排** — tool manifest 导出已交付（`GET /api/control-plane/tool-manifest`）；A2A spike 已在 ADR 0004 得出结论（runtime no-go；discovery-only card 位于 `GET /api/control-plane/a2a-agent-card`）；仅当合作方需要 A2A task 执行时重启
 
 ---
 
