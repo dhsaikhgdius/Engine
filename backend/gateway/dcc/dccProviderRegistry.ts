@@ -21,6 +21,7 @@ import {
 } from "@director/dcc-protocol";
 import type { BlenderBridge } from "./blenderBridge";
 import type { DirectorDccEngineBridge } from "./engineBridge";
+import { GODOT_DEFAULT_EXECUTABLE_PATHS, GODOT_EXECUTABLE_COMMANDS } from "./godotProbe";
 
 /**
  * A pluggable adapter that vends a DCC provider's descriptor and live status.
@@ -149,8 +150,9 @@ const RUNTIME_PROBES: Partial<Record<DirectorDccProviderId, RuntimeProbe>> = {
   },
   godot: {
     environmentVariable: "DIRECTOR_GODOT_BIN",
-    commands: ["godot", "godot4"],
-    paths: ["/Applications/Godot.app/Contents/MacOS/Godot"],
+    // macOS, Linux, Flatpak/Snap, and Windows locations live in godotProbe.ts.
+    commands: [...GODOT_EXECUTABLE_COMMANDS],
+    paths: [...GODOT_DEFAULT_EXECUTABLE_PATHS],
   },
 };
 

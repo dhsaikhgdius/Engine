@@ -143,14 +143,15 @@ describe("Director DCC provider contract", () => {
       expect(byId.get("headless")).toEqual({ id: "headless", level: "native", layer: "connector" });
       expect(byId.get("roundtrip")).toEqual({ id: "roundtrip", level: "native", layer: "connector" });
       expect(byId.get("stable_ids")).toEqual({ id: "stable_ids", level: "native", layer: "director-manifest" });
-      // The Unreal connector ships Gateway-baked Sequencer animation, skinned
-      // GLB skeletal-mesh import, and PBR material instances; the Unity
-      // connector bakes animation onto Timeline, builds Avatars from skinned
-      // GLB, and translates Director PBR materials. The other engine
-      // connectors keep those claims planned until equivalent fixtures exist.
-      const provenFidelityLevel = descriptor.id === "unreal" || descriptor.id === "unity" ? "native" : "planned";
+      // Every engine connector now ships a proven fidelity subset: Unreal keys
+      // Gateway-baked animation into Sequencer with skinned-GLB skeletal-mesh
+      // import and PBR material instances; Unity bakes animation onto Timeline,
+      // builds Avatars from skinned GLB, and translates Director PBR materials;
+      // Godot bakes Gateway animation into AnimationPlayer with skinned GLB
+      // Skeleton3D import and StandardMaterial3D translation. Each claim is
+      // pinned by host-free golden fixtures.
       for (const id of ["animation", "skeleton", "materials"] as const) {
-        expect(byId.get(id)).toEqual({ id, level: provenFidelityLevel, layer: "connector" });
+        expect(byId.get(id)).toEqual({ id, level: "native", layer: "connector" });
       }
       // Live link stays planned for every engine: preview-only transports are
       // never the durable scene channel.
