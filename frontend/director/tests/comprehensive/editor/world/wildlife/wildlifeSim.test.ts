@@ -3,6 +3,7 @@ import {
   DIRECTOR_WORLD_SIMULATION_HZ,
   WORLD_WILDLIFE_SPECIES,
   WORLD_WILDLIFE_SPECIES_ARCHETYPE,
+  type DirectorWorldSettings,
   type DirectorWorldWildlifeGroup,
   type WorldWildlifeSpecies,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
@@ -11,16 +12,14 @@ import {
   createWildlifeRng,
   createWildlifeSim,
   shouldRecreateWildlifeSim,
-  WILDLIFE_BEHAVIOR_FLEE,
   WILDLIFE_BEHAVIOR_GRAZE,
-  WILDLIFE_BEHAVIOR_SPRINT,
+  WILDLIFE_BEHAVIOR_REGROUP,
   WILDLIFE_BEHAVIOR_WALK,
-  WILDLIFE_CALM_ENVIRONMENT,
   WILDLIFE_CRUISE_SPEED_MPS,
   WILDLIFE_DEFAULT_ALTITUDE_BAND_M,
   wildlifeSimConfigKey,
-  type WildlifeEnvironment,
   type WildlifeSim,
+  type WildlifeSimEnvironment,
   type WildlifeSimStateView,
 } from "../../../../../src/comprehensive/editor/world/wildlife/wildlifeSim";
 
@@ -49,19 +48,34 @@ function makeGroup(
   };
 }
 
+function makeSettings(overrides: Partial<DirectorWorldSettings> = {}): DirectorWorldSettings {
+  return {
+    enabled: true,
+    seed: WORLD_SEED,
+    wind: { directionDegrees: 0, speedMps: 0, gustiness: 0, turbulence: 0 },
+    timeOfDay: { mode: "fixed", hours: 12, cycleMinutes: 12, drivesSky: false },
+    weather: { preset: "clear", intensity: 0, wetness: 0, cloudCover: 0.2 },
+    ...overrides,
+  };
+}
+
 function makeSim(
   species: WorldWildlifeSpecies,
   count: number,
   overrides?: Partial<DirectorWorldWildlifeGroup>,
-  environment?: WildlifeEnvironment,
+  environment?: WildlifeSimEnvironment,
 ) {
   return createWildlifeSim(makeGroup(species, count, overrides), WORLD_SEED, GROUND_HEIGHT, environment);
 }
 
+const WILDLIFE_CALM_ENVIRONMENT: WildlifeSimEnvironment = { settings: makeSettings() };
+
 /** Storm blowing toward +X (meteorological 90° = wind vector (sin 90°, 0, cos 90°)). */
-const STORM_EAST: WildlifeEnvironment = {
-  wind: { directionDegrees: 90, speedMps: 10, gustiness: 0.3, turbulence: 0.3 },
-  weather: { preset: "storm", intensity: 1, wetness: 0.8, cloudCover: 1 },
+const STORM_EAST: WildlifeSimEnvironment = {
+  settings: makeSettings({
+    wind: { directionDegrees: 90, speedMps: 10, gustiness: 0.3, turbulence: 0.3 },
+    weather: { preset: "storm", intensity: 1, wetness: 0.8, cloudCover: 1 },
+  }),
 };
 
 function meanDistanceToCenter(sim: WildlifeSim): number {
@@ -364,27 +378,25 @@ describe("wildlife species-distinct motion", () => {
     expect(sheepTotal / 3).toBeLessThan((wolvesTotal / 3) * 0.7);
   });
 
-  it("rabbits alternate graze with sprint bursts well above cruise speed", () => {
+  it("rabbits alternate graze with walk bursts", () => {
     const { seenStates, maxSpeed } = sampleHerdRun(makeSim("rabbits", 16), 120);
-    expect(seenStates.has(WILDLIFE_BEHAVIOR_SPRINT)).toBe(true);
+    expect(seenStates.has(WILDLIFE_BEHAVIOR_WALK)).toBe(true);
     expect(seenStates.has(WILDLIFE_BEHAVIOR_GRAZE)).toBe(true);
-    expect(maxSpeed).toBeGreaterThan(WILDLIFE_CRUISE_SPEED_MPS.rabbits * 1.5);
+    expect(maxSpeed).toBeGreaterThan(WILDLIFE_CRUISE_SPEED_MPS.rabbits * 0.8);
   });
 
-  it("wolves chase-lope, sheep startle-flee, deer do neither", () => {
+  it("wolves range, sheep graze, and deer stay in the walk/graze loop", () => {
     const wolves = sampleHerdRun(makeSim("wolves", 16), 120);
-    expect(wolves.seenStates.has(WILDLIFE_BEHAVIOR_SPRINT)).toBe(true);
-    expect(wolves.seenStates.has(WILDLIFE_BEHAVIOR_FLEE)).toBe(false);
-    expect(wolves.maxSpeed).toBeGreaterThan(WILDLIFE_CRUISE_SPEED_MPS.wolves * 1.5);
+    expect(wolves.seenStates.has(WILDLIFE_BEHAVIOR_WALK)).toBe(true);
+    expect(wolves.maxSpeed).toBeGreaterThan(WILDLIFE_CRUISE_SPEED_MPS.wolves * 0.8);
 
     const sheep = sampleHerdRun(makeSim("sheep", 16), 120);
-    expect(sheep.seenStates.has(WILDLIFE_BEHAVIOR_FLEE)).toBe(true);
-    expect(sheep.seenStates.has(WILDLIFE_BEHAVIOR_SPRINT)).toBe(false);
-    expect(sheep.maxSpeed).toBeGreaterThan(WILDLIFE_CRUISE_SPEED_MPS.sheep * 1.4);
+    expect(sheep.seenStates.has(WILDLIFE_BEHAVIOR_GRAZE)).toBe(true);
+    expect(sheep.seenStates.has(WILDLIFE_BEHAVIOR_WALK) || sheep.seenStates.has(WILDLIFE_BEHAVIOR_REGROUP)).toBe(true);
 
     const deer = sampleHerdRun(makeSim("deer", 16), 120);
-    expect(deer.seenStates.has(WILDLIFE_BEHAVIOR_SPRINT)).toBe(false);
-    expect(deer.seenStates.has(WILDLIFE_BEHAVIOR_FLEE)).toBe(false);
+    expect(deer.seenStates.has(WILDLIFE_BEHAVIOR_GRAZE)).toBe(true);
+    expect(deer.seenStates.has(WILDLIFE_BEHAVIOR_WALK) || deer.seenStates.has(WILDLIFE_BEHAVIOR_REGROUP)).toBe(true);
   });
 
   it("birds occupy layered strata across the whole altitude band", () => {
@@ -501,18 +513,21 @@ describe("wildlife weather and wind response", () => {
   it("keys the sim on consumed weather fields only", () => {
     const group = makeGroup("sheep", 8);
     const calmKey = wildlifeSimConfigKey(group, WORLD_SEED, GROUND_HEIGHT, WILDLIFE_CALM_ENVIRONMENT);
-    // Preset, intensity, and wind changes replay the sim.
+    // Storm replay for herds; wind is flock-only so it must not reset sheep.
     expect(wildlifeSimConfigKey(group, WORLD_SEED, GROUND_HEIGHT, STORM_EAST)).not.toBe(calmKey);
-    const windier: WildlifeEnvironment = {
-      ...WILDLIFE_CALM_ENVIRONMENT,
-      wind: { ...WILDLIFE_CALM_ENVIRONMENT.wind, speedMps: 6 },
+    const windier: WildlifeSimEnvironment = {
+      settings: makeSettings({
+        wind: { ...WILDLIFE_CALM_ENVIRONMENT.settings.wind, speedMps: 6 },
+      }),
     };
-    expect(wildlifeSimConfigKey(group, WORLD_SEED, GROUND_HEIGHT, windier)).not.toBe(calmKey);
+    expect(wildlifeSimConfigKey(group, WORLD_SEED, GROUND_HEIGHT, windier)).toBe(calmKey);
     // Wetness/cloud-cover (and turbulence) are not consumed: evolution
     // systems may drift them mid-shot without resetting herds.
-    const wetter: WildlifeEnvironment = {
-      wind: { ...WILDLIFE_CALM_ENVIRONMENT.wind, turbulence: 0.9 },
-      weather: { ...WILDLIFE_CALM_ENVIRONMENT.weather, wetness: 1, cloudCover: 1 },
+    const wetter: WildlifeSimEnvironment = {
+      settings: makeSettings({
+        wind: { ...WILDLIFE_CALM_ENVIRONMENT.settings.wind, turbulence: 0.9 },
+        weather: { ...WILDLIFE_CALM_ENVIRONMENT.settings.weather, wetness: 1, cloudCover: 1 },
+      }),
     };
     expect(wildlifeSimConfigKey(group, WORLD_SEED, GROUND_HEIGHT, wetter)).toBe(calmKey);
     const sim = createWildlifeSim(group, WORLD_SEED, GROUND_HEIGHT, WILDLIFE_CALM_ENVIRONMENT);

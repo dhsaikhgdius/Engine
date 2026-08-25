@@ -32,19 +32,21 @@ function createRiverBody(): DirectorWorldWaterBody {
 }
 
 function createFrameContext(weather: LivingWorldFrameContext["settings"]["weather"]): LivingWorldFrameContext {
+  const settings: LivingWorldFrameContext["settings"] = {
+    enabled: true,
+    seed: 7,
+    wind: { directionDegrees: 0, speedMps: 0, gustiness: 0, turbulence: 0 },
+    timeOfDay: { mode: "fixed", hours: 12, cycleMinutes: 12, drivesSky: false },
+    weather,
+  };
   return {
     worldSeconds: 8,
     frame: 192,
     fps: 24,
     isPlaying: true,
     seed: 7,
-    settings: {
-      enabled: true,
-      seed: 7,
-      wind: { directionDegrees: 0, speedMps: 0, gustiness: 0, turbulence: 0 },
-      timeOfDay: { mode: "fixed", hours: 12, cycleMinutes: 12, drivesSky: false },
-      weather,
-    },
+    settings,
+    climate: evaluateWorldClimate(settings, 8),
     windVector: [0, 0, 0],
     groundHeight: 0,
   };

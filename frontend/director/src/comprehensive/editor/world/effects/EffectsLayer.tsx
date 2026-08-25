@@ -679,6 +679,21 @@ function FirePropagationSystem({
     </>
   );
 }
+
+function getFireLightEnvironment(
+  effect: DirectorWorldEffect,
+  context: LivingWorldFrameContext,
+): FireLightEnvironment {
+  return {
+    burnFactor: evaluateFireBurnFactor(
+      context.climate.weather,
+      getEffectSystemSeedHash(context.seed, effect.seedOffset, effect.id),
+      context.worldSeconds,
+    ),
+    windSpeedMps: Math.hypot(context.windVector[0], context.windVector[2]),
+  };
+}
+
 function FireEffectLight({
   castShadow,
   context,

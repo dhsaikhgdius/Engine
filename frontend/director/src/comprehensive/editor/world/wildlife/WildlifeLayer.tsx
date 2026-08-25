@@ -80,7 +80,7 @@ const tempPosition = new Vector3();
 const tempQuaternion = new Quaternion();
 const tempEuler = new Euler();
 const UNIT_SCALE = new Vector3(1, 1, 1);
-const tempGroundPose: WildlifeGroundPose = { groundY: 0, slopePitchRad: 0 };
+const tempGroundPose: WildlifeGroundPose = { groundY: 0, slopePitchRad: 0, slopeRollRad: 0, clipLiftM: 0 };
 
 function composeGroupMatrices(
   mesh: InstancedMesh,
@@ -139,8 +139,9 @@ function composeGroupMatrices(
         // slope. Sampling stays render-side so replayed sim state never
         // depends on scene contents (see livingWorldContracts).
         sampleWildlifeGroundPose(groundSample, px, pz, yaw, py, slopeProbeHalfSpacing, tempGroundPose);
-        py = tempGroundPose.groundY;
+        py = tempGroundPose.groundY + tempGroundPose.clipLiftM;
         pitch += tempGroundPose.slopePitchRad;
+        roll = tempGroundPose.slopeRollRad;
       }
       py += bodyOffsetY;
       if (gait) {
