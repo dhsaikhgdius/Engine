@@ -1,0 +1,27 @@
+{
+  "name": "reconstruction-contract",
+  "description": "Verify the capture-reconstruction job surface: list is reachable, and get/submit report a clean failure taxonomy for unknown inputs.",
+  "steps": [
+    {
+      "label": "list reconstruction jobs",
+      "tool": "director_workbench",
+      "input": { "op": "reconstruction", "command": { "action": "list", "limit": 10 } },
+      "expect": { "success": true, "result_paths": ["result.jobs"] }
+    },
+    {
+      "label": "unknown job id fails",
+      "tool": "director_workbench",
+      "input": { "op": "reconstruction", "command": { "action": "get", "job_id": "eval-missing-job" } },
+      "expect": { "success": false }
+    },
+    {
+      "label": "unknown gallery media fails on submit",
+      "tool": "director_workbench",
+      "input": {
+        "op": "reconstruction",
+        "command": { "action": "submit", "source_media_id": "eval-missing-media" }
+      },
+      "expect": { "success": false, "error_includes": "does not exist" }
+    }
+  ]
+}

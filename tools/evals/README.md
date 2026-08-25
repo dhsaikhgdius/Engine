@@ -62,7 +62,7 @@ Each `tasks/*.json` file is one task, run sequentially with its own
 `session_id` (`eval-<name>-<timestamp>`). Steps run in order and stop at the first failure.
 
 Every step names one public tool in `tool`: `director_workbench`, `director_creative`,
-`stage_video`, or `blender_native`. The task-schema test validates every
+`stage_video`, `blender_native`, or `director_dcc`. The task-schema test validates every
 expected-success input against that tool's strict contract before an isolated browser run.
 
 `result_paths` are dot-paths resolved against the whole JSON response body
@@ -82,3 +82,7 @@ by dropping a new JSON file into `tasks/`.
 | `tasks/05-bounded-large-scene-observation.json`  | Add a multi-object block and verify bounded spatial and hierarchy observations                                       |
 | `tasks/06-creative-workspaces-atomic-batch.json` | Exercise Canvas, Video Editor, and Gallery in one undoable Creative batch                                            |
 | `tasks/07-video-and-native-capabilities.json`    | Verify Video provider discovery and Blender native-kernel status through public tools                                |
+| `tasks/08-world-systems-observation.json`        | Author Living World weather/wind plus one effect, then verify the `world` observation projection                     |
+| `tasks/09-dcc-discover-and-handoff.json`         | Verify the DCC provider catalog, Blender handoff readiness, and the unknown-provider failure taxonomy                |
+| `tasks/10-reconstruction-contract.json`          | Verify the capture-reconstruction list surface and the get/submit failure taxonomy for unknown inputs                |
+| `tasks/11-workbench-observe-author-smoke.json`   | Smoke the core loop: capabilities, bounded observation, author a camera, inspect it, and undo                        |

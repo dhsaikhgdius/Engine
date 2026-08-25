@@ -1,0 +1,52 @@
+{
+  "name": "workbench-observe-author-smoke",
+  "description": "Smoke the core workbench loop: capabilities, bounded observation, one author change, inspect, and undo.",
+  "steps": [
+    {
+      "label": "capabilities advertise world contract",
+      "tool": "director_workbench",
+      "input": { "op": "capabilities" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.world_contract.effect_kinds", "result.catalog_contract.catalogs"]
+      }
+    },
+    {
+      "label": "bounded observation",
+      "tool": "director_workbench",
+      "input": { "op": "observe", "fields": ["counts", "graph_issues"] },
+      "expect": { "success": true, "result_paths": ["result.counts", "result.graph_issues"] }
+    },
+    {
+      "label": "author a smoke camera",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_camera",
+            "id": "eval-smoke-cam",
+            "name": "Smoke cam",
+            "position": [4, 2, 6],
+            "target": [0, 1, 0],
+            "focal_length_mm": 50,
+            "activate": false
+          }
+        ]
+      },
+      "expect": { "success": true }
+    },
+    {
+      "label": "inspect the smoke camera",
+      "tool": "director_workbench",
+      "input": { "op": "inspect", "entity": "camera", "id": "eval-smoke-cam" },
+      "expect": { "success": true }
+    },
+    {
+      "label": "undo the smoke camera",
+      "tool": "director_workbench",
+      "input": { "op": "undo" },
+      "expect": { "success": true }
+    }
+  ]
+}
