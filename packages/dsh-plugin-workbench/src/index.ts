@@ -10,10 +10,20 @@ export {
 } from "./catalog";
 export {
   dispatchDirectorWorkbenchTool,
+  fetchDirectorGatewayJson,
   type DirectorWorkbenchGatewayConfig,
   type DirectorWorkbenchGatewayResult,
 } from "./gatewayClient";
 export { DIRECTOR_AGENT_GUIDANCE } from "./guidance";
+export {
+  DEFAULT_WORKSPACE_PROMPT_REFRESH_MS,
+  DIRECTOR_WORKSPACE_PROMPT_ORDER,
+  DIRECTOR_WORKSPACE_PROMPT_SECTION,
+  fetchDirectorWorkspacePrompt,
+  registerDirectorWorkspacePrompt,
+  sessionOverrideFromEnv,
+  workspacePromptRefreshMs,
+} from "./workspacePrompt";
 export {
   DIRECTOR_DSH_HEALTH,
   DIRECTOR_DSH_HEALTH_PATH,

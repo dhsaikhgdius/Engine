@@ -60,6 +60,28 @@ API keys and their environment-variable names are never exposed by discovery rou
 durable session JSON. Conversation v2 stores canonical messages instead of provider wire formats;
 captured image bytes are only attached to the current model request.
 
+## Agent workspace (SQL-backed instructions / skills / memory)
+
+The in-product agent workspace persists instructions, learnings, skill references, and memory
+entries (with TTL) in `agent-workspace.sqlite` under the data directory, edited through
+**Settings → Agent Workspace** and `/api/agent/workspace/*`. The harness merges instruction
+layers lowest-precedence-first: **repo skills → DB workspace (org → user) → session override**.
+
+| Variable                        | Purpose                                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------- |
+| `DIRECTOR_SESSION_INSTRUCTIONS` | Ephemeral per-session instruction override (highest precedence, not persisted) |
+| `DIRECTOR_WORKSPACE_REFRESH_MS` | Workspace prompt refresh cadence in the DSH plugin; `0` disables, clamped 5s–10min (default 30s) |
+
+Merge strategy with `DIRECTOR_AGENT_PROFILES_JSON`: the two are separate axes and are not
+migrated into each other. Model/provider profiles — including every credential — stay on the
+profile axis: `DIRECTOR_AGENT_PROFILES_JSON` (environment) merged with `agent-api-providers.json`
+(user), environment first, user overlays on id collision, and reserved ids
+(`api-default`, local CLIs) always environment-owned. The workspace stores only prose
+instructions, learnings, skill references, and memory; its export bundle is structurally unable
+to carry provider credentials. Workspace prompt text passes the same redaction rules as harness
+diagnostics, and memory entries are user-controlled untrusted data that are never injected
+automatically into any prompt.
+
 `web_search` and `web_fetch` are DeepSeek Harness tools. When you run the harness with
 `npm run dsh`, they come from the pinned official DSH release (`vendor/deepseek-harness`) and are
 configured through the harness's own settings. The Gateway no longer ships an in-tree copy of

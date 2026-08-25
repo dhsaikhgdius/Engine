@@ -65,10 +65,10 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 | Phase  | Theme                      | Status          | Main outputs                                                                                 | Depends on              |
 | ------ | -------------------------- | --------------- | -------------------------------------------------------------------------------------------- | ----------------------- |
 | **M0** | Baseline & metrics         | **Partial**     | Stage inventory + parity tests + Feature Status row shipped; generator and `stage_*` map open | —                       |
-| **M1** | Shared action registry     | **Partial**     | Stage one-shot mutators share `applyDirectorAuthoringActions`; Canvas/Video (1e/1f) open      | M0                      |
+| **M1** | Shared action registry     | **Partial**     | Stage one-shot mutators share `applyDirectorAuthoringActions`; Canvas/Video discrete mutators (1e/1f) share `dispatchCreativeWorkspaceOperations`; creation/gizmo/trim drag leftover | M0                      |
 | **M2** | Remove human-only surfaces | **Implemented** | Interchange export + import (`plan-import`/`import`) and full collab comment/version writes shipped as JSON; human file picker remains an optional local-file convenience | M1 (partially parallel) |
 | **M3** | Unified gateway governance | **Partial** | Policy, unified audit, and confirmation boundaries now guard raw HTTP/CLI; role-gated UI shipped; read-only mode open | M1                      |
-| **M4** | In-product workspace       | Planned     | SQL-backed instructions / skills / memory                                                    | M3                      |
+| **M4** | In-product workspace       | **Shipped** | SQL-backed instructions / skills / memory, Settings editor, bundle export/import             | M3                      |
 | **M5** | Observability              | **Partial** | Session traces, cost/latency metering, unified progress + `/api/agent/*` shipped; eval hooks open | M3                      |
 | **M6** | Team readiness             | Planned     | Collaboration auth, multi-agent enhancements                                                 | M3, M5                  |
 | **M7** | Ecosystem protocols        | **Implemented** | Tool manifest, A2A go/no-go concluded in ADR 0004 (runtime no-go; discovery-only card served), cross-app receipt recipe. A2A runtime not shipped | M2, M3                  |
@@ -268,24 +268,42 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
 
 ## Milestone 4 — In-product agent workspace
 
+**Status: Shipped** (verified 2026-08-25).
+
 **Goal:** team instructions, skills, and memory live in SQLite and are editable in-app.
 
-### Work
+### Shipped
 
-- Add `agent_workspace` tables (org / user scope):
-  - `instructions` (AGENTS.md equivalent)
-  - `learnings` (LEARNINGS.md equivalent)
-  - `skill_refs`
-  - `memory_entries` (structured KV with TTL)
-- Workbench harness merges: repo Skills → DB workspace → session override.
-- UI: **Settings → Agent Workspace** editor with version history.
-- Migrate or merge with `DIRECTOR_AGENT_PROFILES_JSON`.
+- `agent_workspace_*` tables (org / user scope) in
+  `backend/gateway/agents/agentWorkspaceStore.ts` on Node's built-in `node:sqlite`
+  (`agent-workspace.sqlite` under the data directory, WAL):
+  - `agent_workspace_documents` + `agent_workspace_document_versions` — `instructions`
+    (AGENTS.md equivalent) and `learnings` (LEARNINGS.md equivalent) with bounded version history;
+  - `agent_workspace_skill_refs` — references to bundled or custom skills (never executable content);
+  - `agent_workspace_memory` — structured KV with TTL, purged on access.
+- Harness merge, lowest precedence first: **repo skills → DB workspace (org → user) → session
+  override**. The gateway composes the effective prompt at
+  `GET /api/agent/workspace/prompt` (`agentWorkspacePrompt.ts`); the DSH plugin
+  (`packages/dsh-plugin-workbench/src/workspacePrompt.ts`) registers it as the
+  `director:workspace` system-prompt section and refreshes it, so DB edits reach new sessions
+  without repo changes or a harness restart. `DIRECTOR_SESSION_INSTRUCTIONS` supplies the
+  ephemeral session override.
+- UI: **Settings → Agent Workspace** popover (`AgentWorkspaceSettings.tsx`) with document
+  editing, version history restore, skill refs, memory entries, and JSON bundle export/import.
+- `DIRECTOR_AGENT_PROFILES_JSON` merge strategy is documented in
+  [Configuration](/reference/configuration/): model/provider profiles (and their credentials)
+  stay on the profile axis (env JSON + `agent-api-providers.json`, env-first with user overlays
+  and reserved ids env-owned); the workspace stores only instructions / learnings / skill refs /
+  memory, and the bundle can never contain provider credentials.
 
-### Acceptance
+### Acceptance (verified)
 
-- DB instruction edits appear in new sessions without repo changes.
-- Export/import workspace bundle (JSON) for clone workflows.
-- Redaction matches existing harness rules.
+- DB instruction edits appear in new sessions without repo changes (store + prompt + plugin tests).
+- Export/import workspace bundle (JSON) round-trips (`agentWorkspaceStore.test.ts`, route tests).
+- Redaction matches existing harness rules: the shared `backend/gateway/redaction.ts` rule set is
+  used by both planner diagnostics and workspace prompt composition.
+- Red line: memory entries are user-controlled, labeled untrusted, and **never injected
+  automatically** into any prompt; composition excludes them by construction and by test.
 
 ---
 
@@ -405,13 +423,13 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 ## Success metrics
 
-| Metric                          | Today (2026-08-25)                                                        | After remaining M3         | After M4 |
-| ------------------------------- | ------------------------------------------------------------------------- | -------------------------- | -------- |
+| Metric                          | Today (2026-08-25)                                                        | After remaining M3         | After remaining M1 drag leftover |
+| ------------------------------- | ------------------------------------------------------------------------- | -------------------------- | -------------------------------- |
 | Parity coverage (top mutations) | ~60% of top mutations; ~40% of all Stage project mutators (35/87, see the [parity inventory](/engineering/ui-agent-parity-inventory/)) | ≥85%                       | ≥95%     |
 | Documented human-only classes   | 0 required (file picker stays an optional local-file import convenience; OBJ/STL export-only) | 0 required                 | 0        |
 | Consistent gateway policy       | Yes (MCP / local / hosted / raw HTTP+CLI; role-gated UI shipped)           | Yes, including full read-only mode | Yes      |
-| In-product workspace            | No                                                                         | No                         | Yes      |
-| Agent-native self-score         | 4.1 (M2 JSON gaps closed; HTTP governance and tool manifest shipped; UI parity partial) | 4.2                        | 4.5      |
+| In-product workspace            | **Yes (SQL-backed instructions/skills/memory shipped 2026-08-25)**         | Yes                        | Yes      |
+| Agent-native self-score         | 4.1 (M2 JSON gaps closed; HTTP governance, tool manifest, and M4 workspace shipped; UI parity partial) | 4.2                        | 4.5      |
 
 ---
 

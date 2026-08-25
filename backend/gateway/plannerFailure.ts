@@ -1,15 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { DirectorAgentId } from "@director/agent-engine";
 import { BoundedTextBuffer } from "./boundedTextBuffer";
+import { redactSensitiveText } from "./redaction";
 
 const INTERNAL_DIAGNOSTIC_MAX_BYTES = 8 * 1024;
 
 export type InternalPlannerLogger = (message: string) => void;
 
 type PlannerIncidentKind = "failure" | "invalid-output" | "output-limit";
-
-const SENSITIVE_KEY =
-  "(?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|browser[_-]?token|preview[_-]?token|gateway[_-]?token|client[_-]?secret|private[_-]?key|password|passwd|token|secret|authorization|cookie)";
 
 function agentLabel(agent: DirectorAgentId) {
   return agent === "codex" ? "Codex" : "Claude";
@@ -36,24 +34,6 @@ export function safePlannerFailureSummary(stderr: string, agent: DirectorAgentId
   return `${label} 规划进程失败，请查看网关内部日志`;
 }
 
-function redactPlannerDiagnostic(value: string) {
-  return value
-    .replace(
-      new RegExp(`(\\\\\"${SENSITIVE_KEY}\\\\\"\\s*:\\s*)\\\\\"(?:\\\\\\\\.|[^\"\\\\])*\\\\\"`, "gi"),
-      '$1\\"[REDACTED]\\"',
-    )
-    .replace(new RegExp(`("${SENSITIVE_KEY}"\\s*:\\s*)"(?:\\\\.|[^"\\\\])*"`, "gi"), '$1"[REDACTED]"')
-    .replace(new RegExp(`('${SENSITIVE_KEY}'\\s*:\\s*)'(?:\\\\.|[^'\\\\])*'`, "gi"), "$1'[REDACTED]'")
-    .replace(new RegExp(`([?&]${SENSITIVE_KEY}=)[^&#\\s]*`, "gi"), "$1[REDACTED]")
-    .replace(
-      /\b(authorization|proxy-authorization|x-api-key|x-auth-token|x-director-browser-token|cookie|set-cookie)\s*:\s*[^\r\n]+/gi,
-      "$1: [REDACTED]",
-    )
-    .replace(/\b(Bearer|Basic)\s+[^\s,;&]+/gi, "$1 [REDACTED]")
-    .replace(/\b(authorization|proxy-authorization)\s*=\s*(?:Bearer|Basic)\s+[^\s,;&]+/gi, "$1=[REDACTED]")
-    .replace(new RegExp(`\\b(${SENSITIVE_KEY})\\b\\s*[:=]\\s*([^\\s,;&]+)`, "gi"), "$1=[REDACTED]");
-}
-
 function reportPlannerIncident(
   diagnosticValue: string,
   agent: DirectorAgentId,
@@ -66,7 +46,7 @@ function reportPlannerIncident(
     INTERNAL_DIAGNOSTIC_MAX_BYTES,
     "[... planner diagnostic truncated; showing tail ...]\n",
   );
-  diagnostic.append(redactPlannerDiagnostic(diagnosticValue));
+  diagnostic.append(redactSensitiveText(diagnosticValue));
   logger(`[director-planner-${kind} id=${incidentId} agent=${agent}]\n${diagnostic.toString()}`);
   return {
     incidentId,

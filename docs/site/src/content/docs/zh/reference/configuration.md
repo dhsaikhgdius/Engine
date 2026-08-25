@@ -56,6 +56,24 @@ Agent 工作区的「配置 API」面板会把 provider 写到 data 目录的 `a
 API key 及其环境变量名不会出现在发现接口、事件或持久化 Session JSON 中。Conversation v2
 保存 provider-neutral 消息，截图像素仅临时附加到当前模型请求。
 
+## Agent 工作区（SQL 持久化的指令 / 技能 / 记忆）
+
+产品内 Agent 工作区把指令、经验、技能引用与带 TTL 的记忆条目持久化到 data 目录下的
+`agent-workspace.sqlite`，通过 **Settings → Agent 工作区** 面板与 `/api/agent/workspace/*`
+编辑。harness 按优先级从低到高合并指令层：**仓库技能 → DB 工作区（org → user）→ 会话覆盖**。
+
+| 变量                            | 用途                                                             |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `DIRECTOR_SESSION_INSTRUCTIONS` | 临时的单会话指令覆盖（优先级最高，不持久化）                     |
+| `DIRECTOR_WORKSPACE_REFRESH_MS` | DSH 插件刷新工作区提示词的周期；`0` 关闭，钳制在 5 秒–10 分钟（默认 30 秒） |
+
+与 `DIRECTOR_AGENT_PROFILES_JSON` 的合并策略：二者是相互独立的轴，不做互相迁移。模型/供应商
+Profile（含全部凭据）保留在 Profile 轴：`DIRECTOR_AGENT_PROFILES_JSON`（环境）与
+`agent-api-providers.json`（用户）合并，环境优先、id 冲突时用户覆盖、保留 id
+（`api-default`、本地 CLI）始终归环境。工作区只存指令、经验、技能引用与记忆；其导出 bundle
+在结构上不可能携带供应商凭据。工作区提示词与 harness 诊断共用同一套 redaction 规则；记忆是
+用户掌控的不可信数据，永远不会自动注入任何提示词。
+
 `web_search` 与 `web_fetch` 是 DeepSeek Harness 的工具。通过 `npm run dsh` 运行 harness 时，
 它们来自锁定的官方 DSH 发行版（`vendor/deepseek-harness`），并通过 harness 自身的设置配置。
 网关不再内置这两个工具的树内副本，也没有 `agent-plugin-settings.json` 存储；Director 专属的

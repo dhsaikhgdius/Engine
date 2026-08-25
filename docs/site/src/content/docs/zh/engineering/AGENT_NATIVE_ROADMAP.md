@@ -59,10 +59,10 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 | 阶段   | 主题                   | 状态        | 主要产出                                                                         | 依赖             |
 | ------ | ---------------------- | ----------- | -------------------------------------------------------------------------------- | ---------------- |
 | **M0** | 基线与度量             | **Partial**     | Stage 清单 + parity 测试 + Feature Status 行已交付；生成脚本与 `stage_*` 对照表未完成 | 无               |
-| **M1** | Shared action registry | **Partial**     | Stage 单次 mutator 已共享 `applyDirectorAuthoringActions`；Canvas/Video（1e/1f）未完成 | M0               |
+| **M1** | Shared action registry | **Partial**     | Stage 单次 mutator 已共享 `applyDirectorAuthoringActions`；Canvas/Video 离散 mutator（1e/1f）已走 `dispatchCreativeWorkspaceOperations`；创建流程与 gizmo/trim 拖拽仍待 | M0               |
 | **M2** | Human-only 面消除      | **Implemented** | Interchange 导出与导入（`plan-import`/`import`）及全部 collab 评论/版本写操作均为 JSON；文件选择器仅作为本地文件的可选便捷入口保留 | M1（部分可并行） |
 | **M3** | Gateway 统一治理       | **Partial** | 策略、统一审计与确认边界已覆盖原始 HTTP/CLI；role 限制 UI 已交付；只读 mode 未完成 | M1               |
-| **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
+| **M4** | 产品内 workspace       | **已交付**  | SQL 持久化 instructions / skills / memory、Settings 编辑器、bundle 导出/导入     | M3               |
 | **M5** | 可观测性               | **Partial** | Session trace、cost/latency 计量、统一 progress 与 `/api/agent/*` 已交付；eval hooks 未做 | M3               |
 | **M6** | 团队就绪               | Planned     | Collaboration auth、multi-agent 增强                                             | M3、M5           |
 | **M7** | 生态协议               | **Implemented** | Tool manifest、A2A go/no-go 已在 ADR 0004 得出结论（runtime no-go；提供 discovery-only card）、cross-app 回执 recipe。A2A runtime 未交付 | M2、M3           |
@@ -255,24 +255,40 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
 
 ## Milestone 4 — 产品内 Agent Workspace
 
+**状态：已交付**（2026-08-25 验证）。
+
 **目标：** 团队指令、skills、memory 存于 SQLite，可在 app 内编辑，而非仅 repo 文件。
 
-### 工作项
+### 已交付
 
-- 新增 `agent_workspace` 表族（org / user scope）：
-  - `instructions`（等价 AGENTS.md）
-  - `learnings`（等价 LEARNINGS.md）
-  - `skill_refs`（指向 bundled 或 custom skills）
-  - `memory_entries`（结构化 KV，带 TTL）
-- Workbench harness 启动时 merge：repo Skills → DB workspace → session override。
-- UI：**Settings → Agent Workspace** 编辑器（Markdown + 版本历史）。
-- 与现有 `DIRECTOR_AGENT_PROFILES_JSON` 合并或迁移。
+- `agent_workspace_*` 表族（org / user scope），实现于
+  `backend/gateway/agents/agentWorkspaceStore.ts`，使用 Node 内置 `node:sqlite`
+  （数据目录下 `agent-workspace.sqlite`，WAL）：
+  - `agent_workspace_documents` + `agent_workspace_document_versions` —— `instructions`
+    （等价 AGENTS.md）与 `learnings`（等价 LEARNINGS.md），带有限长版本历史；
+  - `agent_workspace_skill_refs` —— 指向 bundled 或 custom skills 的引用（永不存可执行内容）；
+  - `agent_workspace_memory` —— 结构化 KV，带 TTL，访问时清理过期项。
+- Harness merge（优先级从低到高）：**repo skills → DB workspace（org → user）→ session
+  override**。网关在 `GET /api/agent/workspace/prompt` 合成生效提示词
+  （`agentWorkspacePrompt.ts`）；DSH 插件
+  （`packages/dsh-plugin-workbench/src/workspacePrompt.ts`）把它注册为
+  `director:workspace` system-prompt section 并周期刷新，DB 修改无需改 repo、无需重启
+  harness 即对新 session 生效。`DIRECTOR_SESSION_INSTRUCTIONS` 提供临时会话覆盖。
+- UI：**Settings → Agent 工作区** 弹出面板（`AgentWorkspaceSettings.tsx`），支持文档编辑、
+  版本历史恢复、技能引用、记忆条目、JSON bundle 导出/导入。
+- 与 `DIRECTOR_AGENT_PROFILES_JSON` 的合并策略见
+  [配置参考](/zh/reference/configuration/)：模型/供应商 Profile（含凭据）保留在 Profile 轴
+  （环境 JSON + `agent-api-providers.json`，环境优先、用户覆盖、保留 id 归环境）；workspace
+  只存 instructions / learnings / skill refs / memory，bundle 结构上不可能包含供应商凭据。
 
-### 验收
+### 验收（已验证）
 
-- 修改 DB instructions 后，新 session 可见，无需改 repo。
-- Export/import workspace bundle（JSON）用于 clone 场景。
-- 敏感字段 redaction 与现有 harness 一致。
+- 修改 DB instructions 后，新 session 可见，无需改 repo（store + prompt + 插件测试覆盖）。
+- Export/import workspace bundle（JSON）round-trip 通过（`agentWorkspaceStore.test.ts` 与路由测试）。
+- 敏感字段 redaction 与现有 harness 一致：planner 诊断与 workspace 提示词合成共享
+  `backend/gateway/redaction.ts` 同一套规则。
+- 红线：记忆由用户掌控、标记为不可信数据，**永远不会自动注入**任何提示词；合成逻辑在
+  结构上排除记忆，并有专项测试。
 
 ---
 
@@ -388,13 +404,13 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
 
 ## 成功指标
 
-| 指标                             | 当前（2026-08-25）                                    | 剩余 M3 完成后     | M4 后 |
-| -------------------------------- | ----------------------------------------------------- | ------------------ | ----- |
+| 指标                             | 当前（2026-08-25）                                    | 剩余 M3 完成后     | 剩余 M1 拖拽流完成后 |
+| -------------------------------- | ----------------------------------------------------- | ------------------ | -------------------- |
 | Parity coverage（top mutations） | top mutations 约 60%；全部 Stage 项目 mutator 约 40%（35/87，见[对等清单](/zh/engineering/ui-agent-parity-inventory/)） | ≥85%               | ≥95%  |
 | Human-only 能力（已文档化）      | 0 类必需（文件选择器仅作为本地文件的可选导入便捷入口；OBJ/STL 仍只导出） | 0 类必需           | 0 类  |
 | Gateway 入口 policy 一致         | 是（MCP / 本地 / 托管 / 原始 HTTP+CLI；role 限制 UI 已交付） | 是，含完整只读 mode | 是    |
-| In-product workspace             | 否                                                    | 否                 | 是    |
-| Agent-native 综合评分（自评）    | 4.1（M2 JSON 缺口已闭合；HTTP 治理与 tool manifest 已交付；UI parity 部分完成） | 4.2                | 4.5   |
+| In-product workspace             | **是（SQL instructions/skills/memory 已于 2026-08-25 交付）** | 是                 | 是    |
+| Agent-native 综合评分（自评）    | 4.1（M2 JSON 缺口已闭合；HTTP 治理、tool manifest 与 M4 workspace 已交付；UI parity 部分完成） | 4.2                | 4.5   |
 
 ---
 
