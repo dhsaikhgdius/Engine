@@ -614,7 +614,7 @@ registerVisibleTool("director_dcc", () => {
     {
       title: "Director DCC Bridge",
       description:
-        "Discover and operate Director DCC providers. Call discover first: it reports nativeReady/exchangeReady, supported formats, and capability maturity for Blender, Maya, Unreal, Houdini, Cinema 4D, Unity, 3ds Max, Godot, and registered third-party providers. export_exchange_package creates a canonical metre/Y-up/stable-ID USD/GLB package without overstating native readiness. Blender additionally retains its revision-guarded export, raw-scene preview/apply, and stable-ID return workflow.",
+        "Discover and operate Director DCC providers. Call discover first: it reports nativeReady/exchangeReady, supported formats, and capability maturity for Blender, Maya, Unreal, Houdini, Cinema 4D, Unity, 3ds Max, Godot, and registered third-party providers. export_exchange_package creates a canonical metre/Y-up/stable-ID USD/GLB package without overstating native readiness. send_to_engine runs the Director-authored Unreal/Unity/Godot connector headlessly against the configured engine project (only when nativeReady; otherwise it returns structured diagnostics with recovery steps). receive_from_engine previews an engine return package as a revision-guarded import plan; apply_import_plan applies it with provider set to the engine. Blender additionally retains its revision-guarded export, raw-scene preview/apply, and stable-ID return workflow.",
       inputSchema: wireSchemas.director_dcc,
       outputSchema: directorDccOutputSchema,
       annotations: {

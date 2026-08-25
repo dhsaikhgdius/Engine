@@ -472,7 +472,10 @@ describe("DCC routes", () => {
       applyAuthoring,
     });
     expect(returnImporter.applyImportPlan).toHaveBeenCalledWith(plan, project, revision, "return-1", applyAuthoring);
-    expect(json).toHaveBeenCalledWith(expect.anything(), 200, { success: true, result });
+    expect(json).toHaveBeenCalledWith(expect.anything(), 200, {
+      success: true,
+      result: { provider: "blender", ...result },
+    });
   });
 
   it("discovers all registered DCC providers without loading the live project", async () => {

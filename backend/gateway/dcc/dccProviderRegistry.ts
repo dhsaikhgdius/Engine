@@ -3,12 +3,14 @@ import { delimiter, extname, isAbsolute, relative, resolve, sep } from "node:pat
 import {
   DIRECTOR_DCC_PROVIDER_CONFIG_CONTRACT,
   DIRECTOR_DCC_PROVIDERS,
+  directorDccEngineIdSchema,
   directorDccProviderCatalogSchema,
   directorDccProviderConfigSchema,
   directorDccProviderDescriptorSchema,
   directorDccProviderIdSchema,
   directorDccProviderStatusSchema,
   getDirectorDccProviderDescriptor,
+  type DirectorDccEngineId,
   type DirectorDccProviderCatalog,
   type DirectorDccConfiguredProvider,
   type DirectorDccProviderDescriptor,
@@ -16,6 +18,7 @@ import {
   type DirectorDccProviderStatus,
 } from "@director/dcc-protocol";
 import type { BlenderBridge } from "./blenderBridge";
+import type { DirectorDccEngineBridge } from "./engineBridge";
 
 /**
  * A pluggable adapter that vends a DCC provider's descriptor and live status.
@@ -49,6 +52,12 @@ export interface DirectorDccProviderRegistry {
 export interface CreateDirectorDccProviderRegistryOptions {
   /** The Blender bridge used to probe the Blender adapter. */
   blender: BlenderBridge;
+  /**
+   * Optional engine bridge. When provided, the Unreal/Unity/Godot adapters
+   * report `nativeReady` from the versioned connector health check instead of
+   * always false. Detecting an installed executable never implies readiness.
+   */
+  engines?: Pick<DirectorDccEngineBridge, "health">;
   /** Optional environment override (defaults to `process.env`). */
   environment?: NodeJS.ProcessEnv;
 }
@@ -164,6 +173,35 @@ function exchangeAdapter(
         reason: executable
           ? `${descriptor.label} was detected. Native automation requires its Director connector; portable ${descriptor.exchangeFormats.join("/")} exchange is ready.`
           : `${descriptor.label} was not detected. Portable ${descriptor.exchangeFormats.join("/")} exchange can still be prepared.`,
+      });
+    },
+  };
+}
+
+function engineAdapter(
+  descriptor: DirectorDccProviderDescriptor,
+  provider: DirectorDccEngineId,
+  engines: Pick<DirectorDccEngineBridge, "health">,
+): DirectorDccProviderAdapter {
+  return {
+    descriptor,
+    async status() {
+      const health = await engines.health(provider);
+      const reason = health.ready
+        ? `${descriptor.label} Director connector ${health.connectorVersion ?? ""} passed its versioned health check; headless send/receive is available. Capability maturity in discover remains authoritative.`.replace(
+            /\s{2,}/g,
+            " ",
+          )
+        : (health.warnings[0] ??
+          `${descriptor.label} native connector is not ready; portable ${descriptor.exchangeFormats.join("/")} exchange is available.`);
+      return directorDccProviderStatusSchema.parse({
+        provider: descriptor,
+        installed: Boolean(health.executable),
+        executable: health.executable,
+        version: health.hostVersion,
+        nativeReady: health.ready,
+        exchangeReady: true,
+        reason,
       });
     },
   };
@@ -369,7 +407,13 @@ export function createDirectorDccProviderRegistry(
   });
 
   for (const descriptor of DIRECTOR_DCC_PROVIDERS) {
-    if (descriptor.id !== "blender") registry.register(exchangeAdapter(descriptor, environment));
+    if (descriptor.id === "blender") continue;
+    const engineId = directorDccEngineIdSchema.safeParse(descriptor.id);
+    if (options.engines && engineId.success) {
+      registry.register(engineAdapter(descriptor, engineId.data, options.engines));
+    } else {
+      registry.register(exchangeAdapter(descriptor, environment));
+    }
   }
   return registry;
 }
