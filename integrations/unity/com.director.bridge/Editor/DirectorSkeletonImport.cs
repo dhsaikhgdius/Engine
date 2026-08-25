@@ -17,8 +17,9 @@ namespace Director.Bridge.Editor
     /// required humanoid bones fall back to a Generic Avatar so Timeline
     /// animation still binds. Both outcomes attach an Animator to the
     /// character instance and persist the Avatar asset next to the imported
-    /// GLB. Pose controls and IK targets are Director-side systems and
-    /// warn-and-omit; the character imports in its authored bind pose.
+    /// GLB. The Avatar always captures the authored bind pose; Director pose
+    /// controls apply afterwards through DirectorPoseImport, and channels
+    /// that cannot transfer record structured omissions there.
     /// </summary>
     public static class DirectorSkeletonImport
     {
@@ -249,38 +250,6 @@ namespace Director.Bridge.Editor
                 }
             }
             return null;
-        }
-
-        /// <summary>
-        /// Warns about Director-side character systems that do not transfer:
-        /// pose controls, IK targets, and motion playback state.
-        /// </summary>
-        public static void WarnUntransferredRigState(JObject entity, List<string> warnings)
-        {
-            var characterRig = (JObject)entity["characterRig"];
-            if (characterRig == null)
-            {
-                return;
-            }
-            string directorId = (string)entity["id"];
-            var controls = (JObject)characterRig["controls"];
-            if ((controls != null && controls.Count > 0) || characterRig["posePresetId"]?.Type == JTokenType.String)
-            {
-                warnings.Add(
-                    $"Character {directorId}: Director pose controls are evaluated Director-side; the character " +
-                    "imports in its bind pose (warn-and-omit).");
-            }
-            if (characterRig["ik"] != null)
-            {
-                warnings.Add(
-                    $"Character {directorId}: Director IK targets are evaluated Director-side; omitted (warn-and-omit).");
-            }
-            if (characterRig["motion"] != null)
-            {
-                warnings.Add(
-                    $"Character {directorId}: Director motion clip playback ({(string)characterRig["motion"]?["clipId"]}) " +
-                    "is not baked; assign the clip in Unity if needed (warn-and-omit).");
-            }
         }
     }
 }
