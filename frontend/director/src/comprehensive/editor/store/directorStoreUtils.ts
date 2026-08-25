@@ -344,8 +344,13 @@ export function migrateDirectorProject(project: DirectorProject): DirectorProjec
       const inferredAssetRefId = inferLegacyLibraryCharacterAssetId(project, object);
       const assetRefId = object.assetRefId ?? inferredAssetRefId ?? defaultCharacterAsset.id;
       if (assetRefId === defaultCharacterAsset.id) needsDefaultCharacterAsset = true;
+      // Only characters still on the legacy procedural rig get the blue
+      // rewrite: authored commits also run this migration, and the rotating
+      // preset palette deliberately starts on the same blue.
       const color =
-        object.color?.toLowerCase() === LEGACY_AUTOMATIC_CHARACTER_BLUE ? FLICK_HUMAN_DEFAULT_COLOR : object.color;
+        rig?.rigType !== "mixamo" && object.color?.toLowerCase() === LEGACY_AUTOMATIC_CHARACTER_BLUE
+          ? FLICK_HUMAN_DEFAULT_COLOR
+          : object.color;
       if (rig?.rigType === "mixamo") {
         return { ...object, color, characterSource: "asset" as const, assetRefId };
       }

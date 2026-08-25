@@ -565,6 +565,22 @@ export const directorAuthoringActionSchema = z
       layer: z.string().trim().min(1).max(80).optional(),
       pivot: directorVec3Schema.optional(),
       interaction: toggleTransformInteractionInputSchema.optional(),
+      /** Crowd membership marker; only valid for kind=character. */
+      crowd_id: id.optional(),
+      /** Crowd display label; requires crowd_id. */
+      crowd_label: name.optional(),
+    }),
+    /**
+     * Instance one existing project model asset exactly like a Stage asset
+     * drop: name/kind derive from the asset, characters get the standard rig
+     * defaults, and the object carries the Blender nativeSource provisioning
+     * marker that migrateDirectorProject would otherwise backfill on load.
+     */
+    strictAction("add_object_from_asset", {
+      id,
+      asset_id: id,
+      name: name.optional(),
+      transform: directorTransformSchema.optional(),
     }),
     strictAction("update_object", {
       object_id: id,
@@ -632,6 +648,24 @@ export const directorAuthoringActionSchema = z
       group_id: id,
       delete_group: z.boolean().default(true),
       force: z.boolean().optional(),
+    }),
+    /**
+     * Object lists are a named multi-select helper (objectListId/objectListLabel
+     * stamped on member objects), not composite groups: members keep their own
+     * transforms and parents. Crowd members keep their crowd grouping instead.
+     * Creating a new list requires label; adding to an existing list may omit it.
+     */
+    strictAction("set_object_list", {
+      list_id: id,
+      object_ids: objectIds,
+      label: name.optional(),
+    }),
+    strictAction("clear_object_list", {
+      object_ids: objectIds,
+    }),
+    strictAction("rename_object_list", {
+      list_id: id,
+      label: name,
     }),
     strictAction("add_annotation", { annotation: directorSceneAnnotationSchema }),
     strictAction("update_annotation", { annotation_id: id, patch: annotationUpdateSchema }),
@@ -725,6 +759,12 @@ export const directorAuthoringActionSchema = z
       handheld_shake: handheldShake.optional(),
       action_mode: cameraActionInputSchema.optional(),
       activate: z.boolean().optional(),
+      /**
+       * Exact vertical FOV for the created shot. Snapshot-created viewport
+       * cameras use this to avoid the focal-length round trip
+       * (fov -> focal 3dp -> fov 6dp) drifting from the live viewport.
+       */
+      vertical_fov_deg: z.number().finite().min(5).max(160).optional(),
     }),
     strictAction("update_camera", { camera_id: id, patch: cameraUpdateSchema }),
     strictAction("delete_cameras", { camera_ids: z.array(id).min(1).max(64) }),
@@ -889,6 +929,22 @@ export const directorAuthoringActionSchema = z
       });
       return;
     }
+    if (action.kind !== "character" && (action.crowd_id !== undefined || action.crowd_label !== undefined)) {
+      context.addIssue({
+        code: "custom",
+        path: [action.crowd_id !== undefined ? "crowd_id" : "crowd_label"],
+        message: "crowd_id/crowd_label are only valid for kind=character",
+      });
+      return;
+    }
+    if (action.crowd_label !== undefined && action.crowd_id === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["crowd_label"],
+        message: "crowd_label requires crowd_id",
+      });
+      return;
+    }
     if (action.kind !== "character") return;
     // Missing asset_id is intentional: execution resolves an exact character
     // alias or binds the canonical X Bot. Generic/assetless characters are not
@@ -971,6 +1027,11 @@ function requireAsset(project: DirectorProject, assetId: string) {
     throw new Error(`No asset with id "${assetId}" exists. Add it before referencing it.`);
   }
   return asset;
+}
+
+/** Default display name for an asset-instanced object, mirroring the Stage asset-drop naming. */
+function displayNameFromAssetFileName(fileName: string) {
+  return fileName.replace(/\.(fbx|obj|glb|gltf|ply|splat|ksplat|spz|sog|jpe?g|png|webp)$/i, "");
 }
 
 function requireCompatibleAsset(project: DirectorProject, assetId: string, objectKind: DirectorObject["kind"]) {
@@ -1719,6 +1780,8 @@ export function applyDirectorAuthoringActions(
           ...(resolvedAssetId ? { assetRefId: resolvedAssetId } : {}),
           ...(item.geometry_type ? { geometryType: item.geometry_type } : {}),
           ...(item.placement_mode ? { placementMode: item.placement_mode } : {}),
+          ...(item.crowd_id ? { crowdId: item.crowd_id } : {}),
+          ...(item.crowd_label ? { crowdLabel: item.crowd_label } : {}),
           ...(item.parent_id ? { parentObjectId: item.parent_id } : {}),
           ...(item.look_target_object_id ? { lookTargetObjectId: item.look_target_object_id } : {}),
           ...(item.reference_bindings ? { referenceBindings: structuredClone(item.reference_bindings) } : {}),
@@ -1753,6 +1816,44 @@ export function applyDirectorAuthoringActions(
           ];
           addUnique(result.created.layer_ids, item.layer);
         }
+        addUnique(result.created.object_ids, object.id);
+        break;
+      }
+      case "add_object_from_asset": {
+        ensureAvailableId(project, item.id, "Object");
+        const asset = requireAsset(project, item.asset_id);
+        if (asset.sourceType !== "model" || asset.kind === "panorama") {
+          throw new Error(
+            `Asset "${asset.id}" is not an instanceable model asset. add_object_from_asset accepts model assets of kind character, prop, or scene.`,
+          );
+        }
+        const object: DirectorObject = {
+          id: item.id,
+          name: item.name ?? asset.name ?? displayNameFromAssetFileName(asset.fileName),
+          kind: asset.kind,
+          visible: true,
+          locked: false,
+          assetRefId: asset.id,
+          ...(asset.kind === "character"
+            ? {
+                characterSource: "asset" as const,
+                placementMode: "grounded" as const,
+                characterRig: {
+                  rigType: "mixamo" as const,
+                  posePresetId: "stand",
+                  controls: {},
+                },
+              }
+            : {}),
+          transform: item.transform
+            ? structuredClone(item.transform)
+            : { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+          // Runtime asset instances are provisioned into Blender lazily;
+          // migrateDirectorProject backfills this marker only on load, so
+          // authoring stamps it up front exactly like the Stage asset drop.
+          nativeSource: { engine: "blender", objectId: item.id, provisioned: false },
+        };
+        project.objects.push(object);
         addUnique(result.created.object_ids, object.id);
         break;
       }
@@ -1957,6 +2058,64 @@ export function applyDirectorAuthoringActions(
         } else {
           addUnique(result.updated.object_ids, group.id);
         }
+        break;
+      }
+      case "set_object_list": {
+        const members = item.object_ids.map((objectId) => requireObject(project, objectId));
+        members.forEach((object) => {
+          if (object.kind === "camera") throw new Error(`Camera rig "${object.id}" cannot join an object list.`);
+        });
+        // Crowd grouping is exclusive with object lists; the Stage UI silently
+        // keeps crowd members out, authoring reports the skip explicitly.
+        const eligible = members.filter((object) => !object.crowdId);
+        const skipped = members.filter((object) => object.crowdId);
+        if (!eligible.length) {
+          throw new Error("All requested objects are crowd members; crowd grouping is exclusive with object lists.");
+        }
+        const existingMembers = project.objects.filter((object) => object.objectListId === item.list_id);
+        if (!existingMembers.length && !item.label) {
+          throw new Error(`Object list "${item.list_id}" does not exist. Pass label to create it.`);
+        }
+        const label = item.label ?? (existingMembers[0]!.objectListLabel?.trim() || existingMembers[0]!.name);
+        if (item.label) {
+          existingMembers.forEach((object) => {
+            if (object.objectListLabel === label) return;
+            object.objectListLabel = label;
+            addUnique(result.updated.object_ids, object.id);
+          });
+        }
+        eligible.forEach((object) => {
+          object.objectListId = item.list_id;
+          object.objectListLabel = label;
+          delete object.objectListDetached;
+          addUnique(result.updated.object_ids, object.id);
+        });
+        if (skipped.length) {
+          result.notes.push(
+            `Skipped crowd member(s) ${skipped.map((object) => object.id).join(", ")}: crowd grouping is exclusive with object lists.`,
+          );
+        }
+        break;
+      }
+      case "clear_object_list": {
+        const members = item.object_ids.map((objectId) => requireObject(project, objectId));
+        members.forEach((object) => {
+          delete object.objectListId;
+          delete object.objectListLabel;
+          // The detached marker survives so restored/duplicated scenes do not
+          // re-adopt the object into its old list; this matches the Stage UI.
+          object.objectListDetached = true;
+          addUnique(result.updated.object_ids, object.id);
+        });
+        break;
+      }
+      case "rename_object_list": {
+        const members = project.objects.filter((object) => object.objectListId === item.list_id);
+        if (!members.length) throw new Error(`No object list with id "${item.list_id}" exists.`);
+        members.forEach((object) => {
+          object.objectListLabel = item.label;
+          addUnique(result.updated.object_ids, object.id);
+        });
         break;
       }
       case "add_annotation": {
@@ -2223,7 +2382,9 @@ export function applyDirectorAuthoringActions(
           anamorphicSqueeze: item.anamorphic_squeeze ?? DEFAULT_DIRECTOR_CAMERA_ANAMORPHIC_SQUEEZE,
         });
         const viewSnapshot = {
-          fov: getVerticalFovFromFocalLength(focalLengthMm, aspectRatio, sensorFormat),
+          // vertical_fov_deg keeps a snapshot-created camera's exact viewport
+          // FOV instead of rounding it through the focal-length derivation.
+          fov: item.vertical_fov_deg ?? getVerticalFovFromFocalLength(focalLengthMm, aspectRatio, sensorFormat),
           position: [...item.position] as [number, number, number],
           target: [...item.target] as [number, number, number],
         };

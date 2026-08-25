@@ -749,9 +749,14 @@ export function migrateDirectorProject(project: DirectorProject): DirectorProjec
       if (assetRefId === defaultCharacterAsset.id) needsDefaultCharacterAsset = true;
       // Pre-Stage scenes automatically assigned the first role a blue tint.
       // Move that generated default to the warm core-Human colour while leaving
-      // every other inspector-selected colour unchanged.
+      // every other inspector-selected colour unchanged. Only characters still
+      // on the legacy procedural rig qualify: authored commits also run this
+      // migration, and the rotating preset palette deliberately starts on the
+      // same blue.
       const color =
-        object.color?.toLowerCase() === LEGACY_AUTOMATIC_CHARACTER_BLUE ? FLICK_HUMAN_DEFAULT_COLOR : object.color;
+        rig?.rigType !== "mixamo" && object.color?.toLowerCase() === LEGACY_AUTOMATIC_CHARACTER_BLUE
+          ? FLICK_HUMAN_DEFAULT_COLOR
+          : object.color;
       if (rig?.rigType === "mixamo") {
         return {
           ...object,
@@ -4931,12 +4936,33 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         );
       });
     },
-    // human-only: no authoring twin. Object lists are a UI selection helper
-    // (objectListId/objectListLabel), not composite groups; group_objects would
-    // be a wrong mapping.
     createObjectList: (ids, label) => {
       const normalizedLabel = label.trim();
       const objectIds = Array.from(new Set(ids));
+
+      if (canUseAuthoringPath()) {
+        // set_object_list rejects camera rigs. The tree renders camera-kind
+        // objects under the cameras group regardless of objectListId, so
+        // filtering them out here is display-equivalent to the old stamp.
+        const eligible = get().project.objects.filter(
+          (item) => objectIds.includes(item.id) && !item.crowdId && item.kind !== "camera",
+        );
+        if (!normalizedLabel || !eligible.length) return null;
+        const objectListId = getNextObjectListId(get().project.objects);
+        const applied = dispatchUiAuthoring(
+          [
+            {
+              action: "set_object_list",
+              list_id: objectListId,
+              object_ids: eligible.map((item) => item.id),
+              label: normalizedLabel,
+            },
+          ],
+          `ui-object-list-create:${objectListId}`,
+        );
+        return applied ? objectListId : null;
+      }
+
       let objectListId: string | null = null;
 
       commitMutation((state) => {
@@ -4959,8 +4985,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
       return objectListId;
     },
-    // human-only: no authoring twin (see createObjectList).
-    addObjectsToObjectList: (ids, objectListId) =>
+    addObjectsToObjectList: (ids, objectListId) => {
+      if (canUseAuthoringPath()) {
+        const normalizedListId = objectListId.trim();
+        const currentObjects = get().project.objects;
+        const target = currentObjects.find((item) => item.objectListId === normalizedListId);
+        const eligibleIds = Array.from(new Set(ids)).filter((id) =>
+          currentObjects.some((item) => item.id === id && !item.crowdId && item.kind !== "camera"),
+        );
+        if (!normalizedListId || !target || !eligibleIds.length) return;
+        dispatchUiAuthoring(
+          [{ action: "set_object_list", list_id: normalizedListId, object_ids: eligibleIds }],
+          `ui-object-list-add:${normalizedListId}:${eligibleIds.slice().sort().join(",")}`,
+        );
+        return;
+      }
       commitMutation((state) => {
         const normalizedListId = objectListId.trim();
         const objectIds = new Set(ids);
@@ -4979,9 +5018,20 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               }
             : item,
         );
-      }),
-    // human-only: no authoring twin (see createObjectList).
-    removeObjectsFromObjectList: (ids) =>
+      });
+    },
+    removeObjectsFromObjectList: (ids) => {
+      if (canUseAuthoringPath()) {
+        const existingIds = Array.from(new Set(ids)).filter((id) =>
+          get().project.objects.some((item) => item.id === id),
+        );
+        if (!existingIds.length) return;
+        dispatchUiAuthoring(
+          [{ action: "clear_object_list", object_ids: existingIds }],
+          `ui-object-list-remove:${existingIds.slice().sort().join(",")}`,
+        );
+        return;
+      }
       commitMutation((state) => {
         const objectIds = new Set(ids);
         if (objectIds.size === 0) return state;
@@ -4996,9 +5046,20 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               }
             : item,
         );
-      }),
-    // human-only: no authoring twin (see createObjectList).
-    updateObjectListLabel: (objectListId, label) =>
+      });
+    },
+    updateObjectListLabel: (objectListId, label) => {
+      if (canUseAuthoringPath()) {
+        const normalizedListId = objectListId.trim();
+        const normalizedLabel = label.trim();
+        if (!normalizedListId || !normalizedLabel) return;
+        if (!get().project.objects.some((item) => item.objectListId === normalizedListId)) return;
+        dispatchUiAuthoring(
+          [{ action: "rename_object_list", list_id: normalizedListId, label: normalizedLabel }],
+          `ui-object-list-label:${normalizedListId}`,
+        );
+        return;
+      }
       commitMutation((state) => {
         const normalizedListId = objectListId.trim();
         const normalizedLabel = label.trim();
@@ -5007,7 +5068,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         return mapProjectObjects(state, (item) =>
           item.objectListId === normalizedListId ? { ...item, objectListLabel: normalizedLabel } : item,
         );
-      }),
+      });
+    },
     updateObjectColor: (id, color) => {
       const currentState = get();
       const currentObject = currentState.project.objects.find((item) => item.id === id);
@@ -5442,11 +5504,30 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           assets: state.project.assets.map((item) => (item.id === assetId ? nextAsset : item)),
         });
       }),
-    // human-only: no authoring twin. createSceneObjectFromAsset stamps the
-    // Blender nativeSource provisioning marker and character rig defaults that
-    // add_object does not author; migrateDirectorProject backfills them only on
-    // load, so runtime asset drops keep the local construction.
     addObjectFromAsset: (assetId) => {
+      if (canUseAuthoringPath()) {
+        const currentState = get() as DirectorRuntimeState;
+        const asset = currentState.project.assets.find((item) => item.id === assetId);
+        if (!asset || asset.sourceType !== "model" || asset.kind === "panorama") return null;
+        // add_object_from_asset derives name/kind/rig defaults from the asset
+        // and stamps the Blender nativeSource provisioning marker exactly like
+        // createSceneObjectFromAsset; only the sequential id stays UI-owned.
+        const nextObjectId = getNextSequentialId(
+          currentState.project.objects.map((item) => item.id),
+          "obj_",
+          currentState.project.objects.length + 1,
+        );
+        const applied = dispatchUiAuthoring(
+          [{ action: "add_object_from_asset", id: nextObjectId, asset_id: assetId }],
+          `ui-asset-object:${nextObjectId}`,
+          "创建失败",
+        );
+        if (!applied) return null;
+        // Selection is UI-only state; apply it after the authored commit.
+        commitUiMutation((state) => ({ ...state, ...selectedObjectsPatch([nextObjectId]) }));
+        return nextObjectId;
+      }
+
       let nextObjectId: string | null = null;
 
       commitMutation((state) => {
@@ -5461,10 +5542,47 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
       return nextObjectId;
     },
-    // human-only: no authoring twin. add_object forces mannequin body type and
-    // the default ochre for characters, while the preset flow keeps per-add
-    // body types and a rotating distinct-color palette.
-    addPresetCharacter: (bodyType = DEFAULT_CHARACTER_BODY_TYPE, color) =>
+    addPresetCharacter: (bodyType = DEFAULT_CHARACTER_BODY_TYPE, color) => {
+      if (canUseAuthoringPath()) {
+        const currentState = get() as DirectorRuntimeState;
+        const defaultCharacterAsset = getDefaultMixamoCharacterAssetRef();
+        const presetCharacterCount = currentState.project.objects.filter(
+          (item) => item.kind === "character" && item.id.startsWith("char_preset_"),
+        ).length;
+        const presetCharacterIndex = presetCharacterCount + 1;
+        const row = Math.floor((presetCharacterIndex - 1) / 4);
+        const x = getAddedModelColumnOffset(presetCharacterIndex - row * 4);
+        const z = row * 0.8;
+        // The UI keeps per-add body types and the rotating distinct-color
+        // palette; the resolved values ride on add_object explicitly so the
+        // engine does not fall back to mannequin/ochre defaults.
+        const character = buildPresetCharacterObject(currentState, bodyType, [x, 0, z], undefined, color);
+        const applied = dispatchUiAuthoring(
+          [
+            ...(currentState.project.assets.some((asset) => asset.id === defaultCharacterAsset.id)
+              ? []
+              : [{ action: "upsert_asset" as const, asset: defaultCharacterAsset }]),
+            {
+              action: "add_object" as const,
+              id: character.id,
+              name: character.name,
+              kind: "character" as const,
+              body_type: character.bodyType,
+              color: character.color,
+              asset_id: character.assetRefId,
+              placement_mode: "grounded" as const,
+              transform: character.transform,
+            },
+          ],
+          `ui-preset-character:${character.id}`,
+          "创建失败",
+        );
+        if (applied) {
+          // Selection is UI-only state; apply it after the authored commit.
+          commitUiMutation((state) => ({ ...state, ...selectedObjectsPatch([character.id]) }));
+        }
+        return;
+      }
       commitMutation((state) => {
         const defaultCharacterAsset = getDefaultMixamoCharacterAssetRef();
         const presetCharacterCount = state.project.objects.filter(
@@ -5481,10 +5599,68 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             ? state.project.assets
             : [defaultCharacterAsset, ...state.project.assets],
         });
-      }),
-    // human-only: no authoring twin. crowdId/crowdLabel grouping is UI-only
-    // state that add_object cannot author.
+      });
+    },
     addCrowdCharacters: ({ bodyType = DEFAULT_CHARACTER_BODY_TYPE, rows, columns, spacing }) => {
+      if (canUseAuthoringPath()) {
+        const currentState = get() as DirectorRuntimeState;
+        const defaultCharacterAsset = getDefaultMixamoCharacterAssetRef();
+        const positions = getCrowdCharacterPositions(rows, columns, spacing);
+        const offset = getCrowdCharacterOffset(currentState.project.objects, spacing);
+        const crowdLabel = formatCrowdLabel(rows, columns);
+        const crowdId = getNextCrowdId(currentState.project.objects);
+        // Sequential char_preset_N ids and the rotating color palette depend on
+        // the objects added so far, so the members are precomputed against a
+        // simulated object list and dispatched as one batch (= one undo entry).
+        const simulatedObjects = [...currentState.project.objects];
+        const characters = positions.map((position) => {
+          const simulatedState = {
+            ...currentState,
+            project: { ...currentState.project, objects: simulatedObjects },
+          } as DirectorRuntimeState;
+          const character = buildPresetCharacterObject(
+            simulatedState,
+            bodyType,
+            [
+              Number((position[0] + offset[0]).toFixed(4)),
+              Number((position[1] + offset[1]).toFixed(4)),
+              Number((position[2] + offset[2]).toFixed(4)),
+            ],
+            { crowdId, crowdLabel },
+          );
+          simulatedObjects.push(character);
+          return character;
+        });
+        if (!characters.length) return [];
+        const createdIds = characters.map((character) => character.id);
+        const applied = dispatchUiAuthoring(
+          [
+            ...(currentState.project.assets.some((asset) => asset.id === defaultCharacterAsset.id)
+              ? []
+              : [{ action: "upsert_asset" as const, asset: defaultCharacterAsset }]),
+            ...characters.map((character) => ({
+              action: "add_object" as const,
+              id: character.id,
+              name: character.name,
+              kind: "character" as const,
+              body_type: character.bodyType,
+              color: character.color,
+              asset_id: character.assetRefId,
+              placement_mode: "grounded" as const,
+              transform: character.transform,
+              crowd_id: crowdId,
+              crowd_label: crowdLabel,
+            })),
+          ],
+          `ui-crowd:${crowdId}`,
+          "创建失败",
+        );
+        if (!applied) return [];
+        // Selection is UI-only state; apply it after the authored commit.
+        commitUiMutation((state) => ({ ...state, ...selectedObjectsPatch(createdIds, crowdId) }));
+        return createdIds;
+      }
+
       const createdIds: string[] = [];
 
       commitMutation((state) => {
@@ -5588,12 +5764,89 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       }
       commitMutation((state) => appendSelectedObject(state, buildPrimitive(state.project.objects)));
     },
-    // human-only: stays local. Snapshot-created cameras keep the viewport's
-    // exact fov while add_camera always derives fov from focal length (rounding
-    // drift), the UI's sequential cam_N/cam_object_N ids and active-camera
-    // optics inheritance are not authoring concepts, and appendSelectedObject
-    // selection rides in the same undoable commit.
     addCameraShot: (snapshot) => {
+      // vertical_fov_deg only accepts 5..160; a viewport snapshot outside that
+      // range keeps the historical local construction with the raw fov.
+      if (canUseAuthoringPath() && (!snapshot || (snapshot.fov >= 5 && snapshot.fov <= 160))) {
+        const currentState = get() as DirectorRuntimeState;
+        const cameraIndex = currentState.project.cameras.length + 1;
+        const cameraId = getNextSequentialId(
+          currentState.project.cameras.map((item) => item.id),
+          "cam_",
+          cameraIndex,
+        );
+        const objectId = getNextSequentialId(
+          currentState.project.objects.map((item) => item.id),
+          "cam_object_",
+          cameraIndex,
+        );
+        // Active-camera optics inheritance is resolved UI-side and passed
+        // explicitly; add_camera itself only knows engine defaults.
+        const sourceCamera = currentState.project.cameras.find(
+          (camera) => camera.id === currentState.project.activeCameraId,
+        );
+        const sourceOptics = normalizeDirectorCameraOptics(sourceCamera ?? {});
+        const aspectRatio = DEFAULT_DIRECTOR_CAMERA_ASPECT_RATIO;
+        const sensorFormat = sourceCamera?.sensorFormat ?? DEFAULT_DIRECTOR_CAMERA_SENSOR_FORMAT;
+        const focalLengthMm = snapshot
+          ? getFocalLengthFromVerticalFov(snapshot.fov, aspectRatio, sensorFormat)
+          : (sourceCamera?.focalLengthMm ?? DEFAULT_DIRECTOR_CAMERA_FOCAL_LENGTH_MM);
+        const initialSnapshot = snapshot ?? {
+          ...DEFAULT_DIRECTOR_CAMERA_VIEW_SNAPSHOT,
+          position: [
+            DEFAULT_DIRECTOR_CAMERA_VIEW_SNAPSHOT.position[0] + (cameraIndex - 1) * 1.2,
+            DEFAULT_DIRECTOR_CAMERA_VIEW_SNAPSHOT.position[1],
+            DEFAULT_DIRECTOR_CAMERA_VIEW_SNAPSHOT.position[2],
+          ] as [number, number, number],
+        };
+        // The stored action interface is permissive (mode + optional payloads);
+        // authoring takes the strict discriminated union, so the canonical
+        // shape from normalizeDirectorCameraAction is narrowed explicitly.
+        const sourceAction = normalizeDirectorCameraAction(sourceCamera?.action);
+        const actionMode =
+          sourceAction.mode === "path" && sourceAction.path
+            ? { mode: "path" as const, path: sourceAction.path }
+            : sourceAction.mode === "follow" && sourceAction.follow
+              ? { mode: "follow" as const, follow: sourceAction.follow }
+              : sourceAction.mode === "transform"
+                ? { mode: "transform" as const }
+                : { mode: "still" as const };
+        const applied = dispatchUiAuthoring(
+          [
+            {
+              action: "add_camera",
+              id: cameraId,
+              object_id: objectId,
+              name: formatSceneItemName("机位", cameraIndex),
+              position: [...initialSnapshot.position] as [number, number, number],
+              target: [...initialSnapshot.target] as [number, number, number],
+              focal_length_mm: focalLengthMm,
+              sensor_format: sensorFormat,
+              aperture_f_stop: sourceOptics.apertureFStop,
+              focus_distance_m: sourceOptics.focusDistanceM,
+              shutter_angle: sourceOptics.shutterAngle,
+              iso: sourceOptics.iso,
+              near_clip_m: sourceOptics.nearClipM,
+              far_clip_m: sourceOptics.farClipM,
+              anamorphic_squeeze: sourceOptics.anamorphicSqueeze,
+              aspect_ratio: aspectRatio,
+              handheld_shake: sourceCamera?.handheldShake ?? DEFAULT_DIRECTOR_CAMERA_HANDHELD_SHAKE,
+              action_mode: actionMode,
+              activate: true,
+              // Snapshot-created cameras keep the viewport's exact vertical FOV
+              // instead of rounding it through the focal-length derivation.
+              ...(snapshot ? { vertical_fov_deg: snapshot.fov } : {}),
+            },
+          ],
+          `ui-camera-shot:${cameraId}`,
+          "创建失败",
+        );
+        if (!applied) return "";
+        // Selection is UI-only state; apply it after the authored commit.
+        commitUiMutation((state) => ({ ...state, ...selectedObjectsPatch([objectId]) }));
+        return cameraId;
+      }
+
       let nextCameraId = "";
 
       commitMutation((state) => {
