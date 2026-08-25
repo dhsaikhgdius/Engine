@@ -625,7 +625,9 @@ export const directorWorkbenchOperationSchema = z.discriminatedUnion("op", [
       "coverage_shot",
     ]),
     id: nonEmptyText(200),
-  }),
+  }).describe(
+    "Object, light, and camera results carry a kernel_ownership block: which kernel (stage or blender) owns the entity's data, which update patch fields the Stage accepts, and which are rejected with the operation to use instead. Ownership is decided by that field, not by prose.",
+  ),
   strictOperation("shot_ir", {
     camera_id: nonEmptyText(200).optional(),
     take_id: nonEmptyText(200).optional(),

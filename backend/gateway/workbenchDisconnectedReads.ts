@@ -8,6 +8,13 @@ import {
   type DirectorWorkbenchOperation,
 } from "@director/agent-engine/contract";
 import { directorProjectObservationCounts, observeDirectorProject } from "@director/agent-engine/observe";
+import {
+  describeDirectorCameraKernelOwnership,
+  describeDirectorLightKernelOwnership,
+  describeDirectorObjectKernelOwnership,
+  describeUnmirroredBlenderKernelOwnership,
+  type DirectorKernelOwnership,
+} from "@director/agent-engine/kernel-ownership";
 import { queryDirectorObjects } from "@director/agent-engine/spatial-query";
 import directorWorkbenchCapabilities from "@director/agent-engine/workbench-capabilities";
 import type { BlenderLiveSceneSnapshot } from "../../packages/protocol/src/blenderLiveProtocol";
@@ -282,17 +289,34 @@ export function executeDisconnectedWorkbenchRead(
     if (!sources.project && !sources.blenderScene) return { handled: false };
     const project = sources.project;
     let value: unknown;
+    let kernelOwnership: DirectorKernelOwnership | undefined;
     if (project) {
-      if (operation.entity === "object") value = project.objects.find((item) => item.id === operation.id);
-      else if (operation.entity === "light") value = project.lights?.find((item) => item.id === operation.id);
-      else if (operation.entity === "camera") value = project.cameras.find((item) => item.id === operation.id);
-      else if (operation.entity === "asset") value = project.assets.find((item) => item.id === operation.id);
+      if (operation.entity === "object") {
+        const object = project.objects.find((item) => item.id === operation.id);
+        value = object;
+        if (object) kernelOwnership = describeDirectorObjectKernelOwnership(object, project.assets);
+      } else if (operation.entity === "light") {
+        const light = project.lights?.find((item) => item.id === operation.id);
+        value = light;
+        if (light) kernelOwnership = describeDirectorLightKernelOwnership(light);
+      } else if (operation.entity === "camera") {
+        const camera = project.cameras.find((item) => item.id === operation.id);
+        value = camera;
+        if (camera) kernelOwnership = describeDirectorCameraKernelOwnership(camera);
+      } else if (operation.entity === "asset") {
+        value = project.assets.find((item) => item.id === operation.id);
+      }
     }
     if (value) {
       return {
         handled: true,
         success: true,
-        result: { entity: operation.entity, value, ...disconnectedMeta(sources, "persisted_project") },
+        result: {
+          entity: operation.entity,
+          value,
+          ...(kernelOwnership ? { kernel_ownership: kernelOwnership } : {}),
+          ...disconnectedMeta(sources, "persisted_project"),
+        },
       };
     }
     const blenderObject = sources.blenderScene?.objects.find(
@@ -302,7 +326,12 @@ export function executeDisconnectedWorkbenchRead(
       return {
         handled: true,
         success: true,
-        result: { entity: operation.entity, value: blenderObject, ...disconnectedMeta(sources, "blender_kernel") },
+        result: {
+          entity: operation.entity,
+          value: blenderObject,
+          kernel_ownership: describeUnmirroredBlenderKernelOwnership(blenderObject.id),
+          ...disconnectedMeta(sources, "blender_kernel"),
+        },
       };
     }
     return {

@@ -363,6 +363,25 @@
           "result.project_revision"
         ]
       }
+    },
+    {
+      "label": "inspect kernel ownership",
+      "tool": "director_workbench",
+      "input": {
+        "op": "inspect",
+        "entity": "object",
+        "id": "eval-block-01"
+      },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.entity",
+          "result.kernel_ownership.kernel",
+          "result.kernel_ownership.source",
+          "result.kernel_ownership.stage_patchable_fields",
+          "result.kernel_ownership.rejected_stage_patches"
+        ]
+      }
     }
   ]
 }

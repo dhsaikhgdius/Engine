@@ -41,7 +41,8 @@
     "./observe": "./src/directorWorkbenchObserve.ts",
     "./character-motions": "./src/characterMotionCatalog.ts",
     "./asset-catalog": "./src/directorAgentAssetCatalog.ts",
-    "./default-project": "./src/directorDefaultProject.ts"
+    "./default-project": "./src/directorDefaultProject.ts",
+    "./kernel-ownership": "./src/directorKernelOwnership.ts"
   },
   "dependencies": {
     "@director/dcc-interchange": "*",

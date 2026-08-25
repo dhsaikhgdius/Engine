@@ -3,6 +3,7 @@ import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import JSZip from "jszip";
 import { z } from "zod";
+import type { DirectorProject } from "@director/project-schema";
 import {
   blenderLiveCommandBatchSchema,
   blenderNativeToolRequestInputSchema,
@@ -66,6 +67,8 @@ export type BlenderLiveRouteDependencies = {
   session: BlenderNativeSession;
   /** Binds Blender to the Director project owned by the exact Agent target. */
   bindDirectorProject?: (input: { sessionId?: string; targetToken?: string }) => Promise<void>;
+  /** Loads the persisted Director project so inspect results carry kernel ownership. */
+  loadDirectorProject?: () => Promise<DirectorProject | null>;
 };
 
 async function readNativeModelBytes(request: IncomingMessage) {
@@ -357,7 +360,9 @@ export async function handleBlenderLiveRoute(
           targetToken: parsed.data.target_token,
         });
       }
-      const result = await executeBlenderNativeTool(session, parsed.data.input);
+      const result = await executeBlenderNativeTool(session, parsed.data.input, {
+        loadDirectorProject: dependencies.loadDirectorProject,
+      });
       const capture =
         result && typeof result === "object" && "capture" in result
           ? (result as { capture?: unknown }).capture

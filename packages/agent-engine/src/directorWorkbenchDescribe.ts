@@ -7,6 +7,7 @@ import {
   BLENDER_NATIVE_APPLY_HINT,
 } from "./directorWorkbenchContract";
 import { directorAuthoringActionSchema } from "./directorAuthoring";
+import { directorKernelOwnershipSchema } from "./directorKernelOwnership";
 import { blenderAgentOperationNames } from "@director/protocol/blenderLiveProtocol";
 
 const blenderTypedApplyOpNames = new Set<string>(blenderAgentOperationNames);
@@ -47,6 +48,8 @@ export interface DirectorWorkbenchDescribeResult {
   fields?: string[];
   /** Valid `author.<action>` targets; returned for the author operation. */
   author_actions?: string[];
+  /** JSON Schemas of stable result blocks, keyed by result field name; returned for inspect. */
+  result_schemas?: Record<string, unknown>;
   /** Human-readable hint when the result is degraded or non-standard. */
   note?: string;
 }
@@ -65,6 +68,12 @@ function describeOperation(target: string): DirectorWorkbenchDescribeResult | nu
   const option = directorWorkbenchOperationSchema.options.find((candidate) => candidate.shape.op.value === target);
   if (!option) return null;
   const authorActions = target === "author" ? directorAuthoringActionNames : undefined;
+  // The kernel-ownership vocabulary lives on the inspect result, so describe
+  // is the single reflective source for both the input and that result block.
+  const resultSchemas =
+    target === "inspect"
+      ? { kernel_ownership: z.toJSONSchema(directorKernelOwnershipSchema, JSON_SCHEMA_OPTIONS) }
+      : undefined;
   const serialized = serializedJsonSchema(option);
   if (serialized.json.length <= DESCRIBE_SCHEMA_BUDGET_BYTES) {
     return {
@@ -72,6 +81,7 @@ function describeOperation(target: string): DirectorWorkbenchDescribeResult | nu
       kind: "operation",
       json_schema: serialized.parsed,
       ...(authorActions ? { author_actions: authorActions } : {}),
+      ...(resultSchemas ? { result_schemas: resultSchemas } : {}),
     };
   }
   // Degrade to a field summary when the full schema is too large

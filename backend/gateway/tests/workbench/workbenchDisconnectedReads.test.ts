@@ -100,4 +100,61 @@ describe("executeDisconnectedWorkbenchRead", () => {
       }),
     ).toEqual({ handled: false });
   });
+
+  it("attaches kernel ownership to disconnected object inspects from the persisted project", () => {
+    const project = createDefaultDirectorProject();
+    const nativeObject = project.objects.find((object) => object.nativeSource?.engine === "blender")!;
+    nativeObject.nativeSource = { ...nativeObject.nativeSource!, provisioned: true };
+
+    const result = executeDisconnectedWorkbenchRead(
+      parsed({ op: "inspect", entity: "object", id: nativeObject.id }),
+      { project, blenderScene: null },
+    );
+    expect(result).toMatchObject({
+      handled: true,
+      success: true,
+      result: {
+        entity: "object",
+        source: "persisted_project",
+        kernel_ownership: {
+          kernel: "blender",
+          source: "blender_native",
+          blender_object_id: nativeObject.nativeSource!.objectId,
+          stage_patchable_fields: ["name", "visible", "locked", "transform"],
+        },
+      },
+    });
+
+    const light = executeDisconnectedWorkbenchRead(
+      parsed({ op: "inspect", entity: "light", id: project.lights![0].id }),
+      { project, blenderScene: null },
+    );
+    expect(light).toMatchObject({
+      handled: true,
+      success: true,
+      result: { kernel_ownership: { kernel: "stage", source: "stage_light" } },
+    });
+  });
+
+  it("marks a Blender-only inspect fallback as unmirrored Blender ownership", () => {
+    const result = executeDisconnectedWorkbenchRead(parsed({ op: "inspect", entity: "object", id: "mesh-3" }), {
+      project: null,
+      blenderScene: blenderScene(6),
+    });
+    expect(result).toMatchObject({
+      handled: true,
+      success: true,
+      result: {
+        entity: "object",
+        source: "blender_kernel",
+        kernel_ownership: {
+          kernel: "blender",
+          source: "blender_native",
+          blender_object_id: "mesh-3",
+          stage_patchable_fields: [],
+          deletes_with_blender: true,
+        },
+      },
+    });
+  });
 });

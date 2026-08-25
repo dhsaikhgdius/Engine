@@ -134,6 +134,7 @@ import {
   previewDirectorProceduralRecipe,
 } from "./directorProceduralAuthoring";
 import { compileDirectorAnimationRecipe, directorAnimationRecipeInputSchema } from "@director/project-schema";
+import { DIRECTOR_NATIVE_STAGE_PATCH_FIELDS } from "./directorKernelOwnership";
 
 const id = z.string().trim().min(1).max(200);
 const name = z.string().trim().min(1).max(240);
@@ -1762,7 +1763,8 @@ export function applyDirectorAuthoringActions(
         const patch = item.patch;
         const patchKeys = Object.keys(patch);
         if (object.nativeSource?.engine === "blender" && object.nativeSource.provisioned !== false) {
-          const unsupported = patchKeys.filter((key) => !["name", "visible", "locked", "transform"].includes(key));
+          const nativePatchFields: readonly string[] = DIRECTOR_NATIVE_STAGE_PATCH_FIELDS;
+          const unsupported = patchKeys.filter((key) => !nativePatchFields.includes(key));
           if (unsupported.length) {
             throw new Error(
               `Native Blender object "${object.id}" cannot apply ${unsupported.join(", ")} through director_workbench; use blender_native for material, geometry, parenting, and asset edits.`,
