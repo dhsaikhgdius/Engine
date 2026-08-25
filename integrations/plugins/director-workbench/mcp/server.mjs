@@ -55369,7 +55369,9 @@ var agentOperationSchemas = [
   external_exports.strictObject({
     op: external_exports.literal("create_opening"),
     id: identifier.describe("Stable id for the created cutter object."),
-    targetId: identifier.describe("Existing mesh wall to cut. A create_blockout room returns walls as <idPrefix>:2..5."),
+    targetId: identifier.describe(
+      "Existing mesh wall to cut. A create_blockout room returns walls as <idPrefix>:2..5."
+    ),
     kind: openingKindSchema.default("door"),
     name: external_exports.string().trim().min(1).max(240).optional(),
     width: finite6.positive().default(0.9).describe("Opening width in metres."),
@@ -55799,9 +55801,7 @@ function nameQueryFromText(value) {
 }
 function liftQueryList(value) {
   if (Array.isArray(value) && value.length > 0) {
-    return value.map(
-      (item) => typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item
-    );
+    return value.map((item) => typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item);
   }
   if (value && typeof value === "object" && !Array.isArray(value)) return [value];
   return void 0;
@@ -133344,6 +133344,347 @@ var directorDccReturnReportSchema = external_exports.strictObject({
   blenderVersion: nonEmpty3.max(200)
 });
 
+// packages/dcc-protocol/src/directorEngineSceneImportContract.ts
+var DIRECTOR_ENGINE_SCENE_CONTRACT = "director-engine-scene-v1";
+var DIRECTOR_ENGINE_SCENE_IMPORT_PLAN_CONTRACT = "director-engine-scene-import-plan-v1";
+var directorEngineSceneProviderSchema = external_exports.enum(["unreal", "unity"]);
+var nonEmpty4 = external_exports.string().trim().min(1);
+var finite8 = external_exports.number().finite();
+var sha2565 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
+var hexColor = external_exports.string().regex(/^#[0-9a-fA-F]{6}$/, "expected #rrggbb hex color");
+var safeRelativePath3 = external_exports.string().trim().min(1).max(1024).refine((value) => !value.startsWith("/") && !value.startsWith("\\") && !/^[A-Za-z]:/.test(value), {
+  message: "path must be relative"
+}).refine((value) => !value.includes("\\"), { message: "path must use forward slashes" }).refine((value) => value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."), {
+  message: "path cannot contain empty, dot, or parent segments"
+});
+var DIRECTOR_ENGINE_COORDINATE_SYSTEMS = Object.freeze({
+  unreal: {
+    source: "left-handed-z-up-x-forward-centimeter",
+    destination: "right-handed-y-up-negative-z-forward",
+    unit: "meter",
+    linearMap: "(x,y,z)->(y,z,-x)*0.01"
+  },
+  unity: {
+    source: "left-handed-y-up-z-forward-meter",
+    destination: "right-handed-y-up-negative-z-forward",
+    unit: "meter",
+    linearMap: "(x,y,z)->(-x,y,z)"
+  }
+});
+var engineCoordinateSystemSchema = external_exports.strictObject({
+  source: external_exports.enum([DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.source, DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.source]),
+  destination: external_exports.literal("right-handed-y-up-negative-z-forward"),
+  unit: external_exports.literal("meter"),
+  linearMap: external_exports.enum([
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.linearMap,
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.linearMap
+  ])
+});
+var directorEngineSceneNodeKindSchema = external_exports.enum(["mesh", "skinned-mesh", "camera", "light", "group", "other"]);
+var engineNodeSchema = external_exports.strictObject({
+  sourceId: nonEmpty4.max(240),
+  name: nonEmpty4.max(240),
+  parentSourceId: nonEmpty4.max(240).optional(),
+  kind: directorEngineSceneNodeKindSchema,
+  /** Director-space TRS (meters, Y-up, XYZ Euler radians). */
+  transform: directorTransformSchema2
+});
+var engineCameraSchema = external_exports.strictObject({
+  sourceId: nonEmpty4.max(240),
+  name: nonEmpty4.max(240),
+  /** Director-space world position in meters. */
+  position: directorDccVec3Schema,
+  /** Director-space world look target in meters. */
+  lookTarget: directorDccVec3Schema,
+  verticalFovDegrees: finite8.positive().max(179),
+  sensorWidthMm: finite8.positive().max(1e3).optional(),
+  sensorHeightMm: finite8.positive().max(1e3).optional(),
+  apertureFStop: finite8.positive().max(256).optional(),
+  focusDistanceM: finite8.positive().max(1e6).optional(),
+  nearClipM: finite8.positive().max(1e5),
+  farClipM: finite8.positive().max(1e7),
+  renderAspectRatio: finite8.positive().max(20)
+}).superRefine((camera, context) => {
+  if (camera.farClipM <= camera.nearClipM) {
+    context.addIssue({ code: "custom", path: ["farClipM"], message: "far clip must exceed near clip" });
+  }
+  const [px, py, pz] = camera.position;
+  const [tx, ty, tz] = camera.lookTarget;
+  if (Math.hypot(tx - px, ty - py, tz - pz) < 1e-6) {
+    context.addIssue({
+      code: "custom",
+      path: ["lookTarget"],
+      message: "camera look target cannot coincide with its position"
+    });
+  }
+});
+var engineLightTypeSchema = external_exports.enum(DIRECTOR_LIGHT_TYPES2);
+var engineLightSchema = external_exports.strictObject({
+  sourceId: nonEmpty4.max(240),
+  name: nonEmpty4.max(240),
+  type: engineLightTypeSchema,
+  color: hexColor,
+  /** Director-normalized intensity (0..100); exporters document their mapping. */
+  intensity: finite8.min(0).max(100),
+  /** Director-space world position in meters (omitted for ambient light). */
+  position: directorDccVec3Schema.optional(),
+  /** Director-space world aim point for directional / spot / rect-area lights. */
+  target: directorDccVec3Schema.optional(),
+  rangeM: finite8.positive().max(1e6).optional(),
+  angleDegrees: finite8.positive().max(179).optional(),
+  penumbra: finite8.min(0).max(1).optional(),
+  widthM: finite8.positive().max(1e6).optional(),
+  heightM: finite8.positive().max(1e6).optional(),
+  castShadow: external_exports.boolean().optional()
+}).superRefine((light, context) => {
+  if (light.type !== "ambient" && light.type !== "hemisphere" && !light.position) {
+    context.addIssue({
+      code: "custom",
+      path: ["position"],
+      message: `${light.type} lights must carry a world position`
+    });
+  }
+  if ((light.type === "directional" || light.type === "spot" || light.type === "rect-area") && !light.target) {
+    context.addIssue({
+      code: "custom",
+      path: ["target"],
+      message: `${light.type} lights must carry an aim target`
+    });
+  }
+  if (light.type === "spot" && light.angleDegrees === void 0) {
+    context.addIssue({ code: "custom", path: ["angleDegrees"], message: "spot lights must carry a cone angle" });
+  }
+  if (light.type === "rect-area" && (light.widthM === void 0 || light.heightM === void 0)) {
+    context.addIssue({
+      code: "custom",
+      path: ["widthM"],
+      message: "rect-area lights must carry width and height"
+    });
+  }
+});
+var directorEngineSceneManifestSchema = external_exports.strictObject({
+  schemaVersion: external_exports.literal(1),
+  contract: external_exports.literal(DIRECTOR_ENGINE_SCENE_CONTRACT),
+  packageId: nonEmpty4.max(240),
+  provider: directorEngineSceneProviderSchema,
+  exportedAt: external_exports.string().datetime({ offset: true }),
+  engineVersion: nonEmpty4.max(200),
+  exporter: external_exports.strictObject({
+    name: nonEmpty4.max(120),
+    version: nonEmpty4.max(60)
+  }),
+  source: external_exports.strictObject({
+    projectName: nonEmpty4.max(240),
+    sceneName: nonEmpty4.max(240)
+  }),
+  coordinateSystem: engineCoordinateSystemSchema,
+  timeline: external_exports.strictObject({
+    frameStart: finite8,
+    frameEnd: finite8,
+    currentFrame: finite8,
+    fps: finite8.positive().max(1e3)
+  }),
+  scene: external_exports.strictObject({
+    name: nonEmpty4.max(240),
+    bundleFile: safeRelativePath3.nullable(),
+    nodeCount: external_exports.number().int().nonnegative().max(1e6),
+    meshCount: external_exports.number().int().nonnegative().max(1e6),
+    skinnedMeshCount: external_exports.number().int().nonnegative().max(1e6),
+    materialCount: external_exports.number().int().nonnegative().max(1e6),
+    animationClipCount: external_exports.number().int().nonnegative().max(1e6)
+  }),
+  nodes: external_exports.array(engineNodeSchema).max(2e4),
+  cameras: external_exports.array(engineCameraSchema).max(512),
+  lights: external_exports.array(engineLightSchema).max(1024),
+  animationClips: external_exports.array(
+    external_exports.strictObject({
+      name: nonEmpty4.max(240),
+      durationSeconds: finite8.nonnegative().max(1e6).optional()
+    })
+  ).max(512),
+  unsupported: external_exports.array(
+    external_exports.strictObject({
+      kind: nonEmpty4.max(120),
+      name: nonEmpty4.max(240),
+      reason: nonEmpty4.max(2e3)
+    })
+  ).max(2e4),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4),
+  fileHashes: external_exports.record(safeRelativePath3, sha2565)
+}).superRefine((manifest, context) => {
+  const expected = DIRECTOR_ENGINE_COORDINATE_SYSTEMS[manifest.provider];
+  if (manifest.coordinateSystem.source !== expected.source) {
+    context.addIssue({
+      code: "custom",
+      path: ["coordinateSystem", "source"],
+      message: `${manifest.provider} packages must declare the ${expected.source} source convention`
+    });
+  }
+  if (manifest.coordinateSystem.linearMap !== expected.linearMap) {
+    context.addIssue({
+      code: "custom",
+      path: ["coordinateSystem", "linearMap"],
+      message: `${manifest.provider} packages must declare the ${expected.linearMap} linear map`
+    });
+  }
+  if (manifest.scene.bundleFile && manifest.fileHashes[manifest.scene.bundleFile] === void 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["scene", "bundleFile"],
+      message: "scene bundle must have a manifest SHA-256 entry"
+    });
+  }
+  if ((manifest.scene.meshCount > 0 || manifest.scene.skinnedMeshCount > 0) && !manifest.scene.bundleFile) {
+    context.addIssue({
+      code: "custom",
+      path: ["scene", "bundleFile"],
+      message: "a scene with renderable geometry must provide a GLB bundle"
+    });
+  }
+  if (manifest.nodes.length > manifest.scene.nodeCount) {
+    context.addIssue({
+      code: "custom",
+      path: ["scene", "nodeCount"],
+      message: "nodeCount cannot be smaller than the recorded hierarchy snapshot"
+    });
+  }
+  const nodeIds = /* @__PURE__ */ new Set();
+  manifest.nodes.forEach((node, index) => {
+    if (nodeIds.has(node.sourceId)) {
+      context.addIssue({ code: "custom", path: ["nodes", index, "sourceId"], message: "duplicate node sourceId" });
+    }
+    nodeIds.add(node.sourceId);
+    if (node.parentSourceId === node.sourceId) {
+      context.addIssue({
+        code: "custom",
+        path: ["nodes", index, "parentSourceId"],
+        message: "a node cannot parent itself"
+      });
+    }
+  });
+  manifest.nodes.forEach((node, index) => {
+    if (node.parentSourceId && !nodeIds.has(node.parentSourceId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["nodes", index, "parentSourceId"],
+        message: `parent ${node.parentSourceId} is not in the hierarchy snapshot`
+      });
+    }
+  });
+  const cameraIds = /* @__PURE__ */ new Set();
+  manifest.cameras.forEach((camera, index) => {
+    if (cameraIds.has(camera.sourceId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["cameras", index, "sourceId"],
+        message: "duplicate camera sourceId"
+      });
+    }
+    cameraIds.add(camera.sourceId);
+  });
+  const lightIds = /* @__PURE__ */ new Set();
+  manifest.lights.forEach((light, index) => {
+    if (lightIds.has(light.sourceId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["lights", index, "sourceId"],
+        message: "duplicate light sourceId"
+      });
+    }
+    lightIds.add(light.sourceId);
+  });
+});
+var importOperationSchema2 = external_exports.discriminatedUnion("op", [
+  strictOperation("create_scene_asset", {
+    assetId: nonEmpty4.max(240),
+    label: nonEmpty4.max(240),
+    glbPath: safeRelativePath3,
+    hash: sha2565
+  }),
+  strictOperation("create_scene_object", {
+    objectId: nonEmpty4.max(240),
+    name: nonEmpty4.max(240),
+    assetId: nonEmpty4.max(240),
+    transform: directorTransformSchema2
+  }),
+  strictOperation("create_camera", {
+    sourceId: nonEmpty4.max(240),
+    cameraId: nonEmpty4.max(240),
+    objectId: nonEmpty4.max(240),
+    name: nonEmpty4.max(240),
+    position: external_exports.tuple([finite8, finite8, finite8]),
+    target: external_exports.tuple([finite8, finite8, finite8]),
+    focalLengthMm: finite8.min(12).max(200),
+    sensorFormat: external_exports.enum(["super16", "super35", "fullFrame", "imax65"]),
+    apertureFStop: finite8.min(0.7).max(64),
+    focusDistanceM: finite8.min(0.01).max(1e4),
+    nearClipM: finite8.min(1e-3).max(100),
+    farClipM: finite8.min(1).max(1e6),
+    aspectRatio: directorCameraAspectRatioSchema
+  }),
+  strictOperation("create_light", {
+    sourceId: nonEmpty4.max(240),
+    lightId: nonEmpty4.max(200),
+    name: nonEmpty4.max(240),
+    type: engineLightTypeSchema,
+    color: hexColor,
+    intensity: finite8.min(0).max(100),
+    position: external_exports.tuple([finite8, finite8, finite8]).optional(),
+    target: external_exports.tuple([finite8, finite8, finite8]).optional(),
+    distance: finite8.min(0).max(1e6).optional(),
+    angle: finite8.min(1e-3).max(Math.PI / 2).optional(),
+    penumbra: finite8.min(0).max(1).optional(),
+    width: finite8.positive().max(1e6).optional(),
+    height: finite8.positive().max(1e6).optional(),
+    castShadow: external_exports.boolean().optional()
+  }),
+  strictOperation("skip", { sourceId: nonEmpty4.max(240), reason: nonEmpty4.max(2e3) }),
+  strictOperation("warn", { message: nonEmpty4.max(2e3) })
+]);
+var directorEngineSceneImportSelectionSchema = external_exports.strictObject({
+  includeScene: external_exports.boolean(),
+  cameraSourceIds: external_exports.array(nonEmpty4.max(240)).max(512),
+  lightSourceIds: external_exports.array(nonEmpty4.max(240)).max(1024)
+});
+var directorEngineSceneImportPlanSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_ENGINE_SCENE_IMPORT_PLAN_CONTRACT),
+  planId: safeRelativePath3,
+  ready: external_exports.boolean(),
+  provider: directorEngineSceneProviderSchema,
+  packageId: nonEmpty4.max(240),
+  packageDir: safeRelativePath3,
+  manifestHash: sha2565,
+  targetRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+  selection: directorEngineSceneImportSelectionSchema,
+  operations: external_exports.array(importOperationSchema2).max(4e3),
+  conflicts: external_exports.array(
+    external_exports.strictObject({
+      sourceId: nonEmpty4.max(240),
+      code: external_exports.enum(["id_collision", "empty_selection", "unsupported_scene"]),
+      reason: nonEmpty4.max(2e3)
+    })
+  ).max(4e3),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4)
+}).superRefine((plan, context) => {
+  if (plan.ready && plan.conflicts.length > 0) {
+    context.addIssue({ code: "custom", path: ["ready"], message: "ready plans cannot contain conflicts" });
+  }
+  if (new Set(plan.selection.cameraSourceIds).size !== plan.selection.cameraSourceIds.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["selection", "cameraSourceIds"],
+      message: "camera selection must be unique"
+    });
+  }
+  if (new Set(plan.selection.lightSourceIds).size !== plan.selection.lightSourceIds.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["selection", "lightSourceIds"],
+      message: "light selection must be unique"
+    });
+  }
+});
+
 // packages/dcc-protocol/src/directorDccProviderContract.ts
 var directorDccProviderIdSchema = external_exports.string().trim().min(1).max(120).regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/, "provider id must be a lowercase, namespaced identifier");
 var directorDccExchangeFormatSchema = external_exports.enum(["blend", "glb", "usda"]);
@@ -133558,6 +133899,28 @@ function exchangeProvider(id4, label, category, preferredFormat, exchangeFormats
     connectorDirectory: `integrations/${id4}`
   });
 }
+function engineImportProvider(id4, label, preferredFormat, exchangeFormats) {
+  return directorDccProviderDescriptorSchema.parse({
+    id: id4,
+    label,
+    category: "engine",
+    integration: "exchange-package",
+    preferredFormat,
+    exchangeFormats,
+    capabilities: [
+      { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "animation", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+      { id: "skeleton", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+      { id: "materials", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+      { id: "stable_ids", level: "exchange", layer: "director-manifest" },
+      { id: "roundtrip", level: "planned", layer: "connector" },
+      { id: "headless", level: "native", layer: "connector" },
+      { id: "live_link", level: "planned", layer: "connector" }
+    ],
+    connectorDirectory: `integrations/${id4}`
+  });
+}
 var DIRECTOR_DCC_PROVIDERS = Object.freeze([
   directorDccProviderDescriptorSchema.parse({
     id: "blender",
@@ -133580,25 +133943,25 @@ var DIRECTOR_DCC_PROVIDERS = Object.freeze([
     connectorDirectory: "integrations/blender"
   }),
   exchangeProvider("maya", "Autodesk Maya", "dcc", "usda", ["usda", "glb"]),
-  exchangeProvider("unreal", "Unreal Engine", "engine", "usda", ["usda", "glb"]),
+  engineImportProvider("unreal", "Unreal Engine", "usda", ["usda", "glb"]),
   exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
-  exchangeProvider("unity", "Unity", "engine", "glb", ["glb", "usda"]),
+  engineImportProvider("unity", "Unity", "glb", ["glb", "usda"]),
   exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("godot", "Godot", "engine", "glb", ["glb"])
 ]);
 
 // packages/dcc-protocol/src/directorDccContract.ts
 var DIRECTOR_DCC_SCENE_CONTRACT = "director-dcc-scene-v1";
-var finite8 = directorDccFiniteSchema;
+var finite9 = directorDccFiniteSchema;
 var vec37 = directorDccVec3Schema;
 var directorDccAnimationKeyframeSchema = external_exports.strictObject({
-  frame: finite8,
+  frame: finite9,
   interpolation: external_exports.enum(["step", "linear", "smooth"]),
   transform: directorDccTransformSchema.optional(),
   lookTarget: vec37.optional(),
-  poseValues: external_exports.record(external_exports.string(), finite8).optional(),
-  focalLengthMm: finite8.positive().optional()
+  poseValues: external_exports.record(external_exports.string(), finite9).optional(),
+  focalLengthMm: finite9.positive().optional()
 });
 var directorDccAssetSchema = external_exports.strictObject({
   id: external_exports.string(),
@@ -133635,16 +133998,16 @@ var directorDccCameraSchema = external_exports.strictObject({
   name: external_exports.string(),
   transform: directorDccTransformSchema,
   target: vec37,
-  focalLengthMm: finite8.positive(),
-  sensorWidthMm: finite8.positive(),
-  sensorHeightMm: finite8.positive(),
-  apertureFStop: finite8.positive(),
-  focusDistanceM: finite8.positive(),
-  shutterAngle: finite8.min(0).max(360),
-  iso: finite8.positive(),
-  nearClipM: finite8.positive(),
-  farClipM: finite8.positive(),
-  anamorphicSqueeze: finite8.min(1).max(2.5),
+  focalLengthMm: finite9.positive(),
+  sensorWidthMm: finite9.positive(),
+  sensorHeightMm: finite9.positive(),
+  apertureFStop: finite9.positive(),
+  focusDistanceM: finite9.positive(),
+  shutterAngle: finite9.min(0).max(360),
+  iso: finite9.positive(),
+  nearClipM: finite9.positive(),
+  farClipM: finite9.positive(),
+  anamorphicSqueeze: finite9.min(1).max(2.5),
   aspectRatio: directorCameraAspectRatioSchema,
   animation: external_exports.array(directorDccAnimationKeyframeSchema)
 });
@@ -133660,7 +134023,7 @@ var directorDccScenePackageSchema = external_exports.strictObject({
     linearMap: external_exports.literal("(x,y,z)->(x,-z,y)")
   }),
   timeline: external_exports.strictObject({
-    fps: finite8.positive(),
+    fps: finite9.positive(),
     timebase: external_exports.strictObject({
       rate: external_exports.strictObject({
         numerator: external_exports.number().int().positive().max(1e6),
@@ -133669,15 +134032,15 @@ var directorDccScenePackageSchema = external_exports.strictObject({
       dropFrame: external_exports.boolean(),
       startTimecode: external_exports.string().regex(/^\d{2}:\d{2}:\d{2}[:;]\d{2}$/)
     }).optional(),
-    frameStart: finite8,
-    frameEnd: finite8,
-    currentFrame: finite8
+    frameStart: finite9,
+    frameEnd: finite9,
+    currentFrame: finite9
   }),
   scene: external_exports.strictObject({
     backgroundColor: external_exports.string(),
     showGround: external_exports.boolean(),
-    groundHeight: finite8,
-    groundOpacity: finite8.min(0).max(1)
+    groundHeight: finite9,
+    groundOpacity: finite9.min(0).max(1)
   }),
   assets: external_exports.array(directorDccAssetSchema),
   objects: external_exports.array(directorDccObjectSchema),
@@ -133734,6 +134097,24 @@ var directorDccOperationSchema = external_exports.discriminatedUnion("op", [
     ),
     expected_revision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
     idempotency_key: external_exports.string().trim().min(1).max(240)
+  }),
+  strictOperation("preview_engine_scene_import", {
+    provider: directorEngineSceneProviderSchema,
+    package_dir: external_exports.string().trim().min(1).max(2048),
+    selection: directorEngineSceneImportSelectionSchema.optional()
+  }),
+  strictOperation("apply_engine_scene_import", {
+    plan_id: external_exports.string().trim().min(1).max(512).refine(
+      (value) => !value.startsWith("/") && !value.includes("\\") && value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
+      { message: "plan_id must be a safe relative identifier" }
+    ),
+    expected_revision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+    idempotency_key: external_exports.string().trim().min(1).max(240)
+  }),
+  strictOperation("extract_engine_scene", {
+    provider: directorEngineSceneProviderSchema,
+    project_dir: external_exports.string().trim().min(1).max(2048),
+    scene: external_exports.string().trim().min(1).max(512).optional()
   })
 ]);
 var DIRECTOR_TO_BLENDER_BASIS = new Matrix4().set(1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1);
