@@ -144,13 +144,7 @@ describe("world surface material patch", () => {
 
   it("writes weather uniforms as a pure function of wind and weather", () => {
     const uniforms = createWorldSurfaceUniforms();
-    writeWorldSurfaceUniforms(
-      uniforms,
-      { preset: "rain", intensity: 1, wetness: 0, cloudCover: 0.6 },
-      3,
-      4,
-      12.5,
-    );
+    writeWorldSurfaceUniforms(uniforms, { preset: "rain", intensity: 1, wetness: 0, cloudCover: 0.6 }, 3, 4, 12.5);
     expect(uniforms.uWorldWetness.value).toBeGreaterThan(0.9);
     expect(uniforms.uWorldSnowCover.value).toBe(0);
     expect(uniforms.uWorldPuddle.value).toBeGreaterThan(0.5);
@@ -160,14 +154,11 @@ describe("world surface material patch", () => {
 
   it("keeps clear + wetness 0 completely dry", () => {
     const uniforms = createWorldSurfaceUniforms();
-    writeWorldSurfaceUniforms(
-      uniforms,
-      { preset: "clear", intensity: 0.5, wetness: 0, cloudCover: 0 },
-      3,
-      4,
-      99,
-      { seed: 42, gustiness: 0.5, turbulence: 0.5 },
-    );
+    writeWorldSurfaceUniforms(uniforms, { preset: "clear", intensity: 0.5, wetness: 0, cloudCover: 0 }, 3, 4, 99, {
+      seed: 42,
+      gustiness: 0.5,
+      turbulence: 0.5,
+    });
     expect(uniforms.uWorldWetness.value).toBe(0);
     expect(uniforms.uWorldSnowCover.value).toBe(0);
     expect(uniforms.uWorldPuddle.value).toBe(0);
@@ -175,14 +166,11 @@ describe("world surface material patch", () => {
 
   it("threads seed + gust character into the documented visual uniforms", () => {
     const uniforms = createWorldSurfaceUniforms();
-    writeWorldSurfaceUniforms(
-      uniforms,
-      { preset: "clear", intensity: 0, wetness: 0, cloudCover: 0 },
-      1,
-      0,
-      0,
-      { seed: 20_260_813, gustiness: 0.35, turbulence: 0.8 },
-    );
+    writeWorldSurfaceUniforms(uniforms, { preset: "clear", intensity: 0, wetness: 0, cloudCover: 0 }, 1, 0, 0, {
+      seed: 20_260_813,
+      gustiness: 0.35,
+      turbulence: 0.8,
+    });
     expect(uniforms.uWorldWindGust.value).toBeCloseTo(0.35, 10);
     // uWorldWindTurbulence drives the cross-wind foliage flutter amplitude.
     expect(uniforms.uWorldWindTurbulence.value).toBeCloseTo(0.8, 10);

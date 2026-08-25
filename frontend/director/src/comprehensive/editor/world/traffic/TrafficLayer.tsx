@@ -14,7 +14,10 @@ import {
   Quaternion,
   Vector3,
 } from "three";
-import type { DirectorWorldRoad, DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
+import type {
+  DirectorWorldRoad,
+  DirectorWorldWeather,
+} from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext, TrafficLayerProps } from "../livingWorldContracts";
 import { evaluateWorldTimeOfDayHours } from "../worldTime";
 import {
@@ -149,7 +152,10 @@ function RoadSurface({
   // toward white. Pure function of authored weather — no per-frame work.
   const appearance = computeRoadSurfaceAppearance(weather);
   useMemo(() => {
-    material.color.setHex(ROAD_SURFACE_COLOR).multiplyScalar(appearance.colorScale).lerp(ROAD_SNOW_COLOR, appearance.snowMix);
+    material.color
+      .setHex(ROAD_SURFACE_COLOR)
+      .multiplyScalar(appearance.colorScale)
+      .lerp(ROAD_SNOW_COLOR, appearance.snowMix);
     material.roughness = appearance.roughness;
   }, [material, appearance.colorScale, appearance.roughness, appearance.snowMix]);
 

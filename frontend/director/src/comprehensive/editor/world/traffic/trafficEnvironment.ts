@@ -1,8 +1,5 @@
 import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
-import {
-  computeEffectiveWorldSnowCover,
-  computeEffectiveWorldWetness,
-} from "../surface/worldSurfaceResponse";
+import { computeEffectiveWorldSnowCover, computeEffectiveWorldWetness } from "../surface/worldSurfaceResponse";
 
 /**
  * Weather and time-of-day responses for the ambient traffic layer.

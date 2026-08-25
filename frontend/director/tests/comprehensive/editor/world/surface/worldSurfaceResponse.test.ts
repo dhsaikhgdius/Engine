@@ -29,9 +29,12 @@ describe("vegetation name detection", () => {
     expect(isWorldVegetationName("ground-inner")).toBe(false);
     expect(isWorldVegetationName("大厅")).toBe(false);
     expect(isWorldVegetationName("director-primitive-batch-box")).toBe(false);
-    expect(
-      [...collectWorldVegetationObjectIds([{ id: "oak", name: "oak-foliage" }, { id: "hall", name: "大厅" }])],
-    ).toEqual(["oak"]);
+    expect([
+      ...collectWorldVegetationObjectIds([
+        { id: "oak", name: "oak-foliage" },
+        { id: "hall", name: "大厅" },
+      ]),
+    ]).toEqual(["oak"]);
   });
 });
 
