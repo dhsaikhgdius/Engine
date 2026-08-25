@@ -15,6 +15,8 @@ import {
   exportBlenderScenePreview,
   publicBlenderJob,
 } from "../dcc/blenderNativeTool";
+import { httpToolPolicyRejection, resolveHttpToolPolicyContext } from "../agents/httpToolPolicy";
+import { buildToolInvocationAuditEntry, type ToolInvocationAuditEntry } from "../agents/toolInvocationAuditStore";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -66,6 +68,8 @@ export type BlenderLiveRouteDependencies = {
   session: BlenderNativeSession;
   /** Binds Blender to the Director project owned by the exact Agent target. */
   bindDirectorProject?: (input: { sessionId?: string; targetToken?: string }) => Promise<void>;
+  /** Appends one tool invocation to the gateway audit trail. */
+  recordToolInvocation?: (entry: ToolInvocationAuditEntry) => void;
 };
 
 async function readNativeModelBytes(request: IncomingMessage) {
@@ -302,7 +306,20 @@ export async function handleBlenderLiveRoute(
   url: URL,
   dependencies: BlenderLiveRouteDependencies,
 ): Promise<boolean> {
-  const { session, json } = dependencies;
+  const { session, json: writeJson, recordToolInvocation } = dependencies;
+
+  // Only the /api/tools/blender_native branch arms this hook; every response
+  // written for that invocation is then mirrored into the gateway audit trail.
+  let auditContext: { tool: string; toolInput: unknown; sessionId: string | null; role: string | null } | null = null;
+  const json: JsonWriter = (jsonResponse, status, body) => {
+    writeJson(jsonResponse, status, body);
+    if (!auditContext || !recordToolInvocation) return;
+    try {
+      recordToolInvocation(buildToolInvocationAuditEntry({ ...auditContext, httpStatus: status, body }));
+    } catch (error) {
+      console.warn(`Tool invocation audit failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
 
   if (url.pathname === "/api/dcc/blender/assets") {
     if (request.method !== "POST") {
@@ -348,6 +365,20 @@ export async function handleBlenderLiveRoute(
           .map((issue) => `${issue.path.map(String).join(".") || "$"}: ${issue.message}`)
           .join("; ")}`,
       });
+      return true;
+    }
+    const policyContext = resolveHttpToolPolicyContext();
+    auditContext = {
+      tool: "blender_native",
+      toolInput: parsed.data.input,
+      sessionId: parsed.data.session_id ?? null,
+      role: policyContext.invalidRole ? null : policyContext.role,
+    };
+    // Shared film-role/plan-mode gate: runs before project binding and kernel
+    // execution so rejected calls never touch the live Blender session.
+    const policyRejection = httpToolPolicyRejection("blender_native", parsed.data.input);
+    if (policyRejection) {
+      json(response, policyRejection.status, policyRejection.body);
       return true;
     }
     try {

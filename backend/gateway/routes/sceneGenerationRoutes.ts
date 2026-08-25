@@ -2,6 +2,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import type { ModelProvider } from "@director/model-provider";
 import { runScenePipeline, summarizePipelineOutput } from "@director/scene-pipeline";
+import { httpToolPolicyRejection, resolveHttpToolPolicyContext } from "../agents/httpToolPolicy";
+import { buildToolInvocationAuditEntry, type ToolInvocationAuditEntry } from "../agents/toolInvocationAuditStore";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -13,6 +15,8 @@ export type SceneGenerationRouteDependencies = {
   json: JsonWriter;
   /** Resolves a provider identifier to a model provider. */
   resolveProvider: (providerId: string) => Promise<ModelProvider>;
+  /** Appends one tool invocation to the gateway audit trail. */
+  recordToolInvocation?: (entry: ToolInvocationAuditEntry) => void;
 };
 
 const generateSceneRequestSchema = z.strictObject({
@@ -23,6 +27,7 @@ const generateSceneRequestSchema = z.strictObject({
   constraints: z.array(z.string().max(200)).max(10).optional(),
   providerId: z.string().optional(),
   summary: z.boolean().optional(),
+  session_id: z.string().trim().min(1).max(160).optional(),
 });
 
 /**
@@ -45,15 +50,45 @@ export async function handleSceneGenerationRoute(
   if (request.method !== "POST") { deps.json(response, 405, { error: "Method not allowed" }); return true; }
   let body: unknown;
   try { body = await deps.readBody(request); } catch { deps.json(response, 400, { error: "Invalid request body" }); return true; }
+
+  const policyContext = resolveHttpToolPolicyContext();
+  const bodySessionId =
+    body && typeof body === "object" && !Array.isArray(body) && typeof (body as Record<string, unknown>).session_id === "string"
+      ? ((body as Record<string, unknown>).session_id as string)
+      : null;
+  // Every response written for this invocation is mirrored into the gateway
+  // audit trail; failures there never affect the tool response.
+  const json: JsonWriter = (jsonResponse, status, responseBody) => {
+    deps.json(jsonResponse, status, responseBody);
+    if (!deps.recordToolInvocation) return;
+    try {
+      deps.recordToolInvocation(buildToolInvocationAuditEntry({
+        tool: "generate_scene",
+        toolInput: body,
+        sessionId: bodySessionId,
+        role: policyContext.invalidRole ? null : policyContext.role,
+        httpStatus: status,
+        body: responseBody,
+      }));
+    } catch (error) {
+      console.warn(`Tool invocation audit failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // Shared film-role/plan-mode gate: runs before provider resolution and the
+  // scene pipeline so rejected calls never consume model capacity.
+  const policyRejection = httpToolPolicyRejection("generate_scene", body);
+  if (policyRejection) { json(response, policyRejection.status, policyRejection.body); return true; }
+
   const parsed = generateSceneRequestSchema.safeParse(body);
-  if (!parsed.success) { deps.json(response, 400, { error: "Invalid input", details: parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`) }); return true; }
+  if (!parsed.success) { json(response, 400, { error: "Invalid input", details: parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`) }); return true; }
   const input = parsed.data;
   const providerId = input.providerId ?? "deepseek";
   let provider: ModelProvider;
-  try { provider = await deps.resolveProvider(providerId); } catch (err) { deps.json(response, 503, { error: `Model provider "${providerId}" is not available`, detail: err instanceof Error ? err.message : String(err) }); return true; }
+  try { provider = await deps.resolveProvider(providerId); } catch (err) { json(response, 503, { error: `Model provider "${providerId}" is not available`, detail: err instanceof Error ? err.message : String(err) }); return true; }
   try {
     const output = await runScenePipeline(provider, { prompt: input.prompt, style: input.style, room: input.room, cameraCount: input.cameraCount, constraints: input.constraints });
-    deps.json(response, 200, { success: true, layout: input.summary ? undefined : output.layout, summary: input.summary ? summarizePipelineOutput(output) : undefined, warnings: output.warnings, timing: output.timing });
+    json(response, 200, { success: true, layout: input.summary ? undefined : output.layout, summary: input.summary ? summarizePipelineOutput(output) : undefined, warnings: output.warnings, timing: output.timing });
     return true;
-  } catch (err) { deps.json(response, 500, { error: "Scene generation failed", detail: err instanceof Error ? err.message : String(err) }); return true; }
+  } catch (err) { json(response, 500, { error: "Scene generation failed", detail: err instanceof Error ? err.message : String(err) }); return true; }
 }

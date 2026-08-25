@@ -134,6 +134,8 @@ import { handleMotionGenerationRoute } from "./routes/motionGenerationRoutes";
 import { handleSceneGenerationRoute } from "./routes/sceneGenerationRoutes";
 import { registerBuiltinProviders, resolveModelProvider } from "./agents/modelProviderIntegration";
 import { DirectorAgentTargetScheduler } from "./agents/agentToolScheduler";
+import { ToolInvocationAuditStore, type ToolInvocationAuditEntry } from "./agents/toolInvocationAuditStore";
+import { handleAgentAuditRoute } from "./routes/agentAuditRoutes";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const controlPlaneConfig = loadDirectorControlPlaneConfig(root);
@@ -335,6 +337,10 @@ const generated3dRuntime = createGenerated3DRuntime(
   generatedAssetRoot,
 );
 const productionArtifactStore = new ProductionArtifactStore(dataDirectory);
+const toolInvocationAuditStore = new ToolInvocationAuditStore(dataDirectory);
+const recordToolInvocation = (entry: ToolInvocationAuditEntry) => {
+  toolInvocationAuditStore.record(entry);
+};
 
 let scene: StageScene = await readFile(scenePath, "utf8")
   .then((contents) => {
@@ -2097,6 +2103,7 @@ const server = createServer(async (request, response) => {
         readBody: body,
         json,
         session: blenderNativeSession,
+        recordToolInvocation,
       })
     )
       return;
@@ -2143,6 +2150,7 @@ const server = createServer(async (request, response) => {
               }
             : null;
         },
+        recordToolInvocation,
       })
     )
       return;
@@ -2170,6 +2178,7 @@ const server = createServer(async (request, response) => {
         headers,
         json,
         ...liveStageRouteDependencies(),
+        recordToolInvocation,
       })
     )
       return;
@@ -2178,9 +2187,11 @@ const server = createServer(async (request, response) => {
         readBody: body,
         json,
         resolveProvider: async (providerId) => resolveModelProvider(providerId),
+        recordToolInvocation,
       })
     )
       return;
+    if (await handleAgentAuditRoute(request, response, url, { json, store: toolInvocationAuditStore })) return;
     return json(response, 404, { error: "Not found" });
   } catch (error) {
     return json(response, 500, { error: error instanceof Error ? error.message : String(error) });
