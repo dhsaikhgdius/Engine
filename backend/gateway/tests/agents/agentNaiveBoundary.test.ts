@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyObservedAgentGuard,
+  forgetAgentSessionTarget,
+  listAgentSessionTargets,
   prepareAgentDurableJobMutation,
   prepareAgentMutation,
+  recallAgentSessionTarget,
+  rememberAgentSessionTarget,
   resetAgentNaiveBoundaryForTests,
 } from "../../agentNaiveBoundary";
 
@@ -175,5 +179,37 @@ describe("Agent naive public boundary", () => {
         idempotency: { source: "generated", stable_retry: true },
       },
     });
+  });
+
+  it("lists remembered tool sessions read-only, newest activity first, scoped per tool", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-25T10:00:00.000Z"));
+      rememberAgentSessionTarget("director_workbench", "dsh-older", "target-a");
+      vi.setSystemTime(new Date("2026-08-25T10:05:00.000Z"));
+      rememberAgentSessionTarget("director_workbench", "dsh-newer", "target-b");
+      rememberAgentSessionTarget("director_creative", "dsh-canvas", "target-c");
+
+      expect(listAgentSessionTargets("director_workbench")).toEqual([
+        { sessionId: "dsh-newer", lastActiveAtMs: Date.parse("2026-08-25T10:05:00.000Z") },
+        { sessionId: "dsh-older", lastActiveAtMs: Date.parse("2026-08-25T10:00:00.000Z") },
+      ]);
+      expect(listAgentSessionTargets("director_creative")).toEqual([
+        { sessionId: "dsh-canvas", lastActiveAtMs: Date.parse("2026-08-25T10:05:00.000Z") },
+      ]);
+
+      // Re-remembering bumps activity; forgetting drops the session from the list.
+      vi.setSystemTime(new Date("2026-08-25T10:09:00.000Z"));
+      rememberAgentSessionTarget("director_workbench", "dsh-older", "target-a2");
+      expect(listAgentSessionTargets("director_workbench")[0]).toEqual({
+        sessionId: "dsh-older",
+        lastActiveAtMs: Date.parse("2026-08-25T10:09:00.000Z"),
+      });
+      expect(recallAgentSessionTarget("director_workbench", "dsh-older")).toBe("target-a2");
+      forgetAgentSessionTarget("director_workbench", "dsh-newer");
+      expect(listAgentSessionTargets("director_workbench").map((session) => session.sessionId)).toEqual(["dsh-older"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

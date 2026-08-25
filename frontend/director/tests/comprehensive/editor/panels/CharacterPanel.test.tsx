@@ -4,6 +4,7 @@ import { beforeEach, vi } from "vitest";
 import { createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
 import { useBlenderRuntimeStore } from "../../../../src/comprehensive/editor/runtime/blenderRuntimeStore";
 import { CharacterPanel } from "../../../../src/comprehensive/editor/panels/CharacterPanel";
+import { dispatchDirectorAuthoringActions } from "../../../../src/agent/dispatchDirectorAuthoringActions";
 
 vi.mock("../../../../src/comprehensive/editor/assistant/agentProfilesClient", () => ({
   listAgentProfiles: vi.fn().mockResolvedValue([
@@ -17,6 +18,13 @@ vi.mock("../../../../src/comprehensive/editor/assistant/agentProfilesClient", ()
       available: true,
       capabilities: { vision: true, video: false },
     },
+  ]),
+}));
+
+vi.mock("../../../../src/comprehensive/editor/assistant/agentSessionsClient", () => ({
+  listAgentSessions: vi.fn().mockResolvedValue([
+    { id: "dsh-live-1", tool: "director_workbench", status: "active", last_active_at: "2026-08-25T10:19:00.000Z" },
+    { id: "dsh-idle-2", tool: "director_workbench", status: "idle", last_active_at: "2026-08-25T09:00:00.000Z" },
   ]),
 }));
 
@@ -40,9 +48,10 @@ it("renders the approved role property order", () => {
   expect(screen.getByLabelText("角色颜色")).toBeInTheDocument();
 });
 
-it("keeps character creation-only body type controls out of the role property panel", () => {
+it("keeps character creation-only body type controls out of the role property panel", async () => {
   render(<CharacterPanel />);
 
+  await screen.findByLabelText("选择要绑定的 Agent");
   const content = document.querySelector(".right-inspector-content");
   expect(content).toBeInTheDocument();
 
@@ -62,8 +71,7 @@ it("keeps character creation-only body type controls out of the role property pa
     "统一缩放",
     "颜色",
     "绑定 Agent",
-    "Agent Profile",
-    "Session ID",
+    "选择 Agent",
   ]);
   expect(screen.queryByText("体型")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "二头身" })).not.toBeInTheDocument();
@@ -401,26 +409,51 @@ function selectedCharacter() {
   return useDirectorStore.getState().project.objects.find((item) => item.id === "char_default_a");
 }
 
+function crowdMembers() {
+  return useDirectorStore
+    .getState()
+    .project.objects.filter((item) => item.kind === "character" && item.crowdId === "crowd_1");
+}
+
 it("requires an agent identity before binding the selected character", async () => {
   const user = userEvent.setup();
   render(<CharacterPanel />);
 
+  await screen.findByLabelText("选择要绑定的 Agent");
   await user.click(screen.getByRole("button", { name: "绑定 Agent 到该角色" }));
 
-  expect(screen.getByText("请先选择 Agent Profile 或填写 Session ID。")).toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("请先选择要绑定的 Agent 会话或 Profile，或填写 Session ID。");
   expect(selectedCharacter()?.agentBinding).toBeUndefined();
 });
 
-it("binds and unbinds an agent session through the shared authoring path", async () => {
+it("binds a live agent session from the dropdown and shows its status once bound", async () => {
   const user = userEvent.setup();
   render(<CharacterPanel />);
 
+  await user.click(await screen.findByLabelText("选择要绑定的 Agent"));
+  expect(screen.getByRole("option", { name: "会话 dsh-idle-2 · 空闲" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "Profile Claude Harness" })).toBeInTheDocument();
+  await user.click(screen.getByRole("option", { name: "会话 dsh-live-1 · 活跃" }));
+  await user.click(screen.getByRole("button", { name: "绑定 Agent 到该角色" }));
+
+  expect(selectedCharacter()?.agentBinding).toEqual({ mode: "possess", sessionId: "dsh-live-1" });
+  expect(screen.getByText("此人物已被 Agent 接管")).toBeInTheDocument();
+  expect(screen.getByLabelText("Agent 接管状态")).toHaveTextContent("Agent 接管中");
+  expect(screen.getByText("dsh-live-1")).toBeInTheDocument();
+  expect(screen.getByText("活跃")).toBeInTheDocument();
+});
+
+it("keeps the hand-typed session id as a fallback and unbinds through authoring", async () => {
+  const user = userEvent.setup();
+  render(<CharacterPanel />);
+
+  await user.click(await screen.findByLabelText("选择要绑定的 Agent"));
+  await user.click(screen.getByRole("option", { name: "手动填写 Session ID" }));
   await user.type(screen.getByLabelText("绑定 Agent Session ID"), "dsh-session-42");
   await user.click(screen.getByRole("button", { name: "绑定 Agent 到该角色" }));
 
   expect(selectedCharacter()?.agentBinding).toEqual({ mode: "possess", sessionId: "dsh-session-42" });
   expect(screen.getByText("此人物已被 Agent 接管")).toBeInTheDocument();
-  expect(screen.getByLabelText("Agent 接管状态")).toHaveTextContent("Agent 接管中");
   expect(screen.getByText("dsh-session-42")).toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: "解除 Agent 绑定" }));
@@ -430,24 +463,91 @@ it("binds and unbinds an agent session through the shared authoring path", async
   expect(screen.getByRole("button", { name: "绑定 Agent 到该角色" })).toBeInTheDocument();
 });
 
-it("binds through a listed agent profile before a session exists", async () => {
+it("binds through a listed agent profile and shows the profile name, not just the raw id", async () => {
   const user = userEvent.setup();
   render(<CharacterPanel />);
 
-  await user.click(screen.getByRole("button", { name: "绑定 Agent Profile" }));
-  await user.click(await screen.findByRole("option", { name: "Claude Harness" }));
+  await user.click(await screen.findByLabelText("选择要绑定的 Agent"));
+  await user.click(screen.getByRole("option", { name: "Profile Claude Harness" }));
   await user.click(screen.getByRole("button", { name: "绑定 Agent 到该角色" }));
 
   expect(selectedCharacter()?.agentBinding).toEqual({ mode: "possess", profileId: "profile-claude" });
   expect(screen.getByText("此人物已被 Agent 接管")).toBeInTheDocument();
+  expect(screen.getByText("Claude Harness")).toBeInTheDocument();
+  expect(screen.getByText("profile-claude")).toBeInTheDocument();
 });
 
-it("explains that crowd selections cannot bind an agent", () => {
+it("surfaces authoring failures when the bind is rejected", async () => {
+  const user = userEvent.setup();
+  useDirectorStore.getState().toggleObjectLocked("char_default_a");
+  render(<CharacterPanel />);
+
+  await user.click(await screen.findByLabelText("选择要绑定的 Agent"));
+  await user.click(screen.getByRole("option", { name: "会话 dsh-live-1 · 活跃" }));
+  await user.click(screen.getByRole("button", { name: "绑定 Agent 到该角色" }));
+
+  expect(screen.getByRole("alert")).toHaveTextContent(/locked/i);
+  expect(selectedCharacter()?.agentBinding).toBeUndefined();
+});
+
+it("binds every crowd member to the same agent in one batch and unbinds them all", async () => {
+  const user = userEvent.setup();
   useDirectorStore.getState().addCrowdCharacters({ rows: 2, columns: 2, spacing: 1.2 });
   useDirectorStore.getState().selectCrowd("crowd_1");
 
   render(<CharacterPanel />);
 
-  expect(screen.getByText("群组选择暂不支持绑定 Agent；请选择单个角色后再绑定。")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "绑定 Agent 到该角色" })).not.toBeInTheDocument();
+  await user.click(await screen.findByLabelText("选择要绑定的 Agent"));
+  await user.click(screen.getByRole("option", { name: "会话 dsh-live-1 · 活跃" }));
+  await user.click(screen.getByRole("button", { name: "绑定 Agent 到群组全部成员" }));
+
+  const boundMembers = crowdMembers();
+  expect(boundMembers).toHaveLength(4);
+  expect(new Set(boundMembers.map((item) => item.agentBinding?.sessionId))).toEqual(new Set(["dsh-live-1"]));
+  expect(screen.getByText("群组成员已全部被 Agent 接管")).toBeInTheDocument();
+  expect(screen.getByLabelText("Agent 接管状态")).toHaveTextContent("Agent 已全部接管");
+
+  await user.click(screen.getByRole("button", { name: "解除群组全部 Agent 绑定" }));
+
+  expect(crowdMembers().every((item) => item.agentBinding === undefined)).toBe(true);
+  expect(screen.queryByLabelText("Agent 接管状态")).not.toBeInTheDocument();
+});
+
+it("marks partial crowd possession and lets a rebind overwrite every member", async () => {
+  const user = userEvent.setup();
+  useDirectorStore.getState().addCrowdCharacters({ rows: 2, columns: 2, spacing: 1.2 });
+  useDirectorStore.getState().selectCrowd("crowd_1");
+  const firstMemberId = crowdMembers()[0]!.id;
+  expect(
+    dispatchDirectorAuthoringActions([
+      { action: "bind_character_agent", object_id: firstMemberId, session_id: "dsh-old-agent" },
+    ]).ok,
+  ).toBe(true);
+
+  render(<CharacterPanel />);
+
+  expect(screen.getByLabelText("Agent 接管状态")).toHaveTextContent("Agent 已部分接管");
+  expect(screen.getByText("群组成员已部分被 Agent 接管")).toBeInTheDocument();
+
+  await user.click(await screen.findByLabelText("选择要绑定的 Agent"));
+  await user.click(screen.getByRole("option", { name: "会话 dsh-live-1 · 活跃" }));
+  await user.click(screen.getByRole("button", { name: "绑定 Agent 到群组全部成员" }));
+
+  const boundMembers = crowdMembers();
+  expect(new Set(boundMembers.map((item) => item.agentBinding?.sessionId))).toEqual(new Set(["dsh-live-1"]));
+  expect(screen.getByLabelText("Agent 接管状态")).toHaveTextContent("Agent 已全部接管");
+});
+
+it("requires an identity before batch-binding a crowd", async () => {
+  const user = userEvent.setup();
+  useDirectorStore.getState().addCrowdCharacters({ rows: 2, columns: 2, spacing: 1.2 });
+  useDirectorStore.getState().selectCrowd("crowd_1");
+
+  render(<CharacterPanel />);
+
+  await screen.findByLabelText("选择要绑定的 Agent");
+  await user.click(screen.getByRole("button", { name: "绑定 Agent 到群组全部成员" }));
+
+  expect(screen.getByRole("alert")).toHaveTextContent("请先选择要绑定的 Agent 会话或 Profile，或填写 Session ID。");
+  expect(crowdMembers().every((item) => item.agentBinding === undefined)).toBe(true);
 });

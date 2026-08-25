@@ -46,6 +46,7 @@ import {
   isCreativeMutation,
   isWorkbenchDurableJobMutation,
   isWorkbenchMutation,
+  listAgentSessionTargets,
   prepareAgentDurableJobMutation,
   prepareAgentMutation,
   recallAgentSessionTarget,
@@ -1905,6 +1906,7 @@ const server = createServer(async (request, response) => {
         json,
         config: controlPlaneConfig,
         listAgentProfiles: () => agentProfileRegistry.list(),
+        listAgentSessions: () => listAgentSessionTargets("director_workbench"),
         videoCapabilities: () => videoGenerationService.capabilities(),
       })
     )
