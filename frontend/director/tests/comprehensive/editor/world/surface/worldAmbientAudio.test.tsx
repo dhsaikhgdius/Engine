@@ -2,7 +2,10 @@ import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { setStageViewportAudioEnabled } from "../../../../../src/comprehensive/editor/audio/stageViewportAudio";
-import WorldAmbientAudio, { fillSeededUnitNoise } from "../../../../../src/comprehensive/editor/world/surface/worldAmbientAudio";
+import WorldAmbientAudio, {
+  fillSeededBrownNoise,
+  fillSeededUnitNoise,
+} from "../../../../../src/comprehensive/editor/world/surface/worldAmbientAudio";
 
 const fiberMocks = vi.hoisted(() => ({ frame: null as null | (() => void) }));
 
@@ -95,6 +98,24 @@ describe("seeded ambient noise", () => {
     expect(Math.max(...a)).toBeLessThanOrEqual(1);
     expect(Math.min(...a)).toBeGreaterThanOrEqual(-1);
     const source = fillSeededUnitNoise.toString();
+    expect(source).not.toContain("Math.random");
+    expect(source).not.toContain("Date.now");
+  });
+
+  it("produces deterministic, bounded brown noise for the storm rumble", () => {
+    const a = new Float32Array(256);
+    const b = new Float32Array(256);
+    fillSeededBrownNoise(a, 20260814);
+    fillSeededBrownNoise(b, 20260814);
+    expect(Array.from(a)).toEqual(Array.from(b));
+    const other = new Float32Array(256);
+    fillSeededBrownNoise(other, 7);
+    expect(Array.from(a)).not.toEqual(Array.from(other));
+    expect(Math.max(...a)).toBeLessThanOrEqual(1);
+    expect(Math.min(...a)).toBeGreaterThanOrEqual(-1);
+    // Peak-normalised so the rumble bed has consistent loudness per seed.
+    expect(Math.max(...a.map(Math.abs))).toBeCloseTo(1, 6);
+    const source = fillSeededBrownNoise.toString();
     expect(source).not.toContain("Math.random");
     expect(source).not.toContain("Date.now");
   });

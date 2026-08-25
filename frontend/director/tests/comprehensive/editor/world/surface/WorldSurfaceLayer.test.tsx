@@ -52,6 +52,7 @@ const context = {
   seed: 1,
   settings: {
     weather: { preset: "clear", intensity: 0, wetness: 0, cloudCover: 0 },
+    wind: { directionDegrees: 0, speedMps: 0, gustiness: 0, turbulence: 0 },
   },
   windVector: [0, 0, 0],
   groundHeight: 0,
