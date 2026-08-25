@@ -30,10 +30,13 @@ import {
   WILDLIFE_PART_ANGLES_ATTRIBUTE_1,
 } from "./wildlifePartMaterial";
 import {
+  buildWildlifeEnvironment,
   createWildlifeSim,
   shouldRecreateWildlifeSim,
   WILDLIFE_CRUISE_SPEED_MPS,
   type WildlifeSim,
+  type WildlifeSimEnvironment,
+  type WildlifeWaterRect,
 } from "./wildlifeSim";
 import {
   lerp,
@@ -262,13 +265,24 @@ function WildlifeGroupInstances({
   return <primitive object={mesh} dispose={null} />;
 }
 
-function WildlifeGroup({ group, context }: { group: DirectorWorldWildlifeGroup; context: LivingWorldFrameContext }) {
+function WildlifeGroup({
+  group,
+  context,
+  environment,
+}: {
+  group: DirectorWorldWildlifeGroup;
+  context: LivingWorldFrameContext;
+  environment: WildlifeSimEnvironment;
+}) {
   // Sim identity follows the simulation-relevant config (count, species,
-  // area, speedScale, seeds, ground). Any change discards the sim and replays
-  // fresh, which keeps state a pure function of (config, worldSeconds).
+  // area, speedScale, seeds, ground, environment). Any change discards the
+  // sim and replays fresh, keeping state a pure function of (config, time).
   const simRef = useRef<WildlifeSim | null>(null);
-  if (!simRef.current || shouldRecreateWildlifeSim(simRef.current, group, context.seed, context.groundHeight)) {
-    simRef.current = createWildlifeSim(group, context.seed, context.groundHeight);
+  if (
+    !simRef.current ||
+    shouldRecreateWildlifeSim(simRef.current, group, context.seed, context.groundHeight, environment)
+  ) {
+    simRef.current = createWildlifeSim(group, context.seed, context.groundHeight, environment);
   }
   const sim = simRef.current;
 
@@ -310,10 +324,39 @@ function WildlifeGroup({ group, context }: { group: DirectorWorldWildlifeGroup; 
 }
 
 export default function WildlifeLayer({ context, groups }: WildlifeLayerProps) {
+  // Authored water rectangles (basins only) for school confinement; the
+  // union recomputes only when the water collection itself changes.
+  const waterBodies = useDirectorStore((state) => state.project.world?.waterBodies);
+  const waterRects = useMemo<WildlifeWaterRect[]>(
+    () =>
+      (waterBodies ?? [])
+        .filter((body) => body.visible && !body.river)
+        .map((body) => ({
+          centerX: body.surface.center[0],
+          centerZ: body.surface.center[2],
+          sizeX: body.surface.sizeX,
+          sizeZ: body.surface.sizeZ,
+          rotationDegrees: body.surface.rotationDegrees,
+        })),
+    [waterBodies],
+  );
+  const environments = useMemo(() => {
+    const byId = new Map<string, WildlifeSimEnvironment>();
+    for (const group of groups) {
+      byId.set(group.id, buildWildlifeEnvironment(context.settings, group, groups, waterRects));
+    }
+    return byId;
+  }, [context.settings, groups, waterRects]);
+
   return (
     <group name="living-world-wildlife">
       {groups.map((group) => (
-        <WildlifeGroup key={group.id} group={group} context={context} />
+        <WildlifeGroup
+          key={group.id}
+          group={group}
+          context={context}
+          environment={environments.get(group.id) ?? { settings: context.settings }}
+        />
       ))}
     </group>
   );

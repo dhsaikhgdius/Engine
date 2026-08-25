@@ -1,17 +1,27 @@
 import {
   DIRECTOR_WORLD_SIMULATION_HZ,
   WORLD_WILDLIFE_SPECIES_ARCHETYPE,
+  type DirectorWorldSettings,
   type DirectorWorldWildlifeGroup,
   type WorldWildlifeArchetype,
   type WorldWildlifeSpecies,
+  type WorldWeatherPreset,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { hashCombine, hashUint32, worldStreamId } from "../worldRandom";
+import { writeWorldWindVector } from "../worldWind";
+import {
+  blendWorldPresetScalar,
+  evaluateWorldClimateSchedule,
+  isWorldWeatherEvolving,
+  WORLD_CLIMATE_NODE_VECTORS,
+} from "../worldClimate";
+import { createWildlifeSpatialHash, type WildlifeSpatialHash } from "./wildlifeSpatialHash";
 
 /**
  * Pure wildlife simulation core (no three.js imports).
  *
  * Determinism contract: state is a pure function of (group config, world seed,
- * groundHeight, quantized tick). Time is quantized to the fixed
+ * groundHeight, environment, quantized tick). Time is quantized to the fixed
  * DIRECTOR_WORLD_SIMULATION_HZ timestep; `stepTo(seconds)` may be called with
  * arbitrary, non-monotonic targets (scrubbing, out-of-order frame export) and
  * must resolve to bit-identical Float32Array state regardless of the path
@@ -20,8 +30,17 @@ import { hashCombine, hashUint32, worldStreamId } from "../worldRandom";
  * on bit-identical restored state, so results match continuous stepping.
  *
  * All per-agent state lives in preallocated SoA typed arrays; stepping
- * performs zero allocations. Neighbor queries are O(N^2) with squared-distance
- * early-outs, which is fine at N <= 256.
+ * performs zero allocations. Neighbor queries run through an allocation-free
+ * uniform-grid spatial hash (wildlifeSpatialHash.ts) with deterministic
+ * iteration order.
+ *
+ * Climate coupling: the optional environment feeds per-tick wind and storm
+ * values evaluated INSIDE the sim from the deterministic wind/climate
+ * functions of the quantized tick — never from the render loop — so
+ * checkpoint replay stays bit-identical. Wind drifts flocks (butterflies more
+ * than birds), storms drop flight bands and slow grazing herds (wolves are
+ * unbothered), fish stay inside an overlapping authored water rectangle, and
+ * prey herds steer away from wolf territory circles.
  */
 
 const HZ = DIRECTOR_WORLD_SIMULATION_HZ;
@@ -66,6 +85,158 @@ export const WILDLIFE_DEFAULT_ALTITUDE_BAND_M: Record<"birds" | "butterflies", [
   birds: [8, 25],
   butterflies: [0.5, 3],
 };
+
+// ---------------------------------------------------------------------------
+// Environment coupling (optional; absent = today's behavior exactly)
+// ---------------------------------------------------------------------------
+
+/**
+ * Air-mass advection: fraction of the evaluated wind velocity added to flier
+ * motion. Only near-passive fliers are carried; birds hold position but bias
+ * their flight direction instead (see WILDLIFE_WIND_HEADING_FACTOR).
+ */
+export const WILDLIFE_WIND_DRIFT_FACTOR: Partial<Record<WorldWildlifeSpecies, number>> = {
+  butterflies: 0.85,
+};
+
+/**
+ * Active fliers prefer flying with the wind: acceleration (m/s² per m/s of
+ * wind) steering the flock downwind without overriding its containment.
+ */
+export const WILDLIFE_WIND_HEADING_FACTOR: Partial<Record<WorldWildlifeSpecies, number>> = {
+  birds: 0.3,
+};
+
+/** Fraction of the flight band a full storm pushes flocks down by. */
+export const WILDLIFE_STORM_BAND_DROP = 0.45;
+/**
+ * Downward acceleration (m/s²) a full storm applies across the whole flock.
+ * Speed regulation turns this into a heading bias, so birds fly lower rather
+ * than diving; the band-bottom spring still holds the authored floor.
+ */
+export const WILDLIFE_STORM_SINK_ACCEL = 1.5;
+/** Cruise-speed loss for grazing herds in a full storm (wolves exempt). */
+export const WILDLIFE_STORM_HERD_SLOWDOWN = 0.35;
+/** Extra metres past a wolf territory radius that prey still avoids. */
+export const WILDLIFE_PREDATOR_AVOID_MARGIN_M = 3;
+/** Steering weight of predator avoidance relative to the walk target. */
+const PREDATOR_AVOID_WEIGHT = 2.5;
+
+/** Herd species that avoid wolf territories. */
+export const WILDLIFE_PREY_SPECIES: ReadonlySet<WorldWildlifeSpecies> = new Set(["deer", "rabbits", "sheep"]);
+
+/** Axis-aligned-in-local-frame water rectangle a school is confined to. */
+export interface WildlifeWaterRect {
+  centerX: number;
+  centerZ: number;
+  sizeX: number;
+  sizeZ: number;
+  rotationDegrees: number;
+}
+
+/** Wolf territory circle prey herds steer away from. */
+export interface WildlifePredatorZone {
+  x: number;
+  z: number;
+  radius: number;
+}
+
+/**
+ * Optional deterministic environment inputs. Every field is folded into the
+ * sim config key, so changing them resets and replays the simulation.
+ */
+export interface WildlifeSimEnvironment {
+  /** World settings whose wind + weather the sim evaluates per tick. */
+  settings: DirectorWorldSettings;
+  /** Water rectangles overlapping a school's area (first one confines it). */
+  waterRects?: WildlifeWaterRect[];
+  /** Wolf territories overlapping a prey herd's area. */
+  predatorZones?: WildlifePredatorZone[];
+}
+
+/**
+ * Resolves the environment for one group from the world state: schools get
+ * the water rectangles overlapping their area, prey herds get the wolf
+ * territories overlapping theirs, and every species gets the settings whose
+ * wind/storm the sim evaluates per tick. Pure and unit-testable.
+ */
+export function buildWildlifeEnvironment(
+  settings: DirectorWorldSettings,
+  group: DirectorWorldWildlifeGroup,
+  allGroups: ReadonlyArray<DirectorWorldWildlifeGroup>,
+  waterRects: ReadonlyArray<WildlifeWaterRect>,
+): WildlifeSimEnvironment {
+  const environment: WildlifeSimEnvironment = { settings };
+  const archetype = WORLD_WILDLIFE_SPECIES_ARCHETYPE[group.species];
+  const [groupX, , groupZ] = group.area.center;
+  if (archetype === "school") {
+    const overlapping = waterRects.filter((rect) => {
+      const reach = group.area.radius + Math.hypot(rect.sizeX, rect.sizeZ) / 2;
+      return Math.hypot(rect.centerX - groupX, rect.centerZ - groupZ) <= reach;
+    });
+    if (overlapping.length > 0) environment.waterRects = overlapping;
+  } else if (archetype === "herd" && WILDLIFE_PREY_SPECIES.has(group.species)) {
+    const zones: WildlifePredatorZone[] = [];
+    for (const other of allGroups) {
+      if (other.id === group.id || other.species !== "wolves" || !other.visible) continue;
+      const [wolfX, , wolfZ] = other.area.center;
+      if (Math.hypot(wolfX - groupX, wolfZ - groupZ) <= group.area.radius + other.area.radius) {
+        zones.push({ x: wolfX, z: wolfZ, radius: other.area.radius });
+      }
+    }
+    if (zones.length > 0) environment.predatorZones = zones;
+  }
+  return environment;
+}
+
+const WIND_GAIN_BY_PRESET: Record<WorldWeatherPreset, number> = {
+  clear: WORLD_CLIMATE_NODE_VECTORS.clear.windGain,
+  overcast: WORLD_CLIMATE_NODE_VECTORS.overcast.windGain,
+  rain: WORLD_CLIMATE_NODE_VECTORS.rain.windGain,
+  snow: WORLD_CLIMATE_NODE_VECTORS.snow.windGain,
+  storm: WORLD_CLIMATE_NODE_VECTORS.storm.windGain,
+};
+
+const STORM_FACTOR_BY_PRESET: Record<WorldWeatherPreset, number> = {
+  clear: 0,
+  overcast: 0,
+  rain: 0,
+  snow: 0,
+  storm: 1,
+};
+
+/** Environment fragment of the sim identity key, scoped per archetype. */
+function wildlifeEnvironmentKey(species: WorldWildlifeSpecies, environment?: WildlifeSimEnvironment): string {
+  if (!environment) return "env:0";
+  const archetype = WORLD_WILDLIFE_SPECIES_ARCHETYPE[species];
+  const parts: string[] = [];
+  const respondsToStorm = archetype === "flock" || (archetype === "herd" && species !== "wolves");
+  if (respondsToStorm) {
+    const weather = environment.settings.weather;
+    const evolution = weather.evolution ? `${weather.evolution.mode},${weather.evolution.periodSeconds}` : "static";
+    parts.push(`wx:${weather.preset},${weather.intensity},${evolution}`);
+  }
+  if (archetype === "flock") {
+    const wind = environment.settings.wind;
+    parts.push(`wind:${wind.directionDegrees},${wind.speedMps},${wind.gustiness}`);
+  }
+  if (archetype === "school" && environment.waterRects && environment.waterRects.length > 0) {
+    parts.push(
+      `water:${environment.waterRects
+        .map((rect) => `${rect.centerX},${rect.centerZ},${rect.sizeX},${rect.sizeZ},${rect.rotationDegrees}`)
+        .join(";")}`,
+    );
+  }
+  if (
+    archetype === "herd" &&
+    WILDLIFE_PREY_SPECIES.has(species) &&
+    environment.predatorZones &&
+    environment.predatorZones.length > 0
+  ) {
+    parts.push(`pred:${environment.predatorZones.map((zone) => `${zone.x},${zone.z},${zone.radius}`).join(";")}`);
+  }
+  return parts.length > 0 ? `env:${parts.join("|")}` : "env:0";
+}
 
 // ---------------------------------------------------------------------------
 // Serializable RNG
@@ -292,13 +463,15 @@ function resolveSimConfig(group: DirectorWorldWildlifeGroup, groundHeight: numbe
 
 /**
  * Identity of a sim run. Any field that influences simulation state is part
- * of the key; render-only fields (sizeScale, assetId, name, visible, locked)
- * are deliberately excluded so tweaking them never resets the simulation.
+ * of the key — including the archetype-relevant environment inputs — while
+ * render-only fields (sizeScale, assetId, name, visible, locked) are
+ * deliberately excluded so tweaking them never resets the simulation.
  */
 export function wildlifeSimConfigKey(
   group: DirectorWorldWildlifeGroup,
   worldSeed: number,
   groundHeight: number,
+  environment?: WildlifeSimEnvironment,
 ): string {
   const altitude = group.altitude ? `${group.altitude.minM},${group.altitude.maxM}` : "default";
   return [
@@ -312,6 +485,7 @@ export function wildlifeSimConfigKey(
     altitude,
     worldSeed,
     groundHeight,
+    wildlifeEnvironmentKey(group.species, environment),
   ].join("|");
 }
 
@@ -321,8 +495,9 @@ export function shouldRecreateWildlifeSim(
   group: DirectorWorldWildlifeGroup,
   worldSeed: number,
   groundHeight: number,
+  environment?: WildlifeSimEnvironment,
 ): boolean {
-  return sim.configKey !== wildlifeSimConfigKey(group, worldSeed, groundHeight);
+  return sim.configKey !== wildlifeSimConfigKey(group, worldSeed, groundHeight, environment);
 }
 
 // ---------------------------------------------------------------------------
@@ -358,11 +533,66 @@ export function createWildlifeSim(
   group: DirectorWorldWildlifeGroup,
   worldSeed: number,
   groundHeight: number,
+  environment?: WildlifeSimEnvironment,
 ): WildlifeSim {
   const config = resolveSimConfig(group, groundHeight);
-  const configKey = wildlifeSimConfigKey(group, worldSeed, groundHeight);
+  const configKey = wildlifeSimConfigKey(group, worldSeed, groundHeight, environment);
   const n = config.count;
   const rng = createWildlifeRng(hashCombine(worldSeed, group.seedOffset, worldStreamId(group.id)));
+
+  // Environment resolution (constants for the sim's lifetime) ---------------
+  const envSettings = environment?.settings;
+  const windDriftFactor =
+    config.archetype === "flock" && envSettings ? (WILDLIFE_WIND_DRIFT_FACTOR[config.species] ?? 0) : 0;
+  const windHeadingFactor =
+    config.archetype === "flock" && envSettings
+      ? (WILDLIFE_WIND_HEADING_FACTOR[config.species] ?? 0)
+      : 0;
+  const respondsToStorm =
+    envSettings !== undefined &&
+    (config.archetype === "flock" || (config.archetype === "herd" && config.species !== "wolves"));
+  // First authored water rectangle confines the school (previz-level).
+  const waterRect = config.archetype === "school" ? environment?.waterRects?.[0] : undefined;
+  const waterRectCos = waterRect ? Math.cos((-waterRect.rotationDegrees * Math.PI) / 180) : 1;
+  const waterRectSin = waterRect ? Math.sin((-waterRect.rotationDegrees * Math.PI) / 180) : 0;
+  const waterHalfX = waterRect ? Math.max(0.5, waterRect.sizeX / 2 - 0.4) : 0;
+  const waterHalfZ = waterRect ? Math.max(0.5, waterRect.sizeZ / 2 - 0.4) : 0;
+  const predatorZones =
+    config.archetype === "herd" && WILDLIFE_PREY_SPECIES.has(config.species)
+      ? (environment?.predatorZones ?? [])
+      : [];
+
+  // Per-tick environment sample, evaluated inside step() from the quantized
+  // tick (pure function of tick — replay-safe).
+  const envWindScratch: [number, number, number] = [0, 0, 0];
+  let envWindX = 0;
+  let envWindZ = 0;
+  let envStorm = 0;
+
+  const needsWind = windDriftFactor > 0 || windHeadingFactor > 0;
+
+  function evaluateEnvironmentTick(tick: number): void {
+    if (!envSettings) return;
+    const seconds = tick * DT;
+    const needsSchedule = respondsToStorm || needsWind;
+    if (!needsSchedule) return;
+    const evolving = isWorldWeatherEvolving(envSettings);
+    const schedule = evolving ? evaluateWorldClimateSchedule(envSettings, seconds) : null;
+    if (respondsToStorm) {
+      const base = schedule
+        ? blendWorldPresetScalar(STORM_FACTOR_BY_PRESET, schedule)
+        : STORM_FACTOR_BY_PRESET[envSettings.weather.preset];
+      envStorm = base * Math.min(1, Math.max(0, envSettings.weather.intensity));
+    }
+    if (needsWind) {
+      writeWorldWindVector(envWindScratch, envSettings.wind, seconds);
+      // Static mode keeps the authored wind (gain 1) to match the rest of the
+      // world; an evolving cycle applies the blended node gain.
+      const gain = schedule ? blendWorldPresetScalar(WIND_GAIN_BY_PRESET, schedule) : 1;
+      envWindX = envWindScratch[0] * gain;
+      envWindZ = envWindScratch[2] * gain;
+    }
+  }
 
   // Live SoA state -----------------------------------------------------------
   const posX = new Float32Array(n);
@@ -391,6 +621,32 @@ export function createWildlifeSim(
   const accCohY = new Float64Array(n);
   const accCohZ = new Float64Array(n);
   const neighborCount = new Float64Array(n);
+
+  // Uniform-grid neighbor hash: cell size = the largest interaction radius,
+  // domain = the hard containment volume plus one cell of padding (hard
+  // clamps guarantee agents stay inside it).
+  const hashCellSize = config.archetype === "herd" ? config.herdSeparationRadius : config.neighborRadius;
+  const hashPadRadius = config.radius * HARD_CONTAINMENT_SCALE + hashCellSize;
+  const neighborHash: WildlifeSpatialHash = createWildlifeSpatialHash({
+    capacity: n,
+    cellSize: hashCellSize,
+    minX: config.centerX - hashPadRadius,
+    maxX: config.centerX + hashPadRadius,
+    minZ: config.centerZ - hashPadRadius,
+    maxZ: config.centerZ + hashPadRadius,
+    minY:
+      config.archetype === "herd"
+        ? 0
+        : config.archetype === "school"
+          ? config.centerY - hashPadRadius
+          : config.bandHardMinY - hashCellSize,
+    maxY:
+      config.archetype === "herd"
+        ? 0
+        : config.archetype === "school"
+          ? config.centerY + hashCellSize
+          : config.bandHardMaxY + hashCellSize,
+  });
 
   // Previous-tick copies exposed to the render layer for interpolation.
   const prevPosX = new Float32Array(n);
@@ -547,6 +803,14 @@ export function createWildlifeSim(
     const hardRadius = radius * HARD_CONTAINMENT_SCALE;
     const bandEdge = Math.max((config.bandMaxY - config.bandMinY) * 0.2, 0.1);
     const stateSeconds = simTick * DT;
+    // Storms press flocks toward the bottom of their flight band (soft
+    // springs only; the hard band clamp stays authored).
+    const stormBandTop =
+      config.bandMaxY - envStorm * WILDLIFE_STORM_BAND_DROP * (config.bandMaxY - config.bandMinY);
+    // Air-mass advection per tick (pure function of the quantized tick):
+    // fliers get carried by a fraction of the wind on top of their steering.
+    const windAdvectX = envWindX * windDriftFactor;
+    const windAdvectZ = envWindZ * windDriftFactor;
 
     for (let i = 0; i < n; i += 1) {
       accSepX[i] = 0;
@@ -561,39 +825,51 @@ export function createWildlifeSim(
       neighborCount[i] = 0;
     }
 
-    // Phase 1: symmetric pair accumulation against the pre-step snapshot.
+    // Phase 1: per-agent neighbor gathering through the spatial hash against
+    // the pre-step snapshot. Cell-then-index iteration order is deterministic,
+    // so the float sums replay bit-identically.
+    neighborHash.build(posX, posY, posZ, n);
+    const { sorted, cellStart, nx, ny, nz } = neighborHash;
     for (let i = 0; i < n; i += 1) {
       const pix = posX[i];
       const piy = posY[i];
       const piz = posZ[i];
-      for (let j = i + 1; j < n; j += 1) {
-        const dx = posX[j] - pix;
-        const dy = posY[j] - piy;
-        const dz = posZ[j] - piz;
-        const d2 = dx * dx + dy * dy + dz * dz;
-        if (d2 > neighborR2) continue;
-        accAliX[i] += velX[j];
-        accAliY[i] += velY[j];
-        accAliZ[i] += velZ[j];
-        accAliX[j] += velX[i];
-        accAliY[j] += velY[i];
-        accAliZ[j] += velZ[i];
-        accCohX[i] += posX[j];
-        accCohY[i] += posY[j];
-        accCohZ[i] += posZ[j];
-        accCohX[j] += pix;
-        accCohY[j] += piy;
-        accCohZ[j] += piz;
-        neighborCount[i] += 1;
-        neighborCount[j] += 1;
-        if (d2 < separationR2 && d2 > 1e-9) {
-          const inv = 1 / d2;
-          accSepX[i] -= dx * inv;
-          accSepY[i] -= dy * inv;
-          accSepZ[i] -= dz * inv;
-          accSepX[j] += dx * inv;
-          accSepY[j] += dy * inv;
-          accSepZ[j] += dz * inv;
+      const cx = neighborHash.cellX(pix);
+      const cy = neighborHash.cellY(piy);
+      const cz = neighborHash.cellZ(piz);
+      for (let dzc = -1; dzc <= 1; dzc += 1) {
+        const zCell = cz + dzc;
+        if (zCell < 0 || zCell >= nz) continue;
+        for (let dyc = -1; dyc <= 1; dyc += 1) {
+          const yCell = cy + dyc;
+          if (yCell < 0 || yCell >= ny) continue;
+          for (let dxc = -1; dxc <= 1; dxc += 1) {
+            const xCell = cx + dxc;
+            if (xCell < 0 || xCell >= nx) continue;
+            const cell = neighborHash.cellIndex(xCell, yCell, zCell);
+            for (let k = cellStart[cell]; k < cellStart[cell + 1]; k += 1) {
+              const j = sorted[k];
+              if (j === i) continue;
+              const dx = posX[j] - pix;
+              const dy = posY[j] - piy;
+              const dz = posZ[j] - piz;
+              const d2 = dx * dx + dy * dy + dz * dz;
+              if (d2 > neighborR2) continue;
+              accAliX[i] += velX[j];
+              accAliY[i] += velY[j];
+              accAliZ[i] += velZ[j];
+              accCohX[i] += posX[j];
+              accCohY[i] += posY[j];
+              accCohZ[i] += posZ[j];
+              neighborCount[i] += 1;
+              if (d2 < separationR2 && d2 > 1e-9) {
+                const inv = 1 / d2;
+                accSepX[i] -= dx * inv;
+                accSepY[i] -= dy * inv;
+                accSepZ[i] -= dz * inv;
+              }
+            }
+          }
         }
       }
     }
@@ -646,12 +922,15 @@ export function createWildlifeSim(
           ax -= (ox / dist) * pull;
           az -= (oz / dist) * pull;
         }
-        // Altitude band springs.
+        // Altitude band springs (storms lower the effective ceiling).
         if (py < config.bandMinY + bandEdge) {
           ay += containAccel * Math.min((config.bandMinY + bandEdge - py) / bandEdge, 1.5);
-        } else if (py > config.bandMaxY - bandEdge) {
-          ay -= containAccel * Math.min((py - (config.bandMaxY - bandEdge)) / bandEdge, 1.5);
+        } else if (py > stormBandTop - bandEdge) {
+          ay -= containAccel * Math.min((py - (stormBandTop - bandEdge)) / bandEdge, 1.5);
         }
+        // Storm sink presses the whole flock down, not just the ceiling.
+        // envStorm is 0 for schools, so this only moves flocks.
+        ay -= envStorm * WILDLIFE_STORM_SINK_ACCEL;
       }
 
       // Butterfly flutter: seeded sine jitter, deterministic in (tick, phase).
@@ -661,6 +940,14 @@ export function createWildlifeSim(
         ay += Math.sin(stateSeconds * 7.3 + flutterPhase) * flutterAccel * 1.6;
         az += Math.cos(stateSeconds * 4.3 + flutterPhase * 2.3) * flutterAccel;
       }
+
+      // Active fliers lean downwind: acceleration bias that turns the flock
+      // with the wind while speed regulation keeps the cruise envelope.
+      if (windHeadingFactor > 0) {
+        ax += envWindX * windHeadingFactor;
+        az += envWindZ * windHeadingFactor;
+      }
+
 
       const accel2 = ax * ax + ay * ay + az * az;
       if (accel2 > maxAccel * maxAccel) {
@@ -690,9 +977,9 @@ export function createWildlifeSim(
         vz *= scale;
       }
 
-      px += vx * DT;
+      px += (vx + windAdvectX) * DT;
       py += vy * DT;
-      pz += vz * DT;
+      pz += (vz + windAdvectZ) * DT;
 
       // Hard clamps guarantee the containment contract regardless of tuning.
       if (isSchool) {
@@ -715,6 +1002,22 @@ export function createWildlifeSim(
         if (py > config.bandHardMaxY) {
           py = config.bandHardMaxY;
           if (vy > 0) vy = 0;
+        }
+        // Authored water rectangle: fish never leave the basin footprint.
+        // Clamp in the rect's local frame (rotation-aware) after all other
+        // constraints so the guarantee is unconditional.
+        if (waterRect) {
+          const ox = px - waterRect.centerX;
+          const oz = pz - waterRect.centerZ;
+          let localX = ox * waterRectCos - oz * waterRectSin;
+          let localZ = ox * waterRectSin + oz * waterRectCos;
+          if (localX < -waterHalfX || localX > waterHalfX || localZ < -waterHalfZ || localZ > waterHalfZ) {
+            localX = Math.min(waterHalfX, Math.max(-waterHalfX, localX));
+            localZ = Math.min(waterHalfZ, Math.max(-waterHalfZ, localZ));
+            // Inverse rotation (transpose) back to world space.
+            px = waterRect.centerX + localX * waterRectCos + localZ * waterRectSin;
+            pz = waterRect.centerZ - localX * waterRectSin + localZ * waterRectCos;
+          }
         }
       } else {
         const ox = px - centerX;
@@ -777,19 +1080,33 @@ export function createWildlifeSim(
       accSepX[i] = 0;
       accSepZ[i] = 0;
     }
+    // Separation through the 2D spatial hash (cell-then-index order).
+    neighborHash.build(posX, posY, posZ, n);
+    const { sorted, cellStart, nx, nz } = neighborHash;
     for (let i = 0; i < n; i += 1) {
       const pix = posX[i];
       const piz = posZ[i];
-      for (let j = i + 1; j < n; j += 1) {
-        const dx = posX[j] - pix;
-        const dz = posZ[j] - piz;
-        const d2 = dx * dx + dz * dz;
-        if (d2 > separationR2 || d2 < 1e-9) continue;
-        const inv = 1 / d2;
-        accSepX[i] -= dx * inv;
-        accSepZ[i] -= dz * inv;
-        accSepX[j] += dx * inv;
-        accSepZ[j] += dz * inv;
+      const cx = neighborHash.cellX(pix);
+      const cz = neighborHash.cellZ(piz);
+      for (let dzc = -1; dzc <= 1; dzc += 1) {
+        const zCell = cz + dzc;
+        if (zCell < 0 || zCell >= nz) continue;
+        for (let dxc = -1; dxc <= 1; dxc += 1) {
+          const xCell = cx + dxc;
+          if (xCell < 0 || xCell >= nx) continue;
+          const cell = neighborHash.cellIndex(xCell, 0, zCell);
+          for (let k = cellStart[cell]; k < cellStart[cell + 1]; k += 1) {
+            const j = sorted[k];
+            if (j === i) continue;
+            const dx = posX[j] - pix;
+            const dz = posZ[j] - piz;
+            const d2 = dx * dx + dz * dz;
+            if (d2 > separationR2 || d2 < 1e-9) continue;
+            const inv = 1 / d2;
+            accSepX[i] -= dx * inv;
+            accSepZ[i] -= dz * inv;
+          }
+        }
       }
     }
 
@@ -843,6 +1160,23 @@ export function createWildlifeSim(
       dirX += accSepX[i] * 0.8;
       dirZ += accSepZ[i] * 0.8;
 
+      // Predator avoidance: steer away from overlapping wolf territories and
+      // keep moving while inside one (mild previz flight, no RNG involved).
+      let insidePredatorZone = false;
+      for (let zoneIndex = 0; zoneIndex < predatorZones.length; zoneIndex += 1) {
+        const zone = predatorZones[zoneIndex];
+        const awayX = px - zone.x;
+        const awayZ = pz - zone.z;
+        const avoidRadius = zone.radius + WILDLIFE_PREDATOR_AVOID_MARGIN_M;
+        const away2 = awayX * awayX + awayZ * awayZ;
+        if (away2 >= avoidRadius * avoidRadius) continue;
+        insidePredatorZone = true;
+        const away = Math.sqrt(Math.max(away2, 1e-6));
+        const weight = PREDATOR_AVOID_WEIGHT * (1 - away / avoidRadius);
+        dirX += (awayX / away) * weight;
+        dirZ += (awayZ / away) * weight;
+      }
+
       // Turn-rate-limited heading keeps motion animal-like (no pivoting).
       let yaw = heading[i];
       if (dirX * dirX + dirZ * dirZ > 1e-8) {
@@ -852,8 +1186,12 @@ export function createWildlifeSim(
         yaw = wrapAngle(yaw + Math.min(Math.max(delta, -maxTurn), maxTurn));
       }
 
-      const targetSpeed =
+      let targetSpeed =
         state === WILDLIFE_BEHAVIOR_GRAZE ? 0 : state === WILDLIFE_BEHAVIOR_REGROUP ? cruise * 1.25 : cruise;
+      // Prey inside a wolf territory keeps walking out instead of grazing.
+      if (insidePredatorZone) targetSpeed = Math.max(targetSpeed, cruise * 1.1);
+      // Storms slow grazing herds (envStorm stays 0 for wolves).
+      targetSpeed *= 1 - WILDLIFE_STORM_HERD_SLOWDOWN * envStorm;
       let speed = speedCur[i];
       const speedDelta = targetSpeed - speed;
       const maxSpeedStep = accel * DT;
@@ -894,6 +1232,7 @@ export function createWildlifeSim(
   // --- Tick machinery ------------------------------------------------------------
 
   function step(): void {
+    evaluateEnvironmentTick(simTick);
     if (config.archetype === "herd") stepHerd();
     else stepBoids();
     simTick += 1;
