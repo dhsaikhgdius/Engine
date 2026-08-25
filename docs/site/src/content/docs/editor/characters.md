@@ -171,6 +171,11 @@ walking, motion, pose, and movement in possess mode.
 4. Click **Unbind** to take back control. Crowd selections cannot bind yet; select a single
    character.
 
+The binding is also visible in the Stage viewport: a possessed character shows an **Agent**
+badge next to its name label. The badge shares the same pointer-transparent screen-space label
+as the name, so it never blocks selection or the transform gizmo; it disappears as soon as the
+binding is removed, and unbound character labels are unchanged.
+
 The binding is stored in the project JSON as the `agentBinding` field (only character objects may
 carry one) and goes through the same revision guard as other character writes; locked characters
 require `force` to bind or unbind. Several characters can attach to the same Agent, but each
@@ -192,6 +197,11 @@ mutate those characters. Deleting other objects, editing someone else's characte
 and `replace_project` are rejected by the gateway with a readable error (HTTP 403, code
 `possession_scope_violation`). Sessions that possess no character keep full stage-wide authoring.
 All character actions still require an explicit `object_id`.
+
+The complete loop — place a character, bind an Agent, drive it with motion/pose, verify the
+echoed `agent_binding`, then unbind — is covered by the golden eval task
+`tools/evals/tasks/08-character-agent-possession.json`, run through `npm run eval`
+(see `tools/evals/README.md` in the repository).
 
 ## Quick CLI check
 
