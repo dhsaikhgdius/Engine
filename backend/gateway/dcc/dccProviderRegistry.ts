@@ -191,11 +191,9 @@ async function discoverInScanRoots(probe: RuntimeProbe, environment: NodeJS.Proc
 async function discoverRuntime(probe: RuntimeProbe, environment: NodeJS.ProcessEnv) {
   const configured = environment[probe.environmentVariable]?.trim();
   const home = probeHomeDirectory(environment);
-  const candidates = [
-    configured,
-    ...probe.paths,
-    ...(probe.homePaths ?? []).map((path) => resolve(home, path)),
-  ].filter((candidate): candidate is string => Boolean(candidate));
+  const candidates = [configured, ...probe.paths, ...(probe.homePaths ?? []).map((path) => resolve(home, path))].filter(
+    (candidate): candidate is string => Boolean(candidate),
+  );
   for (const candidate of candidates) if (await isFile(candidate)) return candidate;
   const scanned = await discoverInScanRoots(probe, environment);
   if (scanned) return scanned;

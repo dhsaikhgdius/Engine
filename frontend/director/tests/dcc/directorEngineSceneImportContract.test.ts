@@ -167,13 +167,9 @@ describe("engine scene import contracts", () => {
       }).success,
     ).toBe(false);
     const { angleDegrees: _angle, ...spotWithoutAngle } = base.lights[1]!;
-    expect(
-      directorEngineSceneManifestSchema.safeParse({ ...base, lights: [spotWithoutAngle] }).success,
-    ).toBe(false);
+    expect(directorEngineSceneManifestSchema.safeParse({ ...base, lights: [spotWithoutAngle] }).success).toBe(false);
     const { target: _target, ...sunWithoutTarget } = base.lights[0]!;
-    expect(
-      directorEngineSceneManifestSchema.safeParse({ ...base, lights: [sunWithoutTarget] }).success,
-    ).toBe(false);
+    expect(directorEngineSceneManifestSchema.safeParse({ ...base, lights: [sunWithoutTarget] }).success).toBe(false);
     expect(
       directorEngineSceneManifestSchema.safeParse({
         ...base,

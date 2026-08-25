@@ -1,6 +1,19 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { access, chmod, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  copyFile,
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import JSZip from "jszip";
 import { z } from "zod";
@@ -361,10 +374,7 @@ async function writeUpload(
     await file.close();
   }
   if (size <= 0 || !hasZipSignature(header.subarray(0, headerBytes))) {
-    throw new DirectorEngineSceneImportError(
-      "upload_invalid",
-      "Upload is not a recognized .zip engine scene package.",
-    );
+    throw new DirectorEngineSceneImportError("upload_invalid", "Upload is not a recognized .zip engine scene package.");
   }
   return { hash: digest.digest("hex"), size, header: header.subarray(0, headerBytes) };
 }
@@ -637,7 +647,12 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
       throw error;
     });
     if (!fileStat) return null;
-    if (!fileStat.isFile() || fileStat.isSymbolicLink() || fileStat.size <= 0 || fileStat.size > MAX_APPLY_LEDGER_BYTES) {
+    if (
+      !fileStat.isFile() ||
+      fileStat.isSymbolicLink() ||
+      fileStat.size <= 0 ||
+      fileStat.size > MAX_APPLY_LEDGER_BYTES
+    ) {
       throw new DirectorEngineSceneImportError("package_invalid", "Stored engine apply ledger is not a safe file.");
     }
     let payload: unknown;
@@ -1349,7 +1364,11 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
         const fileName = `${safeSegment(operation.assetId)}.glb`;
         const destination = resolve(destinationDirectory, fileName);
         if (!isInside(generatedImportRoot, destination)) {
-          throw new DirectorEngineSceneImportError("path_escape", "Generated scene asset escaped its storage root.", 500);
+          throw new DirectorEngineSceneImportError(
+            "path_escape",
+            "Generated scene asset escaped its storage root.",
+            500,
+          );
         }
         await mkdir(destinationDirectory, { recursive: true, mode: 0o700 });
         const [canonicalGeneratedRoot, canonicalDestinationDirectory] = await Promise.all([

@@ -60,10 +60,7 @@ export const DIRECTOR_ENGINE_COORDINATE_SYSTEMS = Object.freeze({
 >;
 
 const engineCoordinateSystemSchema = z.strictObject({
-  source: z.enum([
-    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.source,
-    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.source,
-  ]),
+  source: z.enum([DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.source, DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.source]),
   destination: z.literal("right-handed-y-up-negative-z-forward"),
   unit: z.literal("meter"),
   linearMap: z.enum([
@@ -73,14 +70,7 @@ const engineCoordinateSystemSchema = z.strictObject({
 });
 
 /** The kinds of engine scene nodes recorded in the hierarchy snapshot. */
-export const directorEngineSceneNodeKindSchema = z.enum([
-  "mesh",
-  "skinned-mesh",
-  "camera",
-  "light",
-  "group",
-  "other",
-]);
+export const directorEngineSceneNodeKindSchema = z.enum(["mesh", "skinned-mesh", "camera", "light", "group", "other"]);
 
 const engineNodeSchema = z.strictObject({
   sourceId: nonEmpty.max(240),

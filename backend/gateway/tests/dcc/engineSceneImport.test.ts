@@ -36,7 +36,11 @@ function buildManifest(
   bundle: Buffer | null,
   overrides: Partial<DirectorEngineSceneManifestV1> = {},
 ): DirectorEngineSceneManifestV1 {
-  const identity = { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } as const;
+  const identity = () => ({
+    position: [0, 0, 0] as [number, number, number],
+    rotation: [0, 0, 0] as [number, number, number],
+    scale: [1, 1, 1] as [number, number, number],
+  });
   return {
     schemaVersion: 1,
     contract: "director-engine-scene-v1",
@@ -71,8 +75,8 @@ function buildManifest(
       animationClipCount: 1,
     },
     nodes: [
-      { sourceId: "node-root", name: "Root", kind: "group", transform: identity },
-      { sourceId: "node-crate", name: "Crate", parentSourceId: "node-root", kind: "mesh", transform: identity },
+      { sourceId: "node-root", name: "Root", kind: "group", transform: identity() },
+      { sourceId: "node-crate", name: "Crate", parentSourceId: "node-root", kind: "mesh", transform: identity() },
     ],
     cameras: [
       {
@@ -394,9 +398,10 @@ describe("engine scene import", () => {
     const harness = await createHarness();
     const projectDirectory = resolve(harness.workspaceRoot, "UnrealProject");
     await mkdir(projectDirectory, { recursive: true });
-    await expect(
-      harness.importer.ingestProject("unreal", projectDirectory, harness.project),
-    ).rejects.toMatchObject({ code: "engine_unavailable", status: 503 });
+    await expect(harness.importer.ingestProject("unreal", projectDirectory, harness.project)).rejects.toMatchObject({
+      code: "engine_unavailable",
+      status: 503,
+    });
     expect(harness.runEngineExport).not.toHaveBeenCalled();
 
     const outside = await mkdtemp(resolve(tmpdir(), "director-engine-outside-"));
