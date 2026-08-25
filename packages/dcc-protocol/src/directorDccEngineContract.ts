@@ -58,6 +58,30 @@ export const directorDccConnectorManifestSchema = z.strictObject({
 export type DirectorDccConnectorManifest = z.infer<typeof directorDccConnectorManifestSchema>;
 
 /**
+ * Animation channels the Unity connector can decline to bake. Every declined
+ * channel must be reported as a structured omission (never silently dropped):
+ * - `poseValues` — semantic pose controls (bakeable on Mixamo rigs; omitted
+ *   for other rig types or unresolvable skeletons).
+ * - `motionBlocks` — packaged skeletal clip playback; the clip GLBs are not
+ *   part of the exchange package, so playback cannot be baked host-side.
+ * - `motion` — the legacy procedural gait pace selector (same clip payloads).
+ * - `ik` — Director-side two-bone IK goals, not ported to the connector.
+ */
+export const directorDccUnityOmittedChannelIdSchema = z.enum(["poseValues", "motionBlocks", "motion", "ik"]);
+
+/** One structured warn-and-omit record for a channel the connector skipped. */
+export const directorDccUnityOmittedChannelSchema = z.strictObject({
+  /** The Director entity whose channel was omitted. */
+  directorId: nonEmpty.max(240),
+  channel: directorDccUnityOmittedChannelIdSchema,
+  /** Human-readable reason (why it could not bake, and what to do instead). */
+  reason: nonEmpty.max(600),
+});
+
+/** A structured omitted-channel record from the Unity connector report. */
+export type DirectorDccUnityOmittedChannel = z.infer<typeof directorDccUnityOmittedChannelSchema>;
+
+/**
  * Unity-specific details block the `com.director.bridge` connector appends to
  * its run report. Every field is an observed fact about the finished import —
  * not a capability claim — so the Gateway and Agents can audit what the
@@ -80,6 +104,18 @@ export const directorDccUnityEngineReportDetailsSchema = z.strictObject({
   genericAvatarCount: z.number().int().nonnegative(),
   /** Materials created from Director PBR manifest fallback. */
   materialFallbackCount: z.number().int().nonnegative(),
+  /**
+   * Characters posed from Director semantic pose controls (static controls
+   * applied to the imported skeleton, keyframed controls baked to clips).
+   * Optional: connector 0.2.x reports predate pose baking.
+   */
+  posedCharacterCount: z.number().int().nonnegative().optional(),
+  /**
+   * Structured warn-and-omit records for animation channels the connector
+   * declined to bake. Optional: connector 0.2.x reports predate this field
+   * and carried free-text warnings only.
+   */
+  omittedChannels: z.array(directorDccUnityOmittedChannelSchema).max(4_096).optional(),
 });
 
 /** Unity-specific details block of an engine connector run report. */

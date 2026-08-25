@@ -75,6 +75,8 @@ namespace Director.Bridge.Editor
                     throw new InvalidDataException("-directorPackage and -directorReport are required.");
                 }
                 var warnings = new List<string>();
+                var omissions = new JArray();
+                var posedCharacterIds = new HashSet<string>();
                 JObject manifest = DirectorExchange.LoadExchangePackage(packageDir);
                 string packageId = (string)manifest["packageId"];
                 string shortId = SafeName(packageId.Substring(0, Math.Min(8, packageId.Length)));
@@ -91,10 +93,11 @@ namespace Director.Bridge.Editor
                 Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
                 var counters = new ImportCounters();
                 var byDirectorId = BuildSceneEntities(
-                    manifest, packageDir, shortId, renderPipeline, warnings, counters,
+                    manifest, packageDir, shortId, renderPipeline, warnings, omissions, posedCharacterIds, counters,
                     out Dictionary<string, GameObject> cameras);
                 DirectorTimelineBuilder.Result timelineResult = DirectorTimelineBuilder.Build(
-                    manifest, shortId, byDirectorId, cameras, warnings);
+                    manifest, shortId, byDirectorId, cameras, warnings, omissions);
+                posedCharacterIds.UnionWith(timelineResult.PoseBakedEntityIds);
 
                 Directory.CreateDirectory("Assets/Director/Scenes");
                 string scenePath = $"Assets/Director/Scenes/Director_{shortId}.unity";
@@ -129,6 +132,8 @@ namespace Director.Bridge.Editor
                     ["humanoidAvatarCount"] = counters.HumanoidAvatarCount,
                     ["genericAvatarCount"] = counters.GenericAvatarCount,
                     ["materialFallbackCount"] = counters.MaterialFallbackCount,
+                    ["posedCharacterCount"] = posedCharacterIds.Count,
+                    ["omittedChannels"] = omissions,
                 };
                 DirectorExchange.WriteReport(
                     reportPath, HostVersion, packageId, (string)manifest["sourceRevision"],
@@ -240,6 +245,8 @@ namespace Director.Bridge.Editor
             string shortId,
             string renderPipeline,
             List<string> warnings,
+            JArray omissions,
+            HashSet<string> posedCharacterIds,
             ImportCounters counters,
             out Dictionary<string, GameObject> cameras)
         {
@@ -303,7 +310,8 @@ namespace Director.Bridge.Editor
                 ApplyMaterialOverride(
                     entity, gameObject, renderPipeline, shortId, ResolveTexture, warnings, counters);
                 BuildCharacterAvatar(
-                    entity, gameObject, payloadInfo, projectAssetsById, assetFolder, warnings, counters);
+                    entity, gameObject, payloadInfo, projectAssetsById, assetFolder, warnings, omissions,
+                    posedCharacterIds, counters);
 
                 byDirectorId[directorId] = gameObject;
                 counters.ObjectCount += 1;
@@ -459,28 +467,39 @@ namespace Director.Bridge.Editor
             Dictionary<string, JObject> projectAssetsById,
             string assetFolder,
             List<string> warnings,
+            JArray omissions,
+            HashSet<string> posedCharacterIds,
             ImportCounters counters)
         {
-            if (payloadInfo == null || !payloadInfo.HasSkinnedMesh)
-            {
-                return;
-            }
             string assetRefId = (string)entity["assetRefId"];
             JObject characterMetadata =
                 assetRefId != null && projectAssetsById.TryGetValue(assetRefId, out JObject assetJson)
                     ? (JObject)assetJson["characterMetadata"]
                     : null;
-            DirectorSkeletonImport.AvatarKind kind = DirectorSkeletonImport.BuildAvatar(
-                gameObject, characterMetadata, (string)entity["id"], $"{assetFolder}/Avatars", warnings);
-            if (kind == DirectorSkeletonImport.AvatarKind.Humanoid)
+            if (payloadInfo != null && payloadInfo.HasSkinnedMesh)
             {
-                counters.HumanoidAvatarCount += 1;
+                DirectorSkeletonImport.AvatarKind kind = DirectorSkeletonImport.BuildAvatar(
+                    gameObject, characterMetadata, (string)entity["id"], $"{assetFolder}/Avatars", warnings);
+                if (kind == DirectorSkeletonImport.AvatarKind.Humanoid)
+                {
+                    counters.HumanoidAvatarCount += 1;
+                }
+                else if (kind == DirectorSkeletonImport.AvatarKind.Generic)
+                {
+                    counters.GenericAvatarCount += 1;
+                }
             }
-            else if (kind == DirectorSkeletonImport.AvatarKind.Generic)
+            if (entity["characterRig"] == null)
             {
-                counters.GenericAvatarCount += 1;
+                return;
             }
-            DirectorSkeletonImport.WarnUntransferredRigState(entity, warnings);
+            // The static pose applies only after BuildAvatar captured the
+            // untouched bind pose in the Avatar's HumanDescription skeleton.
+            if (DirectorPoseImport.ApplyStaticPose(entity, gameObject, characterMetadata, warnings, omissions))
+            {
+                posedCharacterIds.Add((string)entity["id"]);
+            }
+            DirectorPoseImport.RecordUnbakedRigState(entity, warnings, omissions);
         }
 
         private static void ApplyCanonicalTransform(Transform target, JObject scene, JObject transform)

@@ -34,13 +34,17 @@ At the time of writing:
   (`send_to_engine`) and to bring a `director-dcc-return-v1` package back as a
   revision-guarded plan (`receive_from_engine` / `apply_import_plan`). The
   covered workflow is scene layout, cameras, stable IDs, and transform-level
-  round trip. **Godot 4** additionally ships validated host-side animation
-  (Gateway-baked `AnimationPlayer` tracks on a rational timebase), skinned GLB
-  skeletons in bind pose, `StandardMaterial3D` translation with hashed external
-  textures, and Omni/Spot/Directional lights. Animation, skeletons, and
-  materials remain **planned** for Unreal and Unity, and live link remains
-  planned for all three engines; the exchange package can carry model payloads,
-  but Director does not claim host-side fidelity it has not validated.
+  round trip. **Unreal** additionally ships validated Sequencer animation,
+  skinned-GLB skeletal import, PBR material instances, preview-only live link,
+  and clean-frame receipts. **Unity** additionally bakes animation onto
+  Timeline, builds Avatars, applies PBR material fallback, and ships an
+  outbound-only preview live link. **Godot 4** additionally ships validated
+  host-side animation (Gateway-baked `AnimationPlayer` tracks on a rational
+  timebase), skinned GLB skeletons in bind pose, `StandardMaterial3D`
+  translation with hashed external textures, and Omni/Spot/Directional lights.
+  Live link remains planned for Godot; the exchange package can carry model
+  payloads, but Director does not claim host-side fidelity it has not
+  validated.
 - Director also has documented, deliberately limited glTF/GLB and USD
   interchange subsets.
 - The Maya, Houdini, Cinema 4D, and 3ds Max native adapters described below are
@@ -247,12 +251,12 @@ For the `engine-headless` providers, the connector promotes exactly the
 capabilities it performs and validates: `headless`, `roundtrip`, and
 `stable_ids` are `native`; `scene` and `camera` remain `exchange` because the
 portable format still carries them; `animation`, `skeleton`, `materials`, and
-`live_link` remain `planned` for Unity and Godot. The Unreal descriptor is the
-one exception: its connector additionally promotes `animation` (Gateway-baked
-Sequencer tracks), `skeleton` (skinned-GLB skeletal mesh import), and
-`materials` (PBR material instances) to `native`, each backed by host-free
-golden fixtures in `backend/gateway/tests/dcc/unreal*.test.ts`; Unreal
-`live_link` stays `planned` because no Gateway transport ships yet.
+portable format still carries them. Each engine then promotes its tested
+subset: Unreal, Unity, and Godot all promote `animation`, `skeleton`, and
+`materials` to `native`. Unreal and Unity additionally promote `live_link` to
+`native` as preview-only transports (Unreal: Gateway loopback camera channel;
+Unity: outbound-only, token-authenticated preview polling). Godot `live_link`
+stays `planned`.
 
 Runtime readiness is separate:
 
@@ -288,7 +292,7 @@ Director adapter implemented.
 | Unreal Engine    | **Implemented headless connector (scene/cameras/animation/skeleton/materials/preview live link)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer tracks, timecode, skeletal import, material instances, preview-only live link, and clean-frame render receipts implemented | P0       |
 | SideFX Houdini   | **Exchange**                                       | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional         | P1       |
 | Cinema 4D        | **Exchange**                                       | USDA, then GLB          | Python SDK and `c4dpy`                             | Headless bake/export plus authenticated in-host connector          | P1       |
-| Unity            | **Implemented headless connector (scene/cameras/animation/avatars/materials)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline animation baking, Avatars, lights, and PBR fallback implemented; preview transport still planned | P2       |
+| Unity            | **Implemented headless connector (scene/cameras/animation/poses/avatars/materials)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline animation and pose baking, Avatars, lights, PBR fallback, and outbound-only preview live link implemented | P2       |
 | Autodesk 3ds Max | **Exchange**                                       | USDA, then GLB          | `3dsmaxbatch`, Python, MAXScript                   | Windows headless adapter and optional in-host plug-in              | P2       |
 | Godot 4          | **Implemented headless connector (deep)**          | GLB                     | `godot --headless`, GDScript editor plug-ins       | Baked animation, skeletons, materials, lights implemented; live preview still planned | P2       |
 
@@ -302,12 +306,14 @@ receipts — not lossless USD animation, Control Rig transfer, or texture
 translation. Unity
 bakes Director animation onto Timeline, builds Humanoid/Generic Avatars from
 skinned GLB, and translates PBR materials, pinned by the in-package EditMode
-suite plus the host-free Unity golden tests. Godot 4 ships Gateway-baked
+suite plus the host-free Unity golden tests. It also ships an outbound-only,
+token-authenticated, sequence-numbered preview live link with gateway
+disconnect-safety tests, never scene authority. Godot 4 ships Gateway-baked
 `AnimationPlayer` animation, skinned GLB `Skeleton3D` import,
 `StandardMaterial3D` translation with hashed external textures, and
 Omni/Spot/Directional lights, backed by host-free goldens plus a skip-if-missing
-real headless roundtrip. All three remain warned, bounded subsets. Unreal
-preview live link is `native`; Unity and Godot live link remain `planned`.
+real headless roundtrip. All three remain warned, bounded subsets. Unreal and
+Unity preview live link are `native`; Godot live link remains `planned`.
 Blender also ships a preview-only native live-link delta feed.
 
 The table does not promise complete USD or glTF fidelity. Director only claims the
@@ -496,8 +502,13 @@ Implemented Director boundary (see `integrations/unity/README.md`):
   warns-and-omits;
 - Director storyboard shots map to Timeline activation tracks, and Director
   keyframe/trajectory animation is baked into `AnimationClip`s through C# ports
-  of Director's easing and trajectory evaluators (unsupported channels
-  warn-and-omit);
+  of Director's easing and trajectory evaluators;
+- Director semantic pose controls apply to Mixamo-compatible rigs through a C#
+  port of Director's pose math — static poses pin the rest pose and keyframed
+  pose channels bake into per-bone rotation curves; channels the connector
+  cannot bake (motion blocks, poses on non-Mixamo rigs) are recorded as
+  structured `omittedChannels` entries in the engine report, never silently
+  flattened;
 - skinned character payloads resolve by `assetRefId` and receive Humanoid
   Avatars when the Mixamo-compatible required bones resolve, Generic Avatars
   otherwise;
@@ -515,16 +526,25 @@ Implemented Director boundary (see `integrations/unity/README.md`):
   host-free Gateway golden tests
   (`packages/dcc-protocol/tests/directorDccUnityConnectorGolden.test.ts`), so
   Unity is never required in CI;
+- a preview-only live link: the `Director → Live Link Preview` Editor window
+  long-polls the Gateway hub (`/api/dcc/unity/live-link/sessions/<id>/events`)
+  with a per-session bearer token and monotonic sequence numbers, resyncing
+  from snapshots after gaps. The transport is outbound-only (Unity never
+  writes back and no C# execution endpoint exists), disconnect-safe (pinned by
+  `backend/gateway/tests/dcc/unityLiveLink.test.ts`), and never authoritative
+  — the durable channel stays the exchange/return package round trip;
+- when `DIRECTOR_UNITY_BIN` is unset, the Gateway discovers Unity Hub
+  per-version editor installs on macOS, Linux, and Windows (newest stable
+  first; `DIRECTOR_UNITY_HUB_EDITORS` names a relocated Hub root) before
+  falling back to legacy layouts and `PATH`;
 - GLB remains the preferred portable asset format; Unity scene YAML is never an
   exchange format.
 
 Still planned:
 
-- an authenticated outbound preview connection rather than an exposed arbitrary
-  C# execution endpoint (`live_link` stays `planned` until disconnect-safe
-  transport tests exist); and
 - production USD round trip (USD stays experimental until Director has
-  version-pinned acceptance tests against the pre-release Unity packages).
+  version-pinned acceptance tests against the pre-release Unity packages;
+  GLB remains the preferred payload).
 
 ### Autodesk 3ds Max
 

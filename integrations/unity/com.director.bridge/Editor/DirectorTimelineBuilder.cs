@@ -24,9 +24,12 @@ namespace Director.Bridge.Editor
     ///
     /// The interchange stays GLB + manifest JSON: the Timeline and clips are
     /// generated Unity assets derived from the manifest, and `.unity` YAML is
-    /// never parsed or emitted as an exchange format. Channels the connector
-    /// cannot bake (character pose values, skeletal motion blocks, procedural
-    /// gait) warn-and-omit through the evaluator's UnsupportedChannels.
+    /// never parsed or emitted as an exchange format. Keyframed character pose
+    /// values bake through <see cref="DirectorPoseImport.PoseBaker"/> into the
+    /// same per-entity clip. Channels the connector cannot bake (skeletal
+    /// motion blocks, procedural gait, pose values on unresolvable rigs)
+    /// record structured omissions so the run report never drops them
+    /// silently.
     /// </summary>
     public static class DirectorTimelineBuilder
     {
@@ -41,6 +44,9 @@ namespace Director.Bridge.Editor
 
             /// <summary>Number of baked AnimationClips.</summary>
             public int BakedAnimationClipCount;
+
+            /// <summary>Director ids of characters whose keyframed pose channels were baked or pinned.</summary>
+            public List<string> PoseBakedEntityIds = new List<string>();
         }
 
         private sealed class AnimatedEntity
@@ -57,14 +63,21 @@ namespace Director.Bridge.Editor
             string shortId,
             Dictionary<string, GameObject> byDirectorId,
             Dictionary<string, GameObject> cameras,
-            List<string> warnings)
+            List<string> warnings,
+            JArray omissions)
         {
             var result = new Result { TimelinePath = null, BakedAnimationClipCount = 0 };
             JObject project = (JObject)manifest["project"];
             JObject scene = (JObject)project["scene"];
             double fps = (double?)project["scene"]?["timeline"]?["fps"] ?? 24.0;
 
-            var animated = CollectAnimatedEntities(project, byDirectorId, warnings);
+            var projectAssetsById = new Dictionary<string, JObject>();
+            foreach (JToken assetToken in (JArray)(project["assets"] ?? new JArray()))
+            {
+                projectAssetsById[(string)assetToken["id"]] = (JObject)assetToken;
+            }
+
+            var animated = CollectAnimatedEntities(project, byDirectorId, warnings, omissions);
             var shots = CollectShots(project, cameras);
             if (animated.Count == 0 && shots.Count == 0)
             {
@@ -94,7 +107,9 @@ namespace Director.Bridge.Editor
 
             foreach (AnimatedEntity entity in animated)
             {
-                if (BakeEntity(entity, animated, byDirectorId, scene, fps, timeline, playableDirector, warnings))
+                if (BakeEntity(
+                        entity, animated, byDirectorId, projectAssetsById, scene, fps, timeline, playableDirector,
+                        warnings, omissions, result))
                 {
                     result.BakedAnimationClipCount += 1;
                 }
@@ -106,7 +121,7 @@ namespace Director.Bridge.Editor
         }
 
         private static List<AnimatedEntity> CollectAnimatedEntities(
-            JObject project, Dictionary<string, GameObject> byDirectorId, List<string> warnings)
+            JObject project, Dictionary<string, GameObject> byDirectorId, List<string> warnings, JArray omissions)
         {
             var animated = new List<AnimatedEntity>();
             foreach ((string collection, bool isCamera) in new[] { ("objects", false), ("cameras", true) })
@@ -128,9 +143,12 @@ namespace Director.Bridge.Editor
                     var evaluator = new DirectorAnimationEvaluator(animation ?? new JObject());
                     foreach (string channel in evaluator.UnsupportedChannels)
                     {
-                        warnings.Add(
-                            $"Entity {directorId}: animation channel \"{channel}\" (Director-side rig/motion " +
-                            "evaluation) is not baked to Unity (warn-and-omit).");
+                        DirectorPoseImport.AddOmission(
+                            omissions, warnings, directorId, channel,
+                            channel == "motionBlocks"
+                                ? "Skeletal motion blocks play packaged clip GLBs that are not part of the " +
+                                  "exchange package and were not baked."
+                                : "Procedural gait motion is evaluated Director-side and was not baked.");
                     }
                     animated.Add(new AnimatedEntity
                     {
@@ -164,17 +182,28 @@ namespace Director.Bridge.Editor
             AnimatedEntity entity,
             List<AnimatedEntity> allAnimated,
             Dictionary<string, GameObject> byDirectorId,
+            Dictionary<string, JObject> projectAssetsById,
             JObject scene,
             double fps,
             TimelineAsset timeline,
             PlayableDirector playableDirector,
-            List<string> warnings)
+            List<string> warnings,
+            JArray omissions,
+            Result result)
         {
             DirectorAnimationEvaluator evaluator = entity.Evaluator;
             string directorId = (string)entity.Entity["id"];
+            string assetRefId = (string)entity.Entity["assetRefId"];
+            JObject characterMetadata =
+                assetRefId != null && projectAssetsById.TryGetValue(assetRefId, out JObject assetJson)
+                    ? (JObject)assetJson["characterMetadata"]
+                    : null;
+            DirectorPoseImport.PoseBaker poseBaker = DirectorPoseImport.TryCreatePoseBaker(
+                entity.Entity, evaluator, entity.GameObject, characterMetadata, warnings, omissions);
             bool followCamera = entity.IsCamera && (string)entity.Entity["action"]?["mode"] == "follow";
             bool hasChannels =
-                evaluator.HasBakeableTransform || evaluator.HasFovChannel || evaluator.HasLookChannel || followCamera;
+                evaluator.HasBakeableTransform || evaluator.HasFovChannel || evaluator.HasLookChannel ||
+                followCamera || poseBaker != null;
             if (!hasChannels || evaluator.FirstFrame == null && !followCamera)
             {
                 return false;
@@ -184,6 +213,11 @@ namespace Director.Bridge.Editor
             if (lastTimelineFrame <= firstFrame && !followCamera)
             {
                 // A single-frame animation still pins the pose; nothing to bake.
+                if (poseBaker != null)
+                {
+                    poseBaker.PinStaticPose(firstFrame);
+                    result.PoseBakedEntityIds.Add(directorId);
+                }
                 return false;
             }
 
@@ -228,6 +262,7 @@ namespace Director.Bridge.Editor
                 {
                     curves.AddFovKey(time, sample.FovDegrees.Value, camera);
                 }
+                poseBaker?.AddFrame(time, clamped);
                 if (clamped >= lastTimelineFrame)
                 {
                     break;
@@ -235,6 +270,12 @@ namespace Director.Bridge.Editor
             }
 
             curves.WriteInto(clip);
+            if (poseBaker != null)
+            {
+                poseBaker.WriteInto(clip);
+                poseBaker.FinishBake();
+                result.PoseBakedEntityIds.Add(directorId);
+            }
             clip.EnsureQuaternionContinuity();
             AssetDatabase.AddObjectToAsset(clip, timeline);
 

@@ -133706,8 +133706,11 @@ function unityEngineProvider() {
       // connector; runtime availability is still gated by nativeReady.
       { id: "roundtrip", level: "native", layer: "connector" },
       { id: "headless", level: "native", layer: "connector" },
-      // No live preview transport ships yet; see MULTI_DCC_INTEGRATION.md.
-      { id: "live_link", level: "planned", layer: "connector" }
+      // Preview-only live link: the DirectorLiveLink Editor window long-polls
+      // the gateway hub (scoped bearer token, monotonic sequence numbers,
+      // snapshot resync) and never writes back. Disconnect safety is pinned by
+      // the gateway unityLiveLink tests; there is no remote-execute endpoint.
+      { id: "live_link", level: "native", layer: "connector" }
     ],
     connectorDirectory: "integrations/unity"
   });
@@ -133931,6 +133934,14 @@ var directorDccConnectorManifestSchema = external_exports.strictObject({
   /** Human-readable host requirement, e.g. "Unreal Engine 5.3+". */
   hostRequirement: nonEmpty4.max(200)
 });
+var directorDccUnityOmittedChannelIdSchema = external_exports.enum(["poseValues", "motionBlocks", "motion", "ik"]);
+var directorDccUnityOmittedChannelSchema = external_exports.strictObject({
+  /** The Director entity whose channel was omitted. */
+  directorId: nonEmpty4.max(240),
+  channel: directorDccUnityOmittedChannelIdSchema,
+  /** Human-readable reason (why it could not bake, and what to do instead). */
+  reason: nonEmpty4.max(600)
+});
 var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
   /** Project-relative Timeline asset path, or null when no shots/animation mapped. */
   timelinePath: external_exports.string().trim().min(1).max(1024).nullable(),
@@ -133947,7 +133958,19 @@ var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
   /** Generic Avatars built where Humanoid mapping was not possible. */
   genericAvatarCount: external_exports.number().int().nonnegative(),
   /** Materials created from Director PBR manifest fallback. */
-  materialFallbackCount: external_exports.number().int().nonnegative()
+  materialFallbackCount: external_exports.number().int().nonnegative(),
+  /**
+   * Characters posed from Director semantic pose controls (static controls
+   * applied to the imported skeleton, keyframed controls baked to clips).
+   * Optional: connector 0.2.x reports predate pose baking.
+   */
+  posedCharacterCount: external_exports.number().int().nonnegative().optional(),
+  /**
+   * Structured warn-and-omit records for animation channels the connector
+   * declined to bake. Optional: connector 0.2.x reports predate this field
+   * and carried free-text warnings only.
+   */
+  omittedChannels: external_exports.array(directorDccUnityOmittedChannelSchema).max(4096).optional()
 });
 var directorDccEngineReportSchema = external_exports.strictObject({
   ok: external_exports.literal(true),

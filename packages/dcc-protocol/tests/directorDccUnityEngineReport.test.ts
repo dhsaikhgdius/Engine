@@ -15,6 +15,14 @@ const UNITY_DETAILS = {
   humanoidAvatarCount: 1,
   genericAvatarCount: 0,
   materialFallbackCount: 4,
+  posedCharacterCount: 1,
+  omittedChannels: [
+    {
+      directorId: "hero-1",
+      channel: "motionBlocks" as const,
+      reason: "Skeletal motion blocks play packaged clip GLBs that are not part of the exchange package.",
+    },
+  ],
 };
 
 function unityReport(overrides: Record<string, unknown> = {}) {
@@ -70,5 +78,35 @@ describe("Director Unity engine report details", () => {
   it("keeps timelinePath nullable for runs without shots or animation", () => {
     const parsed = directorDccUnityEngineReportDetailsSchema.parse({ ...UNITY_DETAILS, timelinePath: null });
     expect(parsed.timelinePath).toBeNull();
+  });
+
+  it("keeps pose fields optional so 0.2.x connector reports still validate", () => {
+    const { posedCharacterCount: _count, omittedChannels: _channels, ...legacyDetails } = UNITY_DETAILS;
+    const parsed = directorDccUnityEngineReportDetailsSchema.parse(legacyDetails);
+    expect(parsed.posedCharacterCount).toBeUndefined();
+    expect(parsed.omittedChannels).toBeUndefined();
+  });
+
+  it("rejects unknown omitted-channel ids and unknown omission fields", () => {
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedChannels: [{ directorId: "hero-1", channel: "physics", reason: "not a channel this connector owns" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedChannels: [
+          { directorId: "hero-1", channel: "poseValues", reason: "non-mixamo rig", severity: "warning" },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedChannels: [{ directorId: "", channel: "ik", reason: "empty director id must fail" }],
+      }).success,
+    ).toBe(false);
   });
 });

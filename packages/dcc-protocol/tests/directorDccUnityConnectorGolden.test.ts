@@ -9,7 +9,9 @@ import {
 } from "../src/directorDccEngineSpace";
 import { directorCameraLookQuaternion } from "@director/dcc-interchange";
 import {
+  clampCharacterPoseControlValue,
   evaluateDirectorTimingCurve,
+  evaluatePoseValuesAnimation,
   evaluateTrajectoryTransform,
   evaluateTransformAnimation,
   getDirectorCameraSensorGate,
@@ -240,6 +242,56 @@ describe("Director Unity connector golden values", () => {
       expect(value).not.toBeNull();
       expectVectorClose(value!.position, position);
       expect(value!.rotation[1]).toBeCloseTo(rotationY, 9);
+    }
+  });
+
+  it("pins the pose control clamp golden table", () => {
+    // control, value, bodyType, expected — mirrored in DirectorPoseMathTests.cs.
+    const golden: Array<[string, number, string | undefined, number]> = [
+      ["torso.pitch", 100, undefined, 90],
+      ["leftShoulder.pitch", -130, undefined, -120],
+      ["leftElbow.bend", 160, undefined, 150],
+      ["rightElbow.bend", -10, undefined, 0],
+      ["body.offsetY", 2, "chibi", 1],
+      ["head.yaw", 80, "child", 72],
+      ["leftKnee.bend", 140, "chibi", 96.666666666667],
+      ["rightHip.pitch", -100, "child", -96],
+    ];
+    for (const [control, value, bodyType, expected] of golden) {
+      expect(clampCharacterPoseControlValue(control, value, bodyType)).toBeCloseTo(expected, 9);
+    }
+  });
+
+  it("pins the keyframed pose value evaluation golden table", () => {
+    const animation: DirectorEntityAnimation = {
+      version: 1,
+      enabled: true,
+      keyframes: [
+        { frame: 0, interpolation: "smooth", poseValues: { "leftShoulder.spread": 40, "head.yaw": -10 } },
+        { frame: 24, interpolation: "linear", poseValues: { "leftShoulder.spread": -20, "leftElbow.bend": 90 } },
+        { frame: 48, interpolation: "step", poseValues: { "leftShoulder.spread": 10 } },
+      ],
+    };
+    const base = { "head.yaw": 20, "torso.pitch": 5 };
+    // frame, leftShoulder.spread — head.yaw pins to -10 (single key) and
+    // leftElbow.bend to 90 (value of its first key) at every frame, while the
+    // untouched torso.pitch base control merges through unchanged. Mirrored
+    // in DirectorPoseMathTests.cs against the C# evaluator port.
+    const golden: Array<[number, number]> = [
+      [0, 40],
+      [6, 30.625],
+      [12, 10],
+      [24, -20],
+      [36, -5],
+      [48, 10],
+      [60, 10],
+    ];
+    for (const [frame, spread] of golden) {
+      const value = evaluatePoseValuesAnimation(base, animation, frame);
+      expect(value["leftShoulder.spread"]).toBeCloseTo(spread, 9);
+      expect(value["head.yaw"]).toBeCloseTo(-10, 9);
+      expect(value["leftElbow.bend"]).toBeCloseTo(90, 9);
+      expect(value["torso.pitch"]).toBeCloseTo(5, 9);
     }
   });
 
