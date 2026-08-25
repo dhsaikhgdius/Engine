@@ -1,15 +1,17 @@
 /**
- * Procedural low-poly ambient vehicle: one merged BufferGeometry shared by
- * every instance, following the wildlife placeholder-model pattern.
- * Non-indexed triangle soup with computeVertexNormals gives faceted shading
- * that reads well at ambient distances. Builders are pure: identical calls
- * produce identical buffers.
+ * Procedural low-poly ambient vehicles: one merged BufferGeometry per body
+ * type shared by every instance, following the wildlife placeholder-model
+ * pattern. Non-indexed triangle soup with computeVertexNormals gives faceted
+ * shading that reads well at ambient distances. Builders are pure: identical
+ * calls produce identical buffers.
  *
- * The silhouette is a lofted sedan: dark chassis skirt, tapered body with a
- * hood/trunk shoulder line, and a raked glasshouse cabin. Per-vertex colors
- * multiply the per-instance palette tint, so the body takes the full instance
- * colour (white vertex colour) while glass, skirt, and wheels stay dark on
- * every paint job instead of being tinted like toy blocks.
+ * Two lofted silhouettes: a sedan (tapered body, raked glasshouse) and an
+ * SUV (taller shoulder, boxier glasshouse). Both share the footprint, wheel
+ * positions, and light cluster, so the flow model and the emissive lights
+ * mesh are body-type agnostic. Per-vertex colors multiply the per-instance
+ * palette tint, so the body takes the full instance colour (white vertex
+ * colour) while glass, skirt, and wheels stay dark on every paint job
+ * instead of being tinted like toy blocks.
  *
  * Conventions: forward +Z, up +Y, origin at the ground point under the car
  * center. Footprint ≈ 1.75 m wide × 4.4 m long.
@@ -22,6 +24,12 @@ export const VEHICLE_WIDTH_M = 1.75;
 
 /** Vehicle footprint length in metres (bumper to bumper). */
 export const VEHICLE_LENGTH_M = 4.4;
+
+/** Cosmetic vehicle silhouettes; order matches trafficFlow bodyTypeIndices. */
+export const VEHICLE_BODY_TYPES = ["sedan", "suv"] as const;
+
+/** One of the fixed cosmetic vehicle silhouettes. */
+export type VehicleBodyType = (typeof VEHICLE_BODY_TYPES)[number];
 
 /** Fixed 8-entry palette; trafficFlow hashes each vehicle to an index. */
 export const VEHICLE_COLOR_PALETTE: readonly number[] = [
@@ -183,12 +191,65 @@ function soupToGeometry(soup: TriangleSoup, name: string): BufferGeometry {
   return geometry;
 }
 
+/** Skirt, wheels, and glass/roof loft shared by every body type. */
+interface BodyProfile {
+  /** Shoulder-line height where the body loft ends and glass begins. */
+  shoulderY: number;
+  /** Body top-rectangle centre Z shift (negative = trunk bias). */
+  shoulderCz: number;
+  /** Body top-rectangle size (taper). */
+  shoulderSx: number;
+  shoulderSz: number;
+  /** Glasshouse bottom rectangle. */
+  cabinBottomCz: number;
+  cabinBottomSx: number;
+  cabinBottomSz: number;
+  /** Glasshouse top rectangle (rake). */
+  cabinTopCz: number;
+  cabinTopY: number;
+  cabinTopSx: number;
+  cabinTopSz: number;
+}
+
+const BODY_PROFILES: Record<VehicleBodyType, BodyProfile> = {
+  // Low shoulder, strong hood/trunk taper, fast windshield rake.
+  sedan: {
+    shoulderY: 0.82,
+    shoulderCz: 0.05,
+    shoulderSx: 1.6,
+    shoulderSz: 3.96,
+    cabinBottomCz: -0.18,
+    cabinBottomSx: 1.5,
+    cabinBottomSz: 2.5,
+    cabinTopCz: -0.3,
+    cabinTopY: 1.34,
+    cabinTopSx: 1.28,
+    cabinTopSz: 1.45,
+  },
+  // Tall shoulder, mild taper, long upright glasshouse over the rear axle.
+  suv: {
+    shoulderY: 0.98,
+    shoulderCz: 0.02,
+    shoulderSx: 1.66,
+    shoulderSz: 4.08,
+    cabinBottomCz: -0.32,
+    cabinBottomSx: 1.56,
+    cabinBottomSz: 2.9,
+    cabinTopCz: -0.44,
+    cabinTopY: 1.62,
+    cabinTopSx: 1.38,
+    cabinTopSz: 2.35,
+  },
+};
+
 /**
- * Builds the merged sedan silhouette with per-vertex colours. Cheap enough
- * (~300 triangles) that a single geometry serves every road's InstancedMesh.
+ * Builds the merged silhouette for one body type with per-vertex colours.
+ * Cheap enough (~300 triangles) that one geometry per body type serves every
+ * road's InstancedMesh. Defaults to the sedan.
  */
-export function buildVehicleGeometry(): BufferGeometry {
+export function buildVehicleGeometry(bodyType: VehicleBodyType = "sedan"): BufferGeometry {
   const soup: TriangleSoup = { positions: [], colors: [] };
+  const profile = BODY_PROFILES[bodyType];
 
   // Dark chassis skirt doubles as bumpers so the paint never reaches the ground.
   pushLoftBox(
@@ -215,33 +276,33 @@ export function buildVehicleGeometry(): BufferGeometry {
     1.72,
     VEHICLE_LENGTH_M - 0.1,
     0,
-    0.05,
-    0.82,
-    1.6,
-    3.96,
+    profile.shoulderCz,
+    profile.shoulderY,
+    profile.shoulderSx,
+    profile.shoulderSz,
   );
-  // Glasshouse cabin: raked windshield/backlight via a strong loft taper.
+  // Glasshouse cabin: windshield/backlight rake via the loft taper.
   // Sides are glass; the roof panel takes the body paint.
   pushLoftBox(
     soup,
     { side: COLOR_GLASS, top: COLOR_BODY, bottom: COLOR_GLASS },
     0,
-    -0.18,
-    0.82,
-    1.5,
-    2.5,
+    profile.cabinBottomCz,
+    profile.shoulderY,
+    profile.cabinBottomSx,
+    profile.cabinBottomSz,
     0,
-    -0.3,
-    1.34,
-    1.28,
-    1.45,
+    profile.cabinTopCz,
+    profile.cabinTopY,
+    profile.cabinTopSx,
+    profile.cabinTopSz,
   );
   pushWheel(soup, WHEEL_CENTER_X, WHEEL_RADIUS_M, WHEEL_CENTER_Z);
   pushWheel(soup, -WHEEL_CENTER_X, WHEEL_RADIUS_M, WHEEL_CENTER_Z);
   pushWheel(soup, WHEEL_CENTER_X, WHEEL_RADIUS_M, -WHEEL_CENTER_Z);
   pushWheel(soup, -WHEEL_CENTER_X, WHEEL_RADIUS_M, -WHEEL_CENTER_Z);
 
-  return soupToGeometry(soup, "director-traffic-vehicle");
+  return soupToGeometry(soup, `director-traffic-vehicle-${bodyType}`);
 }
 
 /**

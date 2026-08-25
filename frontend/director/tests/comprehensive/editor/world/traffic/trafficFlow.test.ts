@@ -3,11 +3,14 @@ import { buildRoadSpline, type RoadVec3 } from "../../../../../src/comprehensive
 import {
   buildRoadTrafficStreams,
   minSameLaneGapAt,
+  planTrafficBodyVariants,
   TRAFFIC_MIN_GAP_M,
+  TRAFFIC_VEHICLE_BODY_TYPE_COUNT,
   TRAFFIC_VEHICLE_COLOR_COUNT,
   vehicleArcPositionAt,
   type TrafficRoadInput,
 } from "../../../../../src/comprehensive/editor/world/traffic/trafficFlow";
+import { VEHICLE_BODY_TYPES } from "../../../../../src/comprehensive/editor/world/traffic/vehicleGeometry";
 
 const CITY_LOOP_POINTS: readonly RoadVec3[] = [
   [30, 0.05, 20],
@@ -187,6 +190,40 @@ describe("trafficFlow", () => {
     }
     // The palette should actually get used across a full road.
     expect(new Set([...streams.colorIndices]).size).toBeGreaterThan(2);
+  });
+
+  it("hashes cosmetic body types without touching arc offsets or lane speeds", () => {
+    expect(TRAFFIC_VEHICLE_BODY_TYPE_COUNT).toBe(VEHICLE_BODY_TYPES.length);
+    const streams = buildRoadTrafficStreams({ ...ROAD, vehicleCount: 24 }, 42, 200);
+    for (let index = 0; index < streams.count; index += 1) {
+      expect(streams.bodyTypeIndices[index]!).toBeGreaterThanOrEqual(0);
+      expect(streams.bodyTypeIndices[index]!).toBeLessThan(TRAFFIC_VEHICLE_BODY_TYPE_COUNT);
+    }
+    // Both silhouettes appear on a full road.
+    expect(new Set([...streams.bodyTypeIndices]).size).toBe(TRAFFIC_VEHICLE_BODY_TYPE_COUNT);
+    // Body type is independent of the weather lane scale, so the variant
+    // InstancedMeshes never reallocate while an intensity slider drags.
+    const storm = buildRoadTrafficStreams({ ...ROAD, vehicleCount: 24 }, 42, 200, 0.55);
+    expect([...storm.bodyTypeIndices]).toEqual([...streams.bodyTypeIndices]);
+    expect([...storm.arcOffsetsM]).toEqual([...streams.arcOffsetsM]);
+  });
+
+  it("plans per-body-type instance slots that are dense and consistent", () => {
+    const streams = buildRoadTrafficStreams({ ...ROAD, vehicleCount: 24 }, 42, 200);
+    const plan = planTrafficBodyVariants(streams);
+    const totals = [...plan.counts].reduce((sum, count) => sum + count, 0);
+    expect(totals).toBe(streams.count);
+    // Each vehicle's slot is unique within its body type and in range, so
+    // one InstancedMesh per body type can hold exactly its assigned cars.
+    const seen = new Set<string>();
+    for (let index = 0; index < streams.count; index += 1) {
+      const body = streams.bodyTypeIndices[index]!;
+      const slot = plan.slots[index]!;
+      expect(slot).toBeLessThan(plan.counts[body]!);
+      const key = `${body}:${slot}`;
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+    }
   });
 
   it("degrades safely on zero-length roads", () => {
