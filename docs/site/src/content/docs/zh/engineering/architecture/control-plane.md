@@ -38,8 +38,7 @@ Python worker 只负责模型推理、队列和输出 artifact。
 Node server 负责：
 
 - gateway authentication、配置和 loopback exposure；
-- Agent session、红acted conversation event 和 role policy；
-- native OpenAI、Anthropic Messages 与 OpenAI-compatible model driver；
+- 工具校验、调度与 role policy（`POST /api/tools/:name` 是 DSH 插件、MCP、CLI 的统一入口）；
 - 多 Agent production graph、job manifest、provider adapter 和恢复；
 - 对外 HTTP、WebSocket、CLI、MCP 与 browser API 的统一 tool loop；
 - 只读发现面：`GET /api/control-plane/capabilities`（脱敏配置）、
@@ -49,24 +48,22 @@ Node server 负责：
   `director-a2a-agent-card-v1` 卡片：无 live A2A endpoint，指向 MCP 与 tool manifest；
   绝不包含 secret）。
 
-Canonical tool loop 是：校验请求 → 检查 role policy → 执行 exact target tool → 持久化
-redacted event → 返回结构化结果。
+Agent 循环与会话归 DeepSeek Harness（`vendor/deepseek-harness`）所有；Director 侧只有
+Cordis 插件 `packages/dsh-plugin-workbench/`，它注册领域工具并把每次调用分发到 Gateway。
+Canonical 工具路径是：校验请求 → 检查 role policy → 调度（写独占、幂等重放）→ 执行
+exact target tool → 返回结构化结果。
 
-Hosted Agent 的前台委派仍由同一个控制面负责。`subagent` 让 `AgentHarness` 创建一个继承
-父级 Profile、角色、工作区与精确浏览器目标的 `api` 子 Session，但把它标记为隔离上下文，
-历史重建不会把父对话摊进子级。子级最终答案通过父级普通工具结果返回；父级取消信号会中断
-前台子级。被委派的子级不再获得 `subagent`，所以当前只有一层。后台子级直接把同一个
-持久 Session 作为 Job 记录，`job_output`、`job_list`、`job_kill` 不复制第二份状态。
-通用 Producer Jobs、自动完成唤醒与可续跑子代理控制工具尚未实现。
+委派归 DSH：`subagent` 与 job 工具负责创建、跟踪子会话。Director 不复制这套生命周期；
+被委派的子级只能经由与父级相同的 typed tool HTTP 触达 Director 状态。
 
 ## 持久化状态
 
-| 状态                     | owner                    | 位置                                  |
-| ------------------------ | ------------------------ | ------------------------------------- |
-| Agent session/event      | TypeScript control plane | `data/director-agent-sessions.sqlite` |
-| Multi-agent run/artifact | TypeScript control plane | `data/multi-agent-runs/`              |
-| Director video manifest  | TypeScript control plane | `data/video-jobs/`                    |
-| Worker job 与 MP4        | Python worker            | `LTX23_OUTPUT_DIR`                    |
+| 状态                     | owner                            | 位置                     |
+| ------------------------ | -------------------------------- | ------------------------ |
+| Agent session/event      | DeepSeek Harness（vendor 子模块） | DSH 自有会话存储          |
+| Multi-agent run/artifact | TypeScript control plane         | `data/multi-agent-runs/` |
+| Director video manifest  | TypeScript control plane         | `data/video-jobs/`       |
+| Worker job 与 MP4        | Python worker                    | `LTX23_OUTPUT_DIR`       |
 
 控制面 receipt 与 worker receipt 有意分开：前者记录制作意图，后者记录模型执行。重启
 时未完成任务必须进入可重试或 outcome-unknown，而不能报告为成功。

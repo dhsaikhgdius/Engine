@@ -197,13 +197,12 @@ flowchart LR
 
 ### 已交付
 
-角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP、本地 Agent harness 与托管 API adapter 共用：
+角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP 与 Multi-Agent production runner 共用：
 
-| 入口         | 绑定                                                                  |
-| ------------ | --------------------------------------------------------------------- |
-| MCP          | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`             |
-| 本地 harness | `agentAdapters.ts` 的 prompt + 派发前的 `filmRoleToolPolicyRejection` |
-| 托管 adapter | `openAiCompatibleAdapter.ts` 的可见性与拒绝                           |
+| 入口            | 绑定                                                                |
+| --------------- | -------------------------------------------------------------------- |
+| MCP             | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`            |
+| Multi-Agent run | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` 及其路由 |
 
 ### 剩余项
 

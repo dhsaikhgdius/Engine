@@ -103,7 +103,7 @@ Director 文档明确自定位为 **Agent-native，而非「可被 Agent 控制�
 | 实时 `DirectorProject` | 浏览器 store               | `frontend/director/src/comprehensive/editor/store/directorStore.ts`                                        |
 | Agent observe/author   | 同一 store（browser 执行） | `frontend/director/src/agent/directorWorkbenchExecutor.ts`, `frontend/director/src/agent/gatewayClient.ts` |
 | Wire 契约              | 共享 Zod schema            | `packages/protocol/src/agentGatewayProtocol.ts`                                                            |
-| Agent sessions/events  | SQLite WAL                 | `backend/gateway/agentSessionStore.ts`                                                                     |
+| Agent sessions/events  | DeepSeek Harness           | `vendor/deepseek-harness`（DSH 自有会话存储）                                                               |
 
 - `observe {"fields":[...]}` 选择性切片，避免 stale 全量快照
 - `expected_revision` / `snapshot_fingerprint` 并发守卫
@@ -211,8 +211,7 @@ Browser (gatewayClient.ts, directorStore)
 agent-gateway.ts (composition root)
     ├─ stageRoutes.ts → commandEngine / browser workbench executor
     ├─ mcp-server.ts (stdio；filmRoleToolPolicy via DIRECTOR_FILM_ROLE)
-    ├─ AgentHarness + agentAdapters (Codex/Claude；同一策略)
-    ├─ openAiCompatibleAdapter (同一 filmRoleToolPolicy)
+    ├─ POST /api/tools/:name ← DeepSeek Harness 插件 (packages/dsh-plugin-workbench；同一策略)
     ├─ ProductionRunOrchestrator (multi-agent)
     └─ controlPlaneRoutes / video / dcc
 ```
