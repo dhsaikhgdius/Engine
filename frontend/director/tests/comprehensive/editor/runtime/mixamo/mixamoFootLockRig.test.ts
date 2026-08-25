@@ -4,11 +4,17 @@ import { AnimationMixer, Bone, Group, Quaternion, Vector3 } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { describe, expect, it, vi } from "vitest";
 import { localAssetIt } from "../../../../../../../packages/protocol/tests/localAssetTest";
-import { DIRECTOR_DEFAULT_CHARACTER_HEIGHT, getScaledPlayerConfig } from "../../../../../src/comprehensive/editor/player/characterFollowRuntime";
+import {
+  DIRECTOR_DEFAULT_CHARACTER_HEIGHT,
+  getScaledPlayerConfig,
+} from "../../../../../src/comprehensive/editor/player/characterFollowRuntime";
 import { configureDirectorGLTFLoader } from "../../../../../src/comprehensive/editor/runtime/gltfLoader";
 import type { DirectorCharacterIkState } from "../../../../../src/comprehensive/editor/schema/directorProject";
 import { prepareMixamoCharacterInstance } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterPrepare";
-import { applyMixamoCharacterIk, type MixamoResolvedBones } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
+import {
+  applyMixamoCharacterIk,
+  type MixamoResolvedBones,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
 import { DEFAULT_MIXAMO_FOOT_LOCK_CONFIG } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootLock";
 import {
   applyMixamoFootSlopeAlignment,

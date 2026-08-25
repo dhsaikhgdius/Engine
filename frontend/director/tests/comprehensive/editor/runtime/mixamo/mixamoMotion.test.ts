@@ -15,7 +15,10 @@ import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { describe, expect, it } from "vitest";
 import { localAssetIt } from "../../../../../../../packages/protocol/tests/localAssetTest";
 import type { DirectorCharacterMotionState } from "../../../../../src/comprehensive/editor/schema/directorProject";
-import { captureMixamoRestPose, restoreMixamoRestPose } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
+import {
+  captureMixamoRestPose,
+  restoreMixamoRestPose,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
 import {
   applyDirectorCharacterMotionFrame,
   applyDirectorCharacterWeightedMotionFrame,
@@ -23,7 +26,10 @@ import {
   retargetMixamoAnimationClip,
   sampleDirectorCharacterMotion,
 } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion";
-import { collectMixamoBones, resolveMixamoBones } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
+import {
+  collectMixamoBones,
+  resolveMixamoBones,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
 
 function skeleton(prefix: string, hipsY: number, headY: number) {
   const root = new Group();

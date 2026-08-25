@@ -29,7 +29,10 @@ import type {
   DirectorObject,
   DirectorTransform,
 } from "../schema/directorProject";
-import { DIRECTOR_CHARACTER_MOTION_CATALOG, getDirectorCharacterMotion } from "@director/agent-engine/character-motions";
+import {
+  DIRECTOR_CHARACTER_MOTION_CATALOG,
+  getDirectorCharacterMotion,
+} from "@director/agent-engine/character-motions";
 import { getDefaultCharacterIkTarget } from "../runtime/mannequin/characterIk";
 import { ArdyMotionSection } from "./ArdyMotionSection";
 import { useBlenderRuntimeStore } from "../runtime/blenderRuntimeStore";
@@ -865,7 +868,13 @@ const CharacterMotionTab = memo(function CharacterMotionTab({
               // Native NLA strips cannot ping-pong; keep the entry only for
               // data that already persists it so the select stays readable.
               ...(!nativeMode || motion.loop === "ping-pong"
-                ? [{ value: "ping-pong", label: nativeMode ? "往返（Blender 暂不可用）" : "往返", disabled: nativeMode }]
+                ? [
+                    {
+                      value: "ping-pong",
+                      label: nativeMode ? "往返（Blender 暂不可用）" : "往返",
+                      disabled: nativeMode,
+                    },
+                  ]
                 : []),
             ]}
           />

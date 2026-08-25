@@ -6,7 +6,10 @@ import { describe, expect, it, vi } from "vitest";
 import { localAssetIt } from "../../../../../../../packages/protocol/tests/localAssetTest";
 import { configureDirectorGLTFLoader } from "../../../../../src/comprehensive/editor/runtime/gltfLoader";
 import { prepareMixamoCharacterInstance } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterPrepare";
-import { applyMixamoCharacterIk, type MixamoResolvedBones } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
+import {
+  applyMixamoCharacterIk,
+  type MixamoResolvedBones,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCharacterRig";
 import {
   applyMixamoCrouchPose,
   createMixamoCrouchRuntime,
@@ -17,7 +20,10 @@ import {
   MIXAMO_CROUCH_HIP_DROP_LEG_FRACTION,
   updateMixamoCrouchWeight,
 } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoCrouch";
-import { createMixamoFootLockRigRuntime, updateMixamoFootLockRigRuntime } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootLockRig";
+import {
+  createMixamoFootLockRigRuntime,
+  updateMixamoFootLockRigRuntime,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootLockRig";
 
 const LEG_LENGTH_M = 0.75;
 const FULL_DROP_M = LEG_LENGTH_M * MIXAMO_CROUCH_HIP_DROP_LEG_FRACTION;
@@ -223,12 +229,16 @@ describe("applyMixamoCrouchPose", () => {
     const crouch = createMixamoCrouchRuntime();
     const footLock = createMixamoFootLockRigRuntime();
     const initialLocal = new Map(
-      [bones.body!, bones.torso!, bones.leftHip!, bones.leftKnee!, bones.leftFoot!, bones.rightHip!, bones.rightKnee!, bones.rightFoot!].map(
-        (bone) => [
-          bone,
-          { position: bone.position.clone(), quaternion: bone.quaternion.clone() },
-        ],
-      ),
+      [
+        bones.body!,
+        bones.torso!,
+        bones.leftHip!,
+        bones.leftKnee!,
+        bones.leftFoot!,
+        bones.rightHip!,
+        bones.rightKnee!,
+        bones.rightFoot!,
+      ].map((bone) => [bone, { position: bone.position.clone(), quaternion: bone.quaternion.clone() }]),
     );
     const groundY = worldPosition(bones.leftFoot!).y;
     let lockedFrames = 0;
@@ -296,9 +306,7 @@ localAssetIt("crouches a prepared X Bot without moving its feet or crossing its 
     worldPosition(bones.leftKnee!).distanceTo(worldPosition(bones.leftFoot!));
   const expectedDrop = legLength * MIXAMO_CROUCH_HIP_DROP_LEG_FRACTION;
 
-  expect(
-    applyMixamoCrouchPose(runtime, { root: prepared.scene, directorSpace, bones }),
-  ).toBe(true);
+  expect(applyMixamoCrouchPose(runtime, { root: prepared.scene, directorSpace, bones })).toBe(true);
 
   const hipsAfter = worldPosition(bones.body!);
   expect(hipsBefore.y - hipsAfter.y).toBeGreaterThan(expectedDrop * 0.9);

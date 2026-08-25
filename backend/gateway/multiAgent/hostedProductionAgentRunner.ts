@@ -85,12 +85,7 @@ export class HostedProductionAgentRunner implements ProductionAgentRunner {
     this.sessions.get(sessionId)?.abort.abort(new DOMException("Production run cancelled", "AbortError"));
   }
 
-  async sendMessage(
-    sessionId: string,
-    prompt: string,
-    _project: DirectorProject | undefined,
-    _target: unknown,
-  ) {
+  async sendMessage(sessionId: string, prompt: string, _project: DirectorProject | undefined, _target: unknown) {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Unknown production session ${sessionId}`);
     if (session.provider !== "api") {

@@ -40,6 +40,14 @@ RNA_TARGET_KIND_ALLOWLIST = {
 _OPERATOR_ID = re.compile(r"^([a-z][a-z0-9_]*)\.[a-z][a-z0-9_]*$", re.IGNORECASE)
 _RNA_PATH_DENY = re.compile(r"^(library|script|expression)$", re.IGNORECASE)
 
+# Typed modeling surfaces (geometry-node and modifier properties) never take
+# file-system paths, so path-like names are denied by name before any RNA
+# lookup. set_rna_property keeps the narrower _RNA_PATH_DENY: explicit render
+# output filepaths stay writable there (see blenderKernel.test.ts).
+_TYPED_PROPERTY_DENY = re.compile(
+    r"^(library|script|expression|filepath|filename|directory)$", re.IGNORECASE
+)
+
 
 def operator_category(identifier: str) -> str | None:
     match = _OPERATOR_ID.match(identifier.strip())

@@ -132,9 +132,7 @@ describe("Blender geometry modifier input ops", () => {
       modifierName: "WorldEngine Geometry",
       nodeGroupName: "Agent Shared Cone",
     });
-    expect(() =>
-      parseOperation({ op: "assign_geometry_node_group", id: "geo-cube", nodeGroupName: "  " }),
-    ).toThrow();
+    expect(() => parseOperation({ op: "assign_geometry_node_group", id: "geo-cube", nodeGroupName: "  " })).toThrow();
   });
 
   it("registers both ops as typed kernel operations", () => {
@@ -147,9 +145,7 @@ describe("Blender geometry modifier input ops", () => {
       objectId: "geo-cube",
       modifierName: "WorldEngine Geometry",
       nodeGroupName: "Cube Geometry",
-      modifierInputs: [
-        { identifier: "Socket_2", name: "Level", socketType: "NodeSocketInt", value: 2 },
-      ],
+      modifierInputs: [{ identifier: "Socket_2", name: "Level", socketType: "NodeSocketInt", value: 2 }],
       nodes: [
         {
           nodeRef: "math",
@@ -192,13 +188,7 @@ describe("Blender parameterized primitives", () => {
   });
 
   it("rejects out-of-bounds and non-integer values", () => {
-    for (const extras of [
-      { segments: 2 },
-      { segments: 257 },
-      { segments: 12.5 },
-      { rings: 2 },
-      { rings: 129 },
-    ]) {
+    for (const extras of [{ segments: 2 }, { segments: 257 }, { segments: 12.5 }, { rings: 2 }, { rings: 129 }]) {
       expect(() =>
         parseOperation({
           op: "create_primitive",
@@ -212,9 +202,7 @@ describe("Blender parameterized primitives", () => {
 
   it("accepts the uv_sphere and ico_sphere primitive names", () => {
     for (const primitive of ["uv_sphere", "ico_sphere"]) {
-      expect(
-        parseOperation({ op: "create_primitive", id: "p-a", primitive }),
-      ).toMatchObject({ primitive });
+      expect(parseOperation({ op: "create_primitive", id: "p-a", primitive })).toMatchObject({ primitive });
     }
   });
 });

@@ -1,4 +1,8 @@
-import { degreesToRadians, getBodyTypePoseLimit, getRotationFromControls } from "../../../../../src/comprehensive/editor/runtime/mannequin/mannequinPose";
+import {
+  degreesToRadians,
+  getBodyTypePoseLimit,
+  getRotationFromControls,
+} from "../../../../../src/comprehensive/editor/runtime/mannequin/mannequinPose";
 
 it("converts degrees to radians", () => {
   expect(degreesToRadians(180)).toBeCloseTo(Math.PI);

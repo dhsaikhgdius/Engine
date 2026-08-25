@@ -3,11 +3,17 @@ import { useState, type ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
 import { useTimelineRuntimeStore } from "../../../../src/comprehensive/editor/runtime/timelineRuntimeStore";
-import { DirectorTimelineDock, type DirectorTimelineExportResult } from "../../../../src/comprehensive/editor/timeline/DirectorTimelineDock";
+import {
+  DirectorTimelineDock,
+  type DirectorTimelineExportResult,
+} from "../../../../src/comprehensive/editor/timeline/DirectorTimelineDock";
 import { createTimelineRecordingSettings } from "../../../../src/comprehensive/editor/timeline/timelineRecording";
 import { getEffectiveTimelineEndFrame } from "../../../../src/comprehensive/editor/timeline/frameTimeline";
 import { formatDirectorTimelineTimecode } from "../../../../src/comprehensive/editor/timeline/timecode";
-import { MIN_TIMELINE_HEIGHT, TIMELINE_COLLAPSE_OVERDRAG_PX } from "../../../../src/comprehensive/app/layout/workspaceLayout";
+import {
+  MIN_TIMELINE_HEIGHT,
+  TIMELINE_COLLAPSE_OVERDRAG_PX,
+} from "../../../../src/comprehensive/app/layout/workspaceLayout";
 
 function prepareProject() {
   const initial = createInitialDirectorState();

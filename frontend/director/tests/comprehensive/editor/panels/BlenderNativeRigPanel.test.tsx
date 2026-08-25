@@ -29,7 +29,10 @@ vi.mock("../../../../src/comprehensive/editor/api/blenderLiveClient", async (imp
 
 import { BlenderLiveClientError } from "../../../../src/comprehensive/editor/api/blenderLiveClient";
 import { useBlenderRuntimeStore } from "../../../../src/comprehensive/editor/runtime/blenderRuntimeStore";
-import { createDefaultDirectorProject, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
+import {
+  createDefaultDirectorProject,
+  useDirectorStore,
+} from "../../../../src/comprehensive/editor/store/directorStore";
 import { BlenderNativeRigPanel } from "../../../../src/comprehensive/editor/panels/BlenderNativeRigPanel";
 
 const sceneEpoch = "48b0d9b3-2bf8-46a7-8832-909d816369e2";

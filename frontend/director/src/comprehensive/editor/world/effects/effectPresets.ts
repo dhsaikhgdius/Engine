@@ -320,6 +320,7 @@ const scaleWithIntensity = (atFull: number, intensity: number): number => 1 + (a
  * {@link getWeatherPrecipitationPlan} exactly (locked by tests).
  */
 export function getClimatePrecipitationPlan(climate: {
+  intensity: number;
   rainLevel: number;
   snowLevel: number;
   stormFactor: number;
@@ -330,12 +331,19 @@ export function getClimatePrecipitationPlan(climate: {
   if (rain <= 0 && snow <= 0) return null;
   let plan: WeatherPrecipitationPlan;
   if (rain >= snow) {
-    const densityMultiplier = storm >= 1 ? STORM_DENSITY_MULTIPLIER : 1 + (STORM_DENSITY_MULTIPLIER - 1) * storm;
+    const densityMultiplier = 1 + (STORM_DENSITY_MULTIPLIER - 1) * storm;
+    // Storm handling multipliers relax with both storm-ness and the authored
+    // intensity so a static storm reproduces the legacy plan exactly while
+    // evolving transitions ramp continuously.
+    const intensity = Math.min(1, Math.max(0, Number.isFinite(climate.intensity) ? climate.intensity : 0));
+    const stormIntensity = storm * intensity;
     plan = {
       kind: "rain",
       count: Math.round(EFFECT_PRESETS.rain.baseCount * densityMultiplier * rain),
-      windMultiplier: storm >= 1 ? STORM_WIND_MULTIPLIER : 1 + (STORM_WIND_MULTIPLIER - 1) * storm,
-      speedMultiplier: storm >= 1 ? STORM_SPEED_MULTIPLIER : 1 + (STORM_SPEED_MULTIPLIER - 1) * storm,
+      windMultiplier: scaleWithIntensity(STORM_WIND_MULTIPLIER, stormIntensity),
+      speedMultiplier: scaleWithIntensity(STORM_SPEED_MULTIPLIER, stormIntensity),
+      sizeMultiplier: scaleWithIntensity(STORM_SIZE_MULTIPLIER, stormIntensity),
+      splashFraction: RAIN_SPLASH_FRACTION + (STORM_SPLASH_FRACTION - RAIN_SPLASH_FRACTION) * storm,
     };
   } else {
     plan = {
@@ -343,6 +351,8 @@ export function getClimatePrecipitationPlan(climate: {
       count: Math.round(EFFECT_PRESETS.snow.baseCount * snow),
       windMultiplier: 1,
       speedMultiplier: 1,
+      sizeMultiplier: 1,
+      splashFraction: 0,
     };
   }
   if (plan.count <= 0) return null;

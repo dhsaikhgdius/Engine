@@ -252,7 +252,9 @@ describe("VideoGenerationService", () => {
       success: true,
       result: {
         expanded_prompt: null,
-        warnings: expect.arrayContaining([expect.stringContaining("Prompt expansion failed (writer endpoint unreachable)")]),
+        warnings: expect.arrayContaining([
+          expect.stringContaining("Prompt expansion failed (writer endpoint unreachable)"),
+        ]),
       },
     });
     expect(provider.requests[0]).toMatchObject({

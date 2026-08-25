@@ -1,6 +1,11 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DIRECTOR_DOCS_URL, showDirectorWelcomeGuide, WELCOME_GUIDE_STORAGE_KEY, WelcomeGuide } from "../../../../src/comprehensive/app/welcome/WelcomeGuide";
+import {
+  DIRECTOR_DOCS_URL,
+  showDirectorWelcomeGuide,
+  WELCOME_GUIDE_STORAGE_KEY,
+  WelcomeGuide,
+} from "../../../../src/comprehensive/app/welcome/WelcomeGuide";
 
 describe("WelcomeGuide", () => {
   beforeEach(() => {

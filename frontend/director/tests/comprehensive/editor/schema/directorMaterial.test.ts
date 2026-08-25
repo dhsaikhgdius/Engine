@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { mergeDirectorPbrMaterial, resolveDirectorPbrMaterial } from "../../../../src/comprehensive/editor/schema/directorMaterial";
+import {
+  mergeDirectorPbrMaterial,
+  resolveDirectorPbrMaterial,
+} from "../../../../src/comprehensive/editor/schema/directorMaterial";
 
 describe("Director PBR material", () => {
   it("keeps legacy object colors while supplying deterministic PBR defaults", () => {

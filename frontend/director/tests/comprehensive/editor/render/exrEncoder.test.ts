@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { encodeExrDepth, encodeExrMotionFlow, encodeExrRgbaHalf, floatToHalfBits } from "../../../../src/comprehensive/editor/render/exrEncoder";
+import {
+  encodeExrDepth,
+  encodeExrMotionFlow,
+  encodeExrRgbaHalf,
+  floatToHalfBits,
+} from "../../../../src/comprehensive/editor/render/exrEncoder";
 
 /**
  * Minimal hand-rolled OpenEXR reader covering exactly the writer's scope:

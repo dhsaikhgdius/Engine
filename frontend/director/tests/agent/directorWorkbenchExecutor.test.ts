@@ -36,6 +36,35 @@ function catalogPropActions(id: string, name: string, extra: Record<string, unkn
   ];
 }
 
+/**
+ * Public-wire authoring rejects `geometry_type` (white-box stays a clay look,
+ * not Stage boxes), so tests instance a project asset instead: one
+ * `upsert_asset` plus an `add_object` bound to it.
+ */
+function assetInstanceActions(objectId: string, name: string, extras: Record<string, unknown> = {}) {
+  const assetId = `asset-${objectId}`;
+  return [
+    {
+      action: "upsert_asset" as const,
+      asset: {
+        id: assetId,
+        kind: "prop" as const,
+        sourceType: "model" as const,
+        fileName: `${objectId}.glb`,
+        url: `https://assets.example.test/${objectId}.glb`,
+      },
+    },
+    {
+      action: "add_object" as const,
+      id: objectId,
+      name,
+      kind: "prop" as const,
+      asset_id: assetId,
+      ...extras,
+    },
+  ];
+}
+
 describe("Director workbench executor", () => {
   beforeEach(() => {
     const values = new Map<string, string>();
@@ -1357,6 +1386,10 @@ describe("Director workbench executor", () => {
   });
 
   it("applies a validated project patch as an undoable edit", () => {
+    executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
+      op: "author",
+      actions: [assetInstanceActions("agent-box", "Agent Box")[0]!],
+    });
     const execution = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "patch",
       patches: [

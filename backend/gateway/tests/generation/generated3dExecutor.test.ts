@@ -140,12 +140,11 @@ describe("Generated3DExecutor", () => {
     const registry = { get: () => localProvider, capabilities: () => [localProvider.capability] };
     const jobs = new ProductionJobStore(directory);
     const sources = new Generated3DSourceStore(directory);
-    const executor = new Generated3DExecutor(
-      jobs,
-      registry as unknown as Generated3DProviderRegistry,
-      sources,
-      { fetchImpl: fetchImpl as unknown as typeof fetch, pollIntervalMs: 1, timeoutMs: 1_000 },
-    );
+    const executor = new Generated3DExecutor(jobs, registry as unknown as Generated3DProviderRegistry, sources, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      pollIntervalMs: 1,
+      timeoutMs: 1_000,
+    });
     const job = await jobs.enqueue({
       kind: "model.generate",
       input: {

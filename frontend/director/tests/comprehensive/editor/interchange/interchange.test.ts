@@ -186,10 +186,7 @@ describe("Director professional interchange fixtures", () => {
     const bulky = await zip.generateAsync({ type: "uint8array" });
 
     const imported = await importDirectorProjectFromOtioz(bulky);
-    expect(imported.project.storyboard?.shots.map((shot) => shot.id)).toEqual([
-      "shot-opening-001",
-      "shot-detail-002",
-    ]);
+    expect(imported.project.storyboard?.shots.map((shot) => shot.id)).toEqual(["shot-opening-001", "shot-detail-002"]);
   });
 
   it("imports external glTF metadata and round-trips GLB with native coordinates and stable IDs", async () => {

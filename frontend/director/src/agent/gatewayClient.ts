@@ -49,8 +49,11 @@ import {
   stageSceneToDirectorProject,
   stageAspectToDirectorAspect,
 } from "@director/agent-engine/stage-adapter";
-import { executeDirectorSessionWorkbenchOperation,
-  executeDirectorWorkbenchOperation, type DirectorWorkbenchExecution } from "./directorWorkbenchExecutor";
+import {
+  executeDirectorSessionWorkbenchOperation,
+  executeDirectorWorkbenchOperation,
+  type DirectorWorkbenchExecution,
+} from "./directorWorkbenchExecutor";
 import {
   DIRECTOR_WORKBENCH_CONTRACT_FINGERPRINT,
   parseDirectorWorkbenchExecutableInput,
@@ -1068,9 +1071,7 @@ async function connectSocket() {
                         cleanPlate: true,
                         width: evidence.width,
                         height: evidence.height,
-                        ...(evidence.depth_of_field === undefined
-                          ? {}
-                          : { depthOfField: evidence.depth_of_field }),
+                        ...(evidence.depth_of_field === undefined ? {} : { depthOfField: evidence.depth_of_field }),
                         signal,
                         waitForHandlerMs: 2_000,
                       }),

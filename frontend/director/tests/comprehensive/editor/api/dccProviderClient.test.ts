@@ -2,7 +2,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { DirectorDccProviderStatus } from "../../../../src/dcc/directorDccProviderContract";
 
 const transport = vi.hoisted(() => ({ fetch: vi.fn() }));
-vi.mock("../../../../src/comprehensive/editor/api/directorControlPlaneClient", () => ({ directorControlPlaneFetch: transport.fetch }));
+vi.mock("../../../../src/comprehensive/editor/api/directorControlPlaneClient", () => ({
+  directorControlPlaneFetch: transport.fetch,
+}));
 
 import {
   DirectorDccProviderClientError,

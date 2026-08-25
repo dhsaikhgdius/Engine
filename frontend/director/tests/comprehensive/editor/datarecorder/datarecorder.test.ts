@@ -48,6 +48,16 @@ function recordScriptedSession() {
       actions: [
         { action: "upsert_asset", asset: getDirectorAgentCatalogAsset("flick:animals:cat.glb")!.asset },
         {
+          action: "upsert_asset",
+          asset: {
+            id: "asset-recorder-box",
+            kind: "prop",
+            sourceType: "model",
+            fileName: "recorder-box.glb",
+            url: "https://assets.example.test/recorder-box.glb",
+          },
+        },
+        {
           action: "add_object",
           id: "recorder_box",
           name: "Recorder Box",

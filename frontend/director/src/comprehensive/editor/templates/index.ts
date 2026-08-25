@@ -1,7 +1,4 @@
-import {
-  createMixamoCharacterAssetRef,
-  getMixamoCharacterCatalogItem,
-} from "../modelLibrary/mixamoCharacterCatalog";
+import { createMixamoCharacterAssetRef, getMixamoCharacterCatalogItem } from "../modelLibrary/mixamoCharacterCatalog";
 import type { DirectorAssetRef, DirectorProject } from "../schema/directorProject";
 import { parseDirectorProject } from "../schema/directorProjectSchema";
 import dialogueTwoCharactersJson from "./dialogueTwoCharacters.json";

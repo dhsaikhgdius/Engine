@@ -12,7 +12,10 @@ vi.mock("../../../../src/comprehensive/editor/api/blenderLiveClient", () => ({
   uploadBlenderModelAsset: loaderMocks.uploadBlenderModelAsset,
 }));
 
-import { estimateLocalModelSizeM, readLocalModelFile } from "../../../../src/comprehensive/editor/loaders/localModelImport";
+import {
+  estimateLocalModelSizeM,
+  readLocalModelFile,
+} from "../../../../src/comprehensive/editor/loaders/localModelImport";
 
 beforeEach(() => {
   vi.clearAllMocks();

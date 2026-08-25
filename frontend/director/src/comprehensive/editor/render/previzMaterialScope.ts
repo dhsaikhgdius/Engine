@@ -146,11 +146,7 @@ function isShaderMaterial(material: Material | undefined) {
 export function isDirectorPrevizColorLeakObject(object: Object3D): boolean {
   const candidate = object as PrevizColorLeakObject;
   return Boolean(
-    candidate.isPoints ||
-      candidate.isLine ||
-      candidate.isSprite ||
-      candidate.isSplatMesh ||
-      candidate.isSparkRenderer,
+    candidate.isPoints || candidate.isLine || candidate.isSprite || candidate.isSplatMesh || candidate.isSparkRenderer,
   );
 }
 

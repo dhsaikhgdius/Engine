@@ -2,7 +2,12 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { MinimaxH3Provider, minimaxH3Duration, minimaxH3Ratio, minimaxH3Resolution } from "../../../video/providers/minimaxH3Provider";
+import {
+  MinimaxH3Provider,
+  minimaxH3Duration,
+  minimaxH3Ratio,
+  minimaxH3Resolution,
+} from "../../../video/providers/minimaxH3Provider";
 import { VideoProviderHttpError } from "../../../video/providers/videoProvider";
 
 function jsonResponse(value: unknown, status = 200) {

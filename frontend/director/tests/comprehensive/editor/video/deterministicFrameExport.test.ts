@@ -77,7 +77,15 @@ function rgbaPng(width: number, height: number, pixels: Uint8Array): Uint8Array 
   }
   const idat = new Uint8Array(7 + raw.byteLength + 4);
   idat.set(
-    [0x78, 0x01, 0x01, raw.byteLength & 0xff, (raw.byteLength >>> 8) & 0xff, ~raw.byteLength & 0xff, (~raw.byteLength >>> 8) & 0xff],
+    [
+      0x78,
+      0x01,
+      0x01,
+      raw.byteLength & 0xff,
+      (raw.byteLength >>> 8) & 0xff,
+      ~raw.byteLength & 0xff,
+      (~raw.byteLength >>> 8) & 0xff,
+    ],
     0,
   );
   idat.set(raw, 7);

@@ -294,11 +294,7 @@ function hsvToRgbBytes(hueDegrees: number, saturation: number, value: number): [
               ? [secondary, 0, chroma]
               : [chroma, 0, secondary];
   const minimum = value - chroma;
-  return [
-    Math.round((red + minimum) * 255),
-    Math.round((green + minimum) * 255),
-    Math.round((blue + minimum) * 255),
-  ];
+  return [Math.round((red + minimum) * 255), Math.round((green + minimum) * 255), Math.round((blue + minimum) * 255)];
 }
 
 /**
@@ -368,7 +364,9 @@ export function composeDirectorMotionVectorPass({
   assertRaster(width, "Motion pass width");
   assertRaster(height, "Motion pass height");
   if (objectIdRgba.byteLength !== width * height * 4) {
-    throw new Error(`Motion pass object-id buffer is ${objectIdRgba.byteLength} bytes; expected ${width * height * 4}.`);
+    throw new Error(
+      `Motion pass object-id buffer is ${objectIdRgba.byteLength} bytes; expected ${width * height * 4}.`,
+    );
   }
   const maxMagnitudePx = getDirectorMotionMaxMagnitudePx(width, height, magnitudeDiagonalFraction);
 

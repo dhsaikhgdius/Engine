@@ -129,7 +129,10 @@ export async function handleSceneGenerationRoute(
     });
     return true;
   } catch (err) {
-    json(response, 500, { error: "Scene generation failed", detail: err instanceof Error ? err.message : String(err) });
+    json(response, 500, {
+      error: "Scene generation failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
     return true;
   }
 }

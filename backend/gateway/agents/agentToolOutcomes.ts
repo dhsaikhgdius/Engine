@@ -86,9 +86,7 @@ export function collectDirectorAgentOutcomes(envelope: Record<string, unknown>):
   const timedOut = Boolean(code && TIMEOUT_CODES.has(code));
   const unknown = Boolean(code && UNKNOWN_CODES.has(code));
   const stale =
-    Boolean(code && STALE_CODES.has(code)) ||
-    inner?.replay_stale === true ||
-    inner?.stale_after_capture === true;
+    Boolean(code && STALE_CODES.has(code)) || inner?.replay_stale === true || inner?.stale_after_capture === true;
   const completed = success || hasCompletedEvidence(envelope);
   const outcomes: DirectorAgentOutcome[] = [];
 
@@ -100,7 +98,11 @@ export function collectDirectorAgentOutcomes(envelope: Record<string, unknown>):
       kind: "stale_revision",
       code: code && STALE_CODES.has(code) ? code : "stale_project_revision",
       detail:
-        inner?.stale_after_capture === true ? "stale_after_capture" : inner?.replay_stale === true ? "replay_stale" : null,
+        inner?.stale_after_capture === true
+          ? "stale_after_capture"
+          : inner?.replay_stale === true
+            ? "replay_stale"
+            : null,
     });
   }
   // Fallback: if nothing else matched, mark as failed.
@@ -119,6 +121,8 @@ export function collectDirectorAgentOutcomes(envelope: Record<string, unknown>):
  * @param envelope - The raw tool result envelope.
  * @returns A shallow copy of the envelope with an `outcomes` array appended.
  */
-export function attachDirectorAgentOutcomes<T extends Record<string, unknown>>(envelope: T): T & { outcomes: DirectorAgentOutcome[] } {
+export function attachDirectorAgentOutcomes<T extends Record<string, unknown>>(
+  envelope: T,
+): T & { outcomes: DirectorAgentOutcome[] } {
   return { ...envelope, outcomes: collectDirectorAgentOutcomes(envelope) };
 }

@@ -147,8 +147,11 @@ describePlanApply("agent plan apply guard injection", () => {
       headers: { "content-type": "application/json", "x-director-browser-token": GATEWAY_TOKEN },
       body: JSON.stringify({ agent: "codex", message }),
     });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { plan: { id: string; operations: Array<{ id: string }> } };
+    const raw = await response.text();
+    // Include the body in the failure message so planner-side errors (which
+    // surface as non-200 JSON) are diagnosable from the assertion alone.
+    expect({ status: response.status, body: response.ok ? "ok" : raw }).toEqual({ status: 200, body: "ok" });
+    const body = JSON.parse(raw) as { plan: { id: string; operations: Array<{ id: string }> } };
     return body.plan;
   };
 
@@ -166,7 +169,11 @@ describePlanApply("agent plan apply guard injection", () => {
     const fakePlanner = `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
-const prompt = args.at(-1) || "";
+// Real codex reads the prompt from stdin when the positional argument is "-";
+// the gateway must use that form because the prompt can exceed the OS
+// single-argument limit (E2BIG).
+const positional = args.at(-1) || "";
+const prompt = positional === "-" ? fs.readFileSync(0, "utf8") : positional;
 const outputIndex = args.indexOf("--output-last-message");
 const outputPath = outputIndex >= 0 ? args[outputIndex + 1] : null;
 const emit = (plan) => {

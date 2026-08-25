@@ -5,10 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentEvent } from "@director/agent-engine";
-import type {
-  CreateProductionRunRequest,
-  ProductionRun,
-} from "@director/agent-engine";
+import type { CreateProductionRunRequest, ProductionRun } from "@director/agent-engine";
 import type { FilmRoleId } from "../../../../packages/protocol/src/filmProductionProtocol";
 import { MultiAgentRunStore } from "../../multiAgent/multiAgentRunStore";
 import {

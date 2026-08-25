@@ -1,6 +1,9 @@
 import { expect, it } from "vitest";
 import type { DirectorObject } from "../../../../src/comprehensive/editor/schema/directorProject";
-import { getDirectorMeasurementDistance, resolveDirectorSceneAnchor } from "../../../../src/comprehensive/editor/canvas/sceneOverlays";
+import {
+  getDirectorMeasurementDistance,
+  resolveDirectorSceneAnchor,
+} from "../../../../src/comprehensive/editor/canvas/sceneOverlays";
 
 it("resolves object-local annotation and measurement anchors through scale, rotation, and translation", () => {
   const object = {

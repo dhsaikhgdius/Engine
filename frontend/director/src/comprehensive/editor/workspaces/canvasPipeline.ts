@@ -268,8 +268,11 @@ function nodeRequestFingerprint(input: {
   nodeById: ReadonlyMap<string, DirectorBoardNode>;
   workflowId: string;
 }) {
-  const { nodeIds: _executionNodeIds, workflowId: _configuredWorkflowId, ...requestConfig } =
-    getDirectorCanvasNodeProductionConfig(input.node);
+  const {
+    nodeIds: _executionNodeIds,
+    workflowId: _configuredWorkflowId,
+    ...requestConfig
+  } = getDirectorCanvasNodeProductionConfig(input.node);
   return `sha256:${sha256HexSync(
     JSON.stringify({
       nodeId: input.node.id,

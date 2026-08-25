@@ -1,5 +1,8 @@
 import { parseProject } from "../../../../src/comprehensive/editor/io/importProjectJson";
-import { buildScreenshotMeta, filterVisibleObjectIdColors } from "../../../../src/comprehensive/editor/io/screenshotExport";
+import {
+  buildScreenshotMeta,
+  filterVisibleObjectIdColors,
+} from "../../../../src/comprehensive/editor/io/screenshotExport";
 import { serializeProject } from "../../../../src/comprehensive/editor/io/exportProjectJson";
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
 

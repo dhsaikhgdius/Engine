@@ -81,13 +81,7 @@ function materialStateFromGraph(graph: BlenderMaterialGraph | undefined): Materi
  * @param mode - 面板模式：material 或 uv。
  * @param onApply - 应用操作的回调。
  */
-export function BlenderMaterialEditor({
-  activeMeshId,
-  busy,
-  inspection,
-  mode,
-  onApply,
-}: BlenderMaterialEditorProps) {
+export function BlenderMaterialEditor({ activeMeshId, busy, inspection, mode, onApply }: BlenderMaterialEditorProps) {
   const { t } = useLanguage();
   const materialNames = useMemo(
     () =>

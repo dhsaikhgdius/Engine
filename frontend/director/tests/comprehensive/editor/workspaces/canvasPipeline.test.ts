@@ -11,8 +11,14 @@ import {
   productionJobRecordSchema,
   type ProductionJobRecord,
 } from "../../../../../../packages/protocol/src/productionJobProtocol";
-import { getDirectorCanvasGraphFingerprint, startDirectorCanvasPipeline } from "../../../../src/comprehensive/editor/workspaces/canvasPipeline";
-import { useDirectorCreativeWorkspaceStore, type DirectorBoardNode } from "../../../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
+import {
+  getDirectorCanvasGraphFingerprint,
+  startDirectorCanvasPipeline,
+} from "../../../../src/comprehensive/editor/workspaces/canvasPipeline";
+import {
+  useDirectorCreativeWorkspaceStore,
+  type DirectorBoardNode,
+} from "../../../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
 
 const now = "2026-08-07T00:00:00.000Z";
 const executionNode = comfyNodeSnapshotSchema.parse({

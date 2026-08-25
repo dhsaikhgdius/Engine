@@ -54,10 +54,7 @@ describe("object tree name hierarchy", () => {
   });
 
   it("nests dotted children under an existing parent object instead of a virtual folder", () => {
-    const nested = nestSceneTreeItemsByName(
-      [item("wall", "东围墙"), item("trim", "东围墙·顶沿")],
-      "geometry",
-    );
+    const nested = nestSceneTreeItemsByName([item("wall", "东围墙"), item("trim", "东围墙·顶沿")], "geometry");
 
     expect(nested).toHaveLength(1);
     expect(nested[0]).toMatchObject({

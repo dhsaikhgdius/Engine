@@ -137,7 +137,7 @@ def _coerced_property_value(modifier: bpy.types.Modifier, prop, value: Any) -> A
 
 def _apply_properties(modifier: bpy.types.Modifier, properties: dict[str, Any]) -> None:
     for key, value in properties.items():
-        if kernel_policy._RNA_PATH_DENY.match(key):
+        if kernel_policy._TYPED_PROPERTY_DENY.match(key):
             raise ValueError(
                 f"Blender modifier property is outside the Director modeling kernel: {modifier.type}.{key}"
             )

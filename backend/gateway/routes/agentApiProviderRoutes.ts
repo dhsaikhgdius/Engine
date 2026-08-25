@@ -64,8 +64,14 @@ export async function handleAgentApiProviderRoute(
   url: URL,
   dependencies: AgentApiProviderRouteDependencies,
 ): Promise<boolean> {
-  const { readBody, json, store, environmentProfiles, applyHostedProfiles, fetchModels = fetchHostedAgentModels } =
-    dependencies;
+  const {
+    readBody,
+    json,
+    store,
+    environmentProfiles,
+    applyHostedProfiles,
+    fetchModels = fetchHostedAgentModels,
+  } = dependencies;
 
   if (request.method === "GET" && url.pathname === "/api/agent/api-providers") {
     json(response, 200, { providers: store.listPublic() });
@@ -94,7 +100,8 @@ export async function handleAgentApiProviderRoute(
       json(response, 400, { error: "拉取模型参数无效", code: "invalid_request" });
       return true;
     }
-    const apiKey = parsed.data.apiKey?.trim() || (parsed.data.providerId ? store.getApiKey(parsed.data.providerId) : undefined);
+    const apiKey =
+      parsed.data.apiKey?.trim() || (parsed.data.providerId ? store.getApiKey(parsed.data.providerId) : undefined);
     try {
       const models = await fetchModels({
         driver: parsed.data.driver,

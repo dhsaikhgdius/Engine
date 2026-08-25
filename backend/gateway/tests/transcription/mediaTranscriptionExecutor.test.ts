@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { directorMediaTranscriptSchema } from "../../../../packages/protocol/src/mediaTranscriptionProtocol";
 import { ProductionJobStore } from "../../jobs/productionJobStore";
-import { MediaTranscriptionExecutor, type MediaTranscriptionExecutorOptions } from "../../transcription/mediaTranscriptionExecutor";
+import {
+  MediaTranscriptionExecutor,
+  type MediaTranscriptionExecutorOptions,
+} from "../../transcription/mediaTranscriptionExecutor";
 import { MediaTranscriptionInputStore } from "../../transcription/mediaTranscriptionInputStore";
 
 const directories: string[] = [];

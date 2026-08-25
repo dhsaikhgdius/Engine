@@ -2,7 +2,10 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { DirectorMediaItem } from "../../../../src/comprehensive/editor/workspaces/directorMediaLibrary";
-import { DIRECTOR_MEDIA_DRAG_TYPE, useDirectorCreativeWorkspaceStore } from "../../../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
+import {
+  DIRECTOR_MEDIA_DRAG_TYPE,
+  useDirectorCreativeWorkspaceStore,
+} from "../../../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
 import { CreativeMediaBrowser } from "../../../../src/comprehensive/editor/workspaces/CreativeMediaBrowser";
 
 const mediaItems: DirectorMediaItem[] = [

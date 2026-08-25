@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { assetCatalogItemSchema, assetCatalogLibrarySchema, flickMetadataOverlaySchema } from "../src/assetCatalogProtocol";
+import {
+  assetCatalogItemSchema,
+  assetCatalogLibrarySchema,
+  flickMetadataOverlaySchema,
+} from "../src/assetCatalogProtocol";
 
 const validItem = {
   id: "model-library:atm",

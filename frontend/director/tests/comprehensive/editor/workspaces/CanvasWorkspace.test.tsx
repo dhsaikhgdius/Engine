@@ -27,7 +27,8 @@ const pipelineRuntimeMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../../src/comprehensive/editor/workspaces/directorMediaLibrary", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../src/comprehensive/editor/workspaces/directorMediaLibrary")>();
+  const actual =
+    await importOriginal<typeof import("../../../../src/comprehensive/editor/workspaces/directorMediaLibrary")>();
   return {
     ...actual,
     persistDirectorMediaItem: mediaLibraryMock.persist,
@@ -37,7 +38,8 @@ vi.mock("../../../../src/comprehensive/editor/workspaces/directorMediaLibrary", 
 });
 
 vi.mock("../../../../src/comprehensive/editor/workspaces/canvasPipeline", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../src/comprehensive/editor/workspaces/canvasPipeline")>();
+  const actual =
+    await importOriginal<typeof import("../../../../src/comprehensive/editor/workspaces/canvasPipeline")>();
   return {
     ...actual,
     getActiveDirectorCanvasPipelineHandle: canvasProductionMocks.activePipeline,
@@ -50,7 +52,8 @@ vi.mock("../../../../src/comprehensive/editor/workspaces/canvasTimelineBridge", 
 }));
 
 vi.mock("../../../../src/comprehensive/editor/workspaces/galleryGenerationBridge", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../src/comprehensive/editor/workspaces/galleryGenerationBridge")>();
+  const actual =
+    await importOriginal<typeof import("../../../../src/comprehensive/editor/workspaces/galleryGenerationBridge")>();
   return {
     ...actual,
     listComfyGenerationNodes: pipelineRuntimeMocks.listNodes,

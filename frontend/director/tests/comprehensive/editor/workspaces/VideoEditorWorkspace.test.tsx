@@ -30,7 +30,8 @@ vi.mock("../../../../src/comprehensive/i18n/language", () => ({
 }));
 
 vi.mock("../../../../src/comprehensive/editor/workspaces/directorMediaLibrary", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../../../../src/comprehensive/editor/workspaces/directorMediaLibrary")>();
+  const original =
+    await importOriginal<typeof import("../../../../src/comprehensive/editor/workspaces/directorMediaLibrary")>();
   return {
     ...original,
     persistDirectorMediaItem: mediaLibraryMock.persist,
@@ -43,7 +44,8 @@ vi.mock("../../../../src/comprehensive/editor/media/creativeMediaProbe", () => (
 }));
 
 vi.mock("../../../../src/comprehensive/editor/media/persistentCreativeMediaStore", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../src/comprehensive/editor/media/persistentCreativeMediaStore")>();
+  const actual =
+    await importOriginal<typeof import("../../../../src/comprehensive/editor/media/persistentCreativeMediaStore")>();
   return {
     ...actual,
     persistentCreativeMediaLibrary: {
@@ -59,7 +61,10 @@ vi.mock("../../../../src/comprehensive/editor/media/persistentCreativeMediaStore
 const exportVideoMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../src/comprehensive/editor/workspaces/directorTimelineVideoExport", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../src/comprehensive/editor/workspaces/directorTimelineVideoExport")>();
+  const actual =
+    await importOriginal<
+      typeof import("../../../../src/comprehensive/editor/workspaces/directorTimelineVideoExport")
+    >();
   return {
     ...actual,
     exportDirectorTimelineVideo: exportVideoMock,
@@ -69,7 +74,10 @@ vi.mock("../../../../src/comprehensive/editor/workspaces/directorTimelineVideoEx
 const workspaceRenderProbe = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../src/comprehensive/editor/workspaces/CreativeWorkspacePanelResizer", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../src/comprehensive/editor/workspaces/CreativeWorkspacePanelResizer")>();
+  const actual =
+    await importOriginal<
+      typeof import("../../../../src/comprehensive/editor/workspaces/CreativeWorkspacePanelResizer")
+    >();
   function CreativeWorkspacePanelResizer(props: Parameters<typeof actual.CreativeWorkspacePanelResizer>[0]) {
     if (props.panel === "media") workspaceRenderProbe();
     return actual.CreativeWorkspacePanelResizer(props);

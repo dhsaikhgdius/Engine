@@ -118,11 +118,16 @@ export function writeWorldSurfaceUniforms(
   climate?: WorldClimateState,
 ): void {
   if (climate?.evolving) {
-    uniforms.uWorldWetness.value = computeClimateSurfaceWetness(climate);
+    const wetness = computeClimateSurfaceWetness(climate);
+    uniforms.uWorldWetness.value = wetness;
     uniforms.uWorldSnowCover.value = computeClimateSnowCover(climate);
+    // Same wetness→puddle ramp as computeWorldPuddleAmount, driven by the
+    // integrated climate wetness so pooling follows the evolving downpour.
+    uniforms.uWorldPuddle.value = Math.min(1, Math.max(0, (wetness - 0.45) / 0.55));
   } else {
     uniforms.uWorldWetness.value = computeEffectiveWorldWetness(weather);
     uniforms.uWorldSnowCover.value = computeEffectiveWorldSnowCover(weather);
+    uniforms.uWorldPuddle.value = computeWorldPuddleAmount(weather);
   }
   const speed = Math.hypot(windX, windZ);
   const length = Math.max(speed, 1e-5);

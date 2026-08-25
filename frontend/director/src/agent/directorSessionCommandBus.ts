@@ -75,8 +75,7 @@ export function dispatchDirectorSessionCommand(
       resolve({
         requestId,
         ok: false,
-        error:
-          "No live Director Stage tab handled this session command. Keep a Stage viewport open and retry.",
+        error: "No live Director Stage tab handled this session command. Keep a Stage viewport open and retry.",
       });
     }, timeoutMs);
     pendingResults.set(requestId, { resolve, timer });
@@ -85,8 +84,7 @@ export function dispatchDirectorSessionCommand(
       publishDirectorSessionCommandResult({
         requestId,
         ok: false,
-        error:
-          "No live Director Stage tab is subscribed for Player/Pilot session commands. Open Stage and retry.",
+        error: "No live Director Stage tab is subscribed for Player/Pilot session commands. Open Stage and retry.",
       });
       return;
     }

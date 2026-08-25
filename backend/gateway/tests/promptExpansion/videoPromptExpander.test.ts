@@ -89,7 +89,7 @@ describe("VideoPromptExpander (minimax-h3 dialect)", () => {
           {
             start_time: null,
             description:
-              'Live-action, cinematic, a cramped restaurant kitchen at dinner rush; the head chef (S1) slams a pan and says: <d>[Chinese] 这单已经晚了十分钟！</d>',
+              "Live-action, cinematic, a cramped restaurant kitchen at dinner rush; the head chef (S1) slams a pan and says: <d>[Chinese] 这单已经晚了十分钟！</d>",
           },
           {
             start_time: "00:05.000",
@@ -177,9 +177,7 @@ describe("VideoPromptExpander (minimax-h3 dialect)", () => {
       provider: "minimax-h3",
       hasReferenceImage: true,
       scene: {
-        structure: [
-          { id: "chair-1", kind: "prop", name: "Chair", position: [1, 0, 2], scale: [1, 1, 1] },
-        ],
+        structure: [{ id: "chair-1", kind: "prop", name: "Chair", position: [1, 0, 2], scale: [1, 1, 1] }],
         cameraPlan: [
           {
             id: "cam-1",

@@ -7,7 +7,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const fiberMocks = vi.hoisted(() => ({ useFrame: vi.fn(), useThree: vi.fn() }));
 vi.mock("@react-three/fiber", () => fiberMocks);
 
-import { DirectorKeyboardController, applyDirectorViewLook, getDirectorLookIntent, getDirectorMovementIntent } from "../../../../src/comprehensive/editor/canvas/DirectorKeyboardController";
+import {
+  DirectorKeyboardController,
+  applyDirectorViewLook,
+  getDirectorLookIntent,
+  getDirectorMovementIntent,
+} from "../../../../src/comprehensive/editor/canvas/DirectorKeyboardController";
 
 let camera: PerspectiveCamera;
 let frame: (_state: unknown, delta: number) => void;
@@ -115,9 +120,7 @@ describe("DirectorKeyboardController", () => {
   });
 
   it("does not fly with WASD when move is disabled", () => {
-    render(
-      <DirectorKeyboardController active controlsRef={controlsRef} moveEnabled={false} moveSpeed={10} />,
-    );
+    render(<DirectorKeyboardController active controlsRef={controlsRef} moveEnabled={false} moveSpeed={10} />);
     fireEvent.keyDown(window, { code: "KeyW" });
     act(() => frame({}, 0.1));
     expect(camera.position).toEqual(new Vector3(0, 2, 5));

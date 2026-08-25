@@ -253,9 +253,9 @@ export class Generated3DExecutor {
       promptSha256: sha256(input.prompt),
       sourceImageSha256: input.sourceImage?.sha256 ?? null,
       completedAt: createdAt,
-      providerOutputHosts: [
-        ...new Set([new URL(snapshot.modelUrl).host, new URL(snapshot.thumbnailUrl).host]),
-      ].filter(Boolean),
+      providerOutputHosts: [...new Set([new URL(snapshot.modelUrl).host, new URL(snapshot.thumbnailUrl).host])].filter(
+        Boolean,
+      ),
       normalization: normalized.report,
       artifacts: [primary, thumbnailArtifact].map((artifact) => ({
         role: artifact.role,

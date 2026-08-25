@@ -62,7 +62,10 @@ import type {
 } from "../schema/directorProject";
 import { DIRECTOR_TRAJECTORY_PRESETS } from "../schema/directorProject";
 import { MANNEQUIN_POSE_PRESETS, resolveCharacterPoseControls } from "../presets/mannequinPosePresets";
-import { DIRECTOR_CHARACTER_MOTION_CATALOG, getDirectorCharacterMotion } from "@director/agent-engine/character-motions";
+import {
+  DIRECTOR_CHARACTER_MOTION_CATALOG,
+  getDirectorCharacterMotion,
+} from "@director/agent-engine/character-motions";
 import type { PosePresetId } from "../schema/poseSchema";
 import { useTimelineRuntimeStore } from "../runtime/timelineRuntimeStore";
 import { useDirectorStore } from "../store/directorStore";

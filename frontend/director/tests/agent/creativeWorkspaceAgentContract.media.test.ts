@@ -89,9 +89,9 @@ describe("creative workspace gallery purge and media.relink", () => {
         runtime,
       ),
     );
-    expect(useDirectorCreativeWorkspaceStore.getState().galleryMedia.some((record) => record.mediaId === POSTER.id)).toBe(
-      true,
-    );
+    expect(
+      useDirectorCreativeWorkspaceStore.getState().galleryMedia.some((record) => record.mediaId === POSTER.id),
+    ).toBe(true);
 
     expectSuccess(
       executeCreativeWorkspaceAgentOperation(
@@ -99,9 +99,9 @@ describe("creative workspace gallery purge and media.relink", () => {
         runtime,
       ),
     );
-    expect(useDirectorCreativeWorkspaceStore.getState().galleryMedia.some((record) => record.mediaId === POSTER.id)).toBe(
-      false,
-    );
+    expect(
+      useDirectorCreativeWorkspaceStore.getState().galleryMedia.some((record) => record.mediaId === POSTER.id),
+    ).toBe(false);
   });
 
   it("rejects purge when Canvas still references the media", () => {

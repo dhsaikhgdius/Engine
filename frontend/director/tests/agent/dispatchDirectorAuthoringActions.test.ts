@@ -7,10 +7,7 @@ import {
   type DirectorWorldRoad,
 } from "@director/project-schema";
 import type { DirectorCharacterMotionState } from "../../src/comprehensive/editor/schema/directorProject";
-import {
-  createInitialDirectorState,
-  useDirectorStore,
-} from "../../src/comprehensive/editor/store/directorStore";
+import { createInitialDirectorState, useDirectorStore } from "../../src/comprehensive/editor/store/directorStore";
 import {
   compileDirectorDeleteObjectActions,
   dispatchDirectorAuthoringActions,

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { friendlyErrorMessage, friendlyHttpStatusMessage, GATEWAY_UNREACHABLE_MESSAGE } from "../../../../src/comprehensive/editor/api/friendlyError";
+import {
+  friendlyErrorMessage,
+  friendlyHttpStatusMessage,
+  GATEWAY_UNREACHABLE_MESSAGE,
+} from "../../../../src/comprehensive/editor/api/friendlyError";
 
 describe("friendlyErrorMessage", () => {
   it("maps browser fetch/network failures to the gateway hint", () => {
@@ -35,9 +39,7 @@ describe("friendlyErrorMessage", () => {
   });
 
   it("prefixes unrecognized machine messages instead of hiding them", () => {
-    expect(friendlyErrorMessage(new Error("Unexpected token < in JSON"))).toBe(
-      "请求失败：Unexpected token < in JSON",
-    );
+    expect(friendlyErrorMessage(new Error("Unexpected token < in JSON"))).toBe("请求失败：Unexpected token < in JSON");
     expect(friendlyErrorMessage("boom")).toBe("请求失败：boom");
   });
 

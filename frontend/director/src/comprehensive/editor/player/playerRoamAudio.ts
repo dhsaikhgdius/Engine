@@ -7,10 +7,7 @@
  * unit-testable without an AudioContext (jsdom has none).
  */
 
-import {
-  isStageViewportAudioEnabled,
-  subscribeStageViewportAudio,
-} from "../audio/stageViewportAudio";
+import { isStageViewportAudioEnabled, subscribeStageViewportAudio } from "../audio/stageViewportAudio";
 
 const MASTER_GAIN = 0.22;
 const FOOTSTEP_NOISE_S = 0.085;

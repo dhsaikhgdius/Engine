@@ -16,7 +16,10 @@ import {
   withStaleAfterCapture,
 } from "../../src/agent/gatewayClient";
 import { parseDirectorWorkbenchExecutableInput } from "@director/agent-engine/contract";
-import { DirectorProjectRevisionConflictError, runWithDirectorProjectRevision } from "../../src/agent/directorRevisionBoundCapture";
+import {
+  DirectorProjectRevisionConflictError,
+  runWithDirectorProjectRevision,
+} from "../../src/agent/directorRevisionBoundCapture";
 
 afterEach(() => {
   setDirectorCreativeWorkspaceScope("");

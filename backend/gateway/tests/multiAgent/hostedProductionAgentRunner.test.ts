@@ -40,9 +40,7 @@ function hostedConfig(id = "api-default"): HostedAgentProfileConfig {
 function profiles(config = hostedConfig()): AgentProfileRegistry {
   return {
     get: (id: string) =>
-      id === config.id
-        ? { provider: "api" as const, hostedConfig: config, public: { id, available: true } }
-        : null,
+      id === config.id ? { provider: "api" as const, hostedConfig: config, public: { id, available: true } } : null,
   } as unknown as AgentProfileRegistry;
 }
 

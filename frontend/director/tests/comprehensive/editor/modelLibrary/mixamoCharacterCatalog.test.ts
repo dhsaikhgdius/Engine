@@ -3,8 +3,14 @@ import { resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { localAssetIt } from "../../../../../../packages/protocol/tests/localAssetTest";
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
-import { createModelLibraryDragPayload, parseModelLibraryDragData } from "../../../../src/comprehensive/editor/modelLibrary/modelLibraryDrag";
-import { filterModelLibraryItems, FLICK_STANDARD_CATEGORIES } from "../../../../src/comprehensive/editor/modelLibrary/modelLibraryCatalog";
+import {
+  createModelLibraryDragPayload,
+  parseModelLibraryDragData,
+} from "../../../../src/comprehensive/editor/modelLibrary/modelLibraryDrag";
+import {
+  filterModelLibraryItems,
+  FLICK_STANDARD_CATEGORIES,
+} from "../../../../src/comprehensive/editor/modelLibrary/modelLibraryCatalog";
 import {
   getDirectorCharacterAssetBindingIssues,
   loadLocalMixamoCharacterCatalog,

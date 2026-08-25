@@ -439,7 +439,8 @@ export async function requestViewportCapture(request: ViewportCaptureRequest) {
       ? acquireViewportCaptureHost()
       : null;
   if (!existing && !releaseHost) requestViewportCaptureHost();
-  const waitMs = !existing && requestedWait > 0 ? Math.max(requestedWait, VIEWPORT_CAPTURE_HOST_MOUNT_MS) : requestedWait;
+  const waitMs =
+    !existing && requestedWait > 0 ? Math.max(requestedWait, VIEWPORT_CAPTURE_HOST_MOUNT_MS) : requestedWait;
 
   try {
     const registration = existing ?? (await waitForViewportCaptureRegistration(waitMs, request.signal));
