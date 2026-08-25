@@ -6,7 +6,7 @@ description: Evaluate Director against the Builder.io agent-native architecture 
 This document evaluates Director against the framework in
 [Builder.io: Agent-Native — The Next Architecture for Software](https://www.builder.io/blog/agent-native-architecture#where-agent-native-fits-in-the-software-stack).
 
-Last verified: **2026-08-13**. Aligns with [Feature Status](/reference/feature-status/).
+Last verified: **2026-08-25**. Aligns with [Feature Status](/reference/feature-status/).
 
 Related docs:
 
@@ -52,15 +52,15 @@ Conclusion: Director is an **agent-native product architecture, not bolt-on AI**
 
 **Aligned:**
 
-- Core capabilities (scene authoring, cameras, characters, timeline, Canvas/Video, interchange export, collaboration observe/comment, audit/deliver) are reachable through MCP / HTTP / CLI
+- Core capabilities (scene authoring, cameras, characters, timeline, Canvas/Video, interchange export and import (`plan-import` / `import` with inline / media_id / workspace_path sources), collaboration reads/writes (comment resolve/reopen, version create/restore/delete), audit/deliver) are reachable through MCP / HTTP / CLI
 - DOM-coordinate automation is not a supported authoring contract ([Feature Status](/reference/feature-status/))
 - Agent results are inspectable in the UI (revision, diff, capture, receipts)
 
 **Gaps:**
 
 - **Interchange** and **Collaboration** are **partially** exposed as `director_creative` JSON operations. Shipped: interchange `capabilities` / `plan-export` / `export`; collaboration `observe` / `list-comments` / `add-comment` / `list-versions` / `compare`. Remaining: interchange **import** stays human-file-picker-only; collaboration **writes** still lack comment resolve and version create/restore
-- Most `directorStore` mutators (camera panel, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, storyboard) now route through `dispatchDirectorAuthoringActions` shared with Agent authoring; remaining direct-store paths are creation flows (asset drop, preset characters, crowds, camera shots), UI-only grouping (object lists, crowd labels), gizmo/slider drag batches, and the Canvas/Video stores
-- Viewport drag, pilot, and other interactive controls lack full semantic equivalents
+- Most `directorStore` mutators (camera panel, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, storyboard) now route through `dispatchDirectorAuthoringActions` shared with Agent authoring; remaining direct-store paths are creation flows (asset drop, preset characters, crowds, camera shots), UI-only grouping (object lists, crowd labels), gizmo/slider drag batches, and the Canvas/Video stores — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)
+- Viewport drag, pilot, and other interactive controls lack full semantic equivalents; slider/gizmo undo batches intentionally keep the lightweight direct writer
 
 **Rating: 3.5/5**
 
@@ -131,6 +131,7 @@ All control surfaces converge on the same gateway execution and validation layer
 | ------------- | -------------------------------------------- | --------------------------------------------------------------------------- |
 | **MCP**       | stdio server, structured output              | `backend/gateway/mcp-server.ts`, `integrations/plugins/director-workbench/` |
 | **HTTP**      | `POST /api/tools/{tool-name}`                | `backend/gateway/routes/stageRoutes.ts`                                     |
+| **Tool manifest** | `GET /api/control-plane/tool-manifest` (generated from Zod schemas) | `backend/gateway/controlPlane/toolManifest.ts`                        |
 | **WebSocket** | Browser target binding and command responses | `frontend/director/src/agent/gatewayClient.ts`, `backend/gateway/agent-gateway.ts` |
 | **CLI**       | `npm run stage --`                           | [Control surfaces](/agents/control-surfaces/)                               |
 
@@ -144,21 +145,21 @@ MCP tools forward to the gateway without duplicating business logic. Distributab
 
 **Rating: 4/5**
 
-### 5. Governed execution — audit strong ✅, HTTP/UI still ungated ⚠️
+### 5. Governed execution — gateway boundary gated ✅, UI gate still open ⚠️
 
-**Aligned:**
+**Aligned** (verified 2026-08-25):
 
 - Production audit (spatial, grounding, graph issues) — `packages/agent-engine/src/directorAudit.ts`
 - `deliver` machine acceptance boundary
 - Revision / idempotency / exact target fail-closed (428 / 409)
 - Agent event store, structured MCP receipts, credential redaction
 - Shared film-role tool policy (e.g. visual-critic read-only) — `backend/gateway/agents/filmRoleToolPolicy.ts`, used by MCP (`DIRECTOR_FILM_ROLE`), the local Agent harness, and the hosted API adapter
+- Raw HTTP `POST /api/tools/{tool-name}` (and therefore the CLI and DSH plugin) applies the same policy through `backend/gateway/agents/httpToolPolicy.ts`, rejecting before browser-target execution with the same structured 403 body as MCP
+- Unified gateway audit trail: every `/api/tools/*` invocation is appended to `backend/gateway/agents/toolInvocationAuditStore.ts` tagged `source: ui | mcp | http | cli | dsh | unknown` (derived from the payload `session_id` prefix; the Stage CLI's `STAGE_AGENT_SESSION` defaults to `cli-default`), queryable via authorized `GET /api/agent/audit`
 
 **Gaps:**
 
-- Raw HTTP `POST /api/tools/{tool-name}` and the CLI path that calls it do **not** apply `filmRoleToolPolicy`
-- Human UI actions have no equivalent permission gate
-- Tool invocations are not yet one **unified audit trail** tagged `source: ui | mcp | http | cli`
+- Human UI actions have no equivalent permission gate, and UI-dispatched author actions are not yet written to the unified audit trail
 - Collaboration production-room auth and internet deployment hardening remain **Limited**
 
 **Rating: 4/5**
@@ -176,7 +177,7 @@ Against the article's [Where agent-native fits in the software stack](https://ww
 | ------------------------- | -------------------------- | ------------------------ | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----- |
 | **Control**               | Vendor                     | User prompts             | Developer/team owns app           | Open source, local gateway, modifiable code                                                                                  | 5/5   |
 | **Human UI quality**      | Strong                     | Weak/none                | Full product UI                   | Full Canvas / 3D / Video editor                                                                                              | 4.5/5 |
-| **Agent access**          | Partial bolt-on            | Broad but unstructured   | Full access via app actions       | Strong on core paths; interchange export and collab observe/comment are JSON; import and remaining collab writes are limited | 4.5/5 |
+| **Agent access**          | Partial bolt-on            | Broad but unstructured   | Full access via app actions       | Strong on core paths; interchange export/import and collaboration reads/writes are JSON operations; OBJ/STL stay export-only with Limited format subsets | 4.5/5 |
 | **Customizability**       | Settings/integrations      | One-off prompts          | Cloneable code/workflows          | Profiles, Skills, MCP plugin                                                                                                 | 4/5   |
 | **Data ownership**        | Vendor DB                  | Depends on tools         | Your DB/schema                    | Local SQLite / JSON / browser media                                                                                          | 4.5/5 |
 | **Runtime customization** | Vendor roadmap             | One-off chat             | SQL workspaces, runtime tools     | Skills/Profiles; no SQL-backed in-product workspace                                                                          | 3/5   |
@@ -254,9 +255,9 @@ agent-gateway.ts (composition root)
 
 ## Main gaps
 
-1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, gizmo drag batches, and the Canvas/Video stores
-2. **Incomplete governance surfaces** — MCP, local harness, and hosted adapter share `filmRoleToolPolicy`; raw HTTP and human UI still bypass film roles, and audit is not unified across entry points
-3. **Protocol breadth** — MCP is strong; no standard A2A; multi-agent is a custom serial graph
+1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring (see the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)). Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, gizmo drag batches, and the Canvas/Video stores
+2. **Incomplete governance surfaces** — MCP, local harness, hosted adapter, and raw HTTP/CLI share `filmRoleToolPolicy` plus the source-tagged `/api/tools/*` audit trail (`GET /api/agent/audit`). Human UI `directorStore` still has no role gate or audit (3.1b); `confirm_token` is still unimplemented (3.3)
+3. **Protocol breadth** — MCP is strong and the tool manifest shipped; no standard A2A (spike conclusion: no-go / deferred, see roadmap M7); multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
 5. **Runtime workspace** — no in-product SQL-backed AGENTS.md / LEARNINGS.md pattern described in the article
 
@@ -268,10 +269,10 @@ agent-gateway.ts (composition root)
 
 See the full phased plan in [Agent-Native Optimization Roadmap](/engineering/agent_native_roadmap/).
 
-1. **Keep routing UI mutators through shared authoring dispatch** — camera / pose / timeline / Canvas·Video still dual-write
-2. **Apply the shared role policy to raw HTTP and UI, and unify the audit trail** — MCP / local / hosted already share `filmRoleToolPolicy.ts`
+1. **Keep routing UI mutators through shared authoring dispatch** — leftover Stage ui-only writers (timeline audio, annotations, layers, materials, asset flows, grouping, multi-select batches) and Canvas/Video UI stores still dual-write
+2. **Apply the shared role policy to UI dispatch, and write UI-dispatched author actions to the unified audit trail** — MCP / local / hosted / raw HTTP+CLI already share `filmRoleToolPolicy.ts`
 3. **Strengthen team/observability layers** — collaboration auth, agent trace/cost dashboard
-4. **Evaluate A2A or OpenAPI tool manifest export** — enable cross-app agent orchestration
+4. **Cross-app orchestration** — the tool manifest shipped (`GET /api/control-plane/tool-manifest`); the A2A evaluation concluded no-go / deferred (see [roadmap M7](/engineering/agent_native_roadmap/)); the cross-app receipt handoff recipe remains
 
 ---
 

@@ -163,16 +163,19 @@ frame coverage, and top-left pixel bounds. It does not claim an occlusion ratio 
 
 ## Agent boundary
 
-`director_creative interchange` exposes `capabilities`, `plan-export`, and `export` for bounded
-OTIO/OTIOZ, Fountain, glTF/GLB, USD/USDZ, OBJ, and STL transfer. Every plan is tied to the exact
-Stage revision or creative-workspace fingerprint. Export returns UTF-8 or base64 payload, archive
-SHA-256, byte count, compatibility warnings, and a stable receipt; inline transfer is capped at
-8 MiB. OBJ/STL plans may carry exact `object_ids`, which become part of the plan identity and ZIP
-manifest.
+`director_creative interchange` exposes `capabilities`, `plan-export`, `export`, `plan-import`,
+and `import` for bounded OTIO/OTIOZ, Fountain, glTF/GLB, USD/USDZ, OBJ, and STL transfer. Every
+plan is tied to the exact Stage revision or creative-workspace fingerprint. Export returns UTF-8
+or base64 payload, archive SHA-256, byte count, compatibility warnings, and a stable receipt;
+inline transfer is capped at 8 MiB. OBJ/STL plans may carry exact `object_ids`, which become part
+of the plan identity and ZIP manifest.
 
-Import remains human-file-picker-only because a browser file handle is not fabricated for an
-Agent. Use the Interchange menu or a corresponding trusted host adapter, and never claim an import
-without an actual user-selected file and validated result.
+JSON import goes through `plan-import` → `import`: the source is `inline` (UTF-8 or base64), a
+Gallery `media_id`, or a `workspace_path` resolved by a trusted host. `plan-import` returns an
+immutable guard-fingerprinted plan with a summary and warnings; `import` rechecks that fingerprint,
+commits atomically, and returns a receipt with before/after guards. OBJ/STL stay export-only, and
+the documented **Limited** format-subset boundaries are unchanged. The human Interchange menu file
+picker remains available.
 
 For Stage acceptance and provider-neutral evidence, use `director_workbench` `shot_ir`,
 `shot_package`, or `deliver`. For Blender and the engine connectors, discover and invoke

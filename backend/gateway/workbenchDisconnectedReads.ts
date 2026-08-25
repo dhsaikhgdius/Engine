@@ -186,6 +186,7 @@ export function executeDisconnectedWorkbenchRead(
           ...observeDirectorProject(sources.project, operation.fields, {
             objectMode: operation.object_mode,
             maxObjects: operation.max_objects,
+            detail: operation.detail === "full" ? "full" : "summary",
           }),
           ...disconnectedMeta(sources, "persisted_project"),
         },
@@ -235,7 +236,6 @@ export function executeDisconnectedWorkbenchRead(
           ready: false,
           visual_judgment: false,
           scope: ["structure"],
-          note: DISCONNECTED_NOTE,
           summary: `Stage tab is disconnected and no Director project is persisted. Live Blender has ${counts.objects} objects, ${counts.cameras} cameras, ${counts.lights} lights. Use blender_native scene/inspect, or reopen a Stage tab for structural audit.`,
           issue_count: 0,
           error_count: 0,

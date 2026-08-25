@@ -18,6 +18,7 @@ import {
   migrateDirectorProduction,
   reconcileDirectorProduction,
 } from "../schema/directorProduction";
+import { persistProductionGraphIdentities } from "../productionGraph/productionGraphMigration";
 import type {
   DirectorAssetRef,
   DirectorAssetSource,
@@ -793,7 +794,7 @@ export function migrateDirectorProject(project: DirectorProject): DirectorProjec
       : object,
   );
 
-  return migrateDirectorProduction(migratedProject);
+  return persistProductionGraphIdentities(migrateDirectorProduction(migratedProject));
 }
 
 function withReconciledProduction(project: DirectorProject): DirectorProject {
@@ -1112,15 +1113,15 @@ export function createDefaultDirectorProject({
   includePersistedLocalAssets?: boolean;
 } = {}): DirectorProject {
   const project = createCanonicalDefaultDirectorProject();
-  if (!includePersistedLocalAssets) return project;
+  if (!includePersistedLocalAssets) return persistProductionGraphIdentities(project);
   const defaultCharacterAsset = project.assets[0];
-  return {
+  return persistProductionGraphIdentities({
     ...project,
     assets: [
       ...project.assets,
       ...readPersistedLocalModelAssets().filter((asset) => asset.id !== defaultCharacterAsset?.id),
     ],
-  };
+  });
 }
 
 export function createInitialDirectorState(options: DirectorStateOptions = {}): DirectorState {

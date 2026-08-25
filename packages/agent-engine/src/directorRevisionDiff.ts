@@ -1,4 +1,5 @@
 import type { DirectorProject } from "@director/project-schema";
+import { getProductionGraphFingerprint, createProductionGraphFromDirectorProject } from "@director/project-schema/production-graph";
 import { stableJson } from "@director/protocol/stableJson";
 import type { DirectorWorkbenchObserveField } from "./directorWorkbenchContract";
 import { getDirectorProjectGraphIssues } from "./directorProjectGraph";
@@ -103,6 +104,15 @@ export function buildDirectorRevisionDiff(
   }
   if (include("graph_issues")) {
     addValue("graph_issues", changedValue(getDirectorProjectGraphIssues(before), getDirectorProjectGraphIssues(after)));
+  }
+  if (include("production_graph")) {
+    addValue(
+      "production_graph",
+      changedValue(
+        getProductionGraphFingerprint(createProductionGraphFromDirectorProject(before)),
+        getProductionGraphFingerprint(createProductionGraphFromDirectorProject(after)),
+      ),
+    );
   }
 
   return { changed, ...result };

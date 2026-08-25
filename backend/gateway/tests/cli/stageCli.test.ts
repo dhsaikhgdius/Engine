@@ -60,7 +60,7 @@ describe("stage CLI help", () => {
     expect(result).toMatchObject({ code: 0, stderr: "" });
     expect(result.stdout).toContain("director_workbench");
     expect(result.stdout).toContain("Legacy compact tools");
-    expect(result.stdout).toContain(`npm run stage -- director_workbench '{"op":"observe"}'`);
+    expect(result.stdout).toContain(`npm run --silent stage -- director_workbench '{"op":"observe"}'`);
     expect(result.stdout).toContain("when the Director MCP server is connected");
   });
 
@@ -76,14 +76,14 @@ describe("stage CLI help", () => {
     expect(result.code).toBe(2);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("Unknown tool: not-a-tool");
-    expect(result.stderr).toContain("npm run stage -- --help");
+    expect(result.stderr).toContain("npm run --silent stage -- --help");
     expect(result.stderr).toContain("Prefer director_workbench over legacy stage_* tools");
   });
 
   it("prints usage when invoked with no arguments", async () => {
     const result = await runCliProcess([]);
     expect(result.code).toBe(2);
-    expect(result.stderr).toContain("npm run stage -- --help");
+    expect(result.stderr).toContain("npm run --silent stage -- --help");
   });
 });
 

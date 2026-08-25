@@ -2,7 +2,7 @@
 title: "ADR 0001: project-level ProductionGraph"
 ---
 
-- **Status:** Proposed
+- **Status:** Accepted (read-only projector shipped 2026-08-25; editors remain authoritative for detailed state)
 - **Decision owners:** Director architecture maintainers
 - **Related:** `PIPELINE_SYSTEM_DESIGN.md`, `PIPELINE_IMPLEMENTATION_ROADMAP.md`
 

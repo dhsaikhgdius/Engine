@@ -101,6 +101,7 @@ All `/api/*` endpoints below require gateway authentication unless noted otherwi
 | `GET /health`                                                  | Minimal unauthenticated gateway health                                               |
 | `POST /te-man/director/agent/bootstrap`                        | Obtain the local process-epoch browser token                                         |
 | `GET /api/control-plane/capabilities`                          | Sanitized Agent/video configuration summary; never includes secrets                  |
+| `GET /api/control-plane/tool-manifest`                         | Machine-readable tool catalog generated from the Zod tool schemas; no secrets        |
 | `GET /api/agent/profiles`                                      | Public model/runtime profiles and capabilities                                       |
 | `GET /api/agent/providers`                                     | Runtime availability for `codex`, `claude`, and `api`                                |
 | `GET, POST /api/agent/sessions`                                | List or create durable sessions                                                      |
@@ -226,7 +227,7 @@ Read-only Workbench operations are `capabilities`, `observe`, `catalog`, `audit`
 The visual critic additionally receives `capture`, `shot_package`, and `deliver` so it can inspect
 real helper-free pixels and hashes, while authoring operations remain rejected.
 
-This exact tool filter is presently enforced by the native API adapter. Local Codex/Claude adapters share the structured Director tools and receive the assigned role, but should not yet be described as having the same adapter-level role-policy proof. Moving policy enforcement below every adapter, at the gateway tool boundary, remains a hardening task.
+This exact tool filter is enforced by the native API adapter, and since 2026-08-25 also below every adapter at the gateway tool boundary: `backend/gateway/agents/httpToolPolicy.ts` applies the shared film-role policy (`DIRECTOR_FILM_ROLE` + `DIRECTOR_PLAN_MODE`, same 403 rejection body as MCP) on every `/api/tools/*` route before browser-target execution, so raw HTTP, the Stage CLI, and the DSH plugin cannot bypass it. Each invocation is also appended to a source-tagged audit trail (`backend/gateway/agents/toolInvocationAuditStore.ts`, queryable via authorized `GET /api/agent/audit`). Local Codex/Claude adapters share the structured Director tools and receive the assigned role; their tool calls now pass through the same gateway-boundary gate.
 
 ## Video generation and LTX-2.3
 

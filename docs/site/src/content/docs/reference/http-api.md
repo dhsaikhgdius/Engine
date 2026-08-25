@@ -48,6 +48,7 @@ The process token authenticates the client to the gateway. It is separate from t
 | ------ | --------------------------------- | ------------------------------------------------ |
 | `GET`  | `/health`                         | Unauthenticated process health and browser count |
 | `GET`  | `/api/control-plane/capabilities` | Redacted Agent and video configuration           |
+| `GET`  | `/api/control-plane/tool-manifest` | Machine-readable tool catalog generated from the Zod tool schemas |
 | `GET`  | `/api/agent/providers`            | Local/API session-provider availability          |
 | `GET`  | `/api/agent/profiles`             | Public Profile metadata and model capabilities   |
 | `GET`  | `/api/video/providers`            | Live video-provider capability report            |
@@ -62,6 +63,11 @@ curl -fsS "$BASE/api/agent/profiles" \
 
 Discovery responses never contain model API keys, worker credentials, or raw credential environment
 variable names.
+
+The tool manifest lists every Director tool with its description, JSON Schema input contract, and
+operation names; frozen `stage_*` compatibility tools are marked `legacy: true`. A unified
+cross-entry-point tool audit trail will live at the gateway once roadmap M3 (unified governance)
+lands; the manifest itself is discovery-only.
 
 Capture results may include a process-epoch `preview_token` URL. It is a read-only capability for that
 preview route, allowing browsers and vision-capable Agents to render the image without receiving the

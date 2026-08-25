@@ -39,6 +39,8 @@ or Agent stores in one migration.
 
 ## Milestone 1 — ProductionGraph v1, read only
 
+**Status:** Done (2026-08-25). Projector lives in `packages/project-schema/src/productionGraph/`; Agents observe via `director_workbench` field `production_graph`.
+
 **Goal:** introduce cross-workspace identity without moving existing editor state.
 
 ### New modules
@@ -92,6 +94,8 @@ or clip effects. Those stay in DirectorProject and Creative workspace.
 - Broken graph references are reported without blocking legacy project loading.
 
 ## Milestone 2 — persist graph IDs additively
+
+**Status:** Done (2026-08-25). Identity maps persist additively on `DirectorProject.productionGraphIdentities`. Load (`migrateDirectorProject`) and JSON export (`serializeProject`) backfill missing IDs. The map is omitted from `director-project-revision` so background migration does not churn mutation guards or undo. Conflicting legacy mappings stay as receipts and do not rewrite source IDs.
 
 **Goal:** allow editors to retain graph identity across changes.
 
@@ -274,6 +278,8 @@ warnings, and destination details.
 - Package can be rebuilt deterministically without a live UE session.
 
 ## Milestone 8 — fingerprint-bound approval
+
+**Status:** Done for live project revisions (2026-08-25). New `putApproval` writes require a `kind:project` fingerprint; project-bound approvals become stale when the observed director-project-revision changes. Creative/package/schema bindings remain optional extra fingerprints.
 
 **Goal:** make review decisions durable production evidence.
 

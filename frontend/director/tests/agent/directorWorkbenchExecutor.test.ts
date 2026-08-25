@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createDefaultDirectorProject,
-  useDirectorStore,
-} from "../../src/comprehensive/editor/store/directorStore";
+import { createDefaultDirectorProject, useDirectorStore } from "../../src/comprehensive/editor/store/directorStore";
 import { getCameraViewSnapshotFromShot, getDirectorProjectRevision } from "@director/project-schema";
 import { getDirectorAgentCatalogAsset } from "@director/agent-engine/asset-catalog";
 import { directorAuthoringActionSchema } from "@director/agent-engine/authoring";
@@ -16,6 +13,28 @@ import {
   setDirectorPageViewportHandler,
 } from "../../src/comprehensive/editor/assistant/pageStateBridge";
 import { useTimelineRuntimeStore } from "../../src/comprehensive/editor/runtime/timelineRuntimeStore";
+
+const FLICK_PROP_ASSET_ID = "flick:animals:cat.glb";
+
+function flickPropCatalogAsset() {
+  const catalog = getDirectorAgentCatalogAsset(FLICK_PROP_ASSET_ID);
+  if (!catalog) throw new Error(`Missing packaged catalog asset ${FLICK_PROP_ASSET_ID}`);
+  return catalog.asset;
+}
+
+function catalogPropActions(id: string, name: string, extra: Record<string, unknown> = {}) {
+  return [
+    { action: "upsert_asset" as const, asset: flickPropCatalogAsset() },
+    {
+      action: "add_object" as const,
+      id,
+      name,
+      kind: "prop" as const,
+      asset_id: FLICK_PROP_ASSET_ID,
+      ...extra,
+    },
+  ];
+}
 
 describe("Director workbench executor", () => {
   beforeEach(() => {
@@ -94,15 +113,7 @@ describe("Director workbench executor", () => {
   it("queries objects by name_pattern without a spatial bound", () => {
     executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
-      actions: [
-        {
-          action: "add_object",
-          id: "wood-door",
-          name: "木门",
-          kind: "prop",
-          geometry_type: "box",
-        },
-      ],
+      actions: catalogPropActions("wood-door", "木门"),
     });
     const queried = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "query_objects",
@@ -124,19 +135,20 @@ describe("Director workbench executor", () => {
     executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
       actions: [
+        { action: "upsert_asset", asset: flickPropCatalogAsset() },
         {
           action: "add_object",
           id: "hierarchy-root",
           name: "Hierarchy Root",
           kind: "prop",
-          geometry_type: "box",
+          asset_id: FLICK_PROP_ASSET_ID,
         },
         {
           action: "add_object",
           id: "hierarchy-child",
           name: "Hierarchy Child",
           kind: "prop",
-          geometry_type: "box",
+          asset_id: FLICK_PROP_ASSET_ID,
           parent_id: "hierarchy-root",
         },
       ],
@@ -168,13 +180,16 @@ describe("Director workbench executor", () => {
     const sinceRevision = getDirectorProjectRevision(useDirectorStore.getState().project);
     executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
-      actions: ["a", "b", "c"].map((suffix) => ({
-        action: "add_object" as const,
-        id: `revision-${suffix}`,
-        name: `Revision ${suffix}`,
-        kind: "prop" as const,
-        geometry_type: "box" as const,
-      })),
+      actions: [
+        { action: "upsert_asset" as const, asset: flickPropCatalogAsset() },
+        ...["a", "b", "c"].map((suffix) => ({
+          action: "add_object" as const,
+          id: `revision-${suffix}`,
+          name: `Revision ${suffix}`,
+          kind: "prop" as const,
+          asset_id: FLICK_PROP_ASSET_ID,
+        })),
+      ],
     });
 
     const observed = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
@@ -1339,6 +1354,11 @@ describe("Director workbench executor", () => {
       patches: [
         {
           op: "add",
+          path: "/project/assets/-",
+          value: flickPropCatalogAsset(),
+        },
+        {
+          op: "add",
           path: "/project/objects/-",
           value: {
             id: "agent-box",
@@ -1346,7 +1366,7 @@ describe("Director workbench executor", () => {
             kind: "prop",
             visible: true,
             locked: false,
-            geometryType: "box",
+            assetRefId: FLICK_PROP_ASSET_ID,
             color: "#ffaa00",
             transform: { position: [1, 0, 2], rotation: [0, 0, 0], scale: [1, 1, 1] },
           },
@@ -1364,21 +1384,16 @@ describe("Director workbench executor", () => {
     const execution = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
       actions: [
-        {
-          action: "add_object",
-          id: "agent-sphere",
-          name: "Agent Sphere",
-          kind: "prop",
-          geometry_type: "sphere",
+        ...catalogPropActions("agent-sphere", "Agent Sphere", {
           placement_mode: "grounded",
           transform: { position: [2, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
-        },
+        }),
         { action: "set_scene", patch: { backgroundColor: "#172033", groundOpacity: 0.6 } },
       ],
     });
     expect(execution).toMatchObject({
       success: true,
-      result: { changed: true, created: { object_ids: ["agent-sphere"] }, action_count: 2 },
+      result: { changed: true, created: { object_ids: ["agent-sphere"] }, action_count: 3 },
     });
     const audit = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "audit",
@@ -1640,14 +1655,9 @@ describe("Director workbench executor", () => {
     const execution = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
       actions: [
-        {
-          action: "add_object",
-          id: "floating-building",
-          name: "Floating Building",
-          kind: "prop",
-          geometry_type: "box",
+        ...catalogPropActions("floating-building", "Floating Building", {
           transform: { position: [0, 3.1, 0], rotation: [0, 0, 0], scale: [4, 3.1, 6] },
-        },
+        }),
       ],
     });
     expect(execution).toMatchObject({
@@ -2018,16 +2028,7 @@ describe("Director workbench executor", () => {
     const turnId = (baseline.result as { turn_id: string }).turn_id;
     executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
-      actions: [
-        {
-          action: "add_object",
-          id: "diff-box",
-          name: "Diff Box",
-          kind: "prop",
-          geometry_type: "box",
-          placement_mode: "grounded",
-        },
-      ],
+      actions: [...catalogPropActions("diff-box", "Diff Box", { placement_mode: "grounded" })],
     });
 
     const observed = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {

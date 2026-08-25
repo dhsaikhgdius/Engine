@@ -19,6 +19,9 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so `format:check:changed` can merge-base against main.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -26,7 +29,13 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run repo:check
       - run: npm run lint
-      - run: npm run format:check
+      # Full-tree `format:check` is already red on main (~290 files). Gate PRs
+      # on the files they touch instead of requiring a wholesale reformat.
+      - name: Fetch comparison base for format check
+        run: git fetch --no-tags origin ${{ github.base_ref || 'main' }}
+      - run: npm run format:check:changed
+        env:
+          FORMAT_CHECK_BASE: origin/${{ github.base_ref || 'main' }}
       - run: npm run build
       - run: npm run test:core
 

@@ -25,7 +25,10 @@ import {
   type WebGLRenderer,
 } from "three";
 import type { DirectorShotRenderPassId } from "../../../../src/comprehensive/editor/shot/shotPackage";
-import { captureDirectorRenderPass, createDirectorObjectIdColorMap } from "../../../../src/comprehensive/editor/render/renderPassCapture";
+import {
+  captureDirectorRenderPass,
+  createDirectorObjectIdColorMap,
+} from "../../../../src/comprehensive/editor/render/renderPassCapture";
 import { DIRECTOR_SEMANTIC_PALETTE } from "../../../../src/comprehensive/editor/render/semanticPalette";
 
 function createRendererHarness({
@@ -334,11 +337,7 @@ describe("captureDirectorRenderPass", () => {
         expect(ownerMaterials).toHaveLength(2);
         renderedRgb.set(
           "owner-a",
-          ownerMaterials[0]!.color.toArray().map((value) => Math.round(value * 255)) as [
-            number,
-            number,
-            number,
-          ],
+          ownerMaterials[0]!.color.toArray().map((value) => Math.round(value * 255)) as [number, number, number],
         );
         renderedRgb.set(
           "owner-b",
@@ -562,8 +561,8 @@ describe("captureDirectorRenderPass", () => {
     const harness = createRendererHarness({
       onRender: () => {
         expect(fixture.mesh.material).toBe(instances.material);
-        expect((fixture.mesh.material as MeshStandardMaterial).color.getHex()).toBe(0xd8dce2);
-        expect((characterMesh.material as MeshStandardMaterial).color.getHex()).toBe(0xd19a3a);
+        expect((fixture.mesh.material as unknown as MeshStandardMaterial).color.getHex()).toBe(0xd8dce2);
+        expect((characterMesh.material as unknown as MeshStandardMaterial).color.getHex()).toBe(0xd19a3a);
         expect(characterMesh.material).not.toBe(fixture.mesh.material);
         expect(instances.instanceColor).toBeNull();
       },

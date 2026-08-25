@@ -100,6 +100,7 @@ export const directorWorkbenchObserveFieldSchema = z.enum([
   "world",
   "counts",
   "graph_issues",
+  "production_graph",
 ]);
 
 export const directorWorkbenchCatalogIdSchema = z.enum([
@@ -562,7 +563,7 @@ export const directorWorkbenchOperationSchema = z.discriminatedUnion("op", [
   }),
   strictOperation("observe", {
     detail: z.enum(["summary", "full"]).optional(),
-    fields: z.array(directorWorkbenchObserveFieldSchema).min(1).max(12).optional(),
+    fields: z.array(directorWorkbenchObserveFieldSchema).min(1).max(16).optional(),
     since_revision: directorProjectRevisionSchema.optional(),
     since_turn: nonEmptyText(200).optional(),
     since_audit: nonEmptyText(200).optional(),
