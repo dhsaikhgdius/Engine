@@ -23,9 +23,7 @@ const LIVE_PROJECT: ProductionApprovalFingerprint = {
   value: `director-project-revision:v1:sha256:${"c".repeat(64)}`,
 };
 
-function bindLiveProject(
-  fingerprints: readonly ProductionApprovalFingerprint[],
-): ProductionApprovalFingerprint[] {
+function bindLiveProject(fingerprints: readonly ProductionApprovalFingerprint[]): ProductionApprovalFingerprint[] {
   return [...fingerprints, LIVE_PROJECT].sort((left, right) => left.kind.localeCompare(right.kind));
 }
 

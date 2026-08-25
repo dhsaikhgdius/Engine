@@ -254,8 +254,7 @@ interface DirectorInternalState {
 }
 
 type DirectorHistoryEntry =
-  | { domain: "director"; state: DirectorState }
-  | { domain: "blender"; projectId: string; sceneEpoch: string };
+  { domain: "director"; state: DirectorState } | { domain: "blender"; projectId: string; sceneEpoch: string };
 
 type PendingBlenderSync = {
   sceneEpoch: string;
@@ -1099,7 +1098,9 @@ function createUndoStackEntry(state: DirectorRuntimeState) {
   return extractPersistedDirectorState(state);
 }
 
-function createDirectorHistoryEntry(state: DirectorRuntimeState): Extract<DirectorHistoryEntry, { domain: "director" }> {
+function createDirectorHistoryEntry(
+  state: DirectorRuntimeState,
+): Extract<DirectorHistoryEntry, { domain: "director" }> {
   return { domain: "director", state: createUndoStackEntry(state) };
 }
 
@@ -2005,7 +2006,10 @@ function blenderDirectorTransform(object: BlenderLiveSceneSnapshot["objects"][nu
   };
 }
 
-function blenderForwardTarget(position: readonly [number, number, number], rotation: readonly [number, number, number]) {
+function blenderForwardTarget(
+  position: readonly [number, number, number],
+  rotation: readonly [number, number, number],
+) {
   const target = new Vector3(0, 0, -1)
     .applyEuler(new Euler(rotation[0], rotation[1], rotation[2], "XYZ"))
     .multiplyScalar(10)
@@ -2020,10 +2024,7 @@ function blenderCameraVerticalFov(camera: BlenderLiveSceneSnapshot["cameras"][nu
   return (2 * Math.atan(sensorHeight / (2 * camera.focalLengthMm)) * 180) / Math.PI;
 }
 
-function reconcileBlenderCameras(
-  existing: DirectorCameraShot[],
-  nativeCameras: BlenderLiveSceneSnapshot["cameras"],
-) {
+function reconcileBlenderCameras(existing: DirectorCameraShot[], nativeCameras: BlenderLiveSceneSnapshot["cameras"]) {
   const nativeIds = new Set(nativeCameras.map((camera) => camera.id));
   const cameras = existing.filter(
     (camera) => camera.nativeSource?.engine !== "blender" || nativeIds.has(camera.nativeSource.objectId),
@@ -2246,10 +2247,9 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       const directorHistoryEntry = shouldPushDirectorHistory ? createDirectorHistoryEntry(currentState) : null;
       const runtimeState: DirectorRuntimeState = {
         ...nextState,
-        undoStack:
-          directorHistoryEntry
-            ? trimUndoStack([...currentState.undoStack, directorHistoryEntry.state])
-            : nextState.undoStack,
+        undoStack: directorHistoryEntry
+          ? trimUndoStack([...currentState.undoStack, directorHistoryEntry.state])
+          : nextState.undoStack,
         historyUndoStack: directorHistoryEntry
           ? trimHistoryStack([...currentState.historyUndoStack, directorHistoryEntry])
           : nextState.historyUndoStack,
@@ -2620,8 +2620,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             : state.pendingBlenderSyncs.filter(
                 (pending) => pending.sceneEpoch !== snapshot.sceneEpoch || pending.revision > snapshot.revision,
               );
-          const adoptBlenderState =
-            previousSceneWasSynchronized && pendingSync?.origin !== "director-projection";
+          const adoptBlenderState = previousSceneWasSynchronized && pendingSync?.origin !== "director-projection";
 
           const roots = blenderRootObjects(snapshot);
           const rootsByDirectorId = new Map(roots.map((root) => [blenderDirectorObjectId(root), root]));
@@ -2746,8 +2745,9 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           const lights = reconcileBlenderLights(nextState.project.lights ?? [], snapshot.lights);
           const activeNativeCamera = snapshot.cameras.find((camera) => camera.active);
           const activeCameraId = activeNativeCamera
-            ? cameras.find((camera) => camera.nativeSource?.objectId === activeNativeCamera.id)?.id ?? null
-            : nextState.project.activeCameraId && cameras.some((camera) => camera.id === nextState.project.activeCameraId)
+            ? (cameras.find((camera) => camera.nativeSource?.objectId === activeNativeCamera.id)?.id ?? null)
+            : nextState.project.activeCameraId &&
+                cameras.some((camera) => camera.id === nextState.project.activeCameraId)
               ? nextState.project.activeCameraId
               : (cameras[0]?.id ?? null);
           const synchronizedState = withProjectPatch(nextState, {
@@ -4580,9 +4580,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         clipboardPasteCount: currentState.clipboardPasteCount,
         undoStack: currentState.undoStack.slice(0, -1),
         redoStack: trimUndoStack([...(currentState.redoStack ?? []), redoState]),
-        historyUndoStack: historyEntry
-          ? currentState.historyUndoStack.slice(0, -1)
-          : currentState.historyUndoStack,
+        historyUndoStack: historyEntry ? currentState.historyUndoStack.slice(0, -1) : currentState.historyUndoStack,
         historyRedoStack: trimHistoryStack([
           ...currentState.historyRedoStack,
           { domain: "director", state: redoState },
@@ -4615,9 +4613,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           ...currentState.historyUndoStack,
           { domain: "director", state: undoState },
         ]),
-        historyRedoStack: historyEntry
-          ? currentState.historyRedoStack.slice(0, -1)
-          : currentState.historyRedoStack,
+        historyRedoStack: historyEntry ? currentState.historyRedoStack.slice(0, -1) : currentState.historyRedoStack,
         pendingBlenderSyncs: currentState.pendingBlenderSyncs,
       });
       persistDirectorStateImmediately(nextState);
