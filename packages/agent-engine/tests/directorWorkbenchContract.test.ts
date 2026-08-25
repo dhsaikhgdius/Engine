@@ -742,6 +742,63 @@ describe("director workbench contract", () => {
     ).toMatchObject({ success: false });
   });
 
+  it("parses general compare operations with typed sources and a default stage candidate", () => {
+    const compared = parseDirectorWorkbenchInput({
+      op: "compare",
+      reference: { kind: "media", media_id: "gallery-still-1" },
+    });
+    expect(compared).toMatchObject({
+      success: true,
+      operation: {
+        op: "compare",
+        reference: { kind: "media", media_id: "gallery-still-1" },
+        candidate: { kind: "stage", frame: 0, width: 640, height: 360 },
+      },
+    });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "compare",
+        reference: { kind: "reconstruction_keyframe", job_id: "job-1", view_id: "view-01" },
+        candidate: { kind: "stage", camera_id: "capture-view-camera-01", frame: 12 },
+        grid: { rows: 4, cols: 6 },
+      }),
+    ).toMatchObject({
+      success: true,
+      operation: { candidate: { camera_id: "capture-view-camera-01", width: 640, height: 360 } },
+    });
+    // compare is read-only: it needs no revision guard at the browser boundary.
+    expect(
+      parseDirectorWorkbenchExecutableInput({ op: "compare", reference: { kind: "media", media_id: "still-1" } }),
+    ).toMatchObject({ success: true });
+  });
+
+  it("rejects malformed compare sources and oversized compare rasters", () => {
+    expect(parseDirectorWorkbenchInput({ op: "compare" })).toMatchObject({ success: false });
+    expect(
+      parseDirectorWorkbenchInput({ op: "compare", reference: { kind: "media" } }),
+    ).toMatchObject({ success: false });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "compare",
+        reference: { kind: "stage", width: 2048, height: 2048 },
+      }),
+    ).toMatchObject({ success: false, error: expect.stringContaining("2073600") });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "compare",
+        reference: { kind: "media", media_id: "still-1" },
+        grid: { rows: 32 },
+      }),
+    ).toMatchObject({ success: false });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "compare",
+        reference: { kind: "media", media_id: "still-1" },
+        threshold: 0.8,
+      }),
+    ).toMatchObject({ success: false, error: expect.stringContaining('"threshold"') });
+  });
+
   it("names the offending fields when the input carries unrecognized keys", () => {
     expect(parseDirectorWorkbenchInput({ op: "deliver", camera_id: "cam_1", quality_gate: "strict" })).toMatchObject({
       success: false,

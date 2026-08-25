@@ -9,7 +9,20 @@ export type WorkbenchClientRoutingRegistration = {
   captureReady: boolean;
 };
 
-export function workbenchOperationRequiresCapture(operation: Pick<DirectorWorkbenchOperation, "op">): boolean {
+/**
+ * The routing-relevant slice of a workbench operation: always the op name,
+ * plus the compare endpoints when present so a stage-rendering comparison can
+ * be pinned to capture-ready tabs while pure media/keyframe comparisons stay
+ * routable to any tab.
+ */
+export type WorkbenchRoutingOperation =
+  | Pick<Extract<DirectorWorkbenchOperation, { op: "compare" }>, "op" | "reference" | "candidate">
+  | Pick<Exclude<DirectorWorkbenchOperation, { op: "compare" }>, "op">;
+
+export function workbenchOperationRequiresCapture(operation: WorkbenchRoutingOperation): boolean {
+  if (operation.op === "compare") {
+    return operation.reference.kind === "stage" || operation.candidate.kind === "stage";
+  }
   return (
     operation.op === "capture" ||
     operation.op === "shot_package" ||
@@ -30,7 +43,7 @@ function workbenchCapabilityRank(registration: WorkbenchClientRoutingRegistratio
  */
 export function rankUntargetedWorkbenchClients<Client>(
   entries: ReadonlyArray<readonly [Client, WorkbenchClientRoutingRegistration]>,
-  operation: Pick<DirectorWorkbenchOperation, "op">,
+  operation: WorkbenchRoutingOperation,
 ) {
   const captureRequired = workbenchOperationRequiresCapture(operation);
   return entries

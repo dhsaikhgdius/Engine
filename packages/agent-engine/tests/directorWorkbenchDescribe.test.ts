@@ -27,6 +27,18 @@ describe("director workbench describe", () => {
     expect(result.fields).toBeUndefined();
   });
 
+  it("returns the complete compare schema with its typed source vocabulary", () => {
+    const result = describedResult("compare");
+    expect(result.kind).toBe("operation");
+    expect(result.json_schema).toBeDefined();
+    const serialized = JSON.stringify(result.json_schema);
+    expect(serialized).toContain("reference");
+    expect(serialized).toContain("candidate");
+    expect(serialized).toContain("reconstruction_keyframe");
+    expect(serialized).toContain("media_id");
+    expect(result.fields).toBeUndefined();
+  });
+
   it("degrades author to a field summary plus the action name index", () => {
     const result = describedResult("author");
     expect(result.json_schema).toBeUndefined();

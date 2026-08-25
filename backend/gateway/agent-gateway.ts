@@ -91,7 +91,11 @@ import { handleBlenderLiveRoute } from "./routes/blenderLiveRoutes";
 import { handleProductionRoute } from "./routes/productionRoutes";
 import { handleStageRoute, type StageRouteDependencies } from "./routes/stageRoutes";
 import { TerminalSessionManager } from "./terminalSessionManager";
-import { rankUntargetedWorkbenchClients, type DirectorBrowserWorkspace } from "./workbenchClientRouting";
+import {
+  rankUntargetedWorkbenchClients,
+  type DirectorBrowserWorkspace,
+  type WorkbenchRoutingOperation,
+} from "./workbenchClientRouting";
 import { DirectorCollaborationWebSocketHub } from "./collaborationWebSocketHub";
 import { loadDirectorControlPlaneConfig, type HostedAgentProfileConfig } from "./controlPlane/controlPlaneConfig";
 import { AgentProfileRegistry } from "./agents/agentProfileRegistry";
@@ -890,10 +894,11 @@ function rankedConnectedClients() {
  * Delegates to {@link rankUntargetedWorkbenchClients} to produce a workspace-aware
  * ranking of open clients for the given operation type.
  *
- * @param input - The operation to rank clients for (only the `op` field is used).
+ * @param input - The operation to rank clients for (the `op` field, plus the
+ *   compare endpoints when ranking a compare operation).
  * @returns An ordered array of WebSocket client entries.
  */
-function rankedWorkbenchClients(input: Pick<DirectorWorkbenchOperation, "op">) {
+function rankedWorkbenchClients(input: WorkbenchRoutingOperation) {
   return rankUntargetedWorkbenchClients(
     [...workbenchClients.entries()].filter(([client]) => client.readyState === WebSocket.OPEN),
     input,
@@ -1060,6 +1065,8 @@ function defaultWorkbenchCommandTimeoutMs(input: DirectorWorkbenchOperation) {
   if (input.op === "deliver") return 60_000;
   if (input.op === "shot_package") return 45_000;
   if (input.op === "capture") return 60_000;
+  // compare may render up to two stage viewports and download plan artifacts.
+  if (input.op === "compare") return 30_000;
   return 8_000;
 }
 
