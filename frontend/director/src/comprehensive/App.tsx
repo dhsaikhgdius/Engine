@@ -37,7 +37,6 @@ import { clearDirectorDeskHostBridge, initDirectorDeskHostBridge } from "./edito
 import { importLocalDirectorDeskCaptures } from "./editor/io/localCaptureImport";
 import { PerformanceSettings } from "./editor/performance/PerformanceSettings";
 import { EditorShortcuts } from "./editor/keyboard/EditorShortcuts";
-import { BlenderProjectSyncBridge } from "./editor/runtime/BlenderProjectSyncBridge";
 import { useDirectorSessionRuntime } from "./editor/session/directorSessionRuntime";
 import { useDirectorStore } from "./editor/store/directorStore";
 import {
@@ -74,6 +73,14 @@ const StageCaptureHost = lazy(async () => {
 const DirectorInterchangeMenu = lazy(async () => {
   const module = await import("./editor/interchange/DirectorInterchangeMenu");
   return { default: module.DirectorInterchangeMenu };
+});
+
+// The sync bridge drags the Blender scene diffing stack (three.js, GLTF,
+// react-three-fiber) with it; loading it lazily and only while it is active
+// keeps that stack out of the eager App chunk.
+const BlenderProjectSyncBridge = lazy(async () => {
+  const module = await import("./editor/runtime/BlenderProjectSyncBridge");
+  return { default: module.BlenderProjectSyncBridge };
 });
 
 function WorkspaceLoading({ label }: { label: string }) {
@@ -407,7 +414,11 @@ function DirectorApp() {
           </Suspense>
         </WorkspaceErrorBoundary>
       )}
-      <BlenderProjectSyncBridge active={activeAppWorkspace !== "stage" && !captureHostNeeded} />
+      {activeAppWorkspace !== "stage" && !captureHostNeeded ? (
+        <Suspense fallback={null}>
+          <BlenderProjectSyncBridge active />
+        </Suspense>
+      ) : null}
       {!comfyUiEmbedded && activeAppWorkspace !== "stage" && captureHostNeeded ? (
         <WorkspaceErrorBoundary title="片场截图视口加载失败">
           <Suspense fallback={null}>
