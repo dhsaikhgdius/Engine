@@ -1,4 +1,14 @@
-import { Color, DoubleSide, ShaderMaterial, Vector2, Vector3, Vector4, type CubeTexture, type IUniform, type Texture } from "three";
+import {
+  Color,
+  DoubleSide,
+  ShaderMaterial,
+  Vector2,
+  Vector3,
+  Vector4,
+  type CubeTexture,
+  type IUniform,
+  type Texture,
+} from "three";
 import type { DirectorWorldWaterBody } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext } from "../livingWorldContracts";
 import { evaluateWorldTimeOfDayHours } from "../worldTime";
@@ -14,19 +24,22 @@ import {
   type GerstnerWave,
 } from "./gerstner";
 import {
+  WATER_FOAM_BOOST_WIDEN,
   WATER_FOAM_CREST_END,
   WATER_FOAM_CREST_START,
   blendFlowDirectionWithWind,
+  computeWaterAmplitudeScale,
   computeWaterBodyLightLevel,
   computeWaterMicroRippleStrength,
+  computeWaterMurkiness,
   computeWaterRainAgitation,
   computeWaterSkyReflectionInto,
+  computeWaterSteepnessScale,
   computeWaterSunColorInto,
   computeWaterSunDirectionInto,
   computeWaterSunIntensity,
   computeWaterTroughLift,
-  computeWindAmplitudeScale,
-  computeWindSteepnessScale,
+  computeWeatherFoamBoost,
 } from "./waterParams";
 
 /**
@@ -50,8 +63,11 @@ import {
  *   no probe refresh has happened (tests, first frame, GL-less environments);
  * - sun specular: Blinn-Phong with a broad rough lobe plus a sharp glint
  *   lobe, tinted by the solar-arc sun color and damped by cloud cover;
- * - crest foam plus a rectangle-edge rim, enhanced by the camera-centred
- *   height map when nearby banks sit at water height (see worldHeightMap.ts).
+ * - crest foam (weather-boosted) plus a metric shoreline band with lapping
+ *   animation and a shallow-water edge tint, enhanced by the camera-centred
+ *   height map when nearby banks sit at water height (see worldHeightMap.ts);
+ * - weather: storm/rain raise amplitude, chop, and foam, tint the body colour
+ *   murky, and dim the mirror-like environment reflection.
  */
 
 /** Detail-layer scroll rates (m/s) as multiples of flow speed plus drift. */
@@ -91,6 +107,12 @@ export interface WaterSurfaceUniforms {
   uOpacity: IUniform<number>;
   /** Foam intensity multiplier from the body authoring controls. */
   uFoamIntensity: IUniform<number>;
+  /** Weather foam gain ≥ 1 (storm/rain churn); 1 leaves the authored foam. */
+  uFoamBoost: IUniform<number>;
+  /** Suspended-sediment murkiness [0, 1] from weather churn + wetness. */
+  uMurkiness: IUniform<number>;
+  /** Authored rectangle size (sizeX, sizeZ) in metres for metric shoreline math. */
+  uSurfaceSize: IUniform<Vector2>;
   /** World-space sun direction for specular and sky-reflection computation. */
   uSunDirection: IUniform<Vector3>;
   /** Sun specular intensity, already damped by cloud cover. */
@@ -175,7 +197,8 @@ void main() {
  * Shading model: Gerstner normal ⊕ detail-band normals ⊕ micro-ripple ⊕ rain
  * pocking → Schlick fresnel → procedural sky reflection blended with the
  * shared environment probe → Blinn-Phong sun specular (broad + sharp lobes) →
- * crest foam streaked along flow → edge-rim foam → height-map shoreline foam.
+ * crest foam streaked along flow → metric shoreline foam with lapping →
+ * height-map shoreline foam. Weather adds murk and boosts every foam term.
  */
 export const WATER_FRAGMENT_SHADER = /* glsl */ `
 uniform float uTime;
@@ -183,6 +206,9 @@ uniform vec3 uColorShallow;
 uniform vec3 uColorDeep;
 uniform float uOpacity;
 uniform float uFoamIntensity;
+uniform float uFoamBoost;
+uniform float uMurkiness;
+uniform vec2 uSurfaceSize;
 uniform vec3 uSunDirection;
 uniform float uSunIntensity;
 uniform vec3 uSunColor;
@@ -299,6 +325,19 @@ void main() {
   float depthMix = clamp(0.22 + 0.78 * grazing, 0.0, 1.0);
   vec3 bodyColor = mix(uColorShallow, uColorDeep, depthMix) * uBodyLight;
 
+  // Metric distance to the rectangle edge: shoreline widths are physical
+  // metres for a garden pond and a 5 km lake alike (UV fractions are not).
+  vec2 uvEdge = min(vUv, 1.0 - vUv);
+  float shoreDistM = min(uvEdge.x * uSurfaceSize.x, uvEdge.y * uSurfaceSize.y);
+
+  // Analytic shallow band: the last metres before a bank read brighter and
+  // slightly more transparent — a depth cue without real depth reads.
+  float shallowEdge = 1.0 - smoothstep(0.4, 3.2, shoreDistM);
+  bodyColor = mix(bodyColor, uColorShallow * uBodyLight, shallowEdge * 0.4);
+
+  // Storm-churned sediment pulls the transmitted colour toward silt grey-brown.
+  bodyColor = mix(bodyColor, vec3(0.30, 0.28, 0.22) * uBodyLight, uMurkiness * 0.55);
+
   // Procedural sky reflection: horizon tint blended toward the zenith tint by
   // the reflected ray's elevation (no environment map is guaranteed, so the
   // CPU ships solar-arc/weather-coupled tints instead of an env sample).
@@ -328,10 +367,13 @@ void main() {
   color += uSunColor * specular * uSunIntensity;
 
   // Crest foam — mirrors evaluateFoamCrestMask() in waterParams.ts through
-  // the interpolated constants, streaked by hash noise elongated along flow.
+  // the interpolated constants (crest window widened by the weather foam
+  // boost so storm water whitecaps earlier), streaked along flow.
+  float foamGain = clamp(uFoamIntensity * uFoamBoost, 0.0, 1.0);
+  float crestWiden = clamp((max(uFoamBoost, 1.0) - 1.0) * ${WATER_FOAM_BOOST_WIDEN.toFixed(3)}, 0.0, 0.25);
   float crest = clamp(vCrest, 0.0, 1.0);
-  float crestMask = smoothstep(${WATER_FOAM_CREST_START.toFixed(3)}, ${WATER_FOAM_CREST_END.toFixed(3)}, crest)
-    * clamp(uFoamIntensity, 0.0, 1.0);
+  float crestMask = smoothstep(${WATER_FOAM_CREST_START.toFixed(3)} - crestWiden, ${WATER_FOAM_CREST_END.toFixed(3)}, crest)
+    * foamGain;
   vec2 flowPerp = vec2(-uFlowDirection.y, uFlowDirection.x);
   vec2 foamCoord = vec2(
     dot(vWorldPosition.xz, flowPerp) * 2.2,
@@ -344,15 +386,23 @@ void main() {
   vec3 foamColor = mix(vec3(luma), vec3(1.0), 0.72) * (0.85 + 0.3 * streaks);
   color = mix(color, foamColor, foam);
 
-  // Rectangle-edge rim, plus height-map shoreline foam when a bank sits near
-  // the waterline just outside the authored bounds. Water itself is excluded
-  // from the height pass, so the sample looks at neighbouring solid geometry.
-  float edgeDistance = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
-  float rim = (1.0 - smoothstep(0.006, 0.05, edgeDistance)) * clamp(uFoamIntensity, 0.0, 1.0);
-  float rimStreak = directorWaterValueNoise(vWorldPosition.xz * 3.1 + uFlowDirection * (uTime * 0.35), 11.0);
-  color = mix(color, color * 0.8, rim * 0.4);
-  color = mix(color, foamColor, rim * rimStreak * 0.35);
+  // Shoreline foam: a metric band along the rectangle edge whose width
+  // breathes with lapping (deterministic uTime pulse phase-shifted by noise)
+  // and swells when a wave crest arrives at the bank, broken up by scrolled
+  // streak noise so the edge never reads as a printed border.
+  float lapNoise = directorWaterValueNoise(vWorldPosition.xz * 0.55 + uFlowDirection * (uTime * 0.18), 13.0);
+  float lap = 0.5 + 0.5 * sin(uTime * 1.3 + lapNoise * 6.2832 + shoreDistM * 2.4);
+  float lapWidthM = 0.3 + 0.55 * lap + 0.6 * crest;
+  float shoreBandM = 1.0 - smoothstep(0.0, lapWidthM, shoreDistM);
+  float shoreStreak = directorWaterValueNoise(vWorldPosition.xz * 2.6 + uFlowDirection * (uTime * 0.35), 11.0);
+  float shoreFoam = shoreBandM * (0.4 + 0.6 * smoothstep(0.25, 0.8, shoreStreak)) * foamGain;
+  // Wet-edge darkening right at the bank, then the foam wash over it.
+  color = mix(color, color * 0.8, shoreBandM * 0.35);
+  color = mix(color, foamColor, clamp(shoreFoam, 0.0, 1.0) * 0.85);
 
+  // Height-map shoreline foam when a solid bank sits near the waterline just
+  // outside the authored bounds. Water itself is excluded from the height
+  // pass, so the sample looks at neighbouring solid geometry.
   vec2 shoreUv = directorWorldHeightMapUv(vWorldPosition, uOcclusionOrigin, uOcclusionSize);
   vec2 outward = vUv - vec2(0.5);
   float outwardLen = length(outward);
@@ -361,10 +411,13 @@ void main() {
   float inMap = step(0.01, bankUv.x) * step(bankUv.x, 0.99) * step(0.01, bankUv.y) * step(bankUv.y, 0.99);
   float bankY = directorWorldUnpackHeight(texture2D(uOcclusionMap, bankUv).r);
   float shoreBand = smoothstep(0.45, 0.04, abs(bankY - vWorldPosition.y));
-  float shore = rim * shoreBand * inMap * uOcclusionBlend;
+  float shore = shoreBandM * shoreBand * inMap * uOcclusionBlend;
   color = mix(color, foamColor, shore * 0.65);
 
-  float alpha = clamp(uOpacity * (0.8 + 0.2 * grazing) + fresnel * 0.22 + foam * 0.15 + rim * 0.08 + shore * 0.1, 0.0, 1.0);
+  float alpha = clamp(
+    uOpacity * (0.8 + 0.2 * grazing) * (1.0 - 0.15 * shallowEdge)
+      + fresnel * 0.22 + foam * 0.15 + shoreFoam * 0.12 + shore * 0.1 + uMurkiness * 0.1,
+    0.0, 1.0);
   gl_FragColor = vec4(color, alpha);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -394,6 +447,9 @@ export function createWaterSurfaceUniforms(): WaterSurfaceUniforms {
     uColorDeep: { value: new Color("#04364d") },
     uOpacity: { value: 0.9 },
     uFoamIntensity: { value: 0.5 },
+    uFoamBoost: { value: 1 },
+    uMurkiness: { value: 0 },
+    uSurfaceSize: { value: new Vector2(10, 10) },
     uSunDirection: { value: new Vector3(0, 1, 0) },
     uSunIntensity: { value: 1 },
     uSunColor: { value: new Color(1, 0.96, 0.88) },
@@ -503,13 +559,18 @@ export interface WaterFrameState {
  */
 export function writeWaterFrameUniforms(uniforms: WaterSurfaceUniforms, frame: WaterFrameState): void {
   const { context, body, waves, amplitudeSum } = frame;
+  const weather = context.settings.weather;
   const windX = context.windVector[0];
   const windZ = context.windVector[2];
   const windSpeedMps = Math.hypot(windX, windZ);
 
-  const amplitudeScale = computeWindAmplitudeScale(windSpeedMps);
-  const steepnessScale = computeWindSteepnessScale(windSpeedMps);
-  const baseDirectionRadians = blendFlowDirectionWithWind(body.flowDirectionDegrees, windX, windZ);
+  // Wind × weather coupling: storms raise both the height budget and the
+  // chop. The per-wave anti-loop limit rescales with the amplitude, so any
+  // combination keeps ΣQ within the 8% safety margin (see gerstner.ts).
+  const amplitudeScale = computeWaterAmplitudeScale(windSpeedMps, weather);
+  const steepnessScale = computeWaterSteepnessScale(windSpeedMps, weather);
+  // Wind steers wave travel; on still lakes (flow ≈ 0) it may dominate.
+  const baseDirectionRadians = blendFlowDirectionWithWind(body.flowDirectionDegrees, windX, windZ, body.flowSpeedMps);
 
   uniforms.uTime.value = context.worldSeconds;
   uniforms.uGerstnerAmplitudeScale.value = amplitudeScale;
@@ -522,6 +583,9 @@ export function writeWaterFrameUniforms(uniforms: WaterSurfaceUniforms, frame: W
   );
   uniforms.uOpacity.value = body.opacity;
   uniforms.uFoamIntensity.value = body.foamIntensity;
+  uniforms.uFoamBoost.value = computeWeatherFoamBoost(weather);
+  uniforms.uMurkiness.value = computeWaterMurkiness(weather);
+  uniforms.uSurfaceSize.value.set(Math.max(body.surface.sizeX, 0.1), Math.max(body.surface.sizeZ, 0.1));
 
   writeGerstnerWaveDirectionUniforms(uniforms, waves, baseDirectionRadians);
 
@@ -540,13 +604,15 @@ export function writeWaterFrameUniforms(uniforms: WaterSurfaceUniforms, frame: W
   uniforms.uDetailScrollA.value.set(flowX * scrollA, flowZ * scrollA);
   uniforms.uDetailScrollB.value.set(flowX * scrollB, flowZ * scrollB);
 
-  const weather = context.settings.weather;
-  const hours = evaluateWorldTimeOfDayHours(context.settings.timeOfDay, context.worldSeconds);
+  // Weather comes from the evaluated climate: identical to the authored
+  // block in static mode, continuously ramped while a weather cycle runs.
+  const climate = context.climate;
+  const weather = climate.weather;  const hours = evaluateWorldTimeOfDayHours(context.settings.timeOfDay, context.worldSeconds);
   computeWaterSunDirectionInto(uniforms.uSunDirection.value, hours);
   uniforms.uSunIntensity.value = computeWaterSunIntensity(hours, weather.cloudCover);
   computeWaterSunColorInto(uniforms.uSunColor.value, hours);
-  computeWaterSkyReflectionInto(uniforms.uSkyHorizonColor.value, uniforms.uSkyZenithColor.value, hours, weather);
-  uniforms.uBodyLight.value = computeWaterBodyLightLevel(hours, weather);
+  computeWaterSkyReflectionInto(uniforms.uSkyHorizonColor.value, uniforms.uSkyZenithColor.value, hours, weather, climate);
+  uniforms.uBodyLight.value = computeWaterBodyLightLevel(hours, weather, climate);
   uniforms.uMicroRipple.value = computeWaterMicroRippleStrength(windSpeedMps);
-  uniforms.uRainAgitation.value = computeWaterRainAgitation(weather);
+  uniforms.uRainAgitation.value = computeWaterRainAgitation(weather, climate);
 }

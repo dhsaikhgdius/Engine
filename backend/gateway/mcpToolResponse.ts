@@ -12,6 +12,11 @@ import {
   stageSceneHintSchema,
   type StageGatewayExecution,
 } from "@director/agent-engine";
+import {
+  directorAgentModelEnvelope,
+  directorAgentToolResultNeedsProjection,
+  projectDirectorAgentToolEnvelope,
+} from "./agents/agentToolResultProjection";
 
 /** Schema for the structured output returned by every MCP tool invocation. */
 export const mcpToolStructuredOutputSchema = z.strictObject({
@@ -111,16 +116,53 @@ function recoverySuggestion(code: string | null): string | null {
 }
 
 /**
+ * Removes base64 media bytes (`data` / `dataBase64`) from capture-shaped
+ * records inside a JSON payload that is about to be serialized for the model.
+ *
+ * A record is capture-shaped when it carries a string `mimeType` next to a
+ * string `data` or `dataBase64` field. Metadata such as `mimeType`, `width`,
+ * and `height` is preserved; only the encoded bytes are dropped. The image
+ * itself must travel as an MCP image content block instead.
+ *
+ * @param value - The JSON payload to sanitize.
+ * @returns A structurally equal copy without encoded media bytes.
+ */
+export function stripEncodedMediaFromSerializedView(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripEncodedMediaFromSerializedView);
+  const source = record(value);
+  if (!source) return value;
+  const captureShaped =
+    typeof source.mimeType === "string" && (typeof source.data === "string" || typeof source.dataBase64 === "string");
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(source)) {
+    if (captureShaped && (key === "data" || key === "dataBase64")) continue;
+    sanitized[key] = stripEncodedMediaFromSerializedView(child);
+  }
+  return sanitized;
+}
+
+const availableRefsSchema = z.record(z.string(), z.string());
+
+/**
  * Builds an MCP tool response from a {@link StageGatewayExecution}.
  *
  * Produces a structured JSON payload with outcome, feedback, and recovery
  * hints, and optionally attaches a Stage viewport capture image.
  *
+ * The result is passed through the same model-facing projection used by the
+ * DSH plugin pipeline ({@link directorAgentModelEnvelope} +
+ * {@link projectDirectorAgentToolEnvelope}): oversized observe/catalog dumps
+ * become counts, bounded id samples, and a retrieval hint, while small
+ * results stay unchanged. Capture bytes never appear in the serialized
+ * text/structured JSON — the image travels only as an MCP image block.
+ *
  * @param execution - The Stage gateway execution result.
+ * @param tool - The agent tool name, used to pick tool-specific projections
+ *               (for example the Creative workspace observe summary).
  * @returns An object with structured content, MCP-compatible text/image
  *          content blocks, and an error flag.
  */
-export function createMcpToolResponse(execution: StageGatewayExecution) {
+export function createMcpToolResponse(execution: StageGatewayExecution, tool = "director_workbench") {
   const fallbackFeedback = {
     changed: { object_ids: [], track_ids: [], scene_settings: false },
     scene_hint: createStageSceneHint(execution.scene),
@@ -130,17 +172,45 @@ export function createMcpToolResponse(execution: StageGatewayExecution) {
   const feedback = execution.feedback ?? fallbackFeedback;
   const code = execution.code ?? nestedString(execution.result, "code");
   const suggestedNext = nestedString(execution.result, "suggested_next") ?? recoverySuggestion(code ?? null);
+
+  const serializedResult =
+    execution.result === undefined || execution.result === null
+      ? execution.result
+      : stripEncodedMediaFromSerializedView(execution.result);
+  const modelEnvelope = directorAgentModelEnvelope({
+    success: execution.success,
+    code: code ?? undefined,
+    result: serializedResult,
+    error: execution.error,
+    feedback,
+    target: execution.target,
+    agent_boundary: execution.agent_boundary,
+  });
+  const decision = directorAgentToolResultNeedsProjection(modelEnvelope, { tool, input: undefined });
+  const projected =
+    decision.needed && decision.reason
+      ? projectDirectorAgentToolEnvelope(modelEnvelope, decision.reason, undefined, tool)
+      : modelEnvelope;
+
+  // The projection may trim or drop feedback pieces the MCP structured output
+  // schema still requires; fall back to the original strict feedback then.
+  const projectedFeedback = record(projected.feedback);
+  const changed = stageChangedEntitiesSchema.safeParse(projectedFeedback?.changed);
+  const sceneHint = stageSceneHintSchema.safeParse(projectedFeedback?.scene_hint);
+  const context = stageFeedbackContextSchema.safeParse(projectedFeedback?.context);
+  const availableRefs = availableRefsSchema.safeParse(projectedFeedback?.available_refs);
+
   const structuredContent: McpToolStructuredOutput = {
     ok: execution.success,
     code: code ?? null,
-    result: execution.result ?? null,
+    result: projected.result ?? null,
     error: execution.error ?? null,
     suggested_next: suggestedNext,
     ui_events: execution.events ?? [],
-    changed: feedback.changed,
-    scene_hint: feedback.scene_hint,
-    context: feedback.context,
-    available_refs: feedback.available_refs,
+    changed: changed.success ? changed.data : feedback.changed,
+    scene_hint: sceneHint.success ? sceneHint.data : feedback.scene_hint,
+    context: context.success ? context.data : feedback.context,
+    available_refs: availableRefs.success ? availableRefs.data : feedback.available_refs,
     target: execution.target ?? null,
     agent_boundary: execution.agent_boundary ?? null,
   };

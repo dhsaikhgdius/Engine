@@ -89,6 +89,5 @@ npm run gateway
 ## 许可
 
 NVIDIA ARDY 及其 cskel27 骨架定义（关节顺序、父子关系、中性姿势）以 Apache-2.0 发布；
-Director 侧的桥接、解码与重定向代码为本仓库自有实现。参考实现
-[CozyClay](https://github.com/HaD0Yun/CozyClay)（GPL-3.0）仅作为集成形态的调研对象，
-本仓库未复制其代码。
+Director 侧的桥接、解码与重定向代码为本仓库自有实现。许可不兼容的第三方集成实现
+仅作为集成形态的调研对象，本仓库未复制其代码。

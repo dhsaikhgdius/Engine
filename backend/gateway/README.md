@@ -2,7 +2,7 @@
 
 > Languages: **English** · [中文](README.zh-CN.md)
 
-The TypeScript Gateway control plane for Director (WorldEngine). It provides project & scene management, media generation & transcoding, a collaboration WebSocket hub, HTTP API routes, and structured tool interfaces for DeepSeek Harness and MCP clients. Agent sessions live in the `vendor/deepseek-harness` submodule.
+The TypeScript Gateway control plane for Director (WorldEngine). It provides project & scene management, media generation & transcoding, a collaboration WebSocket hub, HTTP API routes, and structured tool interfaces for DeepSeek Harness and MCP clients. The Gateway does not host an Agent loop: sessions, the tool loop, and the generic workspace/web/job tools live in the `vendor/deepseek-harness` submodule (`npm run dsh`), and the Director-specific Stage / Canvas / Video / Blender tools reach the Gateway through the DSH plugin in `packages/dsh-plugin-workbench`.
 
 - **Runtime**: `tsx` (TypeScript execute), Node.js HTTP server (Hono-free, raw `node:http`), `ws` WebSocket, `Yjs` CRDT + `y-protocols/awareness`, `Zod` schema validation, `node-pty` terminal
 - **Start**:
@@ -19,7 +19,7 @@ The TypeScript Gateway control plane for Director (WorldEngine). It provides pro
 | Path | Purpose |
 |------|---------|
 | `agent-gateway.ts` | Main gateway entry: creates the HTTP server, WebSocket upgrade, Agent plan/execution orchestration, Stage capture & workbench routing |
-| `bootstrap.ts` | Gateway bootstrap assembly: instantiates all services (Auth, Agent harness, Collaboration, DCC, Film, Generation, Transcode, etc.) and injects into HTTP routes |
+| `bootstrap.ts` | Gateway bootstrap assembly: instantiates all services (Auth, model providers, Collaboration, DCC, Film, Generation, Transcode, etc.) and injects into HTTP routes |
 | `mcp-server.ts` | MCP server entry: registers three tool sets (`director_workbench`, `director_creative`, `director_dcc`), communicates via stdio with MCP clients, proxies to the Gateway via HTTP |
 | `agentPlanStore.ts` | Short-lived assistant plan cache for plan/apply |
 | `agentNaiveBoundary.ts` | Agent operation boundary: classifies mutation vs read-only operations, generates idempotency keys, manages session target binding, applies observed guards |
@@ -37,7 +37,7 @@ The TypeScript Gateway control plane for Director (WorldEngine). It provides pro
 | `browserClientDiscovery.ts` | Browser client discovery: tries multiple browser tabs by priority for requests, supports exact leases and fallback discovery |
 | `browserCommandTimeout.ts` | Browser command timeout: distinguishes mutation (outcome unknown, must observe) from read-only (safe to retry) timeout errors |
 | `capturePayload.ts` | Capture payload parsing: parses base64 data URLs (PNG/JPEG/WebP), validates MIME type and size cap (12 MB) |
-| `mcpToolResponse.ts` | MCP tool response builder: standardizes `ok`, `code`, `result`, `error`, `suggested_next` fields, with UI events and scene hints |
+| `mcpToolResponse.ts` | MCP tool response builder: standardizes `ok`, `code`, `result`, `error`, `suggested_next` fields, projects oversized results into counts + id samples via `agents/agentToolResultProjection.ts`, and strips capture base64 from serialized JSON |
 | `processTermination.ts` | Process termination utilities: cross-platform process tree signaling (POSIX process groups, Windows taskkill), graceful termination |
 | `refSessions.ts` | Reference session registry: in-memory session-scoped key-value reference store with TTL expiry and capacity cap |
 | `workbenchClientRouting.ts` | Workbench client routing: ranks browser clients by workspace (stage/canvas/video) and capture readiness |
@@ -77,7 +77,7 @@ Tests live in `tests/`, mirroring gateway source.
 
 | Directory | Purpose |
 |-----------|---------|
-| `agents/` | Agent runtime components: adapter registry, model drivers (Anthropic/OpenAI), hosted session history & replay, tool pipeline, role policies |
+| `agents/` | Gateway-side agent tool support: compact tool registry (re-exported from the DSH plugin), exact-target scheduler, result projection, role policy, revision memory, and hosted API provider config. The Agent loop itself lives in `vendor/deepseek-harness` |
 | `artifacts/` | Artifact versioning & approval: production artifact version management, approval workflow, promotion pointers |
 | `controlPlane/` | Control plane configuration: unified env var parsing, Zod schemas, hosted agent defaults |
 | `dcc/` | DCC integration: Blender bridge, scene import/export, Blender native session, glTF preparation |
@@ -100,20 +100,21 @@ Tests live in `tests/`, mirroring gateway source.
 
 ### `agents/` File listing
 
+The in-tree Agent run loop, hosted session store, workspace tools, and hosted `web_search`/`web_fetch` copies were removed at the DeepSeek Harness cutover; those live in `vendor/deepseek-harness` now. What remains here supports the Gateway tool HTTP surface, MCP, and structured film-pipeline LLM calls.
+
 | Path | Purpose |
 |------|---------|
-| `agents/agentAdapterRegistry.ts` | Adapter registry: manages registration and lookup of `AgentHarnessAdapter` instances |
-| `agents/agentProfileRegistry.ts` | Agent profile registry: resolves local and hosted agent capabilities, drivers, model configs |
-| `agents/openAiCompatibleAdapter.ts` | OpenAI-compatible adapter: universal `AgentHarnessAdapter` supporting Anthropic Messages and OpenAI Chat drivers |
-| `agents/agentToolPipeline.ts` | Tool pipeline: intercepts `director_workbench`/`director_creative`/`blender_native` tool calls, applies role policies, execution, spill, projection |
+| `agents/agentToolRegistry.ts` | Canonical tool registry: compact wire schemas and timeouts re-exported from `@director/dsh-plugin-workbench` for MCP and HTTP tool routes |
+| `agents/agentToolScheduler.ts` | Exact-target scheduler: ordered call windows and process-wide reader/writer target queues, used by `routes/stageRoutes.ts` |
+| `agents/agentToolResultProjection.ts` | Tool result projection: summarizes oversized model-facing results into counts + id samples + retrieval hint, optional spill; used by `mcpToolResponse.ts` and the DSH plugin |
 | `agents/agentToolOutcomes.ts` | Tool outcome classification: classifies tool results as `completed`/`failed`/`timed_out`/`stale_revision`/`outcome_unknown` |
-| `agents/agentToolResultProjection.ts` | Tool result projection: compresses and summarizes large tool results, spills to file when over budget |
-| `agents/agentSpillStore.ts` | Tool result spill store: session-scoped file storage for large tool results exceeding model context budget |
-| `agents/agentPromptSegments.ts` | Prompt segments: injects `director-workbench` skill file, agent identity statement, skill catalog hint |
-| `agents/hostedReplay.ts` | Hosted replay: replays recorded model requests/responses in hosted sessions, supports sequence and fingerprint matching |
-| `agents/hostedSessionHistory.ts` | Hosted session history: reconstructs model message history from Agent event stream, extracts tool calls |
-| `agents/hostedSurfaceMeter.ts` | Hosted surface meter: monitors model context window usage, triggers compaction when over threshold |
+| `agents/agentToolMemory.ts` | Session tool memory: caches the last workbench revision for guarded writes and stale-revision retry in stateless MCP/CLI clients |
 | `agents/filmRoleToolPolicy.ts` | Film role tool policy: restricts available tools and operations by `FilmRoleId` (read-only vs write) |
+| `agents/agentProfileRegistry.ts` | Agent profile registry: resolves hosted API profile capabilities, drivers, model configs for film-pipeline LLM calls |
+| `agents/agentApiProviderStore.ts` | Hosted API provider store: persists user-configured API providers (`agent-api-providers.json`) and expands them into hosted profiles |
+| `agents/agentApiModels.ts` | Hosted model discovery: fetches model lists for configured API providers |
+| `agents/modelProviderIntegration.ts` | Model provider registration: wires `@director/model-provider` built-ins into the gateway registry |
+| `agents/localAgentCliAvailability.ts` | Local CLI availability probe for Codex/Claude commands advertised by profile discovery |
 
 ### `artifacts/` File listing
 
@@ -241,7 +242,7 @@ Tests live in `tests/`, mirroring gateway source.
 |------|---------|
 | `routes/assistantRoutes.ts` | Assistant routes: `POST /api/assistant/plan` and `/api/assistant/apply` |
 | `routes/stageRoutes.ts` | Stage routes: core Workbench tool execution, capture, project operations |
-| `routes/agentSessionRoutes.ts` | Agent session routes: session management, bootstrap, health checks |
+| `routes/agentApiProviderRoutes.ts` | Hosted API provider routes: save user-configured providers, fetch model lists |
 | `routes/controlPlaneRoutes.ts` | Control plane routes: config queries, agent configuration, capabilities |
 | `routes/generationRoutes.ts` | Generation routes: ComfyUI image/video generation task submission and query |
 | `routes/generated3dRoutes.ts` | 3D generation routes: 3D generation task submission, query, promotion |

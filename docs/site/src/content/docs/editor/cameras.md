@@ -97,7 +97,35 @@ A target can be:
 - an Agent-selected subject used by framing and audit operations.
 
 For Agent work, pass both `camera_id` and `subject_id` to `audit`. This enables normalized
-camera-space checks for clipping, out-of-frame subjects, scale, and composition.
+camera-space checks for clipping, out-of-frame subjects, scale, and composition. The critique
+facts also report each subject's `visible_fraction` (share of its projected bounds inside the
+frame) and `occluded_by` (nearer bodies covering it), so an agent loop can verify that a subject
+is actually in picture without reading pixels.
+
+## Film language
+
+One shared film-language module reads every camera/subject pair into crew vocabulary — shot size
+(extreme wide through extreme close-up), view (front, front-quarter, profile, rear-quarter,
+back), camera side, level (ground through overhead), the nearest prime lens, and the measured
+subject distance — and solves the inverse from the same bands, so a solved intent always derives
+back to itself. The camera picture-in-picture shows this reading as a live slate
+(`CLOSE-UP · PROFILE L · EYE · 50MM`), `observe` publishes the identical report per camera, and
+video prompt expansion carries the same measured framing into generation prompts. UI and agents
+cannot disagree about what a 35 mm medium profile is.
+
+Agents author framing by intent rather than raw transforms:
+
+- `frame_shot` places and aims an existing camera from vocabulary (`size`, `view`, `side`,
+  `level`, optional `focal_length_mm`) relative to a subject object. When a request is physically
+  impossible — an extreme close-up on a wide lens would put the camera inside the subject — the
+  solver lengthens the lens along the prime ladder or flattens the level and reports the
+  adjustment instead of failing silently.
+- `mark_camera_move` pins the camera's current framing (rig transform, aim, field of view) as one
+  keyframe on the camera's own animation track. Framing twice and marking twice authors a move.
+- `describe_camera_move` names the move a marked track geometrically proves between two frames —
+  dolly, push-in/pull-out, pan, tilt, orbit, crane, zoom, contra-zoom — and returns a
+  prompt-ready phrase plus per-segment slates. It also serves from the persisted project when no
+  Stage tab is connected.
 
 ## Camera actions
 

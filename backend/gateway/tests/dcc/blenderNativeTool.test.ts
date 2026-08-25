@@ -12,6 +12,7 @@ import {
   exportBlenderScenePreview,
 } from "../../dcc/blenderNativeTool";
 import { BlenderNativeSessionError, type BlenderNativeSession } from "../../dcc/blenderNativeSession";
+import { createDefaultDirectorProject } from "@director/agent-engine/default-project";
 
 const intentId = "b4b2ed3d-b25b-4ad0-8db9-f04bcb229fb6";
 const sceneEpoch = "82a6f8c1-7cb8-4d6f-a5f2-a4f5654a0420";
@@ -1734,6 +1735,73 @@ describe("executeBlenderNativeTool", () => {
       expect.objectContaining({ expectedSceneEpoch: sceneEpoch, expectedRevision: 5 }),
     );
     expect(session.snapshot).toHaveBeenCalledTimes(1);
+    // Without a project loader, the datablock reports Blender-only ownership.
+    expect(result).toMatchObject({
+      inspection: {
+        kernel_ownership: { kernel: "blender", source: "blender_native", blender_object_id: "cube-a" },
+      },
+    });
+  });
+
+  it("resolves inspect kernel ownership against the persisted Director project mirror", async () => {
+    const inspection = {
+      id: "native-mesh-1",
+      name: "Mirrored",
+      type: "MESH",
+      mode: "OBJECT",
+      dimensions: [1, 1, 1],
+      evaluatedBounds: { min: [-0.5, 0, -0.5], max: [0.5, 1, 0.5], center: [0, 0.5, 0], size: [1, 1, 1] },
+      selection: { selected: false, active: false },
+      materialNodes: [],
+      animation: {
+        action: null,
+        fCurveCount: 0,
+        keyframeCount: 0,
+        driverCount: 0,
+        nlaTrackCount: 0,
+        nlaStripCount: 0,
+      },
+      warnings: [],
+    };
+    const session: BlenderNativeSession = {
+      status: vi.fn(),
+      previewGlb: vi.fn(),
+      snapshot: vi.fn().mockResolvedValue(scene(5, [cube("native-mesh-1")])),
+      submit: vi.fn().mockResolvedValue({
+        contract: BLENDER_LIVE_CONTRACT,
+        jobId: intentId,
+        requestId: intentId,
+        status: "queued",
+      }),
+      job: vi.fn().mockResolvedValue({
+        contract: BLENDER_LIVE_CONTRACT,
+        jobId: intentId,
+        requestId: intentId,
+        status: "succeeded",
+        revision: 5,
+        result: { operations: [inspection] },
+        error: null,
+      }),
+    };
+    const project = createDefaultDirectorProject();
+    const mirrored = project.objects.find((object) => object.nativeSource?.engine === "blender")!;
+    mirrored.nativeSource = { engine: "blender", objectId: "native-mesh-1", provisioned: true };
+
+    const result = await executeBlenderNativeTool(session, { op: "inspect", id: "native-mesh-1" }, {
+      loadDirectorProject: async () => project,
+    });
+
+    expect(result).toMatchObject({
+      inspection: {
+        kernel_ownership: {
+          kernel: "blender",
+          source: "blender_native",
+          blender_object_id: "native-mesh-1",
+          stage_patchable_fields: ["name", "visible", "locked", "transform"],
+          stage_entity: { entity: "object", id: mirrored.id },
+        },
+      },
+    });
   });
 
   it("exports a GLB preview as raw bytes through the binary endpoint and consumes the native record", async () => {

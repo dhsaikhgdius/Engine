@@ -27,6 +27,18 @@ describe("director workbench describe", () => {
     expect(result.fields).toBeUndefined();
   });
 
+  it("returns the complete compare schema with its typed source vocabulary", () => {
+    const result = describedResult("compare");
+    expect(result.kind).toBe("operation");
+    expect(result.json_schema).toBeDefined();
+    const serialized = JSON.stringify(result.json_schema);
+    expect(serialized).toContain("reference");
+    expect(serialized).toContain("candidate");
+    expect(serialized).toContain("reconstruction_keyframe");
+    expect(serialized).toContain("media_id");
+    expect(result.fields).toBeUndefined();
+  });
+
   it("degrades author to a field summary plus the action name index", () => {
     const result = describedResult("author");
     expect(result.json_schema).toBeUndefined();
@@ -42,6 +54,22 @@ describe("director workbench describe", () => {
     expect(result.json_schema).toBeUndefined();
     expect(result.fields).toContain("project");
     expect(result.author_actions).toBeUndefined();
+  });
+
+  it("embeds the kernel-ownership result vocabulary on the inspect operation", () => {
+    const result = describedResult("inspect");
+    expect(result.json_schema).toBeDefined();
+    expect(JSON.stringify(result.json_schema)).toContain("kernel_ownership");
+    const ownership = result.result_schemas?.kernel_ownership;
+    expect(ownership).toBeDefined();
+    const serialized = JSON.stringify(ownership);
+    expect(serialized).toContain("blender_native");
+    expect(serialized).toContain("generated_3d");
+    expect(serialized).toContain("stage_catalog");
+    expect(serialized).toContain("stage_patchable_fields");
+    expect(serialized).toContain("rejected_stage_patches");
+    expect(serialized).toContain("deletes_with_blender");
+    expect(describedResult("capture").result_schemas).toBeUndefined();
   });
 
   it("returns one author action schema on demand", () => {

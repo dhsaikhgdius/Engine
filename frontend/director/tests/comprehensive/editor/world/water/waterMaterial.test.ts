@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorWorldWaterBody } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext } from "../../../../../src/comprehensive/editor/world/livingWorldContracts";
+import { evaluateWorldClimate } from "../../../../../src/comprehensive/editor/world/worldClimate";
 import {
   GERSTNER_FORMULATION_MARKER,
   WATER_GERSTNER_WAVE_COUNT,
@@ -17,7 +18,12 @@ import {
   writeWaterFrameUniforms,
   type WaterFrameState,
 } from "../../../../../src/comprehensive/editor/world/water/waterMaterial";
-import { WATER_FOAM_CREST_END, WATER_FOAM_CREST_START, computeWaterTroughLift } from "../../../../../src/comprehensive/editor/world/water/waterParams";
+import {
+  WATER_FOAM_BOOST_WIDEN,
+  WATER_FOAM_CREST_END,
+  WATER_FOAM_CREST_START,
+  computeWaterTroughLift,
+} from "../../../../../src/comprehensive/editor/world/water/waterParams";
 
 function createBody(overrides: Partial<DirectorWorldWaterBody> = {}): DirectorWorldWaterBody {
   return {
@@ -39,23 +45,27 @@ function createBody(overrides: Partial<DirectorWorldWaterBody> = {}): DirectorWo
 }
 
 function createContext(overrides: Partial<LivingWorldFrameContext> = {}): LivingWorldFrameContext {
-  return {
+  const settings = {
+    enabled: true,
+    seed: 20_260_813,
+    wind: { directionDegrees: 45, speedMps: 2.5, gustiness: 0, turbulence: 0 },
+    timeOfDay: { mode: "fixed" as const, hours: 12, cycleMinutes: 12, drivesSky: false },
+    weather: { preset: "clear" as const, intensity: 0.5, wetness: 0, cloudCover: 0 },
+  };
+  const merged: LivingWorldFrameContext = {
     worldSeconds: 3.25,
     frame: 78,
     fps: 24,
     isPlaying: false,
     seed: 20_260_813,
-    settings: {
-      enabled: true,
-      seed: 20_260_813,
-      wind: { directionDegrees: 45, speedMps: 2.5, gustiness: 0, turbulence: 0 },
-      timeOfDay: { mode: "fixed", hours: 12, cycleMinutes: 12, drivesSky: false },
-      weather: { preset: "clear", intensity: 0.5, wetness: 0, cloudCover: 0 },
-    },
+    settings,
+    climate: evaluateWorldClimate(settings, 3.25),
     windVector: [3, 0, 4],
     groundHeight: 0,
     ...overrides,
   };
+  if (!overrides.climate) merged.climate = evaluateWorldClimate(merged.settings, merged.worldSeconds);
+  return merged;
 }
 
 function createFrameState(): WaterFrameState {
@@ -120,7 +130,23 @@ describe("water shader assembly", () => {
     expect(WATER_FRAGMENT_SHADER).toContain("mix(bodyColor, reflectionColor, fresnel)");
     expect(WATER_FRAGMENT_SHADER).toContain("uOcclusionMap");
     expect(WATER_FRAGMENT_SHADER).toContain("directorWorldHeightMapUv");
-    expect(WATER_FRAGMENT_SHADER).toContain("float shore = rim * shoreBand * inMap * uOcclusionBlend");
+    expect(WATER_FRAGMENT_SHADER).toContain("float shore = shoreBandM * shoreBand * inMap * uOcclusionBlend");
+  });
+
+  it("carries the metric shoreline band, shallow edge tint, and weather terms", () => {
+    // Shoreline distances are metres derived from the authored surface size,
+    // not UV fractions — foam width must not scale with the body.
+    expect(WATER_FRAGMENT_SHADER).toContain("uniform vec2 uSurfaceSize;");
+    expect(WATER_FRAGMENT_SHADER).toContain(
+      "float shoreDistM = min(uvEdge.x * uSurfaceSize.x, uvEdge.y * uSurfaceSize.y);",
+    );
+    expect(WATER_FRAGMENT_SHADER).toContain("float lapWidthM");
+    expect(WATER_FRAGMENT_SHADER).toContain("float shallowEdge");
+    // Weather coupling: foam boost widens the crest window and murk tints.
+    expect(WATER_FRAGMENT_SHADER).toContain("uniform float uFoamBoost;");
+    expect(WATER_FRAGMENT_SHADER).toContain("uniform float uMurkiness;");
+    expect(WATER_FRAGMENT_SHADER).toContain(WATER_FOAM_BOOST_WIDEN.toFixed(3));
+    expect(WATER_FRAGMENT_SHADER).toContain("float foamGain = clamp(uFoamIntensity * uFoamBoost, 0.0, 1.0);");
   });
 });
 
@@ -186,6 +212,66 @@ describe("water uniform writers", () => {
     expect(first.uGerstnerWaveA.value.map((packed) => packed.toArray())).toEqual(
       second.uGerstnerWaveA.value.map((packed) => packed.toArray()),
     );
+  });
+
+  it("keeps clear-weather defaults identical to the wind-only coupling", () => {
+    // Regression guard: existing lakes must not silently retune — in clear
+    // weather every weather term is the identity.
+    const uniforms = createWaterSurfaceUniforms();
+    const frame = createFrameState();
+    writeWaterFrameUniforms(uniforms, frame);
+    expect(uniforms.uGerstnerAmplitudeScale.value).toBeCloseTo(1.2, 10);
+    expect(uniforms.uGerstnerSteepnessScale.value).toBeCloseTo(1.15, 10);
+    expect(uniforms.uFoamBoost.value).toBe(1);
+    expect(uniforms.uMurkiness.value).toBe(0);
+    expect(uniforms.uSurfaceSize.value.x).toBe(frame.body.surface.sizeX);
+    expect(uniforms.uSurfaceSize.value.y).toBe(frame.body.surface.sizeZ);
+  });
+
+  it("raises chop, foam, and murk under a storm without breaking ΣQ safety", () => {
+    const clear = createWaterSurfaceUniforms();
+    const storm = createWaterSurfaceUniforms();
+    const clearFrame = createFrameState();
+    const stormFrame = createFrameState();
+    stormFrame.context = createContext({
+      settings: {
+        ...createContext().settings,
+        weather: { preset: "storm", intensity: 1, wetness: 1, cloudCover: 1 },
+      },
+    });
+    writeWaterFrameUniforms(clear, clearFrame);
+    writeWaterFrameUniforms(storm, stormFrame);
+
+    expect(storm.uGerstnerAmplitudeScale.value).toBeGreaterThan(clear.uGerstnerAmplitudeScale.value);
+    expect(storm.uGerstnerSteepnessScale.value).toBeGreaterThan(clear.uGerstnerSteepnessScale.value);
+    expect(storm.uFoamBoost.value).toBeCloseTo(1.8, 10);
+    expect(storm.uMurkiness.value).toBeGreaterThan(0.9);
+    // The crest normalizer tracks the boosted amplitude so vCrest stays in [-1, 1].
+    expect(storm.uCrestNormalizer.value).toBeLessThan(clear.uCrestNormalizer.value);
+    // Deterministic: identical storm frames produce identical uniforms.
+    const stormAgain = createWaterSurfaceUniforms();
+    writeWaterFrameUniforms(stormAgain, stormFrame);
+    expect(stormAgain.uGerstnerSteepnessScale.value).toBe(storm.uGerstnerSteepnessScale.value);
+    expect(stormAgain.uMurkiness.value).toBe(storm.uMurkiness.value);
+  });
+
+  it("lets strong wind take over the travel direction on a still lake", () => {
+    const uniforms = createWaterSurfaceUniforms();
+    const frame = createFrameState();
+    // Still lake (flow 0) authored toward +X, gale toward −Z.
+    frame.body = createBody({ flowSpeedMps: 0, flowDirectionDegrees: 90 });
+    frame.context = createContext({ windVector: [0, 0, -25] });
+    writeWaterFrameUniforms(uniforms, frame);
+    const alignmentWithWind = -uniforms.uFlowDirection.value.y; // wind unit is (0, −1)
+    expect(alignmentWithWind).toBeGreaterThan(0.9);
+
+    // The same gale against a fast river barely moves the authored direction.
+    const river = createWaterSurfaceUniforms();
+    const riverFrame = createFrameState();
+    riverFrame.body = createBody({ flowSpeedMps: 3, flowDirectionDegrees: 90 });
+    riverFrame.context = createContext({ windVector: [0, 0, -25] });
+    writeWaterFrameUniforms(river, riverFrame);
+    expect(river.uFlowDirection.value.x).toBeGreaterThan(0.5);
   });
 
   it("keeps night-time specular dim but non-zero (moon glint)", () => {

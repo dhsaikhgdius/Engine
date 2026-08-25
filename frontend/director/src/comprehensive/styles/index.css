@@ -1470,6 +1470,12 @@ textarea:focus-visible {
   line-height: 14px;
 }
 
+.camera-picture-in-picture__meta .camera-picture-in-picture__slate {
+  color: rgb(255 224 130 / 0.92);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
 .camera-viewport-properties {
   position: absolute;
   top: 18px;
@@ -5777,6 +5783,17 @@ textarea:focus-visible {
   white-space: nowrap;
   background: rgb(var(--panel-rgb) / 0.92);
   box-shadow: 0 10px 28px rgb(var(--overlay-rgb) / 0.24);
+}
+
+.role-label-agent-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: #8be9c3;
+  font-size: 10px;
+  background: rgb(48 209 130 / 0.16);
+  border: 1px solid rgb(48 209 130 / 0.38);
+  vertical-align: 1px;
 }
 
 .director-annotation-label,

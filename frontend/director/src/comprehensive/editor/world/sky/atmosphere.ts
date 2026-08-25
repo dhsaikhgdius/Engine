@@ -1,4 +1,5 @@
 import type { DirectorWorldWeather } from "../../schema/directorProject";
+import { evaluateSkyWeatherMood } from "./skyWeather";
 
 /**
  * Nishita single-scattering atmosphere shared by the Living World sky dome,
@@ -185,42 +186,80 @@ export function evaluateSunRadiance(
   ];
 }
 
+/** How dark a fully wet surface goes relative to its dry albedo. */
+export const WET_GROUND_ALBEDO_FACTOR = 0.7;
+
 /**
- * Ground Lambertian albedo for the bounce solve. Snow weather lifts the
- * floor toward fresh snow; rain and storms darken it.
- */
-export function getAtmosphereGroundAlbedo(weather: DirectorWorldWeather): [number, number, number] {
+ * Active weather transition for blending the per-preset atmosphere inputs;
+ * a structural subset of the WorldClimateSchedule from worldClimate.ts. */
+export interface AtmosphereWeatherTransition {
+  /** Node being left; equals `toPreset` while holding. */
+  fromPreset: DirectorWorldWeather["preset"];
+  /** Node being entered / held. */
+  toPreset: DirectorWorldWeather["preset"];
+  /** Smoothed ramp position in [0, 1]; 1 while holding. */
+  blend: number;
+}
+
+function groundAlbedoForPreset(
+  preset: DirectorWorldWeather["preset"],
+  weather: DirectorWorldWeather,
+): [number, number, number] {
   const cover = clamp01(weather.cloudCover);
   const intensity = clamp01(weather.intensity);
-  if (weather.preset === "snow") {
+  if (preset === "snow") {
     return lerp3(DEFAULT_GROUND_ALBEDO, SNOW_GROUND_ALBEDO, lerp(0.72, 1, intensity));
   }
-  if (weather.preset === "rain") {
+  if (preset === "rain") {
     return lerp3(DEFAULT_GROUND_ALBEDO, [0.12, 0.14, 0.13], lerp(0.45, 0.85, intensity));
   }
-  if (weather.preset === "storm") {
+  if (preset === "storm") {
     return lerp3(DEFAULT_GROUND_ALBEDO, [0.1, 0.11, 0.12], lerp(0.35, 0.8, intensity));
   }
-  if (weather.preset === "overcast") {
+  if (preset === "overcast") {
     return lerp3(DEFAULT_GROUND_ALBEDO, [0.22, 0.24, 0.22], lerp(0.4, 0.75, cover));
   }
   return [DEFAULT_GROUND_ALBEDO[0], DEFAULT_GROUND_ALBEDO[1], DEFAULT_GROUND_ALBEDO[2]];
 }
 
+/**
+ * Ground Lambertian albedo for the bounce solve. Snow weather lifts the
+ * floor toward fresh snow; rain and storms darken it. An active weather
+ * transition blends the per-preset albedos so evolving skies never pop.
+ */
+export function getAtmosphereGroundAlbedo(
+  weather: DirectorWorldWeather,
+  transition?: AtmosphereWeatherTransition,
+): [number, number, number] {
+  if (!transition || transition.fromPreset === transition.toPreset) {
+    return groundAlbedoForPreset(weather.preset, weather);
+  }
+  return lerp3(
+    groundAlbedoForPreset(transition.fromPreset, weather),
+    groundAlbedoForPreset(transition.toPreset, weather),
+    clamp01(transition.blend),
+  );
+}
+
+function mieExtraForPreset(preset: DirectorWorldWeather["preset"], weather: DirectorWorldWeather): number {
+  if (preset === "clear") return 0;
+  if (preset === "overcast") return 1.6;
+  if (preset === "snow") return 1.1;
+  if (preset === "rain") return 1.8;
+  return 2.4 + 1.2 * clamp01(weather.intensity);
+}
+
 /** Extra Mie optical depth from haze / cloud, relative to a clear day. */
-export function getAtmosphereMieScale(weather: DirectorWorldWeather): number {
+export function getAtmosphereMieScale(weather: DirectorWorldWeather, transition?: AtmosphereWeatherTransition): number {
   const cover = clamp01(weather.cloudCover);
   const extra =
-    weather.preset === "clear"
-      ? 0
-      : weather.preset === "overcast"
-        ? 1.6
-        : weather.preset === "snow"
-          ? 1.1
-          : weather.preset === "rain"
-            ? 1.8
-            : 2.4 + 1.2 * clamp01(weather.intensity);
-  return 1 + 2.2 * cover + extra;
+    !transition || transition.fromPreset === transition.toPreset
+      ? mieExtraForPreset(weather.preset, weather)
+      : lerp(
+          mieExtraForPreset(transition.fromPreset, weather),
+          mieExtraForPreset(transition.toPreset, weather),
+          clamp01(transition.blend),
+        );  return 1 + 2.2 * cover + extra;
 }
 
 function nishitaSky(

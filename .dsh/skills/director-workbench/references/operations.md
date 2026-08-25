@@ -134,7 +134,14 @@ Chinese queries match the indexed `name_zh`, aliases, and `tags`:
 List the current project's uploaded or generated models with `project_assets`. Each item returns one prepared `add_object` action; the asset already exists in the project, so there is no upsert step:
 
 ```json
-{ "op": "catalog", "catalog": "project_assets", "query": "robot", "kind": "prop", "asset_source": "generated", "limit": 12 }
+{
+  "op": "catalog",
+  "catalog": "project_assets",
+  "query": "robot",
+  "kind": "prop",
+  "asset_source": "generated",
+  "limit": 12
+}
 ```
 
 ## Place a catalog asset by its measured size
@@ -224,9 +231,7 @@ not Blender datablocks; clearing the live Blender scene does not remove them.
 ```json
 {
   "op": "author",
-  "actions": [
-    { "action": "delete_objects", "object_ids": ["tree-left-1", "tree-left-2"] }
-  ]
+  "actions": [{ "action": "delete_objects", "object_ids": ["tree-left-1", "tree-left-2"] }]
 }
 ```
 
@@ -328,6 +333,52 @@ For a multi-character scene, prefer one semantic blocking action:
 }
 ```
 
+## Film-language framing and camera moves
+
+`frame_shot` aims an existing camera from crew vocabulary; the result notes carry
+the derived slate, and any physically forced lens or level adjustment is reported:
+
+```json
+{
+  "op": "author",
+  "actions": [
+    {
+      "action": "frame_shot",
+      "camera_id": "camera-main",
+      "subject_object_id": "hero",
+      "size": "medium-close-up",
+      "view": "profile",
+      "side": "left",
+      "level": "eye",
+      "activate": true
+    }
+  ]
+}
+```
+
+Author a move by framing twice and marking twice, then name what the marked
+track geometrically proves:
+
+```json
+{
+  "op": "author",
+  "actions": [
+    { "action": "frame_shot", "camera_id": "camera-main", "subject_object_id": "hero", "size": "full", "view": "front-quarter", "side": "right", "focal_length_mm": 35 },
+    { "action": "mark_camera_move", "camera_id": "camera-main", "frame": 0 },
+    { "action": "frame_shot", "camera_id": "camera-main", "subject_object_id": "hero", "size": "close-up", "view": "front-quarter", "side": "right", "focal_length_mm": 35 },
+    { "action": "mark_camera_move", "camera_id": "camera-main", "frame": 48 }
+  ]
+}
+```
+
+```json
+{ "op": "describe_camera_move", "camera_id": "camera-main", "subject_object_id": "hero", "from_frame": 0, "to_frame": 48 }
+```
+
+The read is disconnected-safe and returns the named move (`push-in` here), a
+prompt-ready phrase, and per-segment slates. Every `observe` camera already
+carries the same `framing` report the viewfinder slate shows.
+
 ## Author the living world
 
 World actions ride in a normal `author` batch. The first one creates `project.world` (enabled, seeded defaults) on demand and reports that in the result `notes`:
@@ -340,7 +391,11 @@ World actions ride in a normal `author` batch. The first one creates `project.wo
       "action": "set_world_settings",
       "settings": {
         "wind": { "direction_degrees": 210, "speed_mps": 6 },
-        "weather": { "preset": "rain", "intensity": 0.7 },
+        "weather": {
+          "preset": "rain",
+          "intensity": 0.7,
+          "evolution": { "mode": "cycle", "period_seconds": 300 }
+        },
         "time_of_day": { "mode": "fixed", "hours": 19.5 }
       }
     },
@@ -352,6 +407,13 @@ World actions ride in a normal `author` batch. The first one creates `project.wo
       "color_tint": "#ff7733"
     },
     {
+      "action": "add_world_effect",
+      "kind": "fire",
+      "anchor": { "position": [24, 0, -14] },
+      "intensity": 1,
+      "propagation": { "enabled": true, "radius_m": 16, "spread_rate": 1 }
+    },
+    {
       "action": "add_world_water_body",
       "surface": { "center": [10, 0, -6], "size_x": 30, "size_z": 18 },
       "flow_direction_degrees": 45
@@ -361,7 +423,12 @@ World actions ride in a normal `author` batch. The first one creates `project.wo
       "id": "river_north",
       "name": "North river",
       "river": {
-        "points": [[-20, 1, -12], [-6, 0.6, -2], [8, 0.2, 5], [22, 0, 16]],
+        "points": [
+          [-20, 1, -12],
+          [-6, 0.6, -2],
+          [8, 0.2, 5],
+          [22, 0, 16]
+        ],
         "width_m": 6,
         "width_profile": [0.7, 1, 1.2, 1.5]
       },
@@ -378,7 +445,13 @@ World actions ride in a normal `author` batch. The first one creates `project.wo
     {
       "action": "add_world_road",
       "id": "road_ring",
-      "points": [[18, 0.05, 12], [-18, 0.05, 12], [-18, 0.05, -12], [18, 0.05, -12], [18, 0.05, 12]],
+      "points": [
+        [18, 0.05, 12],
+        [-18, 0.05, 12],
+        [-18, 0.05, -12],
+        [18, 0.05, -12],
+        [18, 0.05, 12]
+      ],
       "width_m": 8,
       "vehicle_count": 8,
       "speed_kph": 45
@@ -415,9 +488,7 @@ Attach the tuned sedan defaults to an existing prop or scene object:
 ```json
 {
   "op": "author",
-  "actions": [
-    { "action": "set_vehicle_profile", "object_id": "car-hero" }
-  ]
+  "actions": [{ "action": "set_vehicle_profile", "object_id": "car-hero" }]
 }
 ```
 
@@ -495,9 +566,7 @@ Set a solid world without proxy sky geometry:
 ```json
 {
   "op": "apply",
-  "operations": [
-    { "op": "set_world_environment", "color": [0.08, 0.12, 0.2], "strength": 0.8 }
-  ]
+  "operations": [{ "op": "set_world_environment", "color": [0.08, 0.12, 0.2], "strength": 0.8 }]
 }
 ```
 
@@ -519,6 +588,42 @@ Use one transaction for one modeling intent. Prefer semantic operations for comm
   ]
 }
 ```
+
+Sizes are metres. The preset returns stable ids `warehouse-shell:1` (floor) then
+`warehouse-shell:2..5` (north/south/east/west walls), all with a neutral clay material. Presets:
+`room`, `corridor` (`depth` is the corridor length), `stairs` (`depth` total run, `height` total
+rise, `stepCount` steps), and single-slab `wall` / `floor`. Cut real doors and windows into the
+returned walls in the next transaction — never fake an opening with a darker box:
+
+```json
+{
+  "op": "apply",
+  "operations": [
+    {
+      "op": "create_opening",
+      "id": "warehouse-door",
+      "targetId": "warehouse-shell:2",
+      "kind": "door",
+      "width": 1.2,
+      "height": 2.2
+    },
+    {
+      "op": "create_opening",
+      "id": "warehouse-window-east",
+      "targetId": "warehouse-shell:4",
+      "kind": "window",
+      "width": 1.4,
+      "height": 1.2,
+      "sillHeight": 1.0,
+      "offset": 1.5
+    }
+  ]
+}
+```
+
+Then accept the white-box visually, not from `audit.ready`: add a 35–65 mm Stage camera at about
+1.8× subject height distance with under ~15° pitch and `capture` (or attach `evidence` to the same
+`author` call). Check massing hierarchy, real openings, ground contact, and metric proportions.
 
 If an `apply` result is `outcome_unknown`, resend the complete `retry_ticket.input` unchanged. It
 contains the original epoch, revision, intent ID, and operation batch needed for native exact replay.
@@ -628,9 +733,7 @@ assets with typed ops (no `execute_code`):
 ```json
 {
   "op": "apply",
-  "operations": [
-    { "op": "polyhaven_import", "assetId": "modern_chair", "assetType": "models", "resolution": "1k" }
-  ]
+  "operations": [{ "op": "polyhaven_import", "assetId": "modern_chair", "assetType": "models", "resolution": "1k" }]
 }
 ```
 
@@ -787,7 +890,10 @@ openings, swinging door leaves, proxy item boxes, and one stage camera per
 capture key view.
 
 ```json
-{ "op": "reconstruction", "command": { "action": "submit", "source_media_id": "creative-media:video:room-walkthrough" } }
+{
+  "op": "reconstruction",
+  "command": { "action": "submit", "source_media_id": "creative-media:video:room-walkthrough" }
+}
 ```
 
 ```json
@@ -802,7 +908,10 @@ the revision guard and idempotency key for public callers):
 ```
 
 ```json
-{ "op": "reconstruction", "command": { "action": "apply", "job_id": "canvas-job-…", "mode": "replace", "include_cameras": true } }
+{
+  "op": "reconstruction",
+  "command": { "action": "apply", "job_id": "canvas-job-…", "mode": "replace", "include_cameras": true }
+}
 ```
 
 Close the authoring loop from the exact capture poses: `capture` renders
@@ -861,3 +970,40 @@ whether a building is recognizable. Do not treat `ready:true` as visual acceptan
 - A locked object: leave it unchanged unless the user explicitly asks to unlock or force the edit.
 - A provider job failure: inspect that job and report or retry the actual provider error.
 - A disconnected Stage tab: `observe`/`audit` may still return persisted project or Blender-kernel counts with `workbench_connected:false`. Mutations and capture need a visible tab. Call `get_goal` as `tools.get_goal({})`.
+
+## DeepSeek Harness tools (not Gateway HTTP)
+
+These are DSH-native tools. They are not `POST /api/tools/:name`.
+
+Load the Director skill:
+
+```json
+{ "name": "director-workbench" }
+```
+
+Write a production todo list with `todo_write`. List Harness background jobs:
+
+```json
+{}
+```
+
+Read a Harness job (`job_output`) without busy-polling:
+
+```json
+{ "job_id": "bash-1", "wait": true }
+```
+
+Research then catalog (do not guess asset ids):
+
+```json
+{ "query": "Qinghua university gate architecture" }
+```
+
+Zero-argument Harness tools in Code Mode:
+
+```js
+await tools.get_goal({});
+await tools.director_model_routes({});
+await tools.job_list({});
+```
+

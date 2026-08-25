@@ -47,6 +47,12 @@ export interface RoadTrafficStreams {
   arcOffsetsM: Float64Array;
   /** Index into the fixed 8-color vehicle palette. */
   colorIndices: Uint8Array;
+  /**
+   * Index into the fixed body-type list (sedan / SUV). PURELY cosmetic:
+   * body type never feeds arc offsets, lane split, or the shared lane speed,
+   * so the no-overtake and spacing guarantees are untouched by it.
+   */
+  bodyTypeIndices: Uint8Array;
   /** Phase in [0, 2π) for the cosmetic suspension bounce. */
   bouncePhases: Float64Array;
   /** Total arc length of the road centreline in metres. */
@@ -56,6 +62,9 @@ export interface RoadTrafficStreams {
 /** Number of entries in the fixed vehicle color palette. */
 export const TRAFFIC_VEHICLE_COLOR_COUNT = 8;
 
+/** Number of vehicle body types (must match VEHICLE_BODY_TYPES in vehicleGeometry). */
+export const TRAFFIC_VEHICLE_BODY_TYPE_COUNT = 2;
+
 /** Documented lower bound for same-lane spacing on representative roads. */
 export const TRAFFIC_MIN_GAP_M = 7;
 
@@ -64,6 +73,7 @@ const STREAM_LANE_SPEED = worldStreamId("traffic-lane-speed");
 const STREAM_LANE_PHASE = worldStreamId("traffic-lane-phase");
 const STREAM_SLOT_JITTER = worldStreamId("traffic-slot-jitter");
 const STREAM_COLOR = worldStreamId("traffic-color");
+const STREAM_BODY_TYPE = worldStreamId("traffic-body-type");
 const STREAM_BOUNCE = worldStreamId("traffic-bounce");
 
 const KPH_TO_MPS = 1 / 3.6;
@@ -85,23 +95,31 @@ export function roadTrafficSeed(worldSeed: number, road: Pick<TrafficRoadInput, 
  * Derives the per-vehicle streams for one road. Lane split: the first
  * ceil(count/2) vehicles travel forward (+1), the rest backward (-1), so both
  * directions stay populated for any vehicleCount.
+ *
+ * `laneSpeedScale` is a UNIFORM multiplier applied on top of the hashed
+ * 0.85..1.15 lane band — weather slowdowns (storm, snow) scale the whole
+ * lane at once, so same-lane relative speeds stay zero and the no-overtake
+ * guarantee (see module header) is untouched. Per-car scales are forbidden.
  */
 export function buildRoadTrafficStreams(
   road: TrafficRoadInput,
   worldSeed: number,
   totalLengthM: number,
+  laneSpeedScale = 1,
 ): RoadTrafficStreams {
   const count = road.vehicleCount;
   const directions = new Int8Array(count);
   const speedsMps = new Float64Array(count);
   const arcOffsetsM = new Float64Array(count);
   const colorIndices = new Uint8Array(count);
+  const bodyTypeIndices = new Uint8Array(count);
   const bouncePhases = new Float64Array(count);
 
   const seed = roadTrafficSeed(worldSeed, road);
   const forwardCount = Math.ceil(count / 2);
   const laneCounts = [forwardCount, count - forwardCount] as const;
-  const baseSpeedMps = road.speedKph * KPH_TO_MPS;
+  const safeLaneSpeedScale = Math.max(0, laneSpeedScale);
+  const baseSpeedMps = road.speedKph * KPH_TO_MPS * safeLaneSpeedScale;
 
   for (let index = 0; index < count; index += 1) {
     const lane = index < forwardCount ? 0 : 1;
@@ -118,10 +136,35 @@ export function buildRoadTrafficStreams(
     arcOffsetsM[index] = totalLengthM > 1e-9 ? ((rawOffset % totalLengthM) + totalLengthM) % totalLengthM : 0;
 
     colorIndices[index] = hashCombine(seed, STREAM_COLOR, index) % TRAFFIC_VEHICLE_COLOR_COUNT;
+    bodyTypeIndices[index] = hashCombine(seed, STREAM_BODY_TYPE, index) % TRAFFIC_VEHICLE_BODY_TYPE_COUNT;
     bouncePhases[index] = worldRandom01(seed, STREAM_BOUNCE, index) * Math.PI * 2;
   }
 
-  return { count, directions, speedsMps, arcOffsetsM, colorIndices, bouncePhases, totalLengthM };
+  return { count, directions, speedsMps, arcOffsetsM, colorIndices, bodyTypeIndices, bouncePhases, totalLengthM };
+}
+
+/** Instance layout for rendering one InstancedMesh per vehicle body type. */
+export interface TrafficBodyVariantPlan {
+  /** Vehicles assigned to each body type; sums to `streams.count`. */
+  counts: Uint32Array;
+  /** Per-vehicle instance slot within its body type's InstancedMesh. */
+  slots: Uint32Array;
+}
+
+/**
+ * Groups vehicles by body type into per-variant instance slots. Rendering
+ * detail only: a vehicle keeps its stream index (arc offset, lane, speed,
+ * color) and merely lands in a different InstancedMesh slot.
+ */
+export function planTrafficBodyVariants(streams: RoadTrafficStreams): TrafficBodyVariantPlan {
+  const counts = new Uint32Array(TRAFFIC_VEHICLE_BODY_TYPE_COUNT);
+  const slots = new Uint32Array(streams.count);
+  for (let index = 0; index < streams.count; index += 1) {
+    const body = streams.bodyTypeIndices[index]!;
+    slots[index] = counts[body]!;
+    counts[body] += 1;
+  }
+  return { counts, slots };
 }
 
 /**

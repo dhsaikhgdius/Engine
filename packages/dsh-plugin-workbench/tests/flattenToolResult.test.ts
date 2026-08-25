@@ -47,7 +47,9 @@ describe("flattenDirectorToolResult", () => {
       success: true,
       result: {
         receipt: {
-          warnings: ["Unknown Blender material: gold_plaque. This object was skipped; other operations in the batch still applied."],
+          warnings: [
+            "Unknown Blender material: gold_plaque. This object was skipped; other operations in the batch still applied.",
+          ],
         },
         evidence: { objects: [] },
       },
@@ -94,5 +96,21 @@ describe("flattenDirectorToolResult", () => {
       },
     });
     expect(flattened.objects).toEqual([{ id: "gate-a", name: "清华二校门" }]);
+  });
+
+  it("lifts retrieval_hint and agent_boundary onto the envelope", () => {
+    const flattened = flattenDirectorToolResult({
+      success: true,
+      agent_boundary: { retry_key: "k1" },
+      result: {
+        retrieval_hint: "use inspect",
+        observe_mode: "summary",
+        counts: { objects: 90 },
+      },
+    });
+    expect(flattened.retrieval_hint).toBe("use inspect");
+    expect(flattened.observe_mode).toBe("summary");
+    expect(flattened.agent_boundary).toEqual({ retry_key: "k1" });
+    expect(flattened.counts).toEqual({ objects: 90 });
   });
 });

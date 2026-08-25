@@ -62,6 +62,28 @@ export const worldEmitterShapeSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+/** Maximum radius of a fire-propagation substrate around its ignition anchor. */
+export const DIRECTOR_WORLD_FIRE_MAX_RADIUS_M = 64;
+
+/**
+ * Optional deterministic fire spread for `fire` effects.
+ *
+ * When enabled, the effect's anchor position seeds an integer-state cellular
+ * automaton (Unburnt → Igniting → Burning → Burnt) on a coarse ground grid.
+ * Spread is wind-biased and wetness-suppressed, runs at the fixed world
+ * simulation Hz with checkpointed replay, and burning cells drive stateless
+ * view emitters keyed by (cell, ignitionTick). Propagation only supports
+ * unbound anchors (`anchor.objectId` null): an anchor tracking an animated
+ * object would make ignition history depend on evaluation time.
+ */
+export const directorWorldFirePropagationSchema = z.strictObject({
+  enabled: z.boolean(),
+  /** Substrate half-extent around the anchor, metres. */
+  radiusM: finite.min(2).max(DIRECTOR_WORLD_FIRE_MAX_RADIUS_M).default(12),
+  /** Scales neighbor damage per tick; 1 = default previz spread speed. */
+  spreadRate: finite.min(0.1).max(3).default(1),
+});
+
 /** A single emitter effect instance in the world. */
 export const directorWorldEffectSchema = z.strictObject({
   id,
@@ -76,6 +98,8 @@ export const directorWorldEffectSchema = z.strictObject({
   colorTint: color.optional(),
   /** 0 = ignores global wind, 1 = fully advected by it. */
   windInfluence: finite.min(0).max(1),
+  /** Deterministic fire spread; only meaningful for kind "fire". Absent = off. */
+  propagation: directorWorldFirePropagationSchema.optional(),
   /** Decorrelates otherwise identical emitters; combined with the world seed. */
   seedOffset: z.number().int().min(0).max(65_535),
   visible: z.boolean(),
@@ -107,6 +131,30 @@ export const directorWorldTimeOfDaySchema = z.strictObject({
 export const WORLD_WEATHER_PRESETS = ["clear", "overcast", "rain", "snow", "storm"] as const;
 export type WorldWeatherPreset = (typeof WORLD_WEATHER_PRESETS)[number];
 
+/** Weather evolution modes: static preserves the authored preset verbatim. */
+export const WORLD_WEATHER_EVOLUTION_MODES = ["static", "cycle"] as const;
+export type WorldWeatherEvolutionMode = (typeof WORLD_WEATHER_EVOLUTION_MODES)[number];
+
+/** Default seconds per weather segment (hold + transition) in `cycle` mode. */
+export const DIRECTOR_WORLD_WEATHER_DEFAULT_PERIOD_SECONDS = 300;
+
+/**
+ * Optional seeded weather evolution.
+ *
+ * `static` (and an absent block) preserves today's behavior: the authored
+ * preset/intensity/wetness/cloudCover are the runtime values verbatim.
+ * `cycle` treats the five presets as nodes of a seeded state machine:
+ * transitions ramp the climate parameter vector (cloud cover, precipitation,
+ * wind gain, lightning, wetness target) over 30–120 s, and `weather.wetness`
+ * becomes the integrator's initial value instead of a constant. Everything is
+ * a pure function of (seed, worldSeconds), so scrubbing replays identically.
+ */
+export const directorWorldWeatherEvolutionSchema = z.strictObject({
+  mode: z.enum(WORLD_WEATHER_EVOLUTION_MODES),
+  /** Approximate seconds each weather segment lasts in `cycle` mode. */
+  periodSeconds: finite.min(60).max(3_600).default(DIRECTOR_WORLD_WEATHER_DEFAULT_PERIOD_SECONDS),
+});
+
 /** Weather parameters that drive sky visuals, precipitation, and surface wetness. */
 export const directorWorldWeatherSchema = z.strictObject({
   preset: z.enum(WORLD_WEATHER_PRESETS),
@@ -115,6 +163,8 @@ export const directorWorldWeatherSchema = z.strictObject({
   /** Surface wetness accumulator; evolution systems may raise/lower it over time. */
   wetness: finite.min(0).max(1),
   cloudCover: finite.min(0).max(1),
+  /** Seeded weather evolution; absent = static (authored values verbatim). */
+  evolution: directorWorldWeatherEvolutionSchema.optional(),
 });
 
 /** Top-level world settings: seed, wind, time-of-day, and weather. */
@@ -279,6 +329,8 @@ export const directorWorldSchema = z
 
 export type WorldAnchor = z.infer<typeof worldAnchorSchema>;
 export type WorldEmitterShape = z.infer<typeof worldEmitterShapeSchema>;
+export type DirectorWorldFirePropagation = z.infer<typeof directorWorldFirePropagationSchema>;
+export type DirectorWorldWeatherEvolution = z.infer<typeof directorWorldWeatherEvolutionSchema>;
 export type DirectorWorldEffect = z.infer<typeof directorWorldEffectSchema>;
 export type DirectorWorldWind = z.infer<typeof directorWorldWindSchema>;
 export type DirectorWorldTimeOfDay = z.infer<typeof directorWorldTimeOfDaySchema>;

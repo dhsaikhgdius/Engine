@@ -189,7 +189,10 @@ describe("VideoGenerationService", () => {
           expect(input.prompt).toBe("A chef plating a dish");
           expect(input.durationSeconds).toBe(5);
           expect(input.provider).toBe("ltx-2.3");
-          expect(input.scene?.cameraPlan).toBeDefined();
+          expect(input.scene?.cameraPlan?.[0]).toMatchObject({
+            framing: expect.stringContaining("on a 35mm lens"),
+            actions: ["orbit left 360° around the subject @0.00s+5.00s"],
+          });
           return { expandedPrompt: "A handheld medium shot follows a chef plating a dish.", dialect: "cinematic" };
         },
       },

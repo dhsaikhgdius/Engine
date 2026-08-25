@@ -19,6 +19,7 @@ export type {
   DirectorCameraPathAction,
   DirectorCameraShot,
   DirectorClippingPlane,
+  DirectorCharacterAgentBinding,
   DirectorCharacterIkState,
   DirectorCharacterIkTarget,
   DirectorCharacterMotionBlock,

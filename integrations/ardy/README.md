@@ -102,6 +102,6 @@ Corresponding HTTP endpoints (all require gateway local client credentials):
 NVIDIA ARDY and its cskel27 skeleton definition (joint order, parent-child
 relationships, neutral pose) are released under Apache-2.0. The bridge, decode,
 and retargeting code on the Director side is this repository's own
-implementation. The reference implementation [CozyClay](https://github.com/HaD0Yun/CozyClay)
-(GPL-3.0) was consulted only for integration design research; this repository
-contains no copied code from it.
+implementation; third-party integrations under incompatible licenses were
+consulted only as design research, and this repository contains no copied
+code from them.

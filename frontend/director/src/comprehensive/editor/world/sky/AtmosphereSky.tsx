@@ -23,7 +23,8 @@ import {
   type AtmosphereSolution,
 } from "./atmosphere";
 import { ATMOSPHERE_SKY_FRAGMENT_SHADER, ATMOSPHERE_SKY_VERTEX_SHADER } from "./atmosphereSkyShaders";
-import { evaluateSkyAtmosphere, evaluateSkyLighting, getSolarDirectionForHours } from "./solar";
+import { evaluateSkyWeatherMood } from "./skyWeather";
+import { evaluateSkyAtmosphere, evaluateSkyLighting, evaluateSunDiscState, getSolarDirectionForHours } from "./solar";
 
 const SKY_BOX_EXTENT = 4200;
 const ATMOSPHERE_SKY_RENDER_ORDER = -1000;
@@ -88,7 +89,7 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
   const { scene } = useThree();
   const { settings } = context;
   const lutTexture = useMemo(() => {
-    const solution = evaluateSkyAtmosphere(settings, context.worldSeconds);
+    const solution = evaluateSkyAtmosphere(settings, context.worldSeconds, context.climate);
     lastSolutionRef.current = solution;
     return createAtmosphereEnvironmentTexture(solution);
     // First bake only; later sun/weather changes rewrite the same texture in sync().
@@ -101,7 +102,10 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
       sunDir: { value: sunDir },
       sunColor: { value: sunColor },
       sunIntensity: { value: 1 },
+      discOpacity: { value: 0 },
+      glowOpacity: { value: 0 },
       cloudAmount: { value: 0 },
+      cloudDarken: { value: 1 },
       time: { value: 0 },
       windDir: { value: windDir },
     }),
@@ -109,8 +113,9 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
   );
 
   const sync = (seconds: number) => {
-    const lighting = evaluateSkyLighting(settings, seconds);
-    const solution = evaluateSkyAtmosphere(settings, seconds);
+    const climate = context.climate;
+    const lighting = evaluateSkyLighting(settings, seconds, climate);
+    const solution = evaluateSkyAtmosphere(settings, seconds, climate);
     if (lastSolutionRef.current !== solution) {
       uploadLut(lutTexture, solution);
       lastSolutionRef.current = solution;
@@ -122,8 +127,17 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
     sunDir.set(trueSun[0], trueSun[1], trueSun[2]);
     sunColor.set(solution.sunColor[0], solution.sunColor[1], solution.sunColor[2]);
     material.uniforms.sunIntensity.value = Math.max(lighting.sunIntensity, 0.08);
-    material.uniforms.cloudAmount.value = atmosphereSkyCloudAmount(settings.weather.cloudCover);
-    material.uniforms.time.value = seconds;
+    // The visible disc/halo follow the same weather-and-twilight gate as the
+    // key light: overcast keeps no hard disc, storms crush it to a smudge,
+    // and below civil-twilight depth both terms drop to exactly zero.
+    const sunDisc = evaluateSunDiscState(settings, seconds);
+    material.uniforms.discOpacity.value = sunDisc.discOpacity;
+    material.uniforms.glowOpacity.value = sunDisc.glowOpacity;
+    // Shader clouds follow the preset-floored effective cover: an overcast
+    // or storm sky closes its deck even at a low authored cover slider.
+    const mood = evaluateSkyWeatherMood(settings.weather);
+    material.uniforms.cloudAmount.value = atmosphereSkyCloudAmount(mood.effectiveCloudCover);
+    material.uniforms.cloudDarken.value = mood.cloudShaderDarkening;    material.uniforms.time.value = seconds;
     const windRadians = (settings.wind.directionDegrees * Math.PI) / 180;
     windDir.set(Math.sin(windRadians), Math.cos(windRadians));
     if (scene.environment !== lutTexture) scene.environment = lutTexture;
@@ -131,11 +145,20 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
   };
 
   useLayoutEffect(() => {
+    const previousEnvironmentIntensity = scene.environmentIntensity;
     sync(context.worldSeconds);
     return () => {
-      if (scene.environment === lutTexture) scene.environment = null;
+      // Hand the environment slot back untouched (e.g. to a panorama IBL):
+      // clear only our own texture and restore the intensity we overrode.
+      if (scene.environment === lutTexture) {
+        scene.environment = null;
+        scene.environmentIntensity = previousEnvironmentIntensity;
+      }
       lutTexture.dispose();
     };
+    // Mount-time sync and environment handoff only; the per-frame sync below
+    // tracks the live mutated context without re-running this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lutTexture, scene]);
 
   useFrame(() => {

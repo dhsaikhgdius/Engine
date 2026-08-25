@@ -58,6 +58,41 @@ describe("untargeted Workbench browser routing", () => {
     },
   );
 
+  it("pins compare to capture-ready tabs only when a stage endpoint must render", () => {
+    const stageCompare = {
+      op: "compare",
+      reference: { kind: "media", media_id: "still-1" },
+      candidate: { kind: "stage", frame: 0, width: 640, height: 360 },
+    } as const;
+    expect(workbenchOperationRequiresCapture(stageCompare)).toBe(true);
+    expect(
+      rankUntargetedWorkbenchClients(
+        [
+          ["canvas", canvas],
+          ["stage", hiddenStage],
+          ["mounting", mountingStage],
+        ],
+        stageCompare,
+      ),
+    ).toEqual(["stage"]);
+
+    const mediaCompare = {
+      op: "compare",
+      reference: { kind: "media", media_id: "still-1" },
+      candidate: { kind: "reconstruction_keyframe", job_id: "job-1" },
+    } as const;
+    expect(workbenchOperationRequiresCapture(mediaCompare)).toBe(false);
+    expect(
+      rankUntargetedWorkbenchClients(
+        [
+          ["canvas", canvas],
+          ["stage", hiddenStage],
+        ],
+        mediaCompare,
+      ),
+    ).toEqual(["stage", "canvas"]);
+  });
+
   it("retains visibility and recency ordering between equally capable Stage tabs", () => {
     expect(
       rankUntargetedWorkbenchClients(

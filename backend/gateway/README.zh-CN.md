@@ -2,9 +2,9 @@
 
 > 语言:**中文** · [English](README.md)
 
-Director(WorldEngine)的 TypeScript 网关控制平面。它提供 Agent 运行框架(CLI 与托管 API 模型适配器)、项目与场景管理、媒体生成与转码、协作 WebSocket 中心、HTTP API 路由,以及面向 MCP(Model Context Protocol)客户端的结构化工具接口。
+Director(WorldEngine)的 TypeScript 网关控制平面。它提供项目与场景管理、媒体生成与转码、协作 WebSocket 中心、HTTP API 路由,以及面向 DeepSeek Harness 与 MCP(Model Context Protocol)客户端的结构化工具接口。网关不托管 Agent 循环:会话、工具循环和通用工作区/网络/Job 工具在 `vendor/deepseek-harness` 子模块中(`npm run dsh`),Director 专属的 Stage / Canvas / Video / Blender 工具通过 `packages/dsh-plugin-workbench` 中的 DSH 插件访问网关。
 
-- **运行时**:`tsx`(TypeScript 执行)、Node.js HTTP 服务器(无 Hono,使用原生 `node:http`)、`ws` WebSocket、`Yjs` CRDT + `y-protocols/awareness`、`Zod` 模式校验、`node:sqlite`(SQLite)会话持久化、`node-pty` 终端
+- **运行时**:`tsx`(TypeScript 执行)、Node.js HTTP 服务器(无 Hono,使用原生 `node:http`)、`ws` WebSocket、`Yjs` CRDT + `y-protocols/awareness`、`Zod` 模式校验、`node-pty` 终端
 - **启动**:
   - `npm run dev:gateway` — 网关开发服务器,端口 8787
   - `npm run mcp` — 独立 MCP 服务器(stdio 传输)
@@ -19,7 +19,7 @@ Director(WorldEngine)的 TypeScript 网关控制平面。它提供 Agent 运行�
 | 路径 | 用途 |
 |------|---------|
 | `agent-gateway.ts` | 网关主入口:创建 HTTP 服务器、WebSocket 升级、Agent 计划/执行编排、Stage 捕获与工作台路由 |
-| `bootstrap.ts` | 网关引导装配:实例化所有服务(Auth、Agent 运行框架、协作、DCC、Film、Generation、Transcode 等)并注入 HTTP 路由 |
+| `bootstrap.ts` | 网关引导装配:实例化所有服务(Auth、模型提供方、协作、DCC、Film、Generation、Transcode 等)并注入 HTTP 路由 |
 | `mcp-server.ts` | MCP 服务器入口:注册三组工具集(`director_workbench`、`director_creative`、`director_dcc`),通过 stdio 与 MCP 客户端通信,经 HTTP 代理至网关 |
 | `agentPlanStore.ts` | 短时 assistant plan 缓存，供 plan/apply 使用 |
 | `agentNaiveBoundary.ts` | Agent 操作边界:分类变更与只读操作、生成幂等键、管理会话目标绑定、应用观察守卫 |
@@ -37,7 +37,7 @@ Director(WorldEngine)的 TypeScript 网关控制平面。它提供 Agent 运行�
 | `browserClientDiscovery.ts` | 浏览器客户端发现:按优先级为请求尝试多个浏览器标签页,支持精确租约与回退发现 |
 | `browserCommandTimeout.ts` | 浏览器命令超时:区分变更(结果未知,必须观察)与只读(可安全重试)的超时错误 |
 | `capturePayload.ts` | 捕获载荷解析:解析 base64 数据 URL(PNG/JPEG/WebP),校验 MIME 类型与大小上限(12 MB) |
-| `mcpToolResponse.ts` | MCP 工具响应构建器:标准化 `ok`、`code`、`result`、`error`、`suggested_next` 字段,带 UI 事件与场景提示 |
+| `mcpToolResponse.ts` | MCP 工具响应构建器:标准化 `ok`、`code`、`result`、`error`、`suggested_next` 字段,通过 `agents/agentToolResultProjection.ts` 把超大结果投影为计数 + id 样本,并从序列化 JSON 中剥离截图 base64 |
 | `processTermination.ts` | 进程终止工具:跨平台进程树信号(POSIX 进程组、Windows taskkill),优雅终止 |
 | `refSessions.ts` | 引用会话注册表:内存中会话级键值引用存储,带 TTL 过期与容量上限 |
 | `workbenchClientRouting.ts` | 工作台客户端路由:按工作区(stage/canvas/video)与捕获就绪度对浏览器客户端排序 |
@@ -77,7 +77,7 @@ Director(WorldEngine)的 TypeScript 网关控制平面。它提供 Agent 运行�
 
 | 目录 | 用途 |
 |-----------|---------|
-| `agents/` | Agent 运行时组件:适配器注册表、模型驱动(Anthropic/OpenAI)、托管会话历史与回放、工具管道、角色策略 |
+| `agents/` | 网关侧 Agent 工具支持:紧凑工具注册表(从 DSH 插件再导出)、精确目标调度器、结果投影、角色策略、Revision 记忆与托管 API 提供方配置。Agent 循环本身在 `vendor/deepseek-harness` 中 |
 | `artifacts/` | 产物版本与审批:生产产物版本管理、审批工作流、晋升指针 |
 | `controlPlane/` | 控制平面配置:统一环境变量解析、Zod 模式、托管 Agent 默认值 |
 | `dcc/` | DCC 集成:Blender 桥接、场景导入/导出、Blender 原生会话、glTF 准备 |
@@ -100,20 +100,21 @@ Director(WorldEngine)的 TypeScript 网关控制平面。它提供 Agent 运行�
 
 ### `agents/` 文件清单
 
+树内 Agent 运行循环、托管会话存储、工作区工具以及托管 `web_search`/`web_fetch` 副本已在 DeepSeek Harness 切换时删除;它们现在位于 `vendor/deepseek-harness`。此处保留的模块服务于网关工具 HTTP 接口、MCP 以及结构化影片管线 LLM 调用。
+
 | 路径 | 用途 |
 |------|---------|
-| `agents/agentAdapterRegistry.ts` | 适配器注册表:管理 `AgentHarnessAdapter` 实例的注册与查找 |
-| `agents/agentProfileRegistry.ts` | Agent 配置注册表:解析本地与托管 Agent 的能力、驱动、模型配置 |
-| `agents/openAiCompatibleAdapter.ts` | OpenAI 兼容适配器:通用 `AgentHarnessAdapter`,支持 Anthropic Messages 与 OpenAI Chat 驱动 |
-| `agents/agentToolPipeline.ts` | 工具管道:拦截 `director_workbench`/`director_creative`/`blender_native` 工具调用,应用角色策略、执行、溢出、投影 |
+| `agents/agentToolRegistry.ts` | 统一工具注册表:从 `@director/dsh-plugin-workbench` 再导出的紧凑 wire Schema 与超时,供 MCP 与 HTTP 工具路由使用 |
+| `agents/agentToolScheduler.ts` | 精确目标调度器:有序调用窗口与进程级目标读写队列,由 `routes/stageRoutes.ts` 使用 |
+| `agents/agentToolResultProjection.ts` | 工具结果投影:把超大的面向模型结果汇总为计数 + id 样本 + 检索提示,可选溢出;由 `mcpToolResponse.ts` 与 DSH 插件使用 |
 | `agents/agentToolOutcomes.ts` | 工具结果分类:将工具结果分类为 `completed`/`failed`/`timed_out`/`stale_revision`/`outcome_unknown` |
-| `agents/agentToolResultProjection.ts` | 工具结果投影:压缩并汇总大型工具结果,超出预算时溢出到文件 |
-| `agents/agentSpillStore.ts` | 工具结果溢出存储:为超出模型上下文预算的大型工具结果提供会话级文件存储 |
-| `agents/agentPromptSegments.ts` | 提示词片段:注入 `director-workbench` 技能文件、Agent 身份声明、技能目录提示 |
-| `agents/hostedReplay.ts` | 托管回放:在托管会话中回放已录制的模型请求/响应,支持序列与指纹匹配 |
-| `agents/hostedSessionHistory.ts` | 托管会话历史:从 Agent 事件流重建模型消息历史,提取工具调用 |
-| `agents/hostedSurfaceMeter.ts` | 托管界面计量:监控模型上下文窗口使用,超阈值时触发压缩 |
+| `agents/agentToolMemory.ts` | 会话工具记忆:为无状态 MCP/CLI 客户端缓存最近的工作台 Revision,用于受守卫写操作与过期 Revision 重试 |
 | `agents/filmRoleToolPolicy.ts` | 影片角色工具策略:按 `FilmRoleId` 限制可用工具与操作(只读 vs 写) |
+| `agents/agentProfileRegistry.ts` | Agent 配置注册表:为影片管线 LLM 调用解析托管 API Profile 的能力、驱动、模型配置 |
+| `agents/agentApiProviderStore.ts` | 托管 API 提供方存储:持久化用户配置的 API 提供方(`agent-api-providers.json`)并展开为托管 Profile |
+| `agents/agentApiModels.ts` | 托管模型发现:为已配置的 API 提供方获取模型列表 |
+| `agents/modelProviderIntegration.ts` | 模型提供方注册:把 `@director/model-provider` 内置项接入网关注册表 |
+| `agents/localAgentCliAvailability.ts` | 本地 CLI 可用性探测:检测 Profile 发现所公布的 Codex/Claude 命令 |
 
 ### `artifacts/` 文件清单
 
@@ -241,7 +242,7 @@ Director(WorldEngine)的 TypeScript 网关控制平面。它提供 Agent 运行�
 |------|---------|
 | `routes/assistantRoutes.ts` | Assistant 路由:`POST /api/assistant/plan` 与 `/api/assistant/apply` |
 | `routes/stageRoutes.ts` | Stage 路由:核心工作台工具执行、捕获、项目操作 |
-| `routes/agentSessionRoutes.ts` | Agent 会话路由:会话管理、引导、健康检查 |
+| `routes/agentApiProviderRoutes.ts` | 托管 API 提供方路由:保存用户配置的提供方、获取模型列表 |
 | `routes/controlPlaneRoutes.ts` | 控制平面路由:配置查询、Agent 配置、能力 |
 | `routes/generationRoutes.ts` | 生成路由:ComfyUI 图像/视频生成任务提交与查询 |
 | `routes/generated3dRoutes.ts` | 3D 生成路由:3D 生成任务提交、查询、晋升 |

@@ -58,10 +58,24 @@ const BOOLEAN_MODIFIER_NOTE =
 /** Common hallucinated or authoring-style names → canonical typed apply ops. */
 function applyOperationNote(operationName: string): string {
   if (operationName === "assign_material") {
-    return 'Reuse existing materials by exact, case, or separator-insensitive name. Omitted createIfMissing creates a Principled material. createIfMissing:false skips a still-missing name; the rest of the batch still applies. inspect lists sceneMaterials.';
+    return "Reuse existing materials by exact, case, or separator-insensitive name. Omitted createIfMissing creates a Principled material. createIfMissing:false skips a still-missing name; the rest of the batch still applies. inspect lists sceneMaterials.";
+  }
+  if (operationName === "create_blockout") {
+    return 'White-box architecture shells in metric metres: preset room = floor + 4 walls, corridor = floor + 2 walls, stairs = one flight (depth is total run, height total rise, stepCount steps), wall/floor = one slab. Created objects get stable ids "<idPrefix>:1..n" (room: 1 floor, then north/south/east/west walls) with a neutral clay material. Prefer one preset over hand-placing several create_primitive cubes; cut doors/windows afterwards with create_opening on a returned wall id.';
+  }
+  if (operationName === "create_opening") {
+    return "Cuts a real door or window hole through an existing mesh wall with an editable BOOLEAN modifier. width/height/sillHeight/offset are metres; sillHeight lifts a window above the wall base; offset slides the opening along the wall. Never fake an opening with a darker box on the wall.";
+  }
+  if (operationName === "create_primitive") {
+    return "dimensions is the only metric size (transform has no scale) and grounded:true puts the local origin at the floor-centre pivot. For a room, corridor, stair flight, or single wall/floor slab prefer create_blockout instead of assembling cubes.";
   }
   return 'Use this object inside blender_native {"op":"apply","operations":[...]}.';
 }
+
+const BLOCKOUT_ALIAS_NOTE =
+  '"{requested}" is not a typed op. Architecture shells use create_blockout with preset floor/wall/room/corridor/stairs (metric metres, stable ids "<idPrefix>:1..n"). Cut doors/windows afterwards with create_opening.';
+const OPENING_ALIAS_NOTE =
+  '"{requested}" is not a typed op. Door and window holes use create_opening on an existing mesh wall (width/height/sillHeight/offset in metres); custom cutters use add_modifier with modifierType "BOOLEAN" then set_modifier properties {operation:"DIFFERENCE", object:"<cutter id>"}.';
 
 const APPLY_TARGET_ALIASES: Record<string, ApplyTargetAlias> = {
   query: {
@@ -95,6 +109,50 @@ const APPLY_TARGET_ALIASES: Record<string, ApplyTargetAlias> = {
   boolean: {
     op: "add_modifier",
     note: BOOLEAN_MODIFIER_NOTE,
+  },
+  blockout: {
+    op: "create_blockout",
+    note: BLOCKOUT_ALIAS_NOTE,
+  },
+  create_room: {
+    op: "create_blockout",
+    note: BLOCKOUT_ALIAS_NOTE,
+  },
+  create_corridor: {
+    op: "create_blockout",
+    note: BLOCKOUT_ALIAS_NOTE,
+  },
+  create_stairs: {
+    op: "create_blockout",
+    note: BLOCKOUT_ALIAS_NOTE,
+  },
+  create_wall: {
+    op: "create_blockout",
+    note: BLOCKOUT_ALIAS_NOTE,
+  },
+  create_floor: {
+    op: "create_blockout",
+    note: BLOCKOUT_ALIAS_NOTE,
+  },
+  opening: {
+    op: "create_opening",
+    note: OPENING_ALIAS_NOTE,
+  },
+  add_opening: {
+    op: "create_opening",
+    note: OPENING_ALIAS_NOTE,
+  },
+  cut_opening: {
+    op: "create_opening",
+    note: OPENING_ALIAS_NOTE,
+  },
+  create_door: {
+    op: "create_opening",
+    note: OPENING_ALIAS_NOTE,
+  },
+  create_window: {
+    op: "create_opening",
+    note: OPENING_ALIAS_NOTE,
   },
 };
 

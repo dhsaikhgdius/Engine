@@ -1,11 +1,13 @@
 import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
+import type { WorldClimateState } from "../worldClimate";
 
 /**
  * CPU-side surface response for Living World weather and wind.
  *
  * Wetness / snow / vegetation-wind strengths are a pure function of the
- * authored weather block plus the evaluated wind speed. View shaders read
- * these as uniforms; nothing here touches three.js or wall-clock time.
+ * evaluated climate (or the authored weather block on the legacy path) plus
+ * the evaluated wind speed. View shaders read these as uniforms; nothing here
+ * touches three.js or wall-clock time.
  */
 
 function clamp01(value: number): number {
@@ -31,9 +33,7 @@ export function isWorldVegetationName(name: string): boolean {
 }
 
 /** Object ids whose authored names should wind-sway when instanced in a batch. */
-export function collectWorldVegetationObjectIds(
-  objects: ReadonlyArray<{ id: string; name: string }>,
-): Set<string> {
+export function collectWorldVegetationObjectIds(objects: ReadonlyArray<{ id: string; name: string }>): Set<string> {
   const ids = new Set<string>();
   for (const object of objects) {
     if (isWorldVegetationName(object.name)) ids.add(object.id);
@@ -65,6 +65,34 @@ export function computeEffectiveWorldSnowCover(weather: DirectorWorldWeather): n
   return clamp01(0.32 + 0.68 * clamp01(weather.intensity));
 }
 
+/** Lerp whose endpoints are bit-exact, so static climates reproduce legacy math. */
+function exactLerp(from: number, to: number, t: number): number {
+  if (t <= 0) return from;
+  if (t >= 1) return to;
+  return from + (to - from) * t;
+}
+
+/**
+ * Climate-vector surface wetness: continuous across weather transitions.
+ *
+ * The precipitation floor blends the legacy rain/storm/snow constants by the
+ * evaluated presences, so a static climate reproduces
+ * {@link computeEffectiveWorldWetness} exactly while an evolving climate
+ * ramps the floor smoothly and carries the integrated wetness.
+ */
+export function computeClimateSurfaceWetness(climate: WorldClimateState): number {
+  const wetness = clamp01(climate.wetness);
+  const intensity = clamp01(climate.intensity);
+  const rainFloor = exactLerp(0.55 + 0.4 * intensity, 0.72 + 0.28 * intensity, climate.stormFactor);
+  const floor = clamp01(climate.rainPresence * rainFloor + climate.snowPresence * 0.18 * intensity);
+  return Math.max(wetness, floor);
+}
+
+/** Climate-vector snow cover: continuous version of the preset gate. */
+export function computeClimateSnowCover(climate: WorldClimateState): number {
+  return clamp01((0.32 + 0.68 * clamp01(climate.intensity)) * clamp01(climate.snowPresence));
+}
+
 /**
  * Vegetation sway amplitude scale. 12 m/s wind → 1; calm → 0.
  * Gusts already live in the evaluated wind speed.
@@ -87,6 +115,53 @@ export function computeWorldSurfacePorosity(metalness: number, vegetation: boole
   return 0.55 * (1 - clamp01(metalness)) + 0.08 * clamp01(metalness);
 }
 
+/**
+ * Lagarde-style wet response endpoints, shared by the GLSL chunks in
+ * worldMaterialPatch and the TS mirrors below (tests pin the direction).
+ * Absorbed water lives in the pores: a fully porous surface darkens and
+ * glazes hard, while a metal's response is specular — its albedo barely
+ * moves and its authored microsurface mostly survives the water film.
+ */
+export const WORLD_WET_ALBEDO_SCALE_POROSITY_0 = 0.92;
+export const WORLD_WET_ALBEDO_SCALE_POROSITY_1 = 0.52;
+export const WORLD_WET_ROUGHNESS_SCALE_POROSITY_0 = 0.72;
+export const WORLD_WET_ROUGHNESS_SCALE_POROSITY_1 = 0.28;
+
+/**
+ * Diffuse albedo multiplier for a surface of the given porosity at the given
+ * wetness. Monotonically decreasing in both arguments; 1 when dry.
+ */
+export function computeWorldWetAlbedoScale(porosity: number, wetness: number): number {
+  const soaked =
+    WORLD_WET_ALBEDO_SCALE_POROSITY_0 +
+    (WORLD_WET_ALBEDO_SCALE_POROSITY_1 - WORLD_WET_ALBEDO_SCALE_POROSITY_0) * clamp01(porosity);
+  return 1 + (soaked - 1) * clamp01(wetness);
+}
+
+/**
+ * Roughness multiplier for a surface of the given porosity at the given
+ * wetness. Porous dielectrics glaze toward a sheen; metals keep most of
+ * their authored roughness. 1 when dry.
+ */
+export function computeWorldWetRoughnessScale(porosity: number, wetness: number): number {
+  const soaked =
+    WORLD_WET_ROUGHNESS_SCALE_POROSITY_0 +
+    (WORLD_WET_ROUGHNESS_SCALE_POROSITY_1 - WORLD_WET_ROUGHNESS_SCALE_POROSITY_0) * clamp01(porosity);
+  return 1 + (soaked - 1) * clamp01(wetness);
+}
+
+/**
+ * Puddle accumulation [0, 1]. Damp surfaces darken long before water pools,
+ * so puddles only appear once the effective wetness passes 0.45 and reach
+ * full strength at saturation. WHERE puddles sit is a seeded spatial hash in
+ * the shader (low-lying pockets), never a time-random value, so still frames
+ * and scrubbed exports replay identically. `clear` + wetness 0 stays 0.
+ */
+export function computeWorldPuddleAmount(weather: DirectorWorldWeather): number {
+  const wetness = computeEffectiveWorldWetness(weather);
+  return clamp01((wetness - 0.45) / 0.55);
+}
+
 export interface WorldAmbientAudioGains {
   /** Low rumble; follows wind speed. */
   wind: number;
@@ -94,6 +169,10 @@ export interface WorldAmbientAudioGains {
   rain: number;
   /** Softer filtered noise; snow. */
   snow: number;
+  /** Deep sub-bass storm rumble; storm preset only. */
+  rumble: number;
+  /** Mid-band foliage rustle; grows quadratically with wind speed. */
+  rustle: number;
 }
 
 /** Master gains for the procedural world bed. 0 = silent. */
@@ -102,11 +181,37 @@ export function computeWorldAmbientAudioGains(
   windSpeedMps: number,
 ): WorldAmbientAudioGains {
   const intensity = clamp01(weather.intensity);
-  const wind = Math.min(1, Math.max(0, windSpeedMps / 14)) * 0.45;
+  const windNorm = Math.min(1, Math.max(0, windSpeedMps / 14));
+  const wind = windNorm * 0.45;
+  // Quadratic so a light breeze stays a low rumble and only real wind brings
+  // the leafy mid band forward — the same wind reads in the trees and the ear.
+  const rustle = windNorm * windNorm * 0.3;
   let rain = 0;
   let snow = 0;
+  let rumble = 0;
   if (weather.preset === "rain") rain = 0.2 + 0.75 * intensity;
-  else if (weather.preset === "storm") rain = 0.45 + 0.55 * intensity;
-  else if (weather.preset === "snow") snow = 0.12 + 0.4 * intensity;
-  return { wind, rain, snow };
+  else if (weather.preset === "storm") {
+    rain = 0.45 + 0.55 * intensity;
+    rumble = 0.25 + 0.45 * intensity;
+  } else if (weather.preset === "snow") snow = 0.12 + 0.4 * intensity;
+  return { wind, rain, snow, rumble, rustle };
+}
+
+/**
+ * Climate-vector ambient gains: the rain bed fades in/out with the evaluated
+ * precipitation instead of stepping on the preset gate. Static climates
+ * reproduce {@link computeWorldAmbientAudioGains} exactly.
+ */
+export function computeClimateAmbientAudioGains(
+  climate: WorldClimateState,
+  windSpeedMps: number,
+): WorldAmbientAudioGains {
+  const intensity = clamp01(climate.intensity);
+  const wind = Math.min(1, Math.max(0, windSpeedMps / 14)) * 0.45;
+  const rainGain = exactLerp(0.2 + 0.75 * intensity, 0.45 + 0.55 * intensity, climate.stormFactor);
+  return {
+    wind,
+    rain: clamp01(climate.rainPresence * rainGain),
+    snow: clamp01(climate.snowPresence * (0.12 + 0.4 * intensity)),
+  };
 }

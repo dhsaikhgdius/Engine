@@ -3,11 +3,14 @@ import { buildRoadSpline, type RoadVec3 } from "../../../../../src/comprehensive
 import {
   buildRoadTrafficStreams,
   minSameLaneGapAt,
+  planTrafficBodyVariants,
   TRAFFIC_MIN_GAP_M,
+  TRAFFIC_VEHICLE_BODY_TYPE_COUNT,
   TRAFFIC_VEHICLE_COLOR_COUNT,
   vehicleArcPositionAt,
   type TrafficRoadInput,
 } from "../../../../../src/comprehensive/editor/world/traffic/trafficFlow";
+import { VEHICLE_BODY_TYPES } from "../../../../../src/comprehensive/editor/world/traffic/vehicleGeometry";
 
 const CITY_LOOP_POINTS: readonly RoadVec3[] = [
   [30, 0.05, 20],
@@ -128,6 +131,55 @@ describe("trafficFlow", () => {
     }
   });
 
+  it("applies a uniform lane speed scale (storm slowdown) without breaking no-overtake", () => {
+    const cityLoop = buildRoadSpline(CITY_LOOP_POINTS, true);
+    const base = buildRoadTrafficStreams(ROAD, 42, cityLoop.totalLengthM);
+    const storm = buildRoadTrafficStreams(ROAD, 42, cityLoop.totalLengthM, 0.55);
+
+    // The whole lane scales at once: exactly one speed per lane, and the
+    // hashed 0.85..1.15 band applies to the SCALED base.
+    const laneSpeeds = new Set([...storm.speedsMps].map((speed, index) => `${storm.directions[index]}:${speed}`));
+    expect(laneSpeeds.size).toBe(2);
+    const scaledBaseMps = (60 / 3.6) * 0.55;
+    for (let index = 0; index < storm.count; index += 1) {
+      expect(storm.speedsMps[index]!).toBeCloseTo(base.speedsMps[index]! * 0.55, 9);
+      expect(storm.speedsMps[index]!).toBeGreaterThanOrEqual(scaledBaseMps * 0.85);
+      expect(storm.speedsMps[index]!).toBeLessThanOrEqual(scaledBaseMps * 1.15);
+    }
+    // Slot offsets are untouched by the scale.
+    expect([...storm.arcOffsetsM]).toEqual([...base.arcOffsetsM]);
+
+    // Same-lane gaps stay constant and above the guarantee forever.
+    let minGap = Number.POSITIVE_INFINITY;
+    for (let t = -1800; t <= 3600; t += 7.3) {
+      minGap = Math.min(minGap, minSameLaneGapAt(storm, t));
+    }
+    expect(minGap).toBeGreaterThanOrEqual(TRAFFIC_MIN_GAP_M);
+    expect(minSameLaneGapAt(storm, 0)).toBeCloseTo(minSameLaneGapAt(storm, 2400), 6);
+  });
+
+  it("returns identical positions for seek(t) and play-to-t evaluation orders", () => {
+    const streams = buildRoadTrafficStreams(ROAD, 42, 180, 0.7);
+    const target = 137.25;
+    // Direct seek: one evaluation at the target time.
+    const seeked: number[] = [];
+    for (let index = 0; index < streams.count; index += 1) {
+      seeked.push(vehicleArcPositionAt(streams, index, target));
+    }
+    // Play-to-t: step through every intermediate frame first (24 fps), the
+    // way playback reaches the same world time.
+    const played: number[] = [];
+    for (let index = 0; index < streams.count; index += 1) {
+      let position = 0;
+      for (let t = 0; t <= target + 1e-9; t += 1 / 24) {
+        position = vehicleArcPositionAt(streams, index, Math.min(t, target));
+      }
+      position = vehicleArcPositionAt(streams, index, target);
+      played.push(position);
+    }
+    expect(played).toEqual(seeked);
+  });
+
   it("hashes palette indices and bounce phases into range", () => {
     const streams = buildRoadTrafficStreams({ ...ROAD, vehicleCount: 24 }, 42, 200);
     for (let index = 0; index < streams.count; index += 1) {
@@ -138,6 +190,40 @@ describe("trafficFlow", () => {
     }
     // The palette should actually get used across a full road.
     expect(new Set([...streams.colorIndices]).size).toBeGreaterThan(2);
+  });
+
+  it("hashes cosmetic body types without touching arc offsets or lane speeds", () => {
+    expect(TRAFFIC_VEHICLE_BODY_TYPE_COUNT).toBe(VEHICLE_BODY_TYPES.length);
+    const streams = buildRoadTrafficStreams({ ...ROAD, vehicleCount: 24 }, 42, 200);
+    for (let index = 0; index < streams.count; index += 1) {
+      expect(streams.bodyTypeIndices[index]!).toBeGreaterThanOrEqual(0);
+      expect(streams.bodyTypeIndices[index]!).toBeLessThan(TRAFFIC_VEHICLE_BODY_TYPE_COUNT);
+    }
+    // Both silhouettes appear on a full road.
+    expect(new Set([...streams.bodyTypeIndices]).size).toBe(TRAFFIC_VEHICLE_BODY_TYPE_COUNT);
+    // Body type is independent of the weather lane scale, so the variant
+    // InstancedMeshes never reallocate while an intensity slider drags.
+    const storm = buildRoadTrafficStreams({ ...ROAD, vehicleCount: 24 }, 42, 200, 0.55);
+    expect([...storm.bodyTypeIndices]).toEqual([...streams.bodyTypeIndices]);
+    expect([...storm.arcOffsetsM]).toEqual([...streams.arcOffsetsM]);
+  });
+
+  it("plans per-body-type instance slots that are dense and consistent", () => {
+    const streams = buildRoadTrafficStreams({ ...ROAD, vehicleCount: 24 }, 42, 200);
+    const plan = planTrafficBodyVariants(streams);
+    const totals = [...plan.counts].reduce((sum, count) => sum + count, 0);
+    expect(totals).toBe(streams.count);
+    // Each vehicle's slot is unique within its body type and in range, so
+    // one InstancedMesh per body type can hold exactly its assigned cars.
+    const seen = new Set<string>();
+    for (let index = 0; index < streams.count; index += 1) {
+      const body = streams.bodyTypeIndices[index]!;
+      const slot = plan.slots[index]!;
+      expect(slot).toBeLessThan(plan.counts[body]!);
+      const key = `${body}:${slot}`;
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+    }
   });
 
   it("degrades safely on zero-length roads", () => {

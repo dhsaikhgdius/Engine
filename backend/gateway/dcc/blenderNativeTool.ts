@@ -24,6 +24,14 @@ import {
 import { describeBlenderNativeTarget } from "../../../packages/protocol/src/blenderNativeDescribe";
 import { asRecord } from "../../../packages/protocol/src/primitives";
 import { blenderOperationEffect } from "../../../packages/protocol/src/blenderOperationManifest";
+import type { DirectorProject } from "@director/project-schema";
+import {
+  describeDirectorCameraKernelOwnership,
+  describeDirectorLightKernelOwnership,
+  describeDirectorObjectKernelOwnership,
+  describeUnmirroredBlenderKernelOwnership,
+  type DirectorKernelOwnership,
+} from "@director/agent-engine/kernel-ownership";
 import { BlenderNativeSessionError, type BlenderNativeSession } from "./blenderNativeSession";
 
 function isBlenderNativeCaptureOp(
@@ -210,6 +218,39 @@ function compactBlenderInspection(value: unknown) {
       nodes: compactInspectionGraphNodes(graph.nodes),
     })),
   });
+}
+
+/**
+ * Kernel ownership for a natively inspected Blender datablock: resolved
+ * against the persisted Director project so a mirrored Stage entity reports
+ * the same ownership block as `director_workbench inspect` (including
+ * Stage-owned projections with `provisioned: false`).
+ */
+async function blenderInspectionKernelOwnership(
+  blenderObjectId: string,
+  loadDirectorProject?: () => Promise<DirectorProject | null>,
+): Promise<DirectorKernelOwnership> {
+  const project = (await loadDirectorProject?.()) ?? null;
+  const mirrorsBlenderId = (entity: { nativeSource?: { engine: "blender"; objectId: string } }) =>
+    entity.nativeSource?.engine === "blender" && entity.nativeSource.objectId === blenderObjectId;
+  if (project) {
+    const object = project.objects.find(mirrorsBlenderId);
+    if (object) {
+      return {
+        ...describeDirectorObjectKernelOwnership(object, project.assets),
+        stage_entity: { entity: "object", id: object.id },
+      };
+    }
+    const light = project.lights?.find(mirrorsBlenderId);
+    if (light) {
+      return { ...describeDirectorLightKernelOwnership(light), stage_entity: { entity: "light", id: light.id } };
+    }
+    const camera = project.cameras.find(mirrorsBlenderId);
+    if (camera) {
+      return { ...describeDirectorCameraKernelOwnership(camera), stage_entity: { entity: "camera", id: camera.id } };
+    }
+  }
+  return describeUnmirroredBlenderKernelOwnership(blenderObjectId);
 }
 
 /**
@@ -799,12 +840,15 @@ function nativeRequest(input: Exclude<BlenderNativeToolRequest, { op: "status" |
  *
  * @param session - The Blender native session client.
  * @param input - The tool request (status, scene, catalog, describe, inspect, capture, capture_render, query, or apply).
+ * @param options - Optional dependencies; `loadDirectorProject` resolves the
+ *   persisted Director project so inspect results carry kernel ownership.
  * @returns A typed result depending on the operation kind.
  * @throws {BlenderNativeSessionError} On contract mismatch, timeout, or native failure.
  */
 export async function executeBlenderNativeTool(
   session: BlenderNativeSession,
   input: BlenderNativeToolRequest,
+  options: { loadDirectorProject?: () => Promise<DirectorProject | null> } = {},
 ) {
   if (input.op === "status") return session.status();
   if (input.op === "scene") return session.snapshot();
@@ -899,7 +943,11 @@ export async function executeBlenderNativeTool(
 
     const result = operationResult(job);
     if (input.op === "inspect") {
-      const inspection = compactBlenderInspection(result);
+      const compacted = compactBlenderInspection(result);
+      const inspection = {
+        ...compacted,
+        kernel_ownership: await blenderInspectionKernelOwnership(compacted.id, options.loadDirectorProject),
+      };
       return { result: inspection, inspection };
     }
     if (input.op === "query") {

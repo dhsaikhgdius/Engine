@@ -5,8 +5,11 @@ import {
   computeEffectiveWorldSnowCover,
   computeEffectiveWorldWetness,
   computeWorldAmbientAudioGains,
+  computeWorldPuddleAmount,
   computeWorldSurfacePorosity,
   computeWorldVegetationWindStrength,
+  computeWorldWetAlbedoScale,
+  computeWorldWetRoughnessScale,
   isWorldVegetationName,
 } from "../../../../../src/comprehensive/editor/world/surface/worldSurfaceResponse";
 
@@ -28,9 +31,12 @@ describe("vegetation name detection", () => {
     expect(isWorldVegetationName("ground-inner")).toBe(false);
     expect(isWorldVegetationName("大厅")).toBe(false);
     expect(isWorldVegetationName("director-primitive-batch-box")).toBe(false);
-    expect(
-      [...collectWorldVegetationObjectIds([{ id: "oak", name: "oak-foliage" }, { id: "hall", name: "大厅" }])],
-    ).toEqual(["oak"]);
+    expect([
+      ...collectWorldVegetationObjectIds([
+        { id: "oak", name: "oak-foliage" },
+        { id: "hall", name: "大厅" },
+      ]),
+    ]).toEqual(["oak"]);
   });
 });
 
@@ -53,6 +59,29 @@ describe("effective wetness and snow", () => {
     expect(computeEffectiveWorldSnowCover(weather({ preset: "snow", intensity: 1 }))).toBeGreaterThan(0.9);
     expect(computeEffectiveWorldWetness(weather({ preset: "snow", intensity: 1 }))).toBeLessThan(0.25);
   });
+
+  it("never snows outside the snow preset", () => {
+    expect(computeEffectiveWorldSnowCover(weather({ preset: "storm", intensity: 1, wetness: 1 }))).toBe(0);
+    expect(computeEffectiveWorldSnowCover(weather({ preset: "rain", intensity: 1 }))).toBe(0);
+  });
+});
+
+describe("puddle accumulation", () => {
+  it("stays perfectly dry on clear + wetness 0 and only pools past damp", () => {
+    expect(computeWorldPuddleAmount(weather())).toBe(0);
+    expect(computeWorldPuddleAmount(weather({ wetness: 0.45 }))).toBe(0);
+    expect(computeWorldPuddleAmount(weather({ wetness: 0.3 }))).toBe(0);
+    expect(computeWorldPuddleAmount(weather({ wetness: 1 }))).toBe(1);
+  });
+
+  it("pools under rain and storms even with the accumulator at 0", () => {
+    const rain = computeWorldPuddleAmount(weather({ preset: "rain", intensity: 1, wetness: 0 }));
+    const storm = computeWorldPuddleAmount(weather({ preset: "storm", intensity: 1, wetness: 0 }));
+    expect(rain).toBeGreaterThan(0.5);
+    expect(storm).toBeGreaterThanOrEqual(rain);
+    // Light snow stays below the pooling threshold.
+    expect(computeWorldPuddleAmount(weather({ preset: "snow", intensity: 1, wetness: 0 }))).toBe(0);
+  });
 });
 
 describe("vegetation wind and porosity", () => {
@@ -69,9 +98,43 @@ describe("vegetation wind and porosity", () => {
   });
 });
 
+describe("Lagarde wet response direction", () => {
+  it("darkens porous dielectrics hardest while metal albedo barely moves", () => {
+    const metal = computeWorldSurfacePorosity(1, false);
+    const dielectric = computeWorldSurfacePorosity(0, false);
+    const foliage = computeWorldSurfacePorosity(0, true);
+    // Soaked albedo: foliage < dielectric < metal < 1 (metals stay bright).
+    expect(computeWorldWetAlbedoScale(foliage, 1)).toBeLessThan(computeWorldWetAlbedoScale(dielectric, 1));
+    expect(computeWorldWetAlbedoScale(dielectric, 1)).toBeLessThan(computeWorldWetAlbedoScale(metal, 1));
+    expect(computeWorldWetAlbedoScale(metal, 1)).toBeGreaterThan(0.85);
+    expect(computeWorldWetAlbedoScale(metal, 1)).toBeLessThan(1);
+    // Dry is exactly identity for every porosity.
+    expect(computeWorldWetAlbedoScale(foliage, 0)).toBe(1);
+    expect(computeWorldWetAlbedoScale(metal, 0)).toBe(1);
+  });
+
+  it("glazes porous dielectrics into a sheen while metals keep their microsurface", () => {
+    const metal = computeWorldSurfacePorosity(1, false);
+    const dielectric = computeWorldSurfacePorosity(0, false);
+    expect(computeWorldWetRoughnessScale(dielectric, 1)).toBeLessThan(computeWorldWetRoughnessScale(metal, 1));
+    expect(computeWorldWetRoughnessScale(metal, 1)).toBeGreaterThan(0.6);
+    expect(computeWorldWetRoughnessScale(dielectric, 0)).toBe(1);
+    // Half wetness sits between dry and soaked.
+    const half = computeWorldWetRoughnessScale(dielectric, 0.5);
+    expect(half).toBeGreaterThan(computeWorldWetRoughnessScale(dielectric, 1));
+    expect(half).toBeLessThan(1);
+  });
+});
+
 describe("ambient audio gains", () => {
   it("is silent on a still clear day and rises with wind and rain", () => {
-    expect(computeWorldAmbientAudioGains(weather({ intensity: 0 }), 0)).toEqual({ wind: 0, rain: 0, snow: 0 });
+    expect(computeWorldAmbientAudioGains(weather({ intensity: 0 }), 0)).toEqual({
+      wind: 0,
+      rain: 0,
+      snow: 0,
+      rumble: 0,
+      rustle: 0,
+    });
     const storm = computeWorldAmbientAudioGains(weather({ preset: "storm", intensity: 1 }), 14);
     expect(storm.wind).toBeCloseTo(0.45, 10);
     expect(storm.rain).toBeGreaterThan(0.9);
@@ -79,5 +142,26 @@ describe("ambient audio gains", () => {
     const snow = computeWorldAmbientAudioGains(weather({ preset: "snow", intensity: 1 }), 0);
     expect(snow.snow).toBeGreaterThan(0.4);
     expect(snow.rain).toBe(0);
+  });
+
+  it("brings the foliage rustle forward quadratically with wind speed", () => {
+    expect(computeWorldAmbientAudioGains(weather(), 0).rustle).toBe(0);
+    const breeze = computeWorldAmbientAudioGains(weather(), 3.5).rustle;
+    const gale = computeWorldAmbientAudioGains(weather(), 14).rustle;
+    // Quadratic: a light breeze stays far below half of the full-wind gain.
+    expect(breeze).toBeGreaterThan(0);
+    expect(breeze).toBeLessThan(gale / 4);
+    expect(gale).toBeCloseTo(0.3, 10);
+    // Clamped above the 14 m/s reference speed.
+    expect(computeWorldAmbientAudioGains(weather(), 40).rustle).toBeCloseTo(0.3, 10);
+  });
+
+  it("reserves the deep rumble bed for storms", () => {
+    expect(computeWorldAmbientAudioGains(weather({ preset: "rain", intensity: 1 }), 0).rumble).toBe(0);
+    expect(computeWorldAmbientAudioGains(weather({ preset: "snow", intensity: 1 }), 0).rumble).toBe(0);
+    const storm = computeWorldAmbientAudioGains(weather({ preset: "storm", intensity: 1 }), 0);
+    expect(storm.rumble).toBeCloseTo(0.7, 10);
+    const mild = computeWorldAmbientAudioGains(weather({ preset: "storm", intensity: 0 }), 0);
+    expect(mild.rumble).toBeCloseTo(0.25, 10);
   });
 });

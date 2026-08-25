@@ -332,6 +332,42 @@ describe("Director project schema", () => {
     expect(parseDirectorProject(structuredClone(legacyProject))).toEqual(legacyProject);
   });
 
+  it("persists a character agent binding and restricts it to character objects", () => {
+    const project = createDefaultDirectorProject();
+    const character = project.objects.find((object) => object.kind === "character")!;
+    character.agentBinding = {
+      sessionId: "dsh-session-1",
+      profileId: null,
+      roleId: "role-hero",
+      mode: "possess",
+    };
+    expect(parseDirectorProject(structuredClone(project))).toEqual(project);
+
+    const profileOnly = structuredClone(project);
+    profileOnly.objects.find((object) => object.kind === "character")!.agentBinding = {
+      profileId: "profile-a",
+      mode: "possess",
+    };
+    expect(directorProjectSchema.safeParse(profileOnly).success).toBe(true);
+
+    const missingIdentity = structuredClone(project);
+    missingIdentity.objects.find((object) => object.kind === "character")!.agentBinding = {
+      mode: "possess",
+    } as never;
+    expect(safeParseDirectorProject(missingIdentity)).toMatchObject({
+      success: false,
+      error: expect.stringContaining("sessionId or profileId"),
+    });
+
+    const nonCharacter = structuredClone(project);
+    const camera = nonCharacter.objects.find((object) => object.kind === "camera")!;
+    camera.agentBinding = { sessionId: "dsh-session-1", mode: "possess" };
+    expect(safeParseDirectorProject(nonCharacter)).toMatchObject({
+      success: false,
+      error: expect.stringContaining("agentBinding"),
+    });
+  });
+
   it("rejects invalid IK weights, reach limits, and unknown effectors", () => {
     const project = createDefaultDirectorProject();
     const character = project.objects.find((object) => object.kind === "character")!;

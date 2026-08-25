@@ -435,6 +435,45 @@ export const directorAuthorEvidenceProfileSchema = z
     message: "author evidence raster cannot exceed 2073600 pixels over the Agent wire",
   });
 
+/**
+ * One image endpoint of a general capture comparison: a live stage render,
+ * a durable Gallery still, or a reconstruction capture keyframe. Image bytes
+ * stay in the bound browser; only scores and grid cells cross the Agent wire.
+ */
+export const directorCompareSourceSchema = z.discriminatedUnion("kind", [
+  z
+    .strictObject({
+      kind: z.literal("stage"),
+      /** Omitted camera_id renders through the active project camera. */
+      camera_id: nonEmptyText(200).optional(),
+      frame: z.number().int().nonnegative().default(0),
+      width: rasterDimensionSchema.default(640),
+      height: rasterDimensionSchema.default(360),
+    })
+    .refine(rasterFitsAgentWire, {
+      message: "compare stage raster cannot exceed 2073600 pixels",
+      path: ["width"],
+    }),
+  z.strictObject({
+    kind: z.literal("media"),
+    /** Durable Gallery still-image media id. */
+    media_id: nonEmptyText(512),
+  }),
+  z.strictObject({
+    kind: z.literal("reconstruction_keyframe"),
+    job_id: nonEmptyText(240),
+    /** Capture key-view id from the reconstruction plan. */
+    view_id: nonEmptyText(120).optional(),
+    /** Capture-view camera id from the reconstruction plan. */
+    camera_id: nonEmptyText(200).optional(),
+  }),
+]);
+
+/** Canonical compare source kinds, surfaced through capabilities as vocabulary. */
+export const directorCompareSourceKinds = directorCompareSourceSchema.options.map(
+  (option) => option.shape.kind.value,
+);
+
 const directorSpatialVec3Schema = directorTransformSchema.shape.position;
 export const directorObjectSpatialQuerySchema = z.discriminatedUnion("mode", [
   z.strictObject({
@@ -625,13 +664,28 @@ export const directorWorkbenchOperationSchema = z.discriminatedUnion("op", [
       "coverage_shot",
     ]),
     id: nonEmptyText(200),
-  }),
+  }).describe(
+    "Object, light, and camera results carry a kernel_ownership block: which kernel (stage or blender) owns the entity's data, which update patch fields the Stage accepts, and which are rejected with the operation to use instead. Ownership is decided by that field, not by prose.",
+  ),
   strictOperation("shot_ir", {
     camera_id: nonEmptyText(200).optional(),
     take_id: nonEmptyText(200).optional(),
     coverage_shot_id: nonEmptyText(200).optional(),
     frame: z.number().int().nonnegative().optional(),
   }),
+  /**
+   * Names the camera move a marked animation track geometrically proves
+   * between two frames — pure project math, so it also serves disconnected.
+   */
+  strictOperation("describe_camera_move", {
+    camera_id: nonEmptyText(200),
+    subject_object_id: nonEmptyText(200),
+    from_frame: z.number().int().min(0).max(1_000_000).optional(),
+    to_frame: z.number().int().min(0).max(1_000_000).optional(),
+  }).refine(
+    (value) => value.from_frame === undefined || value.to_frame === undefined || value.from_frame < value.to_frame,
+    { message: "from_frame must be before to_frame", path: ["from_frame"] },
+  ),
   strictOperation("generation", { command: directorGenerationCommandSchema }),
   strictOperation("transcription", { command: directorTranscriptionCommandSchema }),
   strictOperation("generated_3d", { command: directorGenerated3DCommandSchema }),
@@ -755,6 +809,26 @@ export const directorWorkbenchOperationSchema = z.discriminatedUnion("op", [
     .refine(rasterFitsAgentWire, {
       message: "capture raster cannot exceed 2073600 pixels over the Agent wire",
     }),
+  /**
+   * General render-and-compare scoring: decode a reference and a candidate
+   * image source, score them on the shared luminance grid, and surface the
+   * worst cells so a caller can quantify the mismatch, locate its regions,
+   * and fix only those regions. reconstruction.compare is the plan-bound
+   * specialization of this operation and shares the same scorer.
+   */
+  strictOperation("compare", {
+    /** Ground-truth image the candidate is scored against. */
+    reference: directorCompareSourceSchema,
+    /** Image under evaluation; defaults to a stage render through the active camera. */
+    candidate: directorCompareSourceSchema.default({ kind: "stage", frame: 0, width: 640, height: 360 }),
+    /** Scoring grid dimensions; grid.worst localizes the weakest cells. */
+    grid: z
+      .strictObject({
+        rows: z.number().int().min(1).max(16).default(8),
+        cols: z.number().int().min(1).max(16).default(8),
+      })
+      .optional(),
+  }),
   strictOperation("shot_package", {
     camera_id: nonEmptyText(200).optional(),
     take_id: nonEmptyText(200).optional(),
@@ -792,6 +866,8 @@ type DirectorWorkbenchMutationOperation = Extract<
 >;
 type DirectorWorkbenchGuardedMutationOperation = DirectorWorkbenchMutationOperation &
   ({ expected_revision: string } | { expected_revision?: never; unconditional: true });
+export type DirectorCompareSource = z.infer<typeof directorCompareSourceSchema>;
+export type DirectorCompareWorkbenchOperation = Extract<DirectorWorkbenchOperation, { op: "compare" }>;
 export type DirectorGenerationCommand = z.infer<typeof directorGenerationCommandSchema>;
 export type DirectorTranscriptionCommand = z.infer<typeof directorTranscriptionCommandSchema>;
 export type DirectorGenerated3DCommand = z.infer<typeof directorGenerated3DCommandSchema>;
@@ -1138,10 +1214,10 @@ function missingAuthoringFieldMessage(input: unknown, path: PropertyKey[]) {
 }
 
 export const BLENDER_NATIVE_APPLY_HINT =
-  'Native Blender modeling uses blender_native, not director_workbench. Call blender_native {"op":"apply","operations":[{"op":"create_primitive","id":"hero-plinth","primitive":"cube"}]}. Stage instances catalog, project, or generated meshes with author.add_object; it rejects geometry_type assembly. Describe typed Blender ops with blender_native {"op":"describe","target":"create_primitive"}; describe RNA with blender_native {"op":"describe","operator":"mesh.bevel"}.';
+  'Native Blender modeling uses blender_native, not director_workbench. Call blender_native {"op":"apply","operations":[{"op":"create_blockout","preset":"room","idPrefix":"shell","width":12,"depth":8,"height":4}]} for architecture shells (presets floor/wall/room/corridor/stairs, metres), create_opening for doors/windows, or create_primitive for one volume. Stage instances catalog, project, or generated meshes with author.add_object; it rejects geometry_type assembly. Describe typed Blender ops with blender_native {"op":"describe","target":"create_blockout"}; describe RNA with blender_native {"op":"describe","operator":"mesh.bevel"}.';
 
 export const STAGE_PRIMITIVE_ASSEMBLY_ERROR =
-  "director_workbench does not allow assembling a scene from Stage primitives (box/sphere/cylinder/cone/pyramid/torus). Instance catalog assets, model with blender_native (edits sync back to this project), or generate with generated_3d then place.";
+  "director_workbench does not allow assembling a scene from Stage primitives (box/sphere/cylinder/cone/pyramid/torus). Instance catalog assets, model with blender_native (edits sync back to this project), or generate with generated_3d then place. For white-box architecture use blender_native apply create_blockout (presets floor/wall/room/corridor/stairs, metric metres, wallThickness) and cut doors/windows with create_opening; do not fake openings with darker boxes.";
 
 function valueUsesStagePrimitiveGeometry(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(valueUsesStagePrimitiveGeometry);

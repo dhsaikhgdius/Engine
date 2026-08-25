@@ -1,26 +1,23 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import {
-  AdditiveBlending,
-  type AmbientLight,
-  type DirectionalLight,
-  type HemisphereLight,
-  type Points,
-  type PointsMaterial,
-} from "three";
+import type { AmbientLight, DirectionalLight, HemisphereLight } from "three";
 import type { DirectorProject } from "../../schema/directorProject";
 import { useDirectorStore } from "../../store/directorStore";
 import type { SkyLayerProps } from "../livingWorldContracts";
+import { isWorldWeatherEvolving } from "../worldClimate";
 import WorldAmbientClockDriver from "../worldClock";
-import { evaluateLightningState } from "./lightning";
+import { evaluateLightningState, getLightningBoltAnchor } from "./lightning";
 import { AtmosphereSky } from "./AtmosphereSky";
-import { createStarFieldPositions } from "./starField";
+import SkyClouds from "./SkyClouds";
+import SkyLightningBolt from "./SkyLightningBolt";
+import SkyStars from "./SkyStars";
 import { evaluateSkyLighting, getWorldSkyLightScale } from "./solar";
 
 /**
- * Sky sub-layer: time-of-day sun position, Nishita sky dome, stars, and
- * weather-driven ambient lighting mood. Everything rendered here is a pure
- * function of `(settings, seed, worldSeconds)` via solar.ts / lightning.ts.
+ * Sky sub-layer: time-of-day sun position, Nishita sky dome, billboard
+ * clouds, stars, and weather-driven ambient lighting mood. Everything
+ * rendered here is a pure function of `(settings, seed, worldSeconds)` via
+ * solar.ts / lightning.ts.
  *
  * Light-list contract: while `timeOfDay.drivesSky` is off this layer renders
  * no dome and no day/night lights — the project's authored light list stays
@@ -42,32 +39,43 @@ const selectPanoramaBackdropActive = (state: { project: DirectorProject }): bool
   return Boolean(state.project.panoramaAssetId) || (environment?.enabled === true && environment.usePanorama);
 };
 
+/**
+ * Whether the sky dome (and its dome-only companions: stars, billboard
+ * clouds) may mount. `drivesSky` off means the authored look owns the sky;
+ * an active panorama/HDRI backdrop also hides the dome so the two never
+ * fight over the background.
+ *
+ * @param drivesSky - The project's `timeOfDay.drivesSky` flag.
+ * @param panoramaBackdropActive - True when a panorama/HDRI backdrop renders.
+ * @returns True when the dome may render.
+ */
+export function shouldShowSkyDome(drivesSky: boolean, panoramaBackdropActive: boolean): boolean {
+  return drivesSky && !panoramaBackdropActive;
+}
+
 export default function SkyLayer({ context }: SkyLayerProps) {
   const { seed, settings, worldSeconds, isPlaying } = context;
   const panoramaBackdropActive = useDirectorStore(selectPanoramaBackdropActive);
   const authoredLitLightCount = useDirectorStore(selectAuthoredLitLightCount);
   const skyLightScale = getWorldSkyLightScale(authoredLitLightCount);
 
-  const lighting = evaluateSkyLighting(settings, worldSeconds);
-  const lightning = evaluateLightningState(seed, worldSeconds, settings.weather);
+  // Weather comes from the evaluated climate: static mode reads the authored
+  // block verbatim, an evolving cycle blends the lighting tables and gates
+  // lightning on the evaluated storm segment.
+  const lighting = evaluateSkyLighting(settings, worldSeconds, context.climate);
+  const lightning = evaluateLightningState(seed, worldSeconds, context.climate.weather);
 
   const drivesSky = settings.timeOfDay.drivesSky;
-  const showSkyDome = drivesSky && !panoramaBackdropActive;
-  const starPositions = useMemo(() => createStarFieldPositions(seed), [seed]);
+  const showSkyDome = shouldShowSkyDome(drivesSky, panoramaBackdropActive);
 
-  const starFieldRef = useRef<Points>(null);
-  const starMaterialRef = useRef<PointsMaterial>(null);
   const sunLightRef = useRef<DirectionalLight>(null);
   const ambientLightRef = useRef<HemisphereLight>(null);
   const lightningFillRef = useRef<AmbientLight>(null);
   const lightningKeyRef = useRef<DirectionalLight>(null);
 
   const syncSkyFrame = () => {
-    const frameLighting = evaluateSkyLighting(settings, context.worldSeconds);
-    const frameLightning = evaluateLightningState(seed, context.worldSeconds, settings.weather);
-
-    if (starFieldRef.current) starFieldRef.current.visible = frameLighting.starsOpacity > 0.02;
-    if (starMaterialRef.current) starMaterialRef.current.opacity = frameLighting.starsOpacity;
+    const frameLighting = evaluateSkyLighting(settings, context.worldSeconds, context.climate);
+    const frameLightning = evaluateLightningState(seed, context.worldSeconds, context.climate.weather);
 
     const sunLight = sunLightRef.current;
     if (sunLight) {
@@ -93,6 +101,12 @@ export default function SkyLayer({ context }: SkyLayerProps) {
     if (lightningKeyRef.current) {
       lightningKeyRef.current.visible = frameLightning.active;
       lightningKeyRef.current.intensity = 2.2 * frameLightning.intensity;
+      if (frameLightning.active && frameLightning.strikeWindowIndex !== undefined) {
+        // The flash key shines from where the visible channel hangs, so set
+        // shadows and highlights agree with the bolt the camera sees.
+        const anchor = getLightningBoltAnchor(seed, frameLightning.strikeWindowIndex);
+        lightningKeyRef.current.position.set(anchor[0], anchor[1], anchor[2]);
+      }
     }
   };
 
@@ -105,30 +119,8 @@ export default function SkyLayer({ context }: SkyLayerProps) {
     <group name="living-world-sky">
       <WorldAmbientClockDriver isPlaying={isPlaying} />
       {showSkyDome ? <AtmosphereSky context={context} /> : null}
-      {showSkyDome ? (
-        <points
-          ref={starFieldRef}
-          key={seed}
-          name="living-world-stars"
-          frustumCulled={false}
-          visible={lighting.starsOpacity > 0.02}
-        >
-          <bufferGeometry>
-            <bufferAttribute attach="attributes-position" args={[starPositions, 3]} />
-          </bufferGeometry>
-          <pointsMaterial
-            ref={starMaterialRef}
-            blending={AdditiveBlending}
-            color="#dfe8ff"
-            depthWrite={false}
-            opacity={lighting.starsOpacity}
-            size={1.8}
-            sizeAttenuation={false}
-            toneMapped={false}
-            transparent
-          />
-        </points>
-      ) : null}
+      {showSkyDome ? <SkyStars context={context} /> : null}
+      {showSkyDome ? <SkyClouds context={context} /> : null}
       {drivesSky ? (
         <>
           {/* Shadows stay owned by the authored light list; a second shadow
@@ -154,7 +146,7 @@ export default function SkyLayer({ context }: SkyLayerProps) {
           />
         </>
       ) : null}
-      {settings.weather.preset === "storm" ? (
+      {settings.weather.preset === "storm" || isWorldWeatherEvolving(settings) ? (
         <>
           <ambientLight
             ref={lightningFillRef}
@@ -163,6 +155,8 @@ export default function SkyLayer({ context }: SkyLayerProps) {
             name="living-world-lightning-fill"
             visible={lightning.active}
           />
+          {/* Placeholder position; syncSkyFrame re-aims the key from the
+              active strike's channel anchor every frame. */}
           <directionalLight
             ref={lightningKeyRef}
             color="#e8eeff"
@@ -171,6 +165,7 @@ export default function SkyLayer({ context }: SkyLayerProps) {
             position={[60, 140, -40]}
             visible={lightning.active}
           />
+          <SkyLightningBolt context={context} />
         </>
       ) : null}
     </group>

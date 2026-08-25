@@ -30,6 +30,20 @@ const LIFTED_RESULT_KEYS = [
   "receipt",
   "metrics",
   "sceneEpoch",
+  "agent_boundary",
+  "issues",
+  "schema",
+  "capabilities",
+  "notes",
+  "suggested_next",
+  "retrieval_hint",
+  "observe_mode",
+  "projection_reason",
+  "selected_object_ids",
+  "match_count",
+  "returned_count",
+  "code",
+  "outcomes",
 ] as const;
 
 function jsonSafe(value: Record<string, unknown>): Record<string, unknown> {
@@ -67,14 +81,18 @@ export function flattenDirectorToolResult(body: Record<string, unknown>): Record
   const result = asRecord(body.result);
   const core = unwrapNestedToolResult(result) ?? result;
   const merged = { ...(result ?? {}), ...(core ?? {}) };
+  const lifted = liftKnownFields(merged);
   return jsonSafe({
     success: body.success,
-    ...liftKnownFields(merged),
+    ...lifted,
     result: core ?? body.result,
     capture: body.capture,
     error: body.error,
     target: body.target,
     feedback: body.feedback,
     director_project_sync: body.director_project_sync,
+    ...(body.agent_boundary !== undefined ? { agent_boundary: body.agent_boundary } : {}),
+    ...(body.code !== undefined ? { code: body.code } : {}),
+    ...(body.outcomes !== undefined ? { outcomes: body.outcomes } : {}),
   });
 }

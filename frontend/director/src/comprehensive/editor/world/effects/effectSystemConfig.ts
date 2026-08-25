@@ -7,6 +7,7 @@ import type {
 import { hashCombine, worldStreamId } from "../worldRandom";
 import {
   EFFECT_PRESETS,
+  STORM_DENSITY_MULTIPLIER,
   WEATHER_PRECIPITATION_BOX_SIZE,
   getEffectParticleCount,
   getWeatherPrecipitationPlan,
@@ -60,6 +61,12 @@ export interface EffectSystemConfig {
   speedScale: number;
   /** CPU-side premultiplier for the global wind vector (can exceed 1 for storms). */
   windInfluence: number;
+  /**
+   * Fraction of particles rendered as ground splash rings instead of falling
+   * drops. Only the camera-following weather rain sets this; anchored
+   * emitters have no reliable splash plane and keep 0.
+   */
+  splashFraction: number;
   /** Optional RGB tint from the authored hex color, or null. */
   tint: readonly [number, number, number] | null;
   /** Blend mode for the main pass of this system. */
@@ -148,6 +155,7 @@ export function buildEffectSystemConfig(effect: DirectorWorldEffect, worldSeed: 
     sizeScale: effect.sizeScale,
     speedScale: effect.speedScale,
     windInfluence: effect.windInfluence,
+    splashFraction: 0,
     tint: effect.colorTint ? parseHexColor01(effect.colorTint) : null,
     blending: preset.blending,
     wrapExtents: null,
@@ -174,9 +182,50 @@ export function buildWeatherSystemConfig(weather: DirectorWorldWeather, worldSee
     seed: seedHashToGlslSeed(seedHash),
     emitter: { mode: EMITTER_MODE_BOX, extents: [width / 2, height / 2, depth / 2] },
     intensity: weather.intensity,
-    sizeScale: 1,
+    sizeScale: plan.sizeMultiplier,
     speedScale: plan.speedMultiplier,
     windInfluence: plan.windMultiplier,
+    splashFraction: plan.splashFraction,
+    tint: null,
+    blending: preset.blending,
+    wrapExtents: WEATHER_PRECIPITATION_BOX_SIZE,
+    preset,
+  };
+}
+
+/** Largest instance count the climate weather system can ever need per kind. */
+export function getClimateWeatherMaxCount(kind: Extract<WorldEffectKind, "rain" | "snow">): number {
+  if (kind === "rain") return Math.round(EFFECT_PRESETS.rain.baseCount * STORM_DENSITY_MULTIPLIER);
+  return EFFECT_PRESETS.snow.baseCount;
+}
+
+/**
+ * Climate-driven precipitation config. Geometry is allocated once at the
+ * maximum count for the kind; the per-frame plan (count, intensity, wind,
+ * speed) is applied as `instanceCount` + uniform writes by the effects layer,
+ * so an evolving weather ramp never rebuilds geometry. Drawing the first
+ * `plan.count` of the max-count instance set renders exactly the same
+ * particles the legacy fixed-count config drew (same seed hash, same
+ * ascending `aParticleIndex`).
+ */
+export function buildClimateWeatherSystemConfig(
+  kind: Extract<WorldEffectKind, "rain" | "snow">,
+  worldSeed: number,
+): EffectSystemConfig {
+  const preset = EFFECT_PRESETS[kind];
+  const seedHash = hashCombine(worldSeed, worldStreamId(WEATHER_SYSTEM_ID));
+  const [width, height, depth] = WEATHER_PRECIPITATION_BOX_SIZE;
+  return {
+    id: WEATHER_SYSTEM_ID,
+    kind,
+    count: getClimateWeatherMaxCount(kind),
+    seedHash,
+    seed: seedHashToGlslSeed(seedHash),
+    emitter: { mode: EMITTER_MODE_BOX, extents: [width / 2, height / 2, depth / 2] },
+    intensity: 1,
+    sizeScale: 1,
+    speedScale: 1,
+    windInfluence: 1,
     tint: null,
     blending: preset.blending,
     wrapExtents: WEATHER_PRECIPITATION_BOX_SIZE,

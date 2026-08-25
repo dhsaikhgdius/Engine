@@ -92,7 +92,11 @@ import { handleBlenderLiveRoute } from "./routes/blenderLiveRoutes";
 import { handleProductionRoute } from "./routes/productionRoutes";
 import { handleStageRoute, type StageRouteDependencies } from "./routes/stageRoutes";
 import { TerminalSessionManager } from "./terminalSessionManager";
-import { rankUntargetedWorkbenchClients, type DirectorBrowserWorkspace } from "./workbenchClientRouting";
+import {
+  rankUntargetedWorkbenchClients,
+  type DirectorBrowserWorkspace,
+  type WorkbenchRoutingOperation,
+} from "./workbenchClientRouting";
 import { DirectorCollaborationWebSocketHub } from "./collaborationWebSocketHub";
 import { loadDirectorControlPlaneConfig, type HostedAgentProfileConfig } from "./controlPlane/controlPlaneConfig";
 import { AgentProfileRegistry } from "./agents/agentProfileRegistry";
@@ -410,7 +414,7 @@ function plannerPrompt(
     "Return ONLY a JSON value matching the supplied schema. Do not use tools, do not mutate files, and do not explain outside JSON.",
     "You are preparing a plan only. The browser will show it to the user before any operation is applied.",
     "Use only these public tools: director_workbench, director_creative, stage_video, blender_native.",
-    "- director_workbench: observe when current IDs are needed, use catalog for packaged assets and motions, and group one requested scene change into one author operation. Do not assemble scenes from geometry_type primitives; instance catalog/project meshes, model with blender_native, or generate with generated_3d. Use deliver only when the user asks for an exported result.",
+    "- director_workbench: observe when current IDs are needed, use catalog for packaged assets and motions, and group one requested scene change into one author operation. Do not assemble scenes from geometry_type primitives; instance catalog/project meshes, model with blender_native (create_blockout shells, create_opening doors/windows), or generate with generated_3d. Use deliver only when the user asks for an exported result.",
     "  Multi-scene work uses production observe followed by the requested create, duplicate, rename, activate, or delete action.",
     "  Gallery generation, transcription, generated 3D, and storyboard export should discover available providers, submit the requested job, then poll its returned job ID. Do not add extra review passes.",
     "  Automation and memory support macro list/get/save/remove/export/run and memory pin/recall/forget/export.",
@@ -901,10 +905,11 @@ function rankedConnectedClients() {
  * Delegates to {@link rankUntargetedWorkbenchClients} to produce a workspace-aware
  * ranking of open clients for the given operation type.
  *
- * @param input - The operation to rank clients for (only the `op` field is used).
+ * @param input - The operation to rank clients for (the `op` field, plus the
+ *   compare endpoints when ranking a compare operation).
  * @returns An ordered array of WebSocket client entries.
  */
-function rankedWorkbenchClients(input: Pick<DirectorWorkbenchOperation, "op">) {
+function rankedWorkbenchClients(input: WorkbenchRoutingOperation) {
   return rankUntargetedWorkbenchClients(
     [...workbenchClients.entries()].filter(([client]) => client.readyState === WebSocket.OPEN),
     input,
@@ -1071,6 +1076,8 @@ function defaultWorkbenchCommandTimeoutMs(input: DirectorWorkbenchOperation) {
   if (input.op === "deliver") return 60_000;
   if (input.op === "shot_package") return 45_000;
   if (input.op === "capture") return 60_000;
+  // compare may render up to two stage viewports and download plan artifacts.
+  if (input.op === "compare") return 30_000;
   return 8_000;
 }
 
@@ -1775,7 +1782,9 @@ async function handleAssistantApplyRequest(payload: AssistantApplyRequest, respo
         operationResults.push({
           id: operation.id,
           tool: operation.tool,
-          result: await executeBlenderNativeTool(blenderNativeSession, parsedInput.data),
+          result: await executeBlenderNativeTool(blenderNativeSession, parsedInput.data, {
+            loadDirectorProject: () => readPersistedWorkbenchProject(),
+          }),
         });
       } catch (error) {
         const outcomeUnknown = error instanceof BlenderNativeSessionError && error.code === "outcome_unknown";
@@ -2108,6 +2117,7 @@ const server = createServer(async (request, response) => {
         readBody: body,
         json,
         session: blenderNativeSession,
+        loadDirectorProject: () => readPersistedWorkbenchProject(),
       })
     )
       return;

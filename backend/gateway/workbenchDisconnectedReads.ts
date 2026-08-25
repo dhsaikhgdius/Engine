@@ -7,7 +7,15 @@ import {
   type DirectorWorkbenchObserveField,
   type DirectorWorkbenchOperation,
 } from "@director/agent-engine/contract";
+import { describeDirectorCameraMoveFromProject } from "@director/agent-engine/framing";
 import { directorProjectObservationCounts, observeDirectorProject } from "@director/agent-engine/observe";
+import {
+  describeDirectorCameraKernelOwnership,
+  describeDirectorLightKernelOwnership,
+  describeDirectorObjectKernelOwnership,
+  describeUnmirroredBlenderKernelOwnership,
+  type DirectorKernelOwnership,
+} from "@director/agent-engine/kernel-ownership";
 import { queryDirectorObjects } from "@director/agent-engine/spatial-query";
 import directorWorkbenchCapabilities from "@director/agent-engine/workbench-capabilities";
 import type { BlenderLiveSceneSnapshot } from "../../packages/protocol/src/blenderLiveProtocol";
@@ -132,7 +140,8 @@ export function canServeDisconnectedWorkbenchRead(operation: DirectorWorkbenchOp
     operation.op === "capabilities" ||
     operation.op === "audit" ||
     operation.op === "query_objects" ||
-    operation.op === "inspect"
+    operation.op === "inspect" ||
+    operation.op === "describe_camera_move"
   );
 }
 
@@ -248,6 +257,30 @@ export function executeDisconnectedWorkbenchRead(
     return { handled: false };
   }
 
+  if (operation.op === "describe_camera_move" && sources.project) {
+    try {
+      return {
+        handled: true,
+        success: true,
+        result: {
+          ...describeDirectorCameraMoveFromProject(sources.project, {
+            camera_id: operation.camera_id,
+            subject_object_id: operation.subject_object_id,
+            from_frame: operation.from_frame,
+            to_frame: operation.to_frame,
+          }),
+          ...disconnectedMeta(sources, "persisted_project"),
+        },
+      };
+    } catch (error) {
+      return {
+        handled: true,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   if (operation.op === "query_objects" && sources.project) {
     try {
       return {
@@ -282,17 +315,34 @@ export function executeDisconnectedWorkbenchRead(
     if (!sources.project && !sources.blenderScene) return { handled: false };
     const project = sources.project;
     let value: unknown;
+    let kernelOwnership: DirectorKernelOwnership | undefined;
     if (project) {
-      if (operation.entity === "object") value = project.objects.find((item) => item.id === operation.id);
-      else if (operation.entity === "light") value = project.lights?.find((item) => item.id === operation.id);
-      else if (operation.entity === "camera") value = project.cameras.find((item) => item.id === operation.id);
-      else if (operation.entity === "asset") value = project.assets.find((item) => item.id === operation.id);
+      if (operation.entity === "object") {
+        const object = project.objects.find((item) => item.id === operation.id);
+        value = object;
+        if (object) kernelOwnership = describeDirectorObjectKernelOwnership(object, project.assets);
+      } else if (operation.entity === "light") {
+        const light = project.lights?.find((item) => item.id === operation.id);
+        value = light;
+        if (light) kernelOwnership = describeDirectorLightKernelOwnership(light);
+      } else if (operation.entity === "camera") {
+        const camera = project.cameras.find((item) => item.id === operation.id);
+        value = camera;
+        if (camera) kernelOwnership = describeDirectorCameraKernelOwnership(camera);
+      } else if (operation.entity === "asset") {
+        value = project.assets.find((item) => item.id === operation.id);
+      }
     }
     if (value) {
       return {
         handled: true,
         success: true,
-        result: { entity: operation.entity, value, ...disconnectedMeta(sources, "persisted_project") },
+        result: {
+          entity: operation.entity,
+          value,
+          ...(kernelOwnership ? { kernel_ownership: kernelOwnership } : {}),
+          ...disconnectedMeta(sources, "persisted_project"),
+        },
       };
     }
     const blenderObject = sources.blenderScene?.objects.find(
@@ -302,7 +352,12 @@ export function executeDisconnectedWorkbenchRead(
       return {
         handled: true,
         success: true,
-        result: { entity: operation.entity, value: blenderObject, ...disconnectedMeta(sources, "blender_kernel") },
+        result: {
+          entity: operation.entity,
+          value: blenderObject,
+          kernel_ownership: describeUnmirroredBlenderKernelOwnership(blenderObject.id),
+          ...disconnectedMeta(sources, "blender_kernel"),
+        },
       };
     }
     return {

@@ -3,6 +3,8 @@
   { "pattern": "^机位(\\d+)-截图(\\d+)$", "replacement": "Camera $1-Capture $2" },
   { "pattern": "^机位(\\d+)$", "replacement": "Camera $1" },
   { "pattern": "^剖切平面 (\\d+)$", "replacement": "Clipping plane $1" },
+  { "pattern": "^控制点 (\\d+)$", "replacement": "Control point $1" },
+  { "pattern": "^宽度倍率 (\\d+)$", "replacement": "Width multiplier $1" },
   { "pattern": "^音频轨 (.+) 片段$", "replacement": "Audio track $1 clips" },
   { "pattern": "^音频轨 (.+)$", "replacement": "Audio track $1" },
   { "pattern": "^音频片段 (.+)$", "replacement": "Audio clip $1" },

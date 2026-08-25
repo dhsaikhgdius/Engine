@@ -799,3 +799,39 @@
   flex-direction: column;
   gap: 6px;
 }
+
+.right-sidebar .scene-inspector .scene-world-entry-delete:disabled {
+  color: rgb(var(--text-dim-rgb));
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.right-sidebar .scene-inspector .scene-world-point-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.right-sidebar .scene-inspector .scene-world-point-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.right-sidebar .scene-inspector .scene-world-point-row .inspector-axis-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.right-sidebar .scene-inspector .scene-world-climate-readout {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgb(var(--border-rgb) / 0.06);
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}

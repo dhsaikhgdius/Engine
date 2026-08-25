@@ -23,6 +23,8 @@ const READ_ONLY_WORKBENCH_OPERATIONS = new Set([
   "diff",
   "trace",
   "shot_ir",
+  "compare",
+  "describe_camera_move",
 ]);
 /** Workbench operations that provide visual evidence (includes capture). */
 const VISUAL_EVIDENCE_WORKBENCH_OPERATIONS = new Set([
@@ -32,6 +34,7 @@ const VISUAL_EVIDENCE_WORKBENCH_OPERATIONS = new Set([
   "catalog",
   "capture",
   "shot_ir",
+  "compare",
 ]);
 /** Creative/Canvas operations that only read state. */
 const READ_ONLY_CREATIVE_OPERATIONS = new Set(["capabilities", "observe", "audit", "preview"]);

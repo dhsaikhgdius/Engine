@@ -56,23 +56,12 @@ Agent 工作区的「配置 API」面板会把 provider 写到 data 目录的 `a
 API key 及其环境变量名不会出现在发现接口、事件或持久化 Session JSON 中。Conversation v2
 保存 provider-neutral 消息，截图像素仅临时附加到当前模型请求。
 
-不受限的 Hosted Agent 还会拿到 DSH 形状的 `web_search` 与 `web_fetch`。搜索默认走 DeepSeek
-官方（`https://api.deepseek.com/anthropic/v1/messages` 上的 `web_search_20250305`），需要
-`DEEPSEEK_API_KEY`；也可以改用 Exa（`EXA_API_KEY` 或 `DIRECTOR_WEB_SEARCH_API_KEY`）。
-Agent 工作台 **插件**页可以固定提供方并写入密钥（`agent-plugin-settings.json`）。抓取是匿名
-HTTP(S)，只跟随同源重定向。Film role 看不到这两个工具。同一页还可以改 Hosted 工具循环的并行
-读取上限。
-
-| 变量                             | 用途                                                              |
-| -------------------------------- | ----------------------------------------------------------------- |
-| `DEEPSEEK_API_KEY`               | DeepSeek 官方搜索密钥；与对话共用，但不复用 `$DEEPSEEK_BASE_URL`  |
-| `DEEPSEEK_SEARCH_BASE_URL`       | Anthropic Messages 根地址，默认 `https://api.deepseek.com/anthropic/v1` |
-| `EXA_API_KEY`                    | Exa 搜索密钥                                                      |
-| `DIRECTOR_WEB_SEARCH_API_KEY`    | `EXA_API_KEY` 的别名                                              |
-| `EXA_BASE_URL`                   | 可选 Exa API 根地址，默认 `https://api.exa.ai`                    |
-| `DIRECTOR_WEB_SEARCH_PROVIDER`   | 固定 `deepseek-official` 或 `exa`（两个密钥都在时必须指定）       |
-| `DIRECTOR_WEB_FETCH_PROVIDER`    | 固定抓取提供方 id（默认自动 / `http`）                            |
-| `DIRECTOR_WEB_USER_AGENT`        | 出站抓取的 `User-Agent`，不要伪装成浏览器                         |
+`web_search` 与 `web_fetch` 是 DeepSeek Harness 的工具。通过 `npm run dsh` 运行 harness 时，
+它们来自锁定的官方 DSH 发行版（`vendor/deepseek-harness`），并通过 harness 自身的设置配置。
+网关不再内置这两个工具的树内副本，也没有 `agent-plugin-settings.json` 存储；Director 专属的
+Stage / Canvas / Video / Blender 工具通过 `packages/dsh-plugin-workbench` 接入 DSH。Director
+的影片角色策略（`backend/gateway/agents/filmRoleToolPolicy.ts`）仍然对 Film role 隐藏网络工具，
+托管影片管线 Profile 执行的是没有工具循环的结构化单次补全。
 
 角色路由引用 `DIRECTOR_AGENT_PROFILES_JSON` 声明的同一组 ID：
 

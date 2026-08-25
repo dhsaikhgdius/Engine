@@ -136,6 +136,45 @@ Director 按以下顺序计算人物变形：
 该 solver 当前驱动浏览器渲染人物。已经 provision 的 Blender 人物仍在项目中保存同一份 IK
 数据，但在原生 two-bone adapter 完成前不会把它应用到原生 armature。
 
+## 接上 Agent
+
+每个人物都可以接上一个 Agent；接上后该 Agent 以 possess 模式驱动这个人物的走路、动作、
+姿势和位移。
+
+1. 选中单个人物并打开**属性**页签。
+2. 在**绑定 Agent** 区块选择一个 Agent Profile，或填写驱动该人物的 Agent Session ID
+   （例如 `dsh-abc123`）。
+3. 点击**绑定**。摘要处会出现 **Agent 接管中** 徽章，表示此人物已被 Agent 接管。
+4. 需要收回控制时点击**解除绑定**。群组选择暂不支持绑定，请选择单个角色。
+
+绑定状态在 Stage 视口中同样可见：被接管人物的名字标签旁会出现一个 **Agent 接管** 徽章。
+徽章与名字共用同一个屏幕空间标签，不响应指针事件，因此不会挡住选择或变换 gizmo；
+解除绑定后徽章立即消失，未绑定人物的标签保持不变。
+
+绑定保存在项目 JSON 的 `agentBinding` 字段中（只有人物对象可以携带），与其他人物写操作走同一
+revision 守卫；锁定的人物需要 `force` 才能绑定或解除。多个人物可以接同一个 Agent，但一个人物
+同一时刻最多一个绑定，重新绑定直接覆盖。
+
+Agent 侧使用 `director_workbench` 的语义 author action：
+
+```bash
+npm run stage -- director_workbench '{"op":"author","idempotency_key":"bind-actor-v1","actions":[{"action":"bind_character_agent","object_id":"actor-xbot","session_id":"dsh-abc123"}]}'
+npm run stage -- director_workbench '{"op":"author","idempotency_key":"unbind-actor-v1","actions":[{"action":"unbind_character_agent","object_id":"actor-xbot"}]}'
+```
+
+接上后，该 session 继续用现有 action 驱动人物：`set_character_motion`、
+`set_character_pose_controls`、`set_character_ik`、`update_object` 变换和 `set_animation`。
+observe 的人物摘要会回显 `agent_binding`。
+
+possess 模式同时限制该 session 的写入范围：绑定了人物的 session 只能修改自己接管的人物；
+删除其他对象、修改别人的人物、`start_scene`、`replace_project` 等全局写入会被网关以可读错误
+拒绝（HTTP 403，代码 `possession_scope_violation`）。未绑定任何人物的普通导演 session 行为
+不变。所有人物 action 仍需显式 `object_id`。
+
+「放置人物 → 绑定 Agent → 用 motion/pose 驱动 → 校验回显的 `agent_binding` → 解绑」这条完整
+链路由黄金评测任务 `tools/evals/tasks/08-character-agent-possession.json` 回归覆盖，通过
+`npm run eval` 运行（见仓库中的 `tools/evals/README.zh-CN.md`）。
+
 ## CLI 快速检查
 
 通过 `npm run dev` 运行 Director 后，以下命令会检查目录并添加真实 X Bot。CLI 会在受保护写入前观察并绑定准确的浏览器目标。

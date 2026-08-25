@@ -39,6 +39,11 @@ export interface WorldEffectPreset {
   spinRadPerSec: number;
   /** 0 = spherical billboard; >0 stretches the quad along velocity. */
   velocityStretch: number;
+  /**
+   * Max wobble (radians) around the upright screen axis for directional
+   * sprites (fire's teardrop must point up); 0 = free random rotation.
+   */
+  uprightWobbleRad: number;
   /** >0 enables per-particle glow pulsing (fireflies). */
   pulseHz: number;
   blending: "additive" | "normal";
@@ -53,7 +58,8 @@ export interface WorldEffectPreset {
  *
  * Fire's preset blending is "normal" because its base pass is the occluding
  * flame body; the additive glow is a second render pass (see
- * `getEffectRenderPasses`).
+ * `getEffectRenderPasses`). Fire also carries `uprightWobbleRad` so its
+ * teardrop sprite (atlas channel r) stays flame-up instead of spinning.
  */
 export const EFFECT_PRESETS: Record<WorldEffectKind, WorldEffectPreset> = {
   fire: {
@@ -64,9 +70,10 @@ export const EFFECT_PRESETS: Record<WorldEffectKind, WorldEffectPreset> = {
     gravity: [0, 0.5, 0],
     turbulence: 0.16,
     turbulenceFrequency: [3.1, 7.3],
-    sizeRange: [0.55, 0.12],
-    spinRadPerSec: 1.4,
+    sizeRange: [0.62, 0.18],
+    spinRadPerSec: 0.6,
     velocityStretch: 0,
+    uprightWobbleRad: 0.45,
     pulseHz: 0,
     blending: "normal",
     pointHalfExtents: [0.22, 0.06, 0.22],
@@ -82,6 +89,7 @@ export const EFFECT_PRESETS: Record<WorldEffectKind, WorldEffectPreset> = {
     sizeRange: [0.5, 1.9],
     spinRadPerSec: 0.6,
     velocityStretch: 0,
+    uprightWobbleRad: 0,
     pulseHz: 0,
     blending: "normal",
     pointHalfExtents: [0.25, 0.1, 0.25],
@@ -97,6 +105,7 @@ export const EFFECT_PRESETS: Record<WorldEffectKind, WorldEffectPreset> = {
     sizeRange: [0.35, 1.1],
     spinRadPerSec: 0.8,
     velocityStretch: 0,
+    uprightWobbleRad: 0,
     pulseHz: 0,
     blending: "normal",
     pointHalfExtents: [0.18, 0.05, 0.18],
@@ -114,6 +123,7 @@ export const EFFECT_PRESETS: Record<WorldEffectKind, WorldEffectPreset> = {
     sizeRange: [0.08, 0.03],
     spinRadPerSec: 0,
     velocityStretch: 2.5,
+    uprightWobbleRad: 0,
     pulseHz: 0,
     blending: "additive",
     pointHalfExtents: [0.06, 0.06, 0.06],
@@ -131,6 +141,7 @@ export const EFFECT_PRESETS: Record<WorldEffectKind, WorldEffectPreset> = {
     sizeRange: [0.12, 0.12],
     spinRadPerSec: 0,
     velocityStretch: 0,
+    uprightWobbleRad: 0,
     pulseHz: 2.6,
     blending: "additive",
     pointHalfExtents: [1.6, 1.0, 1.6],
@@ -146,6 +157,7 @@ export const EFFECT_PRESETS: Record<WorldEffectKind, WorldEffectPreset> = {
     sizeRange: [0.05, 0.05],
     spinRadPerSec: 0.5,
     velocityStretch: 0,
+    uprightWobbleRad: 0,
     pulseHz: 0,
     blending: "normal",
     pointHalfExtents: [1.8, 1.2, 1.8],
@@ -161,6 +173,7 @@ export const EFFECT_PRESETS: Record<WorldEffectKind, WorldEffectPreset> = {
     sizeRange: [0.42, 0.42],
     spinRadPerSec: 0,
     velocityStretch: 1.7,
+    uprightWobbleRad: 0,
     pulseHz: 0,
     blending: "normal",
     pointHalfExtents: [3, 0.5, 3],
@@ -173,9 +186,13 @@ export const EFFECT_PRESETS: Record<WorldEffectKind, WorldEffectPreset> = {
     gravity: [0, -0.12, 0],
     turbulence: 0.55,
     turbulenceFrequency: [0.8, 1.9],
-    sizeRange: [0.05, 0.05],
-    spinRadPerSec: 0,
+    // Flake crystals (atlas channel g) cover less area than a disc, so the
+    // sprite is slightly larger than the legacy disc snow.
+    sizeRange: [0.07, 0.07],
+    // Slow tumble keeps the six-armed crystal silhouette alive.
+    spinRadPerSec: 0.9,
     velocityStretch: 0,
+    uprightWobbleRad: 0,
     pulseHz: 0,
     blending: "normal",
     pointHalfExtents: [3, 0.5, 3],
@@ -239,15 +256,44 @@ export function getEffectRenderPasses(kind: WorldEffectKind): readonly EffectRen
   ];
 }
 
+/**
+ * Extra turbulence gain from gusty wind, applied CPU-side as a multiplier on
+ * the preset turbulence amplitude. Pure and clamped: calm air returns 1,
+ * a full gale (>= 12 m/s) at turbulence 1 on a fully wind-coupled effect
+ * returns 1 + WIND_TURBULENCE_GAIN. Sheltered effects (windInfluence 0)
+ * never gain turbulence from wind.
+ */
+export const WIND_TURBULENCE_GAIN = 1.4;
+/** Wind speed (m/s) at which the turbulence gain saturates. */
+export const WIND_TURBULENCE_REFERENCE_MPS = 12;
+
+export function getWindTurbulenceMultiplier(
+  windTurbulence01: number,
+  windSpeedMps: number,
+  windInfluence: number,
+): number {
+  const influence = Math.min(1, Math.max(0, windInfluence));
+  const turbulence = Math.min(1, Math.max(0, windTurbulence01));
+  const speedNorm = Math.min(1, Math.max(0, windSpeedMps) / WIND_TURBULENCE_REFERENCE_MPS);
+  return 1 + WIND_TURBULENCE_GAIN * turbulence * speedNorm * influence;
+}
+
 /** Camera-following precipitation volume: width x height x depth in metres. */
 export const WEATHER_PRECIPITATION_BOX_SIZE: readonly [number, number, number] = [44, 26, 44];
 
 /** Storm renders the rain preset at higher density with harder wind shear. */
 export const STORM_DENSITY_MULTIPLIER = 1.6;
-/** Multiplier on the global wind vector to drive storm rain sideways. */
+/** Multiplier on the global wind vector at storm intensity 1. */
 export const STORM_WIND_MULTIPLIER = 2.2;
-/** Scales the local particle clock so storm rain falls faster than calm rain. */
+/** Local particle clock multiplier at storm intensity 1 (faster fall). */
 export const STORM_SPEED_MULTIPLIER = 1.25;
+/** Sprite size multiplier at storm intensity 1 (longer, heavier streaks). */
+export const STORM_SIZE_MULTIPLIER = 1.15;
+
+/** Fraction of the rain budget rendered as ground splash rings. */
+export const RAIN_SPLASH_FRACTION = 0.15;
+/** Storm splashes harder: a larger share of the budget becomes ripples. */
+export const STORM_SPLASH_FRACTION = 0.22;
 
 export interface WeatherPrecipitationPlan {
   /** Which precipitation kind to render (rain or snow). */
@@ -258,11 +304,58 @@ export interface WeatherPrecipitationPlan {
   windMultiplier: number;
   /** Scales the local particle clock (harder, faster storm rain). */
   speedMultiplier: number;
+  /** Uniform sprite size multiplier (storm streaks read heavier). */
+  sizeMultiplier: number;
+  /** Fraction of particles rendered as ground splash rings (rain only). */
+  splashFraction: number;
+}
+
+/** intensity-continuous multiplier: 1 at zero intensity, `atFull` at 1. */
+const scaleWithIntensity = (atFull: number, intensity: number): number => 1 + (atFull - 1) * intensity;
+
+/**
+ * Climate-vector precipitation plan: particle counts ramp continuously with
+ * the evaluated rain/snow levels, and storm shear/speed scale with the
+ * evaluated storm factor. A static climate reproduces
+ * {@link getWeatherPrecipitationPlan} exactly (locked by tests).
+ */
+export function getClimatePrecipitationPlan(climate: {
+  rainLevel: number;
+  snowLevel: number;
+  stormFactor: number;
+}): WeatherPrecipitationPlan | null {
+  const rain = Number.isFinite(climate.rainLevel) ? Math.max(0, climate.rainLevel) : 0;
+  const snow = Number.isFinite(climate.snowLevel) ? Math.max(0, climate.snowLevel) : 0;
+  const storm = Math.min(1, Math.max(0, climate.stormFactor));
+  if (rain <= 0 && snow <= 0) return null;
+  let plan: WeatherPrecipitationPlan;
+  if (rain >= snow) {
+    const densityMultiplier = storm >= 1 ? STORM_DENSITY_MULTIPLIER : 1 + (STORM_DENSITY_MULTIPLIER - 1) * storm;
+    plan = {
+      kind: "rain",
+      count: Math.round(EFFECT_PRESETS.rain.baseCount * densityMultiplier * rain),
+      windMultiplier: storm >= 1 ? STORM_WIND_MULTIPLIER : 1 + (STORM_WIND_MULTIPLIER - 1) * storm,
+      speedMultiplier: storm >= 1 ? STORM_SPEED_MULTIPLIER : 1 + (STORM_SPEED_MULTIPLIER - 1) * storm,
+    };
+  } else {
+    plan = {
+      kind: "snow",
+      count: Math.round(EFFECT_PRESETS.snow.baseCount * snow),
+      windMultiplier: 1,
+      speedMultiplier: 1,
+    };
+  }
+  if (plan.count <= 0) return null;
+  return plan;
 }
 
 /**
  * Global weather -> precipitation plan. Returns null when nothing should
  * render (clear/overcast, or the density rounds to zero particles).
+ *
+ * Storm multipliers scale CONTINUOUSLY with `weather.intensity` so a fading
+ * storm relaxes toward calm rain instead of stepping: at intensity 1 they
+ * equal the STORM_* constants, at 0 they equal 1.
  */
 export function getWeatherPrecipitationPlan(weather: DirectorWorldWeather): WeatherPrecipitationPlan | null {
   const intensity = Number.isFinite(weather.intensity) ? Math.max(0, weather.intensity) : 0;
@@ -273,6 +366,8 @@ export function getWeatherPrecipitationPlan(weather: DirectorWorldWeather): Weat
       count: Math.round(EFFECT_PRESETS.rain.baseCount * intensity),
       windMultiplier: 1,
       speedMultiplier: 1,
+      sizeMultiplier: 1,
+      splashFraction: RAIN_SPLASH_FRACTION,
     };
   } else if (weather.preset === "snow") {
     plan = {
@@ -280,13 +375,18 @@ export function getWeatherPrecipitationPlan(weather: DirectorWorldWeather): Weat
       count: Math.round(EFFECT_PRESETS.snow.baseCount * intensity),
       windMultiplier: 1,
       speedMultiplier: 1,
+      sizeMultiplier: 1,
+      splashFraction: 0,
     };
   } else if (weather.preset === "storm") {
+    const clamped = Math.min(1, intensity);
     plan = {
       kind: "rain",
       count: Math.round(EFFECT_PRESETS.rain.baseCount * STORM_DENSITY_MULTIPLIER * intensity),
-      windMultiplier: STORM_WIND_MULTIPLIER,
-      speedMultiplier: STORM_SPEED_MULTIPLIER,
+      windMultiplier: scaleWithIntensity(STORM_WIND_MULTIPLIER, clamped),
+      speedMultiplier: scaleWithIntensity(STORM_SPEED_MULTIPLIER, clamped),
+      sizeMultiplier: scaleWithIntensity(STORM_SIZE_MULTIPLIER, clamped),
+      splashFraction: STORM_SPLASH_FRACTION,
     };
   }
   if (!plan || plan.count <= 0) return null;

@@ -17,6 +17,7 @@
     "frame-native skeletal motion clips",
     "crowds",
     "cameras",
+    "film-language framing: intent-driven camera placement, camera-move marks, and geometric move naming",
     "timeline animations",
     "editable orbit, wave, and bounce animation recipes",
     "storyboard",
@@ -71,6 +72,8 @@
     "clear_character_motion",
     "set_character_ik",
     "clear_character_ik",
+    "bind_character_agent",
+    "unbind_character_agent",
     "delete_objects",
     "add_light",
     "update_light",
@@ -107,6 +110,8 @@
     "set_vehicle_profile",
     "clear_vehicle_profile",
     "compose_blocking",
+    "frame_shot",
+    "mark_camera_move",
     "place_relative",
     "arrange_group",
     "arrange_facing_pair",
@@ -222,6 +227,16 @@
     "export": "export_pdf supports A4/Letter, portrait/landscape, 1-4 columns, all/selected scope, metadata and action notes.",
     "download": "The command can trigger the PDF or package download in the browser."
   },
+  "compare_contract": {
+    "transport": "{\"op\":\"compare\",\"reference\":{\"kind\":\"...\"},\"candidate\":{\"kind\":\"...\"},\"grid\":{\"rows\":8,\"cols\":8}}",
+    "source_kinds": [],
+    "sources": "reference and candidate each name one image endpoint: a live stage render (camera_id/frame/width/height, active camera when camera_id is omitted), a durable Gallery still (media_id), or a reconstruction capture keyframe (job_id with optional view_id/camera_id). candidate defaults to a stage render through the active camera. Image bytes stay in the bound browser; only scores and grid cells cross the Agent wire.",
+    "scoring": "One shared luminance-grid scorer produces ssim, luminanceSimilarity, edgeSimilarity, and a weighted composite in 0..1; composite >= 0.75 reads as a strong match.",
+    "localization": "grid.worst lists the weakest cells ordered worst-first, each with a normalized region rectangle (x0/y0/x1/y1 in 0..1 of the frame) so a caller can fix only those regions instead of rebuilding the scene.",
+    "loop": "Quantify with score.composite, locate with grid.worst regions, fix only those regions (large forms and layout, then materials, then lighting), then compare again to verify.",
+    "relationship": "reconstruction.compare is the plan-bound specialization of this operation: it resolves the capture-view camera from a reconstruction plan and scores through the same shared scorer.",
+    "routing": "A comparison with a stage endpoint routes only to capture-ready Stage tabs; pure media/keyframe comparisons run on any bound browser tab."
+  },
   "shot_package_contract": {
     "operations": ["shot_package", "deliver"],
     "passes": "Helper-free PNG passes include clean, clay, albedo, roughness, metalness, emissive, ao, shadow, packed depth, normal, object-id, mask, pose, lineart, semantic, and motion. The depth pass additionally supports a metric float32 OpenEXR artifact.",
@@ -293,6 +308,18 @@
       "contract": "Every operation is bounded and deterministic; seeded operations persist the exact recipe and output IDs. fragment-scaffold and primitive terrain/L-system results are explicit blocking approximations, not production boolean meshes."
     }
   },
+  "framing_contract": {
+    "author_actions": ["frame_shot", "mark_camera_move"],
+    "read_operation": "describe_camera_move",
+    "sizes": [],
+    "views": [],
+    "sides": [],
+    "levels": [],
+    "moves": [],
+    "framing": "frame_shot aims an existing camera at a subject object from crew vocabulary (size/view/side/level/lens) and reports the derived slate in the result notes. A physically impossible request lengthens the lens along the prime ladder or flattens the level and says so instead of failing silently.",
+    "moves_contract": "mark_camera_move pins the camera's current framing (rig transform, aim, fov) as one keyframe on the camera's own animation track; a move is authored by framing twice and marking twice. describe_camera_move names the move the marked track geometrically proves between two frames and returns a prompt-ready phrase plus per-segment slates.",
+    "shared_language": "The same film-language module derives shot vocabulary for the Stage HUD, observe, audit, and generation prompts, so UI and agents cannot disagree about what a framing is."
+  },
   "world_contract": {
     "author_actions": [
       "set_world_settings",
@@ -316,6 +343,8 @@
     "determinism": "World visuals are a pure function of (settings.seed, entry seedOffset, timeline time); authoring never stores wall-clock simulation state.",
     "creation": "The first world authoring action creates project.world with default settings (enabled: true) on demand and reports that in the result notes.",
     "settings_merge": "set_world_settings deep-merges partial snake_case wind/time_of_day/weather patches into the existing settings without clobbering sibling fields.",
+    "weather_evolution": "weather.evolution {mode: static|cycle, period_seconds 60..3600 (default 300)} turns the five presets into a seeded state machine: cycle ramps the climate vector (cloud cover, precipitation, wind gain) between preset nodes and integrates weather.wetness over world time, all a pure function of (seed, worldSeconds). Absent or static preserves the authored values verbatim. evolution: null removes the block.",
+    "fire_propagation": "Fire effects accept propagation {enabled, radius_m 2..64 (default 12), spread_rate 0.1..3 (default 1)}: a deterministic ground-grid burn that spreads with wind, is suppressed by wetness/rain, and never crosses authored water rectangles. Requires kind \"fire\" and an unbound anchor (anchor.object_id null). propagation: null removes it.",
     "anchoring": "Effect anchor.object_id must reference an existing object; a null/absent object_id is a world-space anchor at anchor.position.",
     "roads": "add_world_road sweeps a Catmull-Rom centerline through points (2..64 vec3s, Y carries road height); defaults width_m 8, vehicle_count 6, speed_kph 40, show_surface true, and loop is inferred when the first and last points coincide. Two-way instanced traffic is stateless in time: vehicle poses are a pure function of (seed, worldSeconds), open roads respawn vehicles at their start.",
     "locking": "Locked world entries reject updates and removals until an update action unlocks them with patch {\"locked\": false}."
@@ -353,6 +382,14 @@
     "write_actions": ["set_character_motion", "clear_character_motion", "set_animation"],
     "timeline_blocks": "set_animation.animation.motionBlocks authors non-overlapping catalog clips on exact inclusive frame ranges; one author request may replace the complete block list atomically.",
     "layering": "active timeline motion block -> legacy trajectory gait -> semantic pose offsets -> hand/foot IK"
+  },
+  "character_agent_contract": {
+    "write_actions": ["bind_character_agent", "unbind_character_agent"],
+    "binding": "Only kind=character objects carry an agentBinding (session_id and/or profile_id, optional role_id, mode=possess). One character holds at most one binding; several characters may bind the same Agent. Rebinding replaces the previous binding atomically under the normal revision guard, and locked characters require force:true.",
+    "identity": "DSH harness sessions reach this tool with session_id dsh-<harness session id>; the Director MCP server uses DIRECTOR_MCP_SESSION_ID. Bind the exact session_id that will drive the character, or bind a profile_id before a live session exists.",
+    "control": "A bound Agent drives its character with the existing actions: set_character_motion, set_character_pose_controls, set_character_ik (+clear variants), update_object transform patches, and set_animation. There is no separate movement API.",
+    "possession_scope": "When the calling session_id is bound to characters with mode=possess, the gateway limits that session's workbench mutations to those characters: only character-scoped author actions (update_object, batch_update_objects, reset_transforms, align_objects, distribute_objects, focus_objects, set_object_pivot, set_object_interaction/clear_object_interaction, character pose/motion/IK actions, object-targeted set_animation/apply_animation_recipe, bind/unbind_character_agent) whose every target id is a possessed character are dispatched. Stage-wide mutations (start_scene, replace_project, patch, undo, run_macro, correct, delete_objects, production edits, storyboard artifacts, generated_3d promotion) are rejected with a readable error. Sessions that possess no character keep full stage-wide authoring, and reads plus durable generation/transcription job commands stay available to everyone.",
+    "explicit_object_id": "Character actions always require an explicit object_id, even when the session possesses exactly one character."
   },
   "catalog_contract": {
     "catalogs": [],

@@ -5,6 +5,7 @@ import {
   type DirectorWorldWaterBody,
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext } from "../../../../../src/comprehensive/editor/world/livingWorldContracts";
+import { evaluateWorldClimate } from "../../../../../src/comprehensive/editor/world/worldClimate";
 import { buildRiverRibbonData } from "../../../../../src/comprehensive/editor/world/river/riverGeometry";
 import {
   RIVER_FRAGMENT_SHADER,
@@ -57,9 +58,36 @@ describe("river ribbon geometry", () => {
     const second = buildRiverRibbonData(river);
     expect([...first.positions]).toEqual([...second.positions]);
     expect([...first.indices]).toEqual([...second.indices]);
+    expect([...first.widthFactors]).toEqual([...second.widthFactors]);
     expect(Math.max(...first.curvatures)).toBeGreaterThan(0);
     expect(Math.max(...first.slopes)).toBeGreaterThan(0);
     expect([...first.positions].every(Number.isFinite)).toBe(true);
+  });
+
+  it("marks only downhill stretches as rapids (descent-only slope)", () => {
+    // Same centerline geometry, opposite vertical trends.
+    const downhill = buildRiverRibbonData({
+      points: [
+        [0, 3, 0],
+        [0, 1.5, 12],
+        [0, 0, 24],
+      ],
+      widthM: 4,
+    });
+    const uphill = buildRiverRibbonData({
+      points: [
+        [0, 0, 0],
+        [0, 1.5, 12],
+        [0, 3, 24],
+      ],
+      widthM: 4,
+    });
+    expect(Math.max(...downhill.slopes)).toBeGreaterThan(0.05);
+    // Water does not churn white while climbing: ascent must read 0.
+    expect(Math.max(...uphill.slopes)).toBe(0);
+    // Flat water has no rapids at all.
+    const flat = buildRiverRibbonData(STRAIGHT_RIVER);
+    expect(Math.max(...flat.slopes)).toBe(0);
   });
 
   it("interpolates width profiles from source to mouth", () => {
@@ -67,6 +95,22 @@ describe("river ribbon geometry", () => {
     const lastLeft = (data.sampleCount - 1) * 2;
     expect(vertexDistance(data, 0, 1)).toBeCloseTo(2, 5);
     expect(vertexDistance(data, lastLeft, lastLeft + 1)).toBeCloseTo(6, 5);
+  });
+
+  it("carries per-vertex width factors for the continuity speed-up", () => {
+    // No profile: every factor is exactly 1 (legacy rivers keep their speed).
+    const uniform = buildRiverRibbonData(STRAIGHT_RIVER);
+    expect(uniform.widthFactors).toHaveLength(uniform.sampleCount * 2);
+    expect([...uniform.widthFactors].every((factor) => factor === 1)).toBe(true);
+
+    // Profile [0.5, 1.5]: source vertices carry 0.5, mouth vertices 1.5, and
+    // both ribbon sides of a sample share the same factor.
+    const shaped = buildRiverRibbonData({ ...STRAIGHT_RIVER, widthProfile: [0.5, 1.5] });
+    expect(shaped.widthFactors[0]).toBeCloseTo(0.5, 5);
+    expect(shaped.widthFactors[1]).toBeCloseTo(0.5, 5);
+    const lastLeft = (shaped.sampleCount - 1) * 2;
+    expect(shaped.widthFactors[lastLeft]).toBeCloseTo(1.5, 5);
+    expect(shaped.widthFactors[lastLeft + 1]).toBeCloseTo(1.5, 5);
   });
 });
 
@@ -104,6 +148,7 @@ describe("river surface shader", () => {
       isPlaying: true,
       seed: 42,
       settings,
+      climate: evaluateWorldClimate(settings, 12),
       windVector: [6, 0, 0],
       groundHeight: 0,
     };

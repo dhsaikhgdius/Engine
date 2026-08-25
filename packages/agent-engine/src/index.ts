@@ -21,6 +21,7 @@ export * from "./directorAudit";
 export * from "./directorAuthoring";
 export * from "./directorAutomation";
 export * from "./directorBlocking";
+export * from "./directorPossessionScope";
 export * from "./directorProceduralAuthoring";
 export * from "./directorProjectGraph";
 export * from "./directorSpatialAuthoring";

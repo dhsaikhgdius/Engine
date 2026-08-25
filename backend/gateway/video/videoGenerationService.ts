@@ -16,6 +16,7 @@ import {
   type VideoProviderId,
 } from "../../../packages/protocol/src/videoGenerationProtocol";
 import type { StageScene, ToolExecution } from "@director/stage-protocol";
+import { describeStageCameraAction, stageSceneCameraFraming } from "../promptExpansion/sceneFraming";
 import type { VideoPromptExpander } from "../promptExpansion/videoPromptExpander";
 import {
   parseVideoGenerationRequest,
@@ -78,6 +79,8 @@ const manifestSchema = z.strictObject({
         focalLengthMm: z.number(),
         position: vec3Schema,
         target: vec3Schema.nullable(),
+        /** Measured film-language reading of this camera against its subject. */
+        framing: z.string().nullable().default(null),
         actions: z.array(z.string()),
       }),
     ),
@@ -154,8 +157,10 @@ function sceneCameraPlan(scene: StageScene) {
         target: scene.objects[object.targetId]
           ? ([...scene.objects[object.targetId].position] as [number, number, number])
           : null,
-        actions:
-          track?.items.map((item) => `${item.kind}@${item.startS.toFixed(2)}s+${item.durationS.toFixed(2)}s`) ?? [],
+        // The measured film-language reading of this camera against the
+        // humanoid it frames, so prompt expansion carries real blocking.
+        framing: stageSceneCameraFraming(scene, object),
+        actions: track?.items.map((item) => describeStageCameraAction(item)) ?? [],
       },
     ];
   });

@@ -5,6 +5,7 @@ import { useDirectorStore } from "../store/directorStore";
 import { resolveDirectorSceneAnchor } from "../canvas/sceneOverlays";
 import { getWorldSecondsForFrame } from "./worldTime";
 import { getWorldWindVector, writeWorldWindVector } from "./worldWind";
+import { evaluateWorldClimate, isWorldWeatherEvolving } from "./worldClimate";
 import { getWorldAmbientOffsetSeconds, WORLD_AMBIENT_CLOCK_FRAME_PRIORITY } from "./worldClock";
 import { useWorldGroundSampler } from "./worldGround";
 import type { LivingWorldFrameContext, ResolvedWorldEffect } from "./livingWorldContracts";
@@ -25,6 +26,14 @@ import SkyLayer from "./sky/SkyLayer";
  * and mounts sub-layers. Visual and simulation logic belongs to the layer
  * modules under effects/, water/, sky/, and wildlife/.
  */
+/** Multiplies the evaluated wind by the climate gain; a gain of 1 is a no-op. */
+function applyClimateWindGain(windVector: [number, number, number], gain: number): void {
+  if (gain === 1) return;
+  windVector[0] *= gain;
+  windVector[1] *= gain;
+  windVector[2] *= gain;
+}
+
 const EffectsLayer = lazy(() => import("./effects/EffectsLayer"));
 const WaterLayer = lazy(() => import("./water/WaterLayer"));
 const RiverLayer = lazy(() => import("./river/RiverLayer"));
@@ -54,6 +63,9 @@ export function LivingWorldLayer({
   const context = useMemo<LivingWorldFrameContext | null>(() => {
     if (!enabled || !settings) return null;
     const worldSeconds = timelineSeconds + getWorldAmbientOffsetSeconds();
+    const climate = evaluateWorldClimate(settings, worldSeconds);
+    const windVector = getWorldWindVector(settings.wind, worldSeconds);
+    applyClimateWindGain(windVector, climate.windGain);
     return {
       worldSeconds,
       frame,
@@ -61,7 +73,8 @@ export function LivingWorldLayer({
       isPlaying,
       seed: settings.seed,
       settings,
-      windVector: getWorldWindVector(settings.wind, worldSeconds),
+      climate,
+      windVector,
       groundHeight,
       ...(sampleGroundHeight ? { sampleGroundHeight } : {}),
     };
@@ -70,10 +83,13 @@ export function LivingWorldLayer({
   // Ambient time is mutable render state, not application state. Updating the
   // stable context here keeps every GPU/simulation layer current without
   // reconciling the whole Living World React tree at display refresh rate.
+  // The climate is evaluated exactly once per frame here; sub-layers read it.
   useFrame(() => {
     if (!context) return;
     context.worldSeconds = timelineSeconds + getWorldAmbientOffsetSeconds();
+    context.climate = evaluateWorldClimate(context.settings, context.worldSeconds);
     writeWorldWindVector(context.windVector, context.settings.wind, context.worldSeconds);
+    applyClimateWindGain(context.windVector, context.climate.windGain);
   }, WORLD_AMBIENT_CLOCK_FRAME_PRIORITY + 1);
 
   const objectsById = useMemo(() => new Map(evaluatedObjects.map((object) => [object.id, object])), [evaluatedObjects]);
@@ -97,9 +113,13 @@ export function LivingWorldLayer({
   // Pre-roads world blocks may lack the collection until reparsed from disk.
   const visibleRoads = (world.roads ?? []).filter((road) => road.visible);
   const weatherPreset = context.settings.weather.preset;
+  // An evolving cycle can reach precipitation at any worldSeconds, so the
+  // weather-capable layers stay mounted whenever evolution is on.
+  const weatherEvolving = isWorldWeatherEvolving(context.settings);
   const captureHeightMap =
     visibleWaterBodies.length > 0 ||
     visibleRivers.length > 0 ||
+    weatherEvolving ||
     weatherPreset === "rain" ||
     weatherPreset === "storm" ||
     weatherPreset === "snow";
@@ -110,9 +130,9 @@ export function LivingWorldLayer({
       <Suspense fallback={null}>
         <WorldSurfaceLayer captureHeightMap={captureHeightMap} context={context} evaluatedObjects={evaluatedObjects} />
       </Suspense>
-      {resolvedEffects.length > 0 || context.settings.weather.preset !== "clear" ? (
+      {resolvedEffects.length > 0 || weatherEvolving || context.settings.weather.preset !== "clear" ? (
         <Suspense fallback={null}>
-          <EffectsLayer context={context} effects={resolvedEffects} />
+          <EffectsLayer context={context} effects={resolvedEffects} waterBodies={visibleWaterBodies} />
         </Suspense>
       ) : null}
       {visibleWaterBodies.length > 0 ? (

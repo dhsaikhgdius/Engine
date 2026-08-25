@@ -97,6 +97,7 @@ import {
   type DirectorSessionCommand,
 } from "../../../agent/directorSessionCommandBus";
 import { useDirectorStore, type CameraShotSnapshot } from "../store/directorStore";
+import { directorCameraShotLanguageReport } from "@director/agent-engine/framing";
 import {
   DEFAULT_DIRECTOR_CAMERA_VIEW_SNAPSHOT,
   getDirectorCameraAspectValue,
@@ -2281,6 +2282,13 @@ const CameraPictureInPictureOverlay = memo(function CameraPictureInPictureOverla
   const aspect = getDirectorCameraAspectValue(cameraShot.aspectRatio);
   const focalLength = Math.round(cameraShot.focalLengthMm ?? 35);
   const lockLabel = t(locked ? "解除相机视图锁定" : "锁定相机视图");
+  const project = useDirectorStore((state) => state.project);
+  // The same shared film-language reading agents get from observe, so the
+  // viewfinder and the workbench can never disagree about the framing.
+  const framingSlate = useMemo(
+    () => directorCameraShotLanguageReport(project, cameraShot)?.slate ?? null,
+    [project, cameraShot],
+  );
   const getBounds = useCallback(() => {
     const frame = panelRef.current?.closest(".canvas-frame") ?? panelRef.current?.parentElement;
     return frame?.getBoundingClientRect() ?? null;
@@ -2361,6 +2369,11 @@ const CameraPictureInPictureOverlay = memo(function CameraPictureInPictureOverla
         </button>
         <span className="camera-picture-in-picture__meta">
           <strong data-i18n-user-content>{t(cameraShot.name)}</strong>
+          {framingSlate ? (
+            <small aria-label={t("镜头语言标牌")} className="camera-picture-in-picture__slate">
+              {framingSlate}
+            </small>
+          ) : null}
           <small>
             {focalLength} mm · {cameraShot.aspectRatio ?? "16:9"}
           </small>

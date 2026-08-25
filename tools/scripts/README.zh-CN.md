@@ -72,7 +72,8 @@
 | `sync-agent-skills.mjs` | 将 `.claude/skills/director-workbench/` 同步到插件目录，并从 `agent-integrations.mjs` 写出各家 Agent 的 MCP/指令适配文件 |
 | `agent-integrations.mjs` | Director MCP 启动定义与生成式适配（`.cursor/mcp.json`、`.codex/config.toml`、`CLAUDE.md` 等）；`repo:check` 要求这些文件与生成结果一致 |
 | `agent-integrations.test.mjs` | `agent-integrations.mjs` 的 vitest 测试套件 |
-| `dsh-director.mjs` | 写入 Director overlay 并启动固定版本的 DeepSeek Harness Web（`npm run dsh`） |
+| `dsh-director.mjs` | 写入 Director overlay 并以仓库根目录为工作目录启动固定版本的官方 DeepSeek Harness Web（`@deepseek-ai/dsh@0.1.0-rc.6`），使 `.dsh/skills/director-workbench` 可被发现；设置时透传 `STAGE_GATEWAY_URL` / `DIRECTOR_GATEWAY_TOKEN` / `DIRECTOR_TARGET_TOKEN`，`CI` / `DIRECTOR_DSH_NO_OPEN=1` 时追加 `--no-open`（`npm run dsh`） |
+| `dsh-director.test.mjs` | `dsh-director.mjs` 的 vitest 测试套件（overlay patch 结构、无头 `--no-open`、环境透传） |
 
 ### 其他
 

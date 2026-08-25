@@ -26,7 +26,10 @@ export const ATMOSPHERE_SKY_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 sunDir;
   uniform vec3 sunColor;
   uniform float sunIntensity;
+  uniform float discOpacity;
+  uniform float glowOpacity;
   uniform float cloudAmount;
+  uniform float cloudDarken;
   uniform float time;
   uniform vec2 windDir;
 
@@ -71,17 +74,21 @@ export const ATMOSPHERE_SKY_FRAGMENT_SHADER = /* glsl */ `
     vec3 dir = normalize(vWorldDir);
     vec3 col = texture2D(skyLUT, dirToLatLong(dir)).rgb;
 
+    // Disc and aureole are gated by evaluateSunDiscState: weather transmission
+    // crushes them (overcast keeps no hard disc, a storm only a faint smudge)
+    // and the twilight fade zeroes them, so no disc ever shines through the
+    // below-horizon ground fill at night.
     float mu = dot(dir, sunDir);
     float discCos = cos(0.0046);
-    if (mu > discCos) {
+    if (mu > discCos && discOpacity > 0.001) {
       float r = sqrt(max(0.0, 1.0 - mu * mu)) / 0.0046;
       float limb = pow(max(0.0, 1.0 - r * r * 0.72), 0.42);
-      col += sunColor * 8.0 * limb;
+      col += sunColor * 8.0 * limb * discOpacity;
     }
     float aureole = pow(max(0.0, mu), 1800.0) * 2.4 + pow(max(0.0, mu), 96.0) * 0.12;
-    col += sunColor * aureole;
+    col += sunColor * aureole * glowOpacity;
 
-    if (cloudAmount > 0.04 && dir.y > 0.02) {
+    if (cloudAmount > 0.02 && dir.y > 0.0) {
       float planeY = 1.0 / max(0.06, dir.y);
       vec2 cp = dir.xz * planeY * 0.5 + windDir * time * 0.004;
       float a = atan(windDir.x, windDir.y);
@@ -90,12 +97,23 @@ export const ATMOSPHERE_SKY_FRAGMENT_SHADER = /* glsl */ `
       cp = vec2(cs * cp.x + sn * cp.y, -sn * cp.x + cs * cp.y);
       cp.x *= 0.28;
       float n = fbm(cp);
-      float cloud = smoothstep(0.18, 0.42, n);
-      cloud *= smoothstep(0.02, 0.22, dir.y) * (1.0 - smoothstep(0.55, 1.0, dir.y) * 0.45);
-      cloud *= cloudAmount;
-      float sunLit = pow(max(0.0, mu * 0.5 + 0.5), 3.0);
-      vec3 cloudCol = mix(vec3(0.62, 0.68, 0.78), sunColor * 1.05, sunLit * 0.55);
-      col = mix(col, cloudCol * (0.72 + sunIntensity * 0.04), cloud * 0.35);
+      // Coverage lowers the fbm threshold: light cover shows wisps, full
+      // cover closes the deck completely.
+      float threshold = mix(0.58, 0.02, cloudAmount);
+      float cloud = smoothstep(threshold, threshold + 0.26, n);
+      // A solid stratus floor keeps heavy skies unmistakably overcast even
+      // where the fbm dips below threshold.
+      cloud = max(cloud, smoothstep(0.6, 0.95, cloudAmount));
+      // At low cover keep the zenith mostly open; a closed deck covers it.
+      float zenithFade = 1.0 - smoothstep(0.55, 1.0, dir.y) * 0.45;
+      cloud *= smoothstep(0.0, 0.14, dir.y) * mix(zenithFade, 1.0, cloudAmount);
+      float sunLit = pow(max(0.0, mu * 0.5 + 0.5), 3.0) * (1.0 - 0.75 * cloudAmount);
+      vec3 cloudCol = mix(vec3(0.6, 0.65, 0.74), sunColor * 1.05, sunLit) * cloudDarken;
+      // Clouds are lit by the sky: after sunset the deck must fall to a
+      // near-black blue-grey with the rest of the dome instead of glowing.
+      float dayLight = smoothstep(-0.1, 0.16, sunDir.y);
+      cloudCol *= mix(0.03, 1.0, dayLight);
+      col = mix(col, cloudCol * (0.62 + sunIntensity * 0.05), cloud * mix(0.4, 0.94, cloudAmount));
     }
 
     gl_FragColor = vec4(col, 1.0);

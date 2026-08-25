@@ -104,6 +104,7 @@ describe("director workbench contract", () => {
     expect(apply).toMatchObject({ success: false });
     if (!apply.success) {
       expect(apply.error).toContain("blender_native");
+      expect(apply.error).toContain("create_blockout");
       expect(apply.error).not.toContain("Invalid discriminator");
     }
     const primitive = parseDirectorWorkbenchInput({ op: "create_primitive", id: "hero-plinth", primitive: "cube" });
@@ -130,6 +131,8 @@ describe("director workbench contract", () => {
       expect(assembled.error).toContain("geometry_type");
       expect(assembled.error).toContain("blender_native");
       expect(assembled.error).toContain("generated_3d");
+      expect(assembled.error).toContain("create_blockout");
+      expect(assembled.error).toContain("create_opening");
     }
     const patched = parseDirectorWorkbenchInput({
       op: "author",
@@ -739,6 +742,63 @@ describe("director workbench contract", () => {
     ).toMatchObject({ success: false });
   });
 
+  it("parses general compare operations with typed sources and a default stage candidate", () => {
+    const compared = parseDirectorWorkbenchInput({
+      op: "compare",
+      reference: { kind: "media", media_id: "gallery-still-1" },
+    });
+    expect(compared).toMatchObject({
+      success: true,
+      operation: {
+        op: "compare",
+        reference: { kind: "media", media_id: "gallery-still-1" },
+        candidate: { kind: "stage", frame: 0, width: 640, height: 360 },
+      },
+    });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "compare",
+        reference: { kind: "reconstruction_keyframe", job_id: "job-1", view_id: "view-01" },
+        candidate: { kind: "stage", camera_id: "capture-view-camera-01", frame: 12 },
+        grid: { rows: 4, cols: 6 },
+      }),
+    ).toMatchObject({
+      success: true,
+      operation: { candidate: { camera_id: "capture-view-camera-01", width: 640, height: 360 } },
+    });
+    // compare is read-only: it needs no revision guard at the browser boundary.
+    expect(
+      parseDirectorWorkbenchExecutableInput({ op: "compare", reference: { kind: "media", media_id: "still-1" } }),
+    ).toMatchObject({ success: true });
+  });
+
+  it("rejects malformed compare sources and oversized compare rasters", () => {
+    expect(parseDirectorWorkbenchInput({ op: "compare" })).toMatchObject({ success: false });
+    expect(
+      parseDirectorWorkbenchInput({ op: "compare", reference: { kind: "media" } }),
+    ).toMatchObject({ success: false });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "compare",
+        reference: { kind: "stage", width: 2048, height: 2048 },
+      }),
+    ).toMatchObject({ success: false, error: expect.stringContaining("2073600") });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "compare",
+        reference: { kind: "media", media_id: "still-1" },
+        grid: { rows: 32 },
+      }),
+    ).toMatchObject({ success: false });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "compare",
+        reference: { kind: "media", media_id: "still-1" },
+        threshold: 0.8,
+      }),
+    ).toMatchObject({ success: false, error: expect.stringContaining('"threshold"') });
+  });
+
   it("names the offending fields when the input carries unrecognized keys", () => {
     expect(parseDirectorWorkbenchInput({ op: "deliver", camera_id: "cam_1", quality_gate: "strict" })).toMatchObject({
       success: false,
@@ -811,6 +871,60 @@ describe("director workbench contract", () => {
     expect(parseDirectorWorkbenchInput({ op: "shot_ir", frame: -1 })).toMatchObject({ success: false });
     expect(parseDirectorWorkbenchInput({ op: "shot_ir", frame: 1.5 })).toMatchObject({ success: false });
     expect(parseDirectorWorkbenchInput({ op: "shot_ir", format: "prompt" })).toMatchObject({ success: false });
+  });
+
+  it("validates film-language framing actions and the camera move read", () => {
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "author",
+        actions: [
+          {
+            action: "frame_shot",
+            camera_id: "cam-main",
+            subject_object_id: "hero",
+            size: "medium-close-up",
+            view: "profile",
+            side: "left",
+            level: "knee",
+            activate: true,
+          },
+          { action: "mark_camera_move", camera_id: "cam-main", frame: 0 },
+        ],
+      }),
+    ).toMatchObject({ success: true });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "author",
+        actions: [{ action: "frame_shot", camera_id: "cam-main", subject_object_id: "hero", size: "huge" }],
+      }),
+    ).toMatchObject({ success: false });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "author",
+        actions: [{ action: "mark_camera_move", camera_id: "cam-main", frame: -1 }],
+      }),
+    ).toMatchObject({ success: false });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "describe_camera_move",
+        camera_id: "cam-main",
+        subject_object_id: "hero",
+        from_frame: 0,
+        to_frame: 48,
+      }),
+    ).toMatchObject({ success: true });
+    expect(parseDirectorWorkbenchInput({ op: "describe_camera_move", camera_id: "cam-main" })).toMatchObject({
+      success: false,
+    });
+    expect(
+      parseDirectorWorkbenchInput({
+        op: "describe_camera_move",
+        camera_id: "cam-main",
+        subject_object_id: "hero",
+        from_frame: 48,
+        to_frame: 0,
+      }),
+    ).toMatchObject({ success: false, error: expect.stringContaining("from_frame must be before to_frame") });
   });
 
   it("validates exact-frame clean and auxiliary capture requests", () => {

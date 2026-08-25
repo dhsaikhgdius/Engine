@@ -1,6 +1,11 @@
 import {
+  DIRECTOR_CAMERA_MOVE_IDS,
   DIRECTOR_CHARACTER_MOTION_LOOPS,
   DIRECTOR_PLACEMENT_MODES,
+  DIRECTOR_SHOT_LEVEL_IDS,
+  DIRECTOR_SHOT_SIDE_IDS,
+  DIRECTOR_SHOT_SIZE_IDS,
+  DIRECTOR_SHOT_VIEW_IDS,
   type DirectorProject,
 } from "@director/project-schema";
 import { getDirectorProjectRevision } from "@director/project-schema";
@@ -17,6 +22,7 @@ import type {
   DirectorWorkbenchOperation,
 } from "@director/agent-engine/contract";
 import {
+  directorCompareSourceKinds,
   directorWorkbenchCatalogIdSchema,
   directorWorkbenchOperationNames,
   directorWorkbenchProjectAssetSourceSchema,
@@ -37,6 +43,7 @@ import {
   saveDirectorMacro,
 } from "@director/agent-engine/automation";
 import { auditDirectorProject, type DirectorAuditIssue } from "@director/agent-engine/audit";
+import { describeDirectorCameraMoveFromProject } from "@director/agent-engine/framing";
 import { describeDirectorWorkbenchTarget } from "@director/agent-engine/describe";
 import { buildDirectorRevisionDiff } from "@director/agent-engine/revision-diff";
 import { directorProjectObservationCounts, observeDirectorProject } from "@director/agent-engine/observe";
@@ -48,6 +55,12 @@ import { CHARACTER_POSE_CONTROL_KEYS, CHARACTER_POSE_CONTROL_VALUE_LIMITS } from
 import { DIRECTOR_CHARACTER_MOTION_CATALOG } from "@director/agent-engine/character-motions";
 import { stableJson } from "@director/protocol/stableJson";
 import { DIRECTOR_AGENT_ASSET_CATALOG, getDirectorAgentCatalogAsset } from "@director/agent-engine/asset-catalog";
+import {
+  describeDirectorCameraKernelOwnership,
+  describeDirectorLightKernelOwnership,
+  describeDirectorObjectKernelOwnership,
+  type DirectorKernelOwnership,
+} from "@director/agent-engine/kernel-ownership";
 import {
   DIRECTOR_WORLD_MAX_EFFECTS,
   DIRECTOR_WORLD_MAX_ROAD_VEHICLES,
@@ -132,6 +145,10 @@ function createDirectorWorkbenchCapabilities() {
   return {
     ...capabilities,
     operations: directorWorkbenchOperationNames,
+    compare_contract: {
+      ...capabilities.compare_contract,
+      source_kinds: directorCompareSourceKinds,
+    },
     spatial_contract: {
       ...capabilities.spatial_contract,
       placement_modes: [...DIRECTOR_PLACEMENT_MODES],
@@ -162,6 +179,14 @@ function createDirectorWorkbenchCapabilities() {
       catalogs: [...directorWorkbenchCatalogIdSchema.options],
       project_asset_sources: [...directorWorkbenchProjectAssetSourceSchema.options],
       asset_count: DIRECTOR_AGENT_ASSET_CATALOG.length,
+    },
+    framing_contract: {
+      ...capabilities.framing_contract,
+      sizes: [...DIRECTOR_SHOT_SIZE_IDS],
+      views: [...DIRECTOR_SHOT_VIEW_IDS],
+      sides: [...DIRECTOR_SHOT_SIDE_IDS],
+      levels: [...DIRECTOR_SHOT_LEVEL_IDS],
+      moves: [...DIRECTOR_CAMERA_MOVE_IDS],
     },
     world_contract: {
       ...capabilities.world_contract,
@@ -1417,14 +1442,21 @@ function executeDirectorWorkbenchOperationCore(
       // -- Entity lookup by type + id --
       case "inspect": {
         let result: unknown;
+        let kernelOwnership: DirectorKernelOwnership | undefined;
         if (operation.entity === "catalog_asset") {
           result = getDirectorAgentCatalogAsset(operation.id);
         } else if (operation.entity === "object") {
-          result = store.project.objects.find((item) => item.id === operation.id);
+          const object = store.project.objects.find((item) => item.id === operation.id);
+          result = object;
+          if (object) kernelOwnership = describeDirectorObjectKernelOwnership(object, store.project.assets);
         } else if (operation.entity === "light") {
-          result = store.project.lights?.find((item) => item.id === operation.id);
+          const light = store.project.lights?.find((item) => item.id === operation.id);
+          result = light;
+          if (light) kernelOwnership = describeDirectorLightKernelOwnership(light);
         } else if (operation.entity === "camera") {
           result = inspectCamera(store, operation.id);
+          const camera = store.project.cameras.find((item) => item.id === operation.id);
+          if (camera) kernelOwnership = describeDirectorCameraKernelOwnership(camera);
         } else if (operation.entity === "asset") {
           result = store.project.assets.find((item) => item.id === operation.id);
         } else if (operation.entity === "storyboard_shot") {
@@ -1439,7 +1471,14 @@ function executeDirectorWorkbenchOperationCore(
             .find((item) => item.id === operation.id);
         }
         return result
-          ? { success: true, result: { entity: operation.entity, value: result } }
+          ? {
+              success: true,
+              result: {
+                entity: operation.entity,
+                value: result,
+                ...(kernelOwnership ? { kernel_ownership: kernelOwnership } : {}),
+              },
+            }
           : {
               success: false,
               error:
@@ -1457,6 +1496,17 @@ function executeDirectorWorkbenchOperationCore(
             takeId: operation.take_id,
             coverageShotId: operation.coverage_shot_id,
             frame: operation.frame,
+          }),
+        };
+      // -- Name the camera move the marked animation track proves --
+      case "describe_camera_move":
+        return {
+          success: true,
+          result: describeDirectorCameraMoveFromProject(store.project, {
+            camera_id: operation.camera_id,
+            subject_object_id: operation.subject_object_id,
+            from_frame: operation.from_frame,
+            to_frame: operation.to_frame,
           }),
         };
       // -- Preflight check: audit + quality gates before render capture --
@@ -1712,6 +1762,8 @@ function executeDirectorWorkbenchOperationCore(
       // -- Browser-gateway-only operations (must be executed in the UI process) --
       case "capture":
         return { success: false, error: "capture must be executed through the browser gateway" };
+      case "compare":
+        return { success: false, error: "compare must be executed through the browser gateway" };
       case "shot_package":
         return { success: false, error: "shot_package must be executed through the browser gateway" };
       case "generation":

@@ -1,5 +1,6 @@
 import type { DirectorWorldSettings } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { evaluateSkyLighting, getSkySolarArc, type SkyLightingState } from "../sky/solar";
+import type { WorldClimateState } from "../worldClimate";
 import { evaluateWorldTimeOfDayHours } from "../worldTime";
 
 /**
@@ -103,8 +104,9 @@ export interface EffectsSceneLighting {
 export function evaluateEffectsSceneLighting(
   settings: DirectorWorldSettings,
   worldSeconds: number,
+  climate?: WorldClimateState,
 ): EffectsSceneLighting {
-  const blend = blendSceneLight(evaluateSkyLighting(settings, worldSeconds));
+  const blend = blendSceneLight(evaluateSkyLighting(settings, worldSeconds, climate));
   const tintLevel = clamp01(
     (luminanceOf(blend) + SCENE_LIGHT_NIGHT_FLOOR) / (NOON_CLEAR_LUMINANCE + SCENE_LIGHT_NIGHT_FLOOR),
   );

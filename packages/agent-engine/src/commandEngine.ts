@@ -266,14 +266,12 @@ function critiqueCamera(scene: StageScene, cameraId?: string, subjectId?: string
       y: depth > 0 ? dot(offset, up) / (depth * tanHalfVerticalFov) : null,
     };
   };
+  // Every renderable body is projected so occlusion can see potential
+  // blockers; the reported object list still narrows to the requested subject.
   const candidates = Object.entries(scene.objects).filter(
-    ([id, object]) =>
-      object.kind !== "camera" &&
-      object.kind !== "target" &&
-      object.kind !== "group" &&
-      (!subjectId || id === subjectId),
+    ([, object]) => object.kind !== "camera" && object.kind !== "target" && object.kind !== "group",
   );
-  const objects = candidates.map(([id, object]) => {
+  const evaluated = candidates.map(([id, object]) => {
     const dimensions = objectDimensions(object);
     const halfWidth = dimensions[0] / 2;
     const halfDepth = dimensions[2] / 2;
@@ -286,8 +284,6 @@ function critiqueCamera(scene: StageScene, cameraId?: string, subjectId?: string
     );
     const visibleCorners = corners.filter((corner) => corner.depth > 0 && corner.x !== null && corner.y !== null);
     const center = projectPoint([object.position[0], object.position[1] + dimensions[1] / 2, object.position[2]]);
-    const frameX = center.x;
-    const frameY = center.y;
     const bounds = visibleCorners.length
       ? {
           min_x: Math.min(...visibleCorners.map((corner) => corner.x as number)),
@@ -296,6 +292,9 @@ function critiqueCamera(scene: StageScene, cameraId?: string, subjectId?: string
           max_y: Math.max(...visibleCorners.map((corner) => corner.y as number)),
         }
       : null;
+    const nearestDepth = visibleCorners.length
+      ? Math.min(...visibleCorners.map((corner) => corner.depth))
+      : center.depth;
     const intersectsFrame = Boolean(
       bounds && bounds.max_x >= -1 && bounds.min_x <= 1 && bounds.max_y >= -1 && bounds.min_y <= 1,
     );
@@ -309,26 +308,75 @@ function critiqueCamera(scene: StageScene, cameraId?: string, subjectId?: string
         : intersectsFrame
           ? "edge"
           : "outside";
-    return {
-      id,
-      kind: object.kind,
-      name: object.name ?? null,
-      status,
+    // Fraction of the object's projected rect that lies inside the visible
+    // frame: 1 means fully in picture, 0 means entirely out of frame.
+    const boundsArea = bounds ? (bounds.max_x - bounds.min_x) * (bounds.max_y - bounds.min_y) : 0;
+    const visibleFraction =
+      bounds === null
+        ? null
+        : boundsArea <= 1e-9
+          ? (intersectsFrame ? 1 : 0)
+          : Math.max(0, Math.min(1, bounds.max_x) - Math.max(-1, bounds.min_x)) *
+            Math.max(0, Math.min(1, bounds.max_y) - Math.max(-1, bounds.min_y)) /
+            boundsArea;
+    return { id, object, center, bounds, nearestDepth, status, visibleFraction };
+  });
+
+  // Bounding-rect occlusion: another body blocks this one when its projected
+  // rect covers this rect's centre with substantial overlap while sitting
+  // nearer to the lens. Rect maths is approximate; treat it as a strong hint.
+  const occludersOf = (subject: (typeof evaluated)[number]) => {
+    if (!subject.bounds) return [];
+    const subjectBounds = subject.bounds;
+    const centerX = (subjectBounds.min_x + subjectBounds.max_x) / 2;
+    const centerY = (subjectBounds.min_y + subjectBounds.max_y) / 2;
+    const subjectArea = Math.max(
+      (subjectBounds.max_x - subjectBounds.min_x) * (subjectBounds.max_y - subjectBounds.min_y),
+      1e-9,
+    );
+    return evaluated
+      .filter((other) => {
+        if (other.id === subject.id || !other.bounds) return false;
+        if (other.nearestDepth >= subject.nearestDepth - 0.05) return false;
+        const coversCenter =
+          other.bounds.min_x <= centerX &&
+          other.bounds.max_x >= centerX &&
+          other.bounds.min_y <= centerY &&
+          other.bounds.max_y >= centerY;
+        if (!coversCenter) return false;
+        const overlap =
+          Math.max(0, Math.min(subjectBounds.max_x, other.bounds.max_x) - Math.max(subjectBounds.min_x, other.bounds.min_x)) *
+          Math.max(0, Math.min(subjectBounds.max_y, other.bounds.max_y) - Math.max(subjectBounds.min_y, other.bounds.min_y));
+        return overlap / subjectArea >= 0.3;
+      })
+      .sort((left, right) => left.nearestDepth - right.nearestDepth)
+      .slice(0, 6)
+      .map((other) => other.id);
+  };
+
+  const objects = evaluated
+    .filter((entry) => !subjectId || entry.id === subjectId)
+    .map((entry) => ({
+      id: entry.id,
+      kind: entry.object.kind,
+      name: entry.object.name ?? null,
+      status: entry.status,
       frame:
-        frameX === null || frameY === null
+        entry.center.x === null || entry.center.y === null
           ? null
-          : [Math.round(frameX * 1000) / 1000, Math.round(frameY * 1000) / 1000],
-      frame_bounds: bounds
+          : [Math.round(entry.center.x * 1000) / 1000, Math.round(entry.center.y * 1000) / 1000],
+      frame_bounds: entry.bounds
         ? {
-            min_x: Math.round(bounds.min_x * 1000) / 1000,
-            max_x: Math.round(bounds.max_x * 1000) / 1000,
-            min_y: Math.round(bounds.min_y * 1000) / 1000,
-            max_y: Math.round(bounds.max_y * 1000) / 1000,
+            min_x: Math.round(entry.bounds.min_x * 1000) / 1000,
+            max_x: Math.round(entry.bounds.max_x * 1000) / 1000,
+            min_y: Math.round(entry.bounds.min_y * 1000) / 1000,
+            max_y: Math.round(entry.bounds.max_y * 1000) / 1000,
           }
         : null,
-      depth: Math.round(center.depth * 1000) / 1000,
-    };
-  });
+      depth: Math.round(entry.center.depth * 1000) / 1000,
+      visible_fraction: entry.visibleFraction === null ? null : Math.round(entry.visibleFraction * 1000) / 1000,
+      occluded_by: occludersOf(entry),
+    }));
   const visibleCount = objects.filter((object) => object.status === "inside" || object.status === "edge").length;
   const issues: Array<{ code: string; message: string }> = [];
   const suggestedActions: Array<Record<string, unknown>> = [];
@@ -350,6 +398,19 @@ function critiqueCamera(scene: StageScene, cameraId?: string, subjectId?: string
     });
     suggestedActions.push({ tool: "stage_camera", input: { op: "frame", shot: "medium", object_id: subjectId } });
   }
+  if (subjectId) {
+    const subject = objects.find((object) => object.id === subjectId);
+    if (subject?.occluded_by.length) {
+      const blockers = subject.occluded_by
+        .map((id) => scene.objects[id]?.name ?? id)
+        .slice(0, 3)
+        .join(", ");
+      issues.push({
+        code: "subject_occluded",
+        message: `${blockers} sits between the camera and the requested subject, blocking its projected frame area.`,
+      });
+    }
+  }
   return {
     camera_id: resolvedCameraId,
     target_id: camera.targetId,
@@ -360,7 +421,7 @@ function critiqueCamera(scene: StageScene, cameraId?: string, subjectId?: string
     objects,
     issues,
     suggested_actions: suggestedActions,
-    note: "Frame coordinates are normalized around center [0,0]; approximately [-1,1] is the visible frame.",
+    note: "Frame coordinates are normalized around center [0,0]; approximately [-1,1] is the visible frame. visible_fraction is the share of the projected rect inside the frame; occluded_by lists nearer bodies covering the rect centre (bounding-rect approximation).",
   };
 }
 

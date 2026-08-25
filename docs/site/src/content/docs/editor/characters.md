@@ -158,6 +158,51 @@ This solver currently drives browser-rendered characters. A provisioned Blender 
 keeps the same project IK data but does not apply it to the native armature until the native
 two-bone adapter is implemented.
 
+## Attach an Agent
+
+Every character can be attached to an Agent; once attached, that Agent drives the character's
+walking, motion, pose, and movement in possess mode.
+
+1. Select a single character and open the **Properties** tab.
+2. In the **Bind Agent** block, pick an Agent Profile or enter the Agent Session ID that drives
+   the character (for example `dsh-abc123`).
+3. Click **Bind**. The summary shows an **Agent possessed** badge indicating the character is
+   taken over by an Agent.
+4. Click **Unbind** to take back control. Crowd selections cannot bind yet; select a single
+   character.
+
+The binding is also visible in the Stage viewport: a possessed character shows an **Agent**
+badge next to its name label. The badge shares the same pointer-transparent screen-space label
+as the name, so it never blocks selection or the transform gizmo; it disappears as soon as the
+binding is removed, and unbound character labels are unchanged.
+
+The binding is stored in the project JSON as the `agentBinding` field (only character objects may
+carry one) and goes through the same revision guard as other character writes; locked characters
+require `force` to bind or unbind. Several characters can attach to the same Agent, but each
+character carries at most one binding at a time and a rebind simply replaces it.
+
+On the Agent side, use the semantic `director_workbench` author actions:
+
+```bash
+npm run stage -- director_workbench '{"op":"author","idempotency_key":"bind-actor-v1","actions":[{"action":"bind_character_agent","object_id":"actor-xbot","session_id":"dsh-abc123"}]}'
+npm run stage -- director_workbench '{"op":"author","idempotency_key":"unbind-actor-v1","actions":[{"action":"unbind_character_agent","object_id":"actor-xbot"}]}'
+```
+
+Once attached, the session keeps driving the character with the existing actions:
+`set_character_motion`, `set_character_pose_controls`, `set_character_ik`, `update_object`
+transforms, and `set_animation`. The observe character summary echoes `agent_binding`.
+
+Possess mode also scopes the session's writes: a session that possesses characters may only
+mutate those characters. Deleting other objects, editing someone else's character, `start_scene`,
+and `replace_project` are rejected by the gateway with a readable error (HTTP 403, code
+`possession_scope_violation`). Sessions that possess no character keep full stage-wide authoring.
+All character actions still require an explicit `object_id`.
+
+The complete loop — place a character, bind an Agent, drive it with motion/pose, verify the
+echoed `agent_binding`, then unbind — is covered by the golden eval task
+`tools/evals/tasks/08-character-agent-possession.json`, run through `npm run eval`
+(see `tools/evals/README.md` in the repository).
+
 ## Quick CLI check
 
 With Director running through `npm run dev`, the following commands inspect the catalog and add a

@@ -3,14 +3,20 @@ import type { DirectorWorldWeather } from "../../../../../../../packages/protoco
 import {
   EFFECT_PRESETS,
   FIRE_RENDER_PASSES,
+  RAIN_SPLASH_FRACTION,
   SCENE_FOG_EFFECT_KINDS,
   STORM_DENSITY_MULTIPLIER,
+  STORM_SIZE_MULTIPLIER,
+  STORM_SPEED_MULTIPLIER,
+  STORM_SPLASH_FRACTION,
   STORM_WIND_MULTIPLIER,
   WEATHER_PRECIPITATION_BOX_SIZE,
+  WIND_TURBULENCE_GAIN,
   WORLD_EFFECT_KINDS,
   getEffectParticleCount,
   getEffectRenderPasses,
   getWeatherPrecipitationPlan,
+  getWindTurbulenceMultiplier,
 } from "../../../../../src/comprehensive/editor/world/effects/effectPresets";
 
 function createWeather(overrides: Partial<DirectorWorldWeather> = {}): DirectorWorldWeather {
@@ -49,6 +55,19 @@ describe("effect presets", () => {
     for (const kind of ["fire", "smoke", "steam", "dust", "rain", "snow"] as const) {
       expect(EFFECT_PRESETS[kind].blending).toBe("normal");
     }
+  });
+
+  it("keeps only fire upright: its teardrop sprite must point flame-up", () => {
+    expect(EFFECT_PRESETS.fire.uprightWobbleRad).toBeGreaterThan(0);
+    expect(EFFECT_PRESETS.fire.uprightWobbleRad).toBeLessThan(Math.PI / 4);
+    for (const kind of WORLD_EFFECT_KINDS.filter((entry) => entry !== "fire")) {
+      expect(EFFECT_PRESETS[kind].uprightWobbleRad, `uprightWobbleRad for ${kind}`).toBe(0);
+    }
+  });
+
+  it("tumbles snow crystals so the flake silhouette stays alive", () => {
+    expect(EFFECT_PRESETS.snow.spinRadPerSec).toBeGreaterThan(0);
+    expect(EFFECT_PRESETS.snow.velocityStretch).toBe(0);
   });
 
   it("renders fire as an occluding body pass plus an additive glow pass", () => {
@@ -99,7 +118,14 @@ describe("effect presets", () => {
 
   it("scales rain and snow precipitation with weather intensity", () => {
     const rain = getWeatherPrecipitationPlan(createWeather({ preset: "rain", intensity: 1 }));
-    expect(rain).toEqual({ kind: "rain", count: 2200, windMultiplier: 1, speedMultiplier: 1 });
+    expect(rain).toEqual({
+      kind: "rain",
+      count: 2200,
+      windMultiplier: 1,
+      speedMultiplier: 1,
+      sizeMultiplier: 1,
+      splashFraction: RAIN_SPLASH_FRACTION,
+    });
 
     const halfRain = getWeatherPrecipitationPlan(createWeather({ preset: "rain", intensity: 0.5 }));
     expect(halfRain?.count).toBe(1100);
@@ -107,6 +133,8 @@ describe("effect presets", () => {
     const snow = getWeatherPrecipitationPlan(createWeather({ preset: "snow", intensity: 1 }));
     expect(snow?.kind).toBe("snow");
     expect(snow?.count).toBe(1500);
+    // Snow never splashes: flakes settle instead of rippling.
+    expect(snow?.splashFraction).toBe(0);
   });
 
   it("renders storms as denser rain with harder wind", () => {
@@ -115,13 +143,53 @@ describe("effect presets", () => {
     expect(storm?.count).toBe(Math.round(2200 * STORM_DENSITY_MULTIPLIER));
     expect(storm?.windMultiplier).toBe(STORM_WIND_MULTIPLIER);
     expect(storm?.windMultiplier).toBeGreaterThan(1);
-    expect(storm?.speedMultiplier).toBeGreaterThan(1);
+    expect(storm?.speedMultiplier).toBe(STORM_SPEED_MULTIPLIER);
+    expect(storm?.sizeMultiplier).toBe(STORM_SIZE_MULTIPLIER);
+    expect(storm?.splashFraction).toBe(STORM_SPLASH_FRACTION);
+    expect(storm?.splashFraction).toBeGreaterThan(RAIN_SPLASH_FRACTION);
 
     const halfStorm = getWeatherPrecipitationPlan(createWeather({ preset: "storm", intensity: 0.5 }));
     expect(halfStorm?.count).toBe(Math.round(2200 * STORM_DENSITY_MULTIPLIER * 0.5));
   });
 
+  it("relaxes storm multipliers continuously toward calm as intensity fades", () => {
+    // A fading storm must not step: multipliers interpolate 1 -> STORM_* over
+    // intensity 0 -> 1, so scrubbed weather ramps stay smooth.
+    const half = getWeatherPrecipitationPlan(createWeather({ preset: "storm", intensity: 0.5 }));
+    expect(half?.windMultiplier).toBeCloseTo(1 + (STORM_WIND_MULTIPLIER - 1) * 0.5, 10);
+    expect(half?.speedMultiplier).toBeCloseTo(1 + (STORM_SPEED_MULTIPLIER - 1) * 0.5, 10);
+    expect(half?.sizeMultiplier).toBeCloseTo(1 + (STORM_SIZE_MULTIPLIER - 1) * 0.5, 10);
+    const faint = getWeatherPrecipitationPlan(createWeather({ preset: "storm", intensity: 0.1 }));
+    expect(faint?.windMultiplier).toBeLessThan(half?.windMultiplier ?? 0);
+    expect(faint?.windMultiplier).toBeGreaterThan(1);
+    // Determinism: identical inputs, identical plans.
+    expect(getWeatherPrecipitationPlan(createWeather({ preset: "storm", intensity: 0.5 }))).toEqual(half);
+  });
+
   it("keeps the camera-following volume near the documented size", () => {
     expect(WEATHER_PRECIPITATION_BOX_SIZE).toEqual([44, 26, 44]);
+  });
+});
+
+describe("wind turbulence coupling", () => {
+  it("returns 1 in calm air and saturates at the documented gain", () => {
+    expect(getWindTurbulenceMultiplier(0.5, 0, 1)).toBe(1);
+    expect(getWindTurbulenceMultiplier(0, 12, 1)).toBe(1);
+    expect(getWindTurbulenceMultiplier(1, 12, 1)).toBeCloseTo(1 + WIND_TURBULENCE_GAIN, 10);
+    // Faster than reference wind must not gain further.
+    expect(getWindTurbulenceMultiplier(1, 40, 1)).toBeCloseTo(1 + WIND_TURBULENCE_GAIN, 10);
+  });
+
+  it("shields sheltered effects and scales with wind influence", () => {
+    expect(getWindTurbulenceMultiplier(1, 12, 0)).toBe(1);
+    const half = getWindTurbulenceMultiplier(1, 12, 0.5);
+    expect(half).toBeCloseTo(1 + WIND_TURBULENCE_GAIN * 0.5, 10);
+    // Storm systems premultiply windInfluence above 1; the gain clamps at 1.
+    expect(getWindTurbulenceMultiplier(1, 12, 2.2)).toBeCloseTo(1 + WIND_TURBULENCE_GAIN, 10);
+  });
+
+  it("is a pure clamped function of its inputs", () => {
+    expect(getWindTurbulenceMultiplier(0.7, 6, 0.8)).toBe(getWindTurbulenceMultiplier(0.7, 6, 0.8));
+    expect(getWindTurbulenceMultiplier(-1, -5, -2)).toBe(1);
   });
 });

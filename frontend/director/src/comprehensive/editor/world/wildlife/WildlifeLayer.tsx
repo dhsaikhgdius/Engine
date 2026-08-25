@@ -4,7 +4,6 @@ import {
   DoubleSide,
   DynamicDrawUsage,
   Euler,
-  FrontSide,
   InstancedInterleavedBuffer,
   InstancedMesh,
   InterleavedBufferAttribute,
@@ -19,11 +18,9 @@ import type { LivingWorldFrameContext, WildlifeLayerProps } from "../livingWorld
 import { buildWildlifeModel, WILDLIFE_PART_ANGLE_SLOTS, WILDLIFE_RENDER_PROFILES } from "./placeholderModels";
 import {
   resolveWildlifeGaitProfile,
-  wildlifeBirdFlapEnvelope01,
   wildlifeBodyLiftM,
   wildlifeBodyPitchRad,
   wildlifeGaitPhase,
-  writeWildlifeBirdPartAngles,
   writeWildlifePartAngles,
 } from "./wildlifeGait";
 import {
@@ -33,11 +30,13 @@ import {
   WILDLIFE_PART_ANGLES_ATTRIBUTE_1,
 } from "./wildlifePartMaterial";
 import {
+  buildWildlifeEnvironment,
   createWildlifeSim,
   shouldRecreateWildlifeSim,
   WILDLIFE_CRUISE_SPEED_MPS,
-  type WildlifeEnvironment,
   type WildlifeSim,
+  type WildlifeSimEnvironment,
+  type WildlifeWaterRect,
 } from "./wildlifeSim";
 import {
   lerp,
@@ -60,10 +59,7 @@ import WildlifeGltfHerd from "./WildlifeGltfHerd";
  * heading lerp) so 30 Hz simulation renders smoothly at any frame rate.
  * Secondary motion is a pure function of (worldSeconds, per-agent phase, sim
  * state), so exports and scrubbing reproduce it exactly:
- * - butterflies/fish: whole-body wing flap / tail wiggle (render profile).
- * - birds: articulated wing parts beat in flap-glide cycles (wildlifeGait.ts)
- *   through the same instanced angle attributes as the herd path; the body
- *   only rocks slightly in phase with the beat and holds steady mid-glide.
+ * - flock/school: whole-body wing flap / tail wiggle (render profile).
  * - herd: articulated placeholder gait. The compose loop also writes 8
  *   per-part angle slots per agent (legs, head, tail; see wildlifeGait.ts)
  *   into an instanced interleaved attribute pair, and the part vertex shader
@@ -84,7 +80,7 @@ const tempPosition = new Vector3();
 const tempQuaternion = new Quaternion();
 const tempEuler = new Euler();
 const UNIT_SCALE = new Vector3(1, 1, 1);
-const tempGroundPose: WildlifeGroundPose = { groundY: 0, slopePitchRad: 0, slopeRollRad: 0, clipLiftM: 0 };
+const tempGroundPose: WildlifeGroundPose = { groundY: 0, slopePitchRad: 0 };
 
 function composeGroupMatrices(
   mesh: InstancedMesh,
@@ -102,15 +98,12 @@ function composeGroupMatrices(
   const count = Math.min(mesh.count, render.count);
   const groundSample = context.sampleGroundHeight;
   const slopeProbeHalfSpacing = WILDLIFE_SLOPE_PROBE_HALF_SPACING_M * group.sizeScale;
-  // Part articulation targets: herd gait angles and bird wing flap stream
-  // into the instanced interleaved angle attribute consumed by the part
-  // vertex shader.
+  // Herd articulation targets: gait angles stream into the instanced
+  // interleaved angle attribute consumed by the part vertex shader.
   const gait = archetype === "herd" ? resolveWildlifeGaitProfile(group.species) : null;
-  const isBirds = archetype === "flock" && group.species === "birds";
-  const anglesAttribute =
-    gait || isBirds
-      ? (mesh.geometry.getAttribute(WILDLIFE_PART_ANGLES_ATTRIBUTE_0) as InterleavedBufferAttribute | undefined)
-      : undefined;
+  const anglesAttribute = gait
+    ? (mesh.geometry.getAttribute(WILDLIFE_PART_ANGLES_ATTRIBUTE_0) as InterleavedBufferAttribute | undefined)
+    : undefined;
   const angleArray = anglesAttribute ? (anglesAttribute.data.array as Float32Array) : null;
   // Butterflies fly a low band; with terrain sampling it follows local relief
   // measured against the terrain at the area centre (falling back to the flat
@@ -120,14 +113,6 @@ function composeGroupMatrices(
     archetype === "flock" && group.species === "butterflies" && groundSample
       ? (groundSample(group.area.center[0], group.area.center[2]) ?? context.groundHeight)
       : null;
-  // Render-side wind response (pure in context: windVector is evaluated at
-  // worldSeconds): fliers bank into the crosswind and butterflies flap harder
-  // in gusts. Sim state never reads these — they are cosmetic only.
-  const windX = context.windVector[0];
-  const windZ = context.windVector[2];
-  const windSpeed = Math.sqrt(windX * windX + windZ * windZ);
-  const flapWindGain =
-    archetype === "flock" && group.species === "butterflies" ? 1 + Math.min(windSpeed * 0.05, 0.5) : 1;
 
   for (let i = 0; i < count; i += 1) {
     const px = lerp(prev.posX[i], curr.posX[i], alpha);
@@ -150,15 +135,12 @@ function composeGroupMatrices(
       const grazeBlend = lerp(prev.grazeBlend[i], curr.grazeBlend[i], alpha);
       if (groundSample) {
         // Sim py IS the flat plane for herds; snapping replaces it with the
-        // sampled terrain height, tilts the body to the local fore/aft AND
-        // lateral slope, and lifts it clear of slopes steeper than the tilt
-        // clamp so uphill legs stop sinking into terrain. Sampling stays
-        // render-side so replayed sim state never depends on scene contents
-        // (see livingWorldContracts).
+        // sampled terrain height and tilts the body to the local fore/aft
+        // slope. Sampling stays render-side so replayed sim state never
+        // depends on scene contents (see livingWorldContracts).
         sampleWildlifeGroundPose(groundSample, px, pz, yaw, py, slopeProbeHalfSpacing, tempGroundPose);
-        py = tempGroundPose.groundY + tempGroundPose.clipLiftM;
+        py = tempGroundPose.groundY;
         pitch += tempGroundPose.slopePitchRad;
-        roll += tempGroundPose.slopeRollRad;
       }
       py += bodyOffsetY;
       if (gait) {
@@ -168,10 +150,8 @@ function composeGroupMatrices(
         pitch += wildlifeBodyPitchRad(gait, gaitPhase, speedFactor);
         if (angleArray) {
           // Leg swing, head nod/graze pitch, and tail motion resolve in the
-          // vertex shader from these per-agent part angles; the spare slot
-          // carries a per-agent shade (from the immutable phase) so herd
-          // members stop looking like identical clones.
-          writeWildlifePartAngles(angleArray, i, gait, gaitPhase, speedFactor, grazeBlend, agentPhase / TWO_PI);
+          // vertex shader from these per-agent part angles.
+          writeWildlifePartAngles(angleArray, i, gait, gaitPhase, speedFactor, grazeBlend);
         }
       }
     } else {
@@ -183,24 +163,8 @@ function composeGroupMatrices(
         yaw = agentPhase;
       }
       if (archetype === "flock") {
-        if (isBirds) {
-          // Real wing beats: the part shader rotates the tagged wing
-          // triangles by the flap-glide angle written below; the body only
-          // rocks slightly in phase with the beat and holds steady while
-          // gliding — the glide phases are what separate a bird from a
-          // butterfly at previz distance.
-          const envelope = wildlifeBirdFlapEnvelope01(seconds, agentPhase);
-          roll = Math.sin(seconds * TWO_PI * profile.flapHz + agentPhase) * profile.flapAmplitudeRad * envelope;
-          if (angleArray) writeWildlifeBirdPartAngles(angleArray, i, seconds, agentPhase, agentPhase / TWO_PI);
-        } else {
-          // Butterflies: whole-body roll oscillation fakes the wing flap
-          // cheaply, and gusts speed it up.
-          roll = Math.sin(seconds * TWO_PI * profile.flapHz + agentPhase) * profile.flapAmplitudeRad * flapWindGain;
-        }
-        // Every flier banks into the crosswind component (windVector is pure
-        // in worldSeconds, so this stays scrub/export-stable).
-        const crosswind = windX * Math.cos(yaw) - windZ * Math.sin(yaw);
-        roll += Math.min(Math.max(crosswind * 0.015, -0.2), 0.2);
+        // Whole-body roll oscillation fakes the wing flap cheaply.
+        roll = Math.sin(seconds * TWO_PI * profile.flapHz + agentPhase) * profile.flapAmplitudeRad;
         if (butterflyLiftReferenceY !== null && groundSample) {
           py += wildlifeTerrainLift(groundSample(px, pz), butterflyLiftReferenceY);
         }
@@ -230,9 +194,6 @@ function WildlifeGroupInstances({
   sim: WildlifeSim;
 }) {
   const isHerd = sim.archetype === "herd";
-  // Herd quadrupeds articulate legs/head/tail; birds articulate their wings
-  // through the same part-angle machinery. Butterflies and fish stay rigid.
-  const usesPartAngles = isHerd || group.species === "birds";
 
   const geometry = useMemo(
     () => buildWildlifeModel(group.species, group.sizeScale).geometry,
@@ -242,17 +203,16 @@ function WildlifeGroupInstances({
 
   const material = useMemo(
     () =>
-      usesPartAngles
-        ? // Part-articulated shader material. Closed herd boxes render
-          // front-side; bird wing parts are single triangles → double-side.
-          createWildlifePartMaterial(WILDLIFE_RENDER_PROFILES[group.species].tintHex, isHerd ? FrontSide : DoubleSide)
+      isHerd
+        ? // Part-articulated shader material; closed boxes render front-side.
+          createWildlifePartMaterial(WILDLIFE_RENDER_PROFILES[group.species].tintHex)
         : new MeshStandardMaterial({
             color: WILDLIFE_RENDER_PROFILES[group.species].tintHex,
             roughness: 0.9,
             metalness: 0,
             side: DoubleSide, // wing/fin planes are single triangles
           }),
-    [group.species, isHerd, usesPartAngles],
+    [group.species, isHerd],
   );
   useEffect(() => () => material.dispose(), [material]);
 
@@ -262,7 +222,7 @@ function WildlifeGroupInstances({
     instanced.instanceMatrix.setUsage(DynamicDrawUsage);
     instanced.castShadow = true;
     instanced.receiveShadow = false;
-    if (usesPartAngles) {
+    if (isHerd) {
       // Per-instance part angles (8 slots as 2 × vec4), streamed every frame
       // by composeGroupMatrices. One interleaved buffer keeps it one upload.
       const angles = new InstancedInterleavedBuffer(
@@ -273,13 +233,12 @@ function WildlifeGroupInstances({
       angles.setUsage(DynamicDrawUsage);
       geometry.setAttribute(WILDLIFE_PART_ANGLES_ATTRIBUTE_0, new InterleavedBufferAttribute(angles, 4, 0));
       geometry.setAttribute(WILDLIFE_PART_ANGLES_ATTRIBUTE_1, new InterleavedBufferAttribute(angles, 4, 4));
-      // Without a matching depth material, animated legs/wings would cast
-      // the rigid bind pose into the shadow map. (The shadow pass copies
-      // `side` from the surface material, so bird wings shadow double-sided.)
+      // Without a matching depth material, animated legs would cast the
+      // rigid bind pose into the shadow map.
       instanced.customDepthMaterial = createWildlifePartDepthMaterial();
     }
     return instanced;
-  }, [geometry, group.count, material, usesPartAngles]);
+  }, [geometry, group.count, isHerd, material]);
   // InstancedMesh.dispose releases the instanceMatrix GPU buffer via the
   // renderer's dispose listener; geometry/material are disposed by the
   // effects above when their memo keys (species/sizeScale) change.
@@ -292,53 +251,32 @@ function WildlifeGroupInstances({
   );
 
   // Skip recompose when nothing observable changed (paused playhead with a
-  // frozen ambient clock) to avoid redundant instanceMatrix uploads. The key
-  // includes the context identity plus a one-sample terrain probe at the
-  // area centre, so a ground sampler appearing — or terrain streaming in /
-  // being sculpted under the group — while paused still re-grounds agents.
-  // The ref object is mutated in place: useFrame stays allocation-free.
-  const lastComposeRef = useRef({
-    mesh: null as InstancedMesh | null,
-    sim: null as WildlifeSim | null,
-    context: null as LivingWorldFrameContext | null,
-    seconds: Number.NaN,
-    centerGroundY: Number.POSITIVE_INFINITY,
-  });
+  // frozen ambient clock) to avoid redundant instanceMatrix uploads.
+  const lastComposeRef = useRef<{ mesh: InstancedMesh; sim: WildlifeSim; seconds: number } | null>(null);
 
   useFrame(() => {
-    const centerGroundY = context.sampleGroundHeight
-      ? (context.sampleGroundHeight(group.area.center[0], group.area.center[2]) ?? Number.POSITIVE_INFINITY)
-      : Number.POSITIVE_INFINITY;
     const last = lastComposeRef.current;
-    if (
-      last.mesh === mesh &&
-      last.sim === sim &&
-      last.context === context &&
-      last.seconds === context.worldSeconds &&
-      last.centerGroundY === centerGroundY
-    ) {
-      return;
-    }
+    if (last && last.mesh === mesh && last.sim === sim && last.seconds === context.worldSeconds) return;
     sim.stepTo(context.worldSeconds);
     composeGroupMatrices(mesh, sim, group, context);
-    last.mesh = mesh;
-    last.sim = sim;
-    last.context = context;
-    last.seconds = context.worldSeconds;
-    last.centerGroundY = centerGroundY;
+    lastComposeRef.current = { mesh, sim, seconds: context.worldSeconds };
   });
 
   return <primitive object={mesh} dispose={null} />;
 }
 
-function WildlifeGroup({ group, context }: { group: DirectorWorldWildlifeGroup; context: LivingWorldFrameContext }) {
+function WildlifeGroup({
+  group,
+  context,
+  environment,
+}: {
+  group: DirectorWorldWildlifeGroup;
+  context: LivingWorldFrameContext;
+  environment: WildlifeSimEnvironment;
+}) {
   // Sim identity follows the simulation-relevant config (count, species,
-  // area, speedScale, seeds, ground, authored wind/weather). Any change
-  // discards the sim and replays fresh, which keeps state a pure function of
-  // (config, worldSeconds). The AUTHORED settings go in — never the per-frame
-  // evaluated `context.windVector` — so the sim re-derives per-tick wind
-  // deterministically and scrubbing replays the identical wind history.
-  const environment: WildlifeEnvironment = { wind: context.settings.wind, weather: context.settings.weather };
+  // area, speedScale, seeds, ground, environment). Any change discards the
+  // sim and replays fresh, keeping state a pure function of (config, time).
   const simRef = useRef<WildlifeSim | null>(null);
   if (
     !simRef.current ||
@@ -386,10 +324,39 @@ function WildlifeGroup({ group, context }: { group: DirectorWorldWildlifeGroup; 
 }
 
 export default function WildlifeLayer({ context, groups }: WildlifeLayerProps) {
+  // Authored water rectangles (basins only) for school confinement; the
+  // union recomputes only when the water collection itself changes.
+  const waterBodies = useDirectorStore((state) => state.project.world?.waterBodies);
+  const waterRects = useMemo<WildlifeWaterRect[]>(
+    () =>
+      (waterBodies ?? [])
+        .filter((body) => body.visible && !body.river)
+        .map((body) => ({
+          centerX: body.surface.center[0],
+          centerZ: body.surface.center[2],
+          sizeX: body.surface.sizeX,
+          sizeZ: body.surface.sizeZ,
+          rotationDegrees: body.surface.rotationDegrees,
+        })),
+    [waterBodies],
+  );
+  const environments = useMemo(() => {
+    const byId = new Map<string, WildlifeSimEnvironment>();
+    for (const group of groups) {
+      byId.set(group.id, buildWildlifeEnvironment(context.settings, group, groups, waterRects));
+    }
+    return byId;
+  }, [context.settings, groups, waterRects]);
+
   return (
     <group name="living-world-wildlife">
       {groups.map((group) => (
-        <WildlifeGroup key={group.id} group={group} context={context} />
+        <WildlifeGroup
+          key={group.id}
+          group={group}
+          context={context}
+          environment={environments.get(group.id) ?? { settings: context.settings }}
+        />
       ))}
     </group>
   );

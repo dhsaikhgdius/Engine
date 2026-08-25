@@ -275,6 +275,7 @@ describe("Director workbench executor", () => {
         "transcription",
         "storyboard_artifact",
         "query_objects",
+        "compare",
         "deliver",
       ]),
       controls: expect.arrayContaining([
@@ -327,6 +328,13 @@ describe("Director workbench executor", () => {
         concurrency: expect.stringContaining("public Agent boundary"),
         export: expect.stringContaining("A4/Letter"),
         download: expect.stringContaining("browser"),
+      },
+      compare_contract: {
+        source_kinds: ["stage", "media", "reconstruction_keyframe"],
+        scoring: expect.stringContaining("composite"),
+        localization: expect.stringContaining("grid.worst"),
+        loop: expect.stringContaining("fix only those regions"),
+        relationship: expect.stringContaining("reconstruction.compare"),
       },
       transcription_contract: {
         actions: ["capabilities", "list", "get", "submit", "cancel", "retry", "read", "search", "promote"],
@@ -1709,6 +1717,90 @@ describe("Director workbench executor", () => {
     expect(
       useDirectorStore.getState().project.cameras.find((camera) => camera.id === "agent-optical-camera"),
     ).toMatchObject({ sensorFormat: "imax65", focalLengthMm: 85 });
+  });
+
+  it("reports kernel ownership on object, light, and camera inspects", () => {
+    const store = useDirectorStore.getState();
+    const nativeObject = store.project.objects.find((object) => object.nativeSource?.engine === "blender")!;
+
+    // Stage-owned catalog instance: the Blender mirror only holds a projected representation.
+    const stageOwned = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
+      op: "inspect",
+      entity: "object",
+      id: nativeObject.id,
+    });
+    expect(stageOwned).toMatchObject({
+      success: true,
+      result: {
+        entity: "object",
+        kernel_ownership: {
+          kernel: "stage",
+          source: "stage_catalog",
+          blender_object_id: nativeObject.nativeSource!.objectId,
+          blender_provisioned: false,
+          stage_patchable_fields: "all",
+          deletes_with_blender: false,
+        },
+      },
+    });
+
+    useDirectorStore.getState().replaceProject({
+      ...useDirectorStore.getState().project,
+      objects: useDirectorStore.getState().project.objects.map((object) =>
+        object.id === nativeObject.id
+          ? { ...object, nativeSource: { ...object.nativeSource!, provisioned: true } }
+          : object,
+      ),
+    });
+
+    const blenderOwned = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
+      op: "inspect",
+      entity: "object",
+      id: nativeObject.id,
+    });
+    expect(blenderOwned).toMatchObject({
+      success: true,
+      result: {
+        entity: "object",
+        kernel_ownership: {
+          kernel: "blender",
+          source: "blender_native",
+          blender_object_id: nativeObject.nativeSource!.objectId,
+          stage_patchable_fields: ["name", "visible", "locked", "transform"],
+          rejected_stage_patches: [expect.objectContaining({ fields: ["*"] })],
+          deletes_with_blender: false,
+        },
+      },
+    });
+
+    const light = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
+      op: "inspect",
+      entity: "light",
+      id: useDirectorStore.getState().project.lights![0].id,
+    });
+    expect(light).toMatchObject({
+      success: true,
+      result: { kernel_ownership: { source: expect.stringMatching(/^(stage_light|blender_native)$/) } },
+    });
+
+    const camera = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
+      op: "inspect",
+      entity: "camera",
+      id: useDirectorStore.getState().project.cameras[0].id,
+    });
+    expect(camera).toMatchObject({
+      success: true,
+      result: { kernel_ownership: { stage_patchable_fields: "all" } },
+    });
+
+    const asset = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
+      op: "inspect",
+      entity: "asset",
+      id: useDirectorStore.getState().project.assets[0]?.id ?? "missing",
+    });
+    if (asset.success) {
+      expect(asset.result).not.toHaveProperty("kernel_ownership");
+    }
   });
 
   it("exports an evaluated, deterministic Shot IR for agents", () => {

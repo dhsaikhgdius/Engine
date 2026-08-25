@@ -82,3 +82,4 @@ by dropping a new JSON file into `tasks/`.
 | `tasks/05-bounded-large-scene-observation.json`  | Add a multi-object block and verify bounded spatial and hierarchy observations                                       |
 | `tasks/06-creative-workspaces-atomic-batch.json` | Exercise Canvas, Video Editor, and Gallery in one undoable Creative batch                                            |
 | `tasks/07-video-and-native-capabilities.json`    | Verify Video provider discovery and Blender native-kernel status through public tools                                |
+| `tasks/08-character-agent-possession.json`       | Place a catalog character, bind an Agent, drive it with motion/pose, verify the echoed binding, then unbind          |

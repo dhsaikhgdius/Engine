@@ -391,6 +391,38 @@ it("updates short role labels from the measured character model height", async (
   });
 });
 
+it("shows an agent takeover badge inside the label of a possessed character", () => {
+  const base = createInitialDirectorState();
+  useDirectorStore.setState({
+    ...useDirectorStore.getState(),
+    ...base,
+    project: {
+      ...projectWithViewportLabels(base.project),
+      objects: base.project.objects.map((item) =>
+        item.id === "char_default_a"
+          ? { ...item, agentBinding: { mode: "possess" as const, sessionId: "dsh-session-1" } }
+          : item,
+      ),
+    },
+  });
+
+  render(<SceneRoot />);
+
+  const badge = screen.getByText("Agent 接管");
+  expect(badge).toHaveClass("role-label-agent-badge");
+  expect(badge.closest(".role-label")).toHaveTextContent("角色01");
+  // The badge lives in the same pointer-transparent overlay, so it cannot
+  // block viewport selection or the transform gizmo.
+  expect(badge.closest('[data-testid="html-label"]')).toHaveAttribute("data-pointer-events", "none");
+});
+
+it("keeps character labels free of the agent badge when no agent is bound", () => {
+  render(<SceneRoot />);
+
+  expect(screen.getByText("角色01")).toBeInTheDocument();
+  expect(screen.queryByText("Agent 接管")).not.toBeInTheDocument();
+});
+
 it("renders every preset through the canonical packaged character while retaining distinct color identities", () => {
   useDirectorStore.getState().addPresetCharacter("female");
   useDirectorStore.getState().addPresetCharacter("teen");
