@@ -6,11 +6,11 @@ description: 影响多个 Director 工作区或外部契约的架构决策。
 ADR 记录会影响多个 Director workspace 或外部契约的决定。状态为 **Proposed** 的
 记录是可评审方向，不代表已经上线。
 
-| ADR                                                                                 | 状态     | 决策                                            |
-| ----------------------------------------------------------------------------------- | -------- | ----------------------------------------------- |
-| [ADR 0001：ProductionGraph](/zh/engineering/adr/0001-production-graph/)             | Proposed | 在现有编辑器模型之上增加身份与 lineage graph。  |
-| [ADR 0002：持久化 ProductionJob](/zh/engineering/adr/0002-durable-production-jobs/) | Proposed | 为外部任务和重型任务使用统一的持久化状态机。    |
-| [ADR 0003：导入、导出与回执](/zh/engineering/adr/0003-import-export-receipts/)      | Proposed | 将互操作拆成可审查的 plan/manifest 和写入回执。 |
+| ADR                                                                                 | 状态                                       | 决策                                            |
+| ----------------------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------- |
+| [ADR 0001：ProductionGraph](/zh/engineering/adr/0001-production-graph/)             | Proposed                                   | 在现有编辑器模型之上增加身份与 lineage graph。  |
+| [ADR 0002：持久化 ProductionJob](/zh/engineering/adr/0002-durable-production-jobs/) | Accepted（2026-08-25）                     | 为外部任务和重型任务使用统一的持久化状态机。    |
+| [ADR 0003：导入、导出与回执](/zh/engineering/adr/0003-import-export-receipts/)      | 对已交付 adapter 为 Accepted（2026-08-25） | 将互操作拆成可审查的 plan/manifest 和写入回执。 |
 
 ## ADR 生命周期
 
