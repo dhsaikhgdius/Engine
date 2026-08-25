@@ -1,6 +1,7 @@
 import {
   Color,
   DataTexture,
+  DoubleSide,
   MeshBasicMaterial,
   NearestFilter,
   OrthographicCamera,
@@ -277,6 +278,9 @@ function createHeightOverrideMaterial(): MeshBasicMaterial {
   const material = new MeshBasicMaterial({
     fog: false,
     toneMapped: false,
+    // Double-sided so roofs and eaves modeled with downward or inconsistent
+    // normals still write height when seen from the top-down ortho camera.
+    side: DoubleSide,
   });
   material.name = "Director_LivingWorld_HeightMap";
   material.onBeforeCompile = (parameters) => {
@@ -476,19 +480,24 @@ export function createWorldHeightMap(): WorldHeightMap {
       renderer.getClearColor(CLEAR_COLOR);
       const previousAlpha = renderer.getClearAlpha();
 
+      // try/finally so a throwing render (lost context, bad user shader in
+      // the scene) can never leak the override material, render target,
+      // clear state, or hidden overlay visibility into the main pass.
       refreshing = true;
       scene.overrideMaterial = material;
       renderer.setRenderTarget(target);
       renderer.setClearColor(0x000000, 1);
       renderer.autoClear = true;
-      renderer.render(scene, ortho);
-      renderer.setRenderTarget(previousTarget);
-      renderer.setClearColor(CLEAR_COLOR, previousAlpha);
-      renderer.autoClear = previousAutoClear;
-      scene.overrideMaterial = previousOverride;
-      refreshing = false;
-
-      for (const object of hidden) object.visible = true;
+      try {
+        renderer.render(scene, ortho);
+      } finally {
+        renderer.setRenderTarget(previousTarget);
+        renderer.setClearColor(CLEAR_COLOR, previousAlpha);
+        renderer.autoClear = previousAutoClear;
+        scene.overrideMaterial = previousOverride;
+        refreshing = false;
+        for (const object of hidden) object.visible = true;
+      }
 
       view.lastMark = createWorldHeightMapRefreshMark(input, renderer.info.render.frame);
     },

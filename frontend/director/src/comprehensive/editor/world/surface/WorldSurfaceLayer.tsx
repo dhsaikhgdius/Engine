@@ -23,7 +23,15 @@ import WorldAmbientAudio from "./worldAmbientAudio";
  */
 
 const disableRaycast: Mesh["raycast"] = () => undefined;
-const MATERIAL_DISCOVERY_INTERVAL_MS = 500;
+/**
+ * Scene-walk discovery cadence for asynchronously mounted model parts.
+ * Throttled on the DETERMINISTIC clocks (context.frame during playback,
+ * quantized worldSeconds while scrubbing) — never performance.now — so an
+ * export or seek patches newly mounted meshes at the same world time on
+ * every run instead of depending on how fast the machine renders.
+ */
+const MATERIAL_DISCOVERY_INTERVAL_FRAMES = 12;
+const MATERIAL_DISCOVERY_INTERVAL_SECONDS = 0.5;
 
 export default function WorldSurfaceLayer({
   captureHeightMap,
@@ -40,7 +48,12 @@ export default function WorldSurfaceLayer({
   const vegetationIds = useMemo(() => collectWorldVegetationObjectIds(evaluatedObjects), [evaluatedObjects]);
   const patchedRef = useRef(new Set<Material>());
   const patched = patchedRef.current;
-  const lastMaterialSyncAtMsRef = useRef(Number.NEGATIVE_INFINITY);
+  const lastMaterialSyncRef = useRef<{ frame: number; timeBucket: number } | null>(null);
+  // Read through a ref so syncMaterialPatches keeps a stable identity across
+  // per-frame context updates; the force-sync layout effect below must only
+  // re-fire on project/classification changes, not every frame.
+  const contextRef = useRef(context);
+  contextRef.current = context;
   const heightMapRef = useRef<WorldHeightMap | null>(null);
   const meshRef = useRef<Mesh>(null);
 
@@ -92,6 +105,11 @@ export default function WorldSurfaceLayer({
         context.windVector[0],
         context.windVector[2],
         context.worldSeconds,
+        {
+          seed: context.seed,
+          gustiness: context.settings.wind.gustiness,
+          turbulence: context.settings.wind.turbulence,
+        },
       );
       if (renderer && camera) {
         heightMapRef.current?.handleBeforeRender(renderer, scene, camera, context.worldSeconds);
@@ -102,9 +120,19 @@ export default function WorldSurfaceLayer({
 
   const syncMaterialPatches = useCallback(
     (force = false) => {
-      const now = performance.now();
-      if (!force && now - lastMaterialSyncAtMsRef.current < MATERIAL_DISCOVERY_INTERVAL_MS) return;
-      lastMaterialSyncAtMsRef.current = now;
+      const frame = contextRef.current.frame;
+      const timeBucket = Math.floor(contextRef.current.worldSeconds / MATERIAL_DISCOVERY_INTERVAL_SECONDS);
+      const last = lastMaterialSyncRef.current;
+      // abs() so a playback restart (frame counter reset) still resyncs.
+      if (
+        !force &&
+        last !== null &&
+        Math.abs(frame - last.frame) < MATERIAL_DISCOVERY_INTERVAL_FRAMES &&
+        timeBucket === last.timeBucket
+      ) {
+        return;
+      }
+      lastMaterialSyncRef.current = { frame, timeBucket };
       syncWorldSurfaceMaterials(scene, uniforms, vegetationIds, patched);
     },
     [patched, scene, uniforms, vegetationIds],

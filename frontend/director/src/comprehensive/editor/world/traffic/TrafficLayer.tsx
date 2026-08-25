@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
+  AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
   Color,
@@ -8,12 +9,17 @@ import {
   Euler,
   InstancedMesh,
   Matrix4,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Quaternion,
   Vector3,
 } from "three";
-import type { DirectorWorldRoad } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
+import type {
+  DirectorWorldRoad,
+  DirectorWorldWeather,
+} from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext, TrafficLayerProps } from "../livingWorldContracts";
+import { evaluateWorldTimeOfDayHours } from "../worldTime";
 import {
   buildRoadRibbon,
   buildRoadSpline,
@@ -22,8 +28,24 @@ import {
   type MutableRoadVec3,
   type RoadSpline,
 } from "./roadSpline";
-import { buildRoadTrafficStreams, vehicleArcPositionAt, type RoadTrafficStreams } from "./trafficFlow";
-import { buildVehicleGeometry, VEHICLE_COLOR_PALETTE } from "./vehicleGeometry";
+import {
+  computeRoadSurfaceAppearance,
+  computeTrafficHeadlightFactor,
+  trafficWeatherSpeedScale,
+} from "./trafficEnvironment";
+import {
+  buildRoadTrafficStreams,
+  planTrafficBodyVariants,
+  vehicleArcPositionAt,
+  type RoadTrafficStreams,
+  type TrafficBodyVariantPlan,
+} from "./trafficFlow";
+import {
+  buildVehicleGeometry,
+  buildVehicleLightsGeometry,
+  VEHICLE_BODY_TYPES,
+  VEHICLE_COLOR_PALETTE,
+} from "./vehicleGeometry";
 
 /**
  * Ambient traffic sub-layer: instanced vehicles flowing along road splines.
@@ -35,14 +57,24 @@ import { buildVehicleGeometry, VEHICLE_COLOR_PALETTE } from "./vehicleGeometry";
  * useFrame advances) and in useFrame, with a change guard so steady-state
  * playback performs exactly one compose per frame and zero allocations
  * (module-level scratch objects only).
+ *
+ * Weather threads in as pure inputs: storms/snow scale the SHARED lane speed
+ * uniformly (no per-car scales, preserving the no-overtake guarantee) and
+ * wetness darkens/glazes the asphalt. Headlights fade in from
+ * timeOfDay-evaluated solar hours — all derived per frame from context, never
+ * written back into System checkpoint state.
  */
 
 const ROAD_SURFACE_LIFT_M = 0.02;
 const ROAD_SURFACE_COLOR = 0x2b2e33;
+/** Snow-covered asphalt blend target (trampled white). */
+const ROAD_SNOW_COLOR = new Color(0.78, 0.81, 0.85);
 /** Cosmetic suspension bounce; tiny, hashed phase per vehicle. */
 const BOUNCE_HZ = 2.4;
 const BOUNCE_AMPLITUDE_M = 0.012;
 const TWO_PI = Math.PI * 2;
+/** Below this headlight factor the lights mesh is hidden entirely. */
+const HEADLIGHT_VISIBLE_EPSILON = 0.004;
 
 const tempMatrix = new Matrix4();
 const tempPosition = new Vector3();
@@ -54,14 +86,14 @@ const scratchPoint: MutableRoadVec3 = [0, 0, 0];
 const scratchTangent: MutableRoadVec3 = [0, 0, 0];
 
 function composeVehicleMatrices(
-  mesh: InstancedMesh,
+  meshes: readonly InstancedMesh[],
+  plan: TrafficBodyVariantPlan,
   spline: RoadSpline,
   streams: RoadTrafficStreams,
   laneOffsetM: number,
   worldSeconds: number,
 ): void {
-  const count = Math.min(mesh.count, streams.count);
-  for (let index = 0; index < count; index += 1) {
+  for (let index = 0; index < streams.count; index += 1) {
     const arc = vehicleArcPositionAt(streams, index, worldSeconds);
     sampleRoadSplineAt(spline, arc, scratchPoint, scratchTangent);
     const direction = streams.directions[index]!;
@@ -92,12 +124,22 @@ function composeVehicleMatrices(
       scratchPoint[2] + lateralZ * laneOffsetM,
     );
     tempMatrix.compose(tempPosition, tempQuaternion, UNIT_SCALE);
-    mesh.setMatrixAt(index, tempMatrix);
+    // Body type only reroutes WHICH InstancedMesh receives the matrix; the
+    // pose itself stays a pure function of the stream index.
+    meshes[streams.bodyTypeIndices[index]!]!.setMatrixAt(plan.slots[index]!, tempMatrix);
   }
-  mesh.instanceMatrix.needsUpdate = true;
+  for (const mesh of meshes) mesh.instanceMatrix.needsUpdate = true;
 }
 
-function RoadSurface({ road, spline }: { road: DirectorWorldRoad; spline: RoadSpline }) {
+function RoadSurface({
+  road,
+  spline,
+  weather,
+}: {
+  road: DirectorWorldRoad;
+  spline: RoadSpline;
+  weather: DirectorWorldWeather;
+}) {
   const geometry = useMemo(() => {
     const ribbon = buildRoadRibbon(spline, road.widthM, ROAD_SURFACE_LIFT_M);
     const built = new BufferGeometry();
@@ -118,6 +160,18 @@ function RoadSurface({ road, spline }: { road: DirectorWorldRoad; spline: RoadSp
   );
   useEffect(() => () => material.dispose(), [material]);
 
+  // The road owns its weather appearance (the surface patcher skips
+  // living-world-road-* meshes): wet asphalt darkens and glazes, snow blends
+  // toward white. Pure function of authored weather — no per-frame work.
+  const appearance = computeRoadSurfaceAppearance(weather);
+  useMemo(() => {
+    material.color
+      .setHex(ROAD_SURFACE_COLOR)
+      .multiplyScalar(appearance.colorScale)
+      .lerp(ROAD_SNOW_COLOR, appearance.snowMix);
+    material.roughness = appearance.roughness;
+  }, [material, appearance.colorScale, appearance.roughness, appearance.snowMix]);
+
   return <mesh geometry={geometry} material={material} name={`living-world-road-${road.id}`} receiveShadow />;
 }
 
@@ -130,85 +184,189 @@ function RoadVehicles({
   spline: RoadSpline;
   context: LivingWorldFrameContext;
 }) {
+  // Weather scales the whole lane uniformly; the hashed 0.85..1.15 band and
+  // slot offsets are untouched, so gaps and ordering replay identically.
+  const laneSpeedScale = trafficWeatherSpeedScale(context.settings.weather);
   const streams = useMemo(
     () =>
       buildRoadTrafficStreams(
         { id: road.id, seedOffset: road.seedOffset, vehicleCount: road.vehicleCount, speedKph: road.speedKph },
         context.seed,
         spline.totalLengthM,
+        laneSpeedScale,
+      ),
+    [road.id, road.seedOffset, road.vehicleCount, road.speedKph, context.seed, spline.totalLengthM, laneSpeedScale],
+  );
+
+  // Body type is a cosmetic hash: it reroutes a vehicle into the sedan or
+  // SUV InstancedMesh but never touches arc offsets or the shared lane speed.
+  // The plan is keyed on road identity WITHOUT the weather scale (the hash
+  // ignores it), so an intensity drag rebuilds `streams` per tick without
+  // reallocating the InstancedMesh GPU buffers below.
+  const plan = useMemo(
+    () =>
+      planTrafficBodyVariants(
+        buildRoadTrafficStreams(
+          { id: road.id, seedOffset: road.seedOffset, vehicleCount: road.vehicleCount, speedKph: road.speedKph },
+          context.seed,
+          spline.totalLengthM,
+        ),
       ),
     [road.id, road.seedOffset, road.vehicleCount, road.speedKph, context.seed, spline.totalLengthM],
   );
 
-  const geometry = useMemo(() => buildVehicleGeometry(), []);
-  useEffect(() => () => geometry.dispose(), [geometry]);
+  const geometries = useMemo(() => VEHICLE_BODY_TYPES.map((bodyType) => buildVehicleGeometry(bodyType)), []);
+  useEffect(
+    () => () => {
+      for (const geometry of geometries) geometry.dispose();
+    },
+    [geometries],
+  );
 
-  // White base so per-instance palette colors pass through unchanged.
-  const material = useMemo(() => new MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.15 }), []);
+  // White base with vertex colors: the per-instance palette tint passes
+  // through body panels while glass/skirt/wheel vertex colors stay dark.
+  const material = useMemo(
+    () => new MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.25, vertexColors: true }),
+    [],
+  );
   useEffect(() => () => material.dispose(), [material]);
 
-  const mesh = useMemo(() => {
-    const instanced = new InstancedMesh(geometry, material, road.vehicleCount);
-    instanced.frustumCulled = false; // vehicles circulate the whole spline
-    instanced.instanceMatrix.setUsage(DynamicDrawUsage);
-    instanced.castShadow = true;
-    instanced.receiveShadow = false;
-    instanced.name = `living-world-traffic-vehicles-${road.id}`;
-    return instanced;
-  }, [geometry, material, road.id, road.vehicleCount]);
+  const meshes = useMemo(
+    () =>
+      geometries.map((geometry, body) => {
+        const instanced = new InstancedMesh(geometry, material, plan.counts[body]!);
+        instanced.frustumCulled = false; // vehicles circulate the whole spline
+        instanced.instanceMatrix.setUsage(DynamicDrawUsage);
+        instanced.castShadow = true;
+        instanced.receiveShadow = false;
+        instanced.name = `living-world-traffic-vehicles-${road.id}-${VEHICLE_BODY_TYPES[body]}`;
+        return instanced;
+      }),
+    [geometries, material, plan, road.id],
+  );
   // InstancedMesh.dispose releases instance buffers; geometry/material are
   // owned by the effects above.
-  useEffect(() => () => mesh.dispose(), [mesh]);
+  useEffect(
+    () => () => {
+      for (const mesh of meshes) mesh.dispose();
+    },
+    [meshes],
+  );
+
+  // Emissive light clusters (shared across body types) reuse each body
+  // mesh's instanceMatrix attribute, so one compose drives body + lights and
+  // the GPU uploads a single buffer per body type.
+  const lightsGeometry = useMemo(() => buildVehicleLightsGeometry(), []);
+  useEffect(() => () => lightsGeometry.dispose(), [lightsGeometry]);
+  const lightsMaterial = useMemo(
+    () =>
+      new MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+    [],
+  );
+  useEffect(() => () => lightsMaterial.dispose(), [lightsMaterial]);
+  const lightsMeshes = useMemo(
+    () =>
+      meshes.map((bodyMesh, body) => {
+        const instanced = new InstancedMesh(lightsGeometry, lightsMaterial, bodyMesh.count);
+        instanced.frustumCulled = false;
+        instanced.castShadow = false;
+        instanced.receiveShadow = false;
+        instanced.instanceMatrix = bodyMesh.instanceMatrix;
+        instanced.name = `living-world-traffic-lights-${road.id}-${VEHICLE_BODY_TYPES[body]}`;
+        instanced.visible = false;
+        return instanced;
+      }),
+    [lightsGeometry, lightsMaterial, meshes, road.id],
+  );
+  useEffect(
+    () => () => {
+      for (const mesh of lightsMeshes) mesh.dispose();
+    },
+    [lightsMeshes],
+  );
 
   // Palette colors are static per (seed, road, count): write them whenever the
   // mesh or streams identity changes, during render so captures see them.
   useMemo(() => {
-    for (let index = 0; index < Math.min(mesh.count, streams.count); index += 1) {
+    for (let index = 0; index < streams.count; index += 1) {
       tempColor.setHex(VEHICLE_COLOR_PALETTE[streams.colorIndices[index]!]!);
-      mesh.setColorAt(index, tempColor);
+      meshes[streams.bodyTypeIndices[index]!]!.setColorAt(plan.slots[index]!, tempColor);
     }
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [mesh, streams]);
+    for (const mesh of meshes) {
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
+  }, [meshes, plan, streams]);
 
   const laneOffsetM = roadLaneOffsetM(road.widthM);
 
   // One compose per observable change; render-phase write keeps single
   // invalidated frames (demand frameloop, deterministic capture) correct.
   const lastComposeRef = useRef<{
-    mesh: InstancedMesh;
+    meshes: readonly InstancedMesh[];
     spline: RoadSpline;
     streams: RoadTrafficStreams;
     laneOffsetM: number;
     seconds: number;
+    headlightFactor: number;
   } | null>(null);
   const composeIfNeeded = () => {
+    const hours = evaluateWorldTimeOfDayHours(context.settings.timeOfDay, context.worldSeconds);
+    const headlightFactor = computeTrafficHeadlightFactor(hours);
     const last = lastComposeRef.current;
     if (
       last &&
-      last.mesh === mesh &&
+      last.meshes === meshes &&
       last.spline === spline &&
       last.streams === streams &&
       last.laneOffsetM === laneOffsetM &&
-      last.seconds === context.worldSeconds
+      last.seconds === context.worldSeconds &&
+      last.headlightFactor === headlightFactor
     ) {
       return;
     }
-    composeVehicleMatrices(mesh, spline, streams, laneOffsetM, context.worldSeconds);
-    lastComposeRef.current = { mesh, spline, streams, laneOffsetM, seconds: context.worldSeconds };
+    composeVehicleMatrices(meshes, plan, spline, streams, laneOffsetM, context.worldSeconds);
+    lightsMaterial.opacity = headlightFactor;
+    for (const lightsMesh of lightsMeshes) {
+      lightsMesh.visible = headlightFactor > HEADLIGHT_VISIBLE_EPSILON;
+    }
+    lastComposeRef.current = {
+      meshes,
+      spline,
+      streams,
+      laneOffsetM,
+      seconds: context.worldSeconds,
+      headlightFactor,
+    };
   };
   composeIfNeeded();
   useFrame(() => {
     composeIfNeeded();
   });
 
-  return <primitive object={mesh} dispose={null} />;
+  return (
+    <>
+      {meshes.map((mesh) => (
+        <primitive key={mesh.name} object={mesh} dispose={null} />
+      ))}
+      {lightsMeshes.map((mesh) => (
+        <primitive key={mesh.name} object={mesh} dispose={null} />
+      ))}
+    </>
+  );
 }
 
 function RoadTraffic({ road, context }: { road: DirectorWorldRoad; context: LivingWorldFrameContext }) {
   const spline = useMemo(() => buildRoadSpline(road.points, road.loop), [road.points, road.loop]);
   return (
     <>
-      {road.showSurface ? <RoadSurface road={road} spline={spline} /> : null}
+      {road.showSurface ? <RoadSurface road={road} spline={spline} weather={context.settings.weather} /> : null}
       {road.vehicleCount > 0 ? <RoadVehicles road={road} spline={spline} context={context} /> : null}
     </>
   );
