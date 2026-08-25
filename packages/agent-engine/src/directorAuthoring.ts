@@ -97,15 +97,18 @@ import { directorCameraAspectRatioSchema as cameraAspect } from "@director/proto
 import {
   createDefaultDirectorWorld,
   DIRECTOR_WORLD_MAX_EFFECTS,
+  DIRECTOR_WORLD_WEATHER_DEFAULT_PERIOD_SECONDS,
   DIRECTOR_WORLD_MAX_ROADS,
   DIRECTOR_WORLD_MAX_WATER_BODIES,
   DIRECTOR_WORLD_MAX_WILDLIFE_GROUPS,
   directorWorldEffectSchema,
+  directorWorldFirePropagationSchema,
   directorWorldRiverSchema,
   directorWorldRoadSchema,
   directorWorldSettingsSchema,
   directorWorldTimeOfDaySchema,
   directorWorldWaterBodySchema,
+  directorWorldWeatherEvolutionSchema,
   directorWorldWeatherSchema,
   directorWorldWildlifeGroupSchema,
   directorWorldWindSchema,
@@ -340,12 +343,20 @@ const worldTimeOfDayPatchSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, { message: "time_of_day patch cannot be empty" });
 
+/** Absent period_seconds preserves the existing period (or the protocol default). */
+const worldWeatherEvolutionInputSchema = z.strictObject({
+  mode: directorWorldWeatherEvolutionSchema.shape.mode,
+  period_seconds: directorWorldWeatherEvolutionSchema.shape.periodSeconds.unwrap().optional(),
+});
+
 const worldWeatherPatchSchema = z
   .strictObject({
     preset: directorWorldWeatherSchema.shape.preset.optional(),
     intensity: directorWorldWeatherSchema.shape.intensity.optional(),
     wetness: directorWorldWeatherSchema.shape.wetness.optional(),
     cloud_cover: directorWorldWeatherSchema.shape.cloudCover.optional(),
+    /** null removes the block (static weather); an object replaces/merges it. */
+    evolution: worldWeatherEvolutionInputSchema.nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: "weather patch cannot be empty" });
 
@@ -364,6 +375,15 @@ const worldAnchorInputSchema = z.strictObject({
   object_id: id.nullable().optional(),
   position: worldAnchorSchema.shape.position.optional(),
 });
+
+/** Deterministic fire spread; only valid on kind "fire" with an unbound anchor. */
+const worldFirePropagationInputSchema = z.strictObject({
+  enabled: directorWorldFirePropagationSchema.shape.enabled,
+  radius_m: directorWorldFirePropagationSchema.shape.radiusM.unwrap().optional(),
+  spread_rate: directorWorldFirePropagationSchema.shape.spreadRate.unwrap().optional(),
+});
+
+const worldFirePropagationDefaults = directorWorldFirePropagationSchema.parse({ enabled: false });
 
 const worldEffectFieldSchemas = {
   name: directorWorldEffectSchema.shape.name,
@@ -387,6 +407,8 @@ const worldEffectUpdateSchema = z
     speed_scale: worldEffectFieldSchemas.speed_scale.optional(),
     color_tint: worldColorTint.nullable().optional(),
     wind_influence: worldEffectFieldSchemas.wind_influence.optional(),
+    /** null removes fire propagation; an object replaces/merges it. */
+    propagation: worldFirePropagationInputSchema.nullable().optional(),
     seed_offset: worldEffectFieldSchemas.seed_offset.optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
@@ -794,6 +816,7 @@ export const directorAuthoringActionSchema = z
       speed_scale: worldEffectFieldSchemas.speed_scale.optional(),
       color_tint: worldColorTint.optional(),
       wind_influence: worldEffectFieldSchemas.wind_influence.optional(),
+      propagation: worldFirePropagationInputSchema.optional(),
       seed_offset: worldEffectFieldSchemas.seed_offset.optional(),
     }),
     strictAction("update_world_effect", { effect_id: id, patch: worldEffectUpdateSchema }),
@@ -1196,6 +1219,18 @@ function assertUnlockedWorldEntry(
   if (entry.locked && !unlockOnly) {
     throw new Error(
       `${label} "${entry.id}" is locked. Unlock it first with an ${updateAction} patch {"locked": false}.`,
+    );
+  }
+}
+
+/** Fire propagation is a simulation contract: fire-kind only, unbound anchor only. */
+function assertFirePropagationTarget(kind: DirectorWorldEffect["kind"], objectId: string | null | undefined) {
+  if (kind !== "fire") {
+    throw new Error('World effect propagation requires kind "fire". Remove propagation or change the kind.');
+  }
+  if (objectId) {
+    throw new Error(
+      "World effect propagation requires an unbound anchor (anchor.object_id null); spread history cannot track a moving object.",
     );
   }
 }
@@ -2588,6 +2623,21 @@ export function applyDirectorAuthoringActions(
             ...(settings.weather?.cloud_cover === undefined ? {} : { cloudCover: settings.weather.cloud_cover }),
           },
         };
+        if (settings.weather?.evolution !== undefined) {
+          assignOptional(
+            world.settings.weather,
+            "evolution",
+            settings.weather.evolution === null
+              ? null
+              : {
+                  mode: settings.weather.evolution.mode,
+                  periodSeconds:
+                    settings.weather.evolution.period_seconds ??
+                    world.settings.weather.evolution?.periodSeconds ??
+                    DIRECTOR_WORLD_WEATHER_DEFAULT_PERIOD_SECONDS,
+                },
+          );
+        }
         break;
       }
       case "add_world_effect": {
@@ -2595,6 +2645,7 @@ export function applyDirectorAuthoringActions(
         assertWorldCapacity(world.effects.length, DIRECTOR_WORLD_MAX_EFFECTS, "effects", "remove_world_effects");
         if (item.anchor?.object_id) requireObject(project, item.anchor.object_id);
         if (item.id) ensureAvailableWorldId(world, item.id, "World effect");
+        if (item.propagation) assertFirePropagationTarget(item.kind, item.anchor?.object_id);
         const generated = nextWorldEntryId(world, `fx_${item.kind}`);
         const effect: DirectorWorldEffect = {
           id: item.id ?? generated.id,
@@ -2610,6 +2661,15 @@ export function applyDirectorAuthoringActions(
           speedScale: item.speed_scale ?? 1,
           ...(item.color_tint ? { colorTint: item.color_tint } : {}),
           windInfluence: item.wind_influence ?? WORLD_EFFECT_DEFAULT_WIND_INFLUENCE[item.kind],
+          ...(item.propagation
+            ? {
+                propagation: {
+                  enabled: item.propagation.enabled,
+                  radiusM: item.propagation.radius_m ?? worldFirePropagationDefaults.radiusM,
+                  spreadRate: item.propagation.spread_rate ?? worldFirePropagationDefaults.spreadRate,
+                },
+              }
+            : {}),
           seedOffset: item.seed_offset ?? nextWorldSeedOffset(world.effects),
           visible: true,
           locked: false,
@@ -2638,6 +2698,23 @@ export function applyDirectorAuthoringActions(
         if (patch.speed_scale !== undefined) effect.speedScale = patch.speed_scale;
         assignOptional(effect, "colorTint", patch.color_tint);
         if (patch.wind_influence !== undefined) effect.windInfluence = patch.wind_influence;
+        if (patch.propagation !== undefined) {
+          if (patch.propagation) assertFirePropagationTarget(effect.kind, effect.anchor.objectId);
+          assignOptional(
+            effect,
+            "propagation",
+            patch.propagation === null
+              ? null
+              : {
+                  enabled: patch.propagation.enabled,
+                  radiusM: patch.propagation.radius_m ?? effect.propagation?.radiusM ?? worldFirePropagationDefaults.radiusM,
+                  spreadRate:
+                    patch.propagation.spread_rate ??
+                    effect.propagation?.spreadRate ??
+                    worldFirePropagationDefaults.spreadRate,
+                },
+          );
+        }
         if (patch.seed_offset !== undefined) effect.seedOffset = patch.seed_offset;
         if (patch.visible !== undefined) effect.visible = patch.visible;
         if (patch.locked !== undefined) effect.locked = patch.locked;
