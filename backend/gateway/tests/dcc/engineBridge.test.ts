@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { DirectorDccEngineId, DirectorDccExchangePackageResult } from "@director/dcc-protocol";
@@ -122,7 +122,11 @@ describe("DirectorDccEngineBridge", () => {
       const health = await bridge.health(provider);
       expect(health.ready).toBe(true);
       expect(health.hostVersion).toBe(`${provider} 9.9 fixture`);
-      expect(health.connectorVersion).toBe("0.1.0");
+      // Each connector owns its version; read it from the committed manifest.
+      const manifest = JSON.parse(
+        await readFile(resolve(repositoryRoot, "integrations", provider, "connector.json"), "utf8"),
+      ) as { version: string };
+      expect(health.connectorVersion).toBe(manifest.version);
       expect((await bridge.diagnostics(provider)).mode).toBe("native");
     },
   );
