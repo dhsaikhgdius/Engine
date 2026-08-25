@@ -364,7 +364,9 @@ describe("DCC routes", () => {
       blender: { status: vi.fn(), exportBlend: vi.fn() },
       returnImporter,
     });
-    expect(returnImporter.buildImportPlan).toHaveBeenCalledWith("job-1/return-package", project);
+    expect(returnImporter.buildImportPlan).toHaveBeenCalledWith("job-1/return-package", project, {
+      includeNewObjects: false,
+    });
     expect(json).toHaveBeenCalledWith(
       expect.anything(),
       200,
@@ -406,6 +408,7 @@ describe("DCC routes", () => {
     });
     expect(returnImporter.buildImportPlan).toHaveBeenCalledWith("job-1/return-package", project, {
       skipDirectorIds: ["chair"],
+      includeNewObjects: false,
     });
     expect(json).toHaveBeenCalledWith(
       expect.anything(),
