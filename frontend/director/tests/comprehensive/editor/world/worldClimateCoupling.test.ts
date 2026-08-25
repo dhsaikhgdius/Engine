@@ -11,10 +11,7 @@ import {
   WORLD_CLIMATE_NODE_VECTORS,
   type WorldClimateState,
 } from "../../../../src/comprehensive/editor/world/worldClimate";
-import {
-  evaluateSkyLighting,
-  evaluateSunDiscState,
-} from "../../../../src/comprehensive/editor/world/sky/solar";
+import { evaluateSkyLighting, evaluateSunDiscState } from "../../../../src/comprehensive/editor/world/sky/solar";
 import {
   computeClimateAmbientAudioGains,
   computeClimateSnowCover,
@@ -165,9 +162,7 @@ describe("surface coupling", () => {
       for (const intensity of INTENSITIES) {
         const settings = makeSettings({ preset, intensity });
         const climate = evaluateWorldClimate(settings, 5);
-        expect(computeClimateAmbientAudioGains(climate, 6)).toEqual(
-          computeWorldAmbientAudioGains(settings.weather, 6),
-        );
+        expect(computeClimateAmbientAudioGains(climate, 6)).toEqual(computeWorldAmbientAudioGains(settings.weather, 6));
       }
     }
   });
@@ -220,10 +215,7 @@ describe("water coupling", () => {
       const climate = makeHoldClimate(preset, 1);
       const weather = climate.weather;
       expect(computeWaterRainAgitation(weather, climate)).toBeCloseTo(computeWaterRainAgitation(weather), 12);
-      expect(computeWaterBodyLightLevel(12, weather, climate)).toBeCloseTo(
-        computeWaterBodyLightLevel(12, weather),
-        12,
-      );
+      expect(computeWaterBodyLightLevel(12, weather, climate)).toBeCloseTo(computeWaterBodyLightLevel(12, weather), 12);
       const horizonA = { r: 0, g: 0, b: 0 };
       const zenithA = { r: 0, g: 0, b: 0 };
       const horizonB = { r: 0, g: 0, b: 0 };

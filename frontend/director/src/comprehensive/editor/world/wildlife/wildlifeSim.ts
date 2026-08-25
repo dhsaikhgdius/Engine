@@ -1093,8 +1093,7 @@ export function createWildlifeSim(
     const stateSeconds = simTick * DT;
     // Storms press flocks toward the bottom of their flight band (soft
     // springs only; the hard band clamp stays authored).
-    const stormBandTop =
-      config.bandMaxY - envStorm * WILDLIFE_STORM_BAND_DROP * (config.bandMaxY - config.bandMinY);
+    const stormBandTop = config.bandMaxY - envStorm * WILDLIFE_STORM_BAND_DROP * (config.bandMaxY - config.bandMinY);
     // Air-mass advection per tick (pure function of the quantized tick):
     // fliers get carried by a fraction of the wind on top of their steering.
     const windAdvectX = envWindX * windDriftFactor;

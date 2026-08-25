@@ -209,7 +209,8 @@ export function getWorldClimateSegmentPreset(settings: DirectorWorldSettings, se
 
 function getSegmentRampSeconds(settings: DirectorWorldSettings, segment: number, segmentSeconds: number): number {
   const roll = worldRandom01(settings.seed, SCHEDULE_STREAM, segment, RAMP_STREAM);
-  const ramp = WORLD_CLIMATE_MIN_RAMP_SECONDS + (WORLD_CLIMATE_MAX_RAMP_SECONDS - WORLD_CLIMATE_MIN_RAMP_SECONDS) * roll;
+  const ramp =
+    WORLD_CLIMATE_MIN_RAMP_SECONDS + (WORLD_CLIMATE_MAX_RAMP_SECONDS - WORLD_CLIMATE_MIN_RAMP_SECONDS) * roll;
   // A ramp never exceeds 60% of its segment, so every node visibly holds.
   return Math.min(ramp, segmentSeconds * 0.6);
 }
@@ -247,10 +248,7 @@ export function blendWorldPresetScalar(
   return lerp(table[schedule.fromPreset], table[schedule.toPreset], schedule.blend);
 }
 
-function blendNodeField(
-  field: keyof WorldClimateNodeVector,
-  schedule: WorldClimateSchedule,
-): number {
+function blendNodeField(field: keyof WorldClimateNodeVector, schedule: WorldClimateSchedule): number {
   const from = WORLD_CLIMATE_NODE_VECTORS[schedule.fromPreset][field];
   const to = WORLD_CLIMATE_NODE_VECTORS[schedule.toPreset][field];
   return lerp(from, to, schedule.blend);
@@ -385,8 +383,7 @@ export function evaluateWorldClimate(settings: DirectorWorldSettings, worldSecon
   }
 
   const schedule = evaluateWorldClimateSchedule(settings, worldSeconds);
-  const inFirstSegment =
-    Math.max(0, Number.isFinite(worldSeconds) ? worldSeconds : 0) < getSegmentSeconds(settings);
+  const inFirstSegment = Math.max(0, Number.isFinite(worldSeconds) ? worldSeconds : 0) < getSegmentSeconds(settings);
   // Segment 0 "from" state is the authored look, so switching evolution on
   // does not snap the frame at t = 0.
   const cloudCover = inFirstSegment

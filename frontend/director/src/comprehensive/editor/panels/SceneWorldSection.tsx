@@ -1424,8 +1424,7 @@ export function SceneWorldSection() {
                         evolution: {
                           mode: value as WorldWeatherEvolutionMode,
                           periodSeconds:
-                            settings.weather.evolution?.periodSeconds ??
-                            DIRECTOR_WORLD_WEATHER_DEFAULT_PERIOD_SECONDS,
+                            settings.weather.evolution?.periodSeconds ?? DIRECTOR_WORLD_WEATHER_DEFAULT_PERIOD_SECONDS,
                         },
                       },
                     })

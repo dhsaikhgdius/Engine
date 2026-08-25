@@ -543,7 +543,11 @@ const RAIN_AGITATION_BY_PRESET: Record<DirectorWorldWeather["preset"], number> =
 export function computeWaterRainAgitation(weather: DirectorWorldWeather, climate?: WorldClimateState): number {
   const intensity = clamp(weather.intensity, 0, 1);
   if (climate?.evolving) {
-    const rainBase = exactLerp(RAIN_AGITATION_BY_PRESET.rain, RAIN_AGITATION_BY_PRESET.storm, clamp(climate.stormFactor, 0, 1));
+    const rainBase = exactLerp(
+      RAIN_AGITATION_BY_PRESET.rain,
+      RAIN_AGITATION_BY_PRESET.storm,
+      clamp(climate.stormFactor, 0, 1),
+    );
     const agitation =
       rainBase * clamp(climate.rainPresence, 0, 1) * intensity +
       RAIN_AGITATION_BY_PRESET.snow * clamp(climate.snowPresence, 0, 1) * intensity;

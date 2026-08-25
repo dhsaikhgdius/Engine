@@ -611,7 +611,13 @@ export function writeWaterFrameUniforms(uniforms: WaterSurfaceUniforms, frame: W
   computeWaterSunDirectionInto(uniforms.uSunDirection.value, hours);
   uniforms.uSunIntensity.value = computeWaterSunIntensity(hours, weather.cloudCover);
   computeWaterSunColorInto(uniforms.uSunColor.value, hours);
-  computeWaterSkyReflectionInto(uniforms.uSkyHorizonColor.value, uniforms.uSkyZenithColor.value, hours, weather, climate);
+  computeWaterSkyReflectionInto(
+    uniforms.uSkyHorizonColor.value,
+    uniforms.uSkyZenithColor.value,
+    hours,
+    weather,
+    climate,
+  );
   uniforms.uBodyLight.value = computeWaterBodyLightLevel(hours, weather, climate);
   uniforms.uMicroRipple.value = computeWaterMicroRippleStrength(windSpeedMps);
   uniforms.uRainAgitation.value = computeWaterRainAgitation(weather, climate);

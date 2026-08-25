@@ -124,9 +124,9 @@ describe("seeded schedule (cycle mode)", () => {
     expect(
       blendWorldPresetScalar(table, { fromPreset: "clear", toPreset: "rain", blend: 0.5, preset: "rain" }),
     ).toBeCloseTo(0.7, 10);
-    expect(
-      blendWorldPresetScalar(table, { fromPreset: "storm", toPreset: "storm", blend: 1, preset: "storm" }),
-    ).toBe(0.4);
+    expect(blendWorldPresetScalar(table, { fromPreset: "storm", toPreset: "storm", blend: 1, preset: "storm" })).toBe(
+      0.4,
+    );
   });
 });
 
