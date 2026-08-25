@@ -58,8 +58,8 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 
 | 阶段   | 主题                   | 状态        | 主要产出                                                                         | 依赖             |
 | ------ | ---------------------- | ----------- | -------------------------------------------------------------------------------- | ---------------- |
-| **M0** | 基线与度量             | Planned     | UI/Agent parity 清单、parity harness                                             | 无               |
-| **M1** | Shared action registry | Planned     | UI 高频路径经 `applyDirectorAuthoringActions`                                    | M0               |
+| **M0** | 基线与度量             | **Partial**     | Stage 清单 + parity 测试 + Feature Status 行已交付；生成脚本与 `stage_*` 对照表未完成 | 无               |
+| **M1** | Shared action registry | **Partial**     | Stage 单次 mutator 已共享 `applyDirectorAuthoringActions`；Canvas/Video（1e/1f）未完成 | M0               |
 | **M2** | Human-only 面消除      | **Implemented** | Interchange 导出 + 导入（plan-import/import）与 collaboration 读写（resolve、version create/restore 等）均为 JSON 操作 | M1（部分可并行） |
 | **M3** | Gateway 统一治理       | **Implemented** | MCP / 本地 / 托管 / 原始 HTTP+CLI 共享 `filmRoleToolPolicy`；`/api/tools/*` 按 source 标记统一审计 | M1               |
 | **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
@@ -83,56 +83,69 @@ flowchart LR
 
 ## Milestone 0 — 基线与度量
 
+**状态：Partial**（核验于 2026-08-25）。
+
 **目标：** 让后续 parity 工作可量化、可回归。
 
-### 工作项
+### 已交付
 
-- 审计 `directorStore` 中所有 mutation 入口，产出 **UI mutation inventory**（文件、函数、是否已有 semantic twin）。
-- 对照 `directorAuthoringActionSchema`，标记 **parity gap 列表**（高 / 中 / 低优先级）。
-- 新增 **parity harness** 测试套件：
-  - 给定一组 authoring actions → UI executor 与 agent executor 产出相同 revision；
-  - 失败时输出 diff，而非仅断言 boolean。
-- 在 Feature Status 增加一行 **Agent UI parity coverage**（百分比 + 链接到 inventory）。
+- [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/) 覆盖 Stage `directorStore` 全部
+  变更入口，含 mutator、文件、semantic action 与
+  `shared` / `ui-only` / `human-only-interactive` 状态（35 / 87 项目 mutator 已 shared，约 40%）。
+- `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 的 parity 测试断言
+  store mutator 与直接 `applyDirectorAuthoringActions` 对删除、变换、相机 update/add/activate、
+  角色 motion set/clear、灯光 add/update/delete 产出相同 `getDirectorProjectRevision`。
+- Feature Status 已有 **Agent UI parity coverage** 行并链接清单。
+
+### 剩余工作
+
+- 把清单扩展到 Canvas/Video 的 top 变更路径（目前只有 out-of-scope 说明，没有逐 mutator 行）。
+- Parity harness 失败时应输出 revision **diff**，而非仅 boolean 断言。
+- 可选清单生成脚本（`tools/scripts/auditUiMutations.ts`），防止文档漂移。
 - 文档化 `stage_*` → `director_workbench` **迁移对照表**（op 映射、废弃时间表）。
 
 ### 验收
 
-- Inventory 覆盖 Stage / Canvas / Video 三大 workspace 的 top 20 变更路径。
+- Inventory 覆盖 Stage / Canvas / Video 三大 workspace 的 top 20 变更路径（Stage 已穷举；
+  Canvas/Video 行仍未完成）。
 - Parity harness 至少对现有 `directorAuthoring` 全集通过。
 - 无运行时行为变更。
-
-### 建议 PR 顺序
-
-1. Inventory 文档 + 生成脚本（可选：`tools/scripts/auditUiMutations.ts`）
-2. Parity harness 框架 + 5 个 seed cases
-3. Feature Status 与 assessment 文档互链
 
 ---
 
 ## Milestone 1 — Shared Action Registry
 
+**状态：Partial**（核验于 2026-08-25）。Stage 的对象、相机、角色/motion/IK、灯光、世界、场景、
+Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAuthoringActions` 执行
+（1a–1c 批次加灯光/世界；每个 mutator 的精确状态与旧路径回退见
+[对等清单](/zh/engineering/ui-agent-parity-inventory/)）。Timeline 音频、标注/测量、图层、材质、
+资产流程以及整个 Canvas/Video（1e/1f）仍直接 patch 状态，因此 M1 **尚未完成**。
+
 **目标：** UI 与 Agent 共享同一 mutation 路径，消除「双轨写入」。
 
 ### 工作项
 
-#### 1.1 引入 UI dispatch 层
+#### 1.1 引入 UI dispatch 层 — Stage 已交付
 
-- 新增 `dispatchDirectorAuthoringActions(actions, context)` — UI 专用薄封装：
+- `dispatchDirectorAuthoringActions(actions, context)`
+  （`frontend/director/src/agent/dispatchDirectorAuthoringActions.ts`）— UI 专用薄封装：
   - 自动填充 `expected_revision` / `idempotency_key`；
   - 统一错误 toast / undo 挂钩；
   - 内部仍调用 `applyDirectorAuthoringActions`。
-- Canvas / Video 同理：Creative workspace 经 `creativeWorkspaceAgentContract` 执行，UI 不再直接 patch snapshot。
+- UI patch → action 编译器在
+  `frontend/director/src/agent/compileDirectorUiAuthoringActions.ts`。
+- Canvas / Video 同理：Creative workspace 经 `creativeWorkspaceAgentContract` 执行，UI 不再直接 patch snapshot — **未完成**。
 
 #### 1.2 分批迁移 UI mutation（按 inventory 优先级）
 
-| 批次   | 范围                 | 典型 action                                       |
-| ------ | -------------------- | ------------------------------------------------- |
-| **1a** | 对象 CRUD、transform | `create_object`, `update_object`, `delete_object` |
-| **1b** | 相机与镜头           | `create_camera`, `update_camera`, `frame_camera`  |
-| **1c** | 角色与 motion        | `assign_motion`, `update_character_pose`          |
-| **1d** | Timeline / coverage  | `create_coverage`, `assign_take`                  |
-| **1e** | Canvas nodes / edges | creative `author` batch                           |
-| **1f** | Video tracks / clips | creative `author` batch                           |
+| 批次   | 范围                 | 典型 action                                            | 状态                                               |
+| ------ | -------------------- | ------------------------------------------------------ | -------------------------------------------------- |
+| **1a** | 对象 CRUD、transform | `add_object`, `update_object`, `delete_objects`        | 删除/单次变换/开关已 shared；新建流程与多选批量未完成 |
+| **1b** | 相机与镜头           | `add_camera`, `update_camera`, `set_active_camera`     | 已 shared                                          |
+| **1c** | 角色与 motion        | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | 已 shared                       |
+| **1d** | Timeline / coverage  | `add_coverage_shot`, `add_performance_take`, timeline 音频 | Storyboard + 实体动画已 shared；timeline 音频未完成 |
+| **1e** | Canvas nodes / edges | creative `author` batch                                | 未完成                                             |
+| **1f** | Video tracks / clips | creative `author` batch                                | 未完成                                             |
 
 #### 1.3 交互式操控的 semantic 等价物
 
@@ -148,7 +161,8 @@ flowchart LR
 
 ### 验收
 
-- Parity harness 覆盖 **1a–1d** 批次，UI 与 Agent 路径 revision 一致。
+- Parity harness 覆盖 **1a–1d** 批次，UI 与 Agent 路径 revision 一致
+  （目前已覆盖 1a–1c 加灯光/世界/Storyboard；timeline 音频未完成）。
 - 无新增「UI 直连 store、Agent 无等价」的高优先级 gap。
 - 现有 MCP / HTTP / CLI 集成测试全部通过。
 
@@ -366,7 +380,7 @@ Skill 已把 JSON `plan-import` / `import` 列为首选导入路径；人类的 
 
 | 指标                             | 当前（2026-08-25）                                | 剩余 M3 完成后     | M4 后 |
 | -------------------------------- | ------------------------------------------------- | ------------------ | ----- |
-| Parity coverage（top mutations） | ~60%                                              | ≥85%               | ≥95%  |
+| Parity coverage（top mutations） | Stage 项目 mutator 约 40%（35/87）                | ≥85%               | ≥95%  |
 | Human-only 能力（已文档化）      | 0 类（M2 已交付；保留边界见 M2，OBJ/STL 仍只导出） | 0 类               | 0 类  |
 | Gateway 入口 policy 一致         | 是（MCP / 本地 / 托管 / 原始 HTTP+CLI；UI dispatch 仍未门控） | 是，含可选 UI 门控 | 是    |
 | In-product workspace             | 否                                                | 否                 | 是    |
@@ -376,6 +390,6 @@ Skill 已把 JSON `plan-import` / `import` 列为首选导入路径；人类的 
 
 ## 下一步行动
 
-1. M3 后续项：可选的 role 门控 UI 禁用（3.1b）与确认边界（3.3）；HTTP/CLI 策略闸与统一审计轨迹已于 2026-08-25 交付
-2. M7 剩余：文档化 cross-app receipt handoff recipe
-3. 落地时在同一变更中更新 [Feature Status](/zh/reference/feature-status/) 与[架构符合性评估](/zh/research/agent-native-architecture-assessment/)
+1. M1 剩余：Canvas/Video UI store（1e/1f）以及[对等清单](/zh/engineering/ui-agent-parity-inventory/)中仍为 ui-only 的 Stage 写入
+2. M3 后续项：可选的 role 门控 UI 禁用（3.1b）与确认边界（3.3）；HTTP/CLI 策略闸与统一审计轨迹已于 2026-08-25 交付
+3. M7 剩余：文档化 cross-app receipt handoff recipe

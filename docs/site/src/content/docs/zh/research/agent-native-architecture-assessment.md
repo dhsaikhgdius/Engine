@@ -49,8 +49,8 @@ Director 文档明确自定位为 **Agent-native，而非「可被 Agent 控制�
 
 **缺口：**
 
-- UI 大量操作仍 **直连 Zustand store**（`frontend/director/src/comprehensive/editor/store/directorStore.ts`），Agent 走 `directorWorkbenchExecutor` → `applyDirectorAuthoringActions`，**调用路径分叉**
-- 视口拖拽、pilot 等交互式操控缺少完整 semantic 等价物
+- Stage 的单次项目 mutator（对象、相机、角色/姿态/IK/motion、灯光、世界、场景、Storyboard、实体动画）已与 Agent 共用 `dispatchDirectorAuthoringActions` → `applyDirectorAuthoringActions`。其余 Stage 写入（timeline 音频、标注/测量、图层、材质/颜色、资产流程、编组、多选批量、剪贴板粘贴）与 **Canvas/Video UI store** 仍 **直连 state** — 每个 mutator 的状态见 [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/)（核验于 2026-08-25）
+- 视口拖拽、pilot 等交互式操控缺少完整 semantic 等价物；滑块/gizmo 撤销批次有意保留轻量直接写入
 
 **评级：3.5/5**
 
@@ -223,8 +223,8 @@ agent-gateway.ts (composition root)
 
 ## 主要差距
 
-1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除与单次变换开始经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring。其余 store mutator（相机面板、姿态/IK、时间线、世界、Canvas/Video）仍在分批收敛
-2. **Governance 入口未完全统一** — MCP、本地 harness 与托管 adapter 已共享 `filmRoleToolPolicy`；原始 HTTP 与人类 UI 仍绕过 film role，审计也未跨入口统一
+1. **UI parity 进行中**（核验于 2026-08-25）— interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 的对象、相机、角色/姿态/IK/motion、灯光、世界、场景、Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring（35/87 个 Stage 项目 mutator — 见 [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/)）。其余 Stage store mutator（timeline 音频、标注/测量、图层、材质/颜色、资产导入与新建流程、composite/list 编组、多选批量、剪贴板粘贴）与 Canvas/Video UI store 仍在分批收敛
+2. **Governance 入口未完全统一** — MCP、本地 harness、托管 adapter 与原始 HTTP/CLI 已共享 `filmRoleToolPolicy` 以及按 source 标记的 `/api/tools/*` 审计轨迹（`GET /api/agent/audit`）。Human UI `directorStore` 仍无角色门控或审计（3.1b）；`confirm_token` 仍未实现（3.3）
 3. **Protocol breadth** — MCP 强，tool manifest 已交付；无标准 A2A（spike 结论：no-go / 暂缓，见路线图 M7）；multi-agent 为自定义串行 graph
 4. **Dual surface 遗留** — `stage_*` 兼容层 vs `director_workbench` 完整模型仍并存
 5. **Runtime workspace** — 无文章描述的 SQL-backed AGENTS.md / LEARNINGS.md 等产品内 workspace
@@ -235,8 +235,8 @@ agent-gateway.ts (composition root)
 
 按 ROI 排序（详细里程碑见 [Agent-Native 优化路线图](/zh/engineering/agent_native_roadmap/)）：
 
-1. **继续把 UI mutator 收敛到 shared authoring dispatch** — 相机 / 姿态 / 时间线 / Canvas·Video 仍有双写
-2. **把共享角色策略接到原始 HTTP 与 UI，并统一审计轨迹** — MCP / 本地 / 托管已共用 `filmRoleToolPolicy.ts`
+1. **继续把 UI mutator 收敛到 shared authoring dispatch** — 剩余 Stage ui-only 写入（timeline 音频、标注、图层、材质、资产流程、编组、多选批量）与 Canvas/Video UI store 仍有双写
+2. **把共享角色策略接到 UI dispatch，并把 UI-dispatched author 操作写入统一审计轨迹** — MCP / 本地 / 托管 / 原始 HTTP+CLI 已共用 `filmRoleToolPolicy.ts`
 3. **补 team/observability 层** — collaboration auth、agent trace/cost dashboard
 4. **Cross-app 编排** — tool manifest 已交付（`GET /api/control-plane/tool-manifest`）；A2A 评估结论为 no-go / 暂缓（见[路线图 M7](/zh/engineering/agent_native_roadmap/)），剩余为 cross-app receipt handoff recipe
 

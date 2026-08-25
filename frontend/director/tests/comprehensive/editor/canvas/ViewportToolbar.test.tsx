@@ -364,9 +364,14 @@ it("creates a new camera before storing viewport capsule screenshots from direct
   expect(state.project.activeCameraId).toBe("cam_2");
   expect(state.selectedObjectId).toBe("cam_object_2");
   expect(originalCamera?.captures).toEqual([]);
-  expect(newCamera?.fov).toBe(64);
+  // The shared authoring path canonicalizes fov through the millimetre-rounded
+  // focal length, so the stored optics match within that precision.
+  expect(newCamera?.fov).toBeCloseTo(64, 2);
   expect(newCamera?.transform.position).toEqual(getCameraRigPositionFromViewSnapshot(snapshot));
-  expect(getCameraViewSnapshotFromShot(newCamera)).toEqual(snapshot);
+  const roundTripSnapshot = getCameraViewSnapshotFromShot(newCamera);
+  expect(roundTripSnapshot.fov).toBeCloseTo(snapshot.fov, 2);
+  expect(roundTripSnapshot.position).toEqual(snapshot.position);
+  expect(roundTripSnapshot.target).toEqual(snapshot.target);
   expect(newCamera?.captures).toEqual([
     {
       id: "cam_2-capture-01",
@@ -475,7 +480,9 @@ it("keeps add camera actions available from the viewport capsule", async () => {
 
   expect(cameraCount).toBe(2);
   expect(state.selectedObjectId).toBe("cam_object_2");
-  expect(state.project.cameras[1].fov).toBe(64);
+  // The shared authoring path canonicalizes fov through the millimetre-rounded
+  // focal length, so the stored optics match within that precision.
+  expect(state.project.cameras[1].fov).toBeCloseTo(64, 2);
   expect(state.project.cameras[1].transform.position).toEqual(getCameraRigPositionFromViewSnapshot(snapshot));
   expect(getCameraViewSnapshotFromShot(state.project.cameras[1]).position).toEqual(snapshot.position);
   expect(state.project.cameras[1].target).toEqual([0, 1, -2]);

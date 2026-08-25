@@ -58,8 +58,8 @@ Conclusion: Director is an **agent-native product architecture, not bolt-on AI**
 
 **Gaps:**
 
-- Many UI operations still **mutate the Zustand store directly** (`frontend/director/src/comprehensive/editor/store/directorStore.ts`) while agents route through `directorWorkbenchExecutor` → `applyDirectorAuthoringActions`
-- Viewport drag, pilot, and other interactive controls lack full semantic equivalents
+- Stage one-shot project mutators (objects, cameras, characters/pose/IK/motion, lights, world, scene, storyboard, entity animation) now share `dispatchDirectorAuthoringActions` → `applyDirectorAuthoringActions` with agents. The remaining Stage writers (timeline audio, annotations/measurements, layers, materials/colors, asset flows, grouping, multi-select batches, clipboard paste) and the **Canvas/Video UI stores** still **mutate state directly** — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/) (verified 2026-08-25)
+- Viewport drag, pilot, and other interactive controls lack full semantic equivalents; slider/gizmo undo batches intentionally keep the lightweight direct writer
 
 **Rating: 3.5/5**
 
@@ -254,8 +254,8 @@ agent-gateway.ts (composition root)
 
 ## Main gaps
 
-1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes and many one-shot transforms now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining store mutators (camera panel, pose/IK, timeline, world, Canvas/Video) are still migrating in batches
-2. **Incomplete governance surfaces** — MCP, local harness, and hosted adapter share `filmRoleToolPolicy`; raw HTTP and human UI still bypass film roles, and audit is not unified across entry points
+1. **UI parity in progress** (verified 2026-08-25) — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage one-shot project mutators for objects, cameras, characters/pose/IK/motion, lights, world, scene, storyboard, and entity animation now go through `dispatchDirectorAuthoringActions` shared with Agent authoring (35/87 Stage project mutators — see the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)). Remaining Stage store mutators (timeline audio, annotations/measurements, layers, materials/colors, asset import and add flows, composite/list grouping, multi-select batches, clipboard paste) and the Canvas/Video UI stores are still migrating in batches
+2. **Incomplete governance surfaces** — MCP, local harness, hosted adapter, and raw HTTP/CLI share `filmRoleToolPolicy` plus the source-tagged `/api/tools/*` audit trail (`GET /api/agent/audit`). Human UI `directorStore` still has no role gate or audit (3.1b); `confirm_token` is still unimplemented (3.3)
 3. **Protocol breadth** — MCP is strong and the tool manifest shipped; no standard A2A (spike conclusion: no-go / deferred, see roadmap M7); multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
 5. **Runtime workspace** — no in-product SQL-backed AGENTS.md / LEARNINGS.md pattern described in the article
@@ -268,8 +268,8 @@ agent-gateway.ts (composition root)
 
 See the full phased plan in [Agent-Native Optimization Roadmap](/engineering/agent_native_roadmap/).
 
-1. **Keep routing UI mutators through shared authoring dispatch** — camera / pose / timeline / Canvas·Video still dual-write
-2. **Apply the shared role policy to raw HTTP and UI, and unify the audit trail** — MCP / local / hosted already share `filmRoleToolPolicy.ts`
+1. **Keep routing UI mutators through shared authoring dispatch** — leftover Stage ui-only writers (timeline audio, annotations, layers, materials, asset flows, grouping, multi-select batches) and Canvas/Video UI stores still dual-write
+2. **Apply the shared role policy to UI dispatch, and write UI-dispatched author actions to the unified audit trail** — MCP / local / hosted / raw HTTP+CLI already share `filmRoleToolPolicy.ts`
 3. **Strengthen team/observability layers** — collaboration auth, agent trace/cost dashboard
 4. **Cross-app orchestration** — the tool manifest shipped (`GET /api/control-plane/tool-manifest`); the A2A evaluation concluded no-go / deferred (see [roadmap M7](/engineering/agent_native_roadmap/)); the cross-app receipt handoff recipe remains
 
