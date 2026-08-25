@@ -8,7 +8,13 @@ import {
 } from "../../../packages/protocol/src/creativeWorkspaceProtocol";
 import { parseDirectorWorkbenchInput, type DirectorWorkbenchOperation } from "@director/agent-engine";
 import { describeDirectorWorkbenchTarget } from "@director/agent-engine";
-import { collectPossessedObjectIds, evaluateDirectorPossessionScope } from "@director/agent-engine";
+import {
+  collectPossessedObjectIds,
+  describeDirectorPossessionTargetAmbiguity,
+  evaluateDirectorPossessionScope,
+  fillDirectorAuthorCharacterTargets,
+  findDirectorAuthorCharacterTargetGaps,
+} from "@director/agent-engine";
 import {
   createStageFeedback,
   type AgentBoundaryReceipt,
@@ -52,6 +58,8 @@ const toolNameSchema = z.enum(AGENT_TOOL_NAMES.filter((name) => name !== "blende
 
 const toolEnvelopeSchema = z.looseObject({
   session_id: z.string().trim().min(1).max(160).optional(),
+  /** Agent profile id of the caller; matches character bindings that name only a profile_id. */
+  profile_id: z.string().trim().min(1).max(160).optional(),
   target_token: z.string().trim().min(1).max(240).optional(),
   omit_scene: z.boolean().optional(),
   input: z.unknown().optional(),
@@ -279,7 +287,9 @@ export type StageRouteDependencies = {
 function directToolInput(payload: z.infer<typeof toolEnvelopeSchema>) {
   if (Object.prototype.hasOwnProperty.call(payload, "input")) return payload.input ?? {};
   return Object.fromEntries(
-    Object.entries(payload).filter(([key]) => key !== "session_id" && key !== "target_token" && key !== "omit_scene"),
+    Object.entries(payload).filter(
+      ([key]) => key !== "session_id" && key !== "profile_id" && key !== "target_token" && key !== "omit_scene",
+    ),
   );
 }
 
@@ -442,6 +452,7 @@ export async function handleStageRoute(
   }
   const payload = payloadResult.data;
   const sessionId = payload.session_id ?? "http-default";
+  const possessionIdentity = { sessionId, profileId: payload.profile_id ?? null };
   let targetToken = payload.target_token;
   const toolInput = directToolInput(payload);
   let scene = getScene();
@@ -677,15 +688,20 @@ export async function handleStageRoute(
   }
 
   if (tool === "director_workbench") {
-    const parsedInput = parseDirectorWorkbenchInput(toolInput);
-    if (!parsedInput.success) {
-      respond(response, 400, { scene, success: false, error: parsedInput.error });
+    const initialParse = parseDirectorWorkbenchInput(toolInput);
+    // Character-scoped author actions may omit their object target when the
+    // caller possesses exactly one character; those gaps are repaired from the
+    // possession preflight below, before the input is validated again.
+    const characterTargetGaps = initialParse.success ? [] : findDirectorAuthorCharacterTargetGaps(toolInput);
+    const initialParseError = initialParse.success ? null : initialParse.error;
+    if (!initialParse.success && !characterTargetGaps.length) {
+      respond(response, 400, { scene, success: false, error: initialParse.error });
       return true;
     }
-    if (parsedInput.operation.op === "describe") {
+    if (initialParse.success && initialParse.operation.op === "describe") {
       // Pure contract reflection answered gateway-locally: no browser tab, no
       // session lock — serializing a stateless instant read only adds contention.
-      const described = describeDirectorWorkbenchTarget(parsedInput.operation.target);
+      const described = describeDirectorWorkbenchTarget(initialParse.operation.target);
       if (described.success) respond(response, 200, { scene, success: true, result: described.result });
       else respond(response, 400, { scene, success: false, error: described.error });
       return true;
@@ -699,21 +715,25 @@ export async function handleStageRoute(
         sessionScheduler,
         sessionCallKey(tool, sessionId),
         tool,
-        parsedInput.operation,
+        initialParse.success ? initialParse.operation : toolInput,
       );
       if (acquired === null) return true;
       sessionLease = acquired;
     }
     let targetLease: DirectorAgentTargetLease | undefined;
     try {
+      // A pending fill-in is always an author mutation, so it needs a target
+      // and its discovery observe must carry character summaries.
+      let operation = initialParse.success ? initialParse.operation : null;
       const targetRequired =
-        !["capabilities", "catalog", "observe", "describe"].includes(parsedInput.operation.op) &&
-        !(parsedInput.operation.op === "inspect" && parsedInput.operation.entity === "catalog_asset");
+        !operation ||
+        (!["capabilities", "catalog", "observe", "describe"].includes(operation.op) &&
+          !(operation.op === "inspect" && operation.entity === "catalog_asset"));
       // Mutation discovery also reads character summaries so the possession
       // scope check below reuses the same preflight round trip.
       const discoveryObserve: DirectorWorkbenchOperation = {
         op: "observe",
-        fields: isWorkbenchMutation(parsedInput.operation) ? ["counts", "characters"] : ["counts"],
+        fields: !operation || isWorkbenchMutation(operation) ? ["counts", "characters"] : ["counts"],
       };
       let discovery: WorkbenchRemote | null = null;
       if (targetRequired && !targetToken) {
@@ -740,13 +760,14 @@ export async function handleStageRoute(
           }
           if (!discovery) {
             if (
-              await respondDisconnectedWorkbenchRead({
-                operation: parsedInput.operation,
+              operation &&
+              (await respondDisconnectedWorkbenchRead({
+                operation,
                 scene,
                 respond,
                 response,
                 loadSources: loadDisconnectedWorkbenchSources,
-              })
+              }))
             ) {
               return true;
             }
@@ -767,13 +788,13 @@ export async function handleStageRoute(
         targetScheduler,
         targetToken,
         tool,
-        parsedInput.operation,
+        operation ?? toolInput,
       );
       if (scheduledLease === null) return true;
       targetLease = scheduledLease;
       if (
         targetToken &&
-        (isWorkbenchMutation(parsedInput.operation) || isWorkbenchDurableJobMutation(parsedInput.operation)) &&
+        (!operation || isWorkbenchMutation(operation) || isWorkbenchDurableJobMutation(operation)) &&
         isTargetContractStale?.(targetToken)
       ) {
         respond(response, 409, {
@@ -785,7 +806,67 @@ export async function handleStageRoute(
         });
         return true;
       }
-      let workbenchOperation = parsedInput.operation;
+      let possessionCharacters = observedWorkbenchCharacters(discovery?.response.result);
+      if (!operation) {
+        // Possession fill-in: character-scoped author actions omitted their
+        // object target. When the caller possesses exactly one character, fill
+        // that character id and validate the repaired input; otherwise reject
+        // ambiguity readably or fall back to the original validation error.
+        if (!possessionCharacters) {
+          let possessionProbe: WorkbenchRemote | null;
+          try {
+            possessionProbe = await requestWorkbenchCommand(
+              { op: "observe", fields: ["counts", "characters"] },
+              undefined,
+              targetToken,
+            );
+          } catch (error) {
+            if (writeBrowserCommandTimeout(response, respond, error, scene)) return true;
+            throw error;
+          }
+          if (!possessionProbe || possessionProbe.target.token !== targetToken) {
+            respond(response, 409, {
+              scene,
+              success: false,
+              code: possessionProbe ? "target_mismatch" : "target_unavailable",
+              error: "The exact Workbench target changed during the possession preflight. No mutation was sent.",
+            });
+            return true;
+          }
+          // The probe carries counts + characters, so the revision guard below
+          // reuses it instead of observing the same target again.
+          discovery = possessionProbe;
+          possessionCharacters = observedWorkbenchCharacters(possessionProbe.response.result) ?? [];
+        }
+        const possessedObjectIds = collectPossessedObjectIds(possessionCharacters, possessionIdentity);
+        if (possessedObjectIds.length !== 1) {
+          respond(
+            response,
+            400,
+            possessedObjectIds.length
+              ? {
+                  scene,
+                  success: false,
+                  code: "possession_target_ambiguous",
+                  error: describeDirectorPossessionTargetAmbiguity({
+                    sessionId,
+                    possessedObjectIds,
+                    gaps: characterTargetGaps,
+                  }),
+                }
+              : { scene, success: false, error: initialParseError ?? "director_workbench input invalid." },
+          );
+          return true;
+        }
+        const filled = fillDirectorAuthorCharacterTargets(toolInput, characterTargetGaps, possessedObjectIds[0]);
+        const reparsed = parseDirectorWorkbenchInput(filled);
+        if (!reparsed.success) {
+          respond(response, 400, { scene, success: false, error: reparsed.error });
+          return true;
+        }
+        operation = reparsed.operation;
+      }
+      let workbenchOperation = operation;
       let agentBoundary: AgentBoundaryReceipt | undefined;
       if (isWorkbenchDurableJobMutation(workbenchOperation)) {
         const prepared = prepareAgentDurableJobMutation({
@@ -797,7 +878,6 @@ export async function handleStageRoute(
       } else if (isWorkbenchMutation(workbenchOperation)) {
         const prepared = prepareAgentMutation({ tool: "director_workbench", operation: workbenchOperation }, sessionId);
         let secured = prepared;
-        let possessionCharacters = observedWorkbenchCharacters(discovery?.response.result);
         if (prepared.needsObservation) {
           let observation: WorkbenchRemote | null;
           try {
@@ -873,7 +953,7 @@ export async function handleStageRoute(
           }
           possessionCharacters = observedWorkbenchCharacters(bindingProbe.response.result) ?? [];
         }
-        const possessedObjectIds = collectPossessedObjectIds(possessionCharacters, sessionId);
+        const possessedObjectIds = collectPossessedObjectIds(possessionCharacters, possessionIdentity);
         if (possessedObjectIds.length) {
           const verdict = evaluateDirectorPossessionScope({
             operation: secured.mutation.operation as DirectorWorkbenchOperation,

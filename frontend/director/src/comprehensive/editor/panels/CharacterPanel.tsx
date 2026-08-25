@@ -9,6 +9,7 @@ import { replaceTupleAxis as replaceAxis } from "../../../../../../packages/prot
 import { ArrowDownToLine, PersonStanding, UsersRound } from "lucide-react";
 import type { PublicAgentProfile } from "@director/agent-engine";
 import { listAgentProfiles } from "../assistant/agentProfilesClient";
+import { listAgentSessions, type PublicAgentSession } from "../assistant/agentSessionsClient";
 import { dispatchDirectorAuthoringActions } from "../../../agent/dispatchDirectorAuthoringActions";
 import characterPoseGroups from "./characterPoseGroups.json";
 import {
@@ -53,6 +54,8 @@ type CharacterSelection = {
   name: string;
   color: string;
   transform: DirectorTransform;
+  /** Characters the inspector edits: the role itself, or every crowd member. */
+  members: DirectorObject[];
 };
 
 type CharacterPoseGroup = { title: string; controls: Array<{ key: CharacterPoseControlKey; label: string }> };
@@ -87,6 +90,7 @@ function buildCharacterPanelSelection(
         name: crowdMembers[0]?.crowdLabel ?? "群众",
         color: crowdMembers[0]?.color ?? "#4F8EF7",
         transform: crowdAnchor,
+        members: crowdMembers,
       };
     }
   }
@@ -100,6 +104,7 @@ function buildCharacterPanelSelection(
     name: role.name,
     color: role.color ?? "#4F8EF7",
     transform: role.transform,
+    members: [role],
   };
 }
 
@@ -114,12 +119,20 @@ function useCharacterPanelSelection(): CharacterSelection | null {
   );
 }
 
+function characterPossessionBadge(selection: CharacterSelection): string | null {
+  const boundCount = selection.members.filter((member) => member.agentBinding).length;
+  if (!boundCount) return null;
+  if (selection.mode === "single") return "Agent 接管中";
+  return boundCount === selection.members.length ? "Agent 已全部接管" : "Agent 已部分接管";
+}
+
 const CharacterSelectionSummary = memo(function CharacterSelectionSummary({
   selection,
 }: {
   selection: CharacterSelection;
 }) {
   const SelectionIcon = selection.mode === "crowd" ? UsersRound : PersonStanding;
+  const possessionBadge = characterPossessionBadge(selection);
 
   return (
     <div className="character-selection-summary" aria-label="当前角色">
@@ -129,9 +142,9 @@ const CharacterSelectionSummary = memo(function CharacterSelectionSummary({
       <span className="character-selection-copy">
         <strong>{selection.name}</strong>
         <small>{selection.mode === "crowd" ? "角色群组" : "单个角色"}</small>
-        {selection.mode === "single" && selection.role.agentBinding ? (
+        {possessionBadge ? (
           <small aria-label="Agent 接管状态" className="character-agent-badge">
-            Agent 接管中
+            {possessionBadge}
           </small>
         ) : null}
       </span>
@@ -140,71 +153,238 @@ const CharacterSelectionSummary = memo(function CharacterSelectionSummary({
   );
 });
 
+/** Public author batches accept at most 128 actions; large crowds are split. */
+const AGENT_AUTHOR_BATCH_LIMIT = 128;
+const MANUAL_SESSION_OPTION = "manual";
+
+function chunkIds(ids: readonly string[], size: number): string[][] {
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += size) chunks.push(ids.slice(index, index + size));
+  return chunks;
+}
+
+function agentSessionOptionLabel(session: PublicAgentSession) {
+  return `会话 ${session.id} · ${session.status === "active" ? "活跃" : "空闲"}`;
+}
+
+type AgentBindingIdentity = { session_id: string } | { profile_id: string };
+
+/** Readable line for an existing binding: session id with live status, or profile name. */
+const CharacterAgentBoundIdentity = memo(function CharacterAgentBoundIdentity({
+  binding,
+  profiles,
+  sessions,
+}: {
+  binding: NonNullable<DirectorObject["agentBinding"]>;
+  profiles: PublicAgentProfile[];
+  sessions: PublicAgentSession[];
+}) {
+  if (binding.sessionId) {
+    const liveSession = sessions.find((session) => session.id === binding.sessionId);
+    return (
+      <p className="character-ik-note character-agent-binding-line">
+        <span>当前绑定</span>：<code>{binding.sessionId}</code>
+        {liveSession ? (
+          <span className={`character-agent-live-chip is-${liveSession.status}`}>
+            {liveSession.status === "active" ? "活跃" : "空闲"}
+          </span>
+        ) : null}
+      </p>
+    );
+  }
+  const profile = profiles.find((candidate) => candidate.id === binding.profileId);
+  return (
+    <p className="character-ik-note character-agent-binding-line">
+      <span>当前绑定</span>：<strong>{profile?.label ?? binding.profileId ?? ""}</strong>
+      {profile ? <code>{profile.id}</code> : null}
+    </p>
+  );
+});
+
 /**
  * "绑定 Agent" inspector block: attach an Agent session or profile to the
- * selected character so that Agent drives its motion, pose, IK, and transform.
- * All mutations dispatch through the shared authoring path (revision guarded,
- * undoable); the panel never writes the store directly.
+ * selected character — or to every member of a selected crowd — so that Agent
+ * drives motion, pose, IK, and transform. Live workbench sessions and public
+ * profiles are offered in one picker; a hand-typed Session ID stays available
+ * as the fallback. All mutations dispatch through the shared authoring path
+ * (revision guarded, undoable); the panel never writes the store directly.
  */
 const CharacterAgentBindingSection = memo(function CharacterAgentBindingSection({
   selection,
 }: {
   selection: CharacterSelection;
 }) {
-  const role = selection.role;
   const isCrowd = selection.mode === "crowd";
-  const binding = role.agentBinding;
+  const members = selection.members;
+  const boundMembers = members.filter((member) => member.agentBinding);
   const [profiles, setProfiles] = useState<PublicAgentProfile[]>([]);
-  const [profileDraft, setProfileDraft] = useState("");
-  const [sessionDraft, setSessionDraft] = useState("");
+  const [sessions, setSessions] = useState<PublicAgentSession[]>([]);
+  const [identityDraft, setIdentityDraft] = useState("");
+  const [manualSessionDraft, setManualSessionDraft] = useState("");
+  const [listsUnavailable, setListsUnavailable] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isCrowd) return;
     let cancelled = false;
+    // Offline gateway: manual session ids keep working without either list,
+    // and the fetch failure stays visible as a note instead of a silent gap.
     listAgentProfiles()
       .then((available) => {
         if (!cancelled) setProfiles(available);
       })
       .catch(() => {
-        // Offline gateway: manual session ids keep working without profiles.
+        if (!cancelled) setListsUnavailable(true);
+      });
+    listAgentSessions()
+      .then((available) => {
+        if (!cancelled) setSessions(available);
+      })
+      .catch(() => {
+        if (!cancelled) setListsUnavailable(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [isCrowd]);
+  }, []);
+
+  const identityOptions = useMemo(
+    () => [
+      { value: "", label: "选择要绑定的 Agent" },
+      ...sessions.map((session) => ({ value: `session:${session.id}`, label: agentSessionOptionLabel(session) })),
+      ...profiles.map((profile) => ({ value: `profile:${profile.id}`, label: `Profile ${profile.label}` })),
+      { value: MANUAL_SESSION_OPTION, label: "手动填写 Session ID" },
+    ],
+    [profiles, sessions],
+  );
+  const pickerAvailable = sessions.length > 0 || profiles.length > 0;
+  const manualMode = !pickerAvailable || identityDraft === MANUAL_SESSION_OPTION;
+
+  const resolveIdentity = useCallback((): AgentBindingIdentity | null => {
+    if (identityDraft.startsWith("session:")) return { session_id: identityDraft.slice("session:".length) };
+    if (identityDraft.startsWith("profile:")) return { profile_id: identityDraft.slice("profile:".length) };
+    if (manualMode) {
+      const manualSessionId = manualSessionDraft.trim();
+      return manualSessionId ? { session_id: manualSessionId } : null;
+    }
+    return null;
+  }, [identityDraft, manualMode, manualSessionDraft]);
 
   const bindAgent = useCallback(() => {
-    const sessionId = sessionDraft.trim();
-    const profileId = profileDraft.trim();
-    if (!sessionId && !profileId) {
-      setFeedback("请先选择 Agent Profile 或填写 Session ID。");
+    const identity = resolveIdentity();
+    if (!identity) {
+      setFeedback("请先选择要绑定的 Agent 会话或 Profile，或填写 Session ID。");
       return;
     }
-    const receipt = dispatchDirectorAuthoringActions([
-      {
-        action: "bind_character_agent",
-        object_id: role.id,
-        ...(sessionId ? { session_id: sessionId } : {}),
-        ...(profileId ? { profile_id: profileId } : {}),
-      },
-    ]);
-    setFeedback(receipt.ok ? null : receipt.error);
-  }, [profileDraft, role.id, sessionDraft]);
+    // Rebinding overwrites existing bindings (authoring is last-write-wins).
+    for (const memberIds of chunkIds(
+      members.map((member) => member.id),
+      AGENT_AUTHOR_BATCH_LIMIT,
+    )) {
+      const receipt = dispatchDirectorAuthoringActions(
+        memberIds.map((objectId) => ({ action: "bind_character_agent" as const, object_id: objectId, ...identity })),
+      );
+      if (!receipt.ok) {
+        setFeedback(receipt.error);
+        return;
+      }
+    }
+    setFeedback(null);
+  }, [members, resolveIdentity]);
 
   const unbindAgent = useCallback(() => {
-    const receipt = dispatchDirectorAuthoringActions([{ action: "unbind_character_agent", object_id: role.id }]);
-    setFeedback(receipt.ok ? null : receipt.error);
-  }, [role.id]);
+    const boundIds = members.filter((member) => member.agentBinding).map((member) => member.id);
+    for (const memberIds of chunkIds(boundIds, AGENT_AUTHOR_BATCH_LIMIT)) {
+      const receipt = dispatchDirectorAuthoringActions(
+        memberIds.map((objectId) => ({ action: "unbind_character_agent" as const, object_id: objectId })),
+      );
+      if (!receipt.ok) {
+        setFeedback(receipt.error);
+        return;
+      }
+    }
+    setFeedback(null);
+  }, [members]);
+
+  const bindingPicker = (
+    <>
+      {pickerAvailable ? (
+        <InspectorSelectField
+          label="选择 Agent"
+          ariaLabel="选择要绑定的 Agent"
+          value={identityDraft}
+          onChange={setIdentityDraft}
+          options={identityOptions}
+        />
+      ) : null}
+      {manualMode ? (
+        <InspectorTextField
+          label="Session ID"
+          ariaLabel="绑定 Agent Session ID"
+          value={manualSessionDraft}
+          onChange={setManualSessionDraft}
+        />
+      ) : null}
+      {listsUnavailable ? (
+        <p className="character-ik-note">无法从网关加载 Agent 会话与 Profile 列表；可手动填写 Session ID。</p>
+      ) : null}
+      <p className="character-ik-note">
+        {isCrowd
+          ? "从活跃会话或 Profile 中选择，一次绑定到群组内每个成员；已绑定的成员会被覆盖。"
+          : "从活跃会话或 Profile 中选择；也可手动填写驱动该角色的 Session ID（如 dsh-abc123）。"}
+      </p>
+      <button
+        aria-label={isCrowd ? "绑定 Agent 到群组全部成员" : "绑定 Agent 到该角色"}
+        className="inspector-action-button"
+        type="button"
+        onClick={bindAgent}
+      >
+        {isCrowd ? "为全部成员绑定" : "绑定"}
+      </button>
+    </>
+  );
 
   if (isCrowd) {
+    const crowdBinding = boundMembers[0]?.agentBinding;
+    const distinctIdentities = new Set(
+      boundMembers.map((member) => member.agentBinding?.sessionId ?? member.agentBinding?.profileId ?? ""),
+    );
     return (
       <InspectorSection title="绑定 Agent" className="character-agent-section">
-        <p className="character-ik-note">群组选择暂不支持绑定 Agent；请选择单个角色后再绑定。</p>
+        {boundMembers.length ? (
+          <>
+            <p aria-live="polite" className="character-agent-status">
+              {boundMembers.length === members.length ? "群组成员已全部被 Agent 接管" : "群组成员已部分被 Agent 接管"}
+            </p>
+            <p className="character-ik-note character-agent-count">
+              已接管 {boundMembers.length}/{members.length} 名成员
+            </p>
+            {crowdBinding && distinctIdentities.size === 1 ? (
+              <CharacterAgentBoundIdentity binding={crowdBinding} profiles={profiles} sessions={sessions} />
+            ) : null}
+            {distinctIdentities.size > 1 ? <p className="character-ik-note">成员绑定了不同的 Agent。</p> : null}
+          </>
+        ) : null}
+        {bindingPicker}
+        {boundMembers.length ? (
+          <button
+            aria-label="解除群组全部 Agent 绑定"
+            className="inspector-action-button"
+            type="button"
+            onClick={unbindAgent}
+          >
+            解除全部绑定
+          </button>
+        ) : null}
+        {feedback ? (
+          <p aria-live="polite" className="character-agent-feedback" role="alert">
+            {feedback}
+          </p>
+        ) : null}
       </InspectorSection>
     );
   }
 
+  const binding = selection.role.agentBinding;
   return (
     <InspectorSection title="绑定 Agent" className="character-agent-section">
       {binding ? (
@@ -212,36 +392,13 @@ const CharacterAgentBindingSection = memo(function CharacterAgentBindingSection(
           <p aria-live="polite" className="character-agent-status">
             此人物已被 Agent 接管
           </p>
-          <p className="character-ik-note">
-            <span>当前绑定</span>：<code>{binding.sessionId ?? binding.profileId ?? ""}</code>
-          </p>
+          <CharacterAgentBoundIdentity binding={binding} profiles={profiles} sessions={sessions} />
           <button aria-label="解除 Agent 绑定" className="inspector-action-button" type="button" onClick={unbindAgent}>
             解除绑定
           </button>
         </>
       ) : (
-        <>
-          <InspectorSelectField
-            label="Agent Profile"
-            ariaLabel="绑定 Agent Profile"
-            value={profileDraft}
-            onChange={setProfileDraft}
-            options={[
-              { value: "", label: "暂不选择 Profile" },
-              ...profiles.map((profile) => ({ value: profile.id, label: profile.label })),
-            ]}
-          />
-          <InspectorTextField
-            label="Session ID"
-            ariaLabel="绑定 Agent Session ID"
-            value={sessionDraft}
-            onChange={setSessionDraft}
-          />
-          <p className="character-ik-note">填写驱动该角色的 Agent Session ID（如 dsh-abc123），或选择 Profile 提前接上。</p>
-          <button aria-label="绑定 Agent 到该角色" className="inspector-action-button" type="button" onClick={bindAgent}>
-            绑定
-          </button>
-        </>
+        bindingPicker
       )}
       {feedback ? (
         <p aria-live="polite" className="character-agent-feedback" role="alert">

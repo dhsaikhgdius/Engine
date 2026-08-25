@@ -175,6 +175,45 @@
   overflow-wrap: anywhere;
 }
 
+.right-sidebar .character-inspector .character-agent-binding-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.right-sidebar .character-inspector .character-agent-binding-line code {
+  overflow: hidden;
+  max-width: 100%;
+  padding: 1px 6px;
+  border: 1px solid rgb(var(--border-rgb) / 0.14);
+  border-radius: 6px;
+  background: rgb(var(--field-rgb));
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.right-sidebar .character-inspector .character-agent-live-chip {
+  padding: 0 7px;
+  border: 1px solid rgb(var(--border-rgb) / 0.2);
+  border-radius: 999px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+}
+
+.right-sidebar .character-inspector .character-agent-live-chip.is-active {
+  border-color: rgb(80 180 120 / 0.4);
+  color: rgb(110 200 145);
+  background: rgb(80 180 120 / 0.1);
+}
+
+.right-sidebar .character-inspector .character-agent-count {
+  font-variant-numeric: tabular-nums;
+}
+
 /* Sections — flat dividers instead of nested boxes */
 .right-sidebar .character-inspector .right-inspector-content > .inspector-section {
   display: grid;
