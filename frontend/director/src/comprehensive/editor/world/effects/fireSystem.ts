@@ -25,14 +25,18 @@ import { worldRandom01 } from "../worldRandom";
 export const FIRE_BURN_FLOOR = 0.12;
 
 /** Max fraction of the burn removed by full surface wetness. */
-export const FIRE_WETNESS_SUPPRESSION = 0.55;
+export const FIRE_WETNESS_SUPPRESSION = 0.65;
 
-/** Additional multiplicative suppression per preset at weather intensity 1. */
+/**
+ * Additional multiplicative suppression per preset at weather intensity 1.
+ * Tuned so a fully soaked fire in a full storm bottoms out at the burn
+ * floor: (1 - 0.65) * (1 - 0.7) = 0.105 < FIRE_BURN_FLOOR.
+ */
 export const FIRE_PRESET_SUPPRESSION: Readonly<Record<DirectorWorldWeather["preset"], number>> = {
   clear: 0,
   overcast: 0,
-  rain: 0.4,
-  storm: 0.55,
+  rain: 0.45,
+  storm: 0.7,
   snow: 0.3,
 };
 

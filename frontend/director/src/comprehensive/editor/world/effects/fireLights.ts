@@ -139,9 +139,7 @@ export function computeFireLightState(
       FIRE_LIGHT_FLICKER_MIN,
       0.78 +
         depth *
-          (0.13 * Math.sin(t * 9.7 + phaseA) +
-            0.06 * Math.sin(t * 22.3 + phaseB) +
-            0.03 * Math.sin(t * 4.1 + phaseC)),
+          (0.13 * Math.sin(t * 9.7 + phaseA) + 0.06 * Math.sin(t * 22.3 + phaseB) + 0.03 * Math.sin(t * 4.1 + phaseC)),
     ),
   );
   const burn = Math.min(1, Math.max(0, environment.burnFactor ?? 1));

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { WORLD_EFFECT_KINDS } from "../../../../../src/comprehensive/editor/world/effects/effectPresets";
 import {
+  BURN_EFFECT_VARIANTS,
   EFFECT_FRAGMENT_RAMPS,
+  EFFECT_SPRITE_MASK_CHANNELS,
   EFFECT_VERTEX_SHADER,
   SCENE_LIT_EFFECT_VARIANTS,
+  TIME_ANIMATED_EFFECT_VARIANTS,
   buildEffectShaderSource,
 } from "../../../../../src/comprehensive/editor/world/effects/effectShaders";
 
@@ -27,9 +30,21 @@ describe("effect shader assembly", () => {
     expect(EFFECT_VERTEX_SHADER).toContain("float cycleIndex = floor(cursor / lifetime);");
     expect(EFFECT_VERTEX_SHADER).toContain("cycleIndex * 0.7071067");
     expect(EFFECT_VERTEX_SHADER).toContain("hash11");
-    expect(EFFECT_VERTEX_SHADER).toContain("uWind * age");
     expect(EFFECT_VERTEX_SHADER).toContain("0.5 * uGravity * age * age");
     expect(EFFECT_VERTEX_SHADER).toContain("uTurbFrequency");
+  });
+
+  it("advects by the closed-form integral of the gusting wind", () => {
+    // Mean wind times age is the base displacement...
+    expect(EFFECT_VERTEX_SHADER).toContain("vec3 windDrift = uWind * (age + gustDrift);");
+    // ...plus the exact antiderivative of the three gust bands over the
+    // particle's age, mirroring worldWind.ts (0.9 / 2.33 / 5.71 rad/s).
+    expect(EFFECT_VERTEX_SHADER).toContain("windGustIntegral(localTime) - windGustIntegral(spawnTime)");
+    expect(EFFECT_VERTEX_SHADER).toContain("0.6 * uGustiness");
+    expect(EFFECT_VERTEX_SHADER).toContain("0.55 * sin(t * 0.9)");
+    expect(EFFECT_VERTEX_SHADER).toContain("uniform float uGustiness;");
+    // Streak slant uses the instantaneous gusting wind, not the mean.
+    expect(EFFECT_VERTEX_SHADER).toContain("uWind * (1.0 + 0.6 * uGustiness * windGustSignal(localTime))");
   });
 
   it("wraps camera-following precipitation and stretches quads along velocity", () => {
@@ -39,6 +54,22 @@ describe("effect shader assembly", () => {
     expect(EFFECT_VERTEX_SHADER).toContain("velocityView");
   });
 
+  it("renders a hashed fraction of weather rain as ground splash rings", () => {
+    // Splash designation is per-particle so scrubbing never reshuffles it.
+    expect(EFFECT_VERTEX_SHADER).toContain("uniform float uSplash;");
+    expect(EFFECT_VERTEX_SHADER).toContain("uniform float uGroundY;");
+    expect(EFFECT_VERTEX_SHADER).toContain("float splashPick = hash11(");
+    expect(EFFECT_VERTEX_SHADER).toContain("varying float vSplash;");
+    // Rings sit flat on the splash plane and expand over their short cycle.
+    expect(EFFECT_VERTEX_SHADER).toContain("vec3 ripple = vec3(corner.x, 0.0, corner.y) * size;");
+    expect(EFFECT_VERTEX_SHADER).toContain("particlePos.y = mix(particlePos.y, uGroundY, isSplash);");
+  });
+
+  it("wobbles upright sprites instead of freely rotating them", () => {
+    expect(EFFECT_VERTEX_SHADER).toContain("uniform float uUpright;");
+    expect(EFFECT_VERTEX_SHADER).toContain("uUpright > 0.0 ? (r7 * 2.0 - 1.0) * uUpright : r7 * TAU");
+  });
+
   it("ships a distinct color ramp per kind", () => {
     const fragments = WORLD_EFFECT_KINDS.map((kind) => buildEffectShaderSource(kind).fragmentShader);
     expect(new Set(fragments).size).toBe(WORLD_EFFECT_KINDS.length);
@@ -46,6 +77,23 @@ describe("effect shader assembly", () => {
       expect(EFFECT_FRAGMENT_RAMPS[kind]).toContain("vec4 effectRamp(float ageN, float rand, float mask)");
       expect(buildEffectShaderSource(kind).fragmentShader).toContain("effectRamp(vAgeNorm, vRand, mask)");
     }
+  });
+
+  it("selects a distinct sprite atlas channel per silhouette family", () => {
+    // One shared RGBA atlas: flame teardrop (r), snow crystal (g), splash
+    // ring (b), soft disc (a). See softParticleTexture.ts.
+    expect(EFFECT_SPRITE_MASK_CHANNELS.fire).toBe("spriteTexel.r");
+    expect(EFFECT_SPRITE_MASK_CHANNELS["fire-glow"]).toBe("spriteTexel.r");
+    expect(EFFECT_SPRITE_MASK_CHANNELS.snow).toBe("spriteTexel.g");
+    expect(EFFECT_SPRITE_MASK_CHANNELS.rain).toBe("mix(spriteTexel.a, spriteTexel.b, vSplash)");
+    for (const variant of ["smoke", "steam", "sparks", "fireflies", "dust"] as const) {
+      expect(EFFECT_SPRITE_MASK_CHANNELS[variant]).toBe("spriteTexel.a");
+    }
+    // Every variant's fragment shader actually samples its channel.
+    for (const kind of WORLD_EFFECT_KINDS) {
+      expect(buildEffectShaderSource(kind).fragmentShader).toContain(EFFECT_SPRITE_MASK_CHANNELS[kind]);
+    }
+    expect(buildEffectShaderSource("fire", "fire-glow").fragmentShader).toContain("spriteTexel.r");
   });
 
   it("parameterizes fire as body + glow shader variants", () => {
@@ -59,11 +107,46 @@ describe("effect shader assembly", () => {
     // Glow must stay distinct from every single-pass kind ramp too.
     const fragments = WORLD_EFFECT_KINDS.map((kind) => buildEffectShaderSource(kind).fragmentShader);
     expect(fragments).not.toContain(glow.fragmentShader);
-    // Body occludes (dark ember tones + widened mask); glow layers hot color.
-    expect(EFFECT_FRAGMENT_RAMPS.fire).toContain("pow(mask, 0.6)");
+    // Both passes cool along the shared blackbody locus; the glow's bloom
+    // stays gated on the sprite core so stacks don't clip to white.
+    expect(body.fragmentShader).toContain("effectFireBlackbody");
+    expect(glow.fragmentShader).toContain("effectFireBlackbody");
     expect(EFFECT_FRAGMENT_RAMPS["fire-glow"]).toContain("pow(mask, 5.0)");
+    // Flipbook-style life without an atlas: noise erosion scrolls with uTime.
+    expect(EFFECT_FRAGMENT_RAMPS.fire).toContain("effectValueNoise");
     // The pass argument is ignored for single-pass kinds.
     expect(buildEffectShaderSource("smoke", "main")).toBe(buildEffectShaderSource("smoke"));
+  });
+
+  it("erodes the volumetric media with value noise", () => {
+    for (const kind of ["smoke", "steam"] as const) {
+      const { fragmentShader } = buildEffectShaderSource(kind);
+      expect(fragmentShader).toContain("effectValueNoise");
+      expect(fragmentShader).toContain("uniform float uTime;");
+    }
+    // Rain and fireflies animate purely through vertex-stage inputs.
+    expect(buildEffectShaderSource("rain").fragmentShader).not.toContain("uniform float uTime;");
+    expect(buildEffectShaderSource("fireflies").fragmentShader).not.toContain("uniform float uTime;");
+    expect([...TIME_ANIMATED_EFFECT_VARIANTS].sort()).toEqual(
+      ["fire", "fire-glow", "smoke", "steam", "sparks", "dust", "snow"].sort(),
+    );
+  });
+
+  it("suppresses only the fire passes with the weather burn factor", () => {
+    expect([...BURN_EFFECT_VARIANTS].sort()).toEqual(["fire", "fire-glow"].sort());
+    expect(buildEffectShaderSource("fire", "fire-body").fragmentShader).toContain("uniform float uBurn;");
+    expect(buildEffectShaderSource("fire", "fire-glow").fragmentShader).toContain("uniform float uBurn;");
+    for (const kind of WORLD_EFFECT_KINDS.filter((entry) => entry !== "fire")) {
+      expect(buildEffectShaderSource(kind).fragmentShader).not.toContain("uBurn");
+    }
+  });
+
+  it("gives rain streak heads and splash ripples their own shading", () => {
+    const rain = buildEffectShaderSource("rain").fragmentShader;
+    // Streaks brighten toward the leading tip along the velocity axis.
+    expect(rain).toContain("vUv.y");
+    // Splash rings branch on the vSplash varying and fade as they expand.
+    expect(rain).toContain("vSplash > 0.5");
   });
 
   it("compiles three's scene-fog chunks into every shader", () => {
@@ -119,15 +202,21 @@ describe("effect shader assembly", () => {
     expect(buildEffectShaderSource("fire", "fire-glow").fragmentShader).not.toContain("uNightBoost");
   });
 
-  it("occludes rain and snow under the camera-centred height map, not fire", () => {
-    const rain = buildEffectShaderSource("rain").fragmentShader;
-    const snow = buildEffectShaderSource("snow").fragmentShader;
-    const fire = buildEffectShaderSource("fire").fragmentShader;
-    expect(rain).toContain("uOcclusionMap");
-    expect(rain).toContain("directorWorldHeightMapUv");
-    expect(snow).toContain("uOcclusionBlend");
-    expect(fire).not.toContain("uOcclusionMap");
+  it("kills covered precipitation in the vertex shader via the height map", () => {
+    // Vertex-stage occlusion (survey §3.5, AC4-style): covered drops collapse
+    // their footprint to zero, saving all fragment work. The uniforms default
+    // to a zero blend, so anchored (non-weather) systems skip the branch.
+    expect(EFFECT_VERTEX_SHADER).toContain("uniform sampler2D uOcclusionMap;");
+    expect(EFFECT_VERTEX_SHADER).toContain("directorWorldHeightMapUv");
+    expect(EFFECT_VERTEX_SHADER).toContain("directorWorldUnpackHeight");
+    expect(EFFECT_VERTEX_SHADER).toContain("if (uOcclusionBlend > 0.001)");
+    // Soft cover band instead of a hard step so roof edges never pop.
+    expect(EFFECT_VERTEX_SHADER).toContain("smoothstep(0.0, 0.45, occluderY -");
     expect(EFFECT_VERTEX_SHADER).toContain("vParticleWorld");
+    // Fragment shaders no longer carry the occlusion sampling.
+    for (const kind of WORLD_EFFECT_KINDS) {
+      expect(buildEffectShaderSource(kind).fragmentShader).not.toContain("uOcclusionMap");
+    }
   });
 
   it("never references wall-clock or unseeded randomness", () => {

@@ -482,7 +482,12 @@ function FireEffectLight({
   effect: DirectorWorldEffect;
   origin: readonly [number, number, number];
 }) {
-  const state = computeFireLightState(effect, context.seed, context.worldSeconds, getFireLightEnvironment(effect, context));
+  const state = computeFireLightState(
+    effect,
+    context.seed,
+    context.worldSeconds,
+    getFireLightEnvironment(effect, context),
+  );
   const lightRef = useRef<PointLight>(null);
   useFrame(() => {
     const light = lightRef.current;

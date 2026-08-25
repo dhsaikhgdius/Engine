@@ -120,7 +120,16 @@ function flakeMask(u: number, v: number): number {
       const branchAngle = angle + (side * Math.PI) / 3;
       best = Math.max(
         best,
-        armField(u, v, forkU, forkV, Math.cos(branchAngle), Math.sin(branchAngle), FLAKE_BRANCH_LENGTH, FLAKE_BRANCH_WIDTH),
+        armField(
+          u,
+          v,
+          forkU,
+          forkV,
+          Math.cos(branchAngle),
+          Math.sin(branchAngle),
+          FLAKE_BRANCH_LENGTH,
+          FLAKE_BRANCH_WIDTH,
+        ),
       );
     }
   }
