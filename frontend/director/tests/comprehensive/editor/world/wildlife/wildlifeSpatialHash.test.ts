@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createWildlifeRng } from "../../../../../src/comprehensive/editor/world/wildlife/wildlifeSim";
-import { createWildlifeSpatialHash } from "../../../../../src/comprehensive/editor/world/wildlife/wildlifeSpatialHash";
+import {
+  createWildlifeSpatialHash,
+  type WildlifeSpatialHash,
+} from "../../../../../src/comprehensive/editor/world/wildlife/wildlifeSpatialHash";
 
 /**
  * The spatial hash must return a candidate SUPERSET that, after the caller's
@@ -42,7 +45,7 @@ function naiveNeighbors(
 }
 
 function hashedNeighbors(
-  hash: ReturnType<typeof createWildlifeSpatialHash>,
+  hash: WildlifeSpatialHash,
   posX: Float32Array,
   posY: Float32Array,
   posZ: Float32Array,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorWorldWaterBody } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext } from "../../../../../src/comprehensive/editor/world/livingWorldContracts";
+import { evaluateWorldClimate } from "../../../../../src/comprehensive/editor/world/worldClimate";
 import {
   GERSTNER_FORMULATION_MARKER,
   WATER_GERSTNER_WAVE_COUNT,
@@ -44,23 +45,27 @@ function createBody(overrides: Partial<DirectorWorldWaterBody> = {}): DirectorWo
 }
 
 function createContext(overrides: Partial<LivingWorldFrameContext> = {}): LivingWorldFrameContext {
-  return {
+  const settings = {
+    enabled: true,
+    seed: 20_260_813,
+    wind: { directionDegrees: 45, speedMps: 2.5, gustiness: 0, turbulence: 0 },
+    timeOfDay: { mode: "fixed" as const, hours: 12, cycleMinutes: 12, drivesSky: false },
+    weather: { preset: "clear" as const, intensity: 0.5, wetness: 0, cloudCover: 0 },
+  };
+  const merged: LivingWorldFrameContext = {
     worldSeconds: 3.25,
     frame: 78,
     fps: 24,
     isPlaying: false,
     seed: 20_260_813,
-    settings: {
-      enabled: true,
-      seed: 20_260_813,
-      wind: { directionDegrees: 45, speedMps: 2.5, gustiness: 0, turbulence: 0 },
-      timeOfDay: { mode: "fixed", hours: 12, cycleMinutes: 12, drivesSky: false },
-      weather: { preset: "clear", intensity: 0.5, wetness: 0, cloudCover: 0 },
-    },
+    settings,
+    climate: evaluateWorldClimate(settings, 3.25),
     windVector: [3, 0, 4],
     groundHeight: 0,
     ...overrides,
   };
+  if (!overrides.climate) merged.climate = evaluateWorldClimate(merged.settings, merged.worldSeconds);
+  return merged;
 }
 
 function createFrameState(): WaterFrameState {

@@ -1,6 +1,7 @@
 import {
   DIRECTOR_WORLD_SIMULATION_HZ,
   WORLD_WILDLIFE_SPECIES_ARCHETYPE,
+  type DirectorWorldSettings,
   type DirectorWorldWeather,
   type DirectorWorldWildlifeGroup,
   type DirectorWorldWind,
@@ -10,13 +11,19 @@ import {
 } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { hashCombine, hashUint32, worldStreamId } from "../worldRandom";
 import { writeWorldWindVector } from "../worldWind";
+import {
+  blendWorldPresetScalar,
+  evaluateWorldClimateSchedule,
+  isWorldWeatherEvolving,
+  WORLD_CLIMATE_NODE_VECTORS,
+} from "../worldClimate";
 import { createWildlifeSpatialHash } from "./wildlifeSpatialHash";
 
 /**
  * Pure wildlife simulation core (no three.js imports).
  *
  * Determinism contract: state is a pure function of (group config, world seed,
- * groundHeight, quantized tick). Time is quantized to the fixed
+ * groundHeight, environment, quantized tick). Time is quantized to the fixed
  * DIRECTOR_WORLD_SIMULATION_HZ timestep; `stepTo(seconds)` may be called with
  * arbitrary, non-monotonic targets (scrubbing, out-of-order frame export) and
  * must resolve to bit-identical Float32Array state regardless of the path
@@ -30,6 +37,14 @@ import { createWildlifeSpatialHash } from "./wildlifeSpatialHash";
  * candidate order is a pure function of agent positions, so replay stays
  * bit-identical even though float accumulation order differs from the old
  * naive scan.
+ *
+ * Climate coupling: the optional environment feeds per-tick wind and storm
+ * values evaluated INSIDE the sim from the deterministic wind/climate
+ * functions of the quantized tick — never from the render loop — so
+ * checkpoint replay stays bit-identical. Wind drifts flocks (butterflies more
+ * than birds), storms drop flight bands and slow grazing herds (wolves are
+ * unbothered), fish stay inside an overlapping authored water rectangle, and
+ * prey herds steer away from wolf territory circles.
  */
 
 const HZ = DIRECTOR_WORLD_SIMULATION_HZ;
@@ -146,6 +161,186 @@ export const WILDLIFE_DEFAULT_ALTITUDE_BAND_M: Record<"birds" | "butterflies", [
   birds: [8, 25],
   butterflies: [0.5, 3],
 };
+
+// ---------------------------------------------------------------------------
+// Environment coupling (optional; absent = today's behavior exactly)
+// ---------------------------------------------------------------------------
+
+/**
+ * Air-mass advection: fraction of the evaluated wind velocity added to flier
+ * motion. Only near-passive fliers are carried; birds hold position but bias
+ * their flight direction instead (see WILDLIFE_WIND_HEADING_FACTOR).
+ */
+export const WILDLIFE_WIND_DRIFT_FACTOR: Partial<Record<WorldWildlifeSpecies, number>> = {
+  butterflies: 0.85,
+};
+
+/**
+ * Active fliers prefer flying with the wind: acceleration (m/s² per m/s of
+ * wind) steering the flock downwind without overriding its containment.
+ */
+export const WILDLIFE_WIND_HEADING_FACTOR: Partial<Record<WorldWildlifeSpecies, number>> = {
+  birds: 0.3,
+};
+
+/** Fraction of the flight band a full storm pushes flocks down by. */
+export const WILDLIFE_STORM_BAND_DROP = 0.45;
+/**
+ * Downward acceleration (m/s²) a full storm applies across the whole flock.
+ * Speed regulation turns this into a heading bias, so birds fly lower rather
+ * than diving; the band-bottom spring still holds the authored floor.
+ */
+export const WILDLIFE_STORM_SINK_ACCEL = 1.5;
+/** Cruise-speed loss for grazing herds in a full storm (wolves exempt). */
+export const WILDLIFE_STORM_HERD_SLOWDOWN = 0.35;
+/** Extra metres past a wolf territory radius that prey still avoids. */
+export const WILDLIFE_PREDATOR_AVOID_MARGIN_M = 3;
+/** Steering weight of predator avoidance relative to the walk target. */
+const PREDATOR_AVOID_WEIGHT = 2.5;
+
+/** Herd species that avoid wolf territories. */
+export const WILDLIFE_PREY_SPECIES: ReadonlySet<WorldWildlifeSpecies> = new Set(["deer", "rabbits", "sheep"]);
+
+/** Axis-aligned-in-local-frame water rectangle a school is confined to. */
+export interface WildlifeWaterRect {
+  centerX: number;
+  centerZ: number;
+  sizeX: number;
+  sizeZ: number;
+  rotationDegrees: number;
+}
+
+/** Wolf territory circle prey herds steer away from. */
+export interface WildlifePredatorZone {
+  x: number;
+  z: number;
+  radius: number;
+}
+
+/**
+ * Optional deterministic environment inputs. Every field is folded into the
+ * sim config key, so changing them resets and replays the simulation.
+ */
+export interface WildlifeSimEnvironment {
+  /** World settings whose wind + weather the sim evaluates per tick. */
+  settings: DirectorWorldSettings;
+  /** Water rectangles overlapping a school's area (first one confines it). */
+  waterRects?: WildlifeWaterRect[];
+  /** Wolf territories overlapping a prey herd's area. */
+  predatorZones?: WildlifePredatorZone[];
+}
+
+/**
+ * Either environment shape the sim accepts: the legacy authored wind+weather
+ * snapshot, or the richer settings-backed environment with water/predator
+ * context and per-tick climate evolution.
+ */
+export type WildlifeAnyEnvironment = WildlifeEnvironment | WildlifeSimEnvironment;
+
+function isWildlifeSimEnvironment(environment: WildlifeAnyEnvironment): environment is WildlifeSimEnvironment {
+  return "settings" in environment;
+}
+
+/** Authored wind+weather view of either environment shape (calm when absent). */
+function resolveAuthoredEnvironment(environment?: WildlifeAnyEnvironment): WildlifeEnvironment {
+  if (!environment) return WILDLIFE_CALM_ENVIRONMENT;
+  if (isWildlifeSimEnvironment(environment)) {
+    return { wind: environment.settings.wind, weather: environment.settings.weather };
+  }
+  return environment;
+}
+
+/**
+ * Resolves the environment for one group from the world state: schools get
+ * the water rectangles overlapping their area, prey herds get the wolf
+ * territories overlapping theirs, and every species gets the settings whose
+ * wind/storm the sim evaluates per tick. Pure and unit-testable.
+ */
+export function buildWildlifeEnvironment(
+  settings: DirectorWorldSettings,
+  group: DirectorWorldWildlifeGroup,
+  allGroups: ReadonlyArray<DirectorWorldWildlifeGroup>,
+  waterRects: ReadonlyArray<WildlifeWaterRect>,
+): WildlifeSimEnvironment {
+  const environment: WildlifeSimEnvironment = { settings };
+  const archetype = WORLD_WILDLIFE_SPECIES_ARCHETYPE[group.species];
+  const [groupX, , groupZ] = group.area.center;
+  if (archetype === "school") {
+    const overlapping = waterRects.filter((rect) => {
+      const reach = group.area.radius + Math.hypot(rect.sizeX, rect.sizeZ) / 2;
+      return Math.hypot(rect.centerX - groupX, rect.centerZ - groupZ) <= reach;
+    });
+    if (overlapping.length > 0) environment.waterRects = overlapping;
+  } else if (archetype === "herd" && WILDLIFE_PREY_SPECIES.has(group.species)) {
+    const zones: WildlifePredatorZone[] = [];
+    for (const other of allGroups) {
+      if (other.id === group.id || other.species !== "wolves" || !other.visible) continue;
+      const [wolfX, , wolfZ] = other.area.center;
+      if (Math.hypot(wolfX - groupX, wolfZ - groupZ) <= group.area.radius + other.area.radius) {
+        zones.push({ x: wolfX, z: wolfZ, radius: other.area.radius });
+      }
+    }
+    if (zones.length > 0) environment.predatorZones = zones;
+  }
+  return environment;
+}
+
+const WIND_GAIN_BY_PRESET: Record<WorldWeatherPreset, number> = {
+  clear: WORLD_CLIMATE_NODE_VECTORS.clear.windGain,
+  overcast: WORLD_CLIMATE_NODE_VECTORS.overcast.windGain,
+  rain: WORLD_CLIMATE_NODE_VECTORS.rain.windGain,
+  snow: WORLD_CLIMATE_NODE_VECTORS.snow.windGain,
+  storm: WORLD_CLIMATE_NODE_VECTORS.storm.windGain,
+};
+
+const STORM_FACTOR_BY_PRESET: Record<WorldWeatherPreset, number> = {
+  clear: 0,
+  overcast: 0,
+  rain: 0,
+  snow: 0,
+  storm: 1,
+};
+
+/**
+ * Environment fragment of the sim identity key, scoped per archetype.
+ *
+ * Herds and flocks consume the authored wind (direction, speed, gustiness)
+ * and weather (preset, intensity, evolution) — turbulence, wetness, and
+ * cloud cover never touch the sim, so editing them (or letting an evolution
+ * system drift wetness) must not reset herds mid-shot. Schools consume
+ * neither wind nor weather, only the confining water rectangles, so weather
+ * edits never reset a fish school.
+ */
+function wildlifeEnvironmentKey(species: WorldWildlifeSpecies, environment?: WildlifeAnyEnvironment): string {
+  if (!environment) return "env:0";
+  const archetype = WORLD_WILDLIFE_SPECIES_ARCHETYPE[species];
+  const parts: string[] = [];
+  const authored = resolveAuthoredEnvironment(environment);
+  if (archetype !== "school") {
+    const weather = authored.weather;
+    const evolution = weather.evolution ? `${weather.evolution.mode},${weather.evolution.periodSeconds}` : "static";
+    parts.push(`wx:${weather.preset},${weather.intensity},${evolution}`);
+    const wind = authored.wind;
+    parts.push(`wind:${wind.directionDegrees},${wind.speedMps},${wind.gustiness}`);
+  }
+  const simEnvironment = isWildlifeSimEnvironment(environment) ? environment : undefined;
+  if (archetype === "school" && simEnvironment?.waterRects && simEnvironment.waterRects.length > 0) {
+    parts.push(
+      `water:${simEnvironment.waterRects
+        .map((rect) => `${rect.centerX},${rect.centerZ},${rect.sizeX},${rect.sizeZ},${rect.rotationDegrees}`)
+        .join(";")}`,
+    );
+  }
+  if (
+    archetype === "herd" &&
+    WILDLIFE_PREY_SPECIES.has(species) &&
+    simEnvironment?.predatorZones &&
+    simEnvironment.predatorZones.length > 0
+  ) {
+    parts.push(`pred:${simEnvironment.predatorZones.map((zone) => `${zone.x},${zone.z},${zone.radius}`).join(";")}`);
+  }
+  return parts.length > 0 ? `env:${parts.join("|")}` : "env:0";
+}
 
 // ---------------------------------------------------------------------------
 // Serializable RNG
@@ -538,24 +733,32 @@ function resolveSimConfig(
     config.fleeMinS = tuning.fleeMinS;
     config.fleeMaxS = tuning.fleeMaxS;
     config.packPull = tuning.packPull;
+    if (species === "wolves") {
+      // Apex predators are unbothered by weather: the pack keeps its speed,
+      // roaming ring, and graze cadence through rain and storm alike.
+      config.weatherSpeedFactor = 1;
+      config.weatherClusterFactor = 1;
+      config.weatherGrazeScale = 1;
+    }
   }
   return config;
 }
 
 /**
  * Identity of a sim run. Any field that influences simulation state is part
- * of the key; render-only fields (sizeScale, assetId, name, visible, locked)
- * are deliberately excluded so tweaking them never resets the simulation.
- * From the environment, only the consumed fields participate: wind direction,
- * speed, and gustiness plus weather preset and intensity. Turbulence,
- * wetness, and cloud cover never touch the sim, so editing them (or letting
- * an evolution system drift wetness) must not reset herds mid-shot.
+ * of the key — including the archetype-relevant environment inputs — while
+ * render-only fields (sizeScale, assetId, name, visible, locked) are
+ * deliberately excluded so tweaking them never resets the simulation.
+ * From the environment, only the consumed fields participate (see
+ * wildlifeEnvironmentKey): turbulence, wetness, and cloud cover never touch
+ * the sim, so editing them (or letting an evolution system drift wetness)
+ * must not reset herds mid-shot.
  */
 export function wildlifeSimConfigKey(
   group: DirectorWorldWildlifeGroup,
   worldSeed: number,
   groundHeight: number,
-  environment: WildlifeEnvironment = WILDLIFE_CALM_ENVIRONMENT,
+  environment?: WildlifeAnyEnvironment,
 ): string {
   const altitude = group.altitude ? `${group.altitude.minM},${group.altitude.maxM}` : "default";
   return [
@@ -569,11 +772,7 @@ export function wildlifeSimConfigKey(
     altitude,
     worldSeed,
     groundHeight,
-    environment.wind.directionDegrees,
-    environment.wind.speedMps,
-    environment.wind.gustiness,
-    environment.weather.preset,
-    environment.weather.intensity,
+    wildlifeEnvironmentKey(group.species, environment),
   ].join("|");
 }
 
@@ -583,7 +782,7 @@ export function shouldRecreateWildlifeSim(
   group: DirectorWorldWildlifeGroup,
   worldSeed: number,
   groundHeight: number,
-  environment: WildlifeEnvironment = WILDLIFE_CALM_ENVIRONMENT,
+  environment?: WildlifeAnyEnvironment,
 ): boolean {
   return sim.configKey !== wildlifeSimConfigKey(group, worldSeed, groundHeight, environment);
 }
@@ -625,9 +824,10 @@ export function createWildlifeSim(
   group: DirectorWorldWildlifeGroup,
   worldSeed: number,
   groundHeight: number,
-  environment: WildlifeEnvironment = WILDLIFE_CALM_ENVIRONMENT,
+  environment?: WildlifeAnyEnvironment,
 ): WildlifeSim {
-  const config = resolveSimConfig(group, groundHeight, environment);
+  const authoredEnvironment = resolveAuthoredEnvironment(environment);
+  const config = resolveSimConfig(group, groundHeight, authoredEnvironment);
   const configKey = wildlifeSimConfigKey(group, worldSeed, groundHeight, environment);
   const n = config.count;
   const rng = createWildlifeRng(hashCombine(worldSeed, group.seedOffset, worldStreamId(group.id)));
@@ -636,6 +836,61 @@ export function createWildlifeSim(
   const windScratch: [number, number, number] = [0, 0, 0];
   const packAnchorPhase =
     (hashUint32(hashCombine(worldSeed, group.seedOffset, worldStreamId(group.id), 0x9e77)) / 4_294_967_296) * TWO_PI;
+
+  // Environment resolution (constants for the sim's lifetime). The richer
+  // per-tick couplings only activate for the settings-backed environment
+  // shape; a legacy wind+weather snapshot keeps today's behavior bit-exact.
+  const simEnvironment = environment && isWildlifeSimEnvironment(environment) ? environment : undefined;
+  const envSettings = simEnvironment?.settings;
+  const windDriftFactor =
+    config.archetype === "flock" && envSettings ? (WILDLIFE_WIND_DRIFT_FACTOR[config.species] ?? 0) : 0;
+  const windHeadingFactor =
+    config.archetype === "flock" && envSettings ? (WILDLIFE_WIND_HEADING_FACTOR[config.species] ?? 0) : 0;
+  const respondsToStorm =
+    envSettings !== undefined &&
+    (config.archetype === "flock" || (config.archetype === "herd" && config.species !== "wolves"));
+  // First authored water rectangle confines the school (previz-level).
+  const waterRect = config.archetype === "school" ? simEnvironment?.waterRects?.[0] : undefined;
+  const waterRectCos = waterRect ? Math.cos((-waterRect.rotationDegrees * Math.PI) / 180) : 1;
+  const waterRectSin = waterRect ? Math.sin((-waterRect.rotationDegrees * Math.PI) / 180) : 0;
+  const waterHalfX = waterRect ? Math.max(0.5, waterRect.sizeX / 2 - 0.4) : 0;
+  const waterHalfZ = waterRect ? Math.max(0.5, waterRect.sizeZ / 2 - 0.4) : 0;
+  const predatorZones =
+    config.archetype === "herd" && WILDLIFE_PREY_SPECIES.has(config.species)
+      ? (simEnvironment?.predatorZones ?? [])
+      : [];
+
+  // Per-tick environment sample, evaluated inside step() from the quantized
+  // tick (pure function of tick — replay-safe).
+  const envWindScratch: [number, number, number] = [0, 0, 0];
+  let envWindX = 0;
+  let envWindZ = 0;
+  let envStorm = 0;
+
+  const needsWind = windDriftFactor > 0 || windHeadingFactor > 0;
+
+  function evaluateEnvironmentTick(tick: number): void {
+    if (!envSettings) return;
+    const seconds = tick * DT;
+    const needsSchedule = respondsToStorm || needsWind;
+    if (!needsSchedule) return;
+    const evolving = isWorldWeatherEvolving(envSettings);
+    const schedule = evolving ? evaluateWorldClimateSchedule(envSettings, seconds) : null;
+    if (respondsToStorm) {
+      const base = schedule
+        ? blendWorldPresetScalar(STORM_FACTOR_BY_PRESET, schedule)
+        : STORM_FACTOR_BY_PRESET[envSettings.weather.preset];
+      envStorm = base * Math.min(1, Math.max(0, envSettings.weather.intensity));
+    }
+    if (needsWind) {
+      writeWorldWindVector(envWindScratch, envSettings.wind, seconds);
+      // Static mode keeps the authored wind (gain 1) to match the rest of the
+      // world; an evolving cycle applies the blended node gain.
+      const gain = schedule ? blendWorldPresetScalar(WIND_GAIN_BY_PRESET, schedule) : 1;
+      envWindX = envWindScratch[0] * gain;
+      envWindZ = envWindScratch[2] * gain;
+    }
+  }
 
   // Live SoA state -----------------------------------------------------------
   const posX = new Float32Array(n);
@@ -836,13 +1091,21 @@ export function createWildlifeSim(
     const bandSpan = config.bandMaxY - config.bandMinY;
     const bandEdge = Math.max(bandSpan * 0.2, 0.1);
     const stateSeconds = simTick * DT;
+    // Storms press flocks toward the bottom of their flight band (soft
+    // springs only; the hard band clamp stays authored).
+    const stormBandTop =
+      config.bandMaxY - envStorm * WILDLIFE_STORM_BAND_DROP * (config.bandMaxY - config.bandMinY);
+    // Air-mass advection per tick (pure function of the quantized tick):
+    // fliers get carried by a fraction of the wind on top of their steering.
+    const windAdvectX = envWindX * windDriftFactor;
+    const windAdvectZ = envWindZ * windDriftFactor;
 
     // Downwind steering bias: the shared gust model evaluated at the tick's
     // own time, so replay from a checkpoint sees the identical wind history.
     let windAx = 0;
     let windAz = 0;
     if (windBiasAccel > 0) {
-      writeWorldWindVector(windScratch, environment.wind, stateSeconds);
+      writeWorldWindVector(windScratch, authoredEnvironment.wind, stateSeconds);
       windAx = windScratch[0] * windBiasAccel;
       windAz = windScratch[2] * windBiasAccel;
     }
@@ -949,12 +1212,15 @@ export function createWildlifeSim(
           ax -= (ox / dist) * pull;
           az -= (oz / dist) * pull;
         }
-        // Altitude band springs.
+        // Altitude band springs (storms lower the effective ceiling).
         if (py < config.bandMinY + bandEdge) {
           ay += containAccel * Math.min((config.bandMinY + bandEdge - py) / bandEdge, 1.5);
-        } else if (py > config.bandMaxY - bandEdge) {
-          ay -= containAccel * Math.min((py - (config.bandMaxY - bandEdge)) / bandEdge, 1.5);
+        } else if (py > stormBandTop - bandEdge) {
+          ay -= containAccel * Math.min((py - (stormBandTop - bandEdge)) / bandEdge, 1.5);
         }
+        // Storm sink presses the whole flock down, not just the ceiling.
+        // envStorm is 0 for schools, so this only moves flocks.
+        ay -= envStorm * WILDLIFE_STORM_SINK_ACCEL;
       }
 
       // Butterfly flutter: seeded sine jitter, deterministic in (tick, phase).
@@ -986,6 +1252,14 @@ export function createWildlifeSim(
       ax += windAx;
       az += windAz;
 
+      // Active fliers additionally lean downwind with the evaluated climate
+      // wind: an acceleration bias that turns the flock with the wind while
+      // speed regulation keeps the cruise envelope.
+      if (windHeadingFactor > 0) {
+        ax += envWindX * windHeadingFactor;
+        az += envWindZ * windHeadingFactor;
+      }
+
       const accel2 = ax * ax + ay * ay + az * az;
       if (accel2 > maxAccel * maxAccel) {
         const scale = maxAccel / Math.sqrt(accel2);
@@ -1014,9 +1288,9 @@ export function createWildlifeSim(
         vz *= scale;
       }
 
-      px += vx * DT;
+      px += (vx + windAdvectX) * DT;
       py += vy * DT;
-      pz += vz * DT;
+      pz += (vz + windAdvectZ) * DT;
 
       // Hard clamps guarantee the containment contract regardless of tuning.
       if (isSchool) {
@@ -1039,6 +1313,22 @@ export function createWildlifeSim(
         if (py > config.bandHardMaxY) {
           py = config.bandHardMaxY;
           if (vy > 0) vy = 0;
+        }
+        // Authored water rectangle: fish never leave the basin footprint.
+        // Clamp in the rect's local frame (rotation-aware) after all other
+        // constraints so the guarantee is unconditional.
+        if (waterRect) {
+          const ox = px - waterRect.centerX;
+          const oz = pz - waterRect.centerZ;
+          let localX = ox * waterRectCos - oz * waterRectSin;
+          let localZ = ox * waterRectSin + oz * waterRectCos;
+          if (localX < -waterHalfX || localX > waterHalfX || localZ < -waterHalfZ || localZ > waterHalfZ) {
+            localX = Math.min(waterHalfX, Math.max(-waterHalfX, localX));
+            localZ = Math.min(waterHalfZ, Math.max(-waterHalfZ, localZ));
+            // Inverse rotation (transpose) back to world space.
+            px = waterRect.centerX + localX * waterRectCos + localZ * waterRectSin;
+            pz = waterRect.centerZ - localX * waterRectSin + localZ * waterRectCos;
+          }
         }
       } else {
         const ox = px - centerX;
@@ -1249,6 +1539,23 @@ export function createWildlifeSim(
       dirX += accSepX[i] * 0.8;
       dirZ += accSepZ[i] * 0.8;
 
+      // Predator avoidance: steer away from overlapping wolf territories and
+      // keep moving while inside one (mild previz flight, no RNG involved).
+      let insidePredatorZone = false;
+      for (let zoneIndex = 0; zoneIndex < predatorZones.length; zoneIndex += 1) {
+        const zone = predatorZones[zoneIndex];
+        const awayX = px - zone.x;
+        const awayZ = pz - zone.z;
+        const avoidRadius = zone.radius + WILDLIFE_PREDATOR_AVOID_MARGIN_M;
+        const away2 = awayX * awayX + awayZ * awayZ;
+        if (away2 >= avoidRadius * avoidRadius) continue;
+        insidePredatorZone = true;
+        const away = Math.sqrt(Math.max(away2, 1e-6));
+        const weight = PREDATOR_AVOID_WEIGHT * (1 - away / avoidRadius);
+        dirX += (awayX / away) * weight;
+        dirZ += (awayZ / away) * weight;
+      }
+
       // Burst states commit harder: doubled turn-in and acceleration so a
       // dash or startle reads as an impulse rather than a gentle lane change.
       const burst = state === WILDLIFE_BEHAVIOR_SPRINT || state === WILDLIFE_BEHAVIOR_FLEE ? 2 : 1;
@@ -1272,8 +1579,14 @@ export function createWildlifeSim(
               : state === WILDLIFE_BEHAVIOR_FLEE
                 ? config.fleeSpeedMult
                 : 1;
-      // Bad weather slows every beast (storm at full intensity ≈ half speed).
-      const targetSpeed = cruise * speedMult * config.weatherSpeedFactor;
+      // Bad weather slows every beast except apex predators (storm at full
+      // intensity ≈ half speed; wolves keep weatherSpeedFactor = 1).
+      let targetSpeed = cruise * speedMult * config.weatherSpeedFactor;
+      // Prey inside a wolf territory keeps walking out instead of grazing.
+      if (insidePredatorZone) targetSpeed = Math.max(targetSpeed, cruise * 1.1);
+      // Evolving-climate storms slow grazing herds further (envStorm stays 0
+      // for wolves and for legacy wind+weather environments).
+      targetSpeed *= 1 - WILDLIFE_STORM_HERD_SLOWDOWN * envStorm;
       let speed = speedCur[i];
       const speedDelta = targetSpeed - speed;
       const maxSpeedStep = accel * burst * DT;
@@ -1314,6 +1627,7 @@ export function createWildlifeSim(
   // --- Tick machinery ------------------------------------------------------------
 
   function step(): void {
+    evaluateEnvironmentTick(simTick);
     if (config.archetype === "herd") stepHerd();
     else stepBoids();
     simTick += 1;

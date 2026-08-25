@@ -94,6 +94,20 @@ const PRESET_CLOUD_DARKEN_RANGE: Record<WeatherPreset, readonly [number, number]
   storm: [0.55, 0.35],
 };
 
+/**
+ * Active weather transition for blending the per-preset mood outputs; a
+ * structural subset of the WorldClimateSchedule from worldClimate.ts so an
+ * evolving climate can be passed directly.
+ */
+export interface SkyWeatherTransition {
+  /** Node being left; equals `toPreset` while holding. */
+  fromPreset: WeatherPreset;
+  /** Node being entered / held. */
+  toPreset: WeatherPreset;
+  /** Smoothed ramp position in [0, 1]; 1 while holding. */
+  blend: number;
+}
+
 export interface SkyWeatherMood {
   /** Fraction of direct key light surviving preset, intensity, and cover. */
   directTransmission: number;
@@ -118,13 +132,41 @@ export interface SkyWeatherMood {
 /**
  * Resolves the full sky appearance for a weather block.
  *
+ * With an active cross-preset transition (an evolving climate ramp) the mood
+ * is evaluated for both endpoint presets — sharing the evaluated intensity
+ * and cloud cover — and every scalar output is lerped by the ramp blend, so
+ * weather evolution never pops a preset-derived appearance value. Without a
+ * transition (or while holding one node) the single-preset path runs
+ * unchanged, preserving the static pipeline bit-for-bit.
+ *
  * @param weather - The current world weather settings.
+ * @param transition - Optional active preset transition (evolving climate).
  * @returns Deterministic appearance parameters for the sky layer.
  */
-export function evaluateSkyWeatherMood(weather: DirectorWorldWeather): SkyWeatherMood {
+export function evaluateSkyWeatherMood(
+  weather: DirectorWorldWeather,
+  transition?: SkyWeatherTransition,
+): SkyWeatherMood {
+  if (transition && transition.fromPreset !== transition.toPreset) {
+    const from = evaluateSkyWeatherMoodForPreset(transition.fromPreset, weather);
+    const to = evaluateSkyWeatherMoodForPreset(transition.toPreset, weather);
+    const t = clamp01(transition.blend);
+    return {
+      directTransmission: lerp(from.directTransmission, to.directTransmission, t),
+      ambientScale: lerp(from.ambientScale, to.ambientScale, t),
+      effectiveCloudCover: lerp(from.effectiveCloudCover, to.effectiveCloudCover, t),
+      starVisibility: lerp(from.starVisibility, to.starVisibility, t),
+      cloudOpacityScale: lerp(from.cloudOpacityScale, to.cloudOpacityScale, t),
+      cloudSizeScale: lerp(from.cloudSizeScale, to.cloudSizeScale, t),
+      cloudShaderDarkening: lerp(from.cloudShaderDarkening, to.cloudShaderDarkening, t),
+    };
+  }
+  return evaluateSkyWeatherMoodForPreset(weather.preset, weather);
+}
+
+function evaluateSkyWeatherMoodForPreset(preset: WeatherPreset, weather: DirectorWorldWeather): SkyWeatherMood {
   const intensity = clamp01(weather.intensity);
   const cover = clamp01(weather.cloudCover);
-  const preset = weather.preset;
 
   const coverFloor = PRESET_COVER_FLOOR[preset];
   const effectiveCloudCover = clamp01(Math.max(cover, lerp(coverFloor[0], coverFloor[1], intensity)));

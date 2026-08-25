@@ -89,7 +89,7 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
   const { scene } = useThree();
   const { settings } = context;
   const lutTexture = useMemo(() => {
-    const solution = evaluateSkyAtmosphere(settings, context.worldSeconds);
+    const solution = evaluateSkyAtmosphere(settings, context.worldSeconds, context.climate);
     lastSolutionRef.current = solution;
     return createAtmosphereEnvironmentTexture(solution);
     // First bake only; later sun/weather changes rewrite the same texture in sync().
@@ -113,8 +113,9 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
   );
 
   const sync = (seconds: number) => {
-    const lighting = evaluateSkyLighting(settings, seconds);
-    const solution = evaluateSkyAtmosphere(settings, seconds);
+    const climate = context.climate;
+    const lighting = evaluateSkyLighting(settings, seconds, climate);
+    const solution = evaluateSkyAtmosphere(settings, seconds, climate);
     if (lastSolutionRef.current !== solution) {
       uploadLut(lutTexture, solution);
       lastSolutionRef.current = solution;
@@ -129,12 +130,13 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
     // The visible disc/halo follow the same weather-and-twilight gate as the
     // key light: overcast keeps no hard disc, storms crush it to a smudge,
     // and below civil-twilight depth both terms drop to exactly zero.
-    const sunDisc = evaluateSunDiscState(settings, seconds);
+    const sunDisc = evaluateSunDiscState(settings, seconds, climate);
     material.uniforms.discOpacity.value = sunDisc.discOpacity;
     material.uniforms.glowOpacity.value = sunDisc.glowOpacity;
-    // Shader clouds follow the preset-floored effective cover: an overcast
-    // or storm sky closes its deck even at a low authored cover slider.
-    const mood = evaluateSkyWeatherMood(settings.weather);
+    // Shader clouds follow the preset-floored effective cover of the
+    // evaluated climate: an overcast or storm sky closes its deck even at a
+    // low authored cover slider, and evolving ramps blend without pops.
+    const mood = evaluateSkyWeatherMood(climate.weather, climate);
     material.uniforms.cloudAmount.value = atmosphereSkyCloudAmount(mood.effectiveCloudCover);
     material.uniforms.cloudDarken.value = mood.cloudShaderDarkening;
     material.uniforms.time.value = seconds;

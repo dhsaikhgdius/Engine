@@ -104,7 +104,9 @@ export function isDirectorWorldAmbientActive(
     world.wildlife.length > 0 ||
     timeOfDay.mode === "cycle" ||
     timeOfDay.drivesSky ||
-    weather.preset !== "clear"
+    weather.preset !== "clear" ||
+    // A seeded weather cycle evolves even from a clear authored preset.
+    weather.evolution?.mode === "cycle"
   );
 }
 

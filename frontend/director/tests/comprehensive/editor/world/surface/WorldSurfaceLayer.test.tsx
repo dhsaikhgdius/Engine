@@ -45,6 +45,7 @@ vi.mock("../../../../../src/comprehensive/editor/world/surface/worldSurfaceRespo
 vi.mock("../../../../../src/comprehensive/editor/world/surface/worldAmbientAudio", () => ({ default: () => null }));
 
 function createContext(): LivingWorldFrameContext {
+  const weather = { preset: "clear", intensity: 0, wetness: 0, cloudCover: 0 };
   return {
     worldSeconds: 0,
     frame: 0,
@@ -52,12 +53,13 @@ function createContext(): LivingWorldFrameContext {
     isPlaying: false,
     seed: 1,
     settings: {
-      weather: { preset: "clear", intensity: 0, wetness: 0, cloudCover: 0 },
+      weather,
       wind: { directionDegrees: 0, speedMps: 0, gustiness: 0, turbulence: 0 },
     },
+    climate: { evolving: false, weather },
     windVector: [0, 0, 0],
     groundHeight: 0,
-  } as LivingWorldFrameContext;
+  } as unknown as LivingWorldFrameContext;
 }
 
 describe("WorldSurfaceLayer material synchronization", () => {

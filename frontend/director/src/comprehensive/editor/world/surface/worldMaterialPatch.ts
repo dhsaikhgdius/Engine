@@ -7,14 +7,17 @@ import {
   type WebGLProgramParametersWithUniforms,
 } from "three";
 import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
+import type { WorldClimateState } from "../worldClimate";
 import {
   WORLD_WET_ALBEDO_SCALE_POROSITY_0,
   WORLD_WET_ALBEDO_SCALE_POROSITY_1,
   WORLD_WET_ROUGHNESS_SCALE_POROSITY_0,
   WORLD_WET_ROUGHNESS_SCALE_POROSITY_1,
+  computeClimateSnowCover,
+  computeClimateSurfaceWetness,
   computeEffectiveWorldSnowCover,
   computeEffectiveWorldWetness,
-  computeWorldPuddleAmount,
+  computeWorldPuddleFromWetness,
   computeWorldVegetationWindStrength,
   isWorldVegetationName,
 } from "./worldSurfaceResponse";
@@ -98,10 +101,12 @@ export function foldWorldSurfaceSeed(seed: number): number {
  *
  * @param uniforms - The uniform block to write into.
  * @param weather - Current weather preset and intensity.
- * @param windX - World-space wind X component.
- * @param windZ - World-space wind Z component.
+ * @param windX - World-space wind X component (climate wind gain included).
+ * @param windZ - World-space wind Z component (climate wind gain included).
  * @param worldSeconds - Current world time in seconds.
  * @param detail - Optional seed + gust character; omitted keeps zero defaults.
+ * @param climate - Optional evaluated climate; evolving mode reads the
+ *   integrated wetness and continuous snow cover instead of the preset gate.
  */
 export function writeWorldSurfaceUniforms(
   uniforms: WorldSurfaceUniforms,
@@ -110,10 +115,13 @@ export function writeWorldSurfaceUniforms(
   windZ: number,
   worldSeconds: number,
   detail?: WorldSurfaceWindDetail,
+  climate?: WorldClimateState,
 ): void {
-  uniforms.uWorldWetness.value = computeEffectiveWorldWetness(weather);
-  uniforms.uWorldSnowCover.value = computeEffectiveWorldSnowCover(weather);
-  uniforms.uWorldPuddle.value = computeWorldPuddleAmount(weather);
+  const wetness = climate?.evolving ? computeClimateSurfaceWetness(climate) : computeEffectiveWorldWetness(weather);
+  const snowCover = climate?.evolving ? computeClimateSnowCover(climate) : computeEffectiveWorldSnowCover(weather);
+  uniforms.uWorldWetness.value = wetness;
+  uniforms.uWorldSnowCover.value = snowCover;
+  uniforms.uWorldPuddle.value = computeWorldPuddleFromWetness(wetness);
   const speed = Math.hypot(windX, windZ);
   const length = Math.max(speed, 1e-5);
   uniforms.uWorldWindDir.value.set(windX / length, windZ / length);
