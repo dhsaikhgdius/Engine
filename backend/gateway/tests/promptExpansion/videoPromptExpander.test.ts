@@ -165,7 +165,8 @@ describe("VideoPromptExpander (minimax-h3 dialect)", () => {
             focalLengthMm: 35,
             position: [0, 1.6, 4],
             target: [0, 1, 0],
-            actions: ["dolly@0.00s+3.00s"],
+            framing: "medium shot on a 50mm lens, eye level, a front view, 2.4m from the subject",
+            actions: ["dolly in to 0.50x the starting distance @0.00s+3.00s"],
           },
         ],
       },
@@ -174,6 +175,7 @@ describe("VideoPromptExpander (minimax-h3 dialect)", () => {
     const userMessage = JSON.stringify(driver.requests[0].messages.at(-1));
     expect(userMessage).toContain("chair-1");
     expect(userMessage).toContain("focalLengthMm");
+    expect(userMessage).toContain("medium shot on a 50mm lens");
     expect(userMessage).toContain("has_first_frame_reference");
   });
 });
