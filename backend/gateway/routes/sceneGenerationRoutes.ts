@@ -2,6 +2,12 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import type { ModelProvider } from "@director/model-provider";
 import { runScenePipeline, summarizePipelineOutput } from "@director/scene-pipeline";
+import {
+  evaluateHttpToolGovernance,
+  recordRejectedHttpToolCall,
+  withHttpToolAudit,
+  type HttpToolGovernanceDependencies,
+} from "../agents/httpToolGovernance";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -13,6 +19,8 @@ export type SceneGenerationRouteDependencies = {
   json: JsonWriter;
   /** Resolves a provider identifier to a model provider. */
   resolveProvider: (providerId: string) => Promise<ModelProvider>;
+  /** Film-role/plan-mode policy overrides plus the audit trail for POST /api/tools. */
+  governance?: HttpToolGovernanceDependencies;
 };
 
 const generateSceneRequestSchema = z.strictObject({
@@ -48,12 +56,32 @@ export async function handleSceneGenerationRoute(
   const parsed = generateSceneRequestSchema.safeParse(body);
   if (!parsed.success) { deps.json(response, 400, { error: "Invalid input", details: parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`) }); return true; }
   const input = parsed.data;
+  // Same film-role and plan-mode policy as MCP, checked before the pipeline runs.
+  const governance = evaluateHttpToolGovernance({
+    request,
+    tool: "generate_scene",
+    toolInput: input,
+    dependencies: deps.governance,
+  });
+  const auditContext = {
+    store: deps.governance?.auditStore,
+    tool: "generate_scene",
+    toolInput: input,
+    roleId: governance.roleId,
+    source: governance.source,
+  };
+  if (!governance.allowed) {
+    recordRejectedHttpToolCall(governance, auditContext);
+    deps.json(response, governance.status, governance.body);
+    return true;
+  }
+  const json = withHttpToolAudit(deps.json, auditContext);
   const providerId = input.providerId ?? "deepseek";
   let provider: ModelProvider;
-  try { provider = await deps.resolveProvider(providerId); } catch (err) { deps.json(response, 503, { error: `Model provider "${providerId}" is not available`, detail: err instanceof Error ? err.message : String(err) }); return true; }
+  try { provider = await deps.resolveProvider(providerId); } catch (err) { json(response, 503, { error: `Model provider "${providerId}" is not available`, detail: err instanceof Error ? err.message : String(err) }); return true; }
   try {
     const output = await runScenePipeline(provider, { prompt: input.prompt, style: input.style, room: input.room, cameraCount: input.cameraCount, constraints: input.constraints });
-    deps.json(response, 200, { success: true, layout: input.summary ? undefined : output.layout, summary: input.summary ? summarizePipelineOutput(output) : undefined, warnings: output.warnings, timing: output.timing });
+    json(response, 200, { success: true, layout: input.summary ? undefined : output.layout, summary: input.summary ? summarizePipelineOutput(output) : undefined, warnings: output.warnings, timing: output.timing });
     return true;
-  } catch (err) { deps.json(response, 500, { error: "Scene generation failed", detail: err instanceof Error ? err.message : String(err) }); return true; }
+  } catch (err) { json(response, 500, { error: "Scene generation failed", detail: err instanceof Error ? err.message : String(err) }); return true; }
 }

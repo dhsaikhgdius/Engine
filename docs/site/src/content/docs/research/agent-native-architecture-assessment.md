@@ -164,9 +164,8 @@ A2A-aware clients at MCP and the tool manifest — no remote A2A endpoint
 
 **Gaps:**
 
-- Raw HTTP `POST /api/tools/{tool-name}` and the CLI path that calls it do **not** apply `filmRoleToolPolicy`
+- Resolved 2026-08-25: raw HTTP `POST /api/tools/{tool-name}` (and the CLI path that calls it) now applies `filmRoleToolPolicy`, and tool invocations share one **unified audit trail** tagged `source: ui | mcp | http | cli` (`backend/gateway/agentToolAuditStore.ts`)
 - Human UI actions have no equivalent permission gate
-- Tool invocations are not yet one **unified audit trail** tagged `source: ui | mcp | http | cli`
 - Collaboration production-room auth and internet deployment hardening remain **Limited**
 
 **Rating: 4/5**
@@ -263,7 +262,7 @@ agent-gateway.ts (composition root)
 ## Main gaps
 
 1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, gizmo drag batches, and the Canvas/Video stores
-2. **Incomplete governance surfaces** — MCP, local harness, and hosted adapter share `filmRoleToolPolicy`; raw HTTP and human UI still bypass film roles, and audit is not unified across entry points
+2. **Incomplete governance surfaces** — MCP, local harness, hosted adapter, and (since 2026-08-25) raw HTTP/CLI share `filmRoleToolPolicy` with a unified per-source audit trail; human UI actions still bypass film roles
 3. **Protocol breadth** — MCP is strong and the HTTP tool manifest is published; A2A evaluated and rejected for a runtime (ADR 0004; discovery-only card served); multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
 5. **Runtime workspace** — no in-product SQL-backed AGENTS.md / LEARNINGS.md pattern described in the article

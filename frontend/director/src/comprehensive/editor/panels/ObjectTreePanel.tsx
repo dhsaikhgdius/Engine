@@ -30,6 +30,7 @@ import {
   User,
   Users,
 } from "lucide-react";
+import { useStageAuthoringGate } from "../api/filmRoleGate";
 import { ObjectReferenceBindings } from "./ObjectReferenceBindings";
 import { VirtualizedObjectList, type VirtualizedObjectRowLayout } from "./VirtualizedObjectList";
 import {
@@ -302,6 +303,10 @@ function getSceneTreeItemLabel(item: SceneTreeItem) {
 export function ObjectTreePanel() {
   const objectTreeScrollRef = useRef<HTMLDivElement>(null);
   const { t } = useLanguage();
+  // Same roleAllowsTool policy the gateway applies to director_workbench
+  // author: read-only film roles (e.g. visual-critic) see disabled deletes.
+  const { canAuthor: canAuthorScene } = useStageAuthoringGate();
+  const readOnlyRoleTitle = canAuthorScene ? undefined : t("当前 Director 角色为只读");
   const [query, setQuery] = useState("");
   const [expandedListIds, setExpandedListIds] = useState<string[]>([]);
   const [expandedReferenceIds, setExpandedReferenceIds] = useState<string[]>([]);
@@ -910,6 +915,8 @@ export function ObjectTreePanel() {
               role="menuitem"
               type="button"
               aria-label={`删除 ${childName}`}
+              disabled={!canAuthorScene}
+              title={readOnlyRoleTitle}
               onClick={() => {
                 deleteObjects([child.object.id]);
                 closeActionMenu();
@@ -1112,6 +1119,8 @@ export function ObjectTreePanel() {
                               className="object-flag-button object-icon-flag-button"
                               type="button"
                               aria-label={`删除 ${label}`}
+                              disabled={!canAuthorScene}
+                              title={readOnlyRoleTitle}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 deleteObjects(item.objectIds);
@@ -1193,6 +1202,8 @@ export function ObjectTreePanel() {
                                 role="menuitem"
                                 type="button"
                                 aria-label={`解散 ${item.name} 组合`}
+                                disabled={!canAuthorScene}
+                                title={readOnlyRoleTitle}
                                 onClick={() => {
                                   deleteObjects([item.compositeParentId!]);
                                   closeActionMenu();
@@ -1206,6 +1217,8 @@ export function ObjectTreePanel() {
                                 role="menuitem"
                                 type="button"
                                 aria-label={`删除 ${item.name}`}
+                                disabled={!canAuthorScene}
+                                title={readOnlyRoleTitle}
                                 onClick={() => {
                                   deleteObjects(item.objectIds);
                                   closeActionMenu();
