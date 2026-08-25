@@ -100,10 +100,16 @@ mesh 或材质编辑、重命名、或超大增量），消费者必须重新读
 上报状态；「建模」连接状态条显示同一序列号。
 
 客户端通过只读的 `blender_native` 操作
-`{ "op": "live_link", "cursor": { "sceneEpoch": "…", "seq": N } }` 轮询。响应要么返回 cursor
+`{ "op": "live_link", "cursor": { "sceneEpoch": "…", "seq": N } }` 或等价的浏览器路由
+`GET /api/dcc/blender/live-link?epoch=…&since=N` 轮询。响应要么返回 cursor
 之后的连续帧，要么返回 `resync` 标记（`initial`、`epoch_changed` 或 `history_evicted`）。
 `packages/protocol/src/blenderLiveLinkProtocol.ts` 中的共享重放防护会丢弃重复/重放帧，并在任何
 序列缺口或 epoch 变化时强制快照重同步，因此消费者不可能悄悄失去同步。
+
+Stage 以只读预览方式消费这条增量流：当「建模」图层可见时，它以比权威快照轮询更快的节奏轮询
+增量流，直接重摆已挂载的预览节点与活动相机预览。该预览从不调用任何 store mutator、从不写入
+项目 revision——`structure` 帧或任何重放防护 resync 都会暂停增量并强制重新读取权威快照，
+而不是打补丁。
 
 live-link 帧永远不是权威数据。已提交的 Director 状态只会通过带 revision 保护的 live 命令批次
 或经过审阅的回传导入改变；断开链路、缓冲历史被淘汰或重启 Blender，都不会影响最后一次提交的
@@ -193,10 +199,11 @@ Python/driver，但它不是 Blender 原生文件解析器或依赖的 OS sandbo
 本地 Gateway 对当前校验过的 `DirectorProject` 做快照，写出带版本的场景 package，
 后台模式调用 Blender，并返回生成的 `.blend`、报告和可选的相机预览路径。回传导出器输出
 `director-dcc-return-v1` package，可包含稳定 ID 的 mesh replacement、transform update、
-相机更新（变换加焦距、光圈、对焦距离与裁剪平面）、携带 `director_id` 的灯光更新，以及
-可移植的人物 pose control 更新（含可选 root motion）。Director 验证全部 hash，构建可审阅的
-`director-dcc-import-plan-v1`，再通过 Agent 和 UI 共用的 revision 保护 authoring 引擎
-应用这份精确计划。
+相机更新（变换加焦距、光圈、对焦距离与裁剪平面）、携带 `director_id` 的灯光更新、
+可移植的人物 pose control 更新（含可选 root motion），以及带 hash 的 `object_addition`
+条目——即艺术家显式 stamp 了全新 `director_id` 的新建根对象。Director 验证全部 hash，
+构建可审阅的 `director-dcc-import-plan-v1`，再通过 Agent 和 UI 共用的 revision 保护
+authoring 引擎应用这份精确计划。
 
 ### Agent 操作
 
@@ -222,9 +229,15 @@ Python/driver，但它不是 Blender 原生文件解析器或依赖的 OS sandbo
 {
   "op": "import_return_package",
   "package_dir": "JOB_ID/return-package",
-  "dry_run": true
+  "dry_run": true,
+  "include_new_objects": false
 }
 ```
+
+`include_new_objects` 默认为 `false`：在操作者显式选择加入之前，`object_addition` 条目
+会被跳过并给出 warning，因此 Director 绝不会在未经审阅的情况下自动导入 Blender 新建对象。
+选择加入后，新增项会规划为 `create_prop` 操作（资产 upsert 加一个新的 prop 对象）；如果某个
+`director_id` 已存在于 live 项目中，则报告 `duplicate_director_id` 冲突而不是被应用。
 
 ```json
 {
@@ -259,8 +272,10 @@ HTTP 等价接口是 `GET /api/dcc/status` 与 `POST /api/tools/director_dcc`。
   ISO、裁剪平面、变形宽银幕 squeeze 元数据、画幅比与目标点
 - 灯光：带 `director_id` 的 directional/point/spot/rect-area 灯光，携带 Director
   颜色/强度以及导入时使用的精确瓦数换算系数，回传时强度编辑可无损逆算
-- 人物姿态：可移植的 `director_pose.*` 自定义属性（每个 control 一条），并同时
-  stamp JSON 基线与导入时的 armature pose-bone 指纹
+- 人物姿态：可移植的 `director_pose.*` 自定义属性（每个 control 一条），并在导入时同时
+  stamp JSON 基线、armature pose-bone 指纹、Director 骨骼角色映射
+  （`director_pose_bone_map`）与按角色记录的 pose-bone 基线，以便回传时 reconcile
+  已映射骨骼的编辑
 
 每个 job 位于 `data/dcc-jobs/blender/<uuid>/` 下，包含：
 
@@ -298,9 +313,21 @@ Pose 语义化应用到原生 armature；原生 IK 与动作混合渐变按能�
 （位置、目标、颜色、强度）以及可移植人物 pose control（含 root motion）都可按稳定 ID
 回传，并在应用前提供预览与冲突报告。超出 Director 创作范围的值会烘焙到最近的限值并
 显式 warning，绝不静默丢弃。sensor 尺寸编辑执行 warn-and-omit：Blender 的 sensor
-尺寸不会覆盖 Director 的 sensor format。直接编辑 armature pose-bone 会被 stamp 的姿态
-指纹检测到并产生 warning，但不做 reconcile——只有可移植的 `director_pose.*` control
-值会往返。Blender 新建对象与没有 `director_id` 的灯光只产生 warning，v1.5 不自动创建。
-材质随细化后的 GLB 一起返回；灯光创建、交互式 add-on 同步、最终动画渲染、
-shader/constraint/模拟传输和 Unreal Interchange 仍不在此往返契约内。任意 `.blend`
-使用上文独立的场景导入契约，不会自动获得稳定 ID 往返语义。
+尺寸不会覆盖 Director 的 sensor format。
+
+直接编辑 armature pose-bone 只在 stamp 的 Director 骨骼角色映射覆盖到的范围内 reconcile：
+已映射骨骼上的旋转增量会转换为可移植的 `director_pose.*` control 增量（弯肘、转头这类
+单轴编辑是精确的；大幅度多轴组合编辑属于显式 warning 的近似，因为 Euler 组合并非线性）。
+骨骼位移、骨骼缩放、未映射骨骼的编辑，以及没有 stamp 骨骼映射的旧 `.blend` 文件仍保持
+warn-and-omit；同一 control 上，显式的自定义属性编辑永远优先于骨骼推导的增量。
+
+Blender 新建对象只能经审阅导入：艺术家在新建根对象上 stamp 一个全新的 `director_id`
+自定义属性，导出器输出带 hash 的 `object_addition` 并附诚实 warning（默认 datablock
+名称、linked library、未应用的 modifier、非 mesh 的 datablock 类型），且只有在显式
+`include_new_objects` 选择加入时计划才会纳入它——只能作为 prop，绝不作为角色或灯光。
+没有 `director_id` 的对象与灯光仍只产生 warning，绝不自动创建。材质随细化后的 GLB
+一起返回；灯光创建、交互式 add-on 同步、最终动画渲染、shader/constraint/模拟传输
+（不存在无损的 shader、constraint 或模拟）和 Unreal Interchange 仍不在此往返契约内。
+文件交换始终以 `--factory-startup --disable-autoexec` 运行 Blender，且绝不执行任何
+请求方提供的 Python。任意 `.blend` 使用上文独立的场景导入契约，不会自动获得稳定 ID
+往返语义。
