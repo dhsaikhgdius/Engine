@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { nodePtyNativeModuleAvailable } from "./nodePtyAvailable";
 
 const HOST = "127.0.0.1";
 const GATEWAY_TOKEN = "integration-gateway-token-00000001";
@@ -69,7 +70,9 @@ function waitForGateway(child: ChildProcess, port: number) {
   });
 }
 
-describe("agent gateway HTTP boundary", () => {
+const describeGateway = nodePtyNativeModuleAvailable() ? describe : describe.skip;
+
+describeGateway("agent gateway HTTP boundary", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "director-gateway-http-"));
   const dataDirectory = resolve(directory, "state");
   let child: ChildProcess;

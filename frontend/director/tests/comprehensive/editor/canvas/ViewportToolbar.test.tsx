@@ -1,9 +1,15 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, vi } from "vitest";
-import { clearViewportCaptureHandler, setViewportCaptureHandler } from "../../../../src/comprehensive/editor/io/captureBridge";
+import {
+  clearViewportCaptureHandler,
+  setViewportCaptureHandler,
+} from "../../../../src/comprehensive/editor/io/captureBridge";
 import { createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
-import { getCameraRigPositionFromViewSnapshot, getCameraViewSnapshotFromShot } from "../../../../src/comprehensive/editor/schema/cameraGeometry";
+import {
+  getCameraRigPositionFromViewSnapshot,
+  getCameraViewSnapshotFromShot,
+} from "../../../../src/comprehensive/editor/schema/cameraGeometry";
 import { ViewportToolbar } from "../../../../src/comprehensive/editor/canvas/ViewportToolbar";
 
 const mockReadLocalModelFile = vi.fn();
@@ -38,6 +44,10 @@ beforeEach(() => {
   useDirectorStore.setState({
     ...useDirectorStore.getState(),
     ...createInitialDirectorState(),
+    undoStack: [],
+    redoStack: [],
+    historyUndoStack: [],
+    historyRedoStack: [],
   });
   mockReadLocalModelFile.mockReset();
   mockEstimateLocalModelSizeM.mockReset();
@@ -240,7 +250,13 @@ it("keeps character roam and camera pilot mutually exclusive", () => {
 
 it("undoes and redoes scene edits from the viewport toolbar buttons", async () => {
   const user = userEvent.setup();
-  useDirectorStore.setState({ ...useDirectorStore.getState(), undoStack: [], redoStack: [] });
+  useDirectorStore.setState({
+    ...useDirectorStore.getState(),
+    undoStack: [],
+    redoStack: [],
+    historyUndoStack: [],
+    historyRedoStack: [],
+  });
   render(<ViewportToolbar />);
 
   const undoButton = screen.getByRole("button", { name: "撤销" });

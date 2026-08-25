@@ -8,6 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { nodePtyNativeModuleAvailable } from "./nodePtyAvailable";
 
 const HOST = "127.0.0.1";
 const GATEWAY_TOKEN = "integration-plan-apply-token-0001";
@@ -131,7 +132,9 @@ function connectFakeBrowser(port: number): Promise<FakeBrowser> {
   });
 }
 
-describe("agent plan apply guard injection", () => {
+const describePlanApply = nodePtyNativeModuleAvailable() ? describe : describe.skip;
+
+describePlanApply("agent plan apply guard injection", () => {
   const directory = mkdtempSync(resolve(tmpdir(), "director-plan-apply-"));
   const dataDirectory = resolve(directory, "state");
   let child: ChildProcess;
