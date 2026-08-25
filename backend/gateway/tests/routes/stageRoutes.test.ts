@@ -402,7 +402,7 @@ describe("stage routes", () => {
       .mockResolvedValueOnce({
         client: {},
         target: TARGET,
-        response: { success: true, result: { project_revision: REVISION_A } },
+        response: { success: true, result: { project_revision: REVISION_A, characters: [] } },
       })
       .mockResolvedValueOnce({
         client: {},
@@ -693,7 +693,7 @@ describe("stage routes", () => {
       .mockResolvedValueOnce({
         client: {},
         target: TARGET,
-        response: { success: true, result: { project_revision: REVISION_A } },
+        response: { success: true, result: { project_revision: REVISION_A, characters: [] } },
       })
       .mockResolvedValueOnce({
         client: {},
@@ -711,7 +711,7 @@ describe("stage routes", () => {
     expect(dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
     expect(dependencies.requestWorkbenchCommand).toHaveBeenNthCalledWith(
       1,
-      { op: "observe", fields: ["counts"] },
+      { op: "observe", fields: ["counts", "characters"] },
       undefined,
       TARGET.token,
     );
@@ -725,6 +725,171 @@ describe("stage routes", () => {
         success: true,
         target: TARGET,
         agent_boundary: expect.objectContaining({ policy: "director-agent-public-boundary-v2" }),
+      }),
+    );
+  });
+
+  it("lets a possessed session drive its own character while blocking the rest of the stage", async () => {
+    const possessedCharacters = [
+      {
+        id: "hero",
+        kind: "character",
+        agent_binding: { session_id: "dsh-possessed", profile_id: null, role_id: null, mode: "possess" },
+      },
+      { id: "villain", kind: "character" },
+    ];
+    const preflight = {
+      client: {},
+      target: TARGET,
+      response: { success: true, result: { project_revision: REVISION_A, characters: possessedCharacters } },
+    };
+
+    const allowed = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [{ action: "set_character_motion", object_id: "hero", clip_id: "walk" }],
+      },
+    });
+    allowed.dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce(preflight)
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { updated: { object_ids: ["hero"] } } },
+      });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      allowed.dependencies,
+    );
+    expect(allowed.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    expect(allowed.json).toHaveBeenLastCalledWith(expect.anything(), 200, expect.objectContaining({ success: true }));
+
+    const crossCharacter = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [{ action: "set_character_motion", object_id: "villain", clip_id: "walk" }],
+      },
+    });
+    crossCharacter.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(preflight);
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      crossCharacter.dependencies,
+    );
+    expect(crossCharacter.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(crossCharacter.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({
+        success: false,
+        code: "possession_scope_violation",
+        error: expect.stringContaining('"villain"'),
+      }),
+    );
+
+    const globalMutation = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "replace_project", project: createTestDirectorProject() },
+    });
+    globalMutation.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(preflight);
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      globalMutation.dependencies,
+    );
+    expect(globalMutation.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(globalMutation.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({ success: false, code: "possession_scope_violation" }),
+    );
+
+    // A different, unpossessed session keeps full stage-wide authoring against
+    // the same observed characters.
+    const unpossessed = createDependencies({
+      session_id: "dsh-free-director",
+      target_token: TARGET.token,
+      input: {
+        op: "author",
+        actions: [{ action: "set_character_motion", object_id: "villain", clip_id: "walk" }],
+      },
+    });
+    unpossessed.dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce(preflight)
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { updated: { object_ids: ["villain"] } } },
+      });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      unpossessed.dependencies,
+    );
+    expect(unpossessed.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    expect(unpossessed.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      200,
+      expect.objectContaining({ success: true }),
+    );
+  });
+
+  it("resolves possession before dispatching a guard-carrying mutation", async () => {
+    const { dependencies, json } = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "undo", expected_revision: REVISION_A },
+    });
+    dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue({
+      client: {},
+      target: TARGET,
+      response: {
+        success: true,
+        result: {
+          characters: [
+            {
+              id: "hero",
+              kind: "character",
+              agent_binding: { session_id: "dsh-possessed", profile_id: null, role_id: null, mode: "possess" },
+            },
+          ],
+        },
+      },
+    });
+
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      dependencies,
+    );
+
+    expect(dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(dependencies.requestWorkbenchCommand).toHaveBeenNthCalledWith(
+      1,
+      { op: "observe", fields: ["characters"] },
+      undefined,
+      TARGET.token,
+    );
+    expect(json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({
+        success: false,
+        code: "possession_scope_violation",
+        error: expect.stringContaining("unbind_character_agent"),
       }),
     );
   });
@@ -765,11 +930,18 @@ describe("stage routes", () => {
       target_token: TARGET.token,
       input: { op: "undo", unconditional: true },
     });
-    dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue({
-      client: {},
-      target: TARGET,
-      response: { success: true, result: { changed: true } },
-    });
+    dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { characters: [] } },
+      })
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { changed: true } },
+      });
 
     await handleStageRoute(
       { method: "POST" } as IncomingMessage,
@@ -778,8 +950,16 @@ describe("stage routes", () => {
       dependencies,
     );
 
-    expect(dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
-    const forwarded = vi.mocked(dependencies.requestWorkbenchCommand).mock.calls[0]?.[0];
+    // The unconditional write skips the revision preflight but still resolves
+    // character possession before dispatch.
+    expect(dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    expect(dependencies.requestWorkbenchCommand).toHaveBeenNthCalledWith(
+      1,
+      { op: "observe", fields: ["characters"] },
+      undefined,
+      TARGET.token,
+    );
+    const forwarded = vi.mocked(dependencies.requestWorkbenchCommand).mock.calls[1]?.[0];
     expect(forwarded).toMatchObject({
       op: "undo",
       unconditional: true,
@@ -799,7 +979,14 @@ describe("stage routes", () => {
       target_token: TARGET.token,
       input: { op: "undo", unconditional: true },
     });
-    dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(null);
+    dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { characters: [] } },
+      })
+      .mockResolvedValueOnce(null);
 
     await handleStageRoute(
       { method: "POST" } as IncomingMessage,
@@ -833,7 +1020,7 @@ describe("stage routes", () => {
       .mockResolvedValueOnce({
         client: {},
         target: TARGET,
-        response: { success: true, result: { project_revision: REVISION_A } },
+        response: { success: true, result: { project_revision: REVISION_A, characters: [] } },
       })
       .mockRejectedValueOnce(new BrowserCommandTimeoutError("workbench", "author", 8_000));
 
@@ -872,7 +1059,7 @@ describe("stage routes", () => {
       .mockResolvedValueOnce({
         client: {},
         target: TARGET,
-        response: { success: true, result: { project_revision: REVISION_A } },
+        response: { success: true, result: { project_revision: REVISION_A, characters: [] } },
       })
       .mockResolvedValueOnce(null);
 
@@ -914,6 +1101,11 @@ describe("stage routes", () => {
       .mockResolvedValueOnce({
         client: {},
         target: TARGET,
+        response: { success: true, result: { characters: [] } },
+      })
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
         response: { success: true, result: { production_revision: 8 } },
       });
 
@@ -930,8 +1122,16 @@ describe("stage routes", () => {
       undefined,
       TARGET.token,
     );
+    // The production observe carries no character summaries, so possession is
+    // resolved through a dedicated bounded observe before dispatch.
     expect(dependencies.requestWorkbenchCommand).toHaveBeenNthCalledWith(
       2,
+      { op: "observe", fields: ["characters"] },
+      undefined,
+      TARGET.token,
+    );
+    expect(dependencies.requestWorkbenchCommand).toHaveBeenNthCalledWith(
+      3,
       {
         op: "production",
         command: expect.objectContaining({
@@ -967,7 +1167,7 @@ describe("stage routes", () => {
       .mockResolvedValueOnce({
         client: {},
         target: TARGET,
-        response: { success: true, result: { project_revision: REVISION_A } },
+        response: { success: true, result: { project_revision: REVISION_A, characters: [] } },
       })
       .mockResolvedValueOnce({
         client: {},

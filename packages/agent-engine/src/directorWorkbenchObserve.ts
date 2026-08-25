@@ -65,6 +65,16 @@ function observeDirectorObjects(project: DirectorProject) {
           },
         }
       : {}),
+    ...(object.agentBinding
+      ? {
+          agent_binding: {
+            session_id: object.agentBinding.sessionId ?? null,
+            profile_id: object.agentBinding.profileId ?? null,
+            role_id: object.agentBinding.roleId ?? null,
+            mode: object.agentBinding.mode,
+          },
+        }
+      : {}),
     ...(object.animation
       ? {
           animation: {

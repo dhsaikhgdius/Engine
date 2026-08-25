@@ -6,6 +6,7 @@ import { safeParseDirectorProject } from "@director/project-schema";
 import { getMannequinPosePreset } from "@director/project-schema";
 import { createDefaultDirectorCarProfile } from "@director/protocol/vehicleProtocol";
 import { applyDirectorAuthoringActions, directorAuthoringActionSchema } from "../src/directorAuthoring";
+import { observeDirectorProject } from "../src/directorWorkbenchObserve";
 
 describe("semantic Director authoring", () => {
   it("keeps unsupported native mesh edits explicit while authoring native camera and light state", () => {
@@ -2163,5 +2164,132 @@ describe("drivable vehicle authoring", () => {
         profile: {},
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("character agent binding authoring", () => {
+  it("binds, rebinds, and unbinds a character agent through semantic authoring", () => {
+    const project = createDefaultDirectorProject();
+
+    const bound = applyDirectorAuthoringActions(project, [
+      {
+        action: "bind_character_agent",
+        object_id: "char_default_a",
+        session_id: "dsh-session-1",
+        role_id: "role-hero",
+      },
+    ]);
+    expect(bound.updated.object_ids).toContain("char_default_a");
+    expect(bound.project.objects.find((object) => object.id === "char_default_a")?.agentBinding).toEqual({
+      mode: "possess",
+      sessionId: "dsh-session-1",
+      roleId: "role-hero",
+    });
+
+    const rebound = applyDirectorAuthoringActions(bound.project, [
+      { action: "bind_character_agent", object_id: "char_default_a", profile_id: "profile-a" },
+    ]);
+    expect(rebound.project.objects.find((object) => object.id === "char_default_a")?.agentBinding).toEqual({
+      mode: "possess",
+      profileId: "profile-a",
+    });
+    expect(rebound.notes.join(" ")).toContain("rebound");
+
+    const unbound = applyDirectorAuthoringActions(rebound.project, [
+      { action: "unbind_character_agent", object_id: "char_default_a" },
+    ]);
+    expect(unbound.project.objects.find((object) => object.id === "char_default_a")?.agentBinding).toBeUndefined();
+    expect(unbound.updated.object_ids).toContain("char_default_a");
+
+    const repeat = applyDirectorAuthoringActions(unbound.project, [
+      { action: "unbind_character_agent", object_id: "char_default_a" },
+    ]);
+    expect(repeat.updated.object_ids).toHaveLength(0);
+    expect(repeat.notes.join(" ")).toContain("had no agent binding");
+  });
+
+  it("echoes the binding through the observe character summary", () => {
+    const project = createDefaultDirectorProject();
+    const bound = applyDirectorAuthoringActions(project, [
+      { action: "bind_character_agent", object_id: "char_default_a", session_id: "dsh-session-1" },
+    ]);
+    const observation = observeDirectorProject(bound.project, ["characters"]) as {
+      characters: Array<Record<string, unknown>>;
+    };
+    expect(observation.characters.find((entry) => entry.id === "char_default_a")?.agent_binding).toEqual({
+      session_id: "dsh-session-1",
+      profile_id: null,
+      role_id: null,
+      mode: "possess",
+    });
+  });
+
+  it("requires at least one agent identity and rejects non-character targets", () => {
+    const missingIdentity = directorAuthoringActionSchema.safeParse({
+      action: "bind_character_agent",
+      object_id: "char_default_a",
+    });
+    expect(missingIdentity.success).toBe(false);
+    if (!missingIdentity.success) {
+      expect(missingIdentity.error.issues.map((issue) => issue.message).join(" ")).toContain(
+        "session_id or profile_id",
+      );
+    }
+
+    const project = createDefaultDirectorProject();
+    expect(() =>
+      applyDirectorAuthoringActions(project, [
+        { action: "bind_character_agent", object_id: "cam_object_1", session_id: "dsh-session-1" },
+      ]),
+    ).toThrow(/Only characters can have an agent binding/);
+  });
+
+  it("treats locked characters as write protected unless force is explicit", () => {
+    const project = createDefaultDirectorProject();
+    project.objects.find((object) => object.id === "char_default_a")!.locked = true;
+
+    expect(() =>
+      applyDirectorAuthoringActions(project, [
+        { action: "bind_character_agent", object_id: "char_default_a", session_id: "dsh-session-1" },
+      ]),
+    ).toThrow(/locked/);
+
+    const forced = applyDirectorAuthoringActions(project, [
+      { action: "bind_character_agent", object_id: "char_default_a", session_id: "dsh-session-1", force: true },
+    ]);
+    expect(forced.project.objects.find((object) => object.id === "char_default_a")?.agentBinding).toMatchObject({
+      sessionId: "dsh-session-1",
+    });
+
+    expect(() =>
+      applyDirectorAuthoringActions(forced.project, [
+        { action: "unbind_character_agent", object_id: "char_default_a" },
+      ]),
+    ).toThrow(/locked/);
+    const releasedByForce = applyDirectorAuthoringActions(forced.project, [
+      { action: "unbind_character_agent", object_id: "char_default_a", force: true },
+    ]);
+    expect(
+      releasedByForce.project.objects.find((object) => object.id === "char_default_a")?.agentBinding,
+    ).toBeUndefined();
+  });
+
+  it("keeps a failed batch atomic and blocks bindings through update_object patches", () => {
+    const source = createDefaultDirectorProject();
+    const before = structuredClone(source);
+    expect(() =>
+      applyDirectorAuthoringActions(source, [
+        { action: "bind_character_agent", object_id: "char_default_a", session_id: "dsh-session-1" },
+        { action: "unbind_character_agent", object_id: "missing-character" },
+      ]),
+    ).toThrow(/missing-character/);
+    expect(source).toEqual(before);
+
+    const smuggled = directorAuthoringActionSchema.safeParse({
+      action: "update_object",
+      object_id: "char_default_a",
+      patch: { agent_binding: { session_id: "dsh-session-1", mode: "possess" } },
+    });
+    expect(smuggled.success).toBe(false);
   });
 });

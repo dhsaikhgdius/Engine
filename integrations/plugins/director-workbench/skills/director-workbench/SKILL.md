@@ -154,6 +154,7 @@ A white-box request ("搭一个某地点的白膜") delivers a metric clay model
 
 - Use `character_assets` and `character_motions` catalogs before assigning local resources.
 - Use motion operations for clips, pose controls for joint offsets, and IK for hand or foot targets.
+- Attach an Agent to a character with author `bind_character_agent` (`object_id` plus `session_id` and/or `profile_id`) and detach with `unbind_character_agent`; observe echoes `agent_binding` on character summaries. A session that possesses characters may only mutate those characters (always with explicit `object_id`); global writes such as `start_scene` or `replace_project` are rejected until the binding is removed.
 - Put timeline changes in project frames and keep unrelated tracks unchanged.
 - Reusable takes, coverage sequences, cameras, and storyboard shots are ordinary editable project data.
 
