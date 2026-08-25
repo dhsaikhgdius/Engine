@@ -47,6 +47,7 @@ query string 中的 `browser_token`，但 header 不会把凭据泄漏到 URL �
 | ------ | --------------------------------- | ----------------------------------- |
 | `GET`  | `/health`                         | 无需鉴权的进程状态与 browser 数     |
 | `GET`  | `/api/control-plane/capabilities` | 已脱敏的 Agent 与视频配置           |
+| `GET`  | `/api/control-plane/tool-manifest` | 由 Zod tool schema 生成的机器可读工具目录 |
 | `GET`  | `/api/agent/providers`            | 本地/API session provider 可用性    |
 | `GET`  | `/api/agent/profiles`             | Profile 公开元数据与模型 capability |
 | `GET`  | `/api/video/providers`            | 视频 provider 的实时 capability     |
@@ -60,6 +61,10 @@ curl -fsS "$BASE/api/agent/profiles" \
 ```
 
 发现响应不会包含模型 API key、worker credential 或原始 credential 环境变量名。
+
+Tool manifest 会列出每个 Director 工具的描述、JSON Schema 输入契约与操作名；冻结的
+`stage_*` 兼容工具会标注 `legacy: true`。跨入口的统一 tool audit trail 将在路线图 M3
+（统一治理）落地后收敛到 gateway；manifest 本身只做发现，不承担审计。
 
 Capture 结果可能返回带有进程周期 `preview_token` 的 URL。它是仅允许读取 preview 路由的
 capability，使浏览器与可读取图像的 Agent 无需获得 gateway 主 token 也能显示图像；gateway
