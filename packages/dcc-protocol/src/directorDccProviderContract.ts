@@ -377,7 +377,10 @@ function engineProvider(
  * Timeline, builds Humanoid/generic Avatars from skinned GLB payloads, and
  * translates Director PBR materials to URP/Built-in — each validated by the
  * in-package Unity EditMode suite plus the Unity-named Gateway golden tests.
- * Live link remains planned: no disconnect-safe transport tests exist yet.
+ * Live link is a preview-only, outbound-only polling transport: the Editor
+ * client long-polls the gateway with a scoped bearer token and sequence
+ * numbers, and the gateway hub is covered by disconnect-safety tests. It is
+ * never authoritative and exposes no remote-execute surface.
  */
 function unityEngineProvider(): DirectorDccProviderDescriptor {
   const exchangeFormats: Array<Exclude<DirectorDccExchangeFormat, "blend">> = ["glb", "usda"];
@@ -409,8 +412,11 @@ function unityEngineProvider(): DirectorDccProviderDescriptor {
       // connector; runtime availability is still gated by nativeReady.
       { id: "roundtrip", level: "native", layer: "connector" },
       { id: "headless", level: "native", layer: "connector" },
-      // No live preview transport ships yet; see MULTI_DCC_INTEGRATION.md.
-      { id: "live_link", level: "planned", layer: "connector" },
+      // Preview-only live link: the DirectorLiveLink Editor window long-polls
+      // the gateway hub (scoped bearer token, monotonic sequence numbers,
+      // snapshot resync) and never writes back. Disconnect safety is pinned by
+      // the gateway unityLiveLink tests; there is no remote-execute endpoint.
+      { id: "live_link", level: "native", layer: "connector" },
     ],
     connectorDirectory: "integrations/unity",
   });

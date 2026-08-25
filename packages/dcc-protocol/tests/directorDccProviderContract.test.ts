@@ -135,8 +135,14 @@ describe("Director DCC provider contract", () => {
       expect(byId.get("headless")).toEqual({ id: "headless", level: "native", layer: "connector" });
       expect(byId.get("roundtrip")).toEqual({ id: "roundtrip", level: "native", layer: "connector" });
       expect(byId.get("stable_ids")).toEqual({ id: "stable_ids", level: "native", layer: "director-manifest" });
-      // No engine has a disconnect-safe live preview transport yet.
-      expect(byId.get("live_link")).toEqual({ id: "live_link", level: "planned", layer: "connector" });
+      if (descriptor.id === "unity") {
+        // Unity ships a preview-only outbound polling live link (scoped bearer
+        // token + sequence numbers) whose disconnect safety is pinned by the
+        // gateway unityLiveLink tests; the other engines have no transport yet.
+        expect(byId.get("live_link")).toEqual({ id: "live_link", level: "native", layer: "connector" });
+      } else {
+        expect(byId.get("live_link")).toEqual({ id: "live_link", level: "planned", layer: "connector" });
+      }
       for (const id of ["animation", "skeleton", "materials"] as const) {
         if (descriptor.id === "unity") {
           // The Unity connector bakes animation onto Timeline, builds Avatars
