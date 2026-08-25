@@ -14,9 +14,10 @@ describe("collaboration invite tokens", () => {
   it("mints and verifies a room-scoped editor invite", () => {
     const invite = mintCollaborationInviteToken({ secret: SECRET, room: "scene-alpha", role: "editor" });
     expect(invite.token.startsWith("dcr1.")).toBe(true);
-    expect(
-      verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha" }),
-    ).toEqual({ ok: true, role: "editor" });
+    expect(verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha" })).toEqual({
+      ok: true,
+      role: "editor",
+    });
   });
 
   it("rejects missing, malformed, and foreign-signature tokens with structured reasons", () => {
@@ -58,9 +59,10 @@ describe("collaboration invite tokens", () => {
       ttlSeconds: 60,
       now,
     });
-    expect(verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-beta", now })).toEqual(
-      { ok: false, reason: "room_mismatch" },
-    );
+    expect(verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-beta", now })).toEqual({
+      ok: false,
+      reason: "room_mismatch",
+    });
     clock.value += 61_000;
     expect(verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha", now })).toEqual(
       { ok: false, reason: "expired" },

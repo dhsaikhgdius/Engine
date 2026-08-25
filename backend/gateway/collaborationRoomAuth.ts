@@ -32,16 +32,11 @@ const invitePayloadSchema = z.strictObject({
 
 /** Why a collaboration room join was denied. */
 export type CollaborationRoomDenialReason =
-  | "missing_token"
-  | "malformed_token"
-  | "bad_signature"
-  | "expired"
-  | "room_mismatch";
+  "missing_token" | "malformed_token" | "bad_signature" | "expired" | "room_mismatch";
 
 /** The result of authorizing one join attempt against one room. */
 export type CollaborationRoomAuthorization =
-  | { ok: true; role: DirectorCollaborationRoomRole }
-  | { ok: false; reason: CollaborationRoomDenialReason };
+  { ok: true; role: DirectorCollaborationRoomRole } | { ok: false; reason: CollaborationRoomDenialReason };
 
 /**
  * Room-level join authorizer consumed by the collaboration hub.

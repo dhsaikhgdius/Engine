@@ -249,11 +249,7 @@ export class ProductionRunOrchestrator {
     const queued = await this.store.update(id, (current) => {
       const resetIds = options.fromNodeId ? checkpointResetIds(current.nodes, options.fromNodeId) : null;
       const droppedArtifactIds = new Set(
-        resetIds
-          ? current.nodes
-              .filter((node) => resetIds.has(node.id))
-              .flatMap((node) => node.outputArtifactIds)
-          : [],
+        resetIds ? current.nodes.filter((node) => resetIds.has(node.id)).flatMap((node) => node.outputArtifactIds) : [],
       );
       return {
         ...current,
@@ -324,16 +320,12 @@ export class ProductionRunOrchestrator {
         const remaining = run.nodes.filter((node) => node.status !== "succeeded");
         if (remaining.length === 0) break;
         const dependencies = executionDependencies(run.nodes);
-        const succeeded = new Set(
-          run.nodes.filter((node) => node.status === "succeeded").map((node) => node.id),
-        );
+        const succeeded = new Set(run.nodes.filter((node) => node.status === "succeeded").map((node) => node.id));
         const ready = remaining.filter((node) =>
           (dependencies.get(node.id) ?? []).every((dependency) => succeeded.has(dependency)),
         );
         if (ready.length === 0) {
-          throw new Error(
-            `Production graph 无法继续：${remaining.map((node) => node.id).join(", ")} 的依赖不可满足`,
-          );
+          throw new Error(`Production graph 无法继续：${remaining.map((node) => node.id).join(", ")} 的依赖不可满足`);
         }
         const wave = await Promise.allSettled(ready.map((node) => this.executeNode(id, node.id, project, signal)));
         const failure = wave.find((result): result is PromiseRejectedResult => result.status === "rejected");
@@ -367,12 +359,7 @@ export class ProductionRunOrchestrator {
    * Executes one graph node end to end: resolves its input artifacts, opens a
    * pinned session, runs the role, and persists the produced artifact.
    */
-  private async executeNode(
-    runId: string,
-    nodeId: string,
-    project: DirectorProject | undefined,
-    signal: AbortSignal,
-  ) {
+  private async executeNode(runId: string, nodeId: string, project: DirectorProject | undefined, signal: AbortSignal) {
     if (signal.aborted) throw signal.reason;
     const run = (await this.store.get(runId))!;
     const node = run.nodes.find((candidate) => candidate.id === nodeId);

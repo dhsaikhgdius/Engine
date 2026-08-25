@@ -5,10 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import {
-  CollaborationSnapshotStore,
-  validateYjsUpdate,
-} from "../../collaboration/collaborationSnapshotStore";
+import { CollaborationSnapshotStore, validateYjsUpdate } from "../../collaboration/collaborationSnapshotStore";
 import { DirectorCollaborationWebSocketHub } from "../../collaborationWebSocketHub";
 import { encodeDirectorCollaborationGatewayPayload } from "../../../../packages/protocol/src/directorCollaborationGatewayProtocol";
 import { WebSocket } from "ws";

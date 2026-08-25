@@ -4,10 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentProfileRegistry } from "../../agents/agentProfileRegistry";
 import type { MultiAgentRunStore } from "../../multiAgent/multiAgentRunStore";
-import {
-  DEFAULT_FILM_GRAPH,
-  type ProductionRunOrchestrator,
-} from "../../multiAgent/productionRunOrchestrator";
+import { DEFAULT_FILM_GRAPH, type ProductionRunOrchestrator } from "../../multiAgent/productionRunOrchestrator";
 import { handleMultiAgentRunRoute, type MultiAgentRunRouteDependencies } from "../../routes/multiAgentRunRoutes";
 
 const TARGET = {

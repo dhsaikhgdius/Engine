@@ -5,10 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentEvent } from "@director/agent-engine";
-import type {
-  CreateProductionRunRequest,
-  ProductionRun,
-} from "@director/agent-engine";
+import type { CreateProductionRunRequest, ProductionRun } from "@director/agent-engine";
 import type { FilmRoleId } from "../../../../packages/protocol/src/filmProductionProtocol";
 import { MultiAgentRunStore } from "../../multiAgent/multiAgentRunStore";
 import {
@@ -484,7 +481,10 @@ describe("ProductionRunOrchestrator configurable graphs", () => {
     expect(nodeById.get("script")?.inputArtifactIds).toEqual(nodeById.get("brief")?.outputArtifactIds);
     expect(nodeById.get("sound")?.inputArtifactIds).toEqual(nodeById.get("brief")?.outputArtifactIds);
     expect(new Set(nodeById.get("cut")?.inputArtifactIds)).toEqual(
-      new Set([...(nodeById.get("script")?.outputArtifactIds ?? []), ...(nodeById.get("sound")?.outputArtifactIds ?? [])]),
+      new Set([
+        ...(nodeById.get("script")?.outputArtifactIds ?? []),
+        ...(nodeById.get("sound")?.outputArtifactIds ?? []),
+      ]),
     );
     const editorPrompt = harness.prompts.find((entry) => entry.roleId === "editor")?.prompt ?? "";
     expect(editorPrompt).toContain("script-artifact");

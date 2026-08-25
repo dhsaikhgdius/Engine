@@ -197,8 +197,7 @@ describe("DirectorCollaborationWebSocketHub room authorization", () => {
       type: "collab.join",
       room: "secure-room",
       awareness_client_id: 42,
-      invite_token: mintCollaborationInviteToken({ secret: "wrong-secret", room: "secure-room", role: "editor" })
-        .token,
+      invite_token: mintCollaborationInviteToken({ secret: "wrong-secret", room: "secure-room", role: "editor" }).token,
     });
     expect(messages(forged).at(-1)).toMatchObject({ type: "collab.error", code: "unauthorized" });
 

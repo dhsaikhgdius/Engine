@@ -223,9 +223,9 @@ export class DirectorCollaborationWebSocketHub {
         Y.applyUpdate(room.doc, payload, client);
       } catch {
         if (this.persistence) {
-          void this.persistence.quarantine(membership.roomId, payload, "document update failed to apply").catch(
-            () => undefined,
-          );
+          void this.persistence
+            .quarantine(membership.roomId, payload, "document update failed to apply")
+            .catch(() => undefined);
         }
         this.error(client, "invalid_payload", "The document update is not a valid Yjs update.", message.room);
         return;

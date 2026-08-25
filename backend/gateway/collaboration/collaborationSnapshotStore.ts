@@ -94,10 +94,7 @@ export class CollaborationSnapshotStore {
   private readonly locks = new Map<string, Promise<unknown>>();
   private updateSequence = 0;
 
-  constructor(
-    dataDirectory: string,
-    options: { compactAfterUpdates?: number; maxQuarantinedUpdates?: number } = {},
-  ) {
+  constructor(dataDirectory: string, options: { compactAfterUpdates?: number; maxQuarantinedUpdates?: number } = {}) {
     this.directory = resolve(dataDirectory, "collaboration-rooms");
     this.compactAfterUpdates = Math.max(1, options.compactAfterUpdates ?? DEFAULT_COMPACT_AFTER_UPDATES);
     this.maxQuarantinedUpdates = Math.max(1, options.maxQuarantinedUpdates ?? DEFAULT_MAX_QUARANTINED_UPDATES);
@@ -244,7 +241,9 @@ export class CollaborationSnapshotStore {
     try {
       const parsed: unknown = JSON.parse(await readFile(resolve(this.roomDirectory(room), META_FILE), "utf8"));
       const lastCompactedAt =
-        parsed && typeof parsed === "object" && "lastCompactedAt" in parsed &&
+        parsed &&
+        typeof parsed === "object" &&
+        "lastCompactedAt" in parsed &&
         typeof (parsed as Record<string, unknown>).lastCompactedAt === "string"
           ? ((parsed as Record<string, unknown>).lastCompactedAt as string)
           : null;
