@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../comprehensive/editor/schema/directorProjectRevision";
 import { directorDccEngineIdSchema } from "./directorDccEngineSpace";
+import { directorGodotImportReceiptSchema } from "./directorGodotAnimationContract";
 
 /** Contract identifier for a Director-authored engine connector manifest. */
 export const DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT = "director-dcc-connector-v1" as const;
@@ -75,6 +76,8 @@ export const directorDccEngineReportSchema = z.strictObject({
   /** Relative directory of an echoed return package when the connector produced one. */
   returnPackageDir: safeRelativePathSchema.nullable(),
   warnings: z.array(z.string().max(2_000)).max(20_000),
+  /** Godot-only: import receipt read back from the saved scene and animation resources. */
+  godot: directorGodotImportReceiptSchema.optional(),
 });
 
 /** A validated engine connector run report. */
@@ -88,6 +91,10 @@ export const directorDccEngineHealthCheckIdSchema = z.enum([
   "connector_entry",
   "engine_project",
   "project_connector",
+  /** The engine project has the Director connector enabled (Godot: `[editor_plugins]`). */
+  "project_plugin_enabled",
+  /** The fixed connector entry answered a `--mode health` probe with valid JSON. */
+  "connector_health",
 ]);
 
 /** Identifier of one engine health check. */
