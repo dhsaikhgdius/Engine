@@ -117,6 +117,7 @@ export default function WorldAmbientAudio({
   const snowGainRef = useRef<GainNode | null>(null);
   const patterGainRef = useRef<GainNode | null>(null);
   const rumbleGainRef = useRef<GainNode | null>(null);
+  const rustleGainRef = useRef<GainNode | null>(null);
 
   useEffect(() => {
     if (!audioEnabled) return undefined;
@@ -162,23 +163,36 @@ export default function WorldAmbientAudio({
     const rumbleGain = context.createGain();
     rumbleGain.gain.value = 0;
 
+    // Foliage rustle: a leafy mid band that only comes forward in real wind,
+    // so the same wind vector reads in the trees and the ear. Appended after
+    // the existing nodes so established gain indices stay stable.
+    const rustleFilter = context.createBiquadFilter();
+    rustleFilter.type = "bandpass";
+    rustleFilter.frequency.value = 640;
+    rustleFilter.Q.value = 0.8;
+    const rustleGain = context.createGain();
+    rustleGain.gain.value = 0;
+
     const windSource = createLoopSource(context, seed, 2.5);
     const rainSource = createLoopSource(context, seed ^ 0x9e3779b9, 1.75);
     const snowSource = createLoopSource(context, seed + 0x85ebca6b, 3.1);
     const patterSource = createLoopSource(context, seed ^ 0xc2b2ae35, 1.35);
     const rumbleSource = createLoopSource(context, seed + 0x27d4eb2f, 4.7, fillSeededBrownNoise);
+    const rustleSource = createLoopSource(context, seed ^ 0x165667b1, 2.05);
 
     windSource.connect(windFilter).connect(windGain).connect(master);
     rainSource.connect(rainFilter).connect(rainGain).connect(master);
     snowSource.connect(snowFilter).connect(snowGain).connect(master);
     patterSource.connect(patterFilter).connect(patterGain).connect(master);
     rumbleSource.connect(rumbleFilter).connect(rumbleGain).connect(master);
+    rustleSource.connect(rustleFilter).connect(rustleGain).connect(master);
 
     windSource.start(0);
     rainSource.start(0);
     snowSource.start(0);
     patterSource.start(0);
     rumbleSource.start(0);
+    rustleSource.start(0);
 
     masterRef.current = master;
     windGainRef.current = windGain;
@@ -186,11 +200,12 @@ export default function WorldAmbientAudio({
     snowGainRef.current = snowGain;
     patterGainRef.current = patterGain;
     rumbleGainRef.current = rumbleGain;
+    rustleGainRef.current = rustleGain;
 
     void context.resume();
 
     return () => {
-      for (const source of [windSource, rainSource, snowSource, patterSource, rumbleSource]) {
+      for (const source of [windSource, rainSource, snowSource, patterSource, rumbleSource, rustleSource]) {
         source.stop();
         source.disconnect();
       }
@@ -201,6 +216,7 @@ export default function WorldAmbientAudio({
       snowGainRef.current = null;
       patterGainRef.current = null;
       rumbleGainRef.current = null;
+      rustleGainRef.current = null;
       void context.close();
     };
   }, [audioEnabled, seed]);
@@ -215,6 +231,7 @@ export default function WorldAmbientAudio({
     if (snowGainRef.current) snowGainRef.current.gain.value = gains.snow * 0.4;
     if (patterGainRef.current) patterGainRef.current.gain.value = gains.rain * 0.18;
     if (rumbleGainRef.current) rumbleGainRef.current.gain.value = gains.rumble * 0.5;
+    if (rustleGainRef.current) rustleGainRef.current.gain.value = gains.rustle * 0.6;
     if (masterRef.current) masterRef.current.gain.value = suspended ? 0 : 1;
   };
 

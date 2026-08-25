@@ -155,6 +155,9 @@ describe("WorldAmbientAudio preference", () => {
     act(() => fiberMocks.frame?.());
 
     expect(context.gains[1]!.gain.value).toBeCloseTo(0.45, 8);
+    // The foliage rustle bed (appended after the original nodes, so gain
+    // index 6) follows the same wind: 0.3 computed × 0.6 mix headroom.
+    expect(context.gains[6]!.gain.value).toBeCloseTo(0.18, 8);
     unmount();
   });
 });
