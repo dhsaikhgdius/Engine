@@ -50,7 +50,7 @@ Director 文档明确自定位为 **Agent-native，而非「可被 Agent 控制�
 **缺口：**
 
 - **Interchange** 与 **Collaboration** 已 **部分** 暴露为 `director_creative` JSON 操作。已交付：interchange `capabilities` / `plan-export` / `export`；collaboration `observe` / `list-comments` / `add-comment` / `list-versions` / `compare`。剩余：interchange **导入** 仍是 human-file-picker-only；collaboration **写操作** 仍缺 comment resolve 与 version create/restore
-- `directorStore` 多数 mutator（相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体、故事板）已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring；仍直连 store 的路径为创建流程（资产拖放、预设角色、人群、机位创建）、UI-only 分组（对象列表、人群标签）、gizmo/滑杆拖拽批次与 Canvas/Video store
+- `directorStore` 多数 mutator（相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体、故事板、创建流程——资产拖放、预设角色、人群、机位创建——以及对象列表）已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring；Canvas/Video 高频 mutator（节点/连线增改删、剪辑/轨道增改删）也已经共享 creative execute 路径（带 snapshot fingerprint 与 idempotency 守卫）。仍直连 store 的路径为 gizmo/滑杆拖拽批次、Canvas 分区与 z-order、Video 剪辑过渡/落位覆盖/涟漪删除，以及严格 wire schema 无法表达 UI 宽松语义时的本地回退
 - 视口拖拽、pilot 等交互式操控缺少完整 semantic 等价物
 
 **评级：3.5/5**
@@ -223,7 +223,7 @@ agent-gateway.ts (composition root)
 
 ## 主要差距
 
-1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除、单次变换、相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体与故事板已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring。仍直连 store 的路径：创建流程（资产拖放、预设角色、人群、机位创建）、UI-only 对象列表/人群分组、gizmo 拖拽批次与 Canvas/Video store
+1. **UI parity 进行中** — interchange 导入、collaboration 写操作（resolve/reopen、version create/restore/delete）、Gallery purge / media.relink、Player/Pilot 会话 op 已进 Agent JSON；Stage 删除、单次变换、相机面板、姿态/IK/动作、世界系统、灯光、对象元数据/材质、批量空间编辑、图层、标注/测量、组合体、故事板、创建流程（资产拖放、预设角色、人群、机位创建）与对象列表已经 `dispatchDirectorAuthoringActions` 与 Agent 共用 authoring，Canvas 节点/连线与 Video 剪辑/轨道 mutator 也已经共享 creative execute 路径。仍直连 store 的路径：gizmo 拖拽批次、Canvas 分区与 z-order、Video 剪辑过渡/落位覆盖/涟漪删除，以及严格 wire schema 无法表达 UI 宽松语义时的本地回退
 2. **Governance 入口未完全统一** — MCP、本地 harness 与托管 adapter 已共享 `filmRoleToolPolicy`；原始 HTTP 与人类 UI 仍绕过 film role，审计也未跨入口统一
 3. **Protocol breadth** — MCP 强，无标准 A2A；multi-agent 为自定义串行 graph
 4. **Dual surface 遗留** — `stage_*` 兼容层 vs `director_workbench` 完整模型仍并存
