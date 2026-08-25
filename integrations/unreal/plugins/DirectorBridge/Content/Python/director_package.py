@@ -150,8 +150,14 @@ def write_report(
     scene_path: Optional[str],
     return_package_dir: Optional[str],
     warnings: List[str],
+    extras: Optional[dict] = None,
 ) -> None:
-    """Write the director-dcc-engine-report-v1 receipt the Gateway validates."""
+    """Write the director-dcc-engine-report-v1 receipt the Gateway validates.
+
+    ``extras`` carries optional provider-specific receipt fields (for example
+    the Unreal Sequencer receipt); ``None`` values are dropped so absent
+    features simply omit their fields.
+    """
     os.makedirs(os.path.dirname(report_path) or ".", exist_ok=True)
     report = {
         "ok": True,
@@ -167,6 +173,9 @@ def write_report(
         "returnPackageDir": return_package_dir,
         "warnings": warnings,
     }
+    for key, value in (extras or {}).items():
+        if value is not None:
+            report[key] = value
     with open(report_path, "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2, sort_keys=True)
         handle.write("\n")

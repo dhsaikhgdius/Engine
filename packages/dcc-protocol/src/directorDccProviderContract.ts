@@ -371,6 +371,46 @@ function engineProvider(
 }
 
 /**
+ * Unreal Engine descriptor. Split from the shared `engineProvider()` literal
+ * because the Unreal connector ships deeper host-side coverage than the other
+ * engine connectors; the shared helper must keep its conservative claims.
+ * Every native claim below is backed by host-free golden fixtures
+ * (`backend/gateway/tests/dcc/unreal*.test.ts`) and remains gated at runtime
+ * by the engine bridge health check (`nativeReady`).
+ */
+const UNREAL_PROVIDER_DESCRIPTOR: DirectorDccProviderDescriptor = directorDccProviderDescriptorSchema.parse({
+  id: "unreal",
+  label: "Unreal Engine",
+  category: "engine",
+  integration: "engine-headless",
+  preferredFormat: "usda",
+  exchangeFormats: ["usda", "glb"],
+  capabilities: [
+    // Scene layout and cameras still travel through the portable package;
+    // the connector performs the host-side import but the format carries them.
+    { id: "scene", level: "exchange", layer: "exchange-format", formats: ["usda", "glb"] },
+    { id: "camera", level: "exchange", layer: "exchange-format", formats: ["usda", "glb"] },
+    // Time-sampled transform and camera animation is baked by the Gateway
+    // (canonical evaluators) and keyed into LevelSequence tracks by the
+    // connector. Control-Rig-style pose channels stay warn-and-omit.
+    { id: "animation", level: "native", layer: "connector" },
+    // Skinned GLB payloads import as skeletal meshes in bind pose with
+    // director_id tags; non-skinned character payloads warn-and-omit.
+    { id: "skeleton", level: "native", layer: "connector" },
+    // Director PBR parameters map to material instances on the parent
+    // DirectorPbr materials; unsupported channels warn-and-omit.
+    { id: "materials", level: "native", layer: "connector" },
+    { id: "stable_ids", level: "native", layer: "director-manifest" },
+    { id: "roundtrip", level: "native", layer: "connector" },
+    { id: "headless", level: "native", layer: "connector" },
+    // A preview-only loopback protocol exists in the connector, but no
+    // durable gateway transport ships yet, so the claim stays planned.
+    { id: "live_link", level: "planned", layer: "connector" },
+  ],
+  connectorDirectory: "integrations/unreal",
+});
+
+/**
  * Product capability catalog. Runtime installation state is deliberately kept
  * out of this table and is supplied by the gateway registry.
  */
@@ -396,7 +436,7 @@ export const DIRECTOR_DCC_PROVIDERS: readonly DirectorDccProviderDescriptor[] = 
     connectorDirectory: "integrations/blender",
   }),
   exchangeProvider("maya", "Autodesk Maya", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("unreal", "Unreal Engine", "usda", ["usda", "glb"]),
+  UNREAL_PROVIDER_DESCRIPTOR,
   exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
   engineProvider("unity", "Unity", "glb", ["glb", "usda"]),

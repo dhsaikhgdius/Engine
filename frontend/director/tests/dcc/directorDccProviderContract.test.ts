@@ -135,10 +135,16 @@ describe("Director DCC provider contract", () => {
       expect(byId.get("headless")).toEqual({ id: "headless", level: "native", layer: "connector" });
       expect(byId.get("roundtrip")).toEqual({ id: "roundtrip", level: "native", layer: "connector" });
       expect(byId.get("stable_ids")).toEqual({ id: "stable_ids", level: "native", layer: "director-manifest" });
-      // Animation/skeleton/material fidelity and live link remain unproven.
-      for (const id of ["animation", "skeleton", "materials", "live_link"] as const) {
-        expect(byId.get(id)).toEqual({ id, level: "planned", layer: "connector" });
+      // The Unreal connector ships Gateway-baked Sequencer animation, skinned
+      // GLB skeletal-mesh import, and PBR material instances; the other engine
+      // connectors keep those claims planned until equivalent fixtures exist.
+      const provenFidelityLevel = descriptor.id === "unreal" ? "native" : "planned";
+      for (const id of ["animation", "skeleton", "materials"] as const) {
+        expect(byId.get(id)).toEqual({ id, level: provenFidelityLevel, layer: "connector" });
       }
+      // Live link stays planned for every engine: preview-only transports are
+      // never the durable scene channel.
+      expect(byId.get("live_link")).toEqual({ id: "live_link", level: "planned", layer: "connector" });
     }
   });
 
