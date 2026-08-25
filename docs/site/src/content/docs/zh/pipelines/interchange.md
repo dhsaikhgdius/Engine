@@ -145,13 +145,16 @@ RGB、可见像素数、画面占比与以左上角为原点的像素边界；�
 ## Agent 边界
 
 `director_creative interchange` 为有界 OTIO/OTIOZ、Fountain、glTF/GLB、USD/USDZ、OBJ
-和 STL 传输提供 `capabilities`、`plan-export` 与 `export`。每个计划绑定精确 Stage revision
-或 creative-workspace fingerprint。导出返回 UTF-8 或 base64 payload、archive SHA-256、
-字节数、兼容性警告和稳定回执；inline 传输上限是 8 MiB。OBJ/STL 计划可携带精确
-`object_ids`，并把它写入计划身份和 ZIP manifest。
+和 STL 传输提供 `capabilities`、`plan-export`、`export`、`plan-import` 与 `import`。每个
+计划绑定精确 Stage revision 或 creative-workspace fingerprint。导出返回 UTF-8 或 base64
+payload、archive SHA-256、字节数、兼容性警告和稳定回执；inline 传输上限是 8 MiB。OBJ/STL
+计划可携带精确 `object_ids`，并把它写入计划身份和 ZIP manifest。
 
-导入仍是 human-file-picker-only，因为 Agent 不会伪造浏览器文件句柄。请使用 Interchange
-菜单或对应可信 host adapter；没有真实用户选中文件和校验结果时，不得宣称完成导入。
+JSON 导入走 `plan-import` → `import`：来源可以是 `inline`（UTF-8 或 base64）、Gallery
+`media_id`，或由可信 host 解析的 `workspace_path`。`plan-import` 返回带 guard fingerprint
+的不可变计划与摘要/警告；`import` 复核该 fingerprint 后原子提交，并返回含 before/after
+guard 的回执。OBJ/STL 仍是只导出格式；文档所列 **Limited** 格式子集边界不变。人类的
+Interchange 菜单文件选择入口继续可用。
 
 Stage 验收与 provider-neutral 证据使用 `director_workbench` 的 `shot_ir`、`shot_package` 或
 `deliver`；Blender 则先发现并使用 `director_dcc` 能力。

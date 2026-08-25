@@ -5,7 +5,7 @@ description: 基于 Agent-Native 架构符合性评估，分阶段提升 UI/Agen
 
 本路线图将 [Agent-Native 架构符合性评估](/zh/research/agent-native-architecture-assessment/) 中的差距，转化为可分批交付的里程碑。目标是在不推翻现有 Stage / Canvas / Video / Agent store 的前提下，把 Director 从「核心路径 agent-native」推进到「全面对等 + 统一治理」。
 
-Drafted: **2026-08-02**。最近核验：**2026-08-13**。
+Drafted: **2026-08-02**。最近核验：**2026-08-25**。
 
 ## 已完成基础：naive caller boundary
 
@@ -60,12 +60,12 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 | ------ | ---------------------- | ----------- | -------------------------------------------------------------------------------- | ---------------- |
 | **M0** | 基线与度量             | Planned     | UI/Agent parity 清单、parity harness                                             | 无               |
 | **M1** | Shared action registry | Planned     | UI 高频路径经 `applyDirectorAuthoringActions`                                    | M0               |
-| **M2** | Human-only 面消除      | **Partial** | Interchange 导出 + collab observe/comment 已交付；导入与剩余 collab 写操作未完成 | M1（部分可并行） |
+| **M2** | Human-only 面消除      | **Implemented** | Interchange 导出 + 导入（plan-import/import）与 collaboration 读写（resolve、version create/restore 等）均为 JSON 操作 | M1（部分可并行） |
 | **M3** | Gateway 统一治理       | **Partial** | MCP / 本地 / 托管已共享 `filmRoleToolPolicy`；原始 HTTP/UI 与统一审计未完成      | M1               |
 | **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
 | **M5** | 可观测性               | Planned     | Trace、cost、长任务进度                                                          | M3               |
 | **M6** | 团队就绪               | Planned     | Collaboration auth、multi-agent 增强                                             | M3、M5           |
-| **M7** | 生态协议               | Planned     | OpenAPI manifest、A2A 评估                                                       | M2、M3           |
+| **M7** | 生态协议               | **Partial** | Tool manifest 已交付（`GET /api/control-plane/tool-manifest`）；A2A spike 结论为 no-go / 暂缓 | M2、M3           |
 
 ```mermaid
 flowchart LR
@@ -163,7 +163,7 @@ flowchart LR
 
 ## Milestone 2 — Human-only 面消除
 
-**状态：Partial**（核验于 2026-08-13）。
+**状态：Implemented**（核验于 2026-08-25）。
 
 **目标：** Interchange、Collaboration、Media 可通过 JSON 操作完成，且带 plan/receipt。
 
@@ -171,36 +171,21 @@ flowchart LR
 
 `director_creative` 已暴露：
 
-| 操作面                        | Actions                                                               | 证据                                                                                                              |
-| ----------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Interchange 导出              | `capabilities`、`plan-export`、`export`                               | `packages/protocol/src/creativeWorkspaceProtocol.ts`、Creative Agent 测试、[交换格式](/zh/pipelines/interchange/) |
-| Collaboration 读取 + 添加评论 | `observe`、`list-comments`、`add-comment`、`list-versions`、`compare` | 同一协议 + 语义操作测试                                                                                           |
-| Gallery / media 变更          | `gallery.media.*`、`media.proxy.attach` 及相关 execute ops            | Feature Status 中 Gallery 为 **Implemented**；持久媒体为 **Limited**                                              |
+| 操作面                | Actions                                                                                                                                                          | 证据                                                                                                                                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Interchange 导出      | `capabilities`、`plan-export`、`export`                                                                                                                          | `packages/protocol/src/creativeWorkspaceProtocol.ts`、Creative Agent 测试、[交换格式](/zh/pipelines/interchange/)                                                                    |
+| Interchange 导入      | `plan-import`（`inline` / `media_id` / `workspace_path` 来源）、`import`（guard fingerprint 复核 + 原子提交 + 回执）                                             | 同一协议、`frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts`、`frontend/director/tests/agent/creativeWorkspaceSemanticOperations.import.test.ts`                   |
+| Collaboration 读写    | `observe`、`list-comments`、`add-comment`、`resolve-comment`、`reopen-comment`、`update-comment`、`delete-comment`、`list-versions`、`compare`、`create-version`、`restore-version`、`delete-version` | 同一协议 + 语义操作测试（`creativeWorkspaceSemanticOperations.test.ts`）                                                                                                             |
+| Gallery / media 变更  | `gallery.media.*`、`media.proxy.attach` 及相关 execute ops                                                                                                       | Feature Status 中 Gallery 为 **Implemented**；持久媒体为 **Limited**                                                                                                                 |
 
-导入仍是 human-file-picker-only：Agent 不会伪造浏览器文件句柄。
+Skill 已把 JSON `plan-import` / `import` 列为首选导入路径；人类的 Interchange 菜单文件选择
+入口继续可用。
 
-### 剩余项
+### 保留边界
 
-#### 2.1 Interchange 导入
-
-- `import_plan` / `import_apply`（或等价 host-adapter 路径），带 `expected_revision` + idempotency
-- 对齐 [ADR 0003 import/export receipts](/zh/engineering/adr/0003-import-export-receipts/)
-- 保持 Feature Status **Limited** 的 Fountain / OTIO / glTF / USD 子集边界
-
-#### 2.2 剩余 collaboration 写操作
-
-| op                                   | 说明               |
-| ------------------------------------ | ------------------ |
-| comment resolve                      | 关闭或解决审核评论 |
-| `version_create` / `version_restore` | 命名版本           |
-
-大媒体字节仍不进入 Yjs。
-
-### 验收（剩余项）
-
-- 每个剩余 op 有 Zod schema、executor、MCP 暴露、至少一个 integration test。
-- Skill / capabilities 把 JSON 列为 execution surface；导入在落地前仍显式标注为 human-file-picker-only。
-- Verified-shot 教程可 **纯 Agent** 完成一次 OTIO 导入 + 版本快照（可选人类 review）。
+- OBJ/STL 仍是只导出格式；Feature Status **Limited** 的 Fountain / OTIO / glTF / USD 子集边界不变。
+- `workspace_path` 来源需要可信 host 解析；纯浏览器 target 会显式拒绝并提示改用 `inline` 或 `media_id`。
+- 大媒体字节仍不进入 Yjs。
 
 ---
 
@@ -312,18 +297,33 @@ flowchart LR
 
 ## Milestone 7 — 生态协议
 
+**状态：Partial**（核验于 2026-08-25）。
+
 **目标：** 与其他 agent-native app 互操作。
 
-### 工作项
+### 已交付
 
-- **OpenAPI / tool manifest 导出**：从 Zod schema 自动生成 HTTP tool catalog。
-- **A2A 评估 spike**：是否包装现有 gateway 为 A2A agent card；记录 go/no-go ADR。
+- **Tool manifest 导出**：`GET /api/control-plane/tool-manifest` 从执行用的同一批 Zod schema
+  生成机器可读的工具目录（`director_workbench`、`director_creative`、`director_dcc`、
+  `blender_native`、`stage_video`、`director_production`、`director_film`），每个条目含描述、
+  JSON Schema 输入契约和操作名；冻结的 `stage_*` 兼容工具标注 `legacy: true`。与
+  `/api/control-plane/capabilities` 共享同一鉴权与脱敏策略，不含任何密钥。
+  证据：`backend/gateway/controlPlane/toolManifest.ts` + `controlPlaneRoutes.test.ts`。
+
+### A2A spike 结论：no-go / 暂缓
+
+把 gateway 包装为 A2A agent card 目前是 **no-go**：MCP + HTTP tool manifest 已覆盖
+跨 app 编排的发现需求；A2A 会引入第二套会话与身份模型，却没有当前用户场景需要它。
+待 M3 统一治理落地、且出现真实的外部 A2A 消费方后再重估。不实现新协议。
+
+### 剩余项
+
 - **Cross-app recipe**：文档化「Director deliver → 外部 video post」的 receipt handoff 格式。
 
 ### 验收
 
-- `GET /api/control-plane/tool-manifest` 返回可机器读取的 tool 列表。
-- A2A spike 有书面结论，不强制实现。
+- `GET /api/control-plane/tool-manifest` 返回可机器读取的 tool 列表。✅
+- A2A spike 有书面结论，不强制实现。✅（no-go / 暂缓，见上）
 
 ---
 
@@ -358,18 +358,18 @@ flowchart LR
 
 ## 成功指标
 
-| 指标                             | 当前（2026-08-13）        | 剩余 M2/M3 完成后      | M4 后 |
-| -------------------------------- | ------------------------- | ---------------------- | ----- |
-| Parity coverage（top mutations） | ~60%                      | ≥85%                   | ≥95%  |
-| Human-only 能力（已文档化）      | 导入 + 剩余 collab 写操作 | 导入在落地前仍显式标注 | 0 类  |
-| Gateway 入口 policy 一致         | 部分（MCP / 本地 / 托管） | 是，含原始 HTTP/UI     | 是    |
-| In-product workspace             | 否                        | 否                     | 是    |
-| Agent-native 综合评分（自评）    | 4.0                       | 4.2                    | 4.5   |
+| 指标                             | 当前（2026-08-25）                                | 剩余 M3 完成后     | M4 后 |
+| -------------------------------- | ------------------------------------------------- | ------------------ | ----- |
+| Parity coverage（top mutations） | ~60%                                              | ≥85%               | ≥95%  |
+| Human-only 能力（已文档化）      | 0 类（M2 已交付；保留边界见 M2，OBJ/STL 仍只导出） | 0 类               | 0 类  |
+| Gateway 入口 policy 一致         | 部分（MCP / 本地 / 托管）                         | 是，含原始 HTTP/UI | 是    |
+| In-product workspace             | 否                                                | 否                 | 是    |
+| Agent-native 综合评分（自评）    | 4.1                                               | 4.2                | 4.5   |
 
 ---
 
 ## 下一步行动
 
-1. 完成剩余 M2：interchange 导入 JSON，然后是 collaboration comment resolve 与 version create/restore
-2. 完成剩余 M3：把 `filmRoleToolPolicy` 接到原始 HTTP/UI，然后统一审计轨迹
+1. 完成剩余 M3：把 `filmRoleToolPolicy` 接到原始 HTTP/UI，然后统一审计轨迹
+2. M7 剩余：文档化 cross-app receipt handoff recipe
 3. 落地时在同一变更中更新 [Feature Status](/zh/reference/feature-status/) 与[架构符合性评估](/zh/research/agent-native-architecture-assessment/)
