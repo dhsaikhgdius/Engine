@@ -360,6 +360,12 @@ export const directorDccReturnReportSchema = z.strictObject({
   manifestPath: nonEmpty.max(2_048),
   changeCount: z.number().int().nonnegative(),
   meshCount: z.number().int().nonnegative(),
+  /** Number of camera_update changes; optional on pre-optics exporters. */
+  cameraCount: z.number().int().nonnegative().optional(),
+  /** Number of light_update changes; optional on pre-optics exporters. */
+  lightCount: z.number().int().nonnegative().optional(),
+  /** Number of pose_update changes; optional on pre-optics exporters. */
+  poseCount: z.number().int().nonnegative().optional(),
   warnings: z.array(z.string().max(2_000)),
   blenderVersion: nonEmpty.max(200),
 });

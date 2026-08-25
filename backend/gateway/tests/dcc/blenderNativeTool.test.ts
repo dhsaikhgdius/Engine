@@ -694,6 +694,8 @@ describe("executeBlenderNativeTool", () => {
           id: "cube-a",
           materialName: "gold_plaque",
           createIfMissing: false,
+          faceScope: "ALL",
+          parameters: {},
         },
       ],
     });
@@ -1682,6 +1684,9 @@ describe("executeBlenderNativeTool", () => {
       expectedRevision: 5,
     });
 
+    if (!("result" in result)) {
+      throw new Error("Expected a native inspect result");
+    }
     expect(result.result).toMatchObject({ id: "cube-a", position: [0, 0.5, 0] });
     const graphs = (result.result as { materialGraphs?: Array<{ nodes: Array<{ inputs: unknown[] }> }> }).materialGraphs;
     expect(graphs?.[0]?.nodes[0]?.inputs).toEqual([
@@ -1775,6 +1780,7 @@ describe("executeBlenderNativeTool", () => {
         sceneEpoch,
         revision: 12,
       }),
+      liveLink: vi.fn(),
       snapshot: vi.fn(),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
@@ -1819,6 +1825,7 @@ describe("executeBlenderNativeTool", () => {
         sceneEpoch,
         revision: 12,
       }),
+      liveLink: vi.fn(),
       snapshot: vi.fn(),
       submit: vi.fn().mockResolvedValue({
         contract: BLENDER_LIVE_CONTRACT,
