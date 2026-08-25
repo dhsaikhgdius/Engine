@@ -176,13 +176,22 @@ type CameraHitArea = {
   position: CameraWirePoint;
 };
 
-function ViewportObjectLabel({ children, position }: { children: ReactNode; position: [number, number, number] }) {
+function ViewportObjectLabel({
+  badge,
+  children,
+  position,
+}: {
+  badge?: string;
+  children: ReactNode;
+  position: [number, number, number];
+}) {
   const { t } = useLanguage();
   const content = typeof children === "string" ? t(children) : children;
   return (
     <Html center pointerEvents="none" position={position} zIndexRange={[0, 1]}>
       <div className="role-label" data-i18n-user-content>
         {content}
+        {badge ? <span className="role-label-agent-badge">{t(badge)}</span> : null}
       </div>
     </Html>
   );
@@ -1154,6 +1163,8 @@ const ObjectSceneNode = memo(function ObjectSceneNode({
   const setObjectMeasuredLocalBounds = useDirectorStore((state) => state.setObjectMeasuredLocalBounds);
   const isImportedModel = asset?.sourceType === "model";
   const isImportedCharacter = isImportedModel && item.kind === "character" && asset?.kind === "character";
+  // Viewport-visible possession state: a bound Agent drives this character.
+  const agentTakeoverBadge = item.kind === "character" && item.agentBinding ? "Agent 接管" : undefined;
   const isDirectorHeroCharacterAsset = Boolean(asset?.url && /\.fbx$/i.test(asset.url));
   const characterLabelKey = `${item.id}:${asset?.id ?? ""}:${item.bodyType ?? ""}:${item.characterRig?.rigType ?? ""}`;
   const fallbackCharacterLabelY =
@@ -1303,7 +1314,9 @@ const ObjectSceneNode = memo(function ObjectSceneNode({
             </Suspense>
           </SceneAssetErrorBoundary>
           {showLabels ? (
-            <ViewportObjectLabel position={[0, characterLabelY, 0]}>{item.name}</ViewportObjectLabel>
+            <ViewportObjectLabel badge={agentTakeoverBadge} position={[0, characterLabelY, 0]}>
+              {item.name}
+            </ViewportObjectLabel>
           ) : null}
         </>
       ) : showPrimary && isImportedModel && asset ? (
@@ -1336,7 +1349,9 @@ const ObjectSceneNode = memo(function ObjectSceneNode({
             />
           </Suspense>
           {showLabels ? (
-            <ViewportObjectLabel position={[0, characterLabelY, 0]}>{item.name}</ViewportObjectLabel>
+            <ViewportObjectLabel badge={agentTakeoverBadge} position={[0, characterLabelY, 0]}>
+              {item.name}
+            </ViewportObjectLabel>
           ) : null}
           {showLabels ? <ViewportObjectLabel position={[0, 0.18, 0]}>资产绑定无效</ViewportObjectLabel> : null}
         </>

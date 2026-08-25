@@ -1,0 +1,79 @@
+{
+  "name": "character-agent-possession",
+  "description": "Place a catalog character, bind an Agent to it, drive it with packaged motion and pose, and verify the echoed agent binding before unbinding.",
+  "steps": [
+    {
+      "label": "catalog packaged character motions",
+      "tool": "director_workbench",
+      "input": { "op": "catalog", "catalog": "character_motions", "query": "walk", "limit": 5 },
+      "expect": { "success": true, "result_paths": ["result.items"] }
+    },
+    {
+      "label": "place catalog character and bind agent",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_object",
+            "id": "eval-agent-character",
+            "name": "Eval Agent Character",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": { "position": [2, 0, 2], "rotation": [0, 0, 0], "scale": [1, 1, 1] }
+          },
+          {
+            "action": "bind_character_agent",
+            "object_id": "eval-agent-character",
+            "session_id": "dsh-eval-possess",
+            "mode": "possess"
+          }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.project_revision", "result.created.object_ids.0"]
+      }
+    },
+    {
+      "label": "drive bound character with motion and pose",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "set_character_motion",
+            "object_id": "eval-agent-character",
+            "clip_id": "idle",
+            "loop": "repeat",
+            "speed": 1
+          },
+          {
+            "action": "set_character_pose_controls",
+            "object_id": "eval-agent-character",
+            "controls": [{ "control": "head.yaw", "value": 12 }]
+          }
+        ]
+      },
+      "expect": { "success": true, "result_paths": ["result.project_revision"] }
+    },
+    {
+      "label": "inspect echoed agent binding and motion",
+      "tool": "director_workbench",
+      "input": { "op": "inspect", "entity": "object", "id": "eval-agent-character" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.value.agentBinding.sessionId", "result.value.characterRig.motion.clipId"]
+      }
+    },
+    {
+      "label": "unbind agent to release possession scope",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [{ "action": "unbind_character_agent", "object_id": "eval-agent-character" }]
+      },
+      "expect": { "success": true, "result_paths": ["result.updated.object_ids.0"] }
+    }
+  ]
+}

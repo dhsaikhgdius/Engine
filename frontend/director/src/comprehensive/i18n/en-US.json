@@ -3334,5 +3334,6 @@
   "绑定": "Bind",
   "请先选择 Agent Profile 或填写 Session ID。": "Select an agent profile or enter a session ID first.",
   "填写驱动该角色的 Agent Session ID（如 dsh-abc123），或选择 Profile 提前接上。": "Enter the agent session ID that drives this character (e.g. dsh-abc123), or attach a profile ahead of time.",
-  "群组选择暂不支持绑定 Agent；请选择单个角色后再绑定。": "Group selections cannot bind an agent yet; select a single character first."
+  "群组选择暂不支持绑定 Agent；请选择单个角色后再绑定。": "Group selections cannot bind an agent yet; select a single character first.",
+  "Agent 接管": "Agent"
 }

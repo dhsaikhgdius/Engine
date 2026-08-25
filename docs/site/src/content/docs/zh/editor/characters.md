@@ -147,6 +147,10 @@ Director 按以下顺序计算人物变形：
 3. 点击**绑定**。摘要处会出现 **Agent 接管中** 徽章，表示此人物已被 Agent 接管。
 4. 需要收回控制时点击**解除绑定**。群组选择暂不支持绑定，请选择单个角色。
 
+绑定状态在 Stage 视口中同样可见：被接管人物的名字标签旁会出现一个 **Agent 接管** 徽章。
+徽章与名字共用同一个屏幕空间标签，不响应指针事件，因此不会挡住选择或变换 gizmo；
+解除绑定后徽章立即消失，未绑定人物的标签保持不变。
+
 绑定保存在项目 JSON 的 `agentBinding` 字段中（只有人物对象可以携带），与其他人物写操作走同一
 revision 守卫；锁定的人物需要 `force` 才能绑定或解除。多个人物可以接同一个 Agent，但一个人物
 同一时刻最多一个绑定，重新绑定直接覆盖。
@@ -166,6 +170,10 @@ possess 模式同时限制该 session 的写入范围：绑定了人物的 sessi
 删除其他对象、修改别人的人物、`start_scene`、`replace_project` 等全局写入会被网关以可读错误
 拒绝（HTTP 403，代码 `possession_scope_violation`）。未绑定任何人物的普通导演 session 行为
 不变。所有人物 action 仍需显式 `object_id`。
+
+「放置人物 → 绑定 Agent → 用 motion/pose 驱动 → 校验回显的 `agent_binding` → 解绑」这条完整
+链路由黄金评测任务 `tools/evals/tasks/08-character-agent-possession.json` 回归覆盖，通过
+`npm run eval` 运行（见仓库中的 `tools/evals/README.zh-CN.md`）。
 
 ## CLI 快速检查
 
