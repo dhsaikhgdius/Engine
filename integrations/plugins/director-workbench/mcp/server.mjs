@@ -54908,9 +54908,11 @@ var blenderOperationManifest_default = {
     { op: "delete_object", surface: "typed", effect: "content" },
     { op: "duplicate_object", surface: "typed", effect: "content" },
     { op: "create_camera", surface: "typed", effect: "content" },
+    { op: "set_camera_data", surface: "typed", effect: "content" },
     { op: "set_active_camera", surface: "typed", effect: "content" },
     { op: "set_world_environment", surface: "typed", effect: "content" },
     { op: "create_light", surface: "typed", effect: "content" },
+    { op: "set_light_data", surface: "typed", effect: "content" },
     { op: "create_opening", surface: "typed", effect: "content" },
     { op: "move_to_collection", surface: "typed", effect: "content" },
     { op: "set_parent", surface: "typed", effect: "content" },
@@ -54950,6 +54952,11 @@ var blenderOperationManifest_default = {
     { op: "remove_nla_strip", surface: "typed", effect: "content" },
     { op: "invoke_operator", surface: "longtail", effect: "content" },
     { op: "set_rna_property", surface: "longtail", effect: "content" },
+    { op: "execute_code", surface: "longtail", effect: "content" },
+    { op: "polyhaven_search", surface: "typed", effect: "read" },
+    { op: "polyhaven_import", surface: "typed", effect: "content" },
+    { op: "sketchfab_search", surface: "typed", effect: "read" },
+    { op: "sketchfab_import", surface: "typed", effect: "content" },
     { op: "undo_scene", surface: "typed", effect: "history" },
     { op: "redo_scene", surface: "typed", effect: "history" },
     { op: "capture_render", surface: "typed", effect: "read" },
@@ -55165,6 +55172,12 @@ var rnaTargetSchema = external_exports.discriminatedUnion("kind", [
   external_exports.strictObject({
     kind: external_exports.enum(["material", "collection"]),
     name: external_exports.string().trim().min(1).max(240)
+  }),
+  external_exports.strictObject({
+    kind: external_exports.literal("scene")
+  }),
+  external_exports.strictObject({
+    kind: external_exports.literal("world")
   })
 ]);
 var spatialQueryExcludeIds = external_exports.array(identifier).max(64);
@@ -55193,6 +55206,11 @@ var spatialQuerySchema = external_exports.discriminatedUnion("kind", [
     kind: external_exports.literal("GROUND"),
     id: identifier,
     excludeIds: spatialQueryExcludeIds.optional()
+  }),
+  external_exports.strictObject({
+    kind: external_exports.literal("NAME"),
+    namePattern: external_exports.string().trim().min(1).max(120),
+    maxResults: external_exports.number().int().min(1).max(200).default(50)
   })
 ]);
 var spatialQueriesSchema = external_exports.array(spatialQuerySchema).min(1).max(32);
@@ -55304,6 +55322,23 @@ var agentOperationSchemas = [
     sensorWidthMm: finite6.positive().min(1).max(100).default(36)
   }),
   external_exports.strictObject({
+    op: external_exports.literal("set_camera_data"),
+    id: identifier,
+    projectionType: external_exports.enum(["PERSPECTIVE", "ORTHOGRAPHIC"]),
+    focalLengthMm: finite6.positive().min(1).max(1e3),
+    sensorFit: external_exports.enum(["AUTO", "HORIZONTAL", "VERTICAL"]),
+    sensorWidthMm: finite6.positive().min(1).max(100),
+    sensorHeightMm: finite6.positive().min(1).max(100),
+    shiftX: finite6,
+    shiftY: finite6,
+    clipStart: finite6.positive(),
+    clipEnd: finite6.positive(),
+    orthographicScale: finite6.positive()
+  }).refine((camera) => camera.clipEnd > camera.clipStart, {
+    path: ["clipEnd"],
+    message: "clipEnd must be greater than clipStart"
+  }),
+  external_exports.strictObject({
     op: external_exports.literal("set_active_camera"),
     id: identifier
   }),
@@ -55322,6 +55357,14 @@ var agentOperationSchemas = [
     color: vec36.default([1, 0.94, 0.86]),
     energy: finite6.nonnegative().default(1e3),
     size: finite6.positive().default(4)
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("set_light_data"),
+    id: identifier,
+    kind: lightKindSchema,
+    color: rgb,
+    energy: finite6.nonnegative(),
+    size: finite6.nonnegative()
   }),
   external_exports.strictObject({
     op: external_exports.literal("create_opening"),
@@ -55397,7 +55440,8 @@ var agentOperationSchemas = [
     op: external_exports.literal("assign_material"),
     id: identifier,
     materialName,
-    createIfMissing: external_exports.boolean().default(false),
+    /** Omitted creates a Principled material. `false` skips a still-missing name instead of aborting the batch. */
+    createIfMissing: external_exports.boolean().default(true),
     faceScope: external_exports.enum(["PRESERVE", "ALL", "SELECTED"]).default("ALL"),
     parameters: external_exports.strictObject({
       baseColor: rgb.optional(),
@@ -55603,6 +55647,37 @@ var agentOperationSchemas = [
     path: external_exports.array(external_exports.union([external_exports.string().trim().min(1).max(240), external_exports.number().int()])).min(1),
     value: external_exports.json()
   }),
+  external_exports.strictObject({
+    op: external_exports.literal("execute_code"),
+    code: external_exports.string().min(1).max(1e5).refine((value) => value.trim().length > 0, "code must not be empty")
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("polyhaven_search"),
+    assetType: external_exports.enum(["hdris", "textures", "models", "all"]).default("models"),
+    categories: external_exports.string().trim().min(1).max(240).optional(),
+    query: external_exports.string().trim().max(240).default(""),
+    limit: external_exports.number().int().min(1).max(50).default(20)
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("polyhaven_import"),
+    assetId: external_exports.string().trim().min(1).max(240),
+    assetType: external_exports.enum(["hdris", "textures", "models"]),
+    resolution: external_exports.enum(["1k", "2k", "4k"]).default("1k"),
+    fileFormat: external_exports.string().trim().min(1).max(40).optional(),
+    objectId: identifier.optional(),
+    targetHeightM: finite6.positive().max(1e4).optional()
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("sketchfab_search"),
+    query: external_exports.string().trim().min(1).max(240),
+    count: external_exports.number().int().min(1).max(24).default(5)
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("sketchfab_import"),
+    uid: external_exports.string().trim().regex(/^[A-Za-z0-9_-]{8,64}$/, "uid must be a Sketchfab model id"),
+    objectId: identifier.optional(),
+    targetSizeM: finite6.positive().max(50).default(1)
+  }),
   external_exports.strictObject({ op: external_exports.literal("undo_scene") }),
   external_exports.strictObject({ op: external_exports.literal("redo_scene") }),
   external_exports.strictObject({
@@ -55690,7 +55765,7 @@ assertBlenderOperationManifestCoverage([
 ]);
 var blenderAgentOperationSchema = external_exports.discriminatedUnion("op", agentOperationSchemas);
 var blenderAgentOperationNames = blenderAgentOperationSchema.options.map((option) => option.shape.op.value);
-var BLENDER_NATIVE_DESCRIBE_XOR_MESSAGE = 'describe requires exactly one of operator (allowlisted Blender RNA, e.g. "mesh.bevel") or target (typed apply op, e.g. "apply" or "create_primitive")';
+var BLENDER_NATIVE_DESCRIBE_XOR_MESSAGE = 'describe requires exactly one of operator (Blender RNA, e.g. "mesh.bevel") or target (typed apply op, e.g. "apply" or "create_primitive")';
 var blenderLiveOperationSchema = external_exports.discriminatedUnion("op", [
   ...agentOperationSchemas,
   exportScenePreviewOperationSchema,
@@ -55712,6 +55787,35 @@ var blenderLiveCommandBatchSchema = external_exports.strictObject({
     });
   }
 });
+function asNonEmptyString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : void 0;
+}
+function nameQueryFromText(value) {
+  return { kind: "NAME", namePattern: value };
+}
+function liftQueryList(value) {
+  if (Array.isArray(value) && value.length > 0) {
+    return value.map(
+      (item) => typeof item === "string" && item.trim() ? nameQueryFromText(item.trim()) : item
+    );
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) return [value];
+  return void 0;
+}
+function liftBlenderNativeToolRequest(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const record2 = input;
+  if (record2.op !== "query") return input;
+  const next = { ...record2 };
+  const namedPattern = asNonEmptyString(next.name_pattern) ?? asNonEmptyString(next.namePattern) ?? asNonEmptyString(next.query);
+  const queries = liftQueryList(next.queries) ?? liftQueryList(typeof next.query === "string" ? void 0 : next.query) ?? (namedPattern ? [nameQueryFromText(namedPattern)] : void 0);
+  if (!queries) return input;
+  delete next.query;
+  delete next.name_pattern;
+  delete next.namePattern;
+  next.queries = queries;
+  return next;
+}
 var blenderNativeToolRequestSchema = external_exports.discriminatedUnion("op", [
   external_exports.strictObject({ op: external_exports.literal("status") }),
   external_exports.strictObject({ op: external_exports.literal("scene") }),
@@ -55742,8 +55846,27 @@ var blenderNativeToolRequestSchema = external_exports.discriminatedUnion("op", [
     transparent: external_exports.boolean().default(false)
   }),
   external_exports.strictObject({
+    op: external_exports.literal("capture_render"),
+    cameraId: identifier.optional(),
+    width: external_exports.number().int().min(64).max(2048).default(640),
+    height: external_exports.number().int().min(64).max(2048).default(360),
+    transparent: external_exports.boolean().default(false)
+  }),
+  external_exports.strictObject({
     op: external_exports.literal("query"),
     queries: spatialQueriesSchema
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("polyhaven_search"),
+    assetType: external_exports.enum(["hdris", "textures", "models", "all"]).default("models"),
+    categories: external_exports.string().trim().min(1).max(240).optional(),
+    query: external_exports.string().trim().max(240).default(""),
+    limit: external_exports.number().int().min(1).max(50).default(20)
+  }),
+  external_exports.strictObject({
+    op: external_exports.literal("sketchfab_search"),
+    query: external_exports.string().trim().min(1).max(240),
+    count: external_exports.number().int().min(1).max(24).default(5)
   }),
   external_exports.strictObject({
     op: external_exports.literal("apply"),
@@ -55753,6 +55876,10 @@ var blenderNativeToolRequestSchema = external_exports.discriminatedUnion("op", [
     operations: external_exports.array(blenderAgentOperationSchema).min(1).max(128)
   })
 ]);
+var blenderNativeToolRequestInputSchema = external_exports.preprocess(
+  liftBlenderNativeToolRequest,
+  blenderNativeToolRequestSchema
+);
 var blenderNativeReadOperationNames = [
   "status",
   "scene",
@@ -55760,7 +55887,10 @@ var blenderNativeReadOperationNames = [
   "describe",
   "inspect",
   "capture",
-  "query"
+  "capture_render",
+  "query",
+  "polyhaven_search",
+  "sketchfab_search"
 ];
 var blenderObjectSchema = external_exports.strictObject({
   id: identifier,
@@ -55953,6 +56083,7 @@ var blenderObjectInspectionSchema = external_exports.looseObject({
   type: external_exports.string(),
   mode: blenderMode,
   dimensions: vec36,
+  position: vec36.optional(),
   evaluatedBounds: external_exports.strictObject({
     min: vec36,
     max: vec36,
@@ -117747,7 +117878,9 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
     material: directorPbrMaterialSchema.optional(),
     pose_preset_id: posePresetId.optional(),
     asset_id: id3.optional(),
-    geometry_type: geometryType.optional(),
+    geometry_type: geometryType.optional().describe(
+      "Rejected on the public director_workbench agent wire. Instance catalog or project meshes with asset_id, or model with blender_native / generated_3d."
+    ),
     placement_mode: placementMode.optional(),
     parent_id: id3.optional(),
     look_target_object_id: id3.optional(),
@@ -118629,10 +118762,10 @@ var directorObjectSpatialQuerySchema = external_exports.discriminatedUnion("mode
     radius_m: external_exports.number().positive().max(1e6)
   })
 ]);
-var QUERY_OBJECTS_SHAPE_HINT = 'query_objects \u9700\u8981 spatial\u3001name_pattern \u6216 kind\u3002\u4F8B\u5982 {"op":"query_objects","name_pattern":"door"} \u6216 {"op":"query_objects","spatial":{"mode":"frustum"}}\u3002\u6309\u540D\u5B57\u8FC7\u6EE4\u4E5F\u53EF\u5199 {"op":"query_objects","filter":{"name_pattern":"door"}}';
-var DIFF_SHAPE_HINT = 'diff \u5FC5\u987B\u4E8C\u9009\u4E00\uFF1Asince_turn \u6216 since_audit\u3002\u4F8B\u5982 {"op":"diff","since_turn":"<turn-id>"} \u6216 {"op":"diff","since_audit":"<audit-token>"}\u3002\u8FD9\u4E24\u4E2A\u503C\u6765\u81EA\u6700\u8FD1\u4E00\u6B21\u6210\u529F\u7684 observe\u3001author \u6216 audit \u7ED3\u679C\uFF0C\u4E0D\u8981\u731C\u6570\u5B57\uFF0C\u4E5F\u4E0D\u8981\u53EA\u4F20 {"op":"diff"}\u3002';
-var INSPECT_ENTITY_NAMES = "object\u3001light\u3001camera\u3001asset\u3001catalog_asset\u3001storyboard_shot\u3001performance_take\u3001coverage_sequence\u3001coverage_shot";
-var INSPECT_SHAPE_HINT = `inspect \u9700\u8981 entity \u548C id\u3002entity \u4E3A ${INSPECT_ENTITY_NAMES}\u3002\u4F8B\u5982 {"op":"inspect","entity":"object","id":"door-1"} \u6216 {"op":"inspect","entity":"camera","id":"cam-main"}\u3002\u4E0D\u8981\u628A spill \u5B9A\u4F4D\u7B26\u3001\u540D\u5B57\u6216 object_id \u5F53\u6210 entity\u3002`;
+var QUERY_OBJECTS_SHAPE_HINT = 'query_objects requires spatial, name_pattern, or kind. Example {"op":"query_objects","name_pattern":"door"} or {"op":"query_objects","spatial":{"mode":"frustum"}}. Name filter may also be {"op":"query_objects","filter":{"name_pattern":"door"}}';
+var DIFF_SHAPE_HINT = 'diff requires exactly one of since_turn or since_audit. Example {"op":"diff","since_turn":"<turn-id>"} or {"op":"diff","since_audit":"<audit-token>"}. Copy those values from the last successful observe, author, or audit result; do not guess numbers or send {"op":"diff"} alone.';
+var INSPECT_ENTITY_NAMES = "object, light, camera, asset, catalog_asset, storyboard_shot, performance_take, coverage_sequence, coverage_shot";
+var INSPECT_SHAPE_HINT = `inspect requires entity and id. entity is one of ${INSPECT_ENTITY_NAMES}. Example {"op":"inspect","entity":"object","id":"door-1"} or {"op":"inspect","entity":"camera","id":"cam-main"}. Do not treat a spill locator, name, or object_id as entity.`;
 var directorMacroCommandSchema = external_exports.discriminatedUnion("action", [
   strictAction("list", {
     query: external_exports.string().trim().max(200).optional(),
@@ -120046,6 +120179,325 @@ function createStageSceneHint(scene) {
   };
 }
 
+// backend/gateway/agents/agentToolResultProjection.ts
+var DIRECTOR_AGENT_TOOL_RESULT_BUDGET_BYTES = 12288;
+var DIRECTOR_AGENT_HEAVY_COLLECTION_LIMIT = 48;
+var RESULT_ID_SAMPLE = 24;
+var FEEDBACK_OBJECT_SAMPLE = 8;
+var AUDIT_ISSUE_SAMPLE = 12;
+var MAX_SCALAR_CHARS = 2e3;
+var METADATA_KEYS = [
+  "project_revision",
+  "project_revision_before",
+  "turn_id",
+  "idempotency_key",
+  "audit_token",
+  "active_camera_id",
+  "mode",
+  "match_count",
+  "returned_count",
+  "reference_point",
+  "requested_fields",
+  "counts",
+  "ready",
+  "summary",
+  "issue_count",
+  "error_count",
+  "warning_count",
+  "code",
+  "notes",
+  "suggested_next",
+  "object_id",
+  "camera_id",
+  "capture_requested",
+  "capture",
+  "pipeline_advisories",
+  "outcomes",
+  "stale_after_capture",
+  "replay_stale",
+  "stdout",
+  "stderr",
+  "content",
+  "exitCode",
+  "signal",
+  "timedOut",
+  "timeoutMs",
+  "truncated",
+  "sandboxDenied",
+  "sandboxBackend",
+  "workdir"
+];
+var RETRIEVAL_HINT = "Compact observation for the model. Pass observe fields (counts, objects, cameras, \u2026) or inspect {entity, id} for details. Do not request the full dump back into the conversation.";
+var CREATIVE_RETRIEVAL_HINT = 'Compact Creative workspace snapshot. snapshot.counts are complete. observe accepts only {"op":"observe"}; do not add fields. Use capabilities before an unfamiliar edit. Omitted payloads are internal and cannot be read with bash.';
+var BASH_RETRIEVAL_HINT = "Bash output was compacted. Re-run a narrower command or redirect output to a workspace file and read a focused window.";
+function utf8ByteLength(value) {
+  return Buffer.byteLength(typeof value === "string" ? value : JSON.stringify(value), "utf8");
+}
+function directorAgentModelEnvelope(result) {
+  const inner = asRecord(result.result);
+  const feedback = normalizeFeedbackCounts(inner, result.feedback);
+  return {
+    success: result.success,
+    code: result.code,
+    result: result.result,
+    error: result.error,
+    feedback,
+    target: result.target,
+    agent_boundary: result.agent_boundary,
+    outcomes: result.outcomes
+  };
+}
+function normalizeFeedbackCounts(inner, feedback) {
+  const counts = asRecord(inner?.counts);
+  const record2 = asRecord(feedback);
+  const sceneHint = asRecord(record2?.scene_hint);
+  if (!counts || !record2 || !sceneHint) return feedback;
+  const nextSceneHint = { ...sceneHint };
+  if (typeof counts.objects === "number") nextSceneHint.object_count = counts.objects;
+  if (typeof counts.tracks === "number") nextSceneHint.track_count = counts.tracks;
+  if (typeof counts.cameras === "number" && Array.isArray(nextSceneHint.camera_ids) && nextSceneHint.camera_ids.length !== counts.cameras) {
+    delete nextSceneHint.camera_ids;
+  }
+  return { ...record2, scene_hint: nextSceneHint };
+}
+function truncateScalar(value) {
+  if (typeof value !== "string" || value.length <= MAX_SCALAR_CHARS) return value;
+  return `${value.slice(0, MAX_SCALAR_CHARS)}\u2026[truncated ${value.length - MAX_SCALAR_CHARS} chars]`;
+}
+function sampleIds(items, limit = RESULT_ID_SAMPLE) {
+  const ids = [];
+  for (const item of items) {
+    const record2 = asRecord(item);
+    const id4 = typeof record2?.id === "string" ? record2.id : typeof record2?.object_id === "string" ? record2.object_id : typeof item === "string" ? item : null;
+    if (!id4) continue;
+    ids.push(id4);
+    if (ids.length >= limit) break;
+  }
+  return ids;
+}
+function heavyCollectionKeys(inner) {
+  return Object.entries(inner).filter(([, value]) => Array.isArray(value) && value.length > DIRECTOR_AGENT_HEAVY_COLLECTION_LIMIT).map(([key]) => key);
+}
+function directorAgentToolResultNeedsProjection(envelope, _context) {
+  const inner = asRecord(envelope.result);
+  if (inner) {
+    const heavy = heavyCollectionKeys(inner);
+    if (heavy.length) return { needed: true, reason: "heavy_collection" };
+  }
+  if (utf8ByteLength(envelope) > DIRECTOR_AGENT_TOOL_RESULT_BUDGET_BYTES) {
+    return { needed: true, reason: "over_budget" };
+  }
+  return { needed: false, reason: null };
+}
+function slimCollection(value) {
+  const ids = sampleIds(value);
+  return {
+    count: value.length,
+    ids,
+    omitted: Math.max(0, value.length - ids.length)
+  };
+}
+function selectedObjectIds(inner) {
+  const ui = asRecord(inner.ui);
+  if (!Array.isArray(ui?.selectedObjectIds)) return void 0;
+  const ids = ui.selectedObjectIds.filter((id4) => typeof id4 === "string").slice(0, RESULT_ID_SAMPLE);
+  return ids.length ? ids : void 0;
+}
+function compactCreativeCollection(value, keys) {
+  const values = Array.isArray(value) ? value : [];
+  const items = values.slice(0, RESULT_ID_SAMPLE).flatMap((entry) => {
+    const record2 = asRecord(entry);
+    if (!record2) return [];
+    const selected = {};
+    for (const key of keys) {
+      if (record2[key] !== void 0) selected[key] = truncateScalar(record2[key]);
+    }
+    return Object.keys(selected).length ? [selected] : [];
+  });
+  return { count: values.length, items, omitted: Math.max(0, values.length - items.length) };
+}
+function compactCreativeTracks(value) {
+  const tracks = Array.isArray(value) ? value : [];
+  const items = tracks.slice(0, RESULT_ID_SAMPLE).flatMap((entry) => {
+    const track = asRecord(entry);
+    if (!track) return [];
+    const clips = Array.isArray(track.clips) ? track.clips : [];
+    return [
+      {
+        id: track.id,
+        name: truncateScalar(track.name),
+        kind: track.kind,
+        muted: track.muted,
+        locked: track.locked,
+        visible: track.visible,
+        clip_count: clips.length,
+        clip_ids: sampleIds(clips)
+      }
+    ];
+  });
+  return { count: tracks.length, items, omitted: Math.max(0, tracks.length - items.length) };
+}
+function compactCreativeObserveResult(inner, reason) {
+  if (inner.op !== "observe") return null;
+  const snapshot = asRecord(inner.snapshot);
+  if (!snapshot) return null;
+  const board = asRecord(snapshot.board) ?? {};
+  const dag = asRecord(board.dag);
+  const edit = asRecord(snapshot.edit) ?? {};
+  const media = asRecord(snapshot.media) ?? {};
+  const gallery = asRecord(snapshot.gallery) ?? {};
+  return {
+    op: "observe",
+    observe_mode: "summary",
+    projection_reason: reason,
+    retrieval_hint: CREATIVE_RETRIEVAL_HINT,
+    snapshot: {
+      version: snapshot.version,
+      workspace: snapshot.workspace,
+      counts: snapshot.counts,
+      selection: snapshot.selection,
+      board: {
+        nodes: compactCreativeCollection(board.nodes, ["id", "kind", "title", "media_id"]),
+        edges: compactCreativeCollection(board.edges, ["id", "source_node_id", "target_node_id"]),
+        pipeline_runs: compactCreativeCollection(board.pipeline_runs, ["id", "status"]),
+        dag: dag ? {
+          valid: dag.valid,
+          root_ids: Array.isArray(dag.roots) ? dag.roots.slice(0, RESULT_ID_SAMPLE) : [],
+          leaf_ids: Array.isArray(dag.leaves) ? dag.leaves.slice(0, RESULT_ID_SAMPLE) : [],
+          issue_count: Array.isArray(dag.issues) ? dag.issues.length : 0
+        } : void 0,
+        viewport: board.viewport
+      },
+      edit: {
+        tracks: compactCreativeTracks(edit.tracks),
+        settings: edit.settings,
+        playhead_sec: edit.playhead_sec,
+        timeline_zoom: edit.timeline_zoom
+      },
+      media: {
+        status: media.status,
+        storage_mode: media.storage_mode,
+        warning: truncateScalar(media.warning),
+        error: truncateScalar(media.error),
+        assets: compactCreativeCollection(media.assets, ["id", "media_id", "name", "kind", "type"])
+      },
+      gallery: {
+        media: compactCreativeCollection(gallery.media, ["id", "media_id", "custom_name", "name", "type"]),
+        folders: compactCreativeCollection(gallery.folders, ["id", "name", "parent_id"]),
+        preferences: gallery.preferences
+      }
+    }
+  };
+}
+function compactCreativeFeedback(feedback) {
+  const record2 = asRecord(feedback);
+  if (!record2) return feedback;
+  return {
+    changed: record2.changed,
+    available_refs: record2.available_refs
+  };
+}
+function slimDirectorAgentToolResult(inner, reason, spill) {
+  const slim = {
+    observe_mode: "summary",
+    projection_reason: reason,
+    retrieval_hint: RETRIEVAL_HINT
+  };
+  for (const key of METADATA_KEYS) {
+    if (inner[key] !== void 0) slim[key] = truncateScalar(inner[key]);
+  }
+  const selected = selectedObjectIds(inner);
+  if (selected) slim.selected_object_ids = selected;
+  if (Array.isArray(inner.graph_issues)) slim.graph_issue_count = inner.graph_issues.length;
+  const spatialQueryMode = ["frustum", "radius", "aabb", "nearby"].includes(String(inner.mode));
+  if (spatialQueryMode && Array.isArray(inner.objects)) {
+    slim.objects = inner.objects.slice(0, AUDIT_ISSUE_SAMPLE);
+    slim.objects_omitted = Math.max(0, inner.objects.length - AUDIT_ISSUE_SAMPLE);
+  }
+  if (Array.isArray(inner.issues)) {
+    slim.issues = inner.issues.slice(0, AUDIT_ISSUE_SAMPLE).map((value) => {
+      const issue2 = asRecord(value);
+      if (!issue2) return value;
+      return {
+        severity: issue2.severity,
+        code: issue2.code,
+        message: truncateScalar(issue2.message),
+        ...Array.isArray(issue2.entity_ids) ? { entity_ids: issue2.entity_ids.slice(0, RESULT_ID_SAMPLE) } : {},
+        ...issue2.suggested_fix !== void 0 ? { suggested_fix: issue2.suggested_fix } : {}
+      };
+    });
+    slim.issues_omitted = Math.max(0, inner.issues.length - AUDIT_ISSUE_SAMPLE);
+  }
+  const spatial = asRecord(inner.spatial);
+  if (spatial) {
+    slim.spatial = {
+      counts: spatial.counts,
+      placement_count: Array.isArray(spatial.placements) ? spatial.placements.length : void 0
+    };
+  }
+  const framing = asRecord(inner.framing);
+  if (framing) {
+    slim.framing = {
+      camera_id: framing.camera_id,
+      target_id: framing.target_id,
+      focal_length_mm: framing.focal_length_mm,
+      aspect: framing.aspect,
+      evaluated_object_count: framing.evaluated_object_count,
+      visible_object_count: framing.visible_object_count,
+      issues: Array.isArray(framing.issues) ? framing.issues.slice(0, AUDIT_ISSUE_SAMPLE) : framing.issues,
+      suggested_actions: framing.suggested_actions,
+      note: truncateScalar(framing.note)
+    };
+  }
+  if (inner.validation !== void 0 && utf8ByteLength(inner.validation) <= 2048) slim.validation = inner.validation;
+  for (const [key, value] of Object.entries(inner)) {
+    if (METADATA_KEYS.includes(key)) continue;
+    if (key === "issues") continue;
+    if (key === "objects" && spatialQueryMode) continue;
+    if (!Array.isArray(value)) continue;
+    if (value.length <= DIRECTOR_AGENT_HEAVY_COLLECTION_LIMIT && utf8ByteLength(value) <= 2048) {
+      slim[key] = value;
+      continue;
+    }
+    slim[key] = slimCollection(value);
+  }
+  if (spill) slim.spill = spill;
+  return slim;
+}
+function slimFeedback(feedback) {
+  const record2 = asRecord(feedback);
+  if (!record2) return feedback;
+  const context = asRecord(record2.context);
+  if (!context || !Array.isArray(context.objects) || context.objects.length <= DIRECTOR_AGENT_HEAVY_COLLECTION_LIMIT) {
+    return feedback;
+  }
+  return {
+    ...record2,
+    context: {
+      ...context,
+      objects: context.objects.slice(0, FEEDBACK_OBJECT_SAMPLE)
+    }
+  };
+}
+function projectDirectorAgentToolEnvelope(envelope, reason, spill, tool) {
+  const inner = asRecord(envelope.result) ?? {};
+  const creativeResult = tool === "director_creative" ? compactCreativeObserveResult(inner, reason) : null;
+  if (creativeResult) {
+    return {
+      ...envelope,
+      result: creativeResult,
+      feedback: compactCreativeFeedback(envelope.feedback)
+    };
+  }
+  const result = slimDirectorAgentToolResult(inner, reason, spill);
+  if (tool === "bash") result.retrieval_hint = BASH_RETRIEVAL_HINT;
+  return {
+    ...envelope,
+    result,
+    feedback: slimFeedback(envelope.feedback)
+  };
+}
+
 // backend/gateway/mcpToolResponse.ts
 var mcpToolStructuredOutputSchema = external_exports.strictObject({
   /** Whether the operation succeeded. */
@@ -120114,12 +120566,25 @@ function recoverySuggestion(code) {
       return "Open or switch the intended target to 3D Stage, wait for its viewport to finish mounting, then observe again before retrying capture or delivery.";
     case "workbench_unavailable":
     case "creative_workspace_unavailable":
-      return "Open the intended Director workspace, wait for its gateway connection, and call observe again.";
+      return "Open the intended Director workspace and retry. Durable observe/audit can use the last persisted project or live Blender kernel; mutations and capture still need a visible tab. Use blender_native scene/inspect for native geometry.";
     default:
       return null;
   }
 }
-function createMcpToolResponse(execution) {
+function stripEncodedMediaFromSerializedView(value) {
+  if (Array.isArray(value)) return value.map(stripEncodedMediaFromSerializedView);
+  const source = asRecord(value);
+  if (!source) return value;
+  const captureShaped = typeof source.mimeType === "string" && (typeof source.data === "string" || typeof source.dataBase64 === "string");
+  const sanitized = {};
+  for (const [key, child] of Object.entries(source)) {
+    if (captureShaped && (key === "data" || key === "dataBase64")) continue;
+    sanitized[key] = stripEncodedMediaFromSerializedView(child);
+  }
+  return sanitized;
+}
+var availableRefsSchema = external_exports.record(external_exports.string(), external_exports.string());
+function createMcpToolResponse(execution, tool = "director_workbench") {
   const fallbackFeedback = {
     changed: { object_ids: [], track_ids: [], scene_settings: false },
     scene_hint: createStageSceneHint(execution.scene),
@@ -120129,17 +120594,34 @@ function createMcpToolResponse(execution) {
   const feedback = execution.feedback ?? fallbackFeedback;
   const code = execution.code ?? nestedString(execution.result, "code");
   const suggestedNext = nestedString(execution.result, "suggested_next") ?? recoverySuggestion(code ?? null);
+  const serializedResult = execution.result === void 0 || execution.result === null ? execution.result : stripEncodedMediaFromSerializedView(execution.result);
+  const modelEnvelope = directorAgentModelEnvelope({
+    success: execution.success,
+    code: code ?? void 0,
+    result: serializedResult,
+    error: execution.error,
+    feedback,
+    target: execution.target,
+    agent_boundary: execution.agent_boundary
+  });
+  const decision = directorAgentToolResultNeedsProjection(modelEnvelope, { tool, input: void 0 });
+  const projected = decision.needed && decision.reason ? projectDirectorAgentToolEnvelope(modelEnvelope, decision.reason, void 0, tool) : modelEnvelope;
+  const projectedFeedback = asRecord(projected.feedback);
+  const changed = stageChangedEntitiesSchema.safeParse(projectedFeedback?.changed);
+  const sceneHint = stageSceneHintSchema.safeParse(projectedFeedback?.scene_hint);
+  const context = stageFeedbackContextSchema.safeParse(projectedFeedback?.context);
+  const availableRefs = availableRefsSchema.safeParse(projectedFeedback?.available_refs);
   const structuredContent = {
     ok: execution.success,
     code: code ?? null,
-    result: execution.result ?? null,
+    result: projected.result ?? null,
     error: execution.error ?? null,
     suggested_next: suggestedNext,
     ui_events: execution.events ?? [],
-    changed: feedback.changed,
-    scene_hint: feedback.scene_hint,
-    context: feedback.context,
-    available_refs: feedback.available_refs,
+    changed: changed.success ? changed.data : feedback.changed,
+    scene_hint: sceneHint.success ? sceneHint.data : feedback.scene_hint,
+    context: context.success ? context.data : feedback.context,
+    available_refs: availableRefs.success ? availableRefs.data : feedback.available_refs,
     target: execution.target ?? null,
     agent_boundary: execution.agent_boundary ?? null
   };
@@ -134553,17 +135035,27 @@ function compactWireSchema(schema, description) {
 }
 var directorWorkbenchWireSchema = compactWireSchema(
   directorWorkbenchOperationSchema,
-  'Operation. Use {"op":"describe","target":"<op>"}, target "author.<action>", or target "author.evidence" for exact parameters. Other fields ride alongside op and are strictly validated by the Gateway.'
+  'Operation. Use {"op":"describe","target":"<op>"}, target "author.<action>", or target "author.evidence" when exact fields are unknown. Other fields ride alongside op and are strictly validated by the Gateway.'
 ).extend({
   catalog: directorWorkbenchCatalogIdSchema.optional().describe('Required for op="catalog". Use catalog, never target, collection, source, or catalog_type.'),
   spatial: directorObjectSpatialQuerySchema.optional().describe('Selector for op="query_objects".'),
-  max_results: external_exports.number().int().min(1).max(200).optional().describe('Result bound for op="query_objects".')
+  max_results: external_exports.number().int().min(1).max(200).optional().describe('Result bound for op="query_objects".'),
+  actions: external_exports.array(external_exports.looseObject({ action: external_exports.string().min(1) })).optional().describe(
+    'Required for op="author". Deletion is delete_objects with object_ids (remove_object + id is accepted).'
+  ),
+  fields: external_exports.array(external_exports.string()).optional().describe("Optional observe fields, e.g. counts, ui, objects."),
+  object_id: external_exports.string().optional().describe("Object id for inspect or a single-object author action."),
+  id: external_exports.string().optional(),
+  camera_id: external_exports.string().optional(),
+  frame: external_exports.number().int().optional()
 });
 var directorCreativeWireSchema = compactWireSchema(
   creativeWorkspaceAgentRequestSchema,
-  'Operation. Use {"op":"describe","target":"interchange"} for an exact contract or capabilities for the full surface. Other fields ride alongside op and are strictly validated by the Gateway.'
+  'Operation. Use {"op":"describe","target":"interchange"} when a request shape is unknown. Other fields ride alongside op and are strictly validated by the Gateway.'
 ).extend({
-  target: external_exports.string().trim().min(1).max(200).optional().describe('Required for op="describe".')
+  target: external_exports.string().trim().min(1).max(200).optional().describe('Required for op="describe".'),
+  operation: external_exports.looseObject({ op: external_exports.string().min(1) }).optional().describe('Required for op="execute".'),
+  steps: external_exports.array(external_exports.looseObject({ operation: external_exports.looseObject({ op: external_exports.string().min(1) }).optional() })).optional().describe('Required for op="execute_batch".')
 });
 var DIRECTOR_AGENT_WIRE_SCHEMAS = {
   director_workbench: directorWorkbenchWireSchema.superRefine((value, context) => {
@@ -134579,24 +135071,38 @@ var DIRECTOR_AGENT_WIRE_SCHEMAS = {
   stage_video: compactWireSchema(
     videoModelOperationSchema,
     "Operation. Use capabilities for providers and parameters; prepare validates, submit starts a durable job, and status polls it."
-  ),
+  ).extend({
+    prompt: external_exports.string().optional().describe("Prompt for prepare/submit when the provider needs one.")
+  }),
   blender_native: compactWireSchema(
     blenderNativeToolRequestSchema,
-    'Operation. apply executes one typed transaction; scene reads native state; {"op":"describe","target":"create_primitive"} reflects typed apply schemas without a live kernel; catalog and {"op":"describe","operator":"mesh.bevel"} discover allowlisted RNA.'
-  )
+    'Operation. apply executes typed ops including polyhaven_import and sketchfab_import; {"op":"query","query":"\u6E05\u534E"} finds Blender objects by name; polyhaven_search/sketchfab_search list CC0 or Sketchfab models; capture and capture_render take a native still; scene reads native state; {"op":"describe","target":"create_primitive"} reflects typed apply schemas without a live kernel.'
+  ).extend({
+    operations: external_exports.array(external_exports.looseObject({ op: external_exports.string().min(1) })).optional().describe('Required for op="apply". Typed ops include create_primitive, polyhaven_import, sketchfab_import, execute_code.'),
+    operator: external_exports.string().optional().describe('RNA id for op="describe", e.g. mesh.bevel.'),
+    target: external_exports.string().optional().describe('Typed apply op for op="describe", e.g. create_primitive or polyhaven_import.'),
+    query: external_exports.string().optional().describe('When op="query", Blender object name substring (e.g. "\u6E05\u534E"). Also search text for catalog, polyhaven_search, and sketchfab_search.'),
+    queries: external_exports.array(external_exports.looseObject({ kind: external_exports.string().min(1) })).optional().describe('Spatial or NAME queries for op="query". Prefer query:"\u6E05\u534E" for a name search.'),
+    id: external_exports.string().optional().describe('Object id for op="inspect".'),
+    cameraId: external_exports.string().optional().describe('Camera id for op="capture" or capture_render.'),
+    width: external_exports.number().int().optional(),
+    height: external_exports.number().int().optional(),
+    assetType: external_exports.enum(["hdris", "textures", "models", "all"]).optional().describe('For op="polyhaven_search".'),
+    uid: external_exports.string().optional().describe("Sketchfab model uid for sketchfab_import.")
+  })
 };
 var DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
   {
     type: "function",
     name: "director_creative",
-    description: 'Control Canvas, generation pipelines, Video Editor, interchange, collaboration comments, and versions. Observe current IDs and state with exactly {"op":"observe"}; it does not accept fields. Describe an unfamiliar request before the first attempt, for example {"op":"describe","target":"interchange"}.',
+    description: 'Control Canvas, generation pipelines, Video Editor, interchange, collaboration comments, and versions. Observe current IDs and state with exactly {"op":"observe"}; it does not accept fields. Describe an unfamiliar request when its fields are unknown, for example {"op":"describe","target":"interchange"}.',
     inputSchema: external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_creative),
     dshParameters: dshToolParameters(external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_creative))
   },
   {
     type: "function",
     name: "director_workbench",
-    description: `Control the live Director 3D workbench. Catalog exactly with {"op":"catalog","catalog":"assets"}; catalog is assets, character_assets, character_motions, or project_assets and never uses target. For active camera and totals, call observe with fields ["counts","ui"] and copy result.counts verbatim. For bounded camera context, call query_objects with spatial {"mode":"frustum","camera_id":"..."} and max_results (1-200). Common edits: update_object is {"action":"update_object","object_id":"...","patch":{...}}; update_camera also puts fields in patch; compose_blocking spacing_m is 0.9-8. Use author for scene edits and call describe before the first attempt when an action's exact fields are unknown; describe author.evidence for inline visual proof. Capture, delivery, and diagnostics are available when the user asks for them.`,
+    description: `Control the live Director 3D workbench. Do not assemble scenes from geometry_type primitives; instance catalog or project_assets meshes, model unique geometry with blender_native, or generate with generated_3d. Catalog exactly with {"op":"catalog","catalog":"assets"}; catalog is assets, character_assets, character_motions, or project_assets and never uses target. For active camera and totals, call observe with fields ["counts","ui"] and copy result.counts verbatim. For bounded camera context, call query_objects with spatial {"mode":"frustum","camera_id":"..."} and max_results (1-200). Common edits: update_object is {"action":"update_object","object_id":"...","patch":{...}}; update_camera also puts fields in patch; compose_blocking spacing_m is 0.9-8. Use author for scene edits and call describe when an action's exact fields are unknown; describe author.evidence for inline visual proof. Capture, delivery, and diagnostics are available when the user asks for them.`,
     inputSchema: external_exports.toJSONSchema(directorWorkbenchWireSchema),
     dshParameters: dshToolParameters(external_exports.toJSONSchema(directorWorkbenchWireSchema))
   },
@@ -134610,7 +135116,7 @@ var DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
   {
     type: "function",
     name: "blender_native",
-    description: `Operate Blender's native modeling and rig surface in the same Director project. Use typed apply directly; successful edits synchronize automatically, never via GLB re-import. Call scene when object IDs are unknown. Describe typed apply ops with {"op":"describe","target":"create_primitive"} (no live kernel). Missing scene epoch, revision, and intent id are filled by the gateway.`,
+    description: `Operate Blender's native modeling and rig surface in the same Director project. Use this for unique architecture and set pieces that are not in the catalog; successful edits synchronize automatically, never via GLB re-import. Call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search","assetType":"models","query":"chair"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Native stills are {"op":"capture"} or the alias {"op":"capture_render"}. Describe typed apply ops with {"op":"describe","target":"create_primitive"} when a field is unknown. invoke_operator covers most Blender RNA; execute_code runs Python when that is not enough. Missing scene epoch, revision, and intent id are filled by the gateway.`,
     inputSchema: external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native),
     dshParameters: dshToolParameters(external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native))
   }
@@ -134630,8 +135136,9 @@ var DIRECTOR_DSH_TOOL_NAMES = [
 // backend/gateway/agents/agentToolRegistry.ts
 var DIRECTOR_DYNAMIC_TOOLS = [...DIRECTOR_WORKBENCH_PLUGIN_TOOLS];
 var DIRECTOR_AGENT_PIPELINE_TOOLS = new Set(DIRECTOR_DYNAMIC_TOOLS.map((tool) => tool.name));
+var BLENDER_NATIVE_TOOL_TIMEOUT_MS = 3e5;
 function dynamicToolTimeoutMs(tool, input) {
-  if (tool === "blender_native") return 13e4;
+  if (tool === "blender_native") return BLENDER_NATIVE_TOOL_TIMEOUT_MS;
   const values = asRecord(input);
   if (tool === "director_creative" && values?.op === "pipeline") {
     const request = asRecord(values.request);
@@ -134670,7 +135177,20 @@ async function authenticatedGatewayFetch(path, init, retryUnauthorized = true) {
   const token = await getGatewayAuthToken();
   const headers = new Headers(init.headers);
   headers.set("x-director-browser-token", token);
-  const response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });
+  let response;
+  try {
+    response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });
+  } catch (error52) {
+    const message = error52 instanceof Error ? error52.message : String(error52);
+    try {
+      response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });
+    } catch (retryError) {
+      const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      throw new Error(
+        `Director gateway request to ${gatewayUrl}${path} failed: ${retryMessage || message}. Start npm run dev and reload the Director tab if this persists.`
+      );
+    }
+  }
   if (response.status === 401 && retryUnauthorized) {
     gatewayAuthToken = "";
     return authenticatedGatewayFetch(path, init, false);
@@ -134733,12 +135253,12 @@ var descriptions = {
     `Control Director's 3D scene, objects, characters, cameras, production scenes, timeline, storyboard, capture, and UI. Ops: ${directorWorkbenchOperationNames.join(", ")}.`,
     'describe returns the exact JSON Schema of one operation or author action on demand (target "<op>" or "author.<action>").',
     "Use catalog or a selective observe only when you need current IDs or state, then send one direct authoring operation.",
-    "Reuse catalog IDs and URLs exactly. Primitive positions are floor pivots and primitive scale is metric size.",
+    "Reuse catalog IDs and URLs exactly. Do not assemble scenes from geometry_type primitives; instance catalog meshes, model with blender_native, or generate with generated_3d.",
     "After an edit, one targeted inspect is enough when confirmation is useful. Use audit, correct, trace, capture, or deliver only when the user asks for diagnosis or an output artifact."
   ].join(" "),
   director_creative: `Control the live Director Canvas, multimodal generation graph, Video Editor, interchange export, and collaboration comments. Use capabilities or observe when current IDs are needed, then execute one direct operation or batch. Pipeline actions are start, status, and cancel; interchange uses plan-export followed by export. Preview and audit are optional diagnostics, not required steps. Edit operations: ${creativeWorkspaceAgentOperationNames.join(", ")}.`,
   stage_video: "Discover providers and prepare, submit, inspect, or cancel durable image-to-video jobs from the current validated 3D white-box scene. Ops: capabilities, prepare, render, submit, status, cancel. LTX-2.3 uses the isolated Python GPU worker; ComfyUI remains an optional workflow provider; minimax-h3 renders through the hosted MiniMax H3 multimodal API.",
-  blender_native: `Operate Blender's native modeling and rig surface. Use typed apply directly; call scene when object IDs are unknown. Describe typed apply ops with {"op":"describe","target":"create_primitive"} (no live kernel). catalog/describe with operator are for allowlisted invoke_operator. Missing scene epoch, revision, and intent id are filled by the gateway. inspect and capture are optional checks. status, scene, catalog, describe, inspect, and capture are read-only.`
+  blender_native: `Operate Blender's native modeling and rig surface. Use typed apply directly; call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Describe typed apply ops with {"op":"describe","target":"create_primitive"} when a field is unknown. catalog/describe with operator discover Blender RNA for invoke_operator. execute_code runs Python when a typed op or operator is not enough. Native stills use {"op":"capture"} or {"op":"capture_render"}. Do not quit Blender. Missing scene epoch, revision, and intent id are filled by the gateway. inspect and capture are optional checks. status, scene, catalog, describe, inspect, capture, capture_render, polyhaven_search, and sketchfab_search are read-only.`
 };
 function targetDescriptorFromEnvironment() {
   const source = process.env.DIRECTOR_TARGET_DESCRIPTOR?.trim();
@@ -134829,7 +135349,7 @@ for (const tool of AGENT_TOOL_NAMES.filter(
       if (rejection) return rejection;
       try {
         const result = await callGateway(tool, input);
-        return createMcpToolResponse(result);
+        return createMcpToolResponse(result, tool);
       } catch (error52) {
         return {
           content: [
@@ -134872,7 +135392,8 @@ registerVisibleTool("blender_native", () => {
         const capture = payload.capture && typeof payload.capture === "object" && !Array.isArray(payload.capture) ? payload.capture : null;
         const imageData = typeof capture?.dataBase64 === "string" ? capture.dataBase64 : typeof capture?.data === "string" ? capture.data : null;
         const mimeType = typeof capture?.mimeType === "string" ? capture.mimeType : null;
-        const content = [{ type: "text", text: JSON.stringify(payload) }];
+        const serializedPayload = stripEncodedMediaFromSerializedView(payload);
+        const content = [{ type: "text", text: JSON.stringify(serializedPayload) }];
         if (imageData && mimeType) {
           content.push({
             type: "image",
@@ -134883,7 +135404,7 @@ registerVisibleTool("blender_native", () => {
         }
         return {
           content,
-          structuredContent: payload,
+          structuredContent: serializedPayload,
           isError: !response.ok || payload.success === false
         };
       } catch (error52) {

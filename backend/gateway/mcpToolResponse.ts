@@ -132,8 +132,7 @@ export function stripEncodedMediaFromSerializedView(value: unknown): unknown {
   const source = record(value);
   if (!source) return value;
   const captureShaped =
-    typeof source.mimeType === "string" &&
-    (typeof source.data === "string" || typeof source.dataBase64 === "string");
+    typeof source.mimeType === "string" && (typeof source.data === "string" || typeof source.dataBase64 === "string");
   const sanitized: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(source)) {
     if (captureShaped && (key === "data" || key === "dataBase64")) continue;
