@@ -44,17 +44,18 @@ The process token authenticates the client to the gateway. It is separate from t
 
 ## Discovery
 
-| Method | Path                              | Result                                           |
-| ------ | --------------------------------- | ------------------------------------------------ |
-| `GET`  | `/health`                         | Unauthenticated process health and browser count |
-| `GET`  | `/api/control-plane/capabilities` | Redacted Agent and video configuration           |
-| `GET`  | `/api/control-plane/tool-manifest` | Machine-readable tool catalog generated from the Zod tool schemas |
-| `GET`  | `/api/agent/providers`            | Local/API session-provider availability          |
-| `GET`  | `/api/agent/profiles`             | Public Profile metadata and model capabilities   |
-| `GET`  | `/api/video/providers`            | Live video-provider capability report            |
-| `GET`  | `/api/dcc/status`                 | Blender/DCC bridge status                        |
-| `GET`  | `/api/stage`                      | Legacy StageScene projection                     |
-| `GET`  | `/api/preview`                    | Latest captured preview; authenticated read      |
+| Method | Path                               | Result                                           |
+| ------ | ---------------------------------- | ------------------------------------------------ |
+| `GET`  | `/health`                          | Unauthenticated process health and browser count |
+| `GET`  | `/api/control-plane/capabilities`  | Redacted Agent and video configuration           |
+| `GET`  | `/api/control-plane/tool-manifest` | Machine-readable Director tool catalog           |
+| `GET`  | `/api/control-plane/a2a-agent-card` | Discovery-only A2A-style agent card             |
+| `GET`  | `/api/agent/providers`             | Local/API session-provider availability          |
+| `GET`  | `/api/agent/profiles`              | Public Profile metadata and model capabilities   |
+| `GET`  | `/api/video/providers`             | Live video-provider capability report            |
+| `GET`  | `/api/dcc/status`                  | Blender/DCC bridge status                        |
+| `GET`  | `/api/stage`                       | Legacy StageScene projection                     |
+| `GET`  | `/api/preview`                     | Latest captured preview; authenticated read      |
 
 ```bash
 curl -fsS "$BASE/api/agent/profiles" \
@@ -64,10 +65,25 @@ curl -fsS "$BASE/api/agent/profiles" \
 Discovery responses never contain model API keys, worker credentials, or raw credential environment
 variable names.
 
-The tool manifest lists every Director tool with its description, JSON Schema input contract, and
-operation names; frozen `stage_*` compatibility tools are marked `legacy: true`. A unified
-cross-entry-point tool audit trail will live at the gateway once roadmap M3 (unified governance)
-lands; the manifest itself is discovery-only.
+`GET /api/control-plane/tool-manifest` returns the `director-tool-manifest-v1` catalog: every
+Director tool with its surface (`mcp`, `http`, or `both`), category, wire `op` enum, and its HTTP
+binding when one exists. Typed tools bind to `POST /api/tools/<name>`; `stage_*` entries are marked
+`legacy` (HTTP-only compatibility, no longer advertised over MCP); `director_film` and
+`director_production` report `http: null` because their HTTP surface is their own domain routes
+(`/api/film/runs`, `/api/production/*`), not `/api/tools/<name>`. Use each tool's `describe`
+operation for exact per-operation JSON Schemas; the manifest deliberately stays a catalog.
+
+```bash
+curl -fsS "$BASE/api/control-plane/tool-manifest" \
+  -H "X-Director-Browser-Token: $TOKEN" | jq '.tools[] | {name, surface, legacy}'
+```
+
+`GET /api/control-plane/a2a-agent-card` returns the `director-a2a-agent-card-v1` card decided by
+[ADR 0004](/engineering/adr/0004-a2a-gateway-spike/). It is **discovery-only**: Director does not
+run an A2A JSON-RPC server (`a2a.jsonrpc_endpoint` is `null`; streaming and push notifications are
+`false`), its `url` is the loopback gateway origin rather than a public A2A service, and its skills
+mirror `director_workbench`, `director_creative`, `blender_native`, and `stage_video` from the live
+tool manifest. Execute work over MCP or `POST /api/tools/{tool}`, not A2A.
 
 Capture results may include a process-epoch `preview_token` URL. It is a read-only capability for that
 preview route, allowing browsers and vision-capable Agents to render the image without receiving the
@@ -224,60 +240,6 @@ execution disabled, but this is not an OS or container sandbox for Blender's nat
 job paths, limits, and timeouts do not make untrusted files safe. Do not import untrusted files
 outside a container or VM. See [Interchange & DCC Handoff](/pipelines/interchange/) for the
 preservation and degradation boundary.
-
-## Engine handoff (Unreal / Unity / Godot)
-
-`director_dcc` also runs headless engine round trips through the Director-authored connectors in
-`integrations/{unreal,unity,godot}`. Check readiness first; `nativeReady` requires the connector
-files, a version-probed executable, and the connector installed in the configured engine project:
-
-```bash
-curl -fsS -X POST "$BASE/api/tools/director_dcc" \
-  -H "X-Director-Browser-Token: $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"input":{"op":"status","provider":"godot"}}' | jq
-```
-
-Send the current project into the engine. The Gateway exports an exchange package into a private
-job directory, invokes the fixed connector entry point (never a request-supplied script), and
-returns the schema-validated host report:
-
-```bash
-curl -sS -X POST "$BASE/api/tools/director_dcc" \
-  -H "X-Director-Browser-Token: $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"input":{"op":"send_to_engine","provider":"godot","formats":["glb"]}}' | jq
-```
-
-When the connector is not ready, the route responds `409 engine_not_ready` with structured
-`diagnostics` (`provider`, `mode`, `ready`, `warnings`, `recovery`) instead of a bare failure.
-Follow the recovery steps (set `DIRECTOR_GODOT_BIN` / `DIRECTOR_GODOT_PROJECT`, install the addon)
-or fall back to `export_exchange_package`.
-
-Bring engine edits back with the same preview-then-apply protocol as Blender returns. Engine return
-packages carry canonical Director-space transforms, so pass the producing provider explicitly:
-
-```bash
-PREVIEW="$(curl -sS -X POST "$BASE/api/tools/director_dcc" \
-  -H "X-Director-Browser-Token: $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"input":{"op":"receive_from_engine","provider":"godot","package_dir":"JOB_ID/return-package"}}')"
-
-curl -fsS -X POST "$BASE/api/tools/director_dcc" \
-  -H "X-Director-Browser-Token: $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d "$(printf '%s' "$PREVIEW" | jq '{input:{
-    op:"apply_import_plan",
-    provider:"godot",
-    plan:.result.plan,
-    expected_revision:.result.plan.targetRevision,
-    idempotency_key:("godot-return-" + .result.plan.packageId)
-  }}')" | jq
-```
-
-`receive_from_engine` accepts the same optional `skip_director_ids` list as
-`import_return_package`. Apply is revision-guarded and idempotent; conflicts return `409` with a
-usable read-only plan.
 
 ## Analyze a reference image
 

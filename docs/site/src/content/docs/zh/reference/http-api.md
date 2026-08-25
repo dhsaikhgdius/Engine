@@ -43,17 +43,18 @@ query string 中的 `browser_token`，但 header 不会把凭据泄漏到 URL �
 
 ## 发现接口
 
-| Method | Path                              | 结果                                |
-| ------ | --------------------------------- | ----------------------------------- |
-| `GET`  | `/health`                         | 无需鉴权的进程状态与 browser 数     |
-| `GET`  | `/api/control-plane/capabilities` | 已脱敏的 Agent 与视频配置           |
-| `GET`  | `/api/control-plane/tool-manifest` | 由 Zod tool schema 生成的机器可读工具目录 |
-| `GET`  | `/api/agent/providers`            | 本地/API session provider 可用性    |
-| `GET`  | `/api/agent/profiles`             | Profile 公开元数据与模型 capability |
-| `GET`  | `/api/video/providers`            | 视频 provider 的实时 capability     |
-| `GET`  | `/api/dcc/status`                 | Blender/DCC bridge 状态             |
-| `GET`  | `/api/stage`                      | 旧版 StageScene projection          |
-| `GET`  | `/api/preview`                    | 最近一次 capture，读取需要鉴权      |
+| Method | Path                               | 结果                                |
+| ------ | ---------------------------------- | ----------------------------------- |
+| `GET`  | `/health`                          | 无需鉴权的进程状态与 browser 数     |
+| `GET`  | `/api/control-plane/capabilities`  | 已脱敏的 Agent 与视频配置           |
+| `GET`  | `/api/control-plane/tool-manifest` | 机器可读的 Director tool catalog    |
+| `GET`  | `/api/control-plane/a2a-agent-card` | 仅用于发现的 A2A 风格 agent card   |
+| `GET`  | `/api/agent/providers`             | 本地/API session provider 可用性    |
+| `GET`  | `/api/agent/profiles`              | Profile 公开元数据与模型 capability |
+| `GET`  | `/api/video/providers`             | 视频 provider 的实时 capability     |
+| `GET`  | `/api/dcc/status`                  | Blender/DCC bridge 状态             |
+| `GET`  | `/api/stage`                       | 旧版 StageScene projection          |
+| `GET`  | `/api/preview`                     | 最近一次 capture，读取需要鉴权      |
 
 ```bash
 curl -fsS "$BASE/api/agent/profiles" \
@@ -62,9 +63,24 @@ curl -fsS "$BASE/api/agent/profiles" \
 
 发现响应不会包含模型 API key、worker credential 或原始 credential 环境变量名。
 
-Tool manifest 会列出每个 Director 工具的描述、JSON Schema 输入契约与操作名；冻结的
-`stage_*` 兼容工具会标注 `legacy: true`。跨入口的统一 tool audit trail 将在路线图 M3
-（统一治理）落地后收敛到 gateway；manifest 本身只做发现，不承担审计。
+`GET /api/control-plane/tool-manifest` 返回 `director-tool-manifest-v1` catalog：每个 Director
+工具的 surface（`mcp`、`http` 或 `both`）、category、wire `op` 枚举，以及存在时的 HTTP 绑定。
+类型化工具绑定到 `POST /api/tools/<name>`；`stage_*` 条目标记为 `legacy`（HTTP-only 兼容层，
+MCP 不再对模型公布）；`director_film` 与 `director_production` 的 `http` 为 `null`，因为它们的
+HTTP 面是各自的 domain 路由（`/api/film/runs`、`/api/production/*`），不是 `/api/tools/<name>`。
+精确的逐操作 JSON Schema 请使用各工具的 `describe` 操作；manifest 有意保持为 catalog。
+
+```bash
+curl -fsS "$BASE/api/control-plane/tool-manifest" \
+  -H "X-Director-Browser-Token: $TOKEN" | jq '.tools[] | {name, surface, legacy}'
+```
+
+`GET /api/control-plane/a2a-agent-card` 返回 [ADR 0004](/zh/engineering/adr/0004-a2a-gateway-spike/)
+决定的 `director-a2a-agent-card-v1` 卡片。它**仅用于发现**：Director 不运行 A2A JSON-RPC
+server（`a2a.jsonrpc_endpoint` 为 `null`；streaming 与 push notification 均为 `false`），`url`
+是 loopback gateway origin 而非公网 A2A 服务，skills 镜像实时 tool manifest 中的
+`director_workbench`、`director_creative`、`blender_native` 与 `stage_video`。执行请走 MCP 或
+`POST /api/tools/{tool}`，而不是 A2A。
 
 Capture 结果可能返回带有进程周期 `preview_token` 的 URL。它是仅允许读取 preview 路由的
 capability，使浏览器与可读取图像的 Agent 无需获得 gateway 主 token 也能显示图像；gateway
@@ -217,56 +233,6 @@ mutation。idempotency key 只能用于同一意图结果不确定时的重试�
 Blender 原生解析器的 OS 或 container sandbox；私有 job 路径、限制和超时也不能让不可信文件
 变得安全。不可信文件必须先在容器或虚拟机中处理。支持与降级边界见
 [交换格式与 DCC 交接](/zh/pipelines/interchange/)。
-
-## 引擎交接（Unreal / Unity / Godot）
-
-`director_dcc` 还会通过 `integrations/{unreal,unity,godot}` 中的 Director 官方连接器跑无头引擎往返。
-先查就绪状态；`nativeReady` 要求连接器文件、带版本探测的可执行文件，以及连接器已安装到配置的引擎工程：
-
-```bash
-curl -fsS -X POST "$BASE/api/tools/director_dcc" \
-  -H "X-Director-Browser-Token: $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"input":{"op":"status","provider":"godot"}}' | jq
-```
-
-把当前项目送入引擎。Gateway 把交换包导出到私有作业目录，调用固定连接器入口（绝不用请求提供的脚本），
-并返回经 schema 校验的主机报告：
-
-```bash
-curl -sS -X POST "$BASE/api/tools/director_dcc" \
-  -H "X-Director-Browser-Token: $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"input":{"op":"send_to_engine","provider":"godot","formats":["glb"]}}' | jq
-```
-
-连接器未就绪时，路由返回 `409 engine_not_ready` 以及结构化 `diagnostics`（`provider`、`mode`、
-`ready`、`warnings`、`recovery`），而不是裸失败。按 recovery 步骤设置 `DIRECTOR_GODOT_BIN` /
-`DIRECTOR_GODOT_PROJECT` 并安装插件，或回退到 `export_exchange_package`。
-
-把引擎侧编辑带回来时，使用与 Blender 回传相同的预览再 Apply 协议。引擎回传包携带 canonical
-Director 空间变换，因此必须显式传入产生该包的提供商：
-
-```bash
-PREVIEW="$(curl -sS -X POST "$BASE/api/tools/director_dcc" \
-  -H "X-Director-Browser-Token: $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"input":{"op":"receive_from_engine","provider":"godot","package_dir":"JOB_ID/return-package"}}')"
-
-curl -fsS -X POST "$BASE/api/tools/director_dcc" \
-  -H "X-Director-Browser-Token: $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d "$(printf '%s' "$PREVIEW" | jq '{input:{
-    op:"apply_import_plan",
-    provider:"godot",
-    plan:.result.plan,
-    expected_revision:.result.plan.targetRevision,
-    idempotency_key:("godot-return-" + .result.plan.packageId)
-  }}')" | jq
-```
-
-`receive_from_engine` 接受与 `import_return_package` 相同的可选 `skip_director_ids` 列表。Apply
-受 revision 保护且幂等；冲突返回 `409` 以及只读计划。
 
 ## 分析参考图片
 

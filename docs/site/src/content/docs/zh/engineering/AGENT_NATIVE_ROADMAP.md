@@ -65,7 +65,7 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 | **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
 | **M5** | 可观测性               | Planned     | Trace、cost、长任务进度                                                          | M3               |
 | **M6** | 团队就绪               | Planned     | Collaboration auth、multi-agent 增强                                             | M3、M5           |
-| **M7** | 生态协议               | **Partial** | Tool manifest 已交付（`GET /api/control-plane/tool-manifest`）；A2A spike 结论为 no-go / 暂缓 | M2、M3           |
+| **M7** | 生态协议               | **Implemented** | Tool manifest、A2A go/no-go 已在 ADR 0004 得出结论（runtime no-go；提供 discovery-only card）、cross-app 回执 recipe。A2A runtime 未交付 | M2、M3           |
 
 ```mermaid
 flowchart LR
@@ -183,23 +183,23 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
 
 ### 已交付
 
-`director_creative` 已暴露：
+`director_creative` 已暴露完整 JSON 操作面：
 
-| 操作面                | Actions                                                                                                                                                          | 证据                                                                                                                                                                                 |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Interchange 导出      | `capabilities`、`plan-export`、`export`                                                                                                                          | `packages/protocol/src/creativeWorkspaceProtocol.ts`、Creative Agent 测试、[交换格式](/zh/pipelines/interchange/)                                                                    |
-| Interchange 导入      | `plan-import`（`inline` / `media_id` / `workspace_path` 来源）、`import`（guard fingerprint 复核 + 原子提交 + 回执）                                             | 同一协议、`frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts`、`frontend/director/tests/agent/creativeWorkspaceSemanticOperations.import.test.ts`                   |
-| Collaboration 读写    | `observe`、`list-comments`、`add-comment`、`resolve-comment`、`reopen-comment`、`update-comment`、`delete-comment`、`list-versions`、`compare`、`create-version`、`restore-version`、`delete-version` | 同一协议 + 语义操作测试（`creativeWorkspaceSemanticOperations.test.ts`）                                                                                                             |
-| Gallery / media 变更  | `gallery.media.*`、`media.proxy.attach` 及相关 execute ops                                                                                                       | Feature Status 中 Gallery 为 **Implemented**；持久媒体为 **Limited**                                                                                                                 |
+| 操作面                 | Actions                                                                                                                                                       | 证据                                                                                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Interchange 导出       | `capabilities`、`plan-export`、`export`                                                                                                                         | `packages/protocol/src/creativeWorkspaceProtocol.ts`、Creative Agent 测试、[交换格式](/zh/pipelines/interchange/)                                            |
+| Interchange 导入       | `plan-import`（source 支持 `inline`、Gallery `media_id`、`workspace_path`），随后 `import`（`plan_id` + `expected_guard_fingerprint` + `confirm:true`）         | 同一协议、`frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts`、`frontend/director/tests/agent/creativeWorkspaceAgentContract.test.ts`      |
+| Collaboration 评论     | `observe`、`list-comments`、`add-comment`、`resolve-comment`、`reopen-comment`、`update-comment`、`delete-comment`（fingerprint guard + idempotency；删除需确认） | 同一协议、`frontend/director/tests/agent/creativeWorkspaceSemanticOperations.test.ts`（resolve-comment）                                                     |
+| Collaboration 版本     | `list-versions`、`compare`、`create-version`、`restore-version`、`delete-version`（restore/delete 需 `confirm:true`）                                           | 同一协议 + 语义操作测试（create-version、restore-version）                                                                                                   |
+| Gallery / media 变更   | `gallery.media.*`、`media.proxy.attach` 及相关 execute ops                                                                                                      | Feature Status 中 Gallery 为 **Implemented**；持久媒体为 **Limited**                                                                                         |
 
-Skill 已把 JSON `plan-import` / `import` 列为首选导入路径；人类的 Interchange 菜单文件选择
-入口继续可用。
+浏览器文件选择器仍作为可选便捷入口保留（针对人类本地已打开的文件），但它不再是唯一导入路径，
+也不再阻塞 Agent 自动化。格式边界不变：Feature Status 中 Fountain / OTIO / glTF / USD 仍为
+**Limited**（记录在案的子集；FBX 导出与丰富 rig/动画往返仍不在范围内），大媒体字节仍不进入 Yjs。
 
-### 保留边界
+### 遗留项（非阻塞）
 
-- OBJ/STL 仍是只导出格式；Feature Status **Limited** 的 Fountain / OTIO / glTF / USD 子集边界不变。
-- `workspace_path` 来源需要可信 host 解析；纯浏览器 target 会显式拒绝并提示改用 `inline` 或 `media_id`。
-- 大媒体字节仍不进入 Yjs。
+- Verified-shot 教程尚未以「纯 Agent 完成 OTIO 导入 + 版本快照」的形式重录；所需 JSON 操作均已存在。
 
 ---
 
@@ -317,33 +317,27 @@ Skill 已把 JSON `plan-import` / `import` 列为首选导入路径；人类的 
 
 ## Milestone 7 — 生态协议
 
-**状态：Partial**（核验于 2026-08-25）。
+**状态：Implemented**（核验于 2026-08-25；完整 A2A runtime 有意未交付）。
 
 **目标：** 与其他 agent-native app 互操作。
 
 ### 已交付
 
-- **Tool manifest 导出**：`GET /api/control-plane/tool-manifest` 从执行用的同一批 Zod schema
-  生成机器可读的工具目录（`director_workbench`、`director_creative`、`director_dcc`、
-  `blender_native`、`stage_video`、`director_production`、`director_film`），每个条目含描述、
-  JSON Schema 输入契约和操作名；冻结的 `stage_*` 兼容工具标注 `legacy: true`。与
-  `/api/control-plane/capabilities` 共享同一鉴权与脱敏策略，不含任何密钥。
-  证据：`backend/gateway/controlPlane/toolManifest.ts` + `controlPlaneRoutes.test.ts`。
-
-### A2A spike 结论：no-go / 暂缓
-
-把 gateway 包装为 A2A agent card 目前是 **no-go**：MCP + HTTP tool manifest 已覆盖
-跨 app 编排的发现需求；A2A 会引入第二套会话与身份模型，却没有当前用户场景需要它。
-待 M3 统一治理落地、且出现真实的外部 A2A 消费方后再重估。不实现新协议。
-
-### 剩余项
-
-- **Cross-app recipe**：文档化「Director deliver → 外部 video post」的 receipt handoff 格式。
-
-### 验收
-
-- `GET /api/control-plane/tool-manifest` 返回可机器读取的 tool 列表。✅
-- A2A spike 有书面结论，不强制实现。✅（no-go / 暂缓，见上）
+- **Tool manifest 导出**：`GET /api/control-plane/tool-manifest` 返回机器可读的
+  `director-tool-manifest-v1` catalog，由与执行校验相同的 Zod schema 派生 —
+  surface（`mcp` / `http` / `both`）、wire `op` 枚举、HTTP 绑定，以及 HTTP-only
+  `stage_*` 兼容工具上的 `legacy` 标记。证据：`backend/gateway/controlPlane/toolManifest.ts`、
+  `backend/gateway/routes/controlPlaneRoutes.ts` 及对应测试。
+- **A2A spike 结论**：[ADR 0004](/zh/engineering/adr/0004-a2a-gateway-spike/) 给出书面
+  go/no-go —— live A2A JSON-RPC runtime 为 **no-go**（与 loopback-only、进程 token 的
+  gateway 鉴权不匹配；会形成第二套执行协议；exact-target 与 revision 守卫没有 A2A 原生
+  字段），discovery-only agent card 为 **go**。`GET /api/control-plane/a2a-agent-card`
+  提供该卡片：`discovery_only: true`、A2A endpoint 为 `null`、只含 loopback URL，skills
+  镜像实时 tool manifest。完整 A2A 持续推迟，除非合作产品具体需要。
+- **Cross-app recipe**：[Control surfaces — 跨 app 回执交接](/zh/agents/control-surfaces/#跨-app-回执交接)
+  文档化外部 app 如何消费 `deliver` 与 interchange `export` 回执 ——
+  `plan_id` / `receipt_id`、guard fingerprint 与逐文件 SHA-256 校验 —— 依照
+  [ADR 0003](/zh/engineering/adr/0003-import-export-receipts/)。
 
 ---
 
@@ -370,7 +364,7 @@ Skill 已把 JSON `plan-import` / `import` 列为首选导入路径；人类的 
 
 - 替换 Zustand 为远程 CRDT 主 store
 - 完整 SaaS 多租户 billing
-- 标准 A2A 完整实现（仅 spike，除非 M7 go）
+- 标准 A2A 完整实现（ADR 0004：runtime no-go；仅 discovery-only card，除非合作方有更多需求）
 - 移除 `stage_*` 工具（仅冻结扩展）
 - LTX / UE pipeline 完成（见 [Pipeline roadmap](/zh/engineering/pipeline_implementation_roadmap/)）
 
@@ -392,4 +386,4 @@ Skill 已把 JSON `plan-import` / `import` 列为首选导入路径；人类的 
 
 1. M1 剩余：Canvas/Video UI store（1e/1f）以及[对等清单](/zh/engineering/ui-agent-parity-inventory/)中仍为 ui-only 的 Stage 写入
 2. M3 后续项：可选的 role 门控 UI 禁用（3.1b）与确认边界（3.3）；HTTP/CLI 策略闸与统一审计轨迹已于 2026-08-25 交付
-3. M7 剩余：文档化 cross-app receipt handoff recipe
+3. M7 遗留已落地：ADR 0004 完成 A2A spike 结论（runtime no-go；已提供 discovery-only card），cross-app 回执 recipe 已写入 Control surfaces

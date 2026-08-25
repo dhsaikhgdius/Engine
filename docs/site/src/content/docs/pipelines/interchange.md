@@ -22,7 +22,6 @@ standard.
 | ASCII STL ZIP      | export        | All or selected supported Stage primitives, baked world transforms, stable-ID solid names, metric/Y-up manifest, and SHA-256 file receipts        | No materials, textures, hierarchy, cameras, lights, animation, or embedded unit declaration; the sidecar is required for full interpretation                     |
 | Blender `.blend`   | import        | Active-scene current-frame GLB snapshot, selected static perspective cameras, source-time audit metadata                                          | No deep editable hierarchy, animation playback/timeline remap, live sync, or safe processing of untrusted files; Blender-only semantics are unsupported or lossy |
 | Blender round trip | export/return | Validated scene/camera handoff, clay preview, stable-ID mesh/transform return                                                                     | Return is limited to hashed packages below the DCC job root; Blender-only objects and optics/light edits are not auto-imported                                   |
-| Engine handoff (Unreal/Unity/Godot) | send/receive | Headless connector import of scene layout, cameras, and shot ranges with `director:id` metadata; canonical-space transform return | Requires the Director-authored connector installed in the user's engine project (`nativeReady`); animation, skeletons, materials, and live link are not claimed |
 
 The editor's **Interchange** menu is the human entry point. Stage OTIO and Video workspace OTIO
 have separate adapters because they preserve different source models. Import always validates
@@ -163,28 +162,23 @@ frame coverage, and top-left pixel bounds. It does not claim an occlusion ratio 
 
 ## Agent boundary
 
-`director_creative interchange` exposes `capabilities`, `plan-export`, `export`, `plan-import`,
-and `import` for bounded OTIO/OTIOZ, Fountain, glTF/GLB, USD/USDZ, OBJ, and STL transfer. Every
-plan is tied to the exact Stage revision or creative-workspace fingerprint. Export returns UTF-8
-or base64 payload, archive SHA-256, byte count, compatibility warnings, and a stable receipt;
-inline transfer is capped at 8 MiB. OBJ/STL plans may carry exact `object_ids`, which become part
-of the plan identity and ZIP manifest.
+`director_creative interchange` exposes `capabilities`, `plan-export`, `export`, `plan-import`, and
+`import` for bounded OTIO/OTIOZ, Fountain, glTF/GLB, USD/USDZ, OBJ, and STL transfer. Every plan is
+tied to the exact Stage revision or creative-workspace fingerprint. Export returns UTF-8 or base64
+payload, archive SHA-256, byte count, compatibility warnings, and a stable receipt; inline transfer
+is capped at 8 MiB. OBJ/STL plans may carry exact `object_ids`, which become part of the plan
+identity and ZIP manifest.
 
-JSON import goes through `plan-import` → `import`: the source is `inline` (UTF-8 or base64), a
-Gallery `media_id`, or a `workspace_path` resolved by a trusted host. `plan-import` returns an
-immutable guard-fingerprinted plan with a summary and warnings; `import` rechecks that fingerprint,
-commits atomically, and returns a receipt with before/after guards. OBJ/STL stay export-only, and
-the documented **Limited** format-subset boundaries are unchanged. The human Interchange menu file
-picker remains available.
+Import is the same plan/receipt discipline in two JSON steps. `plan-import` validates one source —
+a bounded `inline` payload, an existing Gallery `media_id`, or a readable `workspace_path` — and
+returns a plan bound to the current guard fingerprint. `import` then applies exactly that `plan_id`
+with `expected_guard_fingerprint` and `confirm:true`; a stale fingerprint requires a new plan. The
+browser file picker remains available as a convenience for local files a human already has open,
+but it is no longer the only import path. Never claim an import without a validated plan and
+receipt.
 
 For Stage acceptance and provider-neutral evidence, use `director_workbench` `shot_ir`,
-`shot_package`, or `deliver`. For Blender and the engine connectors, discover and invoke
-`director_dcc` capabilities: `discover`/`status` report truthful readiness,
-`export_exchange_package` prepares the portable package for any provider, and
-`send_to_engine` / `receive_from_engine` / `apply_import_plan` run the headless
-Unreal/Unity/Godot round trip when the Director-authored connector is `nativeReady`.
-See [Multi-DCC Integration](/engineering/multi_dcc_integration/) for the engine
-readiness bar and structured not-ready diagnostics.
+`shot_package`, or `deliver`. For Blender, discover and invoke `director_dcc` capabilities.
 
 ## Round-trip checklist
 

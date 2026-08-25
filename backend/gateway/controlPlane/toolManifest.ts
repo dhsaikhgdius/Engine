@@ -1,109 +1,135 @@
 import { z } from "zod";
 import { directorWorkbenchOperationNames } from "@director/agent-engine";
-import { stageCommandOperationNames, stageCommandOperationSchemas } from "@director/agent-engine/stage-command-schema";
 import { directorDccOperationSchema } from "@director/dcc-protocol";
+import { DIRECTOR_WORKBENCH_PLUGIN_TOOLS, operationNames } from "@director/dsh-plugin-workbench";
+import agentToolCategories from "../../../packages/protocol/src/agentTools.json";
+import { AGENT_TOOL_NAMES, STAGE_COMMAND_TOOL_NAMES } from "../../../packages/protocol/src/agentTools";
 import { creativeWorkspaceAgentRequestSchema } from "../../../packages/protocol/src/creativeWorkspaceProtocol";
 import { blenderNativeToolRequestSchema } from "../../../packages/protocol/src/blenderLiveProtocol";
-import { videoModelOperationSchema } from "../../../packages/protocol/src/videoGenerationProtocol";
-import { productionEvidenceRequestSchema } from "../../../packages/protocol/src/productionArtifactProtocol";
 import { filmPipelineOperationSchema } from "../../../packages/protocol/src/filmPipelineProtocol";
-import { STAGE_COMMAND_TOOL_NAMES } from "../../../packages/protocol/src/agentTools";
-import { compactWireSchema, DIRECTOR_DYNAMIC_TOOLS, operationNames } from "../agents/agentToolRegistry";
+import { productionEvidenceRequestSchema } from "../../../packages/protocol/src/productionArtifactProtocol";
+import { videoModelOperationSchema } from "../../../packages/protocol/src/videoGenerationProtocol";
 
-/** Versioned contract identifier of the machine-readable tool manifest. */
-export const DIRECTOR_TOOL_MANIFEST_CONTRACT = "director-tool-manifest:v1";
+/** Contract identifier for the machine-readable tool manifest (roadmap M7). */
+export const DIRECTOR_TOOL_MANIFEST_CONTRACT = "director-tool-manifest-v1";
 
-export type DirectorToolManifestEntry = {
-  name: string;
-  description: string;
-  /** JSON Schema generated from the tool's Zod wire schema. */
-  input_schema: Record<string, unknown>;
-  /** Operation names accepted by the tool's strict execution schema. */
-  operations?: readonly string[];
-  /** Present and true only on frozen `stage_*` compatibility tools. */
-  legacy?: true;
-};
+const agentToolCategorySchema = z.enum(["stage", "targeted", "external"]);
 
-export type DirectorToolManifest = {
-  contract: typeof DIRECTOR_TOOL_MANIFEST_CONTRACT;
-  generated_at: string;
-  tools: DirectorToolManifestEntry[];
-};
+const toolManifestEntrySchema = z.strictObject({
+  name: z.string().min(1),
+  surface: z.enum(["mcp", "http", "both"]),
+  category: agentToolCategorySchema.optional(),
+  description: z.string().min(1).optional(),
+  operations: z.array(z.string().min(1)).min(1).optional(),
+  http: z.strictObject({ method: z.literal("POST"), path: z.string().regex(/^\/api\/tools\/[a-z0-9_]+$/) }).nullable(),
+  legacy: z.literal(true).optional(),
+});
 
-/** Strict operation unions backing each dynamic tool's compact wire envelope. */
-const DYNAMIC_TOOL_OPERATIONS: Record<string, readonly string[]> = {
+/** Validated wire shape of `GET /api/control-plane/tool-manifest`. */
+export const directorToolManifestSchema = z.strictObject({
+  contract: z.literal(DIRECTOR_TOOL_MANIFEST_CONTRACT),
+  generated_at: z.iso.datetime(),
+  tools: z.array(toolManifestEntrySchema).min(1),
+});
+
+export type DirectorToolManifest = z.infer<typeof directorToolManifestSchema>;
+export type DirectorToolManifestEntry = z.infer<typeof toolManifestEntrySchema>;
+
+function toolsHttpBinding(name: string): DirectorToolManifestEntry["http"] {
+  return { method: "POST", path: `/api/tools/${name}` };
+}
+
+/**
+ * First sentence of the model-facing plugin description. The full text carries
+ * usage hints (including credential environment-variable names) that a public
+ * discovery response must not repeat.
+ */
+function summarySentence(description: string): string {
+  const end = description.indexOf(". ");
+  return end === -1 ? description : description.slice(0, end + 1);
+}
+
+const pluginToolDescriptions = new Map<string, string>(
+  DIRECTOR_WORKBENCH_PLUGIN_TOOLS.map((tool) => [tool.name, summarySentence(tool.description)]),
+);
+
+const toolCategories: Record<string, DirectorToolManifestEntry["category"]> = Object.fromEntries(
+  Object.entries(agentToolCategories).map(([name, category]) => [name, agentToolCategorySchema.parse(category)]),
+);
+
+/**
+ * Wire `op` enum per typed tool, derived from the same protocol schemas that
+ * validate execution. `describe` on each tool reflects exact per-op fields, so
+ * the manifest stays a catalog rather than an inlined schema tree.
+ */
+const typedToolOperations: Record<string, readonly string[]> = {
   director_workbench: directorWorkbenchOperationNames,
   director_creative: operationNames(creativeWorkspaceAgentRequestSchema),
   stage_video: operationNames(videoModelOperationSchema),
   blender_native: operationNames(blenderNativeToolRequestSchema),
+  director_dcc: operationNames(directorDccOperationSchema),
+  director_film: operationNames(filmPipelineOperationSchema),
+  director_production: operationNames(productionEvidenceRequestSchema),
 };
 
-/**
- * Tools served over MCP that do not ride the DSH plugin catalog. Their wire
- * envelopes mirror the compact schemas registered in `mcp-server.ts`.
- */
-const MCP_ONLY_TOOLS: ReadonlyArray<{
-  name: string;
-  description: string;
-  schema: Parameters<typeof compactWireSchema>[0];
-}> = [
-  {
-    name: "director_production",
-    description:
-      "Create, inspect, and promote artifact versions into Canvas, Stage, Video, or delivery. Versions and approvals are immutable; promote is optimistic-concurrency guarded.",
-    schema: productionEvidenceRequestSchema,
-  },
-  {
-    name: "director_film",
-    description:
-      "Run the agentic film production pipeline: idea-to-film or script-to-film. create starts a durable run; poll with status; resume continues from the last durable artifact.",
-    schema: filmPipelineOperationSchema,
-  },
-  {
-    name: "director_dcc",
-    description:
-      "Discover and operate Director DCC providers. Call discover first to see provider readiness, formats, and capability maturity.",
-    schema: directorDccOperationSchema,
-  },
-];
-
-function jsonSchemaRecord(schema: z.ZodType): Record<string, unknown> {
-  return z.toJSONSchema(schema) as Record<string, unknown>;
-}
-
-let cachedManifest: DirectorToolManifest | undefined;
+const stageCommandToolNames = new Set<string>(STAGE_COMMAND_TOOL_NAMES);
 
 /**
- * The public, machine-readable Director tool catalog, generated from the same
- * Zod schemas that validate execution. Contains only schema-derived data —
- * never configuration, credentials, or provider endpoints.
+ * Builds the machine-readable Director tool catalog.
+ *
+ * Reflects the real transport bindings instead of assuming one rule for every
+ * tool: registry tools from `agentTools.json` are POST `/api/tools/<name>`;
+ * legacy `stage_*` commands are HTTP-only compatibility routes that MCP no
+ * longer advertises; `director_dcc` is served by the DCC route and MCP;
+ * `director_film` and `director_production` are MCP tools whose HTTP surface
+ * is their own domain routes, not `/api/tools/<name>`.
  */
-export function directorToolManifest(): DirectorToolManifest {
-  if (cachedManifest) return cachedManifest;
-  const dynamicTools: DirectorToolManifestEntry[] = DIRECTOR_DYNAMIC_TOOLS.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    input_schema: tool.inputSchema as Record<string, unknown>,
-    operations: DYNAMIC_TOOL_OPERATIONS[tool.name],
-  }));
-  const mcpTools: DirectorToolManifestEntry[] = MCP_ONLY_TOOLS.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    input_schema: jsonSchemaRecord(compactWireSchema(tool.schema, tool.description)),
-    operations: operationNames(tool.schema),
-  }));
-  const legacyStageTools: DirectorToolManifestEntry[] = STAGE_COMMAND_TOOL_NAMES.map((tool) => ({
-    name: tool,
-    description:
-      "Legacy compact Stage surface (HTTP-compatible only). Frozen; use director_workbench for new automation.",
-    input_schema: jsonSchemaRecord(stageCommandOperationSchemas[tool]),
-    operations: stageCommandOperationNames(tool),
-    legacy: true,
-  }));
-  cachedManifest = {
+export function buildDirectorToolManifest(now: Date = new Date()): DirectorToolManifest {
+  const registryTools: DirectorToolManifestEntry[] = AGENT_TOOL_NAMES.map((name) => {
+    const legacy = stageCommandToolNames.has(name);
+    return {
+      name,
+      surface: legacy ? ("http" as const) : ("both" as const),
+      category: toolCategories[name],
+      description: legacy
+        ? "Legacy compact Stage command surface kept for HTTP compatibility; superseded by director_workbench and no longer advertised over MCP."
+        : pluginToolDescriptions.get(name),
+      operations: typedToolOperations[name] ? [...typedToolOperations[name]] : undefined,
+      http: toolsHttpBinding(name),
+      ...(legacy ? { legacy: true as const } : {}),
+    };
+  });
+
+  const extraTools: DirectorToolManifestEntry[] = [
+    {
+      name: "director_dcc",
+      surface: "both",
+      description:
+        "Discover and operate Director DCC providers (Blender, Maya, Unreal, and others): exchange packages, revision-guarded .blend export, and preview/apply import plans.",
+      operations: [...typedToolOperations.director_dcc],
+      http: toolsHttpBinding("director_dcc"),
+    },
+    {
+      name: "director_film",
+      surface: "mcp",
+      description:
+        "Durable idea/script-to-film pipeline runs. MCP-only tool name; over raw HTTP use the film domain routes (GET/POST /api/film/runs, GET /api/film/runs/{id}, POST /api/film/runs/{id}/{op}), not POST /api/tools/director_film.",
+      operations: [...typedToolOperations.director_film],
+      http: null,
+    },
+    {
+      name: "director_production",
+      surface: "mcp",
+      description:
+        "Immutable production artifact versions, approvals, and guarded promotion. MCP-only tool name; over raw HTTP use the production evidence routes (/api/production/artifact-versions, /api/production/approvals, /api/production/promotions), not POST /api/tools/director_production.",
+      operations: [...typedToolOperations.director_production],
+      http: null,
+    },
+  ];
+
+  return directorToolManifestSchema.parse({
     contract: DIRECTOR_TOOL_MANIFEST_CONTRACT,
-    generated_at: new Date().toISOString(),
-    tools: [...dynamicTools, ...mcpTools, ...legacyStageTools],
-  };
-  return cachedManifest;
+    generated_at: now.toISOString(),
+    tools: [...registryTools, ...extraTools],
+  });
 }
