@@ -122,11 +122,13 @@ describe("DirectorDccEngineBridge", () => {
       const health = await bridge.health(provider);
       expect(health.ready).toBe(true);
       expect(health.hostVersion).toBe(`${provider} 9.9 fixture`);
-      // Each connector owns its version; read it from the committed manifest.
+      // Each connector owns its version; read it from the committed manifest
+      // (each engine versions its connector independently, e.g. unity 0.2.x).
       const manifest = JSON.parse(
         await readFile(resolve(repositoryRoot, "integrations", provider, "connector.json"), "utf8"),
       ) as { version: string };
       expect(health.connectorVersion).toBe(manifest.version);
+      expect(health.connectorVersion).toMatch(/^\d+\.\d+\.\d+$/);
       expect((await bridge.diagnostics(provider)).mode).toBe("native");
     },
   );

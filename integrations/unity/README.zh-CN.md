@@ -8,20 +8,53 @@ Gateway 也绝不解析它。
 ## 功能
 
 - **导入**（`Director.Bridge.Editor.DirectorBridgeCli.Import`）：读取
-  `director-dcc-exchange-package-v1` 包目录，新建场景，为每个 Director 物体创建
-  GameObject（工程中装有 glTF 导入器时——如 `com.unity.cloud.gltfast`——将实例化
-  GLB 资产，否则创建空 GameObject 并写入警告），为每个 Director 相机创建
-  `Camera`，恢复父子层级，为所有实体挂载 `DirectorId` 组件，把分镜映射为
-  Timeline 激活轨道，将场景保存到 `Assets/Director/Scenes/`，并回写一个规范空间
-  的返回包。
+  `director-dcc-exchange-package-v1` 包目录（经 schema 与 SHA-256 校验），新建
+  场景并保存到 `Assets/Director/Scenes/`。所有实体挂载 `DirectorId` 组件，并恢复
+  父子层级。
+  - **GLB 资产**以内容哈希命名复制到 `Assets/Director/Packages/<id>/`，再通过工程
+    中已安装的 glTF `ScriptedImporter`（如 `com.unity.cloud.gltfast`）同步导入。
+    连接器自身绝不解析 GLB 字节；缺少导入器时写入警告并保留空 GameObject。
+  - **角色**通过 `assetRefId` 解析（绝不按数组下标）。带蒙皮的 GLB 在
+    Mixamo 兼容必需骨骼齐全时（自动剥离骨骼前缀）获得带 Humanoid Avatar 的
+    `Animator`，否则回退为 Generic Avatar。未传输的绑定状态（姿势值、动作块）
+    写入警告，绝不静默拍平。
+  - **材质**依据检测到的渲染管线，把 Director PBR manifest 映射到 URP/Lit 或
+    Built-in Standard（HDRP 警告并使用最接近的回退）。绑定 glTF
+    metallic-roughness 标量与内容哈希的相对路径贴图；不支持的材质图
+    警告并省略。
+  - **相机**成为 Unity 物理相机：焦距加 Director 传感器画幅裁切驱动
+    `Camera.usePhysicalProperties`、传感器尺寸与 FOV；look-at 目标按场景实体
+    解析；正交比例正确换算。变形宽银幕挤压（anamorphic squeeze）警告并省略。
+  - **灯光**（点光 / 聚光 / 平行光 / 面光）成为带独立 `DirectorId` 的 Unity
+    `Light` GameObject；环境光与半球光映射到 `RenderSettings` 并写入警告。灯光
+    不参与往返（返回契约没有灯光实体类型）。
+  - **Timeline**：在 `Assets/Director/Timelines/` 下生成一个 `TimelineAsset`，
+    由单个 `PlayableDirector` 承载。分镜成为覆盖其相机的 `ActivationTrack`
+    片段；Director 关键帧 / 轨迹动画通过 Director 缓动与轨迹求值器的 C# 移植
+    烘焙为 `AnimationTrack` 上的 `AnimationClip`。不支持的通道警告并省略；
+    `.unity` YAML 绝不成为交换格式。
+  - 最后回写一个规范空间的返回包，并写出 `director-dcc-engine-report-v1`
+    回执，其 `unity` 块报告渲染管线、glTF 导入器可用性，以及导入灯光数 /
+    烘焙片段数 / Avatar 数 / 材质回退数等计数。
 - **导出**（`...DirectorBridgeCli.Export`）：重新打开 Director 场景，在提供方边界
   把所有 `DirectorId` 实体的变换转换回 Director 规范空间，仅导出相对交换包基线
-  发生变化的实体，写出 `director-dcc-return-v1` 返回包。
-- **健康检查**（`...DirectorBridgeCli.Health`）：输出 JSON 健康信息。
+  发生变化的物体与相机，写出 `director-dcc-return-v1` 返回包。
+- **健康检查**（`...DirectorBridgeCli.Health`）：输出 JSON 健康信息，包含主机与
+  连接器版本、当前渲染管线以及 glTF 导入器可用性。
 
 坐标转换（右手 Y-up ↔ 左手 Y-up，均为米制，`(x, y, z) -> (x, y, -z)`，四元数
-`(x, y, z, w) -> (-x, -y, z, w)`）实现在 `DirectorSpace.cs`。Gateway 的 CI 测试
-无需安装 Unity 即可用 TypeScript 参考实现校验同一组黄金用例。
+`(x, y, z, w) -> (-x, -y, z, w)`，以及配套的 4×4 绑定矩阵共轭变换）实现在
+`DirectorSpace.cs`。相机数学（传感器画幅、垂直 FOV、look-at 四元数）与动画求值
+（三次贝塞尔缓动、关键帧变换、圆形/路径轨迹）均为 TypeScript 参考实现的 C# 移植。
+
+## 测试
+
+`Tests/Editor/` 内含 Unity EditMode（NUnit）测试，用黄金值锁定
+`DirectorSpace`、`DirectorCameraMath` 与 `DirectorAnimationEvaluator`。同一组
+黄金值在 Gateway CI 中无需主机即可校验
+（`packages/dcc-protocol/tests/directorDccUnityConnectorGolden.test.ts`），因此
+C# 移植与 TypeScript 参考实现一旦漂移，至少有一侧的测试会失败——CI 中始终无需
+安装 Unity。
 
 ## 安装
 
@@ -38,7 +71,7 @@ export DIRECTOR_UNITY_PROJECT=/path/to/YourProject
 
 只有当连接器源码、可执行文件、版本探测、工程内已安装的包全部通过检查时，
 `director_dcc {"op":"status","provider":"unity"}` 才会报告 `nativeReady: true`。
-便携 GLB/USDA 交换始终可用。
+`installed` 本身绝不等于 `nativeReady`。便携 GLB/USDA 交换始终可用。
 
 ## 无头调用（Gateway 实际执行的命令）
 
@@ -58,8 +91,11 @@ export DIRECTOR_UNITY_PROJECT=/path/to/YourProject
 ## 能力诚实性
 
 已实现且有版本校验：无头导入/导出、稳定 `director_id` 往返、场景层级、变换、
-相机、分镜 → Timeline 激活轨道。仍为规划中（宁可警告省略，绝不静默拍平）：
-动画曲线、骨骼重定向、材质转换、实时链接（live link）。
+物理相机、灯光、PBR 材质回退、蒙皮 GLB 的 Humanoid/Generic Avatar、分镜 →
+Timeline 激活轨道，以及烘焙到 Timeline `AnimationClip` 的 Director 动画。仍为
+规划中（宁可警告省略，绝不静默拍平）：实时链接 / 预览传输（需要只出站的认证
+通道与断线安全测试），以及生产级 USD 往返（Unity 的 USD 包仍为预发布；USDA
+保持次要、实验性地位）。
 
 ---
 

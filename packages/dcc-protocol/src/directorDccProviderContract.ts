@@ -411,6 +411,52 @@ const UNREAL_PROVIDER_DESCRIPTOR: DirectorDccProviderDescriptor = directorDccPro
 });
 
 /**
+ * Unity descriptor, split out of the shared {@link engineProvider} table
+ * because its connector maturity diverges from the other engines: the
+ * `com.director.bridge` Editor package bakes Director animation onto Unity
+ * Timeline, builds Humanoid/generic Avatars from skinned GLB payloads, and
+ * translates Director PBR materials to URP/Built-in — each validated by the
+ * in-package Unity EditMode suite plus the Unity-named Gateway golden tests.
+ * Live link remains planned: no disconnect-safe transport tests exist yet.
+ */
+function unityEngineProvider(): DirectorDccProviderDescriptor {
+  const exchangeFormats: Array<Exclude<DirectorDccExchangeFormat, "blend">> = ["glb", "usda"];
+  return directorDccProviderDescriptorSchema.parse({
+    id: "unity",
+    label: "Unity",
+    category: "engine",
+    integration: "engine-headless",
+    preferredFormat: "glb",
+    exchangeFormats,
+    capabilities: [
+      // Scene layout and cameras still travel through the portable package;
+      // the connector performs the host-side import but the format carries them.
+      { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      // The connector bakes Director keyframe/trajectory animation into Unity
+      // AnimationClips on Timeline; unsupported channels warn-and-omit.
+      { id: "animation", level: "native", layer: "connector" },
+      // Humanoid Avatars are built from Mixamo-compatible skinned GLB payloads
+      // (generic Avatar fallback); characters resolve by assetRefId, never index.
+      { id: "skeleton", level: "native", layer: "connector" },
+      // Director PBR manifest materials fall back to URP/Lit or Standard;
+      // unsupported material graphs warn-and-omit.
+      { id: "materials", level: "native", layer: "connector" },
+      // The Director manifest and connector preserve stable director:id
+      // metadata on both directions of the handoff.
+      { id: "stable_ids", level: "native", layer: "director-manifest" },
+      // Headless import/return round trip is performed by the Director-authored
+      // connector; runtime availability is still gated by nativeReady.
+      { id: "roundtrip", level: "native", layer: "connector" },
+      { id: "headless", level: "native", layer: "connector" },
+      // No live preview transport ships yet; see MULTI_DCC_INTEGRATION.md.
+      { id: "live_link", level: "planned", layer: "connector" },
+    ],
+    connectorDirectory: "integrations/unity",
+  });
+}
+
+/**
  * Product capability catalog. Runtime installation state is deliberately kept
  * out of this table and is supplied by the gateway registry.
  */
@@ -439,7 +485,7 @@ export const DIRECTOR_DCC_PROVIDERS: readonly DirectorDccProviderDescriptor[] = 
   UNREAL_PROVIDER_DESCRIPTOR,
   exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("unity", "Unity", "glb", ["glb", "usda"]),
+  unityEngineProvider(),
   exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
   engineProvider("godot", "Godot", "glb", ["glb"]),
 ]);

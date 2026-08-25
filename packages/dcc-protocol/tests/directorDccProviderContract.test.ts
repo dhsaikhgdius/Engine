@@ -136,9 +136,11 @@ describe("Director DCC provider contract", () => {
       expect(byId.get("roundtrip")).toEqual({ id: "roundtrip", level: "native", layer: "connector" });
       expect(byId.get("stable_ids")).toEqual({ id: "stable_ids", level: "native", layer: "director-manifest" });
       // The Unreal connector ships Gateway-baked Sequencer animation, skinned
-      // GLB skeletal-mesh import, and PBR material instances; the other engine
+      // GLB skeletal-mesh import, and PBR material instances; the Unity
+      // connector bakes animation onto Timeline, builds Avatars from skinned
+      // GLB, and translates Director PBR materials. The remaining engine
       // connectors keep those claims planned until equivalent fixtures exist.
-      const provenFidelityLevel = descriptor.id === "unreal" ? "native" : "planned";
+      const provenFidelityLevel = descriptor.id === "unreal" || descriptor.id === "unity" ? "native" : "planned";
       for (const id of ["animation", "skeleton", "materials"] as const) {
         expect(byId.get(id)).toEqual({ id, level: provenFidelityLevel, layer: "connector" });
       }

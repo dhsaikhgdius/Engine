@@ -52,6 +52,40 @@ namespace Director.Bridge.Editor
         }
 
         /// <summary>
+        /// Converts a 4x4 matrix (column-major, 16 doubles, translation in
+        /// elements 12..14) from Director canonical space to Unity space by
+        /// conjugating with the basis permutation P = diag(1, 1, -1, 1):
+        /// M_unity = P · M · P⁻¹, so element (row, column) is negated exactly
+        /// when one of row/column is the Z axis. Used for skinning bind
+        /// matrices, where full-matrix conjugation (not TRS decomposition)
+        /// keeps shear and mirroring exact. The map is an involution, so the
+        /// same function converts Unity matrices back to Director space.
+        /// </summary>
+        public static double[] DirectorMatrixToUnity(double[] columnMajor)
+        {
+            if (columnMajor == null || columnMajor.Length != 16)
+            {
+                throw new System.ArgumentException("Expected a 16-element column-major matrix.");
+            }
+            var converted = new double[16];
+            for (int column = 0; column < 4; column += 1)
+            {
+                for (int row = 0; row < 4; row += 1)
+                {
+                    double sign = (row == 2 ? -1.0 : 1.0) * (column == 2 ? -1.0 : 1.0);
+                    converted[column * 4 + row] = sign * columnMajor[column * 4 + row];
+                }
+            }
+            return converted;
+        }
+
+        /// <summary>Inverse of <see cref="DirectorMatrixToUnity"/> (the map is an involution).</summary>
+        public static double[] UnityMatrixToDirector(double[] columnMajor)
+        {
+            return DirectorMatrixToUnity(columnMajor);
+        }
+
+        /// <summary>
         /// Composes the Director scene transform (uniform scale) with an
         /// entity's local TRS in Director space. Uniform scene scale commutes
         /// with rotation, so the decomposition is exact.
@@ -84,6 +118,29 @@ namespace Director.Bridge.Editor
             };
             worldRotationQuaternion = Normalize(Multiply(sceneQuaternion, localRotationQuaternion));
             worldScale = new[] { localScale[0] * sceneScale, localScale[1] * sceneScale, localScale[2] * sceneScale };
+        }
+
+        /// <summary>
+        /// Maps a scene-local point to Director canonical world space (the
+        /// position part of <see cref="ComposeWorldTransform"/>).
+        /// </summary>
+        public static double[] ComposeWorldPoint(
+            double[] scenePosition,
+            double[] sceneRotationEulerXyz,
+            double sceneScale,
+            double[] localPoint)
+        {
+            double[] sceneQuaternion = QuaternionFromEulerXyz(
+                sceneRotationEulerXyz[0], sceneRotationEulerXyz[1], sceneRotationEulerXyz[2]);
+            double[] rotated = RotateVector(
+                sceneQuaternion,
+                new[] { localPoint[0] * sceneScale, localPoint[1] * sceneScale, localPoint[2] * sceneScale });
+            return new[]
+            {
+                rotated[0] + scenePosition[0],
+                rotated[1] + scenePosition[1],
+                rotated[2] + scenePosition[2],
+            };
         }
 
         /// <summary>Quaternion for Director's intrinsic XYZ Euler order (three.js "XYZ").</summary>
