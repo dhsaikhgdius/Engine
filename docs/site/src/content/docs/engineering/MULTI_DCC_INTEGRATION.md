@@ -243,10 +243,14 @@ capabilities it performs and validates: `headless`, `roundtrip`, and
 portable format still carries them; `animation`, `skeleton`, `materials`, and
 `live_link` remain `planned` for Unity and Godot. The Unreal descriptor is the
 one exception: its connector additionally promotes `animation` (Gateway-baked
-Sequencer tracks), `skeleton` (skinned-GLB skeletal mesh import), and
-`materials` (PBR material instances) to `native`, each backed by host-free
-golden fixtures in `backend/gateway/tests/dcc/unreal*.test.ts`; Unreal
-`live_link` stays `planned` because no Gateway transport ships yet.
+Sequencer tracks), `skeleton` (skinned-GLB skeletal mesh import), `materials`
+(PBR material instances), and `live_link` (a preview-only loopback camera
+transport with disconnect/reorder/duplicate tests on both the Gateway and the
+connector) to `native`, each backed by host-free golden fixtures in
+`backend/gateway/tests/dcc/unreal*.test.ts`. Unreal `live_link` is a viewport
+preview channel only: the Gateway never applies live frames as project
+mutations, and the durable scene channel remains the hash-verified
+exchange/return package.
 
 Runtime readiness is separate:
 
@@ -275,16 +279,16 @@ The matrix below separates the current Director claim from upstream official
 capability. Upstream support makes an adapter feasible; it does not make the
 Director adapter implemented.
 
-| Provider         | Current Director maturity                          | Preferred portable path | Official automation surface                        | Native/live target                                                 | Priority |
-| ---------------- | -------------------------------------------------- | ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------ | -------- |
-| Blender          | **Implemented native subset**                      | `.blend` + GLB/USDA     | Background CLI and Python API                      | Existing reviewed round trip; interactive live link proposed       | P0       |
-| Autodesk Maya    | **Exchange**                                       | USDA, then GLB          | `mayapy`, `maya.standalone`, Python API 2.0        | Headless export/import plus authenticated in-host connector        | P0       |
-| Unreal Engine    | **Implemented headless connector (scene/cameras/animation/skeleton/materials)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer tracks, timecode, skeletal import, and material instances implemented; Live Link preview still planned | P0       |
-| SideFX Houdini   | **Exchange**                                       | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional         | P1       |
-| Cinema 4D        | **Exchange**                                       | USDA, then GLB          | Python SDK and `c4dpy`                             | Headless bake/export plus authenticated in-host connector          | P1       |
-| Unity            | **Implemented headless connector (scene/cameras)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline shot mapping implemented; preview transport still planned | P2       |
-| Autodesk 3ds Max | **Exchange**                                       | USDA, then GLB          | `3dsmaxbatch`, Python, MAXScript                   | Windows headless adapter and optional in-host plug-in              | P2       |
-| Godot 4          | **Implemented headless connector (scene/cameras)** | GLB                     | `godot --headless`, GDScript editor plug-ins       | Editor addon plus headless round trip; live preview still planned  | P2       |
+| Provider         | Current Director maturity                                                                         | Preferred portable path | Official automation surface                        | Native/live target                                                                                                                   | Priority |
+| ---------------- | ------------------------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| Blender          | **Implemented native subset**                                                                     | `.blend` + GLB/USDA     | Background CLI and Python API                      | Existing reviewed round trip; interactive live link proposed                                                                         | P0       |
+| Autodesk Maya    | **Exchange**                                                                                      | USDA, then GLB          | `mayapy`, `maya.standalone`, Python API 2.0        | Headless export/import plus authenticated in-host connector                                                                          | P0       |
+| Unreal Engine    | **Implemented headless connector (scene/cameras/animation/skeleton/materials/preview live link)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer tracks, timecode, skeletal import, material instances, preview-only live link, and clean-frame render receipts implemented | P0       |
+| SideFX Houdini   | **Exchange**                                                                                      | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional                                                                           | P1       |
+| Cinema 4D        | **Exchange**                                                                                      | USDA, then GLB          | Python SDK and `c4dpy`                             | Headless bake/export plus authenticated in-host connector                                                                            | P1       |
+| Unity            | **Implemented headless connector (scene/cameras)**                                                | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline shot mapping implemented; preview transport still planned                                                                   | P2       |
+| Autodesk 3ds Max | **Exchange**                                                                                      | USDA, then GLB          | `3dsmaxbatch`, Python, MAXScript                   | Windows headless adapter and optional in-host plug-in                                                                                | P2       |
+| Godot 4          | **Implemented headless connector (scene/cameras)**                                                | GLB                     | `godot --headless`, GDScript editor plug-ins       | Editor addon plus headless round trip; live preview still planned                                                                    | P2       |
 
 "Implemented headless connector" means the Director-authored connector performs
 the headless scene/camera import and transform-level return round trip verified
@@ -293,8 +297,9 @@ animation, skeleton, or material transfer; those remain `planned` until
 version-pinned acceptance fixtures pass inside each engine. The Unreal
 connector claims exactly the deeper subset its fixtures verify: Gateway-baked
 transform/camera animation into Sequencer, skinned-GLB skeletal mesh import,
-and PBR material instances — not lossless USD animation, Control Rig transfer,
-or texture translation.
+PBR material instances, a preview-only live-link camera transport, and
+best-effort clean-frame render receipts — not lossless USD animation, Control
+Rig transfer, or texture translation.
 
 The table does not promise complete USD or glTF fidelity. Director only claims the
 subset covered by its schemas, fixtures, validators, and provider acceptance tests.
@@ -376,20 +381,29 @@ Implemented Director boundary (see `integrations/unreal/README.md`):
   skeletal meshes in bind pose and spawn tagged `SkeletalMeshActor`s;
 - Director PBR parameters become Material Instances on Director-authored parent
   materials; unsupported channels warn-and-omit;
+- channels the animation bake cannot carry (Control-Rig-style pose values,
+  motion clips, character rig state) surface as structured
+  `omittedAnimationChannels` records on the send result and in the connector
+  report — never silently flattened;
 - an optional preview-only loopback camera feed (`--mode live-preview`) applies
-  token-gated, sequence-numbered frames to the editor viewport with tested
-  reorder/disconnect semantics — the `live_link` capability stays `planned`
-  because no Gateway transport ships yet;
+  token-gated, sequence-numbered frames to the editor viewport; the Gateway
+  transport (`backend/gateway/dcc/unrealLivePreview.ts`) validates outbound
+  frames, drops stale sequence numbers, and never parses inbound bytes, with
+  disconnect/reorder/duplicate tests on both ends — `live_link` is `native` as
+  a preview channel and never durable scene authority;
+- an optional clean-frame render (`clean_frame: true` on `send_to_engine`)
+  captures one offscreen still through a Director-tagged CineCamera without
+  gizmos or labels and returns a hash-pinned
+  `director-unreal-clean-frame-v1` receipt, degrading to `skipped` with a
+  reason when Unreal cannot render;
 - the connector runs only its fixed entry points from `connector.json`; a
   request can never substitute its own script.
 
 Still planned:
 
-- rig pose and motion-clip transfer (Control Rig channels warn-and-omit today);
+- rig pose and motion-clip transfer (Control Rig channels warn-and-omit with
+  structured records today);
 - texture-file translation (only bundled relative hashed files are considered);
-- a Gateway Live Link transport for camera or pose preview (never durable scene
-  authority);
-- clean-frame render receipts;
 - Remote Control stays optional rather than the security boundary; and
 - `.uasset` files are never parsed or synthesized outside Unreal.
 
@@ -748,11 +762,16 @@ and pass/fail evidence.
   rational rates and SMPTE start timecodes (hash-pinned bake sidecar).
 - ✅ Skinned-GLB skeletal mesh import in bind pose with `director_id` tags.
 - ✅ Director PBR parameters as Material Instances (warn-and-omit for the rest).
-- ✅ Preview-only loopback camera protocol with tested reorder/disconnect
-  semantics (capability stays `planned` until a Gateway transport ships).
-- Add clean-frame render receipts.
-- Promote Live Link once the Gateway transport exists, without making it the
-  durable scene channel.
+- ✅ Preview-only live link: Gateway transport plus connector session with
+  disconnect/reorder/duplicate tests on both ends; `live_link` is `native` as a
+  preview channel and never the durable scene channel.
+- ✅ Clean-frame render receipts (`director-unreal-clean-frame-v1`): optional
+  offscreen still without gizmos or labels, skipped with a reason when Unreal
+  cannot render.
+- ✅ Structured warn-and-omit for Control-Rig-style pose channels
+  (`omittedAnimationChannels` on the send result and connector report).
+- ✅ Linux/Windows/macOS `UnrealEditor-Cmd` probe paths with `Build.version`
+  version detection.
 
 ### Phase 3 — Houdini procedural path
 
