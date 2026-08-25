@@ -450,6 +450,10 @@ export class ProductionRunOrchestrator {
         rejectOnce(signal.reason ?? new DOMException("Aborted", "AbortError"));
       };
       signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
       unsubscribe = this.harness.subscribe(sessionId, (event) => {
         if (event.type !== "turn.completed") return;
         try {
