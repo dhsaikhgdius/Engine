@@ -13,3 +13,4 @@ export * from "./directorDccProviderContract";
 export * from "./directorDccReturnContract";
 export * from "./directorDccSharedContract";
 export * from "./directorUnrealSequencerContract";
+export * from "./directorGodotAnimationContract";

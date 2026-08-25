@@ -457,6 +457,51 @@ function unityEngineProvider(): DirectorDccProviderDescriptor {
 }
 
 /**
+ * Godot 4 descriptor. Split from the shared `engineProvider()` literal because
+ * the Godot connector ships deeper host-side coverage than the shared helper's
+ * conservative claims. Every native claim below is backed by host-free golden
+ * fixtures (`backend/gateway/tests/dcc/godot*.test.ts`) plus a skip-if-missing
+ * real headless roundtrip, and remains gated at runtime by the engine bridge
+ * health check (`nativeReady`: connector source + Godot 4 executable + enabled
+ * addon in the configured project + connector health JSON).
+ */
+const GODOT_PROVIDER_DESCRIPTOR: DirectorDccProviderDescriptor = directorDccProviderDescriptorSchema.parse({
+  id: "godot",
+  label: "Godot",
+  category: "engine",
+  integration: "engine-headless",
+  preferredFormat: "glb",
+  exchangeFormats: ["glb"],
+  capabilities: [
+    // Scene layout and cameras still travel through the portable package;
+    // the connector performs the host-side import but the format carries them.
+    { id: "scene", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+    { id: "camera", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+    // Time-sampled transform and camera-fov animation is baked by the Gateway
+    // (canonical evaluators) into a hash-pinned sidecar and keyed by the
+    // connector into an AnimationPlayer/AnimationLibrary on director_id nodes.
+    // Rig pose channels stay warn-and-omit.
+    { id: "animation", level: "native", layer: "connector" },
+    // Skinned GLB payloads import through GLTFDocument as Skeleton3D + skin in
+    // bind pose with director_id tags; characters without a skeleton
+    // warn-and-omit.
+    { id: "skeleton", level: "native", layer: "connector" },
+    // glTF PBR payload materials become StandardMaterial3D with textures
+    // externalized to hashed res:// resources; Director PBR overrides map onto
+    // StandardMaterial3D. Custom shaders warn-and-omit.
+    { id: "materials", level: "native", layer: "connector" },
+    { id: "stable_ids", level: "native", layer: "director-manifest" },
+    { id: "roundtrip", level: "native", layer: "connector" },
+    { id: "headless", level: "native", layer: "connector" },
+    // No live preview transport ships; any future transport must be outbound
+    // to Director only (never an unauthenticated scripting port) and needs
+    // disconnect tests before this claim moves.
+    { id: "live_link", level: "planned", layer: "connector" },
+  ],
+  connectorDirectory: "integrations/godot",
+});
+
+/**
  * Product capability catalog. Runtime installation state is deliberately kept
  * out of this table and is supplied by the gateway registry.
  */
@@ -487,7 +532,7 @@ export const DIRECTOR_DCC_PROVIDERS: readonly DirectorDccProviderDescriptor[] = 
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
   unityEngineProvider(),
   exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("godot", "Godot", "glb", ["glb"]),
+  GODOT_PROVIDER_DESCRIPTOR,
 ]);
 
 /**

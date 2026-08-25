@@ -21,7 +21,7 @@ Director 使用 manifest-first 的交换契约。每个边界都声明身份、�
 | ASCII STL ZIP    | 导出      | 全部或选中的受支持 Stage 基础体、烘焙世界变换、稳定 ID solid 名、米制/Y-up manifest 与 SHA-256 文件回执  | 不含材质、贴图、层级、相机、灯光、动画或内嵌单位声明；完整解释必须保留 sidecar                    |
 | Blender `.blend` | 导入      | active scene 的 current-frame GLB 快照、选中静态透视相机、源时间审核元数据                               | 无深层可编辑层级、动画播放/时间线映射、实时同步或不可信文件安全处理；Blender 专属语义不支持或有损 |
 | Blender 往返     | 导出/回传 | 经过验证的场景/相机交接、clay 预览、按稳定 ID 回传 mesh/变换                                             | 仅接受 DCC job 根下带 hash 的受限 package；不自动导入 Blender 游离对象、光学与灯光修改            |
-| 引擎交接（Unreal/Unity/Godot） | 发送/回传 | 无头连接器导入场景布局、相机与镜头范围并写入 `director:id`；以 canonical 空间回传变换。Unreal 额外将 Gateway 烘焙的变换/相机动画写入 Sequencer（有理帧率、SMPTE 起始时间码），把带蒙皮 GLB 以绑定姿态导入为骨骼网格，并将 Director PBR 参数应用为材质实例。Unity 额外把 Director 动画烘焙到 Timeline、从蒙皮 GLB 构建 Avatar，并应用 PBR 材质回退与灯光 | 需要用户引擎工程中已安装 Director 官方连接器（`nativeReady`）；对 Godot 不宣称动画、骨骼、材质；任何引擎都不宣称 live link；Unreal 的 Control Rig 姿态、动作片段与贴图以警告省略处理 |
+| 引擎交接（Unreal/Unity/Godot） | 发送/回传 | 无头连接器导入场景布局、相机与镜头范围并写入 `director:id`；以 canonical 空间回传变换。Unreal 额外将 Gateway 烘焙的变换/相机动画写入 Sequencer（有理帧率、SMPTE 起始时间码），把带蒙皮 GLB 以绑定姿态导入为骨骼网格，并将 Director PBR 参数应用为材质实例。Unity 额外把 Director 动画烘焙到 Timeline、从蒙皮 GLB 构建 Avatar，并应用 PBR 材质回退与灯光。Godot 4 额外导入基于有理时基的 Gateway 烘焙 `AnimationPlayer` 动画、绑定姿态的蒙皮 GLB 骨架、带哈希外置纹理的 `StandardMaterial3D` 材质，以及 Omni/Spot/Directional 灯光 | 需要用户引擎工程中已安装 Director 官方连接器（`nativeReady`）；任何引擎都不宣称 live link；Unreal 的 Control Rig 姿态、动作片段与贴图以警告省略处理；Godot 的绑定姿态通道与环境光/面光警告省略 |
 
 编辑器顶部 **Interchange** 菜单是人类入口。Stage OTIO 与 Video 工作区 OTIO 使用不同
 adapter，因为二者保留的 source model 不同。导入必须先校验，再替换或合并状态。

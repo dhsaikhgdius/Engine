@@ -155,8 +155,10 @@ Python bytecode。除非某个制片明确拥有另一条路径，应把项目�
 | `DIRECTOR_GODOT_PROJECT`     | 未设置                                  | 已启用 `director_bridge` 插件的 Godot 工程目录                    |
 
 探测到可执行文件只会使提供商 `installed`，绝不会变成 `nativeReady`。原生引擎操作要求完整健康检查
-通过（连接器文件、带版本探测的可执行文件、已配置工程、工程内已安装连接器）。引擎作业产物在
-`data/dcc-jobs/<provider>/`。
+通过（连接器文件、带版本探测的可执行文件、已配置工程、工程内已安装连接器）。Godot 还额外要求
+`project.godot` 中已启用该插件（`[editor_plugins]`），以及连接器版本与工作区一致的固定入口
+`--mode health` JSON 输出；探测覆盖 macOS、Linux（含 Flatpak 与 Snap）与 Windows 安装位置，
+且仅接受 Godot 4.x。引擎作业产物在 `data/dcc-jobs/<provider>/`。
 
 ## 应用命令
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { DirectorDccEngineId, DirectorDccExchangePackageResult } from "@director/dcc-protocol";
@@ -18,11 +19,45 @@ const repositoryRoot = resolve(__dirname, "..", "..", "..", "..");
 
 const ENGINE_IDS: DirectorDccEngineId[] = ["unreal", "unity", "godot"];
 
+/** Committed connector versions, read from the workspace connector manifests. */
+const CONNECTOR_VERSIONS = Object.fromEntries(
+  ENGINE_IDS.map((provider) => [
+    provider,
+    (
+      JSON.parse(readFileSync(resolve(repositoryRoot, "integrations", provider, "connector.json"), "utf8")) as {
+        version: string;
+      }
+    ).version,
+  ]),
+) as Record<DirectorDccEngineId, string>;
+
 const PROJECT_MARKERS: Record<DirectorDccEngineId, string[]> = {
   unreal: ["Project.uproject"],
   unity: ["ProjectSettings/ProjectVersion.txt"],
   godot: ["project.godot"],
 };
+
+/**
+ * Godot readiness requires the addon to actually be enabled in project.godot,
+ * so the fixture project ships the [editor_plugins] section a user would get
+ * from Project Settings → Plugins.
+ */
+const GODOT_PROJECT_FIXTURE = [
+  "config_version=5",
+  "",
+  "[editor_plugins]",
+  "",
+  'enabled=PackedStringArray("res://addons/director_bridge/plugin.cfg")',
+  "",
+].join("\n");
+
+/** The health JSON line the fake godot executable prints for `--mode health` probes. */
+const GODOT_HEALTH_LINE = JSON.stringify({
+  ok: true,
+  provider: "godot",
+  hostVersion: "Godot 4.3.2.stable",
+  connectorVersion: CONNECTOR_VERSIONS.godot,
+});
 
 const INSTALLED_CONNECTOR_FILES: Record<DirectorDccEngineId, string[]> = {
   unreal: [
@@ -38,12 +73,16 @@ async function temporaryEngineSetup(provider: DirectorDccEngineId, options: { in
   const dataDirectory = resolve(root, "data");
   const executable = resolve(root, "bin", provider);
   await mkdir(dirname(executable), { recursive: true });
-  await writeFile(executable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  // The fake godot binary answers the fixed-entry health probe with a valid
+  // JSON line, exercising the real probe parser end to end.
+  const executableBody =
+    provider === "godot" ? `#!/bin/sh\necho '${GODOT_HEALTH_LINE}'\nexit 0\n` : "#!/bin/sh\nexit 0\n";
+  await writeFile(executable, executableBody, { mode: 0o755 });
   const projectDirectory = resolve(root, "project");
   for (const marker of PROJECT_MARKERS[provider]) {
     const markerPath = resolve(projectDirectory, marker);
     await mkdir(dirname(markerPath), { recursive: true });
-    await writeFile(markerPath, "fixture", "utf8");
+    await writeFile(markerPath, marker === "project.godot" ? GODOT_PROJECT_FIXTURE : "fixture", "utf8");
   }
   if (options.installConnector !== false) {
     for (const connectorFile of INSTALLED_CONNECTOR_FILES[provider]) {
@@ -122,11 +161,7 @@ describe("DirectorDccEngineBridge", () => {
       const health = await bridge.health(provider);
       expect(health.ready).toBe(true);
       expect(health.hostVersion).toBe(`${provider} 9.9 fixture`);
-      // Each connector owns its version; read it from the committed manifest.
-      const manifest = JSON.parse(
-        await readFile(resolve(repositoryRoot, "integrations", provider, "connector.json"), "utf8"),
-      ) as { version: string };
-      expect(health.connectorVersion).toBe(manifest.version);
+      expect(health.connectorVersion).toBe(CONNECTOR_VERSIONS[provider]);
       expect(health.connectorVersion).toMatch(/^\d+\.\d+\.\d+$/);
       expect((await bridge.diagnostics(provider)).mode).toBe("native");
     },
@@ -185,8 +220,13 @@ describe("DirectorDccEngineBridge", () => {
       const exportPackage = vi.fn().mockResolvedValue(fakeExchangeResult(provider, packageDirectory, jobId, REVISION));
       const observedArguments: string[][] = [];
       const runProcess = vi.fn(async (executable: string, args: string[]) => {
-        observedArguments.push(args);
         expect(executable).toBe(setup.executable);
+        // Godot health() runs the fixed-entry health probe through the same
+        // process runner before any job starts.
+        if (args.includes("--mode") && args.includes("health")) {
+          return { stdout: `${GODOT_HEALTH_LINE}\n`, stderr: "" };
+        }
+        observedArguments.push(args);
         const reportPath = args
           .flatMap((argument) => argument.split(/\s+/))
           .map((token) => token.replaceAll('"', ""))
@@ -243,6 +283,9 @@ describe("DirectorDccEngineBridge", () => {
     const exportPackage = vi.fn().mockResolvedValue(fakeExchangeResult("godot", packageDirectory, jobId, REVISION));
     let reportBody: Record<string, unknown> = { ok: false, error: "fixture connector failure" };
     const runProcess = vi.fn(async (_executable: string, args: string[]) => {
+      if (args.includes("--mode") && args.includes("health")) {
+        return { stdout: `${GODOT_HEALTH_LINE}\n`, stderr: "" };
+      }
       const reportPath = args.find((argument) => argument.endsWith("report.json"))!;
       await mkdir(dirname(reportPath), { recursive: true });
       await writeFile(reportPath, JSON.stringify(reportBody), "utf8");
