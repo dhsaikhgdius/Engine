@@ -705,7 +705,7 @@ function focusedEvidence(scene: BlenderLiveSceneSnapshot, dirtyObjectIds: string
   });
 }
 
-function nativeRequest(input: Exclude<BlenderNativeToolRequest, { op: "status" | "scene" }>): {
+function nativeRequest(input: Exclude<BlenderNativeToolRequest, { op: "status" | "scene" | "live_link" }>): {
   operations: BlenderLiveOperation[];
   expectedSceneEpoch?: string;
   expectedRevision?: number;
@@ -798,7 +798,7 @@ function nativeRequest(input: Exclude<BlenderNativeToolRequest, { op: "status" |
  * containing only the objects, cameras, and lights that changed.
  *
  * @param session - The Blender native session client.
- * @param input - The tool request (status, scene, catalog, describe, inspect, capture, capture_render, query, or apply).
+ * @param input - The tool request (status, scene, catalog, describe, inspect, capture, capture_render, query, live_link, or apply).
  * @returns A typed result depending on the operation kind.
  * @throws {BlenderNativeSessionError} On contract mismatch, timeout, or native failure.
  */
@@ -808,6 +808,16 @@ export async function executeBlenderNativeTool(
 ) {
   if (input.op === "status") return session.status();
   if (input.op === "scene") return session.snapshot();
+  if (input.op === "live_link") {
+    // Preview-only delta feed: served straight from the kernel buffer and
+    // never authoritative. Consumers resync from `scene` on epoch changes,
+    // gaps, or evicted history.
+    return session.liveLink(
+      input.sceneEpoch !== undefined && input.since !== undefined
+        ? { sceneEpoch: input.sceneEpoch, since: input.since }
+        : undefined,
+    );
+  }
   if (input.op === "describe" && input.target) {
     const described = describeBlenderNativeTarget(input.target);
     if (!described.success) {

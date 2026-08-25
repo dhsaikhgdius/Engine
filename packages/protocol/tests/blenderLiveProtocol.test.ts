@@ -835,6 +835,7 @@ describe("Blender live contract", () => {
       "capture",
       "capture_render",
       "query",
+      "live_link",
       "polyhaven_search",
       "sketchfab_search",
     ]);

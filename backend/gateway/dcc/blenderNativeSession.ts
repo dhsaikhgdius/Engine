@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  blenderLiveLinkPollSchema,
+  type BlenderLiveLinkPoll,
+} from "../../../packages/protocol/src/blenderLiveLinkProtocol";
+import {
   blenderLiveCommandBatchSchema,
   blenderLiveHealthSchema,
   blenderLiveJobAcceptedSchema,
@@ -22,6 +26,10 @@ const DEFAULT_TIMEOUT_MS = 4_000;
 const SNAPSHOT_TIMEOUT_MS = 30_000;
 const jobIdSchema = z.string().uuid();
 const previewSceneEpochSchema = z.string().uuid();
+const liveLinkCursorSchema = z.strictObject({
+  sceneEpoch: z.string().uuid(),
+  since: z.number().int().nonnegative(),
+});
 
 /** A binary GLB scene preview streamed from the native session. */
 export interface BlenderNativePreviewGlb {
@@ -49,6 +57,13 @@ export interface BlenderNativeSession {
   job(jobId: string, options?: { consume?: boolean }): Promise<BlenderLiveJob>;
   /** Download a binary GLB scene preview for a completed export job. */
   previewGlb(jobId: string, options?: { consume?: boolean }): Promise<BlenderNativePreviewGlb>;
+  /**
+   * Poll the preview-only live-link delta feed. Without a cursor the kernel
+   * answers with a resync directive; with `(sceneEpoch, since)` it serves the
+   * contiguous frames after that sequence number or an explicit resync.
+   * Live-link frames are never authoritative and never author into Director.
+   */
+  liveLink(cursor?: { sceneEpoch: string; since: number }): Promise<BlenderLiveLinkPoll>;
 }
 
 /** Options for creating a Blender native session client. */
@@ -309,6 +324,15 @@ export function createBlenderNativeSession(
       const jobId = jobIdSchema.parse(input);
       const consume = previewOptions?.consume ? "?consume=1" : "";
       return requestBinaryPreview(`/v1/previews/${encodeURIComponent(jobId)}.glb${consume}`);
+    },
+    liveLink(cursorInput) {
+      const query = cursorInput
+        ? (() => {
+            const cursor = liveLinkCursorSchema.parse(cursorInput);
+            return `?epoch=${encodeURIComponent(cursor.sceneEpoch)}&since=${cursor.since}`;
+          })()
+        : "";
+      return request(`/v1/live-link${query}`, blenderLiveLinkPollSchema);
     },
   };
 }
