@@ -559,12 +559,22 @@ function runProcess(
     };
     let child;
     try {
-      child = spawn(command, args, {
-        cwd: root,
-        env: process.env,
-        stdio: [stdinInput === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-        detached: SPAWN_IN_OWN_PROCESS_GROUP,
-      });
+      // Two literal stdio tuples keep the ChildProcessByStdio overloads, so
+      // stdout/stderr stay typed as non-null streams in both branches.
+      child =
+        stdinInput === undefined
+          ? spawn(command, args, {
+              cwd: root,
+              env: process.env,
+              stdio: ["ignore", "pipe", "pipe"],
+              detached: SPAWN_IN_OWN_PROCESS_GROUP,
+            })
+          : spawn(command, args, {
+              cwd: root,
+              env: process.env,
+              stdio: ["pipe", "pipe", "pipe"],
+              detached: SPAWN_IN_OWN_PROCESS_GROUP,
+            });
     } catch (error) {
       finish({ output: "", error: error instanceof Error ? error.message : String(error) });
       return;
