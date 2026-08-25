@@ -3,7 +3,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- plain .mjs module without type declarations.
-import { checkI18nCompleteness, compilePhraseRules, extractChineseUiStrings, isTranslated } from "./i18n-completeness.mjs";
+import {
+  checkI18nCompleteness,
+  compilePhraseRules,
+  extractChineseUiStrings,
+  isTranslated,
+} from "./i18n-completeness.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 

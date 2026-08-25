@@ -48,6 +48,7 @@ export default tseslint.config(
             "tools/scripts/assetIngestGates.ts",
             "tools/scripts/assetIngestGates.test.ts",
             "tools/scripts/generate-flick-metadata.test.ts",
+            "tools/scripts/i18n-completeness.test.ts",
           ],
         },
         sourceType: "module",

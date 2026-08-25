@@ -92,7 +92,9 @@ export function isTranslated(source, translations, phraseRules) {
  */
 export function checkI18nCompleteness(root) {
   const translations = JSON.parse(readFileSync(join(root, I18N_DIRECTORY, "en-US.json"), "utf8"));
-  const phraseRules = compilePhraseRules(JSON.parse(readFileSync(join(root, I18N_DIRECTORY, "phraseRules.json"), "utf8")));
+  const phraseRules = compilePhraseRules(
+    JSON.parse(readFileSync(join(root, I18N_DIRECTORY, "phraseRules.json"), "utf8")),
+  );
   const baseline = new Set(JSON.parse(readFileSync(join(root, BASELINE_RELATIVE_PATH), "utf8")));
 
   const filesByString = new Map();
@@ -125,7 +127,8 @@ export function checkI18nCompleteness(root) {
     if (!present.has(entry)) failures.push(`baseline entry no longer in source (remove it): "${entry}"`);
   }
   for (const [key, value] of Object.entries(translations)) {
-    if (typeof value !== "string" || value.trim() === "") failures.push(`en-US.json has an empty translation for "${key}"`);
+    if (typeof value !== "string" || value.trim() === "")
+      failures.push(`en-US.json has an empty translation for "${key}"`);
   }
 
   return {

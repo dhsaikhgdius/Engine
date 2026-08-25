@@ -8,8 +8,7 @@ import { FIXTURE_PNG_NAME, FIXTURE_PNG_PATH, prepareCleanStorage } from "./helpe
  */
 
 const mediaBrowser = (page: Page) => page.locator("section.creative-media-browser");
-const mediaCard = (page: Page) =>
-  mediaBrowser(page).getByRole("listitem").filter({ hasText: FIXTURE_PNG_NAME });
+const mediaCard = (page: Page) => mediaBrowser(page).getByRole("listitem").filter({ hasText: FIXTURE_PNG_NAME });
 
 async function openCanvasWithFixture(page: Page) {
   await prepareCleanStorage(page);
