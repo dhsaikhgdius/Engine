@@ -1357,10 +1357,6 @@ describe("Director workbench executor", () => {
   });
 
   it("applies a validated project patch as an undoable edit", () => {
-    executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
-      op: "author",
-      actions: [assetInstanceActions("agent-box", "Agent Box")[0]!],
-    });
     const execution = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "patch",
       patches: [
