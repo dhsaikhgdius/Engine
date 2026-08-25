@@ -29,6 +29,7 @@ export * from "./mediaTranscriptionProtocol";
 export * from "./primitives";
 export * from "./productionArtifactProtocol";
 export * from "./productionJobProtocol";
+export * from "./productionJobReceipt";
 export * from "./referenceSceneReconstructionProtocol";
 export * from "./stableJson";
 export * from "./stageProtocol";
