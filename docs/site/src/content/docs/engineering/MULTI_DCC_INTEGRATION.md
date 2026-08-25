@@ -24,8 +24,10 @@ the following status vocabulary:
 
 At the time of writing:
 
-- **Blender** is the implemented native DCC round trip (live kernel, `.blend`
-  import, and reviewed return packages).
+- **Blender** is the implemented native DCC round trip: live kernel, `.blend`
+  import, reviewed return packages (meshes, transforms, camera optics,
+  `director_id` lights, and portable character pose controls), and a bounded
+  preview-only live-link delta feed that is never authoritative.
 - **Unreal Engine, Unity, and Godot 4** have implemented Director-authored
   **engine-headless connectors**: the Gateway can run a fixed connector entry
   point inside the user's engine installation to import the exchange package
@@ -277,7 +279,7 @@ Director adapter implemented.
 
 | Provider         | Current Director maturity                          | Preferred portable path | Official automation surface                        | Native/live target                                                 | Priority |
 | ---------------- | -------------------------------------------------- | ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------ | -------- |
-| Blender          | **Implemented native subset**                      | `.blend` + GLB/USDA     | Background CLI and Python API                      | Existing reviewed round trip; interactive live link proposed       | P0       |
+| Blender          | **Implemented native subset**                      | `.blend` + GLB/USDA     | Background CLI and Python API                      | Reviewed round trip plus preview-only live-link delta feed         | P0       |
 | Autodesk Maya    | **Exchange**                                       | USDA, then GLB          | `mayapy`, `maya.standalone`, Python API 2.0        | Headless export/import plus authenticated in-host connector        | P0       |
 | Unreal Engine    | **Implemented headless connector (scene/cameras/animation/skeleton/materials)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer tracks, timecode, skeletal import, and material instances implemented; Live Link preview still planned | P0       |
 | SideFX Houdini   | **Exchange**                                       | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional         | P1       |

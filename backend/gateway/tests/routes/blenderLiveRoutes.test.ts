@@ -34,6 +34,7 @@ function harness(payload: unknown = null, jobResult?: unknown) {
       revision: 3,
       busy: false,
     }),
+    liveLink: vi.fn(),
     snapshot: vi.fn().mockResolvedValue({
       contract: BLENDER_LIVE_CONTRACT,
       sceneEpoch,

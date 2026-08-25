@@ -9,10 +9,7 @@ import {
   type DirectorDccScenePackage,
   type DirectorDccAssetResolution,
 } from "@director/dcc-protocol";
-import type {
-  DirectorAssetRef,
-  DirectorProject,
-} from "@director/project-schema";
+import type { DirectorAssetRef, DirectorProject } from "@director/project-schema";
 import { prepareGltfForBlender } from "./gltfPrepare";
 
 const blenderReportSchema = z.strictObject({
@@ -23,6 +20,8 @@ const blenderReportSchema = z.strictObject({
   previewPath: z.string().nullable(),
   objectCount: z.number().int().nonnegative(),
   cameraCount: z.number().int().nonnegative(),
+  /** Optional: reports from bridge scripts predating light export omit it. */
+  lightCount: z.number().int().nonnegative().optional(),
   warnings: z.array(z.string()),
   blenderVersion: z.string(),
 });
@@ -73,6 +72,8 @@ export interface BlenderExportResult {
   objectCount: number;
   /** Number of exported cameras. */
   cameraCount: number;
+  /** Number of Director lights created as Blender light objects. */
+  lightCount: number;
   /** Non-fatal warnings from the Blender bridge. */
   warnings: string[];
   /** The Blender version used for the export. */
@@ -435,6 +436,7 @@ export function createBlenderBridge(options: CreateBlenderBridgeOptions): Blende
         sourceRevision: scenePackage.sourceRevision,
         objectCount: report.objectCount,
         cameraCount: report.cameraCount,
+        lightCount: report.lightCount ?? 0,
         warnings: report.warnings,
         blenderVersion: report.blenderVersion,
         stdout: reportStdout(processResult.stdout),

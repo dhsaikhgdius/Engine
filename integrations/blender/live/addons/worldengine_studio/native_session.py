@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 import bpy
 from bpy.app.handlers import persistent
 
+from .live_link import LiveLinkBuffer
 from .live_protocol import (
     CONTRACT as LIVE_CONTRACT,
     LiveProtocolError,
@@ -78,6 +79,9 @@ _session_revision: int | None = None
 # revision so clients always fall back to a full preview reload.
 _content_revision: int | None = None
 _scene_epoch = str(uuid.uuid4())
+# Preview-only live-link delta feed. Frames are never authoritative: dropping
+# the link or evicting history only forces consumers back to the snapshot.
+_live_link = LiveLinkBuffer()
 
 
 class IntentConflictError(ValueError):
@@ -714,6 +718,7 @@ def set_snapshot(snapshot: dict[str, Any]) -> None:
     with _state_lock:
         _snapshot = _stamp_scene_epoch(snapshot)
         _published_mode = _interaction_mode()
+        _live_link.publish(_scene_epoch, _snapshot)
 
 
 def current_snapshot() -> dict[str, Any] | None:
@@ -823,6 +828,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
             snapshot = current_snapshot() or {}
             revision = int(snapshot.get("revision", 0))
+            with _state_lock:
+                live_link_state = _live_link.state()
             self._send(200, {
                 "ok": True,
                 "contract": LIVE_CONTRACT,
@@ -832,11 +839,32 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 "revision": revision,
                 "contentRevision": int(snapshot.get("contentRevision", revision)),
                 "busy": _applying_command or not _pending.empty() or has_pending_save(),
+                "liveLink": live_link_state,
             })
             return
         if path == "/v1/scene":
             snapshot = current_snapshot()
             self._send(200 if snapshot is not None else 404, snapshot or {"error": "Scene snapshot unavailable"})
+            return
+        if path == "/v1/live-link":
+            query = parse_qs(parsed_url.query)
+            requested_epoch = (query.get("epoch") or [None])[0]
+            raw_since = (query.get("since") or [None])[0]
+            since: int | None = None
+            if raw_since is not None:
+                try:
+                    since = int(raw_since)
+                except ValueError:
+                    self._send(400, {"success": False, "error": "since must be an integer sequence number"})
+                    return
+                if since < 0:
+                    self._send(400, {"success": False, "error": "since must be a non-negative sequence number"})
+                    return
+            with _state_lock:
+                if _live_link.epoch != _scene_epoch:
+                    _live_link.reset(_scene_epoch)
+                payload = _live_link.poll(requested_epoch, since)
+            self._send(200, payload)
             return
         job_prefix = "/v1/jobs/"
         if path.startswith(job_prefix):
@@ -1024,6 +1052,7 @@ def _reset_session_state() -> None:
         _detached_payload_order.clear()
         _snapshot = None
         _scene_epoch = str(uuid.uuid4())
+        _live_link.reset(_scene_epoch)
     while True:
         try:
             _pending.get_nowait()

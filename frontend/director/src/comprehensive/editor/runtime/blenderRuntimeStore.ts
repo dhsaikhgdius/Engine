@@ -42,7 +42,11 @@ function sameStatus(left: BlenderLiveStatus | null, right: BlenderLiveStatus) {
     left.revision === right.revision &&
     left.contentRevision === right.contentRevision &&
     left.busy === right.busy &&
-    left.blenderVersion === right.blenderVersion
+    left.blenderVersion === right.blenderVersion &&
+    // The preview-only live-link feed advances independently of the revision,
+    // so a stale-looking status can still carry a newer live-link sequence.
+    left.liveLink?.seq === right.liveLink?.seq &&
+    left.liveLink?.bufferedFrames === right.liveLink?.bufferedFrames
   );
 }
 

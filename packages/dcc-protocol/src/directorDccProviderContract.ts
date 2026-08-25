@@ -477,7 +477,11 @@ export const DIRECTOR_DCC_PROVIDERS: readonly DirectorDccProviderDescriptor[] = 
       { id: "stable_ids", level: "native", layer: "director-manifest" },
       { id: "roundtrip", level: "native", layer: "connector" },
       { id: "headless", level: "native", layer: "connector" },
-      { id: "live_link", level: "planned", layer: "connector" },
+      // Preview-only delta feed from the native live kernel (sequence numbers,
+      // replay protection, resync on epoch change/eviction). Never
+      // authoritative: committed Director state only changes through the
+      // revision-guarded live command batches or the reviewed return import.
+      { id: "live_link", level: "native", layer: "connector" },
     ],
     connectorDirectory: "integrations/blender",
   }),

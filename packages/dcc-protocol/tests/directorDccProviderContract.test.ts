@@ -71,6 +71,14 @@ describe("Director DCC provider contract", () => {
       preferredFormat: "blend",
       category: "dcc",
     });
+    // Blender live_link is a preview-only delta feed backed by host-free
+    // protocol tests and the live kernel /health liveLink stanza. It stays a
+    // connector capability and must never become an exchange claim.
+    const blenderCapabilities = new Map(
+      getDirectorDccProviderDescriptor("blender").capabilities.map((capability) => [capability.id, capability]),
+    );
+    expect(blenderCapabilities.get("live_link")).toEqual({ id: "live_link", level: "native", layer: "connector" });
+    expect(blenderCapabilities.get("roundtrip")).toEqual({ id: "roundtrip", level: "native", layer: "connector" });
     expect(getDirectorDccProviderDescriptor("unreal")).toMatchObject({
       integration: "engine-headless",
       preferredFormat: "usda",
