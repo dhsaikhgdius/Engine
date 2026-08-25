@@ -11,6 +11,7 @@ behavior.
 | [ADR 0001: ProductionGraph](/engineering/adr/0001-production-graph/)              | Proposed | Add an identity/lineage graph above existing editor models.                  |
 | [ADR 0002: durable ProductionJob](/engineering/adr/0002-durable-production-jobs/) | Proposed | Use one durable job state machine for external and heavy work.               |
 | [ADR 0003: import/export receipts](/engineering/adr/0003-import-export-receipts/) | Proposed | Split interchange into reviewable plans/manifests and commit/write receipts. |
+| [ADR 0004: A2A gateway spike](/engineering/adr/0004-a2a-gateway-spike/)           | Rejected | No live A2A runtime; serve a discovery-only agent card that points at MCP and the HTTP tool manifest. |
 
 ## ADR lifecycle
 
