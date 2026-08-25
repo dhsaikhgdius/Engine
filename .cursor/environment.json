@@ -1,4 +1,20 @@
 {
+<<<<<<< Updated upstream
   "install": "git submodule update --init --depth 1 vendor/deepseek-harness\nnpm ci\nnpx playwright install chromium",
   "start": "echo \"Director cloud env ready: Node $(node -v), npm $(npm -v)\""
+=======
+  "install": "git submodule update --init --depth 1 vendor/deepseek-harness\nnpm ci",
+  "start": "echo \"Director cloud env ready: Node $(node -v), npm $(npm -v)\"",
+  "terminals": [
+    {
+      "name": "director-dev",
+      "command": "npm run dev",
+      "description": "Director Gateway (:8787) and Vite UI (:5175). Both bind 127.0.0.1; Cursor forwards them to the local machine."
+    }
+  ],
+  "ports": [
+    { "name": "Director UI", "port": 5175 },
+    { "name": "Director Gateway", "port": 8787 }
+  ]
+>>>>>>> Stashed changes
 }
