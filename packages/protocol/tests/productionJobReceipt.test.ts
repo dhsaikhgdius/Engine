@@ -75,8 +75,9 @@ describe("projectProductionJobReceipt", () => {
         artifacts: [],
       });
       expect(Object.keys(receipt).sort()).toEqual(
-        Object.keys(projectProductionJobReceipt(queuedJob("image.generate", { prompt: "x" } as ProductionJobInput)))
-          .sort(),
+        Object.keys(
+          projectProductionJobReceipt(queuedJob("image.generate", { prompt: "x" } as ProductionJobInput)),
+        ).sort(),
       );
       expect(() => productionJobReceiptSchema.parse(receipt)).not.toThrow();
     }
@@ -147,9 +148,9 @@ describe("projectProductionJobReceipt", () => {
       queuedJob("image.generate", { prompt: "Guarded" } as ProductionJobInput, "job-guarded"),
     );
     expect(() => productionJobReceiptSchema.parse({ ...receipt, terminal: true })).toThrow(/terminal/);
-    expect(() =>
-      productionJobReceiptSchema.parse({ ...receipt, attempt: { ...receipt.attempt, number: 5 } }),
-    ).toThrow(/latest attempt/);
+    expect(() => productionJobReceiptSchema.parse({ ...receipt, attempt: { ...receipt.attempt, number: 5 } })).toThrow(
+      /latest attempt/,
+    );
     expect(() => productionJobReceiptSchema.parse({ ...receipt, primaryArtifactId: "missing" })).toThrow(
       /primaryArtifactId/,
     );

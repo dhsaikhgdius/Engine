@@ -50,7 +50,6 @@ export interface ArtifactStorageBackend {
  */
 export function assertArtifactStorageKey(key: string): string {
   if (!key || key.length > 1024) throw new TypeError("Artifact storage key must be 1-1024 characters");
-  // eslint-disable-next-line no-control-regex
   if (/[\\\u0000-\u001f]/.test(key)) throw new TypeError("Artifact storage key contains unsafe characters");
   if (key.startsWith("/") || key.endsWith("/")) throw new TypeError("Artifact storage key must be a relative path");
   for (const segment of key.split("/")) {

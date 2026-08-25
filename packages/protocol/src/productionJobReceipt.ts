@@ -103,11 +103,7 @@ export type ProductionJobReceipt = z.infer<typeof productionJobReceiptSchema>;
  */
 export function projectProductionJobReceipt(job: ProductionJobRecord): ProductionJobReceipt {
   const current = job.attempts.at(-1)!;
-  const error =
-    current.error ??
-    (job.error
-      ? { code: "job_error", message: job.error, retryable: false }
-      : undefined);
+  const error = current.error ?? (job.error ? { code: "job_error", message: job.error, retryable: false } : undefined);
   return productionJobReceiptSchema.parse({
     contract: PRODUCTION_JOB_RECEIPT_CONTRACT,
     jobId: job.id,

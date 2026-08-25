@@ -3,10 +3,7 @@ import {
   type ProductionArtifactVersion,
   type ProductionArtifactVersionInput,
 } from "../../../packages/protocol/src/productionArtifactProtocol";
-import type {
-  ProductionJobArtifact,
-  ProductionJobRecord,
-} from "../../../packages/protocol/src/productionJobProtocol";
+import type { ProductionJobArtifact, ProductionJobRecord } from "../../../packages/protocol/src/productionJobProtocol";
 import type { ProductionArtifactStore } from "./productionArtifactStore";
 
 /** Recorded creator id for versions registered through the job bridge. */

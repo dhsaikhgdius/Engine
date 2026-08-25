@@ -222,13 +222,17 @@ describe("production job receipts, artifact-version registration, and dispatch g
       );
     }
     expect(context.writes.every((write) => write.status === 202)).toBe(true);
-    expect(
-      new Set(context.writes.map((write) => (write.body as { job: { id: string } }).job.id)),
-    ).toEqual(new Set(["receipt-route-job"]));
+    expect(new Set(context.writes.map((write) => (write.body as { job: { id: string } }).job.id))).toEqual(
+      new Set(["receipt-route-job"]),
+    );
     expect(executions).toEqual(["receipt-route-job"]);
 
     releaseExecutor();
-    for (let index = 0; index < 50 && (await context.store.get("receipt-route-job"))?.status !== "succeeded"; index += 1) {
+    for (
+      let index = 0;
+      index < 50 && (await context.store.get("receipt-route-job"))?.status !== "succeeded";
+      index += 1
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     expect((await context.store.get("receipt-route-job"))?.status).toBe("succeeded");

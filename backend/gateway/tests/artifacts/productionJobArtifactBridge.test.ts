@@ -8,6 +8,7 @@ import {
   productionJobRecordSchema,
   transitionProductionJob,
   type ProductionJobArtifact,
+  type ProductionJobInput,
   type ProductionJobRecord,
 } from "../../../../packages/protocol/src/productionJobProtocol";
 import {
@@ -34,7 +35,7 @@ function artifact(attemptId: string, ordinal: number, role = "primary"): Product
 }
 
 function succeededJob(): ProductionJobRecord {
-  const input = { prompt: "Bridge test shot" };
+  const input = { prompt: "Bridge test shot" } as ProductionJobInput;
   const fingerprint = hashInputFingerprint("video.generate", input);
   const key = "video.generate:bridge-test";
   const queued = productionJobRecordSchema.parse({
@@ -123,7 +124,7 @@ describe("productionJobArtifactBridge", () => {
   });
 
   it("rejects jobs that are not succeeded", () => {
-    const input = { prompt: "Not done" };
+    const input = { prompt: "Not done" } as ProductionJobInput;
     const fingerprint = hashInputFingerprint("video.generate", input);
     const queued = productionJobRecordSchema.parse({
       contractVersion: PRODUCTION_JOB_CONTRACT_VERSION,
@@ -167,7 +168,7 @@ describe("productionJobArtifactBridge", () => {
 
     // A retried logical job: attempt 1 failed after producing its artifact,
     // attempt 2 succeeded. Both artifacts stay comparable under one artifactId.
-    const input = { prompt: "Retry shot" };
+    const input = { prompt: "Retry shot" } as ProductionJobInput;
     const fingerprint = hashInputFingerprint("video.generate", input);
     const key = "video.generate:retry";
     const attempt1Artifact = artifact("job-retry-attempt-1", 1);

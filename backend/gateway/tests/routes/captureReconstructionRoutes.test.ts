@@ -3,7 +3,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { transitionProductionJob } from "../../../../packages/protocol/src/productionJobProtocol";
+import {
+  transitionProductionJob,
+  type ProductionJobRecord,
+} from "../../../../packages/protocol/src/productionJobProtocol";
 import { ProductionJobStore } from "../../jobs/productionJobStore";
 import {
   handleCaptureReconstructionRoute,
@@ -39,7 +42,7 @@ describe("capture reconstruction routes", () => {
       json: (_response, status, body) => writes.push({ status, body }),
       store,
       executor: {
-        execute: async (job) => {
+        execute: async (job: ProductionJobRecord) => {
           executed.push(job.id);
           return job;
         },

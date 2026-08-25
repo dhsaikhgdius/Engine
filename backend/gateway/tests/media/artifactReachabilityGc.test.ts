@@ -94,7 +94,13 @@ describe("artifactReachabilityGc", () => {
 
   it("keeps job artifacts reachable and staged inputs of non-terminal jobs", () => {
     const jobs = [
-      job("job-done", "succeeded", "media.proxy", { sourceMediaId: `media-input:sha256:${"a".repeat(64)}` } as ProductionJobInput, "proxy.mp4"),
+      job(
+        "job-done",
+        "succeeded",
+        "media.proxy",
+        { sourceMediaId: `media-input:sha256:${"a".repeat(64)}` } as ProductionJobInput,
+        "proxy.mp4",
+      ),
       job("job-active", "outcome_unknown", "media.transcode", {
         sourceMediaId: `media-input:sha256:${STAGED_SHA}`,
         targetMimeType: "video/mp4",
