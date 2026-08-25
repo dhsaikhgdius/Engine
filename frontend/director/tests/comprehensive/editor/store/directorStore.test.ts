@@ -1023,7 +1023,9 @@ it("adds a new camera from the current viewport snapshot", () => {
     target: [0.5, 1.1, -2],
   });
 
-  expect(addedCamera?.fov).toBe(62);
+  // The shared authoring path canonicalizes fov through the focal length
+  // round trip, so the stored value matches the millimetre-rounded optics.
+  expect(addedCamera?.fov).toBeCloseTo(62, 2);
   expect(addedCamera?.transform.position).toEqual(rigPosition);
   expect(addedCamera?.target).toEqual([0.5, 1.1, -2]);
   expect(addedObject?.transform.position).toEqual(rigPosition);
