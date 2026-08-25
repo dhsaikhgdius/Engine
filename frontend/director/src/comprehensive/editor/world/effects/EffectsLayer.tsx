@@ -485,7 +485,10 @@ function WeatherPrecipitation({
     if (nextKind !== kindRef.current) setKindNonce((nonce) => nonce + 1);
   });
 
-  const config = useMemo(() => (kind ? buildClimateWeatherSystemConfig(kind, context.seed) : null), [kind, context.seed]);
+  const config = useMemo(
+    () => (kind ? buildClimateWeatherSystemConfig(kind, context.seed) : null),
+    [kind, context.seed],
+  );
 
   const writeFrameOverrides = useCallback<ParticleFrameWriter>(
     (uniforms, geometry) => {
@@ -585,8 +588,7 @@ function FireCellEmitter({
       sim.stepTo(context.worldSeconds);
       const life = sim.readCellLife(cell.cellIndex);
       // 1.2 s flare-up after ignition; the last quarter of the fuel dies down.
-      const fade =
-        life > 0 ? Math.min(1, sim.readCellAgeSeconds(cell.cellIndex) / 1.2) * Math.min(1, life / 0.25) : 0;
+      const fade = life > 0 ? Math.min(1, sim.readCellAgeSeconds(cell.cellIndex) / 1.2) * Math.min(1, life / 0.25) : 0;
       geometry.instanceCount = Math.round(config.count * fade);
       uniforms.uIntensity.value = config.intensity * fade;
     },
@@ -608,9 +610,7 @@ function FireCellEmitter({
 
 /** Source cells (ignitionTick 0) are already covered by the authored emitter. */
 function selectFireViewCells(sim: FirePropagationSim): FireBurningCell[] {
-  const cells = sim
-    .getBurningCells(FIRE_VIEW_MAX_EMITTERS + 9)
-    .filter((cell) => cell.ignitionTick > 0);
+  const cells = sim.getBurningCells(FIRE_VIEW_MAX_EMITTERS + 9).filter((cell) => cell.ignitionTick > 0);
   if (cells.length > FIRE_VIEW_MAX_EMITTERS) cells.length = FIRE_VIEW_MAX_EMITTERS;
   return cells;
 }
@@ -679,6 +679,18 @@ function FirePropagationSystem({
     </>
   );
 }
+
+function getFireLightEnvironment(effect: DirectorWorldEffect, context: LivingWorldFrameContext): FireLightEnvironment {
+  return {
+    burnFactor: evaluateFireBurnFactor(
+      context.climate.weather,
+      getEffectSystemSeedHash(context.seed, effect.seedOffset, effect.id),
+      context.worldSeconds,
+    ),
+    windSpeedMps: Math.hypot(context.windVector[0], context.windVector[2]),
+  };
+}
+
 function FireEffectLight({
   castShadow,
   context,

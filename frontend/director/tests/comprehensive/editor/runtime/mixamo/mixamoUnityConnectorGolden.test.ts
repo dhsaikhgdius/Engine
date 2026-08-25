@@ -44,6 +44,16 @@ function expectVectorClose(actual: readonly number[], expected: readonly number[
   actual.forEach((value, index) => expect(value).toBeCloseTo(expected[index]!, 9));
 }
 
+function expectBoneClose(
+  rotations: ReturnType<typeof getMixamoPoseBoneRotations>,
+  role: keyof ReturnType<typeof getMixamoPoseBoneRotations>,
+  expected: readonly number[],
+) {
+  const actual = rotations[role];
+  expect(actual).toBeDefined();
+  expectVectorClose(actual!, expected);
+}
+
 describe("Mixamo pose golden values for the Unity connector port", () => {
   it("pins the bone role alias table the C# port hard-codes", () => {
     expect(MIXAMO_BONE_ROLE_ALIASES).toEqual({
@@ -67,36 +77,36 @@ describe("Mixamo pose golden values for the Unity connector port", () => {
 
   it("pins the static pose bone rotation golden table (default body)", () => {
     const rotations = getMixamoPoseBoneRotations(GOLDEN_CONTROLS, undefined, false);
-    expectVectorClose(rotations.body, [0.174532925199, -0.349065850399, 0]);
-    expectVectorClose(rotations.torso, [0, 0, 0.261799387799]);
-    expectVectorClose(rotations.head, [-0.436332312999, 0, 0]);
+    expectBoneClose(rotations, "body", [0.174532925199, -0.349065850399, 0]);
+    expectBoneClose(rotations, "torso", [0, 0, 0.261799387799]);
+    expectBoneClose(rotations, "head", [-0.436332312999, 0, 0]);
     // 70° neutral stance + 40° spread; pitch clamps -130° to -120°.
-    expectVectorClose(rotations.leftShoulder, [1.919862177194, 0.174532925199, -2.094395102393]);
-    expectVectorClose(rotations.rightShoulder, [0.785398163397, 0, -0.785398163397]);
+    expectBoneClose(rotations, "leftShoulder", [1.919862177194, 0.174532925199, -2.094395102393]);
+    expectBoneClose(rotations, "rightShoulder", [0.785398163397, 0, -0.785398163397]);
     // Elbow bend clamps 160° to 150°.
-    expectVectorClose(rotations.leftElbow, [0, 0, 2.617993877991]);
-    expectVectorClose(rotations.rightElbow, [0, 0, -0.523598775598]);
-    expectVectorClose(rotations.leftHand, [0, 0, 0.261799387799]);
-    expectVectorClose(rotations.rightHand, [0, 0, 0]);
-    expectVectorClose(rotations.leftHip, [-0.523598775598, 0, -0.209439510239]);
-    expectVectorClose(rotations.rightHip, [0, -0.314159265359, 0]);
-    expectVectorClose(rotations.leftKnee, [-1.047197551197, 0, 0]);
-    expectVectorClose(rotations.rightKnee, [-0.785398163397, 0, 0]);
-    expectVectorClose(rotations.leftFoot, [-0.349065850399, 0, 0]);
-    expectVectorClose(rotations.rightFoot, [0, 0, 0.174532925199]);
+    expectBoneClose(rotations, "leftElbow", [0, 0, 2.617993877991]);
+    expectBoneClose(rotations, "rightElbow", [0, 0, -0.523598775598]);
+    expectBoneClose(rotations, "leftHand", [0, 0, 0.261799387799]);
+    expectBoneClose(rotations, "rightHand", [0, 0, 0]);
+    expectBoneClose(rotations, "leftHip", [-0.523598775598, 0, -0.209439510239]);
+    expectBoneClose(rotations, "rightHip", [0, -0.314159265359, 0]);
+    expectBoneClose(rotations, "leftKnee", [-1.047197551197, 0, 0]);
+    expectBoneClose(rotations, "rightKnee", [-0.785398163397, 0, 0]);
+    expectBoneClose(rotations, "leftFoot", [-0.349065850399, 0, 0]);
+    expectBoneClose(rotations, "rightFoot", [0, 0, 0.174532925199]);
   });
 
   it("pins the animated shoulder rotations (neutral stance skipped)", () => {
     const rotations = getMixamoPoseBoneRotations(GOLDEN_CONTROLS, undefined, true);
-    expectVectorClose(rotations.leftShoulder, [0.698131700798, 0.174532925199, -2.094395102393]);
-    expectVectorClose(rotations.rightShoulder, [-0.436332312999, 0, -0.785398163397]);
+    expectBoneClose(rotations, "leftShoulder", [0.698131700798, 0.174532925199, -2.094395102393]);
+    expectBoneClose(rotations, "rightShoulder", [-0.436332312999, 0, -0.785398163397]);
   });
 
   it("pins the child body-scale clamping golden values", () => {
     const rotations = getMixamoPoseBoneRotations(GOLDEN_CONTROLS, "child", false);
     // Shoulder pitch clamps to ±96° and elbow bend to 120° at 72/90 scale.
-    expectVectorClose(rotations.leftShoulder, [1.919862177194, 0.174532925199, -1.675516081915]);
-    expectVectorClose(rotations.leftElbow, [0, 0, 2.094395102393]);
+    expectBoneClose(rotations, "leftShoulder", [1.919862177194, 0.174532925199, -1.675516081915]);
+    expectBoneClose(rotations, "leftElbow", [0, 0, 2.094395102393]);
   });
 
   it("pins the glTF-to-Unity bone-local quaternion conjugation goldens", () => {
