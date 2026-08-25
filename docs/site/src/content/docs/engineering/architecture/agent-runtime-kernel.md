@@ -4,63 +4,76 @@ title: Agent runtime kernel
 
 ## Status
 
-Implemented. Director owns one Agent runtime kernel in the TypeScript Gateway. Provider bridges may translate external protocols, but they do not own separate session state, queues, or Director tool policy.
+Superseded by the DeepSeek Harness cutover (2026-08-17). Director no longer hosts an in-tree
+Agent run loop. Agent sessions, the tool loop, prompt assembly, session persistence, and the
+generic workspace (`read` / `write` / `edit` / `glob` / `grep` / `bash` / `todo_write`), web
+(`web_search` / `web_fetch`), job, and subagent tools all come from the official DeepSeek Harness
+submodule (`vendor/deepseek-harness`), launched with `npm run dsh` on `http://127.0.0.1:3080`.
+
+Director-specific Stage, Canvas, Video Editor, and Blender tools are contributed to DSH by the
+Cordis plugin in `packages/dsh-plugin-workbench`. Each plugin tool POSTs to the running Gateway's
+`POST /api/tools/:name` surface. MCP clients (`backend/gateway/mcp-server.ts`) and the Stage CLI
+(`tools/scripts/stage-cli.mjs`) call that same HTTP surface. Do not re-add an in-tree tool loop,
+session store fork, or hosted copies of DSH workspace/web/job tools.
 
 ## Runtime flow
 
 ```text
-AgentSessionStore
-  → shared session projection
-  → durable inbox
-  → AgentHarness owned run
-  → provider bridge
-  → canonical tool registry and execution pipeline
+DeepSeek Harness session (vendor/deepseek-harness, npm run dsh)
+  → @director/dsh-plugin-workbench tool call
+  → Gateway POST /api/tools/*  (routes/stageRoutes.ts)
   → process-wide exact-target scheduler
   → Director project or Blender native scene
 ```
 
-The durable event stream is the lifecycle source of truth. `agent_sessions` is a materialized projection updated in the same transaction as each event. The browser applies the same reducer from `@director/agent-engine/session-projection`; it does not maintain a second lifecycle state machine.
+MCP and CLI clients skip the harness and enter directly at `POST /api/tools/*`.
 
-## Invariants
+## What the Gateway still owns
 
-1. A retained session keeps its complete ordered event stream. Session-level retention may remove an expired session and its owned rows, but individual event appends never trim earlier events.
-2. Queue payload changes and `queue.updated` events commit together. Work left running by a stopped Gateway is returned to the queue on startup and the open turn becomes interrupted.
-3. One session owns at most one active turn. `whenIdle()` includes owned turns and scheduled inbox drains.
-4. Shutdown first stops Provider work, records any remaining turn as interrupted, waits for quiescence, flushes buffered deltas, and only then closes SQLite.
-5. Codex dynamic tools and hosted model tools use the same registry, role policy, timeout policy, target check, revision memory, result projection, spill storage, and outcome normalization. Inside the Gateway process they invoke `handleStageRoute` directly; MCP, CLI, and `blender_native` still use `POST /api/tools/*`.
-6. Explicit read-only tool windows may run with bounded concurrency and return results to the model in original call order. Workbench and Creative calls bound to the same exact Director target share a process-wide reader/writer queue across sessions and providers; mutations are exclusive, and queued cancellations are removed before browser dispatch. Blender keeps its own revisioned transaction boundary.
-7. Domain tools advertise one compact operation envelope to every model provider. Exact fields are progressively disclosed through `describe` and `capabilities`, while the Gateway continues to validate every execution against the complete strict schema. Large operation unions therefore do not consume the model context on every tool round.
-8. Provider drivers normalize prompt usage into disjoint uncached-input, cache-read, and cache-write buckets. Every model round appends its own usage event, so cache hit rate, cumulative billing input, and latest context occupancy are derived without Provider-specific guessing in the browser.
-9. `@director/model-provider/runtime` owns the OpenAI-compatible and Anthropic wire implementations. Provider facades and the Gateway use those same Drivers; the legacy Gateway module paths are compatibility exports, not a second protocol stack. All production Driver construction passes through `createModelDriver`. Built-in model metadata, endpoints, credential environment variables, and factories come from one `builtinProviders` profile table.
-10. Hosted Agent capabilities resolve in one order: conservative protocol defaults, exact built-in model metadata when known, then explicit user overrides. The browser re-exports the same `@director/agent-engine/runtime-schema` contract used by the Gateway.
+1. **Tool HTTP surface and exact-target scheduling.** `routes/stageRoutes.ts` plus
+   `agents/agentToolScheduler.ts`: explicitly read-only calls may run with bounded concurrency
+   and return in original call order; calls bound to the same exact Director target share a
+   process-wide reader/writer queue across sessions and clients; mutations are exclusive, and
+   queued cancellations are removed before browser dispatch. Blender keeps its own revisioned
+   transaction boundary.
+2. **Compact operation envelopes.** Domain tools advertise one compact envelope per tool
+   (`agents/agentToolRegistry.ts`, re-exported from the DSH plugin). Exact fields are disclosed
+   on demand through `describe` and `capabilities`, while the Gateway validates every execution
+   against the complete strict schema. Large operation unions therefore do not consume model
+   context on every tool round.
+3. **Film role tool policy.** `agents/filmRoleToolPolicy.ts` restricts which tools and operations
+   a `FilmRoleId` can see and call; MCP and the DSH plugin apply the same policy.
+4. **Model-facing result projection.** `agents/agentToolResultProjection.ts` summarizes oversized
+   tool results (heavy collections above 48 items, or envelopes above the 12,288-byte budget)
+   into counts, bounded id samples, and a retrieval hint. The MCP response builder
+   (`mcpToolResponse.ts`) and the DSH plugin consume it; raw HTTP/CLI responses stay complete.
+   Capture bytes never ride in serialized model JSON — images travel as MCP image blocks.
+5. **Revision memory for stateless clients.** `agents/agentToolMemory.ts` lets the MCP server
+   inject the last observed workbench revision into guarded writes and retry once on a stale
+   revision.
+6. **Model provider configuration for structured LLM calls.** `agents/agentProfileRegistry.ts`,
+   `agents/agentApiProviderStore.ts`, `agents/agentApiModels.ts`, and
+   `agents/modelProviderIntegration.ts` resolve hosted API profiles for the film pipeline and
+   multi-agent production runs, backed by the wire drivers in `packages/model-provider`. These
+   serve structured film-pipeline calls, not a conversation loop.
 
 ## Main modules
 
-| Module                                                | Responsibility                                                    |
-| ----------------------------------------------------- | ----------------------------------------------------------------- |
-| `packages/agent-engine/src/agentSessionProjection.ts` | Shared event-to-session reducer                                   |
-| `packages/model-provider/src/runtime/`                | Canonical Provider wire, streaming, retry, cache, and usage logic |
-| `packages/model-provider/src/builtinProviders.ts`     | Built-in model descriptors, endpoints, credentials, and factories |
-| `packages/agent-engine/src/agentRuntimeSchema.ts`     | Shared Agent profile and model capability wire contract           |
-| `backend/gateway/agentSessionStore.ts`                | SQLite event log, projections, inbox, recovery, batched appends   |
-| `backend/gateway/agentHarness.ts`                     | Run ownership, queue scheduling, cancellation, quiescent shutdown |
-| `backend/gateway/agents/agentToolRegistry.ts`         | Canonical compact wire schemas, definitions, timeouts, modes      |
-| `backend/gateway/agents/workspace/`                   | Workspace tools plus sandboxed foreground Bash                    |
-| `backend/gateway/agents/web/`                         | Hosted `web_search` / `web_fetch` (DSH seam, DeepSeek official + Exa + HTTP) |
-| `backend/gateway/agents/agentPluginSettingsStore.ts`  | Plugins page: search provider/key, agent-loop concurrency         |
-| `backend/gateway/agents/agentToolPipeline.ts`         | Policy, target routing, execution, bounded model result           |
-| `backend/gateway/agents/localDirectorToolDispatch.ts` | In-process Stage-route dispatch for Hosted and Codex              |
-| `backend/gateway/agents/agentToolScheduler.ts`        | Ordered call windows and process-wide exact-target barriers       |
-| `backend/gateway/agentAdapters.ts`                    | Codex and Claude protocol translation                             |
+| Module                                                | Responsibility                                                     |
+| ----------------------------------------------------- | ------------------------------------------------------------------ |
+| `vendor/deepseek-harness`                             | Agent loop, sessions, workspace/web/job/subagent tools (submodule) |
+| `packages/dsh-plugin-workbench/`                      | Director Stage / Canvas / Video / Blender tools as a DSH plugin    |
+| `backend/gateway/routes/stageRoutes.ts`               | Tool HTTP surface, target discovery, capture, guarded writes       |
+| `backend/gateway/agents/agentToolScheduler.ts`        | Ordered call windows and process-wide exact-target barriers        |
+| `backend/gateway/agents/agentToolRegistry.ts`         | Compact wire schemas and timeouts, re-exported from the DSH plugin |
+| `backend/gateway/agents/agentToolResultProjection.ts` | Counts + id-sample summaries for oversized model-facing results    |
+| `backend/gateway/agents/filmRoleToolPolicy.ts`        | FilmRole tool and operation policy                                 |
+| `backend/gateway/mcp-server.ts` / `mcpToolResponse.ts`| MCP stdio surface with projection and capture-byte stripping       |
+| `packages/model-provider/src/runtime/`                | Provider wire, streaming, retry, and usage for structured calls    |
 
-Claude still communicates through the portable MCP process because its CLI owns that transport. They share the same Gateway contracts and role policy; Provider-specific message formatting remains at the bridge boundary.
-
-## Workspace Bash boundary
-
-Hosted Bash is not the node-pty terminal used to embed external coding CLIs. Each call starts one fresh, non-interactive foreground process and returns stdout, stderr, exit code, deadline, truncation, and sandbox-denial facts. A non-zero process exit is a completed tool call, not a Gateway transport failure.
-
-The Gateway selects macOS Seatbelt or Linux Bubblewrap at runtime. If neither is available, the capability reports unavailable and refuses execution rather than silently running an unconfined shell. Writes are limited to the Director workspace and temporary directories; a filtered environment keeps Gateway credentials out of the child. Background jobs and permission elevation remain separate future capabilities.
-
-## Remaining boundary
-
-An Agent checkpoint currently stores the Director project snapshot. Blender native revisions are recorded in events but are not yet restored atomically with that project snapshot. A future unified checkpoint must bind the Director project revision to a Blender scene revision or native savepoint; until then, restore responses must continue to identify the Director-only scope.
+Removed at the cutover — do not document or re-create them: the in-tree `AgentHarness` run loop
+(`backend/gateway/agentHarness.ts`), `agentSessionStore.ts`, `agentAdapters.ts`, the hosted
+workspace tool copies (`backend/gateway/agents/workspace/`), the hosted `web_search` / `web_fetch`
+copies (`backend/gateway/agents/web/`), `agents/agentToolPipeline.ts`,
+`agents/localDirectorToolDispatch.ts`, `agents/agentPluginSettingsStore.ts`, and the hosted
+session history, replay, and surface-meter modules.

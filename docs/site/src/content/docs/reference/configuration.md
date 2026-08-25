@@ -60,24 +60,13 @@ API keys and their environment-variable names are never exposed by discovery rou
 durable session JSON. Conversation v2 stores canonical messages instead of provider wire formats;
 captured image bytes are only attached to the current model request.
 
-Unrestricted hosted Agents also get DSH-shaped `web_search` and `web_fetch`. Search defaults to
-DeepSeek official (`web_search_20250305` on `https://api.deepseek.com/anthropic/v1/messages`) when
-`DEEPSEEK_API_KEY` is set, or Exa when `EXA_API_KEY` (or `DIRECTOR_WEB_SEARCH_API_KEY`) is set.
-The Agent workspace **Plugins** page can pin the provider and store a key
-(`agent-plugin-settings.json`). Fetch is anonymous HTTP(S) with same-origin redirects only. Film
-roles cannot see these tools. The same Plugins page also sets the hosted tool-loop parallel-read
-bound.
-
-| Variable                         | Purpose                                                                 |
-| -------------------------------- | ----------------------------------------------------------------------- |
-| `DEEPSEEK_API_KEY`               | DeepSeek official search key; shared with chat, not `$DEEPSEEK_BASE_URL` |
-| `DEEPSEEK_SEARCH_BASE_URL`       | Anthropic Messages root; default `https://api.deepseek.com/anthropic/v1` |
-| `EXA_API_KEY`                    | Exa search key                                                          |
-| `DIRECTOR_WEB_SEARCH_API_KEY`    | Alias for `EXA_API_KEY`                                                 |
-| `EXA_BASE_URL`                   | Optional Exa API root; default `https://api.exa.ai`                     |
-| `DIRECTOR_WEB_SEARCH_PROVIDER`   | Pin `deepseek-official` or `exa` (required if both keys are present)    |
-| `DIRECTOR_WEB_FETCH_PROVIDER`    | Pin the fetch provider id (default: auto / `http`)                      |
-| `DIRECTOR_WEB_USER_AGENT`        | `User-Agent` for outbound fetch; never a browser UA                     |
+`web_search` and `web_fetch` are DeepSeek Harness tools. When you run the harness with
+`npm run dsh`, they come from the pinned official DSH release (`vendor/deepseek-harness`) and are
+configured through the harness's own settings. The Gateway no longer ships an in-tree copy of
+these tools or an `agent-plugin-settings.json` store; the Director-specific Stage / Canvas /
+Video / Blender tools reach DSH through `packages/dsh-plugin-workbench`. Director's film role
+policy (`backend/gateway/agents/filmRoleToolPolicy.ts`) continues to hide web tools from film
+roles, and hosted film-pipeline profiles run structured single completions without a tool loop.
 
 Role routing uses the same IDs declared by `DIRECTOR_AGENT_PROFILES_JSON`:
 
