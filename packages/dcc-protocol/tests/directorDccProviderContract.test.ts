@@ -146,9 +146,11 @@ describe("Director DCC provider contract", () => {
       // The Unreal connector ships Gateway-baked Sequencer animation, skinned
       // GLB skeletal-mesh import, and PBR material instances; the Unity
       // connector bakes animation onto Timeline, builds Avatars from skinned
-      // GLB, and translates Director PBR materials. The remaining engine
-      // connectors keep those claims planned until equivalent fixtures exist.
-      const provenFidelityLevel = descriptor.id === "unreal" || descriptor.id === "unity" ? "native" : "planned";
+      // GLB, and translates Director PBR materials; the Godot connector ships
+      // Gateway-baked AnimationPlayer animation, skinned GLB Skeleton3D import,
+      // and StandardMaterial3D translation. Every claim is pinned by host-free
+      // golden fixtures.
+      const provenFidelityLevel = "native";
       for (const id of ["animation", "skeleton", "materials"] as const) {
         expect(byId.get(id)).toEqual({ id, level: provenFidelityLevel, layer: "connector" });
       }

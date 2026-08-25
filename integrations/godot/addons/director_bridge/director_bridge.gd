@@ -7,6 +7,8 @@
 @tool
 extends EditorPlugin
 
+const DirectorPackage := preload("res://addons/director_bridge/director_package.gd")
+
 
 func _enter_tree() -> void:
 	add_tool_menu_item("Director Bridge: 健康检查 (Health Check)", _print_health)
@@ -22,7 +24,7 @@ func _print_health() -> void:
 		JSON.stringify(
 			{
 				"ok": true,
-				"provider": "godot",
+				"provider": DirectorPackage.PROVIDER,
 				"hostVersion": "Godot %s.%s.%s" % [info.major, info.minor, info.patch],
 				"connectorVersion": DirectorPackage.CONNECTOR_VERSION,
 			}

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../comprehensive/editor/schema/directorProjectRevision";
 import { directorDccEngineIdSchema } from "./directorDccEngineSpace";
+import { directorGodotImportReceiptSchema } from "./directorGodotAnimationContract";
 import { directorUnrealSequencerReceiptSchema } from "./directorUnrealSequencerContract";
 
 /** Contract identifier for a Director-authored engine connector manifest. */
@@ -113,6 +114,8 @@ export const directorDccEngineReportSchema = z
     appliedMaterialCount: z.number().int().nonnegative().optional(),
     /** Unity connector details; only the unity provider may write this block. */
     unity: directorDccUnityEngineReportDetailsSchema.optional(),
+    /** Godot-only: import receipt read back from the saved scene and animation resources. */
+    godot: directorGodotImportReceiptSchema.optional(),
   })
   .superRefine((report, context) => {
     if (report.unity && report.provider !== "unity") {
@@ -120,6 +123,13 @@ export const directorDccEngineReportSchema = z
         code: "custom",
         path: ["unity"],
         message: "only unity connector reports may carry the unity details block",
+      });
+    }
+    if (report.godot && report.provider !== "godot") {
+      context.addIssue({
+        code: "custom",
+        path: ["godot"],
+        message: "only godot connector reports may carry the godot receipt block",
       });
     }
   });
@@ -135,6 +145,10 @@ export const directorDccEngineHealthCheckIdSchema = z.enum([
   "connector_entry",
   "engine_project",
   "project_connector",
+  /** The engine project has the Director connector enabled (Godot: `[editor_plugins]`). */
+  "project_plugin_enabled",
+  /** The fixed connector entry answered a `--mode health` probe with valid JSON. */
+  "connector_health",
 ]);
 
 /** Identifier of one engine health check. */
