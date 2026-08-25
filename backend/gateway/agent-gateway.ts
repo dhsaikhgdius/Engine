@@ -781,10 +781,25 @@ function json(response: ServerResponse, status: number, body: unknown) {
 }
 
 /**
+ * A malformed or oversized request body is the caller's fault, so it carries
+ * the client-error status the top-level handler should answer with instead of
+ * being folded into the generic 500 path.
+ */
+class RequestBodyError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RequestBodyError";
+  }
+}
+
+/**
  * Reads and parses the JSON request body, enforcing an 8 MiB size limit.
  *
  * @returns The parsed JSON value, or an empty object when the body is empty.
- * @throws {Error} When the body exceeds 8 MiB or is not valid JSON.
+ * @throws {RequestBodyError} 413 when the body exceeds 8 MiB, 400 when it is not valid JSON.
  */
 async function body(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -792,10 +807,18 @@ async function body(request: IncomingMessage): Promise<unknown> {
   for await (const chunk of request) {
     const buffer = Buffer.from(chunk);
     size += buffer.length;
-    if (size > 8 * 1024 * 1024) throw new Error("Request body is too large");
+    if (size > 8 * 1024 * 1024) throw new RequestBodyError(413, "Request body is too large");
     chunks.push(buffer);
   }
-  return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch (error) {
+    throw new RequestBodyError(
+      400,
+      `Request body is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /** Atomically writes the current in-memory scene to the durable scene file. */
@@ -2208,6 +2231,15 @@ const server = createServer(async (request, response) => {
       return;
     return json(response, 404, { error: "Not found" });
   } catch (error) {
+    if (error instanceof RequestBodyError) {
+      // The client may still be streaming the rejected body on this socket.
+      // Closing the connection keeps a poisoned keep-alive stream from
+      // stalling the next request that would otherwise reuse it. The socket
+      // is torn down only after the error response has been flushed.
+      response.setHeader("connection", "close");
+      response.once("finish", () => request.destroy());
+      return json(response, error.status, { error: error.message });
+    }
     return json(response, 500, { error: error instanceof Error ? error.message : String(error) });
   }
 });

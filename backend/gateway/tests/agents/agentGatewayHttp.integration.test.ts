@@ -355,6 +355,33 @@ process.exit(17);
     ).toBe(404);
   });
 
+  it("answers malformed and oversized request bodies with client errors, not 500", async () => {
+    const headers = { "content-type": "application/json", "x-director-browser-token": GATEWAY_TOKEN };
+
+    const malformed = await fetch(`${baseUrl}/api/tools/director_workbench`, {
+      method: "POST",
+      headers,
+      body: "{not json",
+    });
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toMatchObject({
+      error: expect.stringContaining("not valid JSON"),
+    });
+
+    const oversized = await fetch(`${baseUrl}/api/tools/director_workbench`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ session_id: "s", input: { op: "observe", padding: "x".repeat(9 * 1024 * 1024) } }),
+    });
+    expect(oversized.status).toBe(413);
+    await expect(oversized.json()).resolves.toMatchObject({
+      error: expect.stringContaining("too large"),
+    });
+
+    // The boundary stays healthy after rejecting hostile bodies.
+    expect((await fetch(`${baseUrl}/health`)).status).toBe(200);
+  });
+
   it("loads an explicit exchange-only DCC provider configuration at gateway startup", async () => {
     const headers = { "x-director-browser-token": GATEWAY_TOKEN };
     const discovery = await fetch(`${baseUrl}/api/dcc/providers`, { headers });
