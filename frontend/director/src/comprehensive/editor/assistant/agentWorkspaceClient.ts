@@ -108,10 +108,9 @@ export async function saveAgentWorkspaceDocument(
   kind: AgentWorkspaceDocumentKind,
   content: string,
 ): Promise<AgentWorkspaceDocument> {
-  const body = (await workspaceRequest(
-    "/api/agent/workspace/document",
-    jsonInit("PUT", { scope, kind, content }),
-  )) as { document?: unknown };
+  const body = (await workspaceRequest("/api/agent/workspace/document", jsonInit("PUT", { scope, kind, content }))) as {
+    document?: unknown;
+  };
   return agentWorkspaceDocumentSchema.parse(body.document);
 }
 
@@ -120,9 +119,9 @@ export async function listAgentWorkspaceDocumentVersions(
   scope: AgentWorkspaceScope,
   kind: AgentWorkspaceDocumentKind,
 ): Promise<AgentWorkspaceDocumentVersion[]> {
-  const body = (await workspaceRequest(
-    `/api/agent/workspace/document/versions?scope=${scope}&kind=${kind}`,
-  )) as { versions?: unknown };
+  const body = (await workspaceRequest(`/api/agent/workspace/document/versions?scope=${scope}&kind=${kind}`)) as {
+    versions?: unknown;
+  };
   return z.array(agentWorkspaceDocumentVersionSchema).parse(body.versions ?? []);
 }
 
@@ -166,10 +165,9 @@ export async function setAgentWorkspaceMemoryEntry(
 
 /** Deletes one memory entry. */
 export async function deleteAgentWorkspaceMemoryEntry(scope: AgentWorkspaceScope, key: string): Promise<boolean> {
-  const body = (await workspaceRequest(
-    "/api/agent/workspace/memory/delete",
-    jsonInit("POST", { scope, key }),
-  )) as { deleted?: unknown };
+  const body = (await workspaceRequest("/api/agent/workspace/memory/delete", jsonInit("POST", { scope, key }))) as {
+    deleted?: unknown;
+  };
   return body.deleted === true;
 }
 

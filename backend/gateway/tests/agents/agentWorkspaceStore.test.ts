@@ -80,7 +80,14 @@ describe("AgentWorkspaceStore skill refs", () => {
   it("replaces the list atomically and rejects duplicate ids", () => {
     const { store } = openStore();
     const refs = store.replaceSkillRefs([
-      { id: "wb", scope: "org", name: "director-workbench", source: ".dsh/skills/director-workbench", note: "", enabled: true },
+      {
+        id: "wb",
+        scope: "org",
+        name: "director-workbench",
+        source: ".dsh/skills/director-workbench",
+        note: "",
+        enabled: true,
+      },
     ]);
     expect(refs).toHaveLength(1);
     expect(() =>
@@ -127,7 +134,14 @@ describe("AgentWorkspaceStore bundle", () => {
     store.saveDocument("org", "instructions", "团队指令");
     store.saveDocument("user", "learnings", "个人经验");
     store.replaceSkillRefs([
-      { id: "wb", scope: "org", name: "director-workbench", source: ".dsh/skills/director-workbench", note: "先加载", enabled: true },
+      {
+        id: "wb",
+        scope: "org",
+        name: "director-workbench",
+        source: ".dsh/skills/director-workbench",
+        note: "先加载",
+        enabled: true,
+      },
     ]);
     store.setMemory("user", "pref", { theme: "dark" }, 3_600);
     store.setMemory("org", "fact", "no-ttl-fact");

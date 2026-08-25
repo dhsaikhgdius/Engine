@@ -22,7 +22,14 @@ const snapshot = {
     { scope: "org", kind: "instructions", content: "团队级指令", version: 2, updated_at: "2026-08-25T00:00:00.000Z" },
   ],
   skill_refs: [
-    { id: "wb", scope: "org", name: "director-workbench", source: ".dsh/skills/director-workbench", note: "", enabled: true },
+    {
+      id: "wb",
+      scope: "org",
+      name: "director-workbench",
+      source: ".dsh/skills/director-workbench",
+      note: "",
+      enabled: true,
+    },
   ],
   memory: [
     {

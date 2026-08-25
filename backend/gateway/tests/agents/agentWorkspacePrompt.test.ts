@@ -19,7 +19,14 @@ describe("composeAgentWorkspacePrompt", () => {
     store.saveDocument("org", "instructions", "团队：默认 35mm 镜头");
     store.saveDocument("user", "instructions", "个人：偏好 50mm 镜头");
     store.replaceSkillRefs([
-      { id: "wb", scope: "org", name: "director-workbench", source: ".dsh/skills/director-workbench", note: "", enabled: true },
+      {
+        id: "wb",
+        scope: "org",
+        name: "director-workbench",
+        source: ".dsh/skills/director-workbench",
+        note: "",
+        enabled: true,
+      },
       { id: "off", scope: "org", name: "disabled-skill", source: "somewhere", note: "", enabled: false },
     ]);
 

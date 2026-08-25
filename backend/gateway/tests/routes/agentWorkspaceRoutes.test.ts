@@ -47,7 +47,12 @@ describe("agent workspace routes", () => {
   it("ignores unrelated paths", async () => {
     const context = harness();
     expect(
-      await handleAgentWorkspaceRoute(request("GET"), context.response, url("/api/agent/profiles"), context.dependencies),
+      await handleAgentWorkspaceRoute(
+        request("GET"),
+        context.response,
+        url("/api/agent/profiles"),
+        context.dependencies,
+      ),
     ).toBe(false);
     expect(context.writes).toHaveLength(0);
   });
@@ -55,7 +60,12 @@ describe("agent workspace routes", () => {
   it("saves a document and lists version history", async () => {
     const context = harness();
     context.setBody({ scope: "org", kind: "instructions", content: "先 observe 再 mutate" });
-    await handleAgentWorkspaceRoute(request("PUT"), context.response, url("/api/agent/workspace/document"), context.dependencies);
+    await handleAgentWorkspaceRoute(
+      request("PUT"),
+      context.response,
+      url("/api/agent/workspace/document"),
+      context.dependencies,
+    );
     expect(context.writes[0]).toMatchObject({ status: 200 });
     expect((context.writes[0]?.body as { document: { version: number } }).document.version).toBe(1);
 
@@ -72,7 +82,12 @@ describe("agent workspace routes", () => {
   it("rejects invalid document payloads", async () => {
     const context = harness();
     context.setBody({ scope: "team", kind: "instructions", content: "x" });
-    await handleAgentWorkspaceRoute(request("PUT"), context.response, url("/api/agent/workspace/document"), context.dependencies);
+    await handleAgentWorkspaceRoute(
+      request("PUT"),
+      context.response,
+      url("/api/agent/workspace/document"),
+      context.dependencies,
+    );
     expect(context.writes[0]).toMatchObject({ status: 400, body: { code: "invalid_request" } });
   });
 
@@ -105,11 +120,21 @@ describe("agent workspace routes", () => {
   it("manages memory entries with TTL through the HTTP surface", async () => {
     const context = harness();
     context.setBody({ scope: "user", key: "pref", value: { theme: "dark" }, ttl_seconds: 60 });
-    await handleAgentWorkspaceRoute(request("PUT"), context.response, url("/api/agent/workspace/memory"), context.dependencies);
+    await handleAgentWorkspaceRoute(
+      request("PUT"),
+      context.response,
+      url("/api/agent/workspace/memory"),
+      context.dependencies,
+    );
     expect(context.writes[0]).toMatchObject({ status: 200 });
 
     context.nowMs.value += 61_000;
-    await handleAgentWorkspaceRoute(request("GET"), context.response, url("/api/agent/workspace"), context.dependencies);
+    await handleAgentWorkspaceRoute(
+      request("GET"),
+      context.response,
+      url("/api/agent/workspace"),
+      context.dependencies,
+    );
     const workspace = (context.writes[1]?.body as { workspace: { memory: unknown[] } }).workspace;
     expect(workspace.memory).toHaveLength(0);
   });
@@ -118,16 +143,28 @@ describe("agent workspace routes", () => {
     const context = harness();
     context.store.saveDocument("org", "instructions", "团队指令");
     context.store.setMemory("user", "pref", "dark");
-    await handleAgentWorkspaceRoute(request("GET"), context.response, url("/api/agent/workspace/export"), context.dependencies);
+    await handleAgentWorkspaceRoute(
+      request("GET"),
+      context.response,
+      url("/api/agent/workspace/export"),
+      context.dependencies,
+    );
     const bundle = context.writes[0]?.body;
 
     const cloned = harness();
     cloned.setBody(bundle);
-    await handleAgentWorkspaceRoute(request("POST"), cloned.response, url("/api/agent/workspace/import"), cloned.dependencies);
+    await handleAgentWorkspaceRoute(
+      request("POST"),
+      cloned.response,
+      url("/api/agent/workspace/import"),
+      cloned.dependencies,
+    );
     expect(cloned.writes[0]?.status).toBe(200);
-    const workspace = (cloned.writes[0]?.body as {
-      workspace: { documents: { scope: string; kind: string; content: string }[]; memory: { key: string }[] };
-    }).workspace;
+    const workspace = (
+      cloned.writes[0]?.body as {
+        workspace: { documents: { scope: string; kind: string; content: string }[]; memory: { key: string }[] };
+      }
+    ).workspace;
     expect(workspace.documents.find((d) => d.scope === "org" && d.kind === "instructions")?.content).toBe("团队指令");
     expect(workspace.memory.map((entry) => entry.key)).toEqual(["pref"]);
   });
@@ -135,7 +172,12 @@ describe("agent workspace routes", () => {
   it("rejects malformed bundles", async () => {
     const context = harness();
     context.setBody({ format: "wrong", version: 1 });
-    await handleAgentWorkspaceRoute(request("POST"), context.response, url("/api/agent/workspace/import"), context.dependencies);
+    await handleAgentWorkspaceRoute(
+      request("POST"),
+      context.response,
+      url("/api/agent/workspace/import"),
+      context.dependencies,
+    );
     expect(context.writes[0]).toMatchObject({ status: 400, body: { code: "invalid_request" } });
   });
 
@@ -159,7 +201,12 @@ describe("agent workspace routes", () => {
 
   it("404s unknown workspace endpoints", async () => {
     const context = harness();
-    await handleAgentWorkspaceRoute(request("GET"), context.response, url("/api/agent/workspace/unknown"), context.dependencies);
+    await handleAgentWorkspaceRoute(
+      request("GET"),
+      context.response,
+      url("/api/agent/workspace/unknown"),
+      context.dependencies,
+    );
     expect(context.writes[0]).toMatchObject({ status: 404, body: { code: "not_found" } });
   });
 });

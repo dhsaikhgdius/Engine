@@ -11,10 +11,7 @@ import {
   setAgentWorkspaceMemorySchema,
   type AgentWorkspaceStore,
 } from "../agents/agentWorkspaceStore";
-import {
-  agentWorkspaceSessionOverrideSchema,
-  composeAgentWorkspacePrompt,
-} from "../agents/agentWorkspacePrompt";
+import { agentWorkspaceSessionOverrideSchema, composeAgentWorkspacePrompt } from "../agents/agentWorkspacePrompt";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -162,10 +159,7 @@ export async function handleAgentWorkspaceRoute(
     json(
       response,
       200,
-      composeAgentWorkspacePrompt(
-        { documents: snapshot.documents, skill_refs: snapshot.skill_refs },
-        override.data,
-      ),
+      composeAgentWorkspacePrompt({ documents: snapshot.documents, skill_refs: snapshot.skill_refs }, override.data),
     );
     return true;
   }

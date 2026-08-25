@@ -288,9 +288,7 @@ export class AgentWorkspaceStore {
   /** Returns the content of one historical version, or `null` when unknown. */
   getDocumentVersion(scope: AgentWorkspaceScope, kind: AgentWorkspaceDocumentKind, version: number): string | null {
     const row = this.db
-      .prepare(
-        "SELECT content FROM agent_workspace_document_versions WHERE scope = ? AND kind = ? AND version = ?",
-      )
+      .prepare("SELECT content FROM agent_workspace_document_versions WHERE scope = ? AND kind = ? AND version = ?")
       .get(scope, kind, version) as { content: string } | undefined;
     return row ? row.content : null;
   }
@@ -316,9 +314,7 @@ export class AgentWorkspaceStore {
   /** Lists all skill references, org scope first, then by name. */
   listSkillRefs(): AgentWorkspaceSkillRef[] {
     const rows = this.db
-      .prepare(
-        "SELECT id, scope, name, source, note, enabled FROM agent_workspace_skill_refs ORDER BY scope, name, id",
-      )
+      .prepare("SELECT id, scope, name, source, note, enabled FROM agent_workspace_skill_refs ORDER BY scope, name, id")
       .all() as { id: string; scope: string; name: string; source: string; note: string; enabled: number }[];
     return rows.map((row) =>
       agentWorkspaceSkillRefSchema.parse({

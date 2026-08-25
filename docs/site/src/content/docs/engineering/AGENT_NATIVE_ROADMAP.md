@@ -68,7 +68,7 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 | **M1** | Shared action registry     | Planned     | High-traffic UI paths via `applyDirectorAuthoringActions`                                    | M0                      |
 | **M2** | Remove human-only surfaces | **Partial** | Interchange export + collab observe/comment shipped; import and remaining collab writes open | M1 (partially parallel) |
 | **M3** | Unified gateway governance | **Partial** | Shared `filmRoleToolPolicy` on MCP / local / hosted; raw HTTP/UI and unified audit open      | M1                      |
-| **M4** | In-product workspace       | Planned     | SQL-backed instructions / skills / memory                                                    | M3                      |
+| **M4** | In-product workspace       | **Shipped** | SQL-backed instructions / skills / memory, Settings editor, bundle export/import             | M3                      |
 | **M5** | Observability              | Planned     | Traces, cost, long-running progress                                                          | M3                      |
 | **M6** | Team readiness             | Planned     | Collaboration auth, multi-agent enhancements                                                 | M3, M5                  |
 | **M7** | Ecosystem protocols        | Planned     | OpenAPI manifest, A2A spike                                                                  | M2, M3                  |
@@ -254,24 +254,42 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
 
 ## Milestone 4 — In-product agent workspace
 
+**Status: Shipped** (verified 2026-08-25).
+
 **Goal:** team instructions, skills, and memory live in SQLite and are editable in-app.
 
-### Work
+### Shipped
 
-- Add `agent_workspace` tables (org / user scope):
-  - `instructions` (AGENTS.md equivalent)
-  - `learnings` (LEARNINGS.md equivalent)
-  - `skill_refs`
-  - `memory_entries` (structured KV with TTL)
-- Workbench harness merges: repo Skills → DB workspace → session override.
-- UI: **Settings → Agent Workspace** editor with version history.
-- Migrate or merge with `DIRECTOR_AGENT_PROFILES_JSON`.
+- `agent_workspace_*` tables (org / user scope) in
+  `backend/gateway/agents/agentWorkspaceStore.ts` on Node's built-in `node:sqlite`
+  (`agent-workspace.sqlite` under the data directory, WAL):
+  - `agent_workspace_documents` + `agent_workspace_document_versions` — `instructions`
+    (AGENTS.md equivalent) and `learnings` (LEARNINGS.md equivalent) with bounded version history;
+  - `agent_workspace_skill_refs` — references to bundled or custom skills (never executable content);
+  - `agent_workspace_memory` — structured KV with TTL, purged on access.
+- Harness merge, lowest precedence first: **repo skills → DB workspace (org → user) → session
+  override**. The gateway composes the effective prompt at
+  `GET /api/agent/workspace/prompt` (`agentWorkspacePrompt.ts`); the DSH plugin
+  (`packages/dsh-plugin-workbench/src/workspacePrompt.ts`) registers it as the
+  `director:workspace` system-prompt section and refreshes it, so DB edits reach new sessions
+  without repo changes or a harness restart. `DIRECTOR_SESSION_INSTRUCTIONS` supplies the
+  ephemeral session override.
+- UI: **Settings → Agent Workspace** popover (`AgentWorkspaceSettings.tsx`) with document
+  editing, version history restore, skill refs, memory entries, and JSON bundle export/import.
+- `DIRECTOR_AGENT_PROFILES_JSON` merge strategy is documented in
+  [Configuration](/reference/configuration/): model/provider profiles (and their credentials)
+  stay on the profile axis (env JSON + `agent-api-providers.json`, env-first with user overlays
+  and reserved ids env-owned); the workspace stores only instructions / learnings / skill refs /
+  memory, and the bundle can never contain provider credentials.
 
-### Acceptance
+### Acceptance (verified)
 
-- DB instruction edits appear in new sessions without repo changes.
-- Export/import workspace bundle (JSON) for clone workflows.
-- Redaction matches existing harness rules.
+- DB instruction edits appear in new sessions without repo changes (store + prompt + plugin tests).
+- Export/import workspace bundle (JSON) round-trips (`agentWorkspaceStore.test.ts`, route tests).
+- Redaction matches existing harness rules: the shared `backend/gateway/redaction.ts` rule set is
+  used by both planner diagnostics and workspace prompt composition.
+- Red line: memory entries are user-controlled, labeled untrusted, and **never injected
+  automatically** into any prompt; composition excludes them by construction and by test.
 
 ---
 
@@ -364,13 +382,13 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 ## Success metrics
 
-| Metric                          | Today (2026-08-13)               | After remaining M2/M3          | After M4 |
-| ------------------------------- | -------------------------------- | ------------------------------ | -------- |
-| Parity coverage (top mutations) | ~60%                             | ≥85%                           | ≥95%     |
-| Documented human-only classes   | Import + remaining collab writes | Import explicit until it ships | 0        |
-| Consistent gateway policy       | Partial (MCP / local / hosted)   | Yes, including raw HTTP/UI     | Yes      |
-| In-product workspace            | No                               | No                             | Yes      |
-| Agent-native self-score         | 4.0                              | 4.2                            | 4.5      |
+| Metric                          | Today (2026-08-13)               | After remaining M2/M3          | After M4                     |
+| ------------------------------- | -------------------------------- | ------------------------------ | ---------------------------- |
+| Parity coverage (top mutations) | ~60%                             | ≥85%                           | ≥95%                         |
+| Documented human-only classes   | Import + remaining collab writes | Import explicit until it ships | 0                            |
+| Consistent gateway policy       | Partial (MCP / local / hosted)   | Yes, including raw HTTP/UI     | Yes                          |
+| In-product workspace            | No                               | No                             | **Yes (shipped 2026-08-25)** |
+| Agent-native self-score         | 4.0                              | 4.2                            | 4.5                          |
 
 ---
 

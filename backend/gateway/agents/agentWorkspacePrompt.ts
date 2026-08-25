@@ -51,10 +51,7 @@ function skillRefLines(skillRefs: readonly AgentWorkspaceSkillRef[], scope: "org
     .map((ref) => `- ${ref.name}: ${ref.source}${ref.note ? ` — ${ref.note}` : ""}`);
 }
 
-function workspaceLayerText(
-  snapshot: Pick<AgentWorkspaceSnapshot, "documents" | "skill_refs">,
-  scope: "org" | "user",
-) {
+function workspaceLayerText(snapshot: Pick<AgentWorkspaceSnapshot, "documents" | "skill_refs">, scope: "org" | "user") {
   const parts: string[] = [];
   const instructions = snapshot.documents.find(
     (document) => document.scope === scope && document.kind === "instructions",
@@ -68,7 +65,9 @@ function workspaceLayerText(
   }
   const skills = skillRefLines(snapshot.skill_refs, scope);
   if (skills.length > 0) {
-    parts.push(`### ${scope === "org" ? "Org" : "User"} skill references (load before relying on them)\n${skills.join("\n")}`);
+    parts.push(
+      `### ${scope === "org" ? "Org" : "User"} skill references (load before relying on them)\n${skills.join("\n")}`,
+    );
   }
   return parts.join("\n\n");
 }

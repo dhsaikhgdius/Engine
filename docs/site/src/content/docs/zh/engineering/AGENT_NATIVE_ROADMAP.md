@@ -62,7 +62,7 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 | **M1** | Shared action registry | Planned     | UI 高频路径经 `applyDirectorAuthoringActions`                                    | M0               |
 | **M2** | Human-only 面消除      | **Partial** | Interchange 导出 + collab observe/comment 已交付；导入与剩余 collab 写操作未完成 | M1（部分可并行） |
 | **M3** | Gateway 统一治理       | **Partial** | MCP / 本地 / 托管已共享 `filmRoleToolPolicy`；原始 HTTP/UI 与统一审计未完成      | M1               |
-| **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
+| **M4** | 产品内 workspace       | **已交付**  | SQL 持久化 instructions / skills / memory、Settings 编辑器、bundle 导出/导入     | M3               |
 | **M5** | 可观测性               | Planned     | Trace、cost、长任务进度                                                          | M3               |
 | **M6** | 团队就绪               | Planned     | Collaboration auth、multi-agent 增强                                             | M3、M5           |
 | **M7** | 生态协议               | Planned     | OpenAPI manifest、A2A 评估                                                       | M2、M3           |
@@ -248,24 +248,40 @@ flowchart LR
 
 ## Milestone 4 — 产品内 Agent Workspace
 
+**状态：已交付**（2026-08-25 验证）。
+
 **目标：** 团队指令、skills、memory 存于 SQLite，可在 app 内编辑，而非仅 repo 文件。
 
-### 工作项
+### 已交付
 
-- 新增 `agent_workspace` 表族（org / user scope）：
-  - `instructions`（等价 AGENTS.md）
-  - `learnings`（等价 LEARNINGS.md）
-  - `skill_refs`（指向 bundled 或 custom skills）
-  - `memory_entries`（结构化 KV，带 TTL）
-- Workbench harness 启动时 merge：repo Skills → DB workspace → session override。
-- UI：**Settings → Agent Workspace** 编辑器（Markdown + 版本历史）。
-- 与现有 `DIRECTOR_AGENT_PROFILES_JSON` 合并或迁移。
+- `agent_workspace_*` 表族（org / user scope），实现于
+  `backend/gateway/agents/agentWorkspaceStore.ts`，使用 Node 内置 `node:sqlite`
+  （数据目录下 `agent-workspace.sqlite`，WAL）：
+  - `agent_workspace_documents` + `agent_workspace_document_versions` —— `instructions`
+    （等价 AGENTS.md）与 `learnings`（等价 LEARNINGS.md），带有限长版本历史；
+  - `agent_workspace_skill_refs` —— 指向 bundled 或 custom skills 的引用（永不存可执行内容）；
+  - `agent_workspace_memory` —— 结构化 KV，带 TTL，访问时清理过期项。
+- Harness merge（优先级从低到高）：**repo skills → DB workspace（org → user）→ session
+  override**。网关在 `GET /api/agent/workspace/prompt` 合成生效提示词
+  （`agentWorkspacePrompt.ts`）；DSH 插件
+  （`packages/dsh-plugin-workbench/src/workspacePrompt.ts`）把它注册为
+  `director:workspace` system-prompt section 并周期刷新，DB 修改无需改 repo、无需重启
+  harness 即对新 session 生效。`DIRECTOR_SESSION_INSTRUCTIONS` 提供临时会话覆盖。
+- UI：**Settings → Agent 工作区** 弹出面板（`AgentWorkspaceSettings.tsx`），支持文档编辑、
+  版本历史恢复、技能引用、记忆条目、JSON bundle 导出/导入。
+- 与 `DIRECTOR_AGENT_PROFILES_JSON` 的合并策略见
+  [配置参考](/zh/reference/configuration/)：模型/供应商 Profile（含凭据）保留在 Profile 轴
+  （环境 JSON + `agent-api-providers.json`，环境优先、用户覆盖、保留 id 归环境）；workspace
+  只存 instructions / learnings / skill refs / memory，bundle 结构上不可能包含供应商凭据。
 
-### 验收
+### 验收（已验证）
 
-- 修改 DB instructions 后，新 session 可见，无需改 repo。
-- Export/import workspace bundle（JSON）用于 clone 场景。
-- 敏感字段 redaction 与现有 harness 一致。
+- 修改 DB instructions 后，新 session 可见，无需改 repo（store + prompt + 插件测试覆盖）。
+- Export/import workspace bundle（JSON）round-trip 通过（`agentWorkspaceStore.test.ts` 与路由测试）。
+- 敏感字段 redaction 与现有 harness 一致：planner 诊断与 workspace 提示词合成共享
+  `backend/gateway/redaction.ts` 同一套规则。
+- 红线：记忆由用户掌控、标记为不可信数据，**永远不会自动注入**任何提示词；合成逻辑在
+  结构上排除记忆，并有专项测试。
 
 ---
 
@@ -363,7 +379,7 @@ flowchart LR
 | Parity coverage（top mutations） | ~60%                      | ≥85%                   | ≥95%  |
 | Human-only 能力（已文档化）      | 导入 + 剩余 collab 写操作 | 导入在落地前仍显式标注 | 0 类  |
 | Gateway 入口 policy 一致         | 部分（MCP / 本地 / 托管） | 是，含原始 HTTP/UI     | 是    |
-| In-product workspace             | 否                        | 否                     | 是    |
+| In-product workspace             | 否                        | 否                     | **是（2026-08-25 交付）** |
 | Agent-native 综合评分（自评）    | 4.0                       | 4.2                    | 4.5   |
 
 ---
