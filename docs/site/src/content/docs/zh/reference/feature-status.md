@@ -61,6 +61,14 @@ description: Director 功能、测试证据、支持边界和待完成工作的�
 - `tools/scripts/checkServerImportBoundaries.ts` 强制执行浏览器 → TypeScript 控制面 → Python 推理
   的分层。每个临时迁移例外都必须固定 importer、target 和原因；除非替换或收窄旧例外，
   新增例外应视为回归。
+- `npm run repo:check` 包含 i18n 完整性门禁（`tools/scripts/check-i18n-completeness.mjs`）：
+  `frontend/director/src` 中的每个中文 UI 字符串都必须被 `en-US.json` 或短语规则覆盖。
+  已知缺口记录在 `tools/scripts/i18n-missing-baseline.json`，只允许随时间收缩。
+- `npm run test:e2e` 覆盖各 workspace 的用户旅程：3D 片场编辑（`stage-authoring.spec.ts`）、
+  画布依赖图（`canvas-dag.spec.ts`）、素材库与画廊（`gallery-media.spec.ts`），
+  以及视频编辑器套件与渲染 golden。
+- `npm run eval` 针对公开 HTTP 边界回放 golden Agent 任务，包括 world systems 观察、
+  DCC discover/handoff、转写任务契约与核心 observe/author/undo 循环（`tools/evals/tasks/`）。
 
 ## 目录数量
 
