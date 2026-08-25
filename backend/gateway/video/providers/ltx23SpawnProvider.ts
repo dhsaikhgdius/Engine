@@ -80,11 +80,11 @@ function killGroup(child: ChildProcess) {
  */
 export class Ltx23SpawnProvider implements VideoProvider {
   readonly id = "ltx-2.3" as const;
-  private readonly spawnImpl: typeof spawn;
+  private readonly spawnImpl: NonNullable<Ltx23SpawnProviderOptions["spawnImpl"]>;
   private readonly jobs = new Map<string, TrackedJob>();
 
   constructor(private readonly options: Ltx23SpawnProviderOptions) {
-    this.spawnImpl = options.spawnImpl ?? spawn;
+    this.spawnImpl = options.spawnImpl ?? ((command, args, spawnOptions) => spawn(command, args, spawnOptions));
   }
 
   async capabilities(_signal?: AbortSignal): Promise<VideoProviderCapability> {
@@ -281,10 +281,13 @@ export class Ltx23SpawnProvider implements VideoProvider {
     });
     tracked.child = child;
 
-    const timeout = setTimeout(() => {
-      killGroup(child);
-      this.fail(tracked, `LTX-2.3 generation exceeded ${this.options.timeoutMs ?? 60 * 60_000}ms and was terminated`);
-    }, this.options.timeoutMs ?? 60 * 60_000);
+    const timeout = setTimeout(
+      () => {
+        killGroup(child);
+        this.fail(tracked, `LTX-2.3 generation exceeded ${this.options.timeoutMs ?? 60 * 60_000}ms and was terminated`);
+      },
+      this.options.timeoutMs ?? 60 * 60_000,
+    );
     const onAbort = () => {
       void this.cancel(tracked.job.id);
     };

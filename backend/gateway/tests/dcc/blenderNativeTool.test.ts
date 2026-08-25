@@ -18,10 +18,7 @@ const intentId = "b4b2ed3d-b25b-4ad0-8db9-f04bcb229fb6";
 const sceneEpoch = "82a6f8c1-7cb8-4d6f-a5f2-a4f5654a0420";
 const nextSceneEpoch = "907d1be9-c19d-4297-8faf-c6f4bcbd8250";
 
-function scene(
-  revision: number,
-  objects: BlenderLiveSceneSnapshot["objects"] = [],
-): BlenderLiveSceneSnapshot {
+function scene(revision: number, objects: BlenderLiveSceneSnapshot["objects"] = []): BlenderLiveSceneSnapshot {
   return {
     contract: BLENDER_LIVE_CONTRACT,
     sceneEpoch,
@@ -70,9 +67,7 @@ describe("deriveBlenderIntentId", () => {
 
   it("derives the same protocol-valid UUID for the same observed intent", () => {
     const first = deriveBlenderIntentId(sceneEpoch, 4, operations);
-    const second = deriveBlenderIntentId(sceneEpoch, 4, [
-      { op: "create_primitive", id: "cube-a", primitive: "cube" },
-    ]);
+    const second = deriveBlenderIntentId(sceneEpoch, 4, [{ op: "create_primitive", id: "cube-a", primitive: "cube" }]);
 
     expect(second).toBe(first);
     expect(z.string().uuid().parse(first)).toBe(first);
@@ -298,17 +293,15 @@ describe("executeBlenderNativeTool", () => {
       status: vi.fn(),
       previewGlb: vi.fn(),
       snapshot: vi.fn().mockResolvedValue(before),
-      submit: vi.fn().mockRejectedValue(
-        new BlenderNativeSessionError("Native submit timed out.", 504, "blender_timeout"),
-      ),
+      submit: vi
+        .fn()
+        .mockRejectedValue(new BlenderNativeSessionError("Native submit timed out.", 504, "blender_timeout")),
       job: vi.fn(),
     };
     const operations: BlenderAgentOperation[] = [{ op: "create_primitive", id: "cube-a", primitive: "cube" }];
     const derivedIntentId = deriveBlenderIntentId(sceneEpoch, 4, operations);
 
-    await expect(
-      executeBlenderNativeTool(session, { op: "apply", operations }),
-    ).rejects.toMatchObject({
+    await expect(executeBlenderNativeTool(session, { op: "apply", operations })).rejects.toMatchObject({
       status: 409,
       code: "outcome_unknown",
       result: {
@@ -684,6 +677,8 @@ describe("executeBlenderNativeTool", () => {
           id: "cube-a",
           materialName: "gold_plaque",
           createIfMissing: false,
+          faceScope: "ALL",
+          parameters: {},
         },
       ],
     });
@@ -1619,7 +1614,12 @@ describe("executeBlenderNativeTool", () => {
               ],
             },
           ],
-          links: [{ from: { nodeRef: "principled", socketRef: "BSDF" }, to: { nodeRef: "material-output", socketRef: "Surface" } }],
+          links: [
+            {
+              from: { nodeRef: "principled", socketRef: "BSDF" },
+              to: { nodeRef: "material-output", socketRef: "Surface" },
+            },
+          ],
         },
       ],
       animation: {
@@ -1660,11 +1660,13 @@ describe("executeBlenderNativeTool", () => {
       expectedRevision: 5,
     });
 
+    if (!("result" in result)) {
+      throw new Error("Expected inspect result");
+    }
     expect(result.result).toMatchObject({ id: "cube-a", position: [0, 0.5, 0] });
-    const graphs = (result.result as { materialGraphs?: Array<{ nodes: Array<{ inputs: unknown[] }> }> }).materialGraphs;
-    expect(graphs?.[0]?.nodes[0]?.inputs).toEqual([
-      expect.objectContaining({ socketRef: "BSDF", linked: true }),
-    ]);
+    const graphs = (result.result as { materialGraphs?: Array<{ nodes: Array<{ inputs: unknown[] }> }> })
+      .materialGraphs;
+    expect(graphs?.[0]?.nodes[0]?.inputs).toEqual([expect.objectContaining({ socketRef: "BSDF", linked: true })]);
     expect(JSON.stringify(result)).not.toContain("defaultValue");
   });
 

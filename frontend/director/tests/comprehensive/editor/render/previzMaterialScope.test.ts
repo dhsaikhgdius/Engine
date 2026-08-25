@@ -58,13 +58,14 @@ it("applies warm character clay against cool environment clay and restores insta
   expect(character.mesh.material).not.toBe(prop.mesh.material);
   expect(prop.mesh.material).toBe(ground.material);
   expect(ground.material).toBe(instances.material);
-  expect((character.mesh.material as MeshStandardMaterial).color.getHexString()).toBe(
+  expect(character.mesh.material).toBeInstanceOf(MeshStandardMaterial);
+  expect((character.mesh.material as unknown as MeshStandardMaterial).color.getHexString()).toBe(
     DIRECTOR_PREVIZ_PALETTE.human.slice(1),
   );
-  expect((prop.mesh.material as MeshStandardMaterial).color.getHexString()).toBe(
+  expect((prop.mesh.material as unknown as MeshStandardMaterial).color.getHexString()).toBe(
     DIRECTOR_PREVIZ_PALETTE.clay.slice(1),
   );
-  expect((character.mesh.material as MeshStandardMaterial).userData.directorClayStudio).toBe(true);
+  expect((character.mesh.material as unknown as MeshStandardMaterial).userData.directorClayStudio).toBe(true);
   expect(instances.instanceColor).toBeNull();
   expect((scene.background as Color).getHexString()).toBe(DIRECTOR_PREVIZ_PALETTE.sky.slice(1));
 

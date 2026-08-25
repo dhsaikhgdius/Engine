@@ -421,6 +421,32 @@ export type StoredProductionArtifactPromotionInput = z.input<typeof storedProduc
 export type ProductionEvidenceRequest = z.output<typeof productionEvidenceRequestSchema>;
 
 /**
+ * Returns the live project-revision fingerprint bound by an approval, if any.
+ *
+ * Stored legacy approvals may omit this kind; new write paths require it.
+ */
+export function productionApprovalProjectFingerprint(
+  approval: Pick<ProductionApprovalInput, "fingerprints">,
+): ProductionApprovalFingerprint | undefined {
+  return approval.fingerprints.find((fingerprint) => fingerprint.kind === "project");
+}
+
+/**
+ * New approvals must bind the caller-observed live Director project revision.
+ * Existing on-disk records without a project fingerprint remain readable.
+ *
+ * @param input - Candidate approval write.
+ * @throws When `kind:project` is missing.
+ */
+export function assertNewApprovalBindsProjectRevision(input: ProductionApprovalInput): void {
+  if (!productionApprovalProjectFingerprint(input)) {
+    throw new Error(
+      "New approvals must include a kind:project fingerprint bound to the live director-project-revision.",
+    );
+  }
+}
+
+/**
  * Computes the content-hash fingerprint for an artifact version input.
  *
  * Normalizes sourceVersionIds to canonical sorted order before hashing.

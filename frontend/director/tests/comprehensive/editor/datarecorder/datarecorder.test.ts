@@ -4,7 +4,11 @@ import {
   resetDirectorWorkbenchRuntimeForTests,
 } from "../../../../src/agent/directorWorkbenchExecutor";
 import type { DirectorWorkbenchOperation } from "@director/agent-engine";
-import { createDefaultDirectorProject, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
+import { getDirectorAgentCatalogAsset } from "@director/agent-engine/asset-catalog";
+import {
+  createDefaultDirectorProject,
+  useDirectorStore,
+} from "../../../../src/comprehensive/editor/store/directorStore";
 import { useTimelineRuntimeStore } from "../../../../src/comprehensive/editor/runtime/timelineRuntimeStore";
 import {
   captureDirectorWorkbenchSnapshot,
@@ -42,12 +46,13 @@ function recordScriptedSession() {
     runWorkbenchOperation({
       op: "author",
       actions: [
+        { action: "upsert_asset", asset: getDirectorAgentCatalogAsset("flick:animals:cat.glb")!.asset },
         {
           action: "add_object",
           id: "recorder_box",
           name: "Recorder Box",
           kind: "prop",
-          geometry_type: "box",
+          asset_id: "flick:animals:cat.glb",
           transform: { position: [2, 0.5, -1], rotation: [0, 0, 0], scale: [1, 1, 1] },
         },
       ],
@@ -120,9 +125,7 @@ describe("Director session recorder and deterministic replay", () => {
     expect(semantic.at(-1)!.postFingerprint).toBe(record.finalFingerprint);
     expect(record.finalFingerprint).not.toBe(record.initialFingerprint);
 
-    const cameraPoses = record.records.filter(
-      (entry): entry is SessionCameraPoseEntry => entry.kind === "camera-pose",
-    );
+    const cameraPoses = record.records.filter((entry): entry is SessionCameraPoseEntry => entry.kind === "camera-pose");
     expect(cameraPoses).toHaveLength(1);
     expect(cameraPoses[0]).toMatchObject({ cameraId: "cam_1", fovDegrees: expect.any(Number) });
     // The rig/view round-trip is deterministic but not bit-exact to the input.

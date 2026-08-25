@@ -64,8 +64,8 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 
 | Phase  | Theme                      | Status      | Main outputs                                                                                 | Depends on              |
 | ------ | -------------------------- | ----------- | -------------------------------------------------------------------------------------------- | ----------------------- |
-| **M0** | Baseline & metrics         | Planned     | UI/agent parity inventory, parity harness                                                    | —                       |
-| **M1** | Shared action registry     | Planned     | High-traffic UI paths via `applyDirectorAuthoringActions`                                    | M0                      |
+| **M0** | Baseline & metrics         | **Partial** | Stage inventory + parity tests + Feature Status row shipped; generator and `stage_*` map open | —                       |
+| **M1** | Shared action registry     | **Partial** | Stage one-shot mutators share `applyDirectorAuthoringActions`; Canvas/Video (1e/1f) open      | M0                      |
 | **M2** | Remove human-only surfaces | **Implemented** | Interchange export + import (`plan-import`/`import`) and full collab comment/version writes shipped as JSON; human file picker remains an optional local-file convenience | M1 (partially parallel) |
 | **M3** | Unified gateway governance | **Partial** | Policy, unified audit, and confirmation boundaries now guard raw HTTP/CLI; role-gated UI shipped; read-only mode open | M1                      |
 | **M4** | In-product workspace       | Planned     | SQL-backed instructions / skills / memory                                                    | M3                      |
@@ -89,56 +89,72 @@ flowchart LR
 
 ## Milestone 0 — Baseline & metrics
 
+**Status: Partial** (verified 2026-08-25).
+
 **Goal:** make parity work measurable and regression-testable.
 
-### Work
+### Shipped
 
-- Audit all `directorStore` mutation entry points; produce a **UI mutation inventory**.
-- Map against `directorAuthoringActionSchema`; label **parity gaps** (high / medium / low).
-- Add a **parity harness** test suite:
-  - given authoring actions → UI executor and agent executor produce the same revision;
-  - failures emit diffs, not only boolean assertions.
-- Add **Agent UI parity coverage** to Feature Status (percentage + link to inventory).
+- [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/) covers every Stage
+  `directorStore` mutation entry point with mutator, file, semantic action, and
+  `shared` / `ui-only` / `human-only-interactive` status (35 / 87 project mutators shared, ~40%).
+- Parity tests in `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` assert
+  that store mutators and direct `applyDirectorAuthoringActions` produce the same
+  `getDirectorProjectRevision` for deletes, transforms, camera update/add/activate, character
+  motion set/clear, and light add/update/delete.
+- Feature Status carries an **Agent UI parity coverage** row linking the inventory.
+
+### Remaining work
+
+- Extend the inventory to the top Canvas/Video mutation paths (currently a documented
+  out-of-scope note, not per-mutator rows).
+- Parity harness failures should emit revision **diffs**, not only boolean assertions.
+- Optional inventory generator (`tools/scripts/auditUiMutations.ts`) so the doc cannot drift.
 - Document `stage_*` → `director_workbench` **migration map** (op mapping, deprecation timeline).
 
 ### Acceptance
 
-- Inventory covers top 20 mutation paths across Stage, Canvas, and Video.
+- Inventory covers top 20 mutation paths across Stage, Canvas, and Video (Stage is exhaustive
+  today; Canvas/Video rows are open).
 - Parity harness passes for the current `directorAuthoring` action set.
 - No runtime behavior changes.
-
-### Suggested PR order
-
-1. Inventory doc + optional generator (`tools/scripts/auditUiMutations.ts`)
-2. Parity harness framework + 5 seed cases
-3. Feature Status and assessment cross-links
 
 ---
 
 ## Milestone 1 — Shared action registry
 
+**Status: Partial** (verified 2026-08-25). Stage one-shot project mutators for objects, cameras,
+characters/motion/IK, lights, world, scene, storyboard, and entity animation now route through
+`dispatchDirectorAuthoringActions` (batches 1a–1c plus lights/world; see the
+[parity inventory](/engineering/ui-agent-parity-inventory/) for the exact per-mutator status and
+legacy fallbacks). Timeline audio, annotations/measurements, layers, materials, asset flows, and
+the whole of Canvas/Video (1e/1f) still patch state directly, so M1 is **not complete**.
+
 **Goal:** UI and agents share one mutation path; eliminate dual writes.
 
 ### Work
 
-#### 1.1 UI dispatch layer
+#### 1.1 UI dispatch layer — shipped for Stage
 
-- Add `dispatchDirectorAuthoringActions(actions, context)` — thin UI wrapper that:
+- `dispatchDirectorAuthoringActions(actions, context)`
+  (`frontend/director/src/agent/dispatchDirectorAuthoringActions.ts`) — thin UI wrapper that:
   - fills `expected_revision` / `idempotency_key`;
   - hooks unified error toasts and undo;
   - calls `applyDirectorAuthoringActions` internally.
-- Same pattern for Canvas/Video via `creativeWorkspaceAgentContract`.
+- UI patch → action compilers live in
+  `frontend/director/src/agent/compileDirectorUiAuthoringActions.ts`.
+- Same pattern for Canvas/Video via `creativeWorkspaceAgentContract` — **open**.
 
 #### 1.2 Migrate UI mutations in batches
 
-| Batch  | Scope                   | Typical actions                                   |
-| ------ | ----------------------- | ------------------------------------------------- |
-| **1a** | Object CRUD, transforms | `create_object`, `update_object`, `delete_object` |
-| **1b** | Cameras and shots       | `create_camera`, `update_camera`, `frame_camera`  |
-| **1c** | Characters and motion   | `assign_motion`, `update_character_pose`          |
-| **1d** | Timeline / coverage     | `create_coverage`, `assign_take`                  |
-| **1e** | Canvas nodes / edges    | creative `author` batches                         |
-| **1f** | Video tracks / clips    | creative `author` batches                         |
+| Batch  | Scope                   | Typical actions                                        | Status                                            |
+| ------ | ----------------------- | ------------------------------------------------------ | ------------------------------------------------- |
+| **1a** | Object CRUD, transforms | `add_object`, `update_object`, `delete_objects`        | Shared for delete/one-shot transform/toggle; add flows and multi-select batches open |
+| **1b** | Cameras and shots       | `add_camera`, `update_camera`, `set_active_camera`     | Shared                                            |
+| **1c** | Characters and motion   | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | Shared                          |
+| **1d** | Timeline / coverage     | `add_coverage_shot`, `add_performance_take`, timeline audio | Storyboard + entity animation shared; timeline audio open |
+| **1e** | Canvas nodes / edges    | creative `author` batches                              | Open                                              |
+| **1f** | Video tracks / clips    | creative `author` batches                              | Open                                              |
 
 #### 1.3 Semantic equivalents for interactive controls
 
@@ -154,7 +170,8 @@ flowchart LR
 
 ### Acceptance
 
-- Parity harness covers batches **1a–1d** with matching revisions on UI and agent paths.
+- Parity harness covers batches **1a–1d** with matching revisions on UI and agent paths
+  (1a–1c plus lights/world/storyboard covered today; timeline audio open).
 - No new high-priority "UI-only, no agent twin" gaps.
 - Existing MCP / HTTP / CLI integration tests pass.
 
@@ -206,16 +223,17 @@ media bytes still never enter Yjs.
 
 ### Shipped
 
-Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP and the Multi-Agent production runner share it:
+Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP, the Multi-Agent production runner, and the raw gateway HTTP tool boundary share it:
 
 | Surface               | Binding                                                                          |
 | --------------------- | -------------------------------------------------------------------------------- |
 | MCP                   | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                          |
 | Multi-Agent runs      | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` and its run routes   |
+| Raw HTTP / CLI        | `backend/gateway/agents/httpToolGovernance.ts` on every `/api/tools/*` route (covers the Stage CLI and the DSH plugin, which POST to the same routes) |
 
 ### Remaining
 
-#### 3.1 Raw HTTP and UI permissions
+#### 3.1b Optional UI permission gating
 
 - Shipped (2026-08-25): `backend/gateway/agents/httpToolGovernance.ts` applies `filmRoleToolPolicy` to every raw `POST /api/tools/{tool-name}` (and therefore CLI). Role resolves from the `x-director-film-role` header, then `DIRECTOR_FILM_ROLE`, else unrestricted; policy denials return HTTP 403.
 - Shipped (2026-08-25): role-gated UI from the same policy source. The allow-table moved to `packages/protocol/src/filmRoleToolPolicy.ts` (the gateway path re-exports it), `GET /api/control-plane/film-role` exposes the configured role, and `frontend/director/src/comprehensive/editor/api/filmRoleGate.ts` disables Stage write controls plus the UI authoring dispatch for roles that cannot author (e.g. `visual-critic`); observe/capture stay enabled.
@@ -232,11 +250,11 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
 - Tokens are issued by `POST /api/agent/confirm-token` (gateway auth), expire after 2 minutes, are bound to tool + operation + role + session, and are stored SHA-256-hashed in `backend/gateway/agentConfirmTokenStore.ts` (JSON + `writeJsonAtomic`, next to the audit store). Callers pass `confirm_token` as a top-level body field (MCP/CLI lift it out of the tool input; the CLI also reads `DIRECTOR_CONFIRM_TOKEN`) or the `x-director-confirm-token` header. Role policy stays first: a denied role is rejected before any token is read.
 - UI modals keep using the protocol `confirm: true` literal; unrelated edits are not blocked.
 
-### Acceptance (remaining)
+### Acceptance
 
-- Denied MCP ops are also denied on raw HTTP/CLI for the same role.
-- Audit log reconstructs a full author session tool chain across entry points.
-- New governance integration test suite covers HTTP and UI bypass cases.
+- Denied MCP ops are also denied on raw HTTP/CLI for the same role — done (`backend/gateway/tests/routes/httpToolPolicyRoutes.test.ts`).
+- Audit log reconstructs a tool chain across HTTP/CLI/MCP/DSH entry points via `GET /api/agent/audit` — done (`backend/gateway/tests/routes/agentAuditRoutes.test.ts`). UI-dispatched author actions remain out of scope until UI gating lands.
+- Governance tests cover HTTP bypass cases — done; UI bypass cases remain with 3.1b.
 
 ---
 
@@ -366,7 +384,7 @@ At **~2 weeks per milestone** (adjust for capacity):
 | ------------------------------- | ------------------------------------------------------------------------- | -------------------------- | -------- |
 | Parity coverage (top mutations) | ~60%                                                                       | ≥85%                       | ≥95%     |
 | Documented human-only classes   | 0 required (file picker stays an optional local-file import convenience)  | 0 required                 | 0        |
-| Consistent gateway policy       | Partial (MCP / local / hosted)                                             | Yes, including raw HTTP/UI | Yes      |
+| Consistent gateway policy       | Yes (MCP / local / hosted / raw HTTP+CLI; role-gated UI)                   | Yes, plus read-only mode   | Yes      |
 | In-product workspace            | No                                                                         | No                         | Yes      |
 | Agent-native self-score         | 4.0 (M2 JSON gaps closed; UI parity and governance still open)             | 4.2                        | 4.5      |
 
@@ -374,6 +392,7 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 ## Immediate next steps
 
-1. Finish remaining M3: the optional read-only mode (policy on raw HTTP/UI, the unified audit trail, confirmation boundaries, and role-gated UI shipped 2026-08-25)
-2. Keep [Feature Status](/reference/feature-status/) and the [architecture assessment](/research/agent-native-architecture-assessment/) in the same change when those land
-3. M7 leftovers landed: ADR 0004 concluded the A2A spike (runtime no-go; discovery-only card served) and the cross-app receipt recipe is documented in Control surfaces
+1. Remaining M1: Canvas/Video UI stores (1e/1f) and the leftover Stage ui-only writers in the [parity inventory](/engineering/ui-agent-parity-inventory/)
+2. Finish remaining M3: the optional read-only mode (policy on raw HTTP/UI, the unified audit trail, confirmation boundaries, and role-gated UI shipped 2026-08-25)
+3. Keep [Feature Status](/reference/feature-status/) and the [architecture assessment](/research/agent-native-architecture-assessment/) in the same change when those land
+4. M7 leftovers landed: ADR 0004 concluded the A2A spike (runtime no-go; discovery-only card served) and the cross-app receipt recipe is documented in Control surfaces

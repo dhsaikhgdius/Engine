@@ -58,8 +58,8 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 
 | 阶段   | 主题                   | 状态        | 主要产出                                                                         | 依赖             |
 | ------ | ---------------------- | ----------- | -------------------------------------------------------------------------------- | ---------------- |
-| **M0** | 基线与度量             | Planned     | UI/Agent parity 清单、parity harness                                             | 无               |
-| **M1** | Shared action registry | Planned     | UI 高频路径经 `applyDirectorAuthoringActions`                                    | M0               |
+| **M0** | 基线与度量             | **Partial** | Stage 清单 + parity 测试 + Feature Status 行已交付；生成脚本与 `stage_*` 对照表未完成 | 无               |
+| **M1** | Shared action registry | **Partial** | Stage 单次 mutator 已共享 `applyDirectorAuthoringActions`；Canvas/Video（1e/1f）未完成 | M0               |
 | **M2** | Human-only 面消除      | **Implemented** | Interchange 导出与导入（`plan-import`/`import`）及全部 collab 评论/版本写操作均为 JSON；文件选择器仅作为本地文件的可选便捷入口保留 | M1（部分可并行） |
 | **M3** | Gateway 统一治理       | **Partial** | 策略、统一审计与确认边界已覆盖原始 HTTP/CLI；role 限制 UI 已交付；只读 mode 未完成 | M1               |
 | **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
@@ -83,56 +83,69 @@ flowchart LR
 
 ## Milestone 0 — 基线与度量
 
+**状态：Partial**（核验于 2026-08-25）。
+
 **目标：** 让后续 parity 工作可量化、可回归。
 
-### 工作项
+### 已交付
 
-- 审计 `directorStore` 中所有 mutation 入口，产出 **UI mutation inventory**（文件、函数、是否已有 semantic twin）。
-- 对照 `directorAuthoringActionSchema`，标记 **parity gap 列表**（高 / 中 / 低优先级）。
-- 新增 **parity harness** 测试套件：
-  - 给定一组 authoring actions → UI executor 与 agent executor 产出相同 revision；
-  - 失败时输出 diff，而非仅断言 boolean。
-- 在 Feature Status 增加一行 **Agent UI parity coverage**（百分比 + 链接到 inventory）。
+- [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/) 覆盖 Stage `directorStore` 全部
+  变更入口，含 mutator、文件、semantic action 与
+  `shared` / `ui-only` / `human-only-interactive` 状态（35 / 87 项目 mutator 已 shared，约 40%）。
+- `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 的 parity 测试断言
+  store mutator 与直接 `applyDirectorAuthoringActions` 对删除、变换、相机 update/add/activate、
+  角色 motion set/clear、灯光 add/update/delete 产出相同 `getDirectorProjectRevision`。
+- Feature Status 已有 **Agent UI parity coverage** 行并链接清单。
+
+### 剩余工作
+
+- 把清单扩展到 Canvas/Video 的 top 变更路径（目前只有 out-of-scope 说明，没有逐 mutator 行）。
+- Parity harness 失败时应输出 revision **diff**，而非仅 boolean 断言。
+- 可选清单生成脚本（`tools/scripts/auditUiMutations.ts`），防止文档漂移。
 - 文档化 `stage_*` → `director_workbench` **迁移对照表**（op 映射、废弃时间表）。
 
 ### 验收
 
-- Inventory 覆盖 Stage / Canvas / Video 三大 workspace 的 top 20 变更路径。
+- Inventory 覆盖 Stage / Canvas / Video 三大 workspace 的 top 20 变更路径（Stage 已穷举；
+  Canvas/Video 行仍未完成）。
 - Parity harness 至少对现有 `directorAuthoring` 全集通过。
 - 无运行时行为变更。
-
-### 建议 PR 顺序
-
-1. Inventory 文档 + 生成脚本（可选：`tools/scripts/auditUiMutations.ts`）
-2. Parity harness 框架 + 5 个 seed cases
-3. Feature Status 与 assessment 文档互链
 
 ---
 
 ## Milestone 1 — Shared Action Registry
 
+**状态：Partial**（核验于 2026-08-25）。Stage 的对象、相机、角色/motion/IK、灯光、世界、场景、
+Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAuthoringActions` 执行
+（1a–1c 批次加灯光/世界；每个 mutator 的精确状态与旧路径回退见
+[对等清单](/zh/engineering/ui-agent-parity-inventory/)）。Timeline 音频、标注/测量、图层、材质、
+资产流程以及整个 Canvas/Video（1e/1f）仍直接 patch 状态，因此 M1 **尚未完成**。
+
 **目标：** UI 与 Agent 共享同一 mutation 路径，消除「双轨写入」。
 
 ### 工作项
 
-#### 1.1 引入 UI dispatch 层
+#### 1.1 引入 UI dispatch 层 — Stage 已交付
 
-- 新增 `dispatchDirectorAuthoringActions(actions, context)` — UI 专用薄封装：
+- `dispatchDirectorAuthoringActions(actions, context)`
+  （`frontend/director/src/agent/dispatchDirectorAuthoringActions.ts`）— UI 专用薄封装：
   - 自动填充 `expected_revision` / `idempotency_key`；
   - 统一错误 toast / undo 挂钩；
   - 内部仍调用 `applyDirectorAuthoringActions`。
-- Canvas / Video 同理：Creative workspace 经 `creativeWorkspaceAgentContract` 执行，UI 不再直接 patch snapshot。
+- UI patch → action 编译器在
+  `frontend/director/src/agent/compileDirectorUiAuthoringActions.ts`。
+- Canvas / Video 同理：Creative workspace 经 `creativeWorkspaceAgentContract` 执行，UI 不再直接 patch snapshot — **未完成**。
 
 #### 1.2 分批迁移 UI mutation（按 inventory 优先级）
 
-| 批次   | 范围                 | 典型 action                                       |
-| ------ | -------------------- | ------------------------------------------------- |
-| **1a** | 对象 CRUD、transform | `create_object`, `update_object`, `delete_object` |
-| **1b** | 相机与镜头           | `create_camera`, `update_camera`, `frame_camera`  |
-| **1c** | 角色与 motion        | `assign_motion`, `update_character_pose`          |
-| **1d** | Timeline / coverage  | `create_coverage`, `assign_take`                  |
-| **1e** | Canvas nodes / edges | creative `author` batch                           |
-| **1f** | Video tracks / clips | creative `author` batch                           |
+| 批次   | 范围                 | 典型 action                                            | 状态                                               |
+| ------ | -------------------- | ------------------------------------------------------ | -------------------------------------------------- |
+| **1a** | 对象 CRUD、transform | `add_object`, `update_object`, `delete_objects`        | 删除/单次变换/开关已 shared；新建流程与多选批量未完成 |
+| **1b** | 相机与镜头           | `add_camera`, `update_camera`, `set_active_camera`     | 已 shared                                          |
+| **1c** | 角色与 motion        | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | 已 shared                       |
+| **1d** | Timeline / coverage  | `add_coverage_shot`, `add_performance_take`, timeline 音频 | Storyboard + 实体动画已 shared；timeline 音频未完成 |
+| **1e** | Canvas nodes / edges | creative `author` batch                                | 未完成                                             |
+| **1f** | Video tracks / clips | creative `author` batch                                | 未完成                                             |
 
 #### 1.3 交互式操控的 semantic 等价物
 
@@ -148,7 +161,8 @@ flowchart LR
 
 ### 验收
 
-- Parity harness 覆盖 **1a–1d** 批次，UI 与 Agent 路径 revision 一致。
+- Parity harness 覆盖 **1a–1d** 批次，UI 与 Agent 路径 revision 一致
+  （目前已覆盖 1a–1c 加灯光/世界/Storyboard；timeline 音频未完成）。
 - 无新增「UI 直连 store、Agent 无等价」的高优先级 gap。
 - 现有 MCP / HTTP / CLI 集成测试全部通过。
 
@@ -197,16 +211,17 @@ flowchart LR
 
 ### 已交付
 
-角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP 与 Multi-Agent production runner 共用：
+角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP、Multi-Agent production runner 与原始 gateway HTTP 工具边界共用：
 
 | 入口            | 绑定                                                                |
 | --------------- | -------------------------------------------------------------------- |
 | MCP             | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`            |
 | Multi-Agent run | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` 及其路由 |
+| 原始 HTTP / CLI | `backend/gateway/agents/httpToolGovernance.ts` 应用于每条 `/api/tools/*` 路由（Stage CLI 与 DSH plugin 走同一批路由，因此同样被覆盖） |
 
 ### 剩余项
 
-#### 3.1 原始 HTTP 与 UI 权限
+#### 3.1b 可选 UI 权限门控
 
 - 已交付（2026-08-25）：`backend/gateway/agents/httpToolGovernance.ts` 已把 `filmRoleToolPolicy` 接到所有原始 `POST /api/tools/{tool-name}`（因此也覆盖 CLI）。Role 依次取 `x-director-film-role` header、`DIRECTOR_FILM_ROLE` 环境变量，否则不受限；策略拒绝返回 HTTP 403。
 - 已交付（2026-08-25）：与 policy 同源的 role 限制 UI。Allow-table 移至 `packages/protocol/src/filmRoleToolPolicy.ts`（gateway 路径 re-export），`GET /api/control-plane/film-role` 暴露当前 role，`frontend/director/src/comprehensive/editor/api/filmRoleGate.ts` 对不可 author 的 role（如 `visual-critic`）禁用 Stage 写控件与 UI authoring dispatch；observe/capture 保持可用。
@@ -223,11 +238,11 @@ flowchart LR
 - Token 由 `POST /api/agent/confirm-token` 签发（需 gateway auth），2 分钟过期、单次使用、绑定 tool + operation + role + session，以 SHA-256 hash 存于 `backend/gateway/agentConfirmTokenStore.ts`（JSON + `writeJsonAtomic`，与审计 store 同目录）。调用方以 body 顶层 `confirm_token` 字段（MCP/CLI 会从 tool input 中提出；CLI 亦读取 `DIRECTOR_CONFIRM_TOKEN`）或 `x-director-confirm-token` header 传递。Role policy 优先：被拒绝的 role 在读取 token 之前即被拒绝。
 - UI modal 继续使用 protocol 级 `confirm: true`；不阻塞无关编辑。
 
-### 验收（剩余项）
+### 验收
 
-- 同一 role 下，MCP 被拒绝的 op 在原始 HTTP/CLI 也被拒绝。
-- Audit log 可跨入口还原一次完整 author 会话的 tool 链。
-- 新增 governance integration test 覆盖 HTTP 与 UI 绕过路径。
+- 同一 role 下，MCP 被拒绝的 op 在原始 HTTP/CLI 也被拒绝 — 已完成（`backend/gateway/tests/routes/httpToolPolicyRoutes.test.ts`）。
+- Audit log 可通过 `GET /api/agent/audit` 跨 HTTP/CLI/MCP/DSH 入口还原 tool 链 — 已完成（`backend/gateway/tests/routes/agentAuditRoutes.test.ts`）；UI-dispatched author 操作待 UI 门控落地后纳入。
+- Governance 测试已覆盖 HTTP 绕过路径；UI 绕过路径随 3.1b 继续。
 
 ---
 
@@ -352,18 +367,19 @@ flowchart LR
 
 ## 成功指标
 
-| 指标                             | 当前（2026-08-25）                                    | 剩余 M3 完成后     | M4 后 |
-| -------------------------------- | ----------------------------------------------------- | ------------------ | ----- |
-| Parity coverage（top mutations） | ~60%                                                  | ≥85%               | ≥95%  |
-| Human-only 能力（已文档化）      | 0 类必需（文件选择器仅作为本地文件的可选导入便捷入口） | 0 类必需           | 0 类  |
-| Gateway 入口 policy 一致         | 部分（MCP / 本地 / 托管）                             | 是，含原始 HTTP/UI | 是    |
-| In-product workspace             | 否                                                    | 否                 | 是    |
-| Agent-native 综合评分（自评）    | 4.0（M2 JSON 缺口已闭合；UI parity 与治理仍开放）     | 4.2                | 4.5   |
+| 指标                             | 当前（2026-08-25）                                     | 剩余 M3 完成后 | M4 后 |
+| -------------------------------- | ------------------------------------------------------ | -------------- | ----- |
+| Parity coverage（top mutations） | ~60%                                                   | ≥85%           | ≥95%  |
+| Human-only 能力（已文档化）      | 0 类必需（文件选择器仅作为本地文件的可选导入便捷入口） | 0 类必需       | 0 类  |
+| Gateway 入口 policy 一致         | 是（MCP / 本地 / 托管 / 原始 HTTP+CLI；role 门控 UI）  | 是，含只读 mode | 是    |
+| In-product workspace             | 否                                                     | 否             | 是    |
+| Agent-native 综合评分（自评）    | 4.0（M2 JSON 缺口已闭合；UI parity 与治理仍开放）      | 4.2            | 4.5   |
 
 ---
 
 ## 下一步行动
 
-1. 完成剩余 M3：可选的完整只读 mode（原始 HTTP/UI 策略、统一审计轨迹、确认边界与 role 限制 UI 已于 2026-08-25 交付）
-2. 落地时在同一变更中更新 [Feature Status](/zh/reference/feature-status/) 与[架构符合性评估](/zh/research/agent-native-architecture-assessment/)
-3. M7 遗留已落地：ADR 0004 完成 A2A spike 结论（runtime no-go；已提供 discovery-only card），cross-app 回执 recipe 已写入 Control surfaces
+1. M1 剩余：Canvas/Video UI store（1e/1f）以及[对等清单](/zh/engineering/ui-agent-parity-inventory/)中仍为 ui-only 的 Stage 写入
+2. 完成剩余 M3：可选的完整只读 mode（原始 HTTP/UI 策略、统一审计轨迹、确认边界与 role 限制 UI 已于 2026-08-25 交付）
+3. 落地时在同一变更中更新 [Feature Status](/zh/reference/feature-status/) 与[架构符合性评估](/zh/research/agent-native-architecture-assessment/)
+4. M7 遗留已落地：ADR 0004 完成 A2A spike 结论（runtime no-go；已提供 discovery-only card），cross-app 回执 recipe 已写入 Control surfaces
