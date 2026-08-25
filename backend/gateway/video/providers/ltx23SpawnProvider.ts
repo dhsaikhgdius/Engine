@@ -80,7 +80,7 @@ function killGroup(child: ChildProcess) {
  */
 export class Ltx23SpawnProvider implements VideoProvider {
   readonly id = "ltx-2.3" as const;
-  private readonly spawnImpl: typeof spawn;
+  private readonly spawnImpl: NonNullable<Ltx23SpawnProviderOptions["spawnImpl"]>;
   private readonly jobs = new Map<string, TrackedJob>();
 
   constructor(private readonly options: Ltx23SpawnProviderOptions) {

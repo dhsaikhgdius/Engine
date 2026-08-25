@@ -28,6 +28,13 @@ import type { DirectorShotRenderPassId } from "../../../../src/comprehensive/edi
 import { captureDirectorRenderPass, createDirectorObjectIdColorMap } from "../../../../src/comprehensive/editor/render/renderPassCapture";
 import { DIRECTOR_SEMANTIC_PALETTE } from "../../../../src/comprehensive/editor/render/semanticPalette";
 
+function expectStandardMaterial(material: unknown): MeshStandardMaterial {
+  if (!(material instanceof MeshStandardMaterial)) {
+    throw new Error("Expected the clay render pass to swap in a MeshStandardMaterial");
+  }
+  return material;
+}
+
 function createRendererHarness({
   onRead,
   onRender,
@@ -562,8 +569,8 @@ describe("captureDirectorRenderPass", () => {
     const harness = createRendererHarness({
       onRender: () => {
         expect(fixture.mesh.material).toBe(instances.material);
-        expect((fixture.mesh.material as MeshStandardMaterial).color.getHex()).toBe(0xd8dce2);
-        expect((characterMesh.material as MeshStandardMaterial).color.getHex()).toBe(0xd19a3a);
+        expect(expectStandardMaterial(fixture.mesh.material).color.getHex()).toBe(0xd8dce2);
+        expect(expectStandardMaterial(characterMesh.material).color.getHex()).toBe(0xd19a3a);
         expect(characterMesh.material).not.toBe(fixture.mesh.material);
         expect(instances.instanceColor).toBeNull();
       },

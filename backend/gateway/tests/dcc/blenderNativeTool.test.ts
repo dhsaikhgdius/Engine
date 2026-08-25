@@ -683,6 +683,8 @@ describe("executeBlenderNativeTool", () => {
           id: "cube-a",
           materialName: "gold_plaque",
           createIfMissing: false,
+          faceScope: "ALL",
+          parameters: {},
         },
       ],
     });
@@ -1659,6 +1661,9 @@ describe("executeBlenderNativeTool", () => {
       expectedRevision: 5,
     });
 
+    if (!("result" in result)) {
+      throw new Error("Expected an inspect result payload");
+    }
     expect(result.result).toMatchObject({ id: "cube-a", position: [0, 0.5, 0] });
     const graphs = (result.result as { materialGraphs?: Array<{ nodes: Array<{ inputs: unknown[] }> }> }).materialGraphs;
     expect(graphs?.[0]?.nodes[0]?.inputs).toEqual([
