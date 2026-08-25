@@ -100,6 +100,9 @@ import {
   type WorkbenchRoutingOperation,
 } from "./workbenchClientRouting";
 import { DirectorCollaborationWebSocketHub } from "./collaborationWebSocketHub";
+import { createCollaborationRoomAuthorizer } from "./collaborationRoomAuth";
+import { CollaborationSnapshotStore } from "./collaboration/collaborationSnapshotStore";
+import { handleCollaborationInviteRoute } from "./routes/collaborationInviteRoutes";
 import { loadDirectorControlPlaneConfig, type HostedAgentProfileConfig } from "./controlPlane/controlPlaneConfig";
 import { AgentProfileRegistry } from "./agents/agentProfileRegistry";
 import { probeLocalAgentCliAvailability } from "./agents/localAgentCliAvailability";
@@ -261,7 +264,16 @@ type PlannedAgentTargetLease = { targets: PlannedAgentTargets; expiresAt: number
 const plannedAgentTargets = new Map<string, PlannedAgentTargetLease>();
 let previewMimeType: StageCapturePayload["mimeType"] = "image/png";
 const terminalSessions = new TerminalSessionManager(root);
-const collaborationHub = new DirectorCollaborationWebSocketHub();
+// Team-readiness collaboration boundary: room auth defaults to local trust and
+// persistence defaults to in-memory; both are opt-in via environment.
+const collaborationInviteSecret = process.env.DIRECTOR_COLLAB_INVITE_SECRET?.trim() || gatewaySecret;
+const collaborationRoomAuthorizer = createCollaborationRoomAuthorizer({ secret: collaborationInviteSecret });
+const collaborationSnapshotStore =
+  process.env.DIRECTOR_COLLAB_PERSISTENCE?.trim() === "1" ? new CollaborationSnapshotStore(dataDirectory) : null;
+const collaborationHub = new DirectorCollaborationWebSocketHub({
+  authorizer: collaborationRoomAuthorizer,
+  ...(collaborationSnapshotStore ? { persistence: collaborationSnapshotStore } : {}),
+});
 const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
 const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
 const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
@@ -2114,6 +2126,15 @@ const server = createServer(async (request, response) => {
         json,
         store: productionArtifactStore,
         now: () => new Date().toISOString(),
+      })
+    )
+      return;
+    if (
+      await handleCollaborationInviteRoute(request, response, url, {
+        readBody: body,
+        json,
+        authorizer: collaborationRoomAuthorizer,
+        inviteSecret: collaborationInviteSecret,
       })
     )
       return;

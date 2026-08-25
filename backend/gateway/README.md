@@ -208,7 +208,7 @@ The in-tree Agent run loop, hosted session store, workspace tools, and hosted `w
 
 | Path | Purpose |
 |------|---------|
-| `multiAgent/productionRunOrchestrator.ts` | Production run orchestrator: executes multi-agent production pipeline in film role sequence (showrunner → screenwriter → … → generation-operator) |
+| `multiAgent/productionRunOrchestrator.ts` | Production run orchestrator: executes the serial film role sequence or a configurable node/edge graph (parallel branch waves, checkpoint resume via `from_node_id`) |
 | `multiAgent/multiAgentRunStore.ts` | Multi-agent run store: persists production run records |
 
 ### `production/` File listing

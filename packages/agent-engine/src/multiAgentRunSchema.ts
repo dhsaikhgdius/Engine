@@ -79,7 +79,85 @@ export const productionRunNodeSchema = z.strictObject({
   inputArtifactIds: z.array(z.string()),
   outputArtifactIds: z.array(z.string()),
   error: z.string().nullable(),
+  /**
+   * Explicit upstream node ids for graph runs. Absent on serial-list runs
+   * (including every legacy snapshot), where strict array order is the edge
+   * set and artifact inheritance stays role-context based.
+   */
+  dependsOn: z.array(z.string()).max(23).optional(),
 });
+
+/** Graph node ids double as durable run checkpoint ids, so they must be compact and path-safe. */
+export const productionGraphNodeIdSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9][a-z0-9_-]{0,78}$/i);
+
+/** One node of a configurable multi-agent production graph request. */
+export const productionRunGraphNodeSchema = z.strictObject({
+  id: productionGraphNodeIdSchema,
+  roleId: filmRoleIdSchema,
+  /** Optional per-node profile override; wins over profileByRole routing. */
+  profileId: agentProfileIdSchema.optional(),
+  /** Upstream node ids whose artifacts this node consumes. Empty means a root node. */
+  dependsOn: z.array(productionGraphNodeIdSchema).max(23).default([]),
+});
+
+/**
+ * A configurable production graph: nodes with explicit dependency edges.
+ * Ids must be unique, edges must reference declared nodes, and the graph must
+ * be acyclic so the scheduler can always make progress.
+ */
+export const productionRunGraphSchema = z
+  .strictObject({ nodes: z.array(productionRunGraphNodeSchema).min(1).max(24) })
+  .superRefine((graph, context) => {
+    const ids = new Set<string>();
+    for (const [index, node] of graph.nodes.entries()) {
+      if (ids.has(node.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["nodes", index, "id"],
+          message: `Duplicate production graph node id "${node.id}"`,
+        });
+      }
+      ids.add(node.id);
+    }
+    let edgesValid = true;
+    for (const [index, node] of graph.nodes.entries()) {
+      for (const dependency of node.dependsOn) {
+        if (dependency === node.id || !ids.has(dependency)) {
+          edgesValid = false;
+          context.addIssue({
+            code: "custom",
+            path: ["nodes", index, "dependsOn"],
+            message:
+              dependency === node.id
+                ? `Node "${node.id}" cannot depend on itself`
+                : `Node "${node.id}" depends on unknown node "${dependency}"`,
+          });
+        }
+      }
+    }
+    if (!edgesValid) return;
+    // Kahn's algorithm: any unresolvable remainder is a cycle.
+    const remainingDependencies = new Map(graph.nodes.map((node) => [node.id, new Set(node.dependsOn)]));
+    let progressed = true;
+    while (progressed && remainingDependencies.size > 0) {
+      progressed = false;
+      for (const [id, dependencies] of remainingDependencies) {
+        if ([...dependencies].some((dependency) => remainingDependencies.has(dependency))) continue;
+        remainingDependencies.delete(id);
+        progressed = true;
+      }
+    }
+    if (remainingDependencies.size > 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["nodes"],
+        message: `Production graph contains a dependency cycle involving: ${[...remainingDependencies.keys()].join(", ")}`,
+      });
+    }
+  });
 
 const productionRunV2Schema = z.strictObject({
   version: z.literal(2),
@@ -126,15 +204,36 @@ function migrateProductionRun(value: unknown): unknown {
 export const productionRunSchema = z.preprocess(migrateProductionRun, productionRunV2Schema);
 
 /** Request body for creating a new multi-agent production run. */
-export const createProductionRunRequestSchema = z.strictObject({
-  objective: nonEmptyText(8_000),
-  provider: agentProviderSchema.default("api"),
-  profileId: agentProfileIdSchema.default("api-default"),
-  profileByRole: productionRoleProfileMapSchema.optional(),
-  roles: z.array(filmRoleIdSchema).min(1).max(16).optional(),
-  brief: filmProductionBriefSchema.optional(),
-  project: z.unknown().optional(),
-  target: directorAgentTargetWireSchema,
+export const createProductionRunRequestSchema = z
+  .strictObject({
+    objective: nonEmptyText(8_000),
+    provider: agentProviderSchema.default("api"),
+    profileId: agentProfileIdSchema.default("api-default"),
+    profileByRole: productionRoleProfileMapSchema.optional(),
+    roles: z.array(filmRoleIdSchema).min(1).max(16).optional(),
+    /** Explicit node/edge graph. Mutually exclusive with the serial `roles` list. */
+    graph: productionRunGraphSchema.optional(),
+    brief: filmProductionBriefSchema.optional(),
+    project: z.unknown().optional(),
+    target: directorAgentTargetWireSchema,
+  })
+  .superRefine((request, context) => {
+    if (request.roles && request.graph) {
+      context.addIssue({
+        code: "custom",
+        path: ["graph"],
+        message: "Provide either a serial roles list or an explicit graph, not both",
+      });
+    }
+  });
+
+/** Request body for resuming a production run, optionally from a checkpoint node. */
+export const resumeProductionRunRequestSchema = z.strictObject({
+  /**
+   * Re-run from this durable checkpoint: the node itself and every transitive
+   * dependent are reset even when they previously succeeded.
+   */
+  from_node_id: nonEmptyText(160).optional(),
 });
 
 /** A full multi-agent production run, including nodes, artifacts, and routing. */
@@ -142,6 +241,15 @@ export type ProductionRun = z.infer<typeof productionRunSchema>;
 
 /** A single role-assigned node in a production run. */
 export type ProductionRunNode = z.infer<typeof productionRunNodeSchema>;
+
+/** A configurable production graph request. */
+export type ProductionRunGraph = z.infer<typeof productionRunGraphSchema>;
+
+/** One node of a configurable production graph request. */
+export type ProductionRunGraphNode = z.infer<typeof productionRunGraphNodeSchema>;
+
+/** Request shape for resuming a production run. */
+export type ResumeProductionRunRequest = z.infer<typeof resumeProductionRunRequestSchema>;
 
 /** A production artifact emitted by a run node. */
 export type ProductionArtifact = z.infer<typeof productionArtifactSchema>;

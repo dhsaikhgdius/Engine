@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createProductionRunRequestSchema } from "@director/agent-engine";
+import { createProductionRunRequestSchema, resumeProductionRunRequestSchema } from "@director/agent-engine";
 import { safeParseDirectorProject } from "@director/project-schema";
 import type { DirectorAgentTargetWire } from "../../../packages/protocol/src/agentGatewayProtocol";
 import { filmRoleRequiresToolLoop } from "../agents/filmRoleToolPolicy";
@@ -30,10 +30,10 @@ export type MultiAgentRunRouteDependencies = {
  *
  * Routes:
  * - `GET /api/agent/runs` — list all production runs.
- * - `POST /api/agent/runs` — create a new production run.
+ * - `POST /api/agent/runs` — create a new production run (serial `roles` list or explicit `graph`).
  * - `GET /api/agent/runs/:id` — get a single run.
  * - `POST /api/agent/runs/:id/cancel` — cancel a run.
- * - `POST /api/agent/runs/:id/resume` — resume a paused run.
+ * - `POST /api/agent/runs/:id/resume` — resume a run, optionally from a checkpoint (`from_node_id`).
  *
  * @param request - The incoming HTTP request.
  * @param response - The outgoing HTTP response.
@@ -67,7 +67,14 @@ export async function handleMultiAgentRunRoute(
       return true;
     }
     const profileByRole = orchestrator.resolveRoleProfiles(parsed.data);
-    for (const [roleId, profileId] of Object.entries(profileByRole)) {
+    const routedProfiles: Array<[string, string | undefined]> = [
+      ...Object.entries(profileByRole),
+      // Graph nodes may pin their own profile, which wins over role routing.
+      ...(parsed.data.graph?.nodes ?? [])
+        .filter((node) => node.profileId)
+        .map((node): [string, string | undefined] => [node.roleId, node.profileId]),
+    ];
+    for (const [roleId, profileId] of routedProfiles) {
       if (!profileId) continue;
       const profile = profiles.get(profileId);
       if (!profile || profile.provider !== parsed.data.provider || !profile.public.available) {
@@ -126,7 +133,17 @@ export async function handleMultiAgentRunRoute(
     return true;
   }
   if (request.method === "POST" && action === "resume") {
-    json(response, 202, { run: await orchestrator.resume(id) });
+    const parsedBody = resumeProductionRunRequestSchema.safeParse(await readBody(request).catch(() => ({})));
+    if (!parsedBody.success) {
+      json(response, 400, { error: "Production run resume 参数无效", code: "invalid_request" });
+      return true;
+    }
+    const fromNodeId = parsedBody.data.from_node_id;
+    if (fromNodeId && !run.nodes.some((node) => node.id === fromNodeId)) {
+      json(response, 404, { error: "Production run checkpoint node 不存在", code: "checkpoint_not_found" });
+      return true;
+    }
+    json(response, 202, { run: await orchestrator.resume(id, undefined, { fromNodeId }) });
     return true;
   }
   return false;

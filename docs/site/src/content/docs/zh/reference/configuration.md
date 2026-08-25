@@ -19,6 +19,21 @@ description: 端口、环境变量、持久化 key 与构建命令。
 Gateway 拒绝非 loopback 绑定。原生 CLI/MCP 客户端会自动 bootstrap process token；原始 HTTP 客户端从
 `/te-man/director/agent/bootstrap` 获取 token，并通过 `X-Director-Browser-Token` 发送。该认证 token 与观察返回的精确工作区 `target_token` 不同。
 
+## 协作房间
+
+| 变量                                | 默认值                  | 用途                                                                       |
+| ----------------------------------- | ----------------------- | -------------------------------------------------------------------------- |
+| `DIRECTOR_COLLAB_ROOM_AUTH`         | 未设置（本地信任）      | 设为 `required` 时，没有有效邀请 capability token 的房间加入会被拒绝        |
+| `DIRECTOR_COLLAB_INVITE_SECRET`     | 进程 gateway secret     | 邀请 token 的稳定 HMAC secret；设置后邀请可跨 gateway 重启存活              |
+| `DIRECTOR_COLLAB_PERSISTENCE`       | 未设置（内存）          | 设为 `1` 时在磁盘持久化 Yjs 房间快照（压缩 + 损坏更新隔离）                 |
+| `VITE_DIRECTOR_COLLAB_INVITE_TOKEN` | 未设置                  | 前端构建/环境提供的邀请 token，浏览器 transport 会附加到 `collab.join`      |
+
+本地信任模式（默认）下，每个已通过升级鉴权的 socket 都以 editor 身份加入，与引入鉴权前的行为一致。
+设置 `DIRECTOR_COLLAB_ROOM_AUTH=required` 后，操作者通过 `POST /api/collab/invites` 铸造邀请
+（`{room, role, ttl_seconds}` — `role` 为 `editor` 或 `viewer`，`room` 可以是 `project-a/*` 这样的
+前缀 capability）。`GET /api/collab/auth` 报告当前模式。viewer 邀请可以接收文档并共享 awareness，
+但不能写入。
+
 ## Provider 命令
 
 | 变量                 | 默认值   |
