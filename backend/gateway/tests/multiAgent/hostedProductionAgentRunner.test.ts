@@ -105,4 +105,73 @@ describe("HostedProductionAgentRunner", () => {
       "turn.completed",
     ]);
   });
+
+  it("meters token usage, wall-clock time, and transport retries for a hosted turn", async () => {
+    const meter = vi.fn();
+    let reportRetry: (() => void) | undefined;
+    const complete = vi.fn(async () => {
+      reportRetry?.();
+      return {
+        id: "completion-1",
+        model: "local-model",
+        message: { role: "assistant" as const, content: [{ type: "text" as const, text: "creative brief" }] },
+        finishReason: "stop" as const,
+        rawFinishReason: "stop",
+        usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+      };
+    });
+    const runner = new HostedProductionAgentRunner(
+      profiles(),
+      (input) => {
+        reportRetry = input.onRetry;
+        return { complete };
+      },
+      meter,
+    );
+    const session = runner.createSession({
+      provider: "api",
+      profileId: "api-default",
+      roleId: "showrunner",
+      title: "showrunner",
+    });
+
+    await runner.sendMessage(session.id, "define the brief", undefined, TARGET);
+
+    expect(meter).toHaveBeenCalledTimes(1);
+    expect(meter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: session.id,
+        provider: "openai-compatible",
+        model: "local-model",
+        input_tokens: 120,
+        output_tokens: 30,
+        total_tokens: 150,
+        retries: 1,
+        succeeded: true,
+      }),
+    );
+  });
+
+  it("meters a failed sample when the hosted completion throws", async () => {
+    const meter = vi.fn();
+    const complete = vi.fn(async () => {
+      throw new Error("provider unavailable");
+    });
+    const runner = new HostedProductionAgentRunner(profiles(), () => ({ complete }), meter);
+    const session = runner.createSession({
+      provider: "api",
+      profileId: "api-default",
+      roleId: "showrunner",
+      title: "showrunner",
+    });
+    const events: string[] = [];
+    runner.subscribe(session.id, (event) => events.push(event.type));
+
+    await runner.sendMessage(session.id, "define the brief", undefined, TARGET);
+
+    expect(events).toEqual(["turn.completed"]);
+    expect(meter).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: session.id, total_tokens: 0, retries: 0, succeeded: false }),
+    );
+  });
 });

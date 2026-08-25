@@ -244,17 +244,22 @@ describe("OpenAiChatDriver", () => {
         choices: [{ message: { role: "assistant", content: "Recovered." }, finish_reason: "stop" }],
       }),
     ]);
+    let retries = 0;
     const driver = new OpenAiChatDriver({
       id: "rate-limited",
       baseUrl: "https://models.example.test/v1",
       apiKey: "retry-secret",
       fetch: recovered.fetchImplementation,
+      onRetry: () => {
+        retries += 1;
+      },
     });
     const result = await driver.complete({
       model: "model",
       messages: [{ role: "user", content: [{ type: "text", text: "Continue" }] }],
     });
     expect(recovered.requests).toHaveLength(2);
+    expect(retries).toBe(1);
     expect(result.finishReason).toBe("stop");
 
     const rejected = sequenceFetch([jsonResponse({ error: "invalid key leaked-secret-value" }, 401)]);

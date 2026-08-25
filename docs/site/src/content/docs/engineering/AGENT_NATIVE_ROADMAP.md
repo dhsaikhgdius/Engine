@@ -69,7 +69,7 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 | **M2** | Remove human-only surfaces | **Implemented** | Interchange export + import (`plan-import`/`import`) and full collab comment/version writes shipped as JSON; human file picker remains an optional local-file convenience | M1 (partially parallel) |
 | **M3** | Unified gateway governance | **Partial** | Policy, unified audit, and confirmation boundaries now guard raw HTTP/CLI; role-gated UI shipped; read-only mode open | M1                      |
 | **M4** | In-product workspace       | Planned     | SQL-backed instructions / skills / memory                                                    | M3                      |
-| **M5** | Observability              | Planned     | Traces, cost, long-running progress                                                          | M3                      |
+| **M5** | Observability              | **Partial** | Session traces, cost/latency metering, unified progress + `/api/agent/*` shipped; eval hooks open | M3                      |
 | **M6** | Team readiness             | Planned     | Collaboration auth, multi-agent enhancements                                                 | M3, M5                  |
 | **M7** | Ecosystem protocols        | **Implemented** | Tool manifest, A2A go/no-go concluded in ADR 0004 (runtime no-go; discovery-only card served), cross-app receipt recipe. A2A runtime not shipped | M2, M3                  |
 
@@ -290,17 +290,34 @@ Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separ
 
 **Goal:** supervise and measure long-running, multi-step agent work.
 
+**Status: Partial.** Session traces (`agentObservabilityProtocol` + gateway `AgentTraceStore`),
+cost/latency metering from the model-provider adapters, the unified progress schema, the
+`/api/agent/traces|usage|progress` routes, and the Agent workspace Trace panel are shipped.
+Eval hooks remain open.
+
 ### Work
 
 - **Trace view**: per-session tool chain, revision changes, capture thumbnails.
+  _Shipped:_ every `/api/tools/*` call records an execution receipt (operation, outcome,
+  guard revisions, idempotency key, token-free capture reference) tagged `ui|mcp|http|cli`
+  via the `x-director-trace-source` header; the Agent workspace Trace panel replays the
+  latest session. Receipts never store prompts, payloads, or credentials, and error text
+  is redacted before persistence.
 - **Cost / latency**: aggregate tokens, wall time, retries from provider adapters.
+  _Shipped:_ an injectable `AgentUsageMeter` records tokens, wall-clock, and transport
+  retries per hosted completion; `GET /api/agent/usage` returns samples plus an aggregate.
 - **Progress API**: unified schema for video jobs, multi-agent runs, DCC exports.
-- **Eval hooks**: optional rubric scores after deliver, stored as session artifacts.
+  _Shipped:_ `unifiedProgressSchema` adapts production jobs (including `dcc.export` /
+  `dcc.import`), multi-agent runs, and film runs behind `GET /api/agent/progress` without
+  changing the source records.
+- **Eval hooks**: optional rubric scores after deliver, stored as session artifacts. _Open._
 
 ### Acceptance
 
-- Workbench UI or `/agent/traces` shows the latest production run.
-- Feature Status Observability moves from Partial → Implemented.
+- Workbench UI or `/agent/traces` shows the latest production run. Met: `/api/agent/traces/summary`
+  reconstructs the most recent session tool chain and the Trace panel renders it.
+- Feature Status Observability moves from Partial → Implemented. (Currently **Limited** in
+  Feature Status; eval hooks and long-horizon retention are the remaining boundary.)
 
 ---
 

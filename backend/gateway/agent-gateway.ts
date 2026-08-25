@@ -143,6 +143,8 @@ import { handleMotionGenerationRoute } from "./routes/motionGenerationRoutes";
 import { handleSceneGenerationRoute } from "./routes/sceneGenerationRoutes";
 import { registerBuiltinProviders, resolveModelProvider } from "./agents/modelProviderIntegration";
 import { DirectorAgentTargetScheduler } from "./agents/agentToolScheduler";
+import { AgentTraceStore } from "./agents/agentTraceStore";
+import { handleAgentTraceRoute } from "./routes/agentTraceRoutes";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const controlPlaneConfig = loadDirectorControlPlaneConfig(root);
@@ -316,7 +318,8 @@ applyHostedApiProfiles(
   ),
 );
 const referenceSceneAnalyzer = createReferenceSceneAnalyzer({ profiles: agentProfileRegistry });
-const productionAgentRunner = new HostedProductionAgentRunner(agentProfileRegistry);
+const agentTraceStore = new AgentTraceStore({ dataDirectory });
+const productionAgentRunner = new HostedProductionAgentRunner(agentProfileRegistry, undefined, agentTraceStore.meter());
 const multiAgentRunStore = new MultiAgentRunStore(dataDirectory);
 const productionRunOrchestrator = new ProductionRunOrchestrator(
   productionAgentRunner,
@@ -1942,6 +1945,11 @@ function liveStageRouteDependencies(): Omit<StageRouteDependencies, "readBody" |
     }),
     executeVideoModel: (currentScene, input) => videoGenerationService.execute(currentScene, input),
     targetScheduler: agentTargetScheduler,
+    recordTrace: (event) => {
+      void agentTraceStore.record(event).catch((error) => {
+        console.warn("Agent trace store rejected a tool trace event", error);
+      });
+    },
   };
 }
 
@@ -2092,6 +2100,16 @@ const server = createServer(async (request, response) => {
         store: filmPipeline.store,
         orchestrator: filmPipeline.orchestrator,
         unconfiguredReason: filmPipeline.unconfiguredReason,
+      })
+    )
+      return;
+    if (
+      await handleAgentTraceRoute(request, response, url, {
+        json,
+        store: agentTraceStore,
+        listProductionJobs: () => productionJobStore.list(),
+        listMultiAgentRuns: () => multiAgentRunStore.list(),
+        listFilmRuns: () => filmPipeline.store.list(),
       })
     )
       return;

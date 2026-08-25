@@ -351,6 +351,7 @@ try {
         "content-type": "application/json",
         "x-director-browser-token": gatewayToken,
         "x-director-tool-source": "cli",
+        "x-director-trace-source": "cli",
         ...(filmRole ? { "x-director-film-role": filmRole } : {}),
       },
       body: JSON.stringify({

@@ -91,6 +91,9 @@ async function authenticatedGatewayFetch(path: string, init: RequestInit, retryU
   // HTTP and tags the unified audit trail with the MCP entry point.
   headers.set("x-director-tool-source", "mcp");
   if (filmRoleId) headers.set("x-director-film-role", filmRoleId);
+  // Observability (M5): mark every MCP-originated call so gateway traces
+  // attribute the tool chain to the right entry surface.
+  headers.set("x-director-trace-source", "mcp");
   let response: Response;
   try {
     response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });

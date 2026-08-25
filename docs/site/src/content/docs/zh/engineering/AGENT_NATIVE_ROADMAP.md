@@ -63,7 +63,7 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 | **M2** | Human-only 面消除      | **Implemented** | Interchange 导出与导入（`plan-import`/`import`）及全部 collab 评论/版本写操作均为 JSON；文件选择器仅作为本地文件的可选便捷入口保留 | M1（部分可并行） |
 | **M3** | Gateway 统一治理       | **Partial** | 策略、统一审计与确认边界已覆盖原始 HTTP/CLI；role 限制 UI 已交付；只读 mode 未完成 | M1               |
 | **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
-| **M5** | 可观测性               | Planned     | Trace、cost、长任务进度                                                          | M3               |
+| **M5** | 可观测性               | **Partial** | Session trace、cost/latency 计量、统一 progress 与 `/api/agent/*` 已交付；eval hooks 未做 | M3               |
 | **M6** | 团队就绪               | Planned     | Collaboration auth、multi-agent 增强                                             | M3、M5           |
 | **M7** | 生态协议               | **Implemented** | Tool manifest、A2A go/no-go 已在 ADR 0004 得出结论（runtime no-go；提供 discovery-only card）、cross-app 回执 recipe。A2A runtime 未交付 | M2、M3           |
 
@@ -278,17 +278,31 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
 
 **目标：** 长任务、多步 Agent 工作可监督、可度量。
 
+**状态：Partial。** Session trace（`agentObservabilityProtocol` + gateway `AgentTraceStore`）、
+来自 model-provider adapter 的 cost/latency 计量、统一 progress schema、
+`/api/agent/traces|usage|progress` 路由以及 Agent 工作区的轨迹面板已交付；eval hooks 未做。
+
 ### 工作项
 
 - **Trace 视图**：按 session 展示 tool 链、revision 变化、capture 缩略图。
+  已交付：每次 `/api/tools/*` 调用记录一条执行回执（操作名、结果、guard revision、
+  idempotency key、去 token 的 capture 引用），并通过 `x-director-trace-source` 头
+  标注 `ui|mcp|http|cli` 来源；Agent 工作区轨迹面板可回放最近一次会话。回执从不
+  存储提示词、工具载荷或密钥，错误文本在持久化前做 redaction。
 - **Cost / latency**：从 provider adapter 汇总 token、wall time、retry 次数。
+  已交付：可注入的 `AgentUsageMeter` 按次记录 token、墙钟与传输层重试；
+  `GET /api/agent/usage` 返回样本与聚合。
 - **Progress API**：video job、multi-agent run、DCC export 统一 progress schema。
-- **Eval hooks**：deliver 后可挂载 rubric score（人工或自动），写入 session artifact。
+  已交付：`unifiedProgressSchema` 适配生产任务（含 `dcc.export` / `dcc.import`）、
+  multi-agent run 与 film run，经 `GET /api/agent/progress` 暴露，不改动源记录。
+- **Eval hooks**：deliver 后可挂载 rubric score（人工或自动），写入 session artifact。未做。
 
 ### 验收
 
-- Workbench UI 或独立 `/agent/traces` 页可查看最近一次 production run。
-- Feature Status 新增 Observability 行，状态从 Partial → Implemented。
+- Workbench UI 或独立 `/agent/traces` 页可查看最近一次 production run。已满足：
+  `/api/agent/traces/summary` 可重建最近一次会话的 tool 链，轨迹面板负责展示。
+- Feature Status 新增 Observability 行，状态从 Partial → Implemented。（当前在
+  Feature Status 中为 **Limited**；eval hooks 与长期留存是剩余边界。）
 
 ---
 

@@ -58,6 +58,12 @@ import {
   withHttpToolAudit,
   type HttpToolGovernanceDependencies,
 } from "../agents/httpToolGovernance";
+import {
+  AGENT_TRACE_SOURCE_HEADER,
+  parseAgentTraceSource,
+} from "../../../packages/protocol/src/agentObservabilityProtocol";
+import { buildAgentToolTraceEvent, describeAgentToolOperation } from "../agents/agentToolTrace";
+import type { AgentTraceEventInput } from "../agents/agentTraceStore";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -293,6 +299,8 @@ export type StageRouteDependencies = {
   targetScheduler?: DirectorAgentTargetScheduler;
   /** Film-role/plan-mode policy overrides plus the audit trail for POST /api/tools. */
   governance?: HttpToolGovernanceDependencies;
+  /** Records one trace event per completed tool call (fire-and-forget). */
+  recordTrace?: (event: AgentTraceEventInput) => void;
 };
 
 const TOOL_ENVELOPE_KEYS = new Set(["session_id", "profile_id", "target_token", "omit_scene", "confirm_token"]);
@@ -515,7 +523,35 @@ export async function handleStageRoute(
     const { scene: _scene, ...rest } = body as Record<string, unknown>;
     return rest;
   };
-  const respond: JsonWriter = (res, status, body) => json(res, status, stripScene(body));
+  // Every tool response funnels through one writer so exactly one trace event
+  // is recorded per call, tagged with the caller's declared entry surface.
+  const traceSource = parseAgentTraceSource(request.headers?.[AGENT_TRACE_SOURCE_HEADER]);
+  const traceOperation = describeAgentToolOperation(toolInput);
+  const traceStartedAtMs = Date.now();
+  let traceRecorded = false;
+  const traceJson: JsonWriter = (res, status, body) => {
+    if (dependencies.recordTrace && !traceRecorded) {
+      traceRecorded = true;
+      try {
+        dependencies.recordTrace(
+          buildAgentToolTraceEvent({
+            tool,
+            sessionId,
+            source: traceSource,
+            operation: traceOperation,
+            startedAtMs: traceStartedAtMs,
+            status,
+            body,
+            captureRef: previewUrl(),
+          }),
+        );
+      } catch (error) {
+        console.warn("Director tool trace recording failed", error);
+      }
+    }
+    json(res, status, body);
+  };
+  const respond: JsonWriter = (res, status, body) => traceJson(res, status, stripScene(body));
 
   if (tool === "director_creative") {
     const parsedInput = creativeWorkspaceAgentRequestSchema.safeParse(toolInput);
@@ -1168,7 +1204,7 @@ export async function handleStageRoute(
   }
   if (tool === "stage_video") {
     const execution = await executeVideoModel(scene, toolInput);
-    json(response, execution.success ? 200 : 400, execution);
+    traceJson(response, execution.success ? 200 : 400, execution);
     return true;
   }
 
@@ -1204,6 +1240,6 @@ export async function handleStageRoute(
     feedback: createStageFeedback({ before: beforeScene, execution, toolInput, refs, tool }),
     ...(capture ? { capture } : {}),
   };
-  json(response, execution.success ? 200 : 400, gatewayExecution);
+  traceJson(response, execution.success ? 200 : 400, gatewayExecution);
   return true;
 }

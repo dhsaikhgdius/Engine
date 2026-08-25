@@ -59,6 +59,8 @@ type FetchJsonOptions = {
   secrets?: readonly (string | undefined)[];
   /** Maximum number of retries for retryable errors (default 2). */
   maxRetries?: number;
+  /** Called once per retry attempt, so callers can meter retry counts. */
+  onRetry?: () => void;
 };
 
 /**
@@ -138,6 +140,7 @@ export async function fetchModelResponse(options: FetchJsonOptions): Promise<Res
     } catch (error) {
       if (options.signal?.aborted) throw options.signal.reason ?? error;
       if (attempt < maxRetries) {
+        options.onRetry?.();
         await wait(Math.min(8_000, 250 * 2 ** attempt), options.signal);
         continue;
       }
@@ -155,6 +158,7 @@ export async function fetchModelResponse(options: FetchJsonOptions): Promise<Res
     const body = await response.text().catch(() => "");
     const retryable = response.status === 429 || response.status >= 500;
     if (retryable && attempt < maxRetries) {
+      options.onRetry?.();
       await wait(retryDelay(response, attempt), options.signal);
       continue;
     }
