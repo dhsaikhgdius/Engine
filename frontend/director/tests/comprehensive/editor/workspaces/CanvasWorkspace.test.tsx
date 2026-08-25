@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { persistentCreativeMediaLibrary } from "../../../../src/comprehensive/editor/media/persistentCreativeMediaStore";
@@ -100,6 +100,7 @@ function mediaNode(): DirectorBoardNode {
 
 beforeEach(() => {
   window.localStorage.clear();
+  persistentCreativeMediaLibrary.store.setState({ assets: [] });
   mediaLibraryMock.items = [];
   mediaLibraryMock.persist.mockReset();
   mediaLibraryMock.persist.mockImplementation(async (item: DirectorMediaItem) => item.id);
@@ -366,7 +367,32 @@ it("reconnects stale board media metadata and prefers the full-resolution source
 
 it("previews and durably stores a library asset at the Canvas drop point before committing it", async () => {
   mediaLibraryMock.items = [videoItem];
-  mediaLibraryMock.persist.mockResolvedValue("creative-media:video:canvas-video");
+  // The dispatched canvas.node.add validates the persisted asset, so the mock
+  // must land it in the persistent library exactly like the real import does.
+  mediaLibraryMock.persist.mockImplementation(async () => {
+    persistentCreativeMediaLibrary.store.setState((state) => ({
+      status: "ready",
+      assets: [
+        ...state.assets,
+        {
+          id: "creative-media:video:canvas-video",
+          kind: "video",
+          name: videoItem.name,
+          fileName: "canvas-video.mp4",
+          mimeType: "video/mp4",
+          size: 2_048,
+          createdAt: "2026-07-31T08:00:00.000Z",
+          lastModified: null,
+          durationSec: videoItem.durationSec,
+          width: 1_920,
+          height: 1_080,
+          source: "test",
+          objectUrl: "blob:canvas-video-preview",
+        },
+      ],
+    }));
+    return "creative-media:video:canvas-video";
+  });
   const { container } = render(<CanvasWorkspace />);
   const surface = container.querySelector<HTMLElement>(".creative-board-surface");
   expect(surface).not.toBeNull();
@@ -376,13 +402,21 @@ it("previews and durably stores a library asset at the Canvas drop point before 
     getData: vi.fn((type: string) => (type === DIRECTOR_MEDIA_DRAG_TYPE ? videoItem.id : "")),
     types: [DIRECTOR_MEDIA_DRAG_TYPE],
   };
+  // jsdom has no DragEvent, so fireEvent falls back to a plain Event that
+  // drops MouseEvent coordinates; pin them explicitly like a real browser.
+  const dragEventAt = (type: "dragOver" | "drop") => {
+    const event = createEvent[type](surface!, { dataTransfer });
+    Object.defineProperty(event, "clientX", { value: 260 });
+    Object.defineProperty(event, "clientY", { value: 180 });
+    return event;
+  };
 
-  fireEvent.dragOver(surface!, { clientX: 260, clientY: 180, dataTransfer });
+  fireEvent(surface!, dragEventAt("dragOver"));
   expect(surface).toHaveClass("is-asset-drag-over");
   expect(container.querySelector(".creative-asset-drop-preview")).toHaveClass("is-media");
   expect(container.querySelector(".creative-asset-drop-preview strong")).toHaveTextContent("可剪辑镜头");
 
-  fireEvent.drop(surface!, { clientX: 260, clientY: 180, dataTransfer });
+  fireEvent(surface!, dragEventAt("drop"));
   await waitFor(() =>
     expect(useDirectorCreativeWorkspaceStore.getState().boardNodes).toEqual(
       expect.arrayContaining([
