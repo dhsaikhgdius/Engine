@@ -20,10 +20,20 @@ describe("agentSessionsClient", () => {
     controlPlaneMocks.directorControlPlaneFetch.mockResolvedValue(
       jsonResponse(200, {
         sessions: [
-          { id: "dsh-abc123", tool: "director_workbench", status: "active", last_active_at: "2026-08-25T10:19:00.000Z" },
+          {
+            id: "dsh-abc123",
+            tool: "director_workbench",
+            status: "active",
+            last_active_at: "2026-08-25T10:19:00.000Z",
+          },
           { id: "dsh-idle", tool: "director_workbench", status: "idle", last_active_at: "2026-08-25T09:00:00.000Z" },
           { id: "", tool: "director_workbench", status: "active", last_active_at: "2026-08-25T10:19:00.000Z" },
-          { id: "dsh-bad-status", tool: "director_workbench", status: "??", last_active_at: "2026-08-25T10:19:00.000Z" },
+          {
+            id: "dsh-bad-status",
+            tool: "director_workbench",
+            status: "??",
+            last_active_at: "2026-08-25T10:19:00.000Z",
+          },
         ],
       }),
     );
@@ -44,15 +54,13 @@ describe("agentSessionsClient", () => {
   });
 
   it("rotates credentials and retries exactly once on 401", async () => {
-    controlPlaneMocks.directorControlPlaneFetch
-      .mockResolvedValueOnce(jsonResponse(401, {}))
-      .mockResolvedValueOnce(
-        jsonResponse(200, {
-          sessions: [
-            { id: "dsh-retry", tool: "director_workbench", status: "active", last_active_at: "2026-08-25T10:19:00.000Z" },
-          ],
-        }),
-      );
+    controlPlaneMocks.directorControlPlaneFetch.mockResolvedValueOnce(jsonResponse(401, {})).mockResolvedValueOnce(
+      jsonResponse(200, {
+        sessions: [
+          { id: "dsh-retry", tool: "director_workbench", status: "active", last_active_at: "2026-08-25T10:19:00.000Z" },
+        ],
+      }),
+    );
 
     await expect(listAgentSessions()).resolves.toEqual([
       { id: "dsh-retry", tool: "director_workbench", status: "active", last_active_at: "2026-08-25T10:19:00.000Z" },
