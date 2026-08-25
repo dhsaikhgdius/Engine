@@ -13,6 +13,7 @@ export {
   type DirectorWorkbenchGatewayConfig,
   type DirectorWorkbenchGatewayResult,
 } from "./gatewayClient";
+export { DIRECTOR_AGENT_GUIDANCE } from "./guidance";
 export {
   DIRECTOR_DSH_HEALTH,
   DIRECTOR_DSH_HEALTH_PATH,
@@ -23,6 +24,15 @@ export {
   type DirectorWorkbenchDefineTool,
   type DirectorWorkbenchPluginContext,
 } from "./register";
+export {
+  BLENDER_NATIVE_TOOL_TIMEOUT_MS,
+  directorAgentToolExecutionMode,
+  DIRECTOR_PIPELINE_AWAIT_TIMEOUT_MS,
+  DIRECTOR_PIPELINE_CANCEL_TIMEOUT_MS,
+  DIRECTOR_TOOL_TIMEOUT_MS,
+  directorToolIsConcurrencySafe,
+  dynamicToolTimeoutMs,
+} from "./toolPolicy";
 export {
   DIRECTOR_AGENT_HEAVY_COLLECTION_LIMIT,
   DIRECTOR_AGENT_TOOL_RESULT_BUDGET_BYTES,

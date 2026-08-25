@@ -95,10 +95,17 @@ describe("Director DSH workbench plugin gateway client", () => {
 
   it("registers the Director domain tools and model-route catalog through the DSH defineTool seam", async () => {
     const registered: string[] = [];
-    const defineTool = vi.fn((options: { name: string }) => {
-      registered.push(options.name);
-      return options;
-    });
+    const defineTool = vi.fn(
+      (options: {
+        name: string;
+        timeoutMs?: number;
+        isConcurrencySafe?: (args: unknown) => boolean;
+        presentCall?: (args: unknown) => unknown;
+      }) => {
+        registered.push(options.name);
+        return options;
+      },
+    );
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ success: true }), { status: 200 }));
 
     registerDirectorWorkbenchPlugin({ tools: { register: (tool) => void tool } }, defineTool as never, {
@@ -113,6 +120,17 @@ describe("Director DSH workbench plugin gateway client", () => {
       DIRECTOR_MODEL_ROUTES_TOOL_NAME,
     ]);
     expect(defineTool).toHaveBeenCalledTimes(5);
+    const workbench = defineTool.mock.calls.find((call) => call[0].name === "director_workbench")?.[0];
+    expect(workbench?.timeoutMs).toBe(70_000);
+    expect(workbench?.isConcurrencySafe?.({ op: "observe" })).toBe(true);
+    expect(workbench?.isConcurrencySafe?.({ op: "author" })).toBe(false);
+    expect(workbench?.presentCall?.({ op: "observe" })).toEqual({
+      card: "generic",
+      title: "director_workbench observe",
+      kind: "read",
+    });
+    const blender = defineTool.mock.calls.find((call) => call[0].name === "blender_native")?.[0];
+    expect(blender?.timeoutMs).toBe(300_000);
   });
 
   it("lists exact registered model routes and tells agents to inherit by default", async () => {
@@ -188,7 +206,7 @@ describe("Director DSH workbench plugin gateway client", () => {
       expect.objectContaining({
         name: "director:workbench",
         text: expect.stringMatching(
-          /workflow result of null.*child failed[\s\S]*Shell output.*never mutation evidence[\s\S]*Never claim a workspace was changed[\s\S]*image_attached=false/,
+          /Load the project skill first[\s\S]*skill: catalog then load[\s\S]*todo_write[\s\S]*job_list[\s\S]*workflow result of null.*child failed[\s\S]*Shell output.*never mutation evidence[\s\S]*Never claim a workspace was changed[\s\S]*image_attached=false/,
         ),
       }),
     );
@@ -419,6 +437,34 @@ describe("Director DSH workbench plugin gateway client", () => {
       /catalog is required/,
     );
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("summarizes an oversized observe before flattening for the model", async () => {
+    const definitions = new Map<string, any>();
+    const objects = Array.from({ length: 60 }, (_, index) => ({ id: `prop-${index}`, name: `道具${index}` }));
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            result: { project_revision: "rev-heavy", counts: { objects: 60 }, objects },
+          }),
+          { status: 200 },
+        ),
+    );
+    registerDirectorWorkbenchPlugin(
+      { tools: { register: (tool: any) => definitions.set(tool.name, tool) } },
+      (definition) => definition,
+      { fetchImpl: fetchImpl as unknown as typeof fetch, gatewayToken: TEST_GATEWAY_TOKEN },
+    );
+    const value = await definitions
+      .get("director_workbench")
+      .execute({ op: "observe" }, { agent: { id: "session-heavy" } });
+    expect(value.counts).toEqual({ objects: 60 });
+    expect(value.project_revision).toBe("rev-heavy");
+    expect(value.retrieval_hint).toEqual(expect.stringContaining("inspect"));
+    expect(value.observe_mode).toBe("summary");
+    expect(Array.isArray((value.result as { objects?: unknown }).objects)).toBe(false);
   });
 
   it("publishes a Director-specific DSH health contract", () => {

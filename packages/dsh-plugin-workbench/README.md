@@ -40,5 +40,6 @@ Environment:
 | `DIRECTOR_TARGET_TOKEN`     | Exact Director tab target                       |
 | `DIRECTOR_AGENT_SESSION_ID` | Fallback session id for non-DSH plugin hosts    |
 
-Generic coding, web, todo, subagent, and job tools stay in DeepSeek Harness.
-Do not add them here.
+Generic coding, web, todo, subagent, job, skill, goal, and plan tools stay in DeepSeek Harness.
+Do not add them here. Agents should load `.dsh/skills/director-workbench` with the DSH `skill`
+tool, then call those Harness tools alongside Director domain tools.

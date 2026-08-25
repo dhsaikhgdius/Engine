@@ -13,4 +13,5 @@ Agent 工作区直接嵌入 DSH Web（默认 `http://127.0.0.1:3080`）。
 3. 打开 Director 的 Agent 工作区；只有 Director 插件健康契约通过后才会嵌入 DSH。
 
 外部 coding agent 仍可通过 Director MCP（`npm run mcp`）调用同一套 `/api/tools/:name`。
+MCP 不含 DSH 的 `skill` / `todo_write` / `job_*`；那些只存在于 `npm run dsh` 启动的 Harness 进程。
 `GET /api/agent/profiles` 仍用于重建与影片规划。

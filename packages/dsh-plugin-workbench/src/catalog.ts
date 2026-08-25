@@ -87,6 +87,27 @@ const directorWorkbenchWireSchema = compactWireSchema(
   id: z.string().optional(),
   camera_id: z.string().optional(),
   frame: z.number().int().optional(),
+  target: z
+    .string()
+    .optional()
+    .describe('Required for op="describe". Examples: capture, author.add_object, author.evidence.'),
+  name_pattern: z
+    .string()
+    .optional()
+    .describe('query_objects substring of object name or id. Chinese queries such as "门" match "木门".'),
+  kind: z.string().optional().describe("query_objects kind: character, scene, prop, camera, panorama."),
+  entity: z.string().optional().describe('Required for op="inspect": object, light, camera, asset, catalog_asset, …'),
+  since_revision: z.string().optional().describe("observe: return persisted changes since this project_revision."),
+  object_mode: z.string().optional().describe('observe objects as "hierarchy" when parent-child structure matters.'),
+  max_objects: z.number().int().optional().describe("observe hierarchy bound (default 200)."),
+  max_changes: z.number().int().optional().describe("observe.since_revision per-collection change bound."),
+  evidence: z
+    .looseObject({})
+    .optional()
+    .describe(
+      "author visual proof object (not true). Default 640x360 camera frame. describe author.evidence for fields.",
+    ),
+  query: z.string().optional().describe("Optional catalog search text when op is catalog."),
 });
 
 const directorCreativeWireSchema = compactWireSchema(
@@ -120,6 +141,8 @@ export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
     "Operation. Use capabilities for providers and parameters; prepare validates, submit starts a durable job, and status polls it.",
   ).extend({
     prompt: z.string().optional().describe("Prompt for prepare/submit when the provider needs one."),
+    provider: z.string().optional().describe("Provider id from capabilities."),
+    job_id: z.string().optional().describe("Durable job id for status/get/cancel."),
   }),
   blender_native: compactWireSchema(
     blenderNativeToolRequestSchema,
@@ -129,8 +152,7 @@ export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
       .array(z.looseObject({ op: z.string().min(1) }))
       .optional()
       .describe(
-        'Required for op="apply". Typed ops include create_blockout (white-box shells: presets floor/wall/room/corridor/stairs, metres), create_opening (door/window holes), create_primitive (dimensions + grounded), polyhaven_import, sketchfab_import, execute_code.',
-      ),
+        'Required for op="apply". Typed ops include create_blockout (white-box shells: presets floor/wall/room/corridor/stairs, metres), create_opening (door/window holes), create_primitive (dimensions + grounded), polyhaven_import, sketchfab_import, execute_code.',      ),
     operator: z.string().optional().describe('RNA id for op="describe", e.g. mesh.bevel.'),
     target: z
       .string()
@@ -152,6 +174,7 @@ export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
     height: z.number().int().optional(),
     assetType: z.enum(["hdris", "textures", "models", "all"]).optional().describe('For op="polyhaven_search".'),
     uid: z.string().optional().describe("Sketchfab model uid for sketchfab_import."),
+    name_pattern: z.string().optional().describe('Alias of query for op="query" name search.'),
   }),
 } as const;
 

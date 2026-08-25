@@ -27,7 +27,9 @@ Generated scenes, build trees, and local checkpoints live under the ignored `.ru
 The Agent harness is DeepSeek Harness (`vendor/deepseek-harness`). Director-specific
 Stage, Canvas, Video Editor, and Blender operations live in
 `packages/dsh-plugin-workbench`. Do not add another in-tree tool loop, session
-store fork, or focused copy of DSH workspace/web/job tools.
+store fork, or focused copy of DSH workspace/web/job tools. In DSH, load the
+`director-workbench` skill, then use Harness `todo_write`, `job_*`, `web_*`, `bash`,
+and subagent tools alongside Director domain tools.
 
 ## Commands
 

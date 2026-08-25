@@ -61,14 +61,21 @@ describe("Director Agent tool registry", () => {
     expect(domainTool("director_workbench").description).toContain("max_results");
     expect(domainTool("director_workbench").description).toContain('"mode":"frustum"');
     expect(domainTool("director_workbench").description).toContain("copy result.counts verbatim");
-    expect(domainTool("director_workbench").description).toContain("call describe when an action's exact fields are unknown");
+    expect(domainTool("director_workbench").description).toContain(
+      "call describe when an action's exact fields are unknown",
+    );
     expect(domainTool("director_workbench").description).toContain("describe author.evidence");
     expect(domainTool("director_creative").description).toContain('exactly {"op":"observe"}');
     expect(domainTool("director_creative").description).toContain("does not accept fields");
   });
 
   it("marks inspect, audit, and snapshot as parallel reads", () => {
-    expect(directorAgentToolExecutionMode("director_workbench", { op: "inspect" })).toBe("parallel");
+    expect(directorAgentToolExecutionMode("director_workbench", { op: "describe", target: "capture" })).toBe(
+      "parallel",
+    );
+    expect(
+      directorAgentToolExecutionMode("director_workbench", { op: "generated_3d", command: { action: "get" } }),
+    ).toBe("parallel");
     expect(directorAgentToolExecutionMode("director_workbench", { op: "audit" })).toBe("parallel");
     expect(directorAgentToolExecutionMode("director_workbench", { op: "snapshot" })).toBe("parallel");
     expect(directorAgentToolExecutionMode("director_workbench", { op: "diff" })).toBe("parallel");

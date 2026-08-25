@@ -141,8 +141,7 @@ export function stripEncodedMediaPayloads(value: unknown): unknown {
     Object.entries(candidate).flatMap(([key, nested]) =>
       encodedMedia && (key === "data" || key === "dataBase64") ? [] : [[key, stripEncodedMediaPayloads(nested)]],
     ),
-  );
-}
+  );}
 
 /**
  * Selects the model-facing fields from a tool result envelope.
@@ -535,8 +534,7 @@ export function projectOversizedDirectorAgentToolEnvelope(
   return projectDirectorAgentToolEnvelope(envelope, decision.reason, undefined, tool);
 }
 
-/**
- * Builds the spill payload for a tool result — the full envelope data that
+/** * Builds the spill payload for a tool result — the full envelope data that
  * is too large to keep in the conversation.
  */
 function spillPayload(envelope: Record<string, unknown>, tool: string, input: unknown) {

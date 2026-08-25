@@ -913,3 +913,40 @@ whether a building is recognizable. Do not treat `ready:true` as visual acceptan
 - A locked object: leave it unchanged unless the user explicitly asks to unlock or force the edit.
 - A provider job failure: inspect that job and report or retry the actual provider error.
 - A disconnected Stage tab: `observe`/`audit` may still return persisted project or Blender-kernel counts with `workbench_connected:false`. Mutations and capture need a visible tab. Call `get_goal` as `tools.get_goal({})`.
+
+## DeepSeek Harness tools (not Gateway HTTP)
+
+These are DSH-native tools. They are not `POST /api/tools/:name`.
+
+Load the Director skill:
+
+```json
+{ "name": "director-workbench" }
+```
+
+Write a production todo list with `todo_write`. List Harness background jobs:
+
+```json
+{}
+```
+
+Read a Harness job (`job_output`) without busy-polling:
+
+```json
+{ "job_id": "bash-1", "wait": true }
+```
+
+Research then catalog (do not guess asset ids):
+
+```json
+{ "query": "Qinghua university gate architecture" }
+```
+
+Zero-argument Harness tools in Code Mode:
+
+```js
+await tools.get_goal({});
+await tools.director_model_routes({});
+await tools.job_list({});
+```
+

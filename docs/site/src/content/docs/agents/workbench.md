@@ -14,4 +14,5 @@ The Agent workspace embeds DSH Web (default `http://127.0.0.1:3080`).
 3. Open the Agent workspace in Director. It embeds DSH only after the Director plugin health contract passes.
 
 External coding agents can still use Director MCP (`npm run mcp`) against the same `/api/tools/:name`
-surface. `GET /api/agent/profiles` remains for reconstruction and film planning.
+surface. MCP does not include DSH `skill` / `todo_write` / `job_*` tools; those exist only in the
+Harness process started by `npm run dsh`. `GET /api/agent/profiles` remains for reconstruction and film planning.
