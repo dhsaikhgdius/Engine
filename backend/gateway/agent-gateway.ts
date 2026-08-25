@@ -5,22 +5,20 @@ import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
-import { z } from "zod";
 import agentPlanSchema from "./agentPlanSchema.json";
 import { writeJsonAtomic } from "./atomicJsonFile";
 import { validateDirectorAgentPlan, type DirectorAgentId, type DirectorAgentPlan } from "@director/agent-engine";
 import { executeStageTool } from "@director/agent-engine";
 import {
-  creativeWorkspaceAgentOperationNames,
   creativeWorkspaceAgentRequestSchema,
   type CreativeWorkspaceAgentRequest,
 } from "../../packages/protocol/src/creativeWorkspaceProtocol";
+import { buildPlannerPrompt } from "./plannerPrompt";
 import {
   parseDirectorWorkbenchInput,
   type DirectorWorkbenchObserveField,
   type DirectorWorkbenchOperation,
 } from "@director/agent-engine";
-import { directorAuthoringActionSchema } from "@director/agent-engine";
 import type { AgentBoundaryReceipt, DirectorAgentTarget, StageCapturePayload } from "@director/agent-engine";
 import { createDefaultScene } from "@director/stage-protocol";
 import { parseStageScene } from "@director/stage-protocol";
@@ -286,9 +284,6 @@ const AGENT_PLAN_TTL_MS = 10 * 60_000;
 // misbehaving or malicious local token holder exhausting sockets/PTYs.
 const MAX_WEBSOCKET_CLIENTS = 64;
 
-const DIRECTOR_AUTHORING_ACTION_SCHEMA_JSON = JSON.stringify(z.toJSONSchema(directorAuthoringActionSchema));
-const CREATIVE_WORKSPACE_REQUEST_SCHEMA_JSON = JSON.stringify(z.toJSONSchema(creativeWorkspaceAgentRequestSchema));
-
 const AGENT_PLAN_SCHEMA = structuredClone(agentPlanSchema);
 AGENT_PLAN_SCHEMA.properties.operations.items.properties.input_json.description =
   DIRECTOR_WORKBENCH_INPUT_JSON_DESCRIPTION;
@@ -392,9 +387,10 @@ function headers(response: ServerResponse, status = 200, contentType = "applicat
 }
 
 /**
- * Builds the full system prompt for an agent planner subprocess, including the
- * current scene summary, workbench observations, and the JSON schema for the
- * expected output format.
+ * Builds the full system prompt for an agent planner subprocess, including a
+ * bounded current-scene summary and bounded workspace observations. The
+ * prompt text itself lives in {@link buildPlannerPrompt} so it stays testable
+ * without booting the gateway.
  *
  * @param agent - The agent identifier (determines which provider to invoke).
  * @param message - The user's natural-language request.
@@ -408,37 +404,13 @@ function plannerPrompt(
   workbenchObservation: unknown,
   creativeWorkspaceObservation: unknown,
 ) {
-  const sceneSummary = executeStageTool(scene, "stage_read", { op: "scene_state" }).result;
-  return [
-    "You are the planning layer for Director, a local 3D filmmaking editor.",
-    "Return ONLY a JSON value matching the supplied schema. Do not use tools, do not mutate files, and do not explain outside JSON.",
-    "You are preparing a plan only. The browser will show it to the user before any operation is applied.",
-    "Use only these public tools: director_workbench, director_creative, stage_video, blender_native.",
-    "- director_workbench: observe when current IDs are needed, use catalog for packaged assets and motions, and group one requested scene change into one author operation. Do not assemble scenes from geometry_type primitives; instance catalog/project meshes, model with blender_native (create_blockout shells, create_opening doors/windows), or generate with generated_3d. Use deliver only when the user asks for an exported result.",
-    "  Multi-scene work uses production observe followed by the requested create, duplicate, rename, activate, or delete action.",
-    "  Gallery generation, transcription, generated 3D, and storyboard export should discover available providers, submit the requested job, then poll its returned job ID. Do not add extra review passes.",
-    "  Automation and memory support macro list/get/save/remove/export/run and memory pin/recall/forget/export.",
-    "  Scene rules: use IDs returned by observe or catalog; use compose_blocking for multi-character layouts; treat placed-mesh position as the floor pivot; do not modify locked objects unless requested.",
-    '  set_scene is only for a non-empty global scene patch, for example {"action":"set_scene","patch":{"backgroundColor":"#182033","showGround":true}}. Omit it when global scene settings do not change.',
-    "  Exact JSON Schema for director_workbench author actions:",
-    DIRECTOR_AUTHORING_ACTION_SCHEMA_JSON,
-    '  Example input_json: {"op":"author","actions":[{"action":"add_object","id":"hero-1","name":"Hero","kind":"character","transform":{"position":[0,0,0],"rotation":[0,0,0],"scale":[1,1,1]}},{"action":"add_camera","id":"camera-hero","object_id":"camera-rig-hero","name":"Hero medium shot","position":[0,1.4,5],"target":[0,0.9,0],"target_object_id":"hero-1","focal_length_mm":50,"aspect_ratio":"16:9"}]}',
-    `- director_creative: observe when current Canvas or Video IDs are needed, then use execute or execute_batch for the requested change. Configure generation nodes before starting a pipeline and poll the returned run ID. Operations: ${creativeWorkspaceAgentOperationNames.join(", ")}.`,
-    "  Exact director_creative request schema:",
-    CREATIVE_WORKSPACE_REQUEST_SCHEMA_JSON,
-    "- stage_video: prepare or render with prompt, optional negative_prompt/model/duration_s/fps/width/height/seed. Use render only when the user explicitly asks to submit video generation; it requires confirmation.",
-    "- blender_native: apply typed operations directly; call scene when object IDs are unknown. Search CC0 assets with polyhaven_search then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. inspect/capture/capture_render only when verification is useful. catalog/describe discover Blender RNA for invoke_operator. execute_code runs Python when a typed op is not enough. Do not quit Blender.",
-    "Never include expected_revision, expected_snapshot_fingerprint, expected_collaboration_fingerprint, or idempotency_key in director_workbench or director_creative operations; Director injects fresh concurrency guards when the plan is applied.",
-    "For a new scene, reset once, build from large forms to details, frame the camera, and add motion only when requested. Each plan operation contains one tool call; director_creative may use execute_batch. Put a compact JSON object with an op field in input_json. Keep the plan concrete and concise.",
-    `Requested provider: ${agent}.`,
-    `User request: ${message}`,
-    "Current scene state:",
-    JSON.stringify(sceneSummary),
-    "Current complete workbench observation (null means no browser workbench is connected):",
-    JSON.stringify(workbenchObservation),
-    "Current Canvas/Video creative workspace observation (null means no browser workspace is connected):",
-    JSON.stringify(creativeWorkspaceObservation),
-  ].join("\n");
+  return buildPlannerPrompt({
+    agent,
+    message,
+    sceneSummary: executeStageTool(scene, "stage_read", { op: "scene_state" }).result,
+    workbenchObservation,
+    creativeWorkspaceObservation,
+  });
 }
 
 /**
