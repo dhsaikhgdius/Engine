@@ -1,0 +1,86 @@
+.workspace-error-boundary {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  place-items: center;
+  padding: 24px;
+  background: rgb(var(--surface-rgb) / 0.72);
+}
+
+.workspace-error-boundary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  max-width: 420px;
+  padding: 28px 32px;
+  border: 1px solid rgb(var(--director-danger-rgb, 230 96 96) / 0.32);
+  border-radius: var(--director-radius-md, 10px);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--panel-rgb));
+  box-shadow: var(--ui-shadow-panel);
+  text-align: center;
+}
+
+.workspace-error-boundary-card > svg {
+  color: rgb(var(--director-danger-rgb, 230 96 96));
+}
+
+.workspace-error-boundary-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.workspace-error-boundary-description {
+  margin: 0;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.workspace-error-boundary-message {
+  max-width: 100%;
+  margin: 0;
+  padding: 6px 10px;
+  overflow: hidden;
+  border-radius: var(--director-radius-sm, 7px);
+  color: rgb(var(--text-dim-rgb, var(--text-muted-rgb)));
+  background: rgb(var(--field-rgb, var(--surface-rgb)));
+  font-size: 11px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-error-boundary-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.workspace-error-boundary-actions button {
+  padding: 7px 16px;
+  border: 1px solid rgb(var(--border-rgb) / 0.2);
+  border-radius: var(--director-radius-sm, 7px);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-rgb) / 0.6);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.workspace-error-boundary-actions button:hover {
+  border-color: rgb(var(--border-rgb) / 0.34);
+  background: rgb(var(--surface-hover-rgb));
+}
+
+.workspace-error-boundary-actions button.is-primary {
+  border-color: rgb(var(--accent-rgb) / 0.5);
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.12);
+}
+
+.workspace-error-boundary-actions button.is-primary:hover {
+  background: rgb(var(--accent-rgb) / 0.2);
+}

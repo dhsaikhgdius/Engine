@@ -1,0 +1,315 @@
+.viewport-navigation-settings {
+  position: relative;
+}
+
+.viewport-navigation-popover {
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 10px);
+  right: 0;
+  display: grid;
+  gap: 16px;
+  width: min(320px, calc(100vw - 24px));
+  padding: 16px;
+  border: 1px solid rgb(var(--border-rgb) / 0.14);
+  border-radius: 14px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--panel-rgb) / 0.98);
+  box-shadow: var(--ui-shadow-panel);
+  max-height: min(720px, calc(100vh - 86px));
+  overflow-y: auto;
+}
+
+.viewport-navigation-section-title {
+  margin: 2px 0 -4px;
+  padding-top: 12px;
+  border-top: 1px solid rgb(var(--border-rgb) / 0.12);
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.viewport-navigation-header,
+.viewport-navigation-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.viewport-navigation-header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.viewport-navigation-header strong {
+  font-size: 13px;
+}
+
+.viewport-navigation-header small,
+.viewport-navigation-note {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.viewport-navigation-header > button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+}
+
+.viewport-navigation-control {
+  display: grid;
+  gap: 8px;
+}
+
+.viewport-navigation-label {
+  font-size: 11px;
+}
+
+.viewport-navigation-label output {
+  color: rgb(var(--accent-rgb));
+  font-variant-numeric: tabular-nums;
+}
+
+.viewport-navigation-control input[type="range"] {
+  width: 100%;
+  accent-color: rgb(var(--accent-rgb));
+}
+
+.viewport-navigation-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 38px;
+  color: rgb(var(--text-rgb));
+  font-size: 11px;
+}
+
+.viewport-navigation-toggle > span {
+  display: grid;
+  gap: 2px;
+}
+
+.viewport-navigation-toggle strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.viewport-navigation-toggle small {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 10px;
+}
+
+.viewport-navigation-toggle input {
+  width: 28px;
+  accent-color: rgb(var(--accent-rgb));
+}
+
+.viewport-navigation-note {
+  margin: -4px 0 0;
+}
+
+.viewport-navigation-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  border: 1px solid rgb(var(--border-rgb) / 0.14);
+  border-radius: 9px;
+  color: rgb(var(--text-muted-rgb));
+  background: rgb(var(--surface-rgb) / 0.55);
+  font-size: 11px;
+}
+
+.viewport-navigation-reset:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.camera-pilot-hud {
+  position: absolute;
+  z-index: 90;
+  inset: 0;
+  pointer-events: none;
+  color: #fff;
+}
+
+.camera-pilot-status {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(13, 17, 23, 0.76);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(12px);
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.camera-pilot-status span:last-child {
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.camera-pilot-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff655f;
+  box-shadow: 0 0 0 4px rgba(255, 101, 95, 0.15);
+}
+
+.camera-pilot-status-dot.is-active {
+  background: #66e39a;
+  box-shadow: 0 0 0 4px rgba(102, 227, 154, 0.15);
+}
+
+.camera-pilot-status-dot.has-issue {
+  background: #ffd36b;
+  box-shadow: 0 0 0 4px rgba(255, 211, 107, 0.15);
+}
+
+.camera-pilot-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 32px;
+  height: 32px;
+  color: rgba(255, 255, 255, 0.78);
+  transform: translate(-50%, -50%);
+}
+
+.camera-pilot-crosshair.is-pointing {
+  color: #ffd36b;
+}
+
+.camera-pilot-crosshair.is-locked {
+  color: #66e39a;
+}
+
+.camera-pilot-crosshair-ring {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.camera-pilot-crosshair-ring::before,
+.camera-pilot-crosshair-ring::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34px;
+  height: 1px;
+  background: currentColor;
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.camera-pilot-crosshair-ring::after {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.camera-pilot-crosshair-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.camera-pilot-target {
+  position: absolute;
+  top: 42px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: max-content;
+  max-width: 240px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  color: #fff;
+  background: rgba(13, 17, 23, 0.72);
+  transform: translateX(-50%);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.camera-pilot-help,
+.camera-pilot-actions {
+  position: absolute;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.camera-pilot-help {
+  left: 18px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(13, 17, 23, 0.7);
+  font-size: 10px;
+  backdrop-filter: blur(12px);
+}
+
+.camera-pilot-help kbd {
+  color: #fff;
+  font: inherit;
+  font-weight: 650;
+}
+
+.camera-pilot-actions {
+  right: 18px;
+}
+
+.camera-pilot-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 9px;
+  color: #fff;
+  background: rgba(13, 17, 23, 0.75);
+  font-size: 10px;
+  backdrop-filter: blur(12px);
+}
+
+.camera-pilot-actions button.is-primary {
+  border-color: rgba(255, 112, 96, 0.55);
+  background: rgba(174, 66, 53, 0.88);
+}
+
+@media (max-width: 980px) {
+  .camera-pilot-help span:nth-child(2),
+  .camera-pilot-help span:nth-child(3) {
+    display: none;
+  }
+}

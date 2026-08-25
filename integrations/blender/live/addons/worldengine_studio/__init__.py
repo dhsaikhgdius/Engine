@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2026 OpenEnvision Authors
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+bl_info = {
+    "name": "WorldEngine Studio",
+    "author": "OpenEnvision",
+    "version": (0, 1, 0),
+    "blender": (4, 2, 0),
+    "location": "3D View > Sidebar > WorldEngine",
+    "description": "Native WorldEngine scene authoring, directing and Agent control",
+    "support": "COMMUNITY",
+    "category": "3D View",
+}
+
+
+if "bpy" in locals():
+    import importlib
+    from . import asset_import, asset_libraries, asset_library_http, coordinates, director_project, material_nodes, mixamo_actions, modeling, semantic_geometry
+
+    importlib.reload(live_protocol)
+    importlib.reload(coordinates)
+    importlib.reload(blockout)
+    importlib.reload(asset_import)
+    importlib.reload(asset_library_http)
+    importlib.reload(asset_libraries)
+    importlib.reload(material_nodes)
+    importlib.reload(mixamo_actions)
+    importlib.reload(semantic_geometry)
+    importlib.reload(modeling)
+    importlib.reload(director_project)
+    importlib.reload(director_runtime)
+    importlib.reload(operators)
+    importlib.reload(native_session)
+    importlib.reload(preferences)
+    importlib.reload(properties)
+else:
+    from . import asset_import, asset_libraries, asset_library_http, blockout, coordinates, director_project, director_runtime, live_protocol, material_nodes, mixamo_actions, modeling, native_session, operators, preferences, properties, semantic_geometry
+
+
+def register():
+    properties.register()
+    operators.register(include_ui=False)
+    native_session.register()
+
+
+def unregister():
+    director_runtime.stop()
+    native_session.unregister()
+    operators.unregister(include_ui=False)
+    properties.unregister()
+
+
+def register_backend():
+    properties.register()
+    native_session.register()
+
+
+def unregister_backend():
+    director_runtime.stop()
+    native_session.unregister()
+    properties.unregister()

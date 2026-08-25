@@ -1,0 +1,34 @@
+---
+title: Director
+description: Agent-native 3D staging, camera, animation, and production documentation.
+template: splash
+hero:
+  title: Director
+  tagline: An agent-native 3D production desk. A human directs in the browser; agents inspect and change the same project through typed tools.
+  actions:
+    - text: Get started
+      link: /getting-started/
+      variant: primary
+    - text: Install & run
+      link: /getting-started/install/
+      variant: secondary
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+Director keeps scene, camera, animation, and delivery in one project. Start with a verified shot, then go deeper in the editor, Agent, or pipeline docs.
+
+<CardGrid stagger>
+  <Card title="Install" icon="rocket">
+    [Install and run](/getting-started/install/) the UI and gateway locally.
+  </Card>
+  <Card title="Quick start" icon="puzzle">
+    Build the [first scene](/getting-started/quick-start/) in the editor or over the CLI.
+  </Card>
+  <Card title="3D editor" icon="laptop">
+    Read the [editor overview](/editor/) for Stage, cameras, and Canvas.
+  </Card>
+  <Card title="Agent control" icon="document">
+    Connect an Agent through [MCP, HTTP, or the workbench](/agents/).
+  </Card>
+</CardGrid>

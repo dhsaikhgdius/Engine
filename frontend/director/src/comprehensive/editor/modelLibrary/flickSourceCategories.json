@@ -1,0 +1,20 @@
+{
+  "animals": "animals",
+  "boats": "vehicles",
+  "buildings": "structure",
+  "cars": "vehicles",
+  "dungeon": "structure",
+  "furniture": "furniture",
+  "guns": "guns",
+  "houses": "structure",
+  "medieval": "structure",
+  "medievalkit": "structure",
+  "nature": "nature",
+  "pirate": "structure",
+  "spaceships": "vehicles",
+  "tanks": "vehicles",
+  "trains": "vehicles",
+  "trees": "nature",
+  "vehicles": "vehicles",
+  "weapons": "weapons"
+}

@@ -1,0 +1,34 @@
+{
+  "statuses": {
+    "idle": true,
+    "running": true,
+    "queued": true,
+    "waiting_approval": true,
+    "completed": true,
+    "interrupted": true,
+    "failed": true,
+    "archived": true
+  },
+  "eventTypes": {
+    "session.created": true,
+    "session.updated": true,
+    "turn.started": true,
+    "turn.completed": true,
+    "user.message": true,
+    "assistant.message.delta": true,
+    "assistant.message": true,
+    "reasoning.summary.delta": true,
+    "reasoning.summary": true,
+    "plan.updated": true,
+    "tool.started": true,
+    "tool.output.delta": true,
+    "tool.completed": true,
+    "approval.requested": true,
+    "approval.resolved": true,
+    "scene.checkpoint": true,
+    "handoff": true,
+    "queue.updated": true,
+    "warning": true,
+    "error": true
+  }
+}

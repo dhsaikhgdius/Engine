@@ -1,0 +1,48 @@
+[
+  {
+    "aliases": ["X Bot", "XBot", "人物", "角色", "默认人物", "默认角色"],
+    "categoryId": "flick",
+    "fileName": "x-bot.glb",
+    "flickCategory": "core",
+    "id": "mixamo:x-bot",
+    "kind": "character",
+    "name": "Human",
+    "nativeAction": "add-human",
+    "thumbnailKind": "image",
+    "thumbnailUrl": "/mixamo-characters/thumbnails/x-bot.webp",
+    "url": "/mixamo-characters/models/x-bot.glb"
+  },
+  {
+    "categoryId": "flick",
+    "fileName": "Camera",
+    "flickCategory": "core",
+    "id": "flick:core:camera",
+    "kind": "scene",
+    "name": "Camera",
+    "nativeAction": "add-camera",
+    "thumbnailKind": "model",
+    "url": ""
+  },
+  {
+    "categoryId": "flick",
+    "fileName": "Cube",
+    "flickCategory": "basic",
+    "id": "flick:basic:cube",
+    "kind": "prop",
+    "name": "Cube",
+    "nativeAction": "add-cube",
+    "thumbnailKind": "model",
+    "url": ""
+  },
+  {
+    "categoryId": "flick",
+    "fileName": "Sphere",
+    "flickCategory": "basic",
+    "id": "flick:basic:sphere",
+    "kind": "prop",
+    "name": "Sphere",
+    "nativeAction": "add-sphere",
+    "thumbnailKind": "model",
+    "url": ""
+  }
+]

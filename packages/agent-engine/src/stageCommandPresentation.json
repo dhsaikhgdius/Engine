@@ -1,0 +1,18 @@
+{
+  "helpTemplate": "Agent-native 3D editor controls:\n\nNAVIGATION: left-drag orbits, middle-drag pans, wheel zooms. W/E/R select move, rotate, and scale. Delete removes the selection.\n\nSCENE: objects are stored in a compact JSON document. stage_scene can reset, configure, and validate a white-box scene. Cameras own aim targets. Camera movement is made of ordered actions on a camera track.\n\nSHOW: add a track per object. Humanoids accept clips and paths. Cubes, spheres, props, and groups use transform items with two or more keyframes.\n\nAGENTS: stage_read, stage_scene, stage_object, stage_camera, and stage_show all support a single op or an ordered atomic ops array. Create operations can set a ref alias that later operations resolve without knowing generated ids.\n\nAGENT LOOP: use stage_read observe for a compact scene snapshot, stage_read inspect for one object's exact state and relationships, then act and inspect the structured changed/context feedback returned by the gateway or MCP server.\n\nOPERATION CONTRACT: {{OPERATION_CONTRACT}}. Input types, enums, required fields, and batch structure are validated before execution.\n\nVIDEO: stage_video discovers providers and prepares, submits, inspects, or cancels a durable provider-neutral render job from a validated scene and the active camera frame. prepare writes an inspectable job package without invoking a model; render submits either the LTX-2.3 Python inference worker or a configured ComfyUI workflow.",
+  "objectLabels": {
+    "humanoid": "人物",
+    "camera": "相机",
+    "target": "目标",
+    "cube": "立方体",
+    "sphere": "球体",
+    "cylinder": "圆柱体",
+    "cone": "圆锥体",
+    "plane": "平面",
+    "torus": "环形体",
+    "pyramid": "棱锥体",
+    "image": "图片参考",
+    "prop": "组件",
+    "group": "组"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "objects": {
+    "human-1": {
+      "kind": "humanoid",
+      "position": [-0.4202181121615922, 0, -1.1049523828270802],
+      "rotation": [3.141592653589793, -0.5146763264269042, 3.141592653589793],
+      "scale": [1, 1, 1],
+      "name": "人物 1",
+      "color": "#b9872f",
+      "animation": { "clip": "idle", "playing": false }
+    },
+    "target-1": {
+      "kind": "target",
+      "position": [-0.4202181121615922, 1.404622430957943, -1.1049523828270802],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "name": "目标"
+    },
+    "camera-1": {
+      "kind": "camera",
+      "position": [-0.8428234048542343, 1.6756546446789802, 0.6750296044944708],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "targetId": "target-1",
+      "name": "相机 1",
+      "focalLengthMm": 35,
+      "shake": "off"
+    }
+  },
+  "show": {
+    "name": "场景 1",
+    "tracks": [
+      {
+        "id": "track-camera-1",
+        "characterId": "camera-1",
+        "items": [
+          {
+            "id": "item-orbit-1",
+            "kind": "cam-move",
+            "startS": 0,
+            "durationS": 5,
+            "move": "orbit",
+            "subjectId": "human-1",
+            "direction": "ccw",
+            "angleDeg": 360,
+            "heightDeltaUnits": 0,
+            "distanceScale": 1
+          }
+        ]
+      }
+    ]
+  },
+  "recordAspect": "16:9"
+}

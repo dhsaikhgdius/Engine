@@ -1,0 +1,17 @@
+{
+  "body": ["Hips"],
+  "torso": ["Spine2", "Spine1", "Spine"],
+  "head": ["Head"],
+  "leftShoulder": ["LeftArm", "LeftShoulder"],
+  "rightShoulder": ["RightArm", "RightShoulder"],
+  "leftElbow": ["LeftForeArm", "LeftLowerArm"],
+  "rightElbow": ["RightForeArm", "RightLowerArm"],
+  "leftHand": ["LeftHand"],
+  "rightHand": ["RightHand"],
+  "leftHip": ["LeftUpLeg", "LeftUpperLeg"],
+  "rightHip": ["RightUpLeg", "RightUpperLeg"],
+  "leftKnee": ["LeftLeg", "LeftLowerLeg"],
+  "rightKnee": ["RightLeg", "RightLowerLeg"],
+  "leftFoot": ["LeftFoot"],
+  "rightFoot": ["RightFoot"]
+}

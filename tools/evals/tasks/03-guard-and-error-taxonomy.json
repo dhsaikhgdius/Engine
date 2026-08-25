@@ -1,0 +1,50 @@
+{
+  "name": "guard-and-error-taxonomy",
+  "description": "Verify failure semantics: stale revision guard, strict field validation, and recovery.",
+  "steps": [
+    {
+      "label": "stale revision is rejected",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "expected_revision": "eval-stale-revision-000",
+        "actions": [
+          {
+            "action": "add_object",
+            "id": "eval-ghost",
+            "name": "Ghost",
+            "kind": "character",
+            "body_type": "mannequin",
+            "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+            "placement_mode": "grounded"
+          }
+        ]
+      },
+      "expect": { "success": false, "code": "stale_project_revision" }
+    },
+    {
+      "label": "unknown field is rejected",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_object",
+            "id": "eval-bad",
+            "name": "Bad",
+            "kind": "character",
+            "body_type": "mannequin",
+            "bogus_field": true
+          }
+        ]
+      },
+      "expect": { "success": false, "error_includes": "bogus_field" }
+    },
+    {
+      "label": "observe still succeeds",
+      "tool": "director_workbench",
+      "input": { "op": "observe", "fields": ["counts"] },
+      "expect": { "success": true }
+    }
+  ]
+}

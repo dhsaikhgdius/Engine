@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-07-27T19:24:31.305Z",
+  "modelsScanned": 1426,
+  "modelsWithTextures": 184,
+  "textureReferences": 184,
+  "embeddedTextureImages": 0,
+  "dataUriTextureImages": 0,
+  "externalTextureImages": 184,
+  "externalBufferReferences": 0,
+  "materialCount": 3341,
+  "parseFailures": [],
+  "externalResources": 4,
+  "downloadedExternalResources": 0,
+  "skippedExternalResources": 3,
+  "fallbackTextureSources": [
+    {
+      "resourcePath": "pirate/Textures/colormap.png",
+      "state": "downloaded",
+      "pack": "Kenney Pirate Kit",
+      "packPageUrl": "https://kenney.nl/assets/pirate-kit",
+      "zipUrl": "https://kenney.nl/media/pages/assets/pirate-kit/e6d4bb1525-1771333093/kenney_pirate-kit.zip",
+      "zipMember": "Models/GLB format/Textures/colormap.png"
+    },
+    {
+      "resourcePath": "vehicles/Textures/colormap.png",
+      "state": "downloaded",
+      "pack": "Kenney Car Kit",
+      "packPageUrl": "https://kenney.nl/assets/car-kit",
+      "zipUrl": "https://kenney.nl/media/pages/assets/car-kit/1a312ec241-1775131960/kenney_car-kit.zip",
+      "zipMember": "Models/GLB format/Textures/colormap.png"
+    },
+    {
+      "resourcePath": "weapons/Textures/colormap.png",
+      "state": "downloaded",
+      "pack": "Kenney Blaster Kit",
+      "packPageUrl": "https://kenney.nl/assets/blaster-kit",
+      "zipUrl": "https://kenney.nl/media/pages/assets/blaster-kit/261d80a716-1753959510/kenney_blaster-kit_2.1.zip",
+      "zipMember": "Models/GLB format/Textures/colormap.png"
+    }
+  ],
+  "failures": [
+    {
+      "sourceUrl": "https://cdn.flick.art/stage-props/nature/Textures/colormap.png",
+      "error": "https://cdn.flick.art/stage-props/nature/Textures/colormap.png: HTTP 404"
+    }
+  ]
+}

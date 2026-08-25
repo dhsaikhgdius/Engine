@@ -1,0 +1,38 @@
+---
+title: 仓库结构
+description: 查找编辑器、Agent runtime、gateway、插件、数据与文档代码。
+---
+
+import RepositoryStructure from "../../../../components/RepositoryStructure.astro";
+
+<RepositoryStructure locale="zh" />
+
+GitHub 源码 checkout 不包含二进制资产。不可变 manifest、许可等级、恢复命令和发布 gate 见
+[开源资产与 Hugging Face](/zh/development/open-source-assets/)。
+
+## 应该在哪里修改
+
+| 修改内容                  | 主要位置                                                   |
+| ------------------------- | ---------------------------------------------------------- |
+| 编辑器 UI 或视口          | `frontend/director/src/comprehensive/editor`               |
+| 完整项目模型              | `packages/project-schema`                                  |
+| Agent 语义动作            | `packages/agent-engine/src/directorAuthoring.ts`           |
+| Workbench 操作            | `packages/agent-engine/src/directorWorkbenchContract.ts`   |
+| 审计规则                  | `packages/agent-engine/src/directorAudit.ts`               |
+| 紧凑 Stage 操作           | `packages/stage-protocol`                                  |
+| HTTP/WebSocket Gateway    | `backend/gateway`                                          |
+| MCP 描述或 bundled server | `backend/gateway/mcp-server.ts`，然后重新构建插件          |
+| 官方模型源码              | `vendor/`                                                  |
+| 原生建模引擎              | `integrations/blender/live`                                |
+| coding-agent 工作流说明   | `integrations/plugins/director-workbench/skills`           |
+| 公共文档                  | `docs/site/src/content/docs`                               |
+
+## 生成文件
+
+以下文件不要手工编辑：
+
+- `dist/`；
+- `docs/site/dist/`；
+- 未重新构建时的 bundled `integrations/plugins/director-workbench/mcp/server.mjs`；
+- 运行时 `data/` artifact；
+- 包管理器缓存。

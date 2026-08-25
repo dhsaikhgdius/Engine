@@ -1,0 +1,47 @@
+{
+  "extensionKinds": {
+    "png": "image",
+    "jpg": "image",
+    "jpeg": "image",
+    "webp": "image",
+    "gif": "image",
+    "avif": "image",
+    "bmp": "image",
+    "svg": "image",
+    "mp4": "video",
+    "webm": "video",
+    "mov": "video",
+    "m4v": "video",
+    "avi": "video",
+    "mkv": "video",
+    "mp3": "audio",
+    "wav": "audio",
+    "ogg": "audio",
+    "m4a": "audio",
+    "aac": "audio",
+    "flac": "audio",
+    "opus": "audio"
+  },
+  "mimeExtensions": {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/avif": "avif",
+    "image/svg+xml": "svg",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/quicktime": "mov",
+    "audio/mpeg": "mp3",
+    "audio/mp4": "m4a",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/ogg": "ogg",
+    "audio/flac": "flac"
+  },
+  "defaultMimeTypes": {
+    "image": "image/*",
+    "video": "video/*",
+    "audio": "audio/*"
+  }
+}

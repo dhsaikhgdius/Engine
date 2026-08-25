@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "hunyuan3d",
+  "displayName": "Tencent Hunyuan3D-2",
+  "repository": "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git",
+  "commit": "f8db63096c8282cb27354314d896feba5ba6ff8a",
+  "checkoutDirectory": "vendor/hunyuan3d",
+  "setupCommand": "npm run setup:hunyuan3d",
+  "sourceDirEnv": "DIRECTOR_HUNYUAN3D_SOURCE_DIR",
+  "licenseAcceptanceEnv": "DIRECTOR_ACCEPT_HUNYUAN3D_LICENSE",
+  "license": {
+    "name": "Tencent Hunyuan 3D 2.0 Community License Agreement",
+    "path": "LICENSE",
+    "gitBlobSha": "a37e08f3a2967aa04fd6b6b514ba9b4a75c836c2",
+    "url": "https://github.com/Tencent-Hunyuan/Hunyuan3D-2/blob/f8db63096c8282cb27354314d896feba5ba6ff8a/LICENSE"
+  },
+  "requiredPaths": ["LICENSE", "hy3dgen", "minimal_demo.py", "requirements.txt"]
+}

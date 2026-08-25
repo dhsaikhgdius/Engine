@@ -1,0 +1,88 @@
+{
+  "name": "creative-workspaces-atomic-batch",
+  "description": "Exercise Canvas, Video Editor, and Gallery together through one undoable Creative batch.",
+  "steps": [
+    {
+      "label": "discover creative capabilities",
+      "tool": "director_creative",
+      "input": { "op": "capabilities" },
+      "expect": { "success": true, "result_paths": ["result.capabilities"] }
+    },
+    {
+      "label": "author cross-workspace batch",
+      "tool": "director_creative",
+      "input": {
+        "op": "execute_batch",
+        "steps": [
+          {
+            "step_id": "intent",
+            "save_as": "intent",
+            "operation": {
+              "op": "canvas.node.add",
+              "kind": "note",
+              "title": "Eval Intent",
+              "body": "Golden cross-workspace brief",
+              "x": 40,
+              "y": 40
+            }
+          },
+          {
+            "step_id": "shot",
+            "save_as": "shot",
+            "operation": { "op": "canvas.node.add", "kind": "shot", "title": "Eval Shot 01", "x": 420, "y": 40 }
+          },
+          {
+            "step_id": "connect",
+            "operation": { "op": "canvas.edge.add", "source_node_id": "@intent", "target_node_id": "@shot" }
+          },
+          {
+            "step_id": "timeline",
+            "save_as": "timeline",
+            "operation": { "op": "edit.track.add", "kind": "video", "name": "Eval Assembly" }
+          },
+          {
+            "step_id": "gallery",
+            "save_as": "selects",
+            "operation": { "op": "gallery.folder.add", "name": "Eval Selects" }
+          },
+          {
+            "step_id": "gallery-preferences",
+            "operation": { "op": "gallery.preferences.update", "patch": { "view_mode": "list", "sort_by": "rating" } }
+          }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.execution.result.references.intent",
+          "result.execution.result.references.shot",
+          "result.execution.result.references.timeline",
+          "result.execution.result.references.selects",
+          "result.execution.snapshot.counts.board_nodes",
+          "result.execution.snapshot.counts.tracks",
+          "result.execution.snapshot.counts.gallery_folders"
+        ]
+      }
+    },
+    {
+      "label": "observe creative result",
+      "tool": "director_creative",
+      "input": { "op": "observe" },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.snapshot.board.nodes",
+          "result.snapshot.edit.tracks",
+          "result.snapshot.gallery.folders",
+          "result.snapshot.snapshot_fingerprint"
+        ]
+      }
+    },
+    {
+      "label": "audit creative workspaces",
+      "tool": "director_creative",
+      "input": { "op": "audit", "scope": "all", "quality_profile": "production" },
+      "expect": { "success": true, "result_paths": ["result.audit"] }
+    }
+  ]
+}

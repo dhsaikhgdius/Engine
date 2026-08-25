@@ -1,0 +1,12 @@
+interface:
+  display_name: "Director 3D Workbench"
+  short_description: "Let a coding agent safely author and verify 3D Stage, Canvas, and Video"
+  default_prompt: "Use $director-workbench and follow discover -> observe -> atomic mutate -> observe -> audit -> preview/deliver, including exact-target and idempotent recovery rules."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "director-workbench"
+      description: "Structured control of the live Director 3D workbench"
+      transport: "stdio"
+policy:
+  allow_implicit_invocation: true

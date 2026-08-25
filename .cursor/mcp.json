@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "director-workbench": {
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx/esm",
+        "backend/gateway/mcp-server.ts"
+      ],
+      "env": {
+        "STAGE_GATEWAY_URL": "http://127.0.0.1:8787"
+      }
+    }
+  }
+}

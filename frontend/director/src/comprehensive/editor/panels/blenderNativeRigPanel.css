@@ -1,0 +1,491 @@
+.native-rig-inspector .right-inspector-content {
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.native-rig-inspector .inspector-section {
+  gap: 9px;
+  padding-top: 12px;
+}
+
+.native-rig-summary,
+.native-rig-selection-bar,
+.native-rig-active-bone,
+.native-rig-frame-row,
+.native-rig-pose-actions,
+.native-rig-key-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.native-rig-summary > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.native-rig-summary strong,
+.native-rig-active-bone strong {
+  overflow: hidden;
+  color: rgb(var(--text-rgb));
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-rig-summary small,
+.native-rig-selection-bar small,
+.native-rig-action-meta,
+.native-rig-receipt,
+.native-rig-empty {
+  margin: 0;
+  color: rgb(var(--text-dim-rgb));
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.native-rig-summary > button,
+.native-rig-selection-bar button,
+.native-rig-pose-actions button,
+.native-rig-key-actions button,
+.native-rig-create-action button,
+.native-rig-frame-row > button {
+  min-height: 28px;
+  border: 1px solid rgb(var(--border-rgb) / 0.36);
+  border-radius: 6px;
+  padding: 5px 9px;
+  color: rgb(var(--text-muted-rgb));
+  background: rgb(var(--surface-rgb));
+  box-shadow: none;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  transform: none;
+}
+
+.native-rig-summary > button {
+  display: grid;
+  flex: 0 0 28px;
+  width: 28px;
+  padding: 0;
+  place-items: center;
+}
+
+.native-rig-summary button:hover,
+.native-rig-selection-bar button:hover,
+.native-rig-pose-actions button:hover,
+.native-rig-key-actions button:hover,
+.native-rig-create-action button:hover,
+.native-rig-frame-row > button:hover {
+  border-color: rgb(var(--accent-rgb) / 0.58);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--accent-rgb) / 0.06);
+}
+
+.native-rig-summary button:disabled,
+.native-rig-selection-bar button:disabled,
+.native-rig-pose-actions button:disabled,
+.native-rig-key-actions button:disabled,
+.native-rig-create-action button:disabled,
+.native-rig-frame-row > button:disabled {
+  opacity: 0.42;
+  transform: none;
+}
+
+.native-rig-search {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  border: 1px solid rgb(var(--border-rgb) / 0.34);
+  border-radius: 6px;
+  padding: 0 8px;
+  color: rgb(var(--text-dim-rgb));
+  background: rgb(var(--field-rgb));
+}
+
+.native-rig-search input,
+.native-rig-create-action input,
+.native-rig-frame-row input,
+.native-rig-field select,
+.native-rig-transform-group input {
+  min-width: 0;
+  border: 0;
+  border-radius: 5px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--field-rgb));
+  box-shadow: none;
+  font-size: 10px;
+  line-height: 14px;
+  outline: none;
+}
+
+.native-rig-search input {
+  width: 100%;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+}
+
+.native-rig-selection-bar > div {
+  display: flex;
+  gap: 4px;
+}
+
+.native-rig-selection-bar button {
+  min-height: 24px;
+  padding: 3px 7px;
+}
+
+.native-rig-bone-tree {
+  display: grid;
+  max-height: 190px;
+  overflow: auto;
+  border: 1px solid rgb(var(--border-rgb) / 0.28);
+  border-radius: 7px;
+  background: rgb(var(--surface-rgb));
+  scrollbar-width: thin;
+}
+
+.native-rig-bone-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 27px;
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.18);
+  padding-block: 3px;
+  padding-inline-end: 7px;
+}
+
+.native-rig-bone-row:last-child {
+  border-bottom: 0;
+}
+
+.native-rig-bone-row.is-active {
+  box-shadow: inset 2px 0 0 rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.07);
+}
+
+.native-rig-bone-row input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+}
+
+.native-rig-bone-row button {
+  overflow: hidden;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+  box-shadow: none;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: none;
+}
+
+.native-rig-bone-row button[aria-current="true"] {
+  color: rgb(var(--accent-rgb));
+  font-weight: 650;
+}
+
+.native-rig-bone-row small {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.native-rig-active-bone span,
+.native-rig-transform-group > span,
+.native-rig-field > span,
+.native-rig-frame-row label > span {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+}
+
+.native-rig-transform-group,
+.native-rig-field {
+  display: grid;
+  gap: 5px;
+}
+
+.native-rig-vector-grid,
+.native-rig-quaternion-grid {
+  display: grid;
+  gap: 5px;
+}
+
+.native-rig-vector-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.native-rig-quaternion-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.native-rig-vector-grid label,
+.native-rig-quaternion-grid label {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid rgb(var(--border-rgb) / 0.28);
+  border-radius: 5px;
+  background: rgb(var(--field-rgb));
+}
+
+.native-rig-vector-grid label > span,
+.native-rig-quaternion-grid label > span {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 10px;
+  text-align: center;
+}
+
+.native-rig-transform-group input {
+  width: 100%;
+  height: 26px;
+  padding: 0 4px;
+}
+
+.native-rig-pose-actions button,
+.native-rig-key-actions button {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.native-rig-field select,
+.native-rig-create-action input,
+.native-rig-frame-row input {
+  width: 100%;
+  height: 30px;
+  border: 1px solid rgb(var(--border-rgb) / 0.3);
+  padding: 0 8px;
+}
+
+.native-rig-create-action,
+.native-rig-frame-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.native-rig-frame-row label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.native-rig-channel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.native-rig-channel-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 27px;
+  border: 1px solid rgb(var(--border-rgb) / 0.28);
+  border-radius: 5px;
+  color: rgb(var(--text-muted-rgb));
+  background: rgb(var(--surface-rgb));
+  font-size: 10px;
+}
+
+.native-rig-channel-grid input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+}
+
+.native-rig-message {
+  display: block;
+  margin: 0;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.native-rig-animation-tools {
+  overflow: hidden;
+  border: 1px solid rgb(var(--border-rgb) / 0.28);
+  border-radius: 7px;
+  background: rgb(var(--surface-rgb));
+}
+
+.native-rig-animation-tools > summary {
+  cursor: pointer;
+  padding: 7px 8px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 14px;
+}
+
+.native-rig-animation-tools[open] > summary {
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.22);
+}
+
+.native-rig-animation-block {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+}
+
+.native-rig-animation-block + .native-rig-animation-block {
+  border-top: 1px solid rgb(var(--border-rgb) / 0.22);
+}
+
+.native-rig-animation-heading,
+.native-rig-mixamo-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.native-rig-animation-heading strong {
+  color: rgb(var(--text-rgb));
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.native-rig-animation-heading small,
+.native-rig-mixamo-actions label,
+.native-rig-nla-track > strong {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.native-rig-animation-heading small.is-compatible {
+  color: rgb(var(--director-positive-rgb, 104 206 126));
+}
+
+.native-rig-animation-heading small.is-incompatible {
+  color: rgb(var(--director-danger-rgb, 230 96 96));
+}
+
+.native-rig-mixamo-grid,
+.native-rig-nla-add-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.native-rig-mixamo-motion {
+  grid-column: 1 / -1;
+}
+
+.native-rig-mixamo-actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.native-rig-mixamo-actions input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+}
+
+.native-rig-animation-tools input:not([type="checkbox"]),
+.native-rig-animation-tools select {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid rgb(var(--border-rgb) / 0.3);
+  border-radius: 5px;
+  padding: 0 7px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--field-rgb));
+  box-shadow: none;
+  font-size: 10px;
+  line-height: 14px;
+  outline: none;
+}
+
+.native-rig-animation-tools button {
+  min-height: 27px;
+  border: 1px solid rgb(var(--border-rgb) / 0.36);
+  border-radius: 5px;
+  padding: 4px 7px;
+  color: rgb(var(--text-muted-rgb));
+  background: rgb(var(--surface-rgb));
+  box-shadow: none;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  transform: none;
+}
+
+.native-rig-animation-tools button:hover {
+  border-color: rgb(var(--accent-rgb) / 0.58);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--accent-rgb) / 0.06);
+}
+
+.native-rig-animation-tools button:disabled {
+  opacity: 0.42;
+}
+
+.native-rig-nla-add-grid > button {
+  grid-column: 1 / -1;
+}
+
+.native-rig-nla-tracks {
+  display: grid;
+  gap: 5px;
+  max-height: 190px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.native-rig-nla-track {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid rgb(var(--border-rgb) / 0.2);
+  padding-top: 5px;
+}
+
+.native-rig-nla-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  border-radius: 5px;
+  padding: 5px;
+  background: rgb(var(--field-rgb) / 0.64);
+}
+
+.native-rig-nla-strip > span {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-rig-nla-strip > button {
+  grid-column: span 2;
+}

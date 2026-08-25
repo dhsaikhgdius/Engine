@@ -1,0 +1,373 @@
+{
+  "schemaVersion": 1,
+  "generator": "tools/scripts/package_mixamo_animations.py",
+  "items": [
+    {
+      "id": "idle",
+      "name": "Standard Idle",
+      "nameZh": "标准待机",
+      "category": "idle",
+      "tags": [
+        "idle",
+        "standing",
+        "neutral"
+      ],
+      "url": "/mixamo-animations/clips/idle.glb",
+      "fileName": "idle.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 3.0,
+      "frameCount": 91,
+      "sourceFps": 30,
+      "byteLength": 156076,
+      "sha256": "2b1458fa1f4dd211c2bb1af38bae000bf1c47006261987642cfc227089e8c1f7",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Standard_Idle.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "walk",
+      "name": "Walk Forward",
+      "nameZh": "向前行走",
+      "category": "locomotion",
+      "tags": [
+        "walk",
+        "forward",
+        "unarmed"
+      ],
+      "url": "/mixamo-animations/clips/walk.glb",
+      "fileName": "walk.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 1.366667,
+      "frameCount": 42,
+      "sourceFps": 30,
+      "byteLength": 117392,
+      "sha256": "447bdeffb7e6a1369abe3a7d6873177dbd4738a6ee043c13e031afa7fbe6ce35",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Unarmed_Walk_Forward__c9cef1a4.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "walk-back",
+      "name": "Walk Backward",
+      "nameZh": "向后行走",
+      "category": "locomotion",
+      "tags": [
+        "walk",
+        "backward",
+        "unarmed"
+      ],
+      "url": "/mixamo-animations/clips/walk-back.glb",
+      "fileName": "walk-back.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 1.3,
+      "frameCount": 40,
+      "sourceFps": 30,
+      "byteLength": 115844,
+      "sha256": "64546d397fca37cff9720f3033859ebe5fee51b1da629258592dd62850b88713",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Unarmed_Walk_Back.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "walk-left",
+      "name": "Walk Left",
+      "nameZh": "向左行走",
+      "category": "locomotion",
+      "tags": [
+        "walk",
+        "left",
+        "strafe"
+      ],
+      "url": "/mixamo-animations/clips/walk-left.glb",
+      "fileName": "walk-left.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 1.2,
+      "frameCount": 37,
+      "sourceFps": 30,
+      "byteLength": 103000,
+      "sha256": "465775319e4a8b25ecd70717020902bd8b08e22974a3c133025895b16bef1b1d",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Standing_Walk_Left__c9cec849.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "walk-right",
+      "name": "Walk Right",
+      "nameZh": "向右行走",
+      "category": "locomotion",
+      "tags": [
+        "walk",
+        "right",
+        "strafe"
+      ],
+      "url": "/mixamo-animations/clips/walk-right.glb",
+      "fileName": "walk-right.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 1.2,
+      "frameCount": 37,
+      "sourceFps": 30,
+      "byteLength": 113448,
+      "sha256": "64a163784f680ece9ed282728eb8c3e9ba1912160ff54a6d85f9ef5eb9c7df7b",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Standing_Walk_Right__c9cec9cf.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "run",
+      "name": "Unarmed Run Forward",
+      "nameZh": "无武装向前跑",
+      "category": "locomotion",
+      "tags": [
+        "run",
+        "forward",
+        "unarmed",
+        "loop"
+      ],
+      "url": "/mixamo-animations/clips/run.glb",
+      "fileName": "run.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 0.8,
+      "frameCount": 25,
+      "sourceFps": 30,
+      "byteLength": 91644,
+      "sha256": "5afd4c3964a06d797b261cb910bc3baa540bcbedc4a796a29254f70105a33360",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Unarmed_Run_Forward__c9ceee9c.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "run-back",
+      "name": "Unarmed Run Backward",
+      "nameZh": "无武装向后跑",
+      "category": "locomotion",
+      "tags": [
+        "run",
+        "backward",
+        "unarmed",
+        "loop"
+      ],
+      "url": "/mixamo-animations/clips/run-back.glb",
+      "fileName": "run-back.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 0.766667,
+      "frameCount": 24,
+      "sourceFps": 30,
+      "byteLength": 100660,
+      "sha256": "26394484c0d2aa9bb507afa6780a4795150919ab5338e0cb8f84d2dbefa57a25",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Unarmed_Run_Back.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "run-left",
+      "name": "Run Left",
+      "nameZh": "向左跑",
+      "category": "locomotion",
+      "tags": [
+        "run",
+        "left",
+        "strafe",
+        "loop"
+      ],
+      "url": "/mixamo-animations/clips/run-left.glb",
+      "fileName": "run-left.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 0.766667,
+      "frameCount": 24,
+      "sourceFps": 30,
+      "byteLength": 101424,
+      "sha256": "f3613a25e6f2eca3a70674f10bcf6a02ad3d4c8fe8f4a2e8ea4771f0e627979e",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Standing_Run_Left__bb7b9d57.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "run-right",
+      "name": "Run Right",
+      "nameZh": "向右跑",
+      "category": "locomotion",
+      "tags": [
+        "run",
+        "right",
+        "strafe",
+        "loop"
+      ],
+      "url": "/mixamo-animations/clips/run-right.glb",
+      "fileName": "run-right.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 0.766667,
+      "frameCount": 24,
+      "sourceFps": 30,
+      "byteLength": 102392,
+      "sha256": "49c3e2e06880d81a4a02fc483875d5348c33d3077031c13aa6f38e33454cae81",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Standing_Run_Right__1dc8d38f.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "wave",
+      "name": "Wave",
+      "nameZh": "挥手",
+      "category": "gesture",
+      "tags": [
+        "wave",
+        "greeting",
+        "standing"
+      ],
+      "url": "/mixamo-animations/clips/wave.glb",
+      "fileName": "wave.glb",
+      "defaultLoop": "once",
+      "recommendedRootMotion": "in-place",
+      "durationS": 0.533333,
+      "frameCount": 17,
+      "sourceFps": 30,
+      "byteLength": 88280,
+      "sha256": "b0ee734d1542363369da2073ae79fa9731467c0491846e8ef326250316c6f8ed",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Waving__c9c5ed32.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "clap",
+      "name": "Standing Clap",
+      "nameZh": "站立鼓掌",
+      "category": "gesture",
+      "tags": [
+        "clap",
+        "approval",
+        "standing"
+      ],
+      "url": "/mixamo-animations/clips/clap.glb",
+      "fileName": "clap.glb",
+      "defaultLoop": "once",
+      "recommendedRootMotion": "in-place",
+      "durationS": 4.766667,
+      "frameCount": 144,
+      "sourceFps": 30,
+      "byteLength": 203828,
+      "sha256": "ef1b3852a2cbe26ee613cd55ca8463e78c8c5099b6c0bec987165eef7291c669",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Standing_Clap__c9cb6b49.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "sit-idle",
+      "name": "Sitting Idle",
+      "nameZh": "坐姿待机",
+      "category": "idle",
+      "tags": [
+        "sit",
+        "idle"
+      ],
+      "url": "/mixamo-animations/clips/sit-idle.glb",
+      "fileName": "sit-idle.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 10.866667,
+      "frameCount": 327,
+      "sourceFps": 30,
+      "byteLength": 203008,
+      "sha256": "d58491f418fb67f6eca29b14e668c0e560e5a27bb0aa80b9595817052958a426",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Sitting_Idle__c9ccd526.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "jump",
+      "name": "Standing Jump",
+      "nameZh": "原地跳跃",
+      "category": "action",
+      "tags": [
+        "jump",
+        "standing",
+        "landing"
+      ],
+      "url": "/mixamo-animations/clips/jump.glb",
+      "fileName": "jump.glb",
+      "defaultLoop": "once",
+      "recommendedRootMotion": "in-place",
+      "durationS": 2.433333,
+      "frameCount": 74,
+      "sourceFps": 30,
+      "byteLength": 144344,
+      "sha256": "0a2c7c1bee6375f5a0f523339ec56041dc5f5ff11d3528b8df2fb0e77f367595",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Standing_Jump__fab2ce21.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    },
+    {
+      "id": "talk",
+      "name": "Standing Talk",
+      "nameZh": "站立说话",
+      "category": "performance",
+      "tags": [
+        "talk",
+        "dialogue",
+        "standing"
+      ],
+      "url": "/mixamo-animations/clips/talk.glb",
+      "fileName": "talk.glb",
+      "defaultLoop": "repeat",
+      "recommendedRootMotion": "in-place",
+      "durationS": 5.166667,
+      "frameCount": 156,
+      "sourceFps": 30,
+      "byteLength": 208932,
+      "sha256": "25cd22ea8a7c60f1fe07671108bf66b78a908356054a9e561157af47908dfa73",
+      "source": {
+        "provider": "Adobe Mixamo",
+        "fileName": "Talking__c9c6de72.fbx",
+        "licenseUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+        "provenance": "local-user-supplied"
+      }
+    }
+  ]
+}

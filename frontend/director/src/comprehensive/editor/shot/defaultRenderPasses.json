@@ -1,0 +1,42 @@
+[
+  {
+    "id": "clean",
+    "imageFormat": "png",
+    "colorSpace": "srgb",
+    "bitDepth": 8,
+    "includesHelpers": false,
+    "pathTemplate": "passes/clean/frame-{frame:06}.png"
+  },
+  {
+    "id": "depth",
+    "imageFormat": "png",
+    "colorSpace": "data",
+    "bitDepth": 8,
+    "includesHelpers": false,
+    "pathTemplate": "passes/depth/frame-{frame:06}.png"
+  },
+  {
+    "id": "normal",
+    "imageFormat": "png",
+    "colorSpace": "data",
+    "bitDepth": 8,
+    "includesHelpers": false,
+    "pathTemplate": "passes/normal/frame-{frame:06}.png"
+  },
+  {
+    "id": "object-id",
+    "imageFormat": "png",
+    "colorSpace": "data",
+    "bitDepth": 8,
+    "includesHelpers": false,
+    "pathTemplate": "passes/object-id/frame-{frame:06}.png"
+  },
+  {
+    "id": "mask",
+    "imageFormat": "png",
+    "colorSpace": "data",
+    "bitDepth": 8,
+    "includesHelpers": false,
+    "pathTemplate": "passes/mask/frame-{frame:06}.png"
+  }
+]

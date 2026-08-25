@@ -1,0 +1,63 @@
+{
+  "name": "blocking-and-revision-chain",
+  "description": "Place two characters, place one relative to the other, then inspect the result.",
+  "steps": [
+    {
+      "label": "observe counts",
+      "tool": "director_workbench",
+      "input": { "op": "observe", "fields": ["counts"] },
+      "expect": { "success": true }
+    },
+    {
+      "label": "author table stand-in",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_object",
+            "id": "eval-table",
+            "name": "Eval table",
+            "kind": "character",
+            "body_type": "mannequin",
+            "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+            "placement_mode": "grounded"
+          }
+        ]
+      },
+      "expect": { "success": true, "result_paths": ["result.project_revision"] }
+    },
+    {
+      "label": "place chair stand-in in front of table",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_object",
+            "id": "eval-chair",
+            "name": "Eval chair",
+            "kind": "character",
+            "body_type": "mannequin",
+            "transform": { "position": [5, 0, 5], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+            "placement_mode": "grounded"
+          },
+          {
+            "action": "place_relative",
+            "object_id": "eval-chair",
+            "anchor_id": "eval-table",
+            "relation": "front",
+            "clearance_m": 0.3
+          }
+        ]
+      },
+      "expect": { "success": true }
+    },
+    {
+      "label": "inspect chair",
+      "tool": "director_workbench",
+      "input": { "op": "inspect", "entity": "object", "id": "eval-chair" },
+      "expect": { "success": true }
+    }
+  ]
+}

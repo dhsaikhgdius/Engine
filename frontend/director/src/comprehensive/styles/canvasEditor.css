@@ -1,0 +1,388 @@
+/*
+ * Canvas / DAG board — Flick-inspired infinite workspace surface.
+ * Loaded after workspaces.css; scoped to .creative-canvas-workspace.
+ */
+
+.creative-canvas-workspace {
+  --canvas-gutter: 14px;
+  --canvas-surface: #f3f2ee;
+  --canvas-grid-dot: rgb(28 24 20 / 0.08);
+  --canvas-card-radius: 14px;
+  font-family:
+    "SF Pro Text",
+    "PingFang SC",
+    "Helvetica Neue",
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
+}
+
+:root[data-theme="dark"] .creative-canvas-workspace {
+  --canvas-surface: #12141a;
+  --canvas-grid-dot: rgb(255 255 255 / 0.07);
+}
+
+.creative-canvas-workspace .creative-board-stage {
+  background: var(--canvas-surface);
+}
+
+.creative-canvas-workspace .creative-board-grid {
+  opacity: 1;
+  background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-dot) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.creative-canvas-workspace .creative-board-toolbar-secondary {
+  top: var(--canvas-gutter);
+  left: 50%;
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  max-width: calc(100% - var(--canvas-gutter) * 2 - 120px);
+  min-height: 40px;
+  padding: 4px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 999px;
+  background: rgb(var(--panel-rgb) / 0.9);
+  box-shadow:
+    0 8px 24px rgb(var(--director-shadow-rgb) / 0.1),
+    0 1px 2px rgb(var(--director-shadow-rgb) / 0.06);
+  backdrop-filter: blur(18px) saturate(1.08);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  transform: translateX(-50%);
+}
+
+.creative-canvas-workspace .creative-board-toolbar-secondary .creative-add-node-control > button {
+  display: grid;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 999px;
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+  box-shadow: none;
+}
+
+.creative-canvas-workspace .creative-board-toolbar-secondary .creative-add-node-control > button:hover {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.75);
+}
+
+.creative-canvas-workspace .creative-board-toolbar-secondary .creative-add-node-control > button.is-active {
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.18);
+}
+
+.creative-canvas-workspace .creative-board-toolbar-secondary .creative-add-node-menu {
+  top: calc(100% + 8px);
+  left: 0;
+}
+
+.creative-canvas-workspace .creative-board-toolbar-secondary button.is-active {
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.18);
+}
+
+.creative-canvas-workspace .creative-board-toolbar-secondary button {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+}
+
+.creative-canvas-workspace .creative-board-toolbar-secondary .creative-toolbar-separator {
+  height: 20px;
+  margin: 0 3px;
+}
+
+/* Sections read as quiet regions, not colored slabs: hairline border, faint wash. */
+.creative-canvas-workspace .creative-board-section-lane {
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--section-accent, #45b3d6) 14%, rgb(var(--border-rgb) / 0.05));
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--section-accent, #45b3d6) 3%, var(--canvas-surface));
+  mask-image: none;
+}
+
+.creative-canvas-workspace .creative-board-section-lane::after {
+  display: none;
+}
+
+.creative-canvas-workspace .creative-board-section-header {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  padding: 5px 12px 5px 8px;
+  border: 1px solid rgb(var(--border-rgb) / 0.08);
+  border-radius: 999px;
+  background: rgb(var(--panel-rgb) / 0.92);
+  box-shadow: 0 3px 10px rgb(var(--director-shadow-rgb) / 0.07);
+}
+
+.creative-canvas-workspace .creative-board-section-title {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+/* Blend stored neon accents toward the text ramp so legacy boards calm down too. */
+.creative-canvas-workspace .creative-board-section-icon {
+  color: color-mix(in srgb, var(--section-accent, #45b3d6) 74%, rgb(var(--text-muted-rgb)));
+  background: color-mix(in srgb, var(--section-accent, #45b3d6) 8%, transparent);
+}
+
+.creative-canvas-workspace .creative-node-type {
+  color: color-mix(in srgb, var(--node-accent) 68%, rgb(var(--text-muted-rgb)));
+}
+
+.creative-canvas-workspace .creative-board-node {
+  grid-template-rows: 28px minmax(0, 1fr) auto;
+}
+
+.creative-canvas-workspace .creative-board-node > header {
+  padding: 0 4px 6px;
+}
+
+.creative-canvas-workspace .creative-node-media {
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: var(--canvas-card-radius);
+  background: rgb(var(--panel-rgb));
+  box-shadow:
+    0 1px 2px rgb(var(--director-shadow-rgb) / 0.05),
+    0 6px 20px rgb(var(--director-shadow-rgb) / 0.08);
+}
+
+/* Selection is a crisp neutral frame (matches the video editor), not an accent glow. */
+.creative-canvas-workspace .creative-board-node.is-selected .creative-node-media {
+  border-color: rgb(var(--text-rgb) / 0.62);
+  box-shadow:
+    0 0 0 1px rgb(var(--text-rgb) / 0.62),
+    0 10px 26px rgb(var(--director-shadow-rgb) / 0.12);
+}
+
+.creative-canvas-workspace .creative-board-node.is-connection-source .creative-node-media {
+  border-color: rgb(var(--accent-rgb) / 0.55);
+  box-shadow:
+    0 0 0 2px rgb(var(--accent-rgb) / 0.18),
+    0 10px 26px rgb(var(--director-shadow-rgb) / 0.12);
+}
+
+.creative-canvas-workspace .creative-board-node.is-note {
+  border-color: color-mix(in srgb, var(--node-accent) 15%, rgb(var(--border-rgb) / 0.14));
+  border-radius: 6px var(--canvas-card-radius) var(--canvas-card-radius) var(--canvas-card-radius);
+  background: color-mix(in srgb, var(--node-accent) 4.5%, rgb(var(--panel-rgb)));
+  box-shadow:
+    0 1px 2px rgb(var(--director-shadow-rgb) / 0.05),
+    0 6px 20px rgb(var(--director-shadow-rgb) / 0.08);
+}
+
+/* Notes and frames have no media card, so the selection frame lands on the node itself. */
+.creative-canvas-workspace .creative-board-node.is-note.is-selected,
+.creative-canvas-workspace .creative-board-node.is-frame.is-selected {
+  border-color: rgb(var(--text-rgb) / 0.55);
+  box-shadow:
+    0 0 0 1px rgb(var(--text-rgb) / 0.55),
+    0 10px 26px rgb(var(--director-shadow-rgb) / 0.12);
+}
+
+.creative-canvas-workspace .creative-board-node.is-note.is-connection-source {
+  border-color: rgb(var(--accent-rgb) / 0.55);
+  box-shadow: 0 0 0 2px rgb(var(--accent-rgb) / 0.18);
+}
+
+.creative-canvas-workspace .creative-board-edge path:not(.creative-board-edge-hit) {
+  stroke: rgb(var(--text-dim-rgb) / 0.42);
+  stroke-width: 1.5;
+  filter: none;
+}
+
+.creative-canvas-workspace .creative-board-edge:hover path:not(.creative-board-edge-hit) {
+  stroke: rgb(var(--accent-rgb) / 0.72);
+}
+
+/* Ports rest quiet and only light up when the node is engaged. */
+.creative-canvas-workspace .creative-node-port {
+  width: 8px;
+  height: 8px;
+  background: color-mix(in srgb, var(--node-accent) 45%, rgb(var(--text-dim-rgb)));
+  box-shadow: none;
+  transition: background-color 120ms ease;
+}
+
+.creative-canvas-workspace .creative-board-node:hover .creative-node-port,
+.creative-canvas-workspace .creative-board-node.is-selected .creative-node-port,
+.creative-canvas-workspace .creative-board-node.is-connection-source .creative-node-port {
+  background: color-mix(in srgb, var(--node-accent) 88%, rgb(var(--text-rgb)));
+}
+
+.creative-canvas-workspace .creative-node-resizer {
+  border-radius: 3px;
+  background: rgb(var(--text-rgb) / 0.85);
+  box-shadow: 0 1px 3px rgb(var(--director-shadow-rgb) / 0.25);
+}
+
+/* Job status pills on the muted palette. */
+.creative-canvas-workspace .creative-node-job-status.is-succeeded {
+  color: #4da58c;
+  background: rgb(77 165 140 / 0.12);
+}
+
+.creative-canvas-workspace .creative-node-job-status.is-failed,
+.creative-canvas-workspace .creative-node-job-status.is-cancelled,
+.creative-canvas-workspace .creative-node-job-status.is-blocked,
+.creative-canvas-workspace .creative-node-job-status.is-stale,
+.creative-canvas-workspace .creative-node-job-status.is-offline {
+  color: #d96d83;
+  background: rgb(217 109 131 / 0.12);
+}
+
+.creative-canvas-workspace .creative-add-node-menu {
+  border-color: rgb(var(--border-rgb) / 0.16);
+  box-shadow:
+    0 16px 40px rgb(var(--director-shadow-rgb) / 0.18),
+    0 0 0 1px rgb(var(--border-rgb) / 0.05);
+}
+
+/* Light theme: deepen status tones so they hold contrast on pale pills. */
+:root[data-theme="light"] .creative-canvas-workspace .creative-node-job-status.is-succeeded {
+  color: #35755f;
+}
+
+:root[data-theme="light"] .creative-canvas-workspace .creative-node-job-status.is-failed,
+:root[data-theme="light"] .creative-canvas-workspace .creative-node-job-status.is-cancelled,
+:root[data-theme="light"] .creative-canvas-workspace .creative-node-job-status.is-blocked,
+:root[data-theme="light"] .creative-canvas-workspace .creative-node-job-status.is-stale,
+:root[data-theme="light"] .creative-canvas-workspace .creative-node-job-status.is-offline {
+  color: #b3475a;
+}
+
+.creative-canvas-workspace .creative-board-connection-tip,
+.creative-canvas-workspace .creative-board-import-status {
+  top: calc(var(--canvas-gutter) + 48px);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.creative-canvas-workspace .creative-board-import-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: min(360px, calc(100% - 40px));
+  padding: 7px 8px 7px 12px;
+}
+
+.creative-canvas-workspace .creative-board-import-status.is-success {
+  border-color: rgb(var(--accent-rgb) / 0.36);
+  color: rgb(var(--accent-rgb));
+}
+
+.creative-canvas-workspace .creative-board-import-status.is-error {
+  border-color: rgb(var(--director-danger-rgb, 230 96 96) / 0.42);
+  color: rgb(var(--director-danger-rgb, 230 96 96));
+  background: rgb(var(--panel-rgb) / 0.98);
+}
+
+.creative-board-status-content {
+  display: grid;
+  flex: 1;
+  gap: 5px;
+  min-width: 0;
+}
+
+.creative-board-status-content > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creative-board-pipeline-progress {
+  display: grid;
+  gap: 3px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.creative-board-pipeline-progress-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(var(--border-rgb) / 0.16);
+}
+
+.creative-board-pipeline-progress-fill {
+  display: block;
+  width: var(--canvas-pipeline-progress, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: rgb(var(--accent-rgb));
+  transition: width 180ms ease;
+}
+
+.creative-board-status-close {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: currentcolor;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.72;
+}
+
+.creative-board-status-close:hover,
+.creative-board-status-close:focus-visible {
+  background: rgb(var(--border-rgb) / 0.12);
+  opacity: 1;
+}
+
+.creative-canvas-workspace .creative-workspace-sidebar.is-left {
+  border-right-color: rgb(var(--border-rgb) / 0.08);
+  background: rgb(var(--panel-rgb) / 0.96);
+}
+
+.creative-canvas-workspace .creative-board-empty {
+  gap: 12px;
+}
+
+.creative-canvas-workspace .creative-board-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 16px;
+  color: rgb(var(--text-muted-rgb));
+  background: rgb(var(--panel-rgb) / 0.72);
+  box-shadow: 0 8px 24px rgb(var(--director-shadow-rgb) / 0.08);
+}
+
+.creative-canvas-workspace .creative-board-empty-copy {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+}
+
+.creative-canvas-workspace .creative-board-empty-copy strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.creative-canvas-workspace .creative-board-empty-copy span {
+  max-width: 260px;
+  font-size: 12px;
+  line-height: 1.45;
+}

@@ -1,0 +1,58 @@
+/*
+ * Object tree panel — outliner row interactions.
+ * Loaded after premiumDirectorTheme.css.
+ */
+
+.left-sidebar .object-row .object-icon-flag-button {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.left-sidebar .object-row:hover .object-icon-flag-button,
+.left-sidebar .object-row:focus-within .object-icon-flag-button,
+.left-sidebar .object-row[aria-selected="true"] .object-icon-flag-button,
+.left-sidebar .object-row .object-icon-flag-button[aria-expanded="true"] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .left-sidebar .object-row .object-icon-flag-button {
+    opacity: 1;
+  }
+}
+
+.left-sidebar .object-row {
+  padding-left: calc(8px + var(--object-tree-depth, 0) * 12px);
+}
+
+.left-sidebar .object-row.object-row-list.is-tree-folder {
+  grid-template-columns: minmax(0, 1fr) 22px;
+}
+
+.object-row-toggle-spacer {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 17px;
+}
+
+.object-row-count {
+  flex: 0 0 auto;
+  color: rgb(var(--text-dim-rgb));
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.object-row.is-tree-folder .object-select-button > span {
+  font-weight: 600;
+}
+
+.object-row[data-tree-depth]:not([data-tree-depth="0"]) .object-select-button > span {
+  color: rgb(var(--text-muted-rgb));
+}
+
+.object-row[data-tree-depth]:not([data-tree-depth="0"]).is-selected .object-select-button > span,
+.object-row[data-tree-depth]:not([data-tree-depth="0"]):hover .object-select-button > span {
+  color: rgb(var(--text-rgb));
+}

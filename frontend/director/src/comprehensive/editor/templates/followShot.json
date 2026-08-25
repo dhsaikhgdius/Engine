@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "scene": {
+    "scale": 1,
+    "position": [0, 0, 0],
+    "rotation": [0, 0, 0],
+    "backgroundColor": "#c9cdd3",
+    "panoramaYaw": 0,
+    "panoramaRadius": 60,
+    "showLabels": false,
+    "snapToGrid": false,
+    "showGround": true,
+    "groundOpacity": 0,
+    "groundHeight": 0,
+    "fog": { "enabled": false, "mode": "linear", "color": "#c9cdd3", "near": 10, "far": 80, "density": 0.02 },
+    "environment": { "enabled": false, "usePanorama": true, "intensity": 0.5, "rotation": [0, 0, 0] },
+    "objectLayers": [{ "id": "default", "visible": true, "locked": false }],
+    "annotations": [],
+    "measurements": [],
+    "timeline": {
+      "version": 1,
+      "fps": 24,
+      "timebase": { "rate": { "numerator": 24, "denominator": 1 }, "dropFrame": false, "startTimecode": "00:00:00:00" },
+      "frameStart": 0,
+      "frameEnd": 240,
+      "currentFrame": 0,
+      "loop": false
+    }
+  },
+  "assets": [],
+  "objects": [
+    {
+      "id": "char_walker",
+      "name": "角色01",
+      "kind": "character",
+      "characterSource": "asset",
+      "assetRefId": "mixamo:x-bot",
+      "placementMode": "grounded",
+      "visible": true,
+      "locked": false,
+      "bodyType": "mannequin",
+      "color": "#d19a3a",
+      "transform": {
+        "position": [-4, 0, 0],
+        "rotation": [0, 1.570796, 0],
+        "scale": [1, 1, 1]
+      },
+      "characterRig": { "rigType": "mixamo", "posePresetId": "stand", "controls": {} },
+      "nativeSource": { "engine": "blender", "objectId": "char_walker", "provisioned": false },
+      "animation": {
+        "version": 1,
+        "enabled": true,
+        "preset": "line",
+        "orientToPath": true,
+        "motion": "walk",
+        "source": "preset",
+        "color": "#18c7e6",
+        "keyframes": [
+          {
+            "frame": 0,
+            "interpolation": "linear",
+            "transform": { "position": [-4, 0, 0], "rotation": [0, 1.570796, 0], "scale": [1, 1, 1] }
+          },
+          {
+            "frame": 240,
+            "interpolation": "linear",
+            "transform": { "position": [4, 0, 0], "rotation": [0, 1.570796, 0], "scale": [1, 1, 1] }
+          }
+        ]
+      }
+    },
+    {
+      "id": "cam_object_1",
+      "name": "跟随机位",
+      "kind": "camera",
+      "visible": true,
+      "locked": false,
+      "linkedCameraId": "cam_1",
+      "transform": {
+        "position": [-10.5, 2, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    }
+  ],
+  "lights": [
+    {
+      "id": "light_ambient_1",
+      "name": "环境光",
+      "type": "ambient",
+      "visible": true,
+      "locked": false,
+      "color": "#ffffff",
+      "intensity": 1.15
+    },
+    {
+      "id": "light_directional_1",
+      "name": "主平行光",
+      "type": "directional",
+      "visible": true,
+      "locked": false,
+      "color": "#ffffff",
+      "intensity": 1.2,
+      "position": [8, 10, 6],
+      "target": [0, 0, 0],
+      "castShadow": true
+    }
+  ],
+  "cameras": [
+    {
+      "id": "cam_1",
+      "name": "跟随机位",
+      "fov": 32.268802,
+      "focalLengthMm": 35,
+      "sensorFormat": "fullFrame",
+      "aspectRatio": "16:9",
+      "handheldShake": "off",
+      "action": {
+        "mode": "follow",
+        "follow": {
+          "targetObjectId": "char_walker",
+          "positionOffset": [-6.5, 2, 0],
+          "targetOffset": [0, 1.4, 0]
+        }
+      },
+      "transform": {
+        "position": [-10.5, 2, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "targetMode": "manual",
+      "target": [-4, 1.4, 0],
+      "lastCaptureUrl": null,
+      "captures": []
+    }
+  ],
+  "activeCameraId": "cam_1",
+  "panoramaAssetId": null
+}

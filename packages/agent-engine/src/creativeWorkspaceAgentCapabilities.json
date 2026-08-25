@@ -1,0 +1,230 @@
+{
+  "version": 2,
+  "tool": "director_creative",
+  "request_ops": [
+    "capabilities",
+    "describe",
+    "observe",
+    "execute",
+    "execute_batch",
+    "audit",
+    "preview",
+    "interchange",
+    "collaboration",
+    "pipeline"
+  ],
+  "limits": {
+    "board_nodes": 240,
+    "board_edges": 2000,
+    "tracks": 12,
+    "clips_per_track": 400,
+    "batch_steps": 32,
+    "gallery_media": 5000,
+    "gallery_folders": 200
+  },
+  "concurrency": {
+    "guard": "snapshot_fingerprint",
+    "required_for": ["execute", "execute_batch", "preview", "pipeline.start"]
+  },
+  "batch": {
+    "atomic": true,
+    "reference_syntax": "@alias"
+  },
+  "canvas_dag": {
+    "edge_contract": "canvas.edge.add rejects self-edges, missing endpoints, duplicate directed edges, and every cycle before mutation.",
+    "analysis": ["topological_order", "parallel_levels", "roots", "leaves", "cycle_path", "issues"],
+    "layout_operation": "canvas.dag.layout",
+    "layout_directions": ["horizontal", "vertical"],
+    "layout_contract": "Deterministic topological layers preserve node dimensions, use bounded gaps, own one atomic undo snapshot, and refuse invalid graphs.",
+    "execution_boundary": "Canvas executes supported image, video, and audio nodes through durable provider jobs; note/frame nodes pass context, media-backed nodes are cached, and unsupported arbitrary code is never evaluated."
+  },
+  "preview": {
+    "workspaces": ["auto", "canvas", "video"],
+    "format": "image/png",
+    "clean_frame": true,
+    "mutates_playhead": false,
+    "auto_resolution": "Use the active Canvas or Video workspace; from 3D Stage choose Video when time_sec or clips exist, otherwise Canvas.",
+    "time_semantics": "time_sec renders an exact Video timeline time; when omitted, Video keeps a meaningful in-clip playhead or deterministically chooses a high-visibility interior frame from the earliest visible clip.",
+    "concurrency_semantics": "expected_snapshot_fingerprint is checked before and after rendering; a concurrent change rejects the capture."
+  },
+  "editorial": {
+    "timebase": {
+      "source_of_truth": "edit.settings.timebase",
+      "observe_path": "edit.settings.timebase",
+      "update_operation": "edit.settings.update",
+      "rate_contract": "exact rational numerator/denominator; never infer an integer from fps",
+      "drop_frame_rates": ["30000/1001", "60000/1001"],
+      "timecode_contract": "SMPTE HH:MM:SS:FF for NDF and HH:MM:SS;FF for DF",
+      "example": {
+        "op": "edit.settings.update",
+        "patch": {
+          "frame_rate": {
+            "numerator": 30000,
+            "denominator": 1001
+          },
+          "drop_frame": true,
+          "start_timecode": "01:00:00;00"
+        }
+      }
+    },
+    "media": {
+      "observe_path": "media.assets",
+      "observable_fields": ["available", "waveform_ready", "proxy_of", "playback_preference", "proxy_profile"],
+      "attach_proxy_operation": "media.proxy.attach",
+      "set_playback_operation": "media.playback.update",
+      "attach_proxy_example": {
+        "op": "media.proxy.attach",
+        "original_media_id": "<original-media-id>",
+        "proxy_media_id": "<imported-proxy-media-id>"
+      },
+      "set_playback_example": {
+        "op": "media.playback.update",
+        "media_id": "<original-media-id>",
+        "preference": "proxy"
+      },
+      "offline_relink": {
+        "supported": true,
+        "execution_surface": "director_creative media.relink plus Assets panel file picker",
+        "director_creative_operation": "media.relink",
+        "reason": "Relink accepts inline bytes, Gallery media_id, or workspace_path; the Assets panel file picker remains available for humans."
+      }
+    },
+    "gallery": {
+      "observe_path": "gallery",
+      "media_operations": [
+        "gallery.media.update",
+        "gallery.media.move",
+        "gallery.media.trash",
+        "gallery.media.restore",
+        "gallery.media.rename_many",
+        "gallery.media.purge"
+      ],
+      "folder_operations": [
+        "gallery.folder.add",
+        "gallery.folder.rename",
+        "gallery.folder.move",
+        "gallery.folder.remove"
+      ],
+      "preferences_operation": "gallery.preferences.update",
+      "permanent_delete": "gallery.media.purge",
+      "reason": "Permanent deletion removes durable browser media and requires confirm:true; trash/restore remain the reversible path."
+    }
+  },
+  "interchange": {
+    "formats": [
+      {
+        "id": "otio",
+        "extensions": [".otio"],
+        "payload": "text",
+        "scope": "Stage storyboard or Video Editor A/V timeline"
+      },
+      {
+        "id": "otioz",
+        "extensions": [".otioz"],
+        "payload": "binary",
+        "scope": "Stage storyboard or Video Editor A/V timeline"
+      },
+      {
+        "id": "fountain",
+        "extensions": [".fountain"],
+        "payload": "text",
+        "scope": "Stage screenplay and stable storyboard beat IDs"
+      },
+      {
+        "id": "gltf",
+        "extensions": [".gltf"],
+        "payload": "text",
+        "scope": "Stage scene, cameras, transforms, and stable IDs"
+      },
+      {
+        "id": "glb",
+        "extensions": [".glb"],
+        "payload": "binary",
+        "scope": "Stage scene, cameras, transforms, and stable IDs"
+      },
+      {
+        "id": "usd",
+        "extensions": [".usd", ".usda"],
+        "payload": "text",
+        "scope": "Stage scene, metric Y-up transforms, cameras, and stable IDs"
+      },
+      {
+        "id": "usdz",
+        "extensions": [".usdz"],
+        "payload": "binary",
+        "scope": "Portable Stage USD archive"
+      },
+      {
+        "id": "obj",
+        "extensions": [".zip"],
+        "payload": "binary",
+        "scope": "All or selected Stage primitives as metric Y-up OBJ/MTL plus a loss manifest"
+      },
+      {
+        "id": "stl",
+        "extensions": [".zip"],
+        "payload": "binary",
+        "scope": "All or selected Stage primitives as metric Y-up ASCII STL plus a loss manifest"
+      }
+    ],
+    "directions": ["import", "export"],
+    "preserves": [
+      "stable IDs",
+      "exact rational timebase",
+      "SMPTE start timecode",
+      "camera orientation and lens metadata",
+      "offline media references in OTIO/OTIOZ"
+    ],
+    "execution_surface": "director_creative interchange plus DirectorInterchangeMenu",
+    "director_creative_operation": "interchange",
+    "agent_actions": ["capabilities", "plan-export", "export", "plan-import", "import"],
+    "agent_directions": ["export", "import"],
+    "import_mode": "agent-transfer",
+    "agent_transfer": "enabled for bounded inline, Gallery media_id, and workspace_path imports/exports up to 8 MiB",
+    "reason": "JSON receipts carry UTF-8 text or base64 binary up to 8 MiB. Import uses plan-import then confirm:true import; the human file picker remains available."
+  },
+  "collaboration": {
+    "engine": "Yjs",
+    "capabilities": [
+      "presence and cursors",
+      "anchored review comments",
+      "resolve and reopen comments",
+      "named version snapshots",
+      "version comparison",
+      "version restore"
+    ],
+    "execution_surface": "director_creative collaboration plus DirectorCollaborationPanel",
+    "director_creative_operations": [
+      "observe",
+      "list-comments",
+      "add-comment",
+      "resolve-comment",
+      "reopen-comment",
+      "update-comment",
+      "delete-comment",
+      "list-versions",
+      "compare",
+      "create-version",
+      "restore-version",
+      "delete-version"
+    ],
+    "agent_transfer": "enabled through a dedicated Director Agent identity in the exact Yjs room",
+    "concurrency_guard": "collaboration_fingerprint",
+    "reason": "The Agent joins the target room as its own collaborator. Destructive restore/delete require confirm:true."
+  },
+  "pipeline": {
+    "observe_path": "board.pipeline_runs",
+    "request_op": "pipeline",
+    "configure_operation": "canvas.production.configure",
+    "actions": ["capabilities", "start", "status", "cancel"],
+    "execution": "topological-levels-with-bounded-parallelism",
+    "failure_semantics": "A failed node blocks only its descendants; independent branches continue, active provider jobs are cancelled on request, and completed outputs keep node/job/artifact/media lineage."
+  },
+  "recommended_loop": [
+    "observe when current node, media, track, or clip ids are needed",
+    "use execute_batch for one complete user intent, or execute for one edit",
+    "check the changed entities once",
+    "use preview or audit only when the user asks for a visual check or diagnosis",
+    "configure generation nodes, then use pipeline start, status, or cancel by run id"
+  ]
+}

@@ -1,0 +1,271 @@
+/*
+ * Global task tray. Mirrors the HelpMenu popover treatment so the top bar
+ * keeps one visual language for disclosure buttons.
+ */
+.task-tray {
+  position: relative;
+}
+
+.task-tray-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: rgb(var(--director-on-accent-rgb, 255 255 255));
+  background: rgb(var(--accent-rgb));
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.task-tray-popover {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 9px);
+  right: 0;
+  display: grid;
+  gap: 6px;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(480px, calc(100vh - 96px));
+  padding: 10px;
+  overflow-y: auto;
+  border: 1px solid rgb(var(--border-rgb) / 0.14);
+  border-radius: var(--director-radius-md);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--director-popover-rgb) / 0.96);
+  box-shadow: var(--ui-shadow-panel);
+  backdrop-filter: blur(16px) saturate(110%);
+  -webkit-backdrop-filter: blur(16px) saturate(110%);
+  animation: director-popover-in 160ms var(--director-ease) both;
+}
+
+.task-tray-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 3px;
+}
+
+.task-tray-header strong {
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.task-tray-clear {
+  padding: 3px 8px;
+  border: 1px solid rgb(var(--border-rgb) / 0.2);
+  border-radius: var(--director-radius-sm);
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.task-tray-clear:hover {
+  border-color: rgb(var(--border-rgb) / 0.34);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.72);
+}
+
+.task-tray-notice {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid rgb(var(--director-warning-rgb, 222 170 74) / 0.32);
+  border-radius: var(--director-radius-sm);
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.task-tray-notice.is-error {
+  border-color: rgb(var(--director-danger-rgb, 230 96 96) / 0.4);
+}
+
+.task-tray-empty {
+  margin: 0;
+  padding: 18px 8px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+  text-align: center;
+}
+
+.task-tray-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-tray-section {
+  display: grid;
+  gap: 5px;
+}
+
+.task-tray-section + .task-tray-section {
+  padding-top: 6px;
+  border-top: 1px solid rgb(var(--border-rgb) / 0.1);
+}
+
+.task-tray-section h3 {
+  margin: 0;
+  padding: 0 3px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.task-tray-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: var(--director-radius-sm);
+  background: rgb(var(--surface-rgb) / 0.4);
+}
+
+.task-tray-item-top {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.task-tray-item-kind {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.1);
+  font-size: 9px;
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.task-tray-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 560;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.task-tray-item-status {
+  flex: none;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.task-tray-item-status.is-running,
+.task-tray-item-status.is-reconciling,
+.task-tray-item-status.is-waiting_approval {
+  color: rgb(var(--accent-rgb));
+}
+
+.task-tray-item-status.is-succeeded,
+.task-tray-item-status.is-completed {
+  color: rgb(var(--director-positive-rgb, 104 206 126));
+}
+
+.task-tray-item-status.is-failed {
+  color: rgb(var(--director-danger-rgb, 230 96 96));
+}
+
+.task-tray-item-status.is-outcome_unknown,
+.task-tray-item-status.is-interrupted {
+  color: rgb(var(--director-warning-rgb, 222 170 74));
+}
+
+.task-tray-item-progress-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.task-tray-progress {
+  flex: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(var(--border-rgb) / 0.16);
+}
+
+.task-tray-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgb(var(--accent-rgb));
+  transition: width 400ms var(--director-ease, ease-out);
+}
+
+.task-tray-progress-value {
+  flex: none;
+  min-width: 30px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.task-tray-item-phase {
+  margin: 0;
+  overflow: hidden;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.task-tray-item-error {
+  margin: 0;
+  color: rgb(var(--director-danger-rgb, 230 96 96));
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.task-tray-item-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.task-tray-item-time {
+  color: rgb(var(--text-dim-rgb, var(--text-muted-rgb)));
+  font-size: 10px;
+}
+
+.task-tray-item-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.task-tray-item-actions button {
+  padding: 2px 8px;
+  border: 1px solid rgb(var(--border-rgb) / 0.2);
+  border-radius: var(--director-radius-sm);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-rgb) / 0.6);
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.task-tray-item-actions button:hover:not(:disabled) {
+  border-color: rgb(var(--border-rgb) / 0.34);
+  background: rgb(var(--surface-hover-rgb));
+}
+
+.task-tray-item-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

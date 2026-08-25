@@ -1,0 +1,622 @@
+/*
+ * Real PTY terminal surfaces for the floating drawer and embedded sidebar.
+ * The chrome deliberately follows Director's warm-neutral desktop language;
+ * the actual terminal remains a quiet, high-contrast dark work surface.
+ */
+@import "@xterm/xterm/css/xterm.css";
+@import "../comprehensive/editor/assistant/assistant.css";
+
+.director-agent-drawer.is-terminal {
+  grid-template-rows: 62px 38px minmax(0, 1fr);
+}
+
+.director-agent-terminal-sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+}
+
+.director-agent-session-status {
+  display: flex;
+  min-height: 38px;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.1);
+  padding: 0 10px;
+  background: rgb(var(--panel-rgb) / 0.98);
+}
+
+.director-agent-session-status .director-agent-session-title,
+.director-agent-session-status .director-agent-session-summary {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.director-agent-session-status .director-agent-session-title {
+  gap: 6px;
+  color: rgb(var(--text-rgb));
+  font-size: 10px;
+  letter-spacing: -0.01em;
+}
+
+.director-agent-session-status .director-agent-session-title strong {
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.director-agent-session-status .director-agent-session-summary {
+  gap: 5px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.director-agent-session-dot,
+.director-agent-terminal-state-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: rgb(148 163 184);
+}
+
+.director-agent-session-summary[data-state="connected"] .director-agent-session-dot,
+.director-agent-terminal-process-state[data-state="ready"] .director-agent-terminal-state-dot {
+  background: rgb(61 168 112);
+  box-shadow: 0 0 0 3px rgb(61 168 112 / 0.1);
+}
+
+.director-agent-session-summary[data-state="connecting"] .director-agent-session-dot,
+.director-agent-terminal-process-state[data-state="connecting"] .director-agent-terminal-state-dot,
+.director-agent-terminal-process-state[data-state="starting"] .director-agent-terminal-state-dot {
+  background: rgb(217 158 71);
+}
+
+.director-agent-session-summary[data-state="error"] .director-agent-session-dot,
+.director-agent-terminal-process-state[data-state="error"] .director-agent-terminal-state-dot,
+.director-agent-terminal-process-state[data-state="exited"] .director-agent-terminal-state-dot {
+  background: rgb(214 91 82);
+}
+
+.director-agent-terminal-toolbar {
+  display: flex;
+  min-height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.08);
+  padding: 8px 10px;
+  background: rgb(var(--panel-rgb));
+}
+
+.director-agent-terminal-toolbar-leading {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.director-agent-terminal-badge {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  border-radius: 9px;
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.1);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.director-agent-terminal-tabs {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 999px;
+  padding: 3px;
+  background: rgb(var(--surface-rgb) / 0.72);
+}
+
+.director-agent-terminal-tab {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 12px;
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+  font:
+    600 11px/1.1 "SF Pro Text",
+    "PingFang SC",
+    system-ui,
+    sans-serif;
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.director-agent-terminal-tab:hover:not(.is-active) {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.55);
+}
+
+.director-agent-terminal-tab.is-active {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--panel-rgb));
+  box-shadow: 0 1px 2px rgb(var(--director-shadow-rgb) / 0.1);
+}
+
+.director-agent-terminal-process-state {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 999px;
+  color: rgb(var(--text-dim-rgb));
+  background: rgb(var(--surface-rgb) / 0.42);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 28px;
+  white-space: nowrap;
+}
+
+.director-agent-terminal-process-state[data-state="ready"] {
+  border-color: rgb(61 168 112 / 0.24);
+  color: rgb(133 211 165);
+  background: rgb(61 168 112 / 0.08);
+}
+
+.director-agent-terminal-process-state[data-state="connecting"],
+.director-agent-terminal-process-state[data-state="starting"] {
+  border-color: rgb(217 158 71 / 0.24);
+  color: rgb(217 158 71);
+  background: rgb(217 158 71 / 0.08);
+}
+
+.director-agent-terminal-process-state[data-state="error"],
+.director-agent-terminal-process-state[data-state="exited"] {
+  border-color: rgb(214 91 82 / 0.24);
+  color: rgb(228 138 130);
+  background: rgb(214 91 82 / 0.08);
+}
+
+.director-agent-terminal-tab-actions {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 999px;
+  background: rgb(var(--surface-rgb) / 0.42);
+}
+
+.director-agent-terminal-pane-action {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease;
+}
+
+.director-agent-terminal-pane-action:hover:not(:disabled) {
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.1);
+}
+
+.director-agent-terminal-pane-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.36;
+}
+
+.director-agent-terminal {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin: 7px 8px 8px;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 8px;
+  background: #111317;
+  box-shadow: 0 1px 2px rgb(var(--overlay-rgb) / 0.08);
+}
+
+.director-agent-terminal:focus-within {
+  border-color: rgb(var(--accent-rgb) / 0.48);
+  box-shadow: 0 0 0 2px rgb(var(--accent-rgb) / 0.1);
+}
+
+.director-agent-terminal-host {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  contain: layout paint;
+  isolation: isolate;
+}
+
+/* While a startup/error banner covers the surface, the empty xterm buffer
+ * underneath still paints its cursor and helper textarea as a stray light
+ * fleck at the origin. Fade the host (not display:none — the fit addon keeps
+ * measuring real dimensions) until the banner clears. */
+.director-agent-terminal.has-banner .director-agent-terminal-host {
+  opacity: 0;
+}
+
+.director-agent-terminal-host .xterm {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 9px 8px;
+}
+
+.director-agent-terminal-host .xterm-viewport {
+  background: #111317 !important;
+  scrollbar-color: rgb(255 255 255 / 0.18) transparent;
+  scrollbar-width: thin;
+}
+
+.director-agent-terminal-host .xterm-rows span.director-terminal-semantic-color:not([class*="xterm-fg-"]) {
+  color: var(--director-terminal-semantic-color) !important;
+  font-weight: var(--director-terminal-semantic-weight, inherit);
+}
+
+.director-agent-terminal-host .xterm-viewport::-webkit-scrollbar {
+  width: 7px;
+}
+
+.director-agent-terminal-host .xterm-viewport::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.2);
+  background-clip: padding-box;
+}
+
+.director-agent-terminal-banner {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: #9fa6b0;
+  background: rgb(17 19 23 / 0.96);
+  font:
+    11px/1.55 "SFMono-Regular",
+    "Cascadia Mono",
+    Menlo,
+    Consolas,
+    monospace;
+  text-align: center;
+}
+
+.director-agent-terminal-banner-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 14px;
+  color: rgb(255 255 255 / 0.72);
+  background: rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.director-agent-terminal-banner.is-error .director-agent-terminal-banner-icon {
+  border-color: rgb(214 91 82 / 0.32);
+  color: #f39a91;
+  background: rgb(214 91 82 / 0.1);
+}
+
+.director-agent-terminal-banner-copy {
+  display: grid;
+  gap: 8px;
+  max-width: 280px;
+}
+
+.director-agent-terminal-banner strong {
+  color: #e8ebef;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.director-agent-terminal-banner.is-error,
+.director-agent-terminal-banner.is-error strong {
+  color: #f39a91;
+}
+
+.director-agent-terminal-banner small {
+  color: #8d949e;
+}
+
+.director-agent-terminal-banner button {
+  min-height: 32px;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 999px;
+  padding: 0 14px;
+  color: #f4f4f5;
+  background: rgb(255 255 255 / 0.07);
+  font:
+    10px/1 "SFMono-Regular",
+    "Cascadia Mono",
+    Menlo,
+    Consolas,
+    monospace;
+  cursor: pointer;
+}
+
+.director-agent-terminal-banner button:hover:not(:disabled) {
+  border-color: rgb(225 111 93 / 0.65);
+  background: rgb(225 111 93 / 0.12);
+}
+
+.director-agent-terminal-banner button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.director-agent-terminal-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d99e47;
+  animation: director-terminal-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes director-terminal-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.director-agent-terminal-embedded {
+  --terminal-gutter: 8px;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  background: rgb(var(--panel-rgb));
+  font-family:
+    "SF Pro Text",
+    "PingFang SC",
+    "Helvetica Neue",
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
+}
+
+.director-agent-terminal-pane.is-embedded {
+  gap: 0;
+}
+
+/* Embedded toolbar: one quiet row on the panel surface. The capsule chrome
+ * (bordered tab group, status pill, action group) flattens away; hover and
+ * the active tab read as the same soft pill as the sidebar mode rail. */
+.director-agent-terminal-toolbar.is-embedded {
+  min-height: 40px;
+  padding: 6px var(--terminal-gutter);
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.06);
+  background: rgb(var(--panel-rgb));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-tabs {
+  gap: 2px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-tab {
+  height: 26px;
+  padding: 0 10px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+}
+
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-tab:hover:not(.is-active) {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.42);
+}
+
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-tab.is-active {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.6);
+  box-shadow: none;
+}
+
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-process-state {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* Failure states spell themselves out in the embedded toolbar; give the
+ * label back its warning pill so it reads at a glance. */
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-process-state[data-state="error"]:not(.is-compact),
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-process-state[data-state="exited"]:not(.is-compact) {
+  height: 24px;
+  border-color: rgb(214 91 82 / 0.24);
+  background: rgb(214 91 82 / 0.08);
+  line-height: 24px;
+}
+
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-process-state.is-compact {
+  width: 22px;
+  height: 22px;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-tab-actions {
+  gap: 2px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-pane-action {
+  width: 24px;
+  height: 24px;
+  color: rgb(var(--text-muted-rgb));
+}
+
+.director-agent-terminal-toolbar.is-embedded .director-agent-terminal-pane-action:hover:not(:disabled) {
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.1);
+}
+
+/* Surface background matches the xterm theme background exactly so the
+ * padding gutter never reads as a second shade of dark. Focus needs no ring:
+ * the terminal cursor already communicates it. */
+.director-agent-terminal.is-embedded-surface {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: #111317;
+  box-shadow: none;
+}
+
+.director-agent-terminal.is-embedded-surface:focus-within {
+  border: 0;
+  box-shadow: none;
+}
+
+.director-agent-terminal.is-embedded-surface .director-agent-terminal-host .xterm {
+  padding: 8px 10px 10px;
+}
+
+.director-agent-terminal.is-embedded-surface .director-agent-terminal-host .xterm-viewport {
+  background: transparent !important;
+}
+
+.director-agent-terminal-embedded .director-agent-terminal-split-handle {
+  height: 10px;
+  border-top: 1px solid rgb(var(--border-rgb) / 0.08);
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.08);
+  background: rgb(var(--panel-rgb));
+}
+
+.director-agent-terminal-pane,
+.director-agent-terminal-split-root,
+.director-agent-terminal-split-pane {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.director-agent-terminal-embedded.is-split .director-agent-terminal-split-pane {
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.director-agent-terminal-split-handle {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  color: rgb(var(--text-dim-rgb));
+  background: rgb(var(--panel-rgb));
+  cursor: row-resize;
+  touch-action: none;
+  transition: background-color 120ms ease;
+}
+
+.director-agent-terminal-split-handle:hover,
+.director-agent-terminal-embedded.is-split-dragging .director-agent-terminal-split-handle {
+  background: rgb(var(--surface-hover-rgb) / 0.5);
+}
+
+.director-agent-terminal-split-handle:focus-visible {
+  outline: none;
+  background: rgb(var(--accent-rgb) / 0.12);
+}
+
+.director-agent-terminal-split-handle-grip {
+  width: 40px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.16);
+  transition:
+    background-color 120ms ease,
+    width 120ms ease;
+}
+
+.director-agent-terminal-split-handle:hover .director-agent-terminal-split-handle-grip,
+.director-agent-terminal-split-handle:focus-visible .director-agent-terminal-split-handle-grip,
+.director-agent-terminal-embedded.is-split-dragging .director-agent-terminal-split-handle-grip {
+  width: 56px;
+  background: rgb(var(--accent-rgb) / 0.8);
+}
+
+.director-agent-terminal-embedded.is-split-dragging {
+  cursor: row-resize;
+  user-select: none;
+}
+
+@media (max-width: 720px) {
+  .director-agent-terminal-process-state {
+    display: none;
+  }
+
+  .director-agent-terminal {
+    margin-inline: 5px;
+  }
+}

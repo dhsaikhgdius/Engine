@@ -1,0 +1,115 @@
+---
+const home = new URL("/", Astro.site);
+const chineseHome = new URL("/zh/", Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="robots" content="noindex" />
+    <title>Page not found · Director Docs</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          sans-serif;
+        background: #171715;
+        color: #f7f4f1;
+      }
+      body {
+        align-items: center;
+        background:
+          radial-gradient(circle at 28% 20%, rgb(197 107 86 / 18%), transparent 35rem),
+          #171715;
+        display: flex;
+        min-height: 100vh;
+        margin: 0;
+      }
+      main {
+        margin: 0 auto;
+        max-width: 44rem;
+        padding: 3rem 1.5rem;
+      }
+      p:first-child {
+        color: #c56b56;
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      h1 {
+        font-size: clamp(2.5rem, 9vw, 5.5rem);
+        letter-spacing: -0.055em;
+        line-height: 0.95;
+        margin: 1rem 0 1.5rem;
+      }
+      .lede {
+        color: #c6c0bb;
+        font-size: 1.05rem;
+        line-height: 1.7;
+        max-width: 60ch;
+      }
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 2rem;
+      }
+      a {
+        border: 1px solid #585653;
+        border-radius: 0.55rem;
+        color: inherit;
+        padding: 0.7rem 1rem;
+        text-decoration: none;
+      }
+      a:first-child {
+        background: #c56b56;
+        border-color: #c56b56;
+        color: #171715;
+      }
+      a:focus-visible,
+      a:hover {
+        outline: 2px solid #f2c5b8;
+        outline-offset: 3px;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          background: #fff;
+          color: #1c1b1a;
+        }
+        body {
+          background:
+            radial-gradient(circle at 28% 20%, rgb(168 79 63 / 12%), transparent 35rem),
+            #fff;
+        }
+        .lede {
+          color: #56514e;
+        }
+        a:first-child {
+          color: #fff;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>Director Docs · 404</p>
+      <h1>Page not found.</h1>
+      <p class="lede">
+        This route may have moved while Director's contracts were consolidated. Use the documentation home instead.
+        <br />
+        此页面可能已在文档整理中移动，请从文档首页重新进入。
+      </p>
+      <nav aria-label="Documentation homes">
+        <a href={home.pathname}>Documentation home</a>
+        <a href={chineseHome.pathname}>中文首页</a>
+      </nav>
+    </main>
+  </body>
+</html>
+

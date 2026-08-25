@@ -1,0 +1,199 @@
+# -----------------------------------------------------------------------------
+# Director source repository boundary
+#
+# GitHub contains source, schemas, catalogs, tests, documentation, and license
+# metadata. Runtime models/media live in version-pinned Hugging Face datasets and
+# are restored with `npm run assets:install`. Do not weaken these rules to make a
+# local checkout "complete"; update the asset manifest instead.
+# -----------------------------------------------------------------------------
+
+# JavaScript / TypeScript dependencies and generated output
+node_modules/
+**/node_modules/
+dist/
+docs/site/dist/
+.astro/
+docs/site/.astro/
+.vite/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Third-party visual evidence is inspected locally and linked by public URL; it
+# is not redistributed with Director documentation.
+docs/site/src/content/docs/engineering/reference/flick-stage-concept.png
+
+# Python environments, bytecode, test/build caches
+.venv/
+**/.venv/
+venv/
+**/venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+**/.pytest_cache/
+.ruff_cache/
+**/.ruff_cache/
+.mypy_cache/
+**/.mypy_cache/
+.coverage
+**/.coverage
+htmlcov/
+**/htmlcov/
+wandb/
+**/wandb/
+mlruns/
+**/mlruns/
+
+# Local editor, operating-system, and environment state
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+/.playwright-mcp/
+*.swp
+*.swo
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+.pypirc
+.netrc
+.huggingface/
+.claude/settings.local.json
+.codex/settings.local.json
+# DSH home leftovers stay local. The generated skill copy is source and is
+# kept by the exceptions below so `npm run repo:check` can verify it.
+/.dsh/*
+!/.dsh/skills/
+!/.dsh/skills/**
+*.token
+*.pem
+*.p12
+*.pfx
+*.jks
+
+# Local research/upstream checkouts. Official third-party source belongs under
+# vendor/ with its LICENSE/NOTICE and pinned provenance; vendor/ itself is not
+# ignored. Hunyuan3D-2, TRELLIS, ARDY, and LTX-2 are Git submodules there.
+/.external/
+vendor/**/node_modules/
+vendor/**/.venv/
+vendor/**/.cache/
+vendor/**/models/
+vendor/**/checkpoints/
+vendor/**/outputs/
+vendor/deepseek-harness/.director/
+vendor/deepseek-harness/.dsh/
+
+# Runtime databases, jobs, previews, and mutable state. JSON Schemas are source
+# contracts and remain eligible for Git; mutable JSON snapshots do not.
+data/**
+!data/
+!data/*.schema.json
+!data/README.md
+!data/.gitkeep
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.journal
+
+# Generated media and local working directories
+/artifacts/
+/exports/
+/outputs/
+/recordings/
+/renders/
+/repro_*.png
+/tmp/
+/temp/
+/.runtime/
+/.cache/
+/.playwright-mcp/
+**/.cache/huggingface/
+**/.cache/torch/
+**/.cache/transformers/
+
+# Model checkpoints and engine caches never belong in the source repository.
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.engine
+*.plan
+*.tflite
+*.pb
+*.pma
+
+# 3D/DCC binary assets are distributed separately through Hugging Face. Textual
+# interchange fixtures such as *.usda and *.gltf.json remain versioned.
+*.fbx
+*.glb
+*.blend
+*.blend[0-9]*
+*.usdc
+*.usdz
+*.obj
+*.stl
+*.dae
+
+# Archive payloads are release/download artifacts, not source.
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+*.tar.zst
+
+# Asset-library payloads. Keep catalog.json, README, LICENSE, NOTICE, and other
+# small metadata files; only models, media, textures, and generated previews are ignored.
+assets/library/**/*.gltf
+assets/library/**/*.bin
+assets/library/**/*.png
+assets/library/**/*.jpg
+assets/library/**/*.jpeg
+assets/library/**/*.webp
+assets/library/**/thumbnails/**/*.svg
+assets/library/model-library/**/缩略图/
+assets/library/**/*.avif
+assets/library/**/*.ktx
+assets/library/**/*.ktx2
+assets/library/**/*.dds
+assets/library/**/*.hdr
+assets/library/**/*.exr
+assets/library/**/*.wav
+assets/library/**/*.mp3
+assets/library/**/*.flac
+assets/library/**/*.ogg
+assets/library/**/*.mp4
+assets/library/**/*.mov
+assets/library/**/*.webm
+assets/library/**/Textures/
+assets/library/**/textures/
+
+# Vite's local public mirror is populated from the external asset library. Keep
+# Mutable assets produced by DCC and other local generation workflows.
+assets/generated/
+
+# LTX worker runtime state and generated model output
+data/ltx23-worker/
+research-docs/
+
+# Playwright e2e artifacts
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Editor/session leftovers
+*.tmp

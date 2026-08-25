@@ -1,0 +1,290 @@
+{
+  "schema_version": 2,
+  "library": "model-library",
+  "generator": "tools/scripts/asset-ingest.ts",
+  "items": [
+    {
+      "id": "model-library:drill-press",
+      "name": "Drill Press",
+      "name_zh": "台钻",
+      "aliases": [
+        "钻床",
+        "bench drill",
+        "工具配件"
+      ],
+      "category": "furniture",
+      "tags": [
+        "tool",
+        "workshop",
+        "machine",
+        "工具配件"
+      ],
+      "kind": "prop",
+      "files": [
+        {
+          "format": "fbx",
+          "url": "/model-library/工具配件/drill_press_low.fbx",
+          "bytes": 34844,
+          "sha256": "ccf5009c204dd60ec72a5b0d707ddffd4ce0f757697e53316cd3a8101ae9d66c"
+        }
+      ],
+      "primary_format": "fbx",
+      "preview": {
+        "kind": "image",
+        "thumbnail_url": "/model-library/工具配件/缩略图/台钻.svg"
+      },
+      "spatial": {
+        "bounds_m": [1.0, 1.65, 0.62],
+        "footprint_m": [1.0, 0.62],
+        "height_m": 1.65,
+        "ground_offset_y": 0,
+        "front_axis": null
+      },
+      "rig": null,
+      "motion": null,
+      "source": {
+        "provider": "Director built-in model library",
+        "provenance": "bundled",
+        "source_url": null,
+        "license": "MIT",
+        "license_url": null
+      },
+      "usage_hint": "Benchtop drill press for workshop and factory interiors."
+    },
+    {
+      "id": "model-library:deer-skull",
+      "name": "Deer Skull",
+      "name_zh": "鹿头骨",
+      "aliases": [
+        "头骨",
+        "antler skull",
+        "户外出行"
+      ],
+      "category": "nature",
+      "tags": [
+        "wilderness",
+        "bone",
+        "户外出行"
+      ],
+      "kind": "prop",
+      "files": [
+        {
+          "format": "fbx",
+          "url": "/model-library/户外出行/deer_skull_low.fbx",
+          "bytes": 54988,
+          "sha256": "b7fe0fa4a43874d1c1f14b56d4fe4d18885d4e15401e52ae38b8889e2cefc8a5"
+        }
+      ],
+      "primary_format": "fbx",
+      "preview": {
+        "kind": "image",
+        "thumbnail_url": "/model-library/户外出行/缩略图/鹿头骨.svg"
+      },
+      "spatial": {
+        "bounds_m": [0.66, 0.9, 0.3],
+        "footprint_m": [0.66, 0.3],
+        "height_m": 0.9,
+        "ground_offset_y": -0.02,
+        "front_axis": null
+      },
+      "rig": null,
+      "motion": null,
+      "source": {
+        "provider": "Director built-in model library",
+        "provenance": "bundled",
+        "source_url": null,
+        "license": "MIT",
+        "license_url": null
+      },
+      "usage_hint": "Weathered deer skull for wilderness and hunting-lodge scenes."
+    },
+    {
+      "id": "model-library:backpack",
+      "name": "Backpack",
+      "name_zh": "背包",
+      "aliases": [
+        "双肩包",
+        "rucksack",
+        "户外出行"
+      ],
+      "category": "other",
+      "tags": [
+        "outdoor",
+        "gear",
+        "户外出行"
+      ],
+      "kind": "prop",
+      "files": [
+        {
+          "format": "fbx",
+          "url": "/model-library/户外出行/backpack_low.fbx",
+          "bytes": 38636,
+          "sha256": "2be22a124e9760a542a7d11c0a1dd139a0f0f1492910cdbf1fe190e560d37576"
+        }
+      ],
+      "primary_format": "fbx",
+      "preview": {
+        "kind": "image",
+        "thumbnail_url": "/model-library/户外出行/缩略图/背包.svg"
+      },
+      "spatial": {
+        "bounds_m": [0.38, 0.55, 0.22],
+        "footprint_m": [0.38, 0.22],
+        "height_m": 0.55,
+        "ground_offset_y": -0.02,
+        "front_axis": null
+      },
+      "rig": null,
+      "motion": null,
+      "source": {
+        "provider": "Director built-in model library",
+        "provenance": "bundled",
+        "source_url": null,
+        "license": "MIT",
+        "license_url": null
+      },
+      "usage_hint": "Outdoor backpack for travel, camping, and adventure set dressing."
+    },
+    {
+      "id": "model-library:thermos",
+      "name": "Thermos",
+      "name_zh": "保温瓶",
+      "aliases": [
+        "保温杯",
+        "vacuum flask",
+        "户外出行"
+      ],
+      "category": "other",
+      "tags": [
+        "outdoor",
+        "drinkware",
+        "户外出行"
+      ],
+      "kind": "prop",
+      "files": [
+        {
+          "format": "fbx",
+          "url": "/model-library/户外出行/thermus_low.fbx",
+          "bytes": 33036,
+          "sha256": "deeb50da701e8fc42a13470e69c82ac77268f11d5c3a0c54bca36522a3d6bf3d"
+        }
+      ],
+      "primary_format": "fbx",
+      "preview": {
+        "kind": "image",
+        "thumbnail_url": "/model-library/户外出行/缩略图/保温瓶.svg"
+      },
+      "spatial": {
+        "bounds_m": [0.19, 0.3, 0.13],
+        "footprint_m": [0.19, 0.13],
+        "height_m": 0.3,
+        "ground_offset_y": 0,
+        "front_axis": null
+      },
+      "rig": null,
+      "motion": null,
+      "source": {
+        "provider": "Director built-in model library",
+        "provenance": "bundled",
+        "source_url": null,
+        "license": "MIT",
+        "license_url": null
+      },
+      "usage_hint": "Handheld vacuum flask for camping and picnic scenes."
+    },
+    {
+      "id": "model-library:wrench",
+      "name": "Wrench",
+      "name_zh": "扳手",
+      "aliases": [
+        "螺丝扳手",
+        "spanner",
+        "工具配件"
+      ],
+      "category": "other",
+      "tags": [
+        "tool",
+        "workshop",
+        "工具配件"
+      ],
+      "kind": "prop",
+      "files": [
+        {
+          "format": "fbx",
+          "url": "/model-library/工具配件/wrench_low.fbx",
+          "bytes": 27436,
+          "sha256": "83ad5001ea4e3f603ea3c83981442ac05e370cdfafbec37b7282a6177f6534a9"
+        }
+      ],
+      "primary_format": "fbx",
+      "preview": {
+        "kind": "image",
+        "thumbnail_url": "/model-library/工具配件/缩略图/扳手.svg"
+      },
+      "spatial": {
+        "bounds_m": [0.22, 0.35, 0.03],
+        "footprint_m": [0.22, 0.03],
+        "height_m": 0.35,
+        "ground_offset_y": 0.18,
+        "front_axis": null
+      },
+      "rig": null,
+      "motion": null,
+      "source": {
+        "provider": "Director built-in model library",
+        "provenance": "bundled",
+        "source_url": null,
+        "license": "MIT",
+        "license_url": null
+      },
+      "usage_hint": "Hand wrench for workbench, garage, and repair scenes."
+    },
+    {
+      "id": "model-library:atm",
+      "name": "ATM",
+      "name_zh": "自动取款机",
+      "aliases": [
+        "取款机",
+        "cash machine",
+        "便利生活"
+      ],
+      "category": "structure",
+      "tags": [
+        "street",
+        "machine",
+        "便利生活"
+      ],
+      "kind": "prop",
+      "files": [
+        {
+          "format": "fbx",
+          "url": "/model-library/便利生活/ATM_low.fbx",
+          "bytes": 33324,
+          "sha256": "b44f3f7f74651b742f8f03f9984252e354633a31deed975de5607cf01f0c73e7"
+        }
+      ],
+      "primary_format": "fbx",
+      "preview": {
+        "kind": "image",
+        "thumbnail_url": "/model-library/便利生活/缩略图/自动取款机.svg"
+      },
+      "spatial": {
+        "bounds_m": [1.09, 1.8, 0.77],
+        "footprint_m": [1.09, 0.77],
+        "height_m": 1.8,
+        "ground_offset_y": 0,
+        "front_axis": null
+      },
+      "rig": null,
+      "motion": null,
+      "source": {
+        "provider": "Director built-in model library",
+        "provenance": "bundled",
+        "source_url": null,
+        "license": "MIT",
+        "license_url": null
+      },
+      "usage_hint": "Street-side cash machine for storefront and urban blocking."
+    }
+  ]
+}

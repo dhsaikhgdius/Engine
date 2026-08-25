@@ -1,0 +1,646 @@
+---
+import { Image } from "astro:assets";
+import heroAtmosphere from "../assets/director-hero-atmosphere.png";
+import heroAtmosphereLight from "../assets/director-hero-atmosphere-light.png";
+import stageRender from "../content/docs/engineering/reference/director-stage-render.png";
+import "../styles/directorHome.css";
+
+interface Props {
+  locale?: "en" | "zh";
+}
+
+const { locale = "en" } = Astro.props;
+const zh = locale === "zh";
+/** Pick the copy for the current locale. */
+const t = (zhText: string, enText: string) => (zh ? zhText : enText);
+/** Prefix internal links with the locale segment. */
+const p = (path: string) => (zh ? `/zh${path}` : path);
+
+const themeLabels = {
+  toDark: t("切换到深色背景", "Switch to a dark background"),
+  toLight: t("切换到浅色背景", "Switch to a light background"),
+  darkMode: t("深色模式", "Dark mode"),
+  lightMode: t("浅色模式", "Light mode"),
+};
+
+const footerGroups = [
+  {
+    title: t("产品", "Product"),
+    links: [
+      [t("3D 编辑器", "3D Editor"), p("/editor/")],
+      [t("人物与动作", "Characters & Motion"), p("/editor/characters/")],
+      [t("相机", "Cameras"), p("/editor/cameras/")],
+      [t("Canvas 与视频", "Canvas & Video"), p("/editor/canvas-video/")],
+    ],
+  },
+  {
+    title: "Agent",
+    links: [
+      [t("Agent 控制", "Agent Control"), p("/agents/")],
+      [t("多 Agent 制片", "Multi-Agent Production"), p("/agents/multi-agent/")],
+      ["MCP", p("/agents/mcp/")],
+      [t("HTTP、CLI 与浏览器", "HTTP, CLI & Browser"), p("/agents/control-surfaces/")],
+    ],
+  },
+  {
+    title: t("学习", "Learn"),
+    links: [
+      [t("快速开始", "Getting Started"), p("/getting-started/")],
+      [t("安装与运行", "Install & Run"), p("/getting-started/install/")],
+      [t("可验证镜头教程", "Verified Shot Tutorial"), p("/tutorials/verified-shot/")],
+      [t("核心概念", "Core Concepts"), p("/concepts/agent-native-production/")],
+    ],
+  },
+  {
+    title: t("参考", "Reference"),
+    links: [
+      [t("功能状态", "Feature Status"), p("/reference/feature-status/")],
+      [t("配置", "Configuration"), p("/reference/configuration/")],
+      ["Gateway HTTP API", p("/reference/http-api/")],
+      [t("命令地图", "Command Map"), p("/reference/commands/")],
+    ],
+  },
+];
+---
+
+<div class="director-home not-content" data-director-home data-locale={locale}>
+  <script
+    is:inline
+    define:vars={{
+      dhToDark: themeLabels.toDark,
+      dhToLight: themeLabels.toLight,
+      dhDarkMode: themeLabels.darkMode,
+      dhLightMode: themeLabels.lightMode,
+    }}
+  >
+    (() => {
+      const KEY = "director-home-theme";
+      const PAGE_THEME_ATTR = "data-dh-page-theme";
+      const THEME_BUTTON_SELECTOR =
+        "button[data-director-home-theme], button[data-director-home-theme-mobile]";
+
+      const syncControls = (light) => {
+        const label = light ? dhToDark : dhToLight;
+        const mobileLabel = light ? dhDarkMode : dhLightMode;
+
+        document.querySelectorAll("button[data-director-home-theme]").forEach((toggle) => {
+          toggle.setAttribute("aria-pressed", light ? "true" : "false");
+          toggle.setAttribute("aria-label", label);
+          toggle.querySelector("[data-director-home-theme-sun]")?.toggleAttribute("hidden", light);
+          toggle.querySelector("[data-director-home-theme-moon]")?.toggleAttribute("hidden", !light);
+        });
+
+        document.querySelectorAll("button[data-director-home-theme-mobile]").forEach((toggle) => {
+          toggle.setAttribute("aria-pressed", light ? "true" : "false");
+          toggle.setAttribute("aria-label", label);
+          toggle.textContent = mobileLabel;
+        });
+      };
+
+      const apply = (theme) => {
+        document.documentElement.setAttribute(PAGE_THEME_ATTR, theme);
+        try {
+          localStorage.setItem(KEY, theme);
+        } catch {}
+        syncControls(theme === "light");
+      };
+
+      const get = () => {
+        const attr = document.documentElement.getAttribute(PAGE_THEME_ATTR);
+        if (attr === "light" || attr === "dark") return attr;
+        try {
+          const stored = localStorage.getItem(KEY);
+          if (stored === "light" || stored === "dark") return stored;
+        } catch {}
+        return "dark";
+      };
+
+      const bindThemeButtons = () => {
+        document.querySelectorAll(THEME_BUTTON_SELECTOR).forEach((button) => {
+          if (button.dataset.themeClickBound === "true") return;
+          button.dataset.themeClickBound = "true";
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const current = get();
+            apply(current === "light" ? "dark" : "light");
+          });
+        });
+      };
+
+      apply(get());
+      bindThemeButtons();
+    })();
+  </script>
+
+  <header class="dh-site-header" data-site-header>
+    <div class="dh-nav-shell">
+      <a class="dh-brand" href={p("/")} aria-label={t("Director 中文主页", "Director home")}>Director</a>
+
+      <nav class="dh-primary-nav" aria-label={t("主页导航", "Home navigation")}>
+        <a href="#capabilities">{t("产品", "Product")}</a>
+        <a href="#workflow">{t("工作流", "Workflow")}</a>
+        <a href="#surfaces">{t("创作界面", "Workspaces")}</a>
+        <a href={p("/agents/")}>Agent</a>
+      </nav>
+
+      <div class="dh-nav-actions">
+        <div class="dh-nav-utilities">
+          <a class="dh-doc-link" href={p("/getting-started/")}>{t("文档", "Docs")}</a>
+          <button
+            type="button"
+            class="dh-theme-toggle"
+            data-director-home-theme
+            aria-label={themeLabels.toLight}
+            aria-pressed="false"
+          >
+            <svg
+              class="dh-theme-icon"
+              data-director-home-theme-sun
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            >
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>
+            </svg>
+            <svg
+              class="dh-theme-icon"
+              data-director-home-theme-moon
+              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              hidden
+            >
+              <path d="M20 15.5A8 8 0 1 1 8.5 4 6.5 6.5 0 0 0 20 15.5Z"></path>
+            </svg>
+          </button>
+        </div>
+        <span class="dh-nav-divider" aria-hidden="true"></span>
+        <a class="dh-nav-cta" href={p("/getting-started/install/")}>{t("开始使用", "Get started")} <span aria-hidden="true">↗</span></a>
+        <details class="dh-mobile-menu">
+          <summary aria-label={t("打开导航", "Open navigation")}><span></span><span></span></summary>
+          <nav aria-label={t("移动端主页导航", "Mobile home navigation")}>
+            <a href="#capabilities">{t("产品", "Product")}</a>
+            <a href="#workflow">{t("工作流", "Workflow")}</a>
+            <a href="#surfaces">{t("创作界面", "Workspaces")}</a>
+            <a href={p("/agents/")}>Agent</a>
+            <a href={p("/getting-started/")}>{t("文档", "Docs")}</a>
+            <button
+              type="button"
+              class="dh-mobile-theme"
+              data-director-home-theme-mobile
+              aria-label={themeLabels.toLight}
+            >
+              {themeLabels.lightMode}
+            </button>
+          </nav>
+        </details>
+      </div>
+    </div>
+  </header>
+
+  <main class="dh-page-content">
+    <section class="dh-hero" aria-labelledby="dh-title">
+      <Image
+        src={heroAtmosphere}
+        alt=""
+        class="dh-hero-atmosphere"
+        loading="eager"
+        aria-hidden="true"
+      />
+      <Image
+        src={heroAtmosphereLight}
+        alt=""
+        class="dh-hero-atmosphere-light"
+        loading="eager"
+        fetchpriority="high"
+        aria-hidden="true"
+      />
+      <canvas class="dh-hero-motion" data-hero-motion aria-hidden="true"></canvas>
+
+      <div class="dh-hero-inner">
+        <div class="dh-hero-copy">
+          <div class="dh-app-icon" aria-hidden="true"><span></span></div>
+          <h1 id="dh-title"><span class="dh-display-title">Director</span></h1>
+          <p class="dh-hero-lead">{t("用 AI 导演，把一个想法变成完整影片。", "Direct with AI — turn one idea into a finished film.")}</p>
+          <a class="dh-pill-button is-dark" href={p("/getting-started/install/")}>{t("开始创作", "Start creating")}</a>
+        </div>
+
+        <figure
+          class="dh-product-window"
+          aria-label={t("可操作的 Director 3D 制片工作台演示", "Interactive Director 3D production desk demo")}
+          data-director-product-demo
+        >
+          <svg class="dh-demo-icon-sprite" aria-hidden="true">
+            <symbol id="dh-icon-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect><rect x="4" y="14" width="6" height="6" rx="1"></rect><rect x="14" y="14" width="6" height="6" rx="1"></rect></symbol>
+            <symbol id="dh-icon-cube" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"></path><path d="m4.4 7.7 7.6 4.2 7.6-4.2M12 12v9"></path></symbol>
+            <symbol id="dh-icon-film" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 5v14M17 5v14M3 9h4m10 0h4M3 15h4m10 0h4"></path></symbol>
+            <symbol id="dh-icon-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="9" r="1.5"></circle><path d="m5 18 5-5 3 3 2-2 4 4"></path></symbol>
+            <symbol id="dh-icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></symbol>
+            <symbol id="dh-icon-user" viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="3.2"></circle><path d="M5.5 20c.6-4 2.7-6 6.5-6s5.9 2 6.5 6"></path></symbol>
+            <symbol id="dh-icon-camera" viewBox="0 0 24 24"><path d="M3 8.5h12v9H3zM15 11l5-3v10l-5-3z"></path><circle cx="8" cy="13" r="2"></circle></symbol>
+            <symbol id="dh-icon-sliders" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M9 4v6M15 14v6"></path></symbol>
+            <symbol id="dh-icon-bot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"></rect><path d="M12 3v4M8 12h.01M16 12h.01M8 16h8"></path></symbol>
+            <symbol id="dh-icon-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="m7 9 3 3-3 3M13 15h4"></path></symbol>
+            <symbol id="dh-icon-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"></path></symbol>
+            <symbol id="dh-icon-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"></path></symbol>
+            <symbol id="dh-icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></symbol>
+            <symbol id="dh-icon-moon" viewBox="0 0 24 24"><path d="M20 15.5A8 8 0 1 1 8.5 4 6.5 6.5 0 0 0 20 15.5Z"></path></symbol>
+            <symbol id="dh-icon-frame" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"></path></symbol>
+            <symbol id="dh-icon-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.4-5 9.5-5 9.5 5 9.5 5-3.4 5-9.5 5-9.5-5-9.5-5Z"></path><circle cx="12" cy="12" r="2.4"></circle></symbol>
+          </svg>
+
+          <div class="dh-product-topbar">
+            <div class="dh-demo-brand"><strong>Director</strong><i aria-hidden="true"></i></div>
+            <div class="dh-demo-workspace-tabs" aria-label={t("当前工作区", "Active workspace")}>
+              <span><svg><use href="#dh-icon-grid"></use></svg>{t("画布", "Canvas")}</span>
+              <span class="is-active"><svg><use href="#dh-icon-cube"></use></svg>{t("3D 片场", "3D Stage")}</span>
+              <span><svg><use href="#dh-icon-film"></use></svg>{t("视频编辑器", "Video Editor")}</span>
+              <span><svg><use href="#dh-icon-image"></use></svg>Gallery</span>
+            </div>
+            <div class="dh-demo-top-actions">
+              <span class="dh-demo-ready"><i></i>{t("已同步", "Synced")}</span>
+              <button type="button" data-demo-theme aria-label={t("切换演示窗到浅色模式", "Switch the demo window to light mode")}>
+                <svg><use href="#dh-icon-sun"></use></svg><span data-demo-theme-label>{t("浅色", "Light")}</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="dh-product-body">
+            <aside class="dh-scene-rail" aria-label={t("场景对象", "Scene objects")}>
+              <label class="dh-scene-search">
+                <svg aria-hidden="true"><use href="#dh-icon-search"></use></svg>
+                <span class="dh-demo-visually-hidden">{t("搜索场景内容", "Search the scene")}</span>
+                <input type="search" placeholder={t("请输入搜索内容", "Type to search")} data-demo-search />
+              </label>
+
+              <div class="dh-demo-object-groups" data-demo-object-groups>
+                <section class="dh-demo-object-group" data-demo-group>
+                  <h3><span>⌄</span>{t("人物", "Characters")}<small>1</small></h3>
+                  <button type="button" class="dh-scene-item" data-demo-object="character" aria-pressed="false">
+                    <svg aria-hidden="true"><use href="#dh-icon-user"></use></svg><span><strong>{t("人物 01", "Character 01")}</strong><small>{t("基础白模", "Base mannequin")}</small></span><i>●</i>
+                  </button>
+                </section>
+                <section class="dh-demo-object-group" data-demo-group>
+                  <h3><span>⌄</span>{t("几何体", "Geometry")}<small>1</small></h3>
+                  <button type="button" class="dh-scene-item" data-demo-object="scene" aria-pressed="false">
+                    <svg aria-hidden="true"><use href="#dh-icon-cube"></use></svg><span><strong>{t("场景地面", "Scene Ground")}</strong><small>{t("环境", "Environment")}</small></span><i>●</i>
+                  </button>
+                </section>
+                <section class="dh-demo-object-group" data-demo-group>
+                  <h3><span>⌄</span>{t("相机", "Cameras")}<small>1</small></h3>
+                  <button type="button" class="dh-scene-item is-active" data-demo-object="camera" aria-pressed="true">
+                    <svg aria-hidden="true"><use href="#dh-icon-camera"></use></svg><span><strong>{t("相机 01", "Camera 01")}</strong><small>35 mm</small></span><i>●</i>
+                  </button>
+                </section>
+              </div>
+              <p class="dh-demo-search-empty" data-demo-search-empty hidden>{t("未搜索到内容", "No results")}</p>
+            </aside>
+
+            <div class="dh-stage-area">
+              <div class="dh-stage-toolbar">
+                <strong>{t("3D 片场", "3D Stage")}</strong><span data-demo-view-label>{t("导演视图", "Director view")}</span><span data-demo-lens-label>35 mm</span><span>16:9</span>
+              </div>
+              <div class="dh-stage-preview" data-demo-preview data-selected="camera">
+                <Image
+                  src={stageRender}
+                  alt={t("Director 3D 视口中的人物、摄影机和空间网格", "Character, camera, and spatial grid in the Director 3D viewport")}
+                  class="dh-demo-stage-image"
+                  loading="eager"
+                />
+                <div class="dh-demo-viewport-grid" aria-hidden="true"></div>
+                <div class="dh-demo-viewport-label"><span>{t("透视", "Perspective")}</span><small data-demo-selection-name>{t("相机 01", "Camera 01")}</small></div>
+                <div class="dh-demo-selection" aria-hidden="true"><span></span><i></i><b></b></div>
+                <div class="dh-camera-frame" aria-hidden="true"></div>
+                <div class="dh-demo-axis" aria-hidden="true"><i>X</i><i>Y</i><i>Z</i></div>
+                <div class="dh-demo-viewport-tools" aria-label={t("视口工具", "Viewport tools")}>
+                  <button type="button" data-demo-viewport-action="frame" aria-label={t("框选当前对象", "Frame the selected object")} title={t("框选当前对象", "Frame the selected object")}><svg><use href="#dh-icon-frame"></use></svg></button>
+                  <button type="button" data-demo-viewport-action="grid" aria-pressed="true" aria-label={t("显示或隐藏网格", "Show or hide the grid")} title={t("显示或隐藏网格", "Show or hide the grid")}><svg><use href="#dh-icon-grid"></use></svg></button>
+                  <button type="button" data-demo-viewport-action="camera" aria-pressed="false" aria-label={t("切换相机视图", "Toggle camera view")} title={t("切换相机视图", "Toggle camera view")}><svg><use href="#dh-icon-camera"></use></svg></button>
+                </div>
+              </div>
+            </div>
+
+            <aside class="dh-inspector" aria-label={t("属性", "Properties")}>
+              <div class="dh-demo-panel-tabs" role="tablist" aria-label={t("右侧面板模式", "Inspector panel mode")}>
+                <button type="button" role="tab" aria-selected="true" data-demo-panel="properties" aria-label={t("属性", "Properties")} title={t("属性", "Properties")}><svg><use href="#dh-icon-sliders"></use></svg></button>
+                <button type="button" role="tab" aria-selected="false" data-demo-panel="assets" aria-label={t("资源", "Assets")} title={t("资源", "Assets")}><svg><use href="#dh-icon-image"></use></svg></button>
+              </div>
+
+              <div class="dh-demo-inspector-pane is-active" data-demo-pane="properties">
+                <header><div><strong data-demo-inspector-title>{t("相机 01", "Camera 01")}</strong><small data-demo-inspector-kind>{t("摄影机", "Cinema camera")}</small></div><span>•••</span></header>
+                <section class="dh-demo-inspector-section">
+                  <h3>{t("变换", "Transform")}</h3>
+                  <div class="dh-transform-grid">
+                    <span>X <b data-demo-axis="x">1.23</b></span><span>Y <b data-demo-axis="y">0.45</b></span><span>Z <b data-demo-axis="z">−2.10</b></span>
+                  </div>
+                </section>
+                <section class="dh-demo-inspector-section" data-demo-camera-properties>
+                  <h3>{t("镜头", "Lens")}</h3>
+                  <label class="dh-demo-range-field"><span>{t("焦距", "Focal length")}</span><output data-demo-focal-output>35 mm</output><input type="range" min="24" max="85" value="35" step="1" data-demo-focal aria-label={t("相机焦距", "Camera focal length")} /></label>
+                  <dl><div><dt>{t("光圈", "Aperture")}</dt><dd>f / 2.8</dd></div><div><dt>{t("对焦距离", "Focus distance")}</dt><dd>12.4 m</dd></div><div><dt>{t("传感器", "Sensor")}</dt><dd>Super 35</dd></div></dl>
+                </section>
+              </div>
+
+              <div class="dh-demo-inspector-pane" data-demo-pane="assets" hidden>
+                <header><div><strong>{t("资源", "Assets")}</strong><small>{t("项目资源库", "Project library")}</small></div></header>
+                <section class="dh-demo-asset-list"><button type="button" data-demo-asset-object="character"><svg><use href="#dh-icon-user"></use></svg><span><strong>{t("基础白模", "Base mannequin")}</strong><small>{t("人物 · 已放置", "Character · placed")}</small></span></button><button type="button" data-demo-asset-object="camera"><svg><use href="#dh-icon-camera"></use></svg><span><strong>{t("电影摄影机", "Cinema camera")}</strong><small>{t("相机 · 已放置", "Camera · placed")}</small></span></button></section>
+              </div>
+            </aside>
+          </div>
+
+          <div class="dh-timeline" data-demo-timeline>
+            <div class="dh-timeline-head">
+              <div class="dh-demo-timeline-tabs"><strong>{t("时间线", "Timeline")}</strong><span>{t("场景", "Scene")}</span><span>{t("分镜", "Storyboard")}</span></div>
+              <div class="dh-demo-transport">
+                <button type="button" data-demo-reset aria-label={t("回到时间轴起点", "Back to the start of the timeline")} title={t("回到起点", "Back to start")}>↶</button>
+                <button type="button" class="is-primary" data-demo-play aria-label={t("播放时间轴", "Play the timeline")}><svg><use href="#dh-icon-play"></use></svg></button>
+                <output data-demo-timecode>00:00:03:00</output>
+              </div>
+              <span>24 fps</span>
+            </div>
+            <div class="dh-demo-track is-ruler"><span></span><div><i>0s</i><i>2s</i><i>4s</i><i>6s</i><i>8s</i><i>10s</i></div></div>
+            <div class="dh-demo-track"><span><svg><use href="#dh-icon-camera"></use></svg>{t("相机 01", "Camera 01")}</span><div><b class="is-camera">{t("推进镜头", "Push in")}</b></div></div>
+            <div class="dh-demo-track"><span><svg><use href="#dh-icon-user"></use></svg>{t("人物 01", "Character 01")}</span><div><b class="is-character">{t("站立", "Stand")}</b><b class="is-motion">{t("转身", "Turn")}</b></div></div>
+            <div class="dh-demo-playhead" aria-hidden="true"><i></i></div>
+            <input class="dh-demo-scrubber" type="range" min="0" max="240" value="72" step="1" data-demo-scrubber aria-label={t("拖动时间轴播放头", "Drag the timeline playhead")} />
+          </div>
+          <figcaption class="dh-demo-visually-hidden">{t("选择场景对象、调整相机焦距、切换检查面板，或播放和拖动时间轴来体验 Director。", "Select scene objects, adjust the camera focal length, switch inspector panels, or play and scrub the timeline to explore Director.")}</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="dh-capabilities" id="capabilities" aria-labelledby="dh-capabilities-title">
+      <div class="dh-content-shell">
+        <header class="dh-section-heading dh-reveal">
+          <h2 id="dh-capabilities-title">
+            {
+              zh ? (
+                <>
+                  使用 <span class="dh-text-accent">Agent</span> 进行制片的<br />
+                  <span class="dh-text-highlight">最佳方式</span>
+                </>
+              ) : (
+                <>
+                  The <span class="dh-text-highlight">best way</span> to produce
+                  <br />
+                  with <span class="dh-text-accent">Agents</span>
+                </>
+              )
+            }
+          </h2>
+        </header>
+
+        <div class="dh-feature-list">
+          <article class="dh-feature dh-reveal">
+            <div class="dh-feature-copy">
+              <p class="dh-eyebrow">{t("真实项目", "Real projects")}</p>
+              <h3>{t("为实际制片任务的核心需求而打造", "Built for the core needs of real production work")}</h3>
+              <p>{t("从场景搭建、人物调度到相机、动画与交付，Director 把创作放进有单位、有时间、有状态的真实 3D 项目。", "From set building and character staging to cameras, animation, and delivery, Director puts creation inside a real 3D project with units, time, and state.")}</p>
+            </div>
+            <div class="dh-feature-visual dh-stage-card">
+              <div class="dh-card-bar"><span>{t("3D 片场", "3D Stage")}</span><small><i></i> {t("场景已同步", "Scene synced")}</small></div>
+              <div class="dh-feature-stage">
+                <Image src={stageRender} alt={t("Director 中的人物、相机与场景视口", "Character, camera, and scene viewport in Director")} loading="lazy" />
+                <div class="dh-focus-reticle" aria-hidden="true"></div>
+              </div>
+              <div class="dh-card-timeline" aria-hidden="true"><span></span><i></i><i></i><i></i><b></b></div>
+            </div>
+          </article>
+
+          <article class="dh-feature is-reversed dh-reveal">
+            <div class="dh-feature-copy">
+              <p class="dh-eyebrow">{t("并行协作", "Parallel collaboration")}</p>
+              <h3>{t("专为多 Agent 工作流而设计", "Designed for multi-Agent workflows")}</h3>
+              <p>{t("让不同 Agent 同时处理资产、动作、镜头和剪辑，再把结果收束到同一个项目版本与验收流程。", "Let different Agents work on assets, motion, shots, and editing at the same time, then converge the results into one project revision and one acceptance flow.")}</p>
+            </div>
+            <div class="dh-feature-visual dh-agent-board" aria-hidden="true">
+              <div class="dh-board-head"><span>Production queue</span><small><i></i> 3 agents active</small></div>
+              <div class="dh-agent-run is-live">
+                <i class="dh-agent-avatar">C</i><span><strong>{t("相机路径优化", "Camera path optimization")}</strong><small>Camera Agent</small></span><b>{t("运行中", "Running")}</b>
+              </div>
+              <div class="dh-agent-run">
+                <i class="dh-agent-avatar">M</i><span><strong>{t("角色动作校验", "Character motion check")}</strong><small>Motion Agent</small></span><b>02:18</b>
+              </div>
+              <div class="dh-agent-run">
+                <i class="dh-agent-avatar">R</i><span><strong>{t("镜头连续性审查", "Shot continuity review")}</strong><small>Review Agent</small></span><b>04:32</b>
+              </div>
+              <div class="dh-run-progress"><span></span></div>
+              <p>{t("所有任务都写入项目版本 12", "Every task writes to project revision 12")}</p>
+            </div>
+          </article>
+
+          <article class="dh-feature dh-reveal">
+            <div class="dh-feature-copy">
+              <p class="dh-eyebrow">{t("团队规范", "Team conventions")}</p>
+              <h3>{t("适应你的团队如何制作", "Adapts to how your team makes things")}</h3>
+              <p>{t("通过 Skill 固化镜头规范、资产约束和交付标准。Agent 每次都沿用同一套制作语言，而不是从头猜测。", "Capture shot conventions, asset constraints, and delivery standards as Skills. Agents reuse the same production language every time instead of guessing from scratch.")}</p>
+            </div>
+            <div class="dh-feature-visual dh-skill-card" aria-hidden="true">
+              <div class="dh-chat-context"><span>Director</span><small>{t("使用 verified-shot Skill", "Using the verified-shot Skill")}</small></div>
+              <div class="dh-chat-bubble">{t("按照团队的中近景规范，检查人物遮挡并给出可复查结果。", "Check character occlusion against our medium close-up conventions and return a reviewable result.")}</div>
+              <div class="dh-skill-result">
+                <div><i></i><span><small>{t("检查结果", "Review result")}</small><strong>{t("构图与遮挡通过", "Framing and occlusion passed")}</strong></span></div>
+                <p>{t("相机 02 · 人物 01 · 项目版本 12", "Camera 02 · Character 01 · project revision 12")}</p>
+              </div>
+              <div class="dh-composer"><span>{t("继续让 Director 调整…", "Ask Director to keep adjusting…")}</span><b>↑</b></div>
+            </div>
+          </article>
+
+          <article class="dh-feature is-reversed dh-reveal">
+            <div class="dh-feature-copy">
+              <p class="dh-eyebrow">{t("后台任务", "Background tasks")}</p>
+              <h3>{t("为长时间运行的工作而设计", "Built for long-running work")}</h3>
+              <p>{t("把批量导入、质量检查、版本导出和日常监控交给后台任务，让创作者继续专注于画面与叙事判断。", "Hand batch imports, quality checks, version exports, and routine monitoring to background tasks while creators stay focused on picture and story judgment.")}</p>
+            </div>
+            <div class="dh-feature-visual dh-task-card" aria-hidden="true">
+              <div class="dh-board-head"><span>{t("接下来", "Up next")}</span><small>{t("自动化", "Automation")}</small></div>
+              <div class="dh-task-row is-live"><i></i><span><strong>{t("检查场景缺失资产", "Check the scene for missing assets")}</strong><small>{t("正在检查 24 个引用", "Checking 24 references")}</small></span><b>68%</b></div>
+              <div class="dh-task-row"><i></i><span><strong>{t("生成镜头审计", "Generate the shot audit")}</strong><small>{t("每天 22:00", "Daily at 22:00")}</small></span><b>{t("今晚", "Tonight")}</b></div>
+              <div class="dh-task-row"><i></i><span><strong>{t("导出代理预览", "Export proxy previews")}</strong><small>{t("等待上游镜头", "Waiting for upstream shots")}</small></span><b>{t("排队", "Queued")}</b></div>
+              <p>{t("已完成", "Done")}</p>
+              <div class="dh-task-row is-done"><i>✓</i><span><strong>{t("同步 Blender 回传", "Sync the Blender return")}</strong><small>{t("项目版本 12", "Project revision 12")}</small></span><b>5m</b></div>
+            </div>
+          </article>
+
+          <article class="dh-feature dh-reveal">
+            <div class="dh-feature-copy">
+              <p class="dh-eyebrow">{t("质量标准", "Quality bar")}</p>
+              <h3>{t("全面提升团队的交付质量", "Raise the whole team's delivery quality")}</h3>
+              <p>{t("Director 把项目状态、变更记录、质量审查和视觉画面绑在一起，让“完成”成为可以再次验证的交付。", "Director binds project state, change history, quality audits, and visual frames together, so “done” becomes a delivery that can be verified again.")}</p>
+            </div>
+            <div class="dh-feature-visual dh-review-card" aria-hidden="true">
+              <div class="dh-review-top"><span>{t("镜头验收", "Shot acceptance")}</span><small>{t("版本 12", "Revision 12")}</small></div>
+              <div class="dh-review-score"><strong>4 / 4</strong><span><i></i> {t("全部通过", "All passed")}</span></div>
+              <div class="dh-review-row"><span>{t("场景状态", "Scene state")}</span><b>{t("通过", "Pass")}</b></div>
+              <div class="dh-review-row"><span>{t("相机与构图", "Camera & framing")}</span><b>{t("通过", "Pass")}</b></div>
+              <div class="dh-review-row"><span>{t("时间范围", "Time range")}</span><b>{t("通过", "Pass")}</b></div>
+              <div class="dh-review-row"><span>{t("视觉证据", "Visual evidence")}</span><b>{t("已捕获", "Captured")}</b></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="dh-surfaces" id="surfaces" aria-labelledby="dh-surfaces-title">
+      <div class="dh-wide-shell">
+        <header class="dh-surface-heading dh-reveal">
+          <h2 id="dh-surfaces-title">
+            {
+              zh ? (
+                <>
+                  在各个制片场景中<br />使用同一个 <span class="dh-text-accent">Director</span>
+                </>
+              ) : (
+                <>
+                  One <span class="dh-text-accent">Director</span>
+                  <br />across every production surface
+                </>
+              )
+            }
+          </h2>
+          <p>{t("跨越 3D 片场、Canvas 与视频编辑器，所有体验都由同一个项目连接。", "Across the 3D Stage, Canvas, and Video Editor, every experience is connected by the same project.")}</p>
+          <a class="dh-pill-button is-light" href={p("/editor/")}>{t("查看创作界面", "Explore the workspaces")} <span aria-hidden="true">↗</span></a>
+        </header>
+
+        <div class="dh-surface-grid">
+          <article class="dh-surface-card dh-reveal">
+            <div class="dh-surface-preview is-stage">
+              <div class="dh-surface-screen">
+                <Image src={stageRender} alt={t("Director 3D 片场界面", "Director 3D Stage interface")} loading="lazy" />
+              </div>
+            </div>
+            <div class="dh-surface-copy"><h3>{t("3D 片场", "3D Stage")}</h3><p>{t("组织人物、资产、灯光与相机。", "Organize characters, assets, lights, and cameras.")}</p><a href={p("/editor/")}>{t("打开文档", "Open docs")} <span>↗</span></a></div>
+          </article>
+
+          <article class="dh-surface-card dh-reveal">
+            <div class="dh-surface-preview is-canvas" aria-hidden="true">
+              <div class="dh-canvas-grid"></div>
+              <span class="dh-node is-one"><i></i>{t("场景搭建", "Set build")}<small>{t("完成", "Done")}</small></span>
+              <span class="dh-node is-two"><i></i>{t("镜头生成", "Shot generation")}<small>{t("运行中", "Running")}</small></span>
+              <span class="dh-node is-three"><i></i>{t("质量验收", "Quality acceptance")}<small>{t("等待", "Waiting")}</small></span>
+              <b class="dh-connector is-one"></b><b class="dh-connector is-two"></b>
+            </div>
+            <div class="dh-surface-copy"><h3>Canvas</h3><p>{t("把镜头、媒体与生成任务组织成生产图。", "Organize shots, media, and generation jobs into a production graph.")}</p><a href={p("/editor/canvas-video/")}>{t("打开文档", "Open docs")} <span>↗</span></a></div>
+          </article>
+
+          <article class="dh-surface-card dh-reveal">
+            <div class="dh-surface-preview is-video" aria-hidden="true">
+              <div class="dh-video-monitor"><span></span><i></i></div>
+              <div class="dh-video-timeline"><span></span><i></i><i></i><i></i><b></b></div>
+            </div>
+            <div class="dh-surface-copy"><h3>{t("视频编辑器", "Video Editor")}</h3><p>{t("收束画面、音频、字幕与交付版本。", "Bring together picture, audio, captions, and delivery versions.")}</p><a href={p("/editor/canvas-video/")}>{t("打开文档", "Open docs")} <span>↗</span></a></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="dh-workflow" id="workflow" aria-labelledby="dh-workflow-title">
+      <div class="dh-wide-shell">
+        <header class="dh-workflow-heading dh-reveal">
+          <p>{t("可验证的制作闭环", "A verifiable production loop")}</p>
+          <h2 id="dh-workflow-title">
+            {
+              zh ? (
+                <>
+                  <span class="dh-quote-muted">命令成功，</span>
+                  <br />不等于<span class="dh-quote-em">镜头合格</span>。
+                </>
+              ) : (
+                <>
+                  <span class="dh-quote-muted">A successful command</span>
+                  <br />is not <span class="dh-quote-em">a successful shot</span>.
+                </>
+              )
+            }
+          </h2>
+        </header>
+
+        <ol class="dh-workflow-grid">
+          <li class="dh-reveal"><span>01</span><h3>{t("观察", "Observe")}</h3><p>{t("读取目标、项目边界和最新场景状态，先理解正在发生什么。", "Read the target, project boundary, and latest scene state; understand what is happening first.")}</p></li>
+          <li class="dh-reveal"><span>02</span><h3>{t("创作", "Author")}</h3><p>{t("用可撤销的原子操作，修改场景、人物、相机和时间线。", "Change the scene, characters, cameras, and timeline with undoable atomic operations.")}</p></li>
+          <li class="dh-reveal"><span>03</span><h3>{t("审查", "Audit")}</h3><p>{t("检查结构、空间、时间、相机与连续性，再决定是否通过。", "Check structure, space, time, camera, and continuity before deciding whether it passes.")}</p></li>
+          <li class="dh-reveal"><span>04</span><h3>{t("交付", "Deliver")}</h3><p>{t("把项目版本与干净画面一起保存，留下能被再次验证的证据。", "Store the project revision together with a clean frame, leaving evidence that can be verified again.")}</p></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="dh-final-cta" aria-labelledby="dh-final-cta-title">
+      <div class="dh-final-copy dh-reveal">
+        <div class="dh-app-icon is-small" aria-hidden="true"><span></span></div>
+        <h2 id="dh-final-cta-title">
+          {
+            zh ? (
+              <>
+                立即开始使用 <span class="dh-text-accent">Director</span>
+              </>
+            ) : (
+              <>
+                Start using <span class="dh-text-accent">Director</span> today
+              </>
+            )
+          }
+        </h2>
+        <p>{t("从一颗真实、可修改、可验证的 3D 镜头开始。", "Begin with one real, editable, verifiable 3D shot.")}</p>
+        <a class="dh-pill-button is-light" href={p("/getting-started/install/")}>{t("安装并运行", "Install & run")} <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="dh-footer">
+    <div class="dh-wide-shell">
+      <div class="dh-footer-grid">
+        <div class="dh-footer-brand"><a href={p("/")}>Director</a><p>Agent-native 3D production desk</p></div>
+        {
+          footerGroups.map((group) => (
+            <nav aria-label={group.title}>
+              <p>{group.title}</p>
+              {group.links.map(([label, href]) => <a href={href}>{label}</a>)}
+            </nav>
+          ))
+        }
+      </div>
+      <div class="dh-footer-bottom"><span>Director</span><a href={p("/engineering/")}>{t("工程与研究", "Engineering & Research")}</a></div>
+    </div>
+  </footer>
+
+  <script is:inline>
+    (() => {
+      const root = document.querySelector("[data-director-home]");
+      const header = root?.querySelector("[data-site-header]");
+      if (!root || !header) return;
+
+      const syncHeader = () => header.classList.toggle("is-scrolled", window.scrollY > 720);
+      syncHeader();
+      window.addEventListener("scroll", syncHeader, { passive: true });
+
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      root.classList.add("is-reveal-ready");
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        }
+      }, { rootMargin: "0px 0px -10%", threshold: 0.08 });
+      root.querySelectorAll(".dh-reveal").forEach((element) => observer.observe(element));
+    })();
+  </script>
+  <script>
+    import { mountDirectorHeroMotion } from "./directorHeroMotion";
+    import { mountDirectorProductDemo } from "./directorProductDemo";
+    import { mountDirectorHomeTheme } from "./directorHomeTheme";
+
+    mountDirectorHomeTheme();
+    mountDirectorHeroMotion();
+    mountDirectorProductDemo();
+  </script>
+</div>

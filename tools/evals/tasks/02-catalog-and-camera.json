@@ -1,0 +1,52 @@
+{
+  "name": "catalog-and-camera",
+  "description": "Discover a schema slice, search the asset catalog, add an active camera, and capture a clean frame.",
+  "steps": [
+    {
+      "label": "describe author.add_camera",
+      "tool": "director_workbench",
+      "input": { "op": "describe", "target": "author.add_camera" },
+      "expect": { "success": true, "result_paths": ["result.json_schema"] }
+    },
+    {
+      "label": "catalog search chair",
+      "tool": "director_workbench",
+      "input": { "op": "catalog", "catalog": "assets", "query": "chair", "limit": 5 },
+      "expect": { "success": true, "result_paths": ["result.items"] }
+    },
+    {
+      "label": "add active camera",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_camera",
+            "id": "eval-cam",
+            "name": "Eval cam",
+            "position": [6, 3, 8],
+            "target": [0, 1, 0],
+            "focal_length_mm": 35,
+            "aperture_f_stop": 2.8,
+            "focus_distance_m": 10,
+            "activate": true
+          }
+        ]
+      },
+      "expect": { "success": true }
+    },
+    {
+      "label": "capture clean frame",
+      "tool": "director_workbench",
+      "input": {
+        "op": "capture",
+        "frame": 0,
+        "render_pass": "clean",
+        "width": 640,
+        "height": 360,
+        "depth_of_field": false
+      },
+      "expect": { "success": true }
+    }
+  ]
+}

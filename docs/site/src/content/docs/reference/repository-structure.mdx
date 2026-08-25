@@ -1,0 +1,40 @@
+---
+title: Repository Structure
+description: Find the editor, Agent runtime, gateway, plugin, data, and documentation code.
+---
+
+import RepositoryStructure from "../../../components/RepositoryStructure.astro";
+
+<RepositoryStructure locale="en" />
+
+Binary assets are not part of the GitHub source checkout. See
+[Open-source Assets & Hugging Face](/development/open-source-assets/) for the immutable manifest,
+license classes, restore command, and publication gate.
+
+## Where to make a change
+
+| Change                           | Primary location                                                      |
+| -------------------------------- | --------------------------------------------------------------------- |
+| Editor UI or viewport            | `frontend/director/src/comprehensive/editor`                          |
+| Complete project model           | `packages/project-schema`                                             |
+| Agent semantic action            | `packages/agent-engine/src/directorAuthoring.ts`                      |
+| Workbench operation              | `packages/agent-engine/src/directorWorkbenchContract.ts`              |
+| Audit rule                       | `packages/agent-engine/src/directorAudit.ts`                          |
+| Compact Stage operation          | `packages/stage-protocol`                                             |
+| HTTP/WebSocket gateway           | `backend/gateway`                                                     |
+| MCP description or native server | `backend/gateway/mcp-server.ts`                                       |
+| Official model sources           | `vendor/`                                                             |
+| Native modeling engine           | `integrations/blender/live`                                           |
+| Coding-agent workflow guidance   | `.agents/skills` and `.claude/skills`                                 |
+| Portable plugin bundle           | `integrations/plugins/director-workbench`, rebuild from native source |
+| Public documentation             | `docs/site/src/content/docs`                                          |
+
+## Generated files
+
+Do not hand-edit:
+
+- `dist/`;
+- `docs/site/dist/`;
+- bundled `integrations/plugins/director-workbench/mcp/server.mjs` without rebuilding;
+- runtime `data/` artifacts;
+- package-manager caches.

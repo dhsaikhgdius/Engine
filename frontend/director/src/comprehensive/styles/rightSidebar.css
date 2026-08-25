@@ -1,0 +1,191 @@
+.right-sidebar-chrome {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  min-height: 44px;
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.06);
+}
+
+.right-sidebar-chrome .right-sidebar-mode-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-bottom: 0;
+}
+
+.right-sidebar[hidden] {
+  display: none;
+}
+
+/* Quiet rail chrome: keep the right sidebar readable without adding another card layer. */
+
+.right-sidebar {
+  border-left-color: rgb(var(--border-rgb) / 0.08);
+  background: rgb(var(--panel-rgb));
+}
+
+/* ── mode rail ─────────────────────────────────────────────
+ * Flat icon tabs on the panel surface. One soft pill slides behind
+ * the active tab (transform-only, cheap to animate); the accent only
+ * lands on the active icon so the rail stays quiet. */
+.right-sidebar-mode-toggle {
+  --mode-rail-pad-inline: 10px;
+  --mode-rail-pad-block: 6px;
+  --mode-tab-gap: 2px;
+  position: relative;
+  flex: 0 0 auto;
+  gap: var(--mode-tab-gap);
+  min-height: 44px;
+  margin: 0;
+  padding: var(--mode-rail-pad-block) var(--mode-rail-pad-inline);
+  border: 0;
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.06);
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Sliding pill: sized to one flex column (tabs share equal widths),
+ * moved by its own width per step so it tracks panel resizes for free. */
+.right-sidebar-mode-toggle::before {
+  content: "";
+  position: absolute;
+  top: var(--mode-rail-pad-block);
+  bottom: var(--mode-rail-pad-block);
+  left: var(--mode-rail-pad-inline);
+  width: calc(
+    (100% - var(--mode-rail-pad-inline) * 2 - (var(--mode-tab-count, 5) - 1) * var(--mode-tab-gap)) /
+      var(--mode-tab-count, 5)
+  );
+  border-radius: var(--director-radius-sm);
+  background: rgb(var(--surface-hover-rgb) / 0.6);
+  transform: translateX(calc(var(--mode-tab-index, 0) * (100% + var(--mode-tab-gap))));
+  transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  pointer-events: none;
+}
+
+.right-sidebar-mode-tab {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: var(--director-radius-sm);
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  font-weight: 600;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Match the object-tree icon grade (15px, lighter stroke) so both
+ * sidebars read as one family; lucide's stroke-width="2" is too heavy
+ * at this size. */
+.right-sidebar-mode-tab svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.75;
+  transition: color 140ms ease;
+}
+
+.right-sidebar-mode-tab:active {
+  transform: scale(0.96);
+}
+
+@media (hover: hover) {
+  .right-sidebar-mode-tab:hover {
+    color: rgb(var(--text-rgb));
+    background: rgb(var(--surface-hover-rgb) / 0.42);
+  }
+
+  /* The sliding pill already marks the active tab; don't stack washes. */
+  .right-sidebar-mode-tab[aria-selected="true"]:hover,
+  .right-sidebar-mode-tab.is-active:hover {
+    background: transparent;
+  }
+}
+
+.right-sidebar-mode-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(var(--accent-rgb) / 0.35);
+}
+
+.right-sidebar-mode-tab[aria-selected="true"],
+.right-sidebar-mode-tab.is-active {
+  color: rgb(var(--text-rgb));
+  background: transparent;
+  box-shadow: none;
+}
+
+.right-sidebar-mode-tab[aria-selected="true"] svg,
+.right-sidebar-mode-tab.is-active svg {
+  color: rgb(var(--accent-rgb));
+}
+
+.right-sidebar-mode-tab::after {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .right-sidebar-mode-toggle::before {
+    transition: none;
+  }
+
+  .right-sidebar-mode-tab {
+    transition:
+      color 140ms ease,
+      background-color 140ms ease;
+  }
+
+  .right-sidebar-mode-tab:active {
+    transform: none;
+  }
+}
+
+/* ── body ── */
+.right-sidebar-body {
+  padding-top: 0;
+  background: rgb(var(--panel-rgb));
+}
+
+/* ── shared inspector header rhythm ─────────────────────────
+ * One 48px header line under the rail; every inspector shares the
+ * same hairline so switching panels never shifts the chrome. */
+.right-sidebar .right-inspector-header,
+.right-sidebar .scene-inspector .right-inspector-header,
+.right-sidebar .character-inspector .right-inspector-header,
+.right-sidebar .camera-inspector .right-inspector-header,
+.right-sidebar .prop-inspector .right-inspector-header,
+.right-sidebar .trajectory-inspector .right-inspector-header {
+  min-height: 48px;
+  border-bottom-color: rgb(var(--border-rgb) / 0.06);
+}
+
+.right-sidebar .right-inspector-title,
+.right-sidebar .scene-inspector .right-inspector-title,
+.right-sidebar .character-inspector .right-inspector-title,
+.right-sidebar .camera-inspector .right-inspector-title,
+.right-sidebar .prop-inspector .right-inspector-title,
+.right-sidebar .trajectory-inspector .right-inspector-title {
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+.right-sidebar .asset-library-header {
+  min-height: 48px;
+  border-bottom-color: rgb(var(--border-rgb) / 0.06);
+}
+
+.right-sidebar .asset-library-header strong {
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+@container right-sidebar-mode-toggle (max-width: 320px) {
+  .right-sidebar-mode-toggle {
+    /* Keeps the sliding pill geometry in sync with the tighter padding. */
+    --mode-rail-pad-inline: 8px;
+  }
+
+  .right-sidebar-mode-tab {
+    padding-inline: 4px;
+  }
+}

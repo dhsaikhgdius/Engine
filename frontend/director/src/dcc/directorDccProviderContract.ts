@@ -1,0 +1,356 @@
+import { z } from "zod";
+
+/**
+ * Stable provider identifiers used by HTTP, MCP, the editor and host connectors.
+ * Keep these identifiers product-neutral: a connector may be implemented by a
+ * native plug-in, a headless process, or an OpenUSD/glTF package consumer.
+ */
+export const directorDccProviderIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/, "provider id must be a lowercase, namespaced identifier");
+
+export type DirectorDccProviderId = z.infer<typeof directorDccProviderIdSchema>;
+
+/** Exchange formats a DCC provider can produce or consume. */
+export const directorDccExchangeFormatSchema = z.enum(["blend", "glb", "usda"]);
+export type DirectorDccExchangeFormat = z.infer<typeof directorDccExchangeFormatSchema>;
+/** Portable exchange formats (everything except native `.blend`). */
+export const directorDccPortableExchangeFormatSchema = z.enum(["glb", "usda"]);
+export type DirectorDccPortableExchangeFormat = z.infer<typeof directorDccPortableExchangeFormatSchema>;
+
+/** Granular capability identifiers for DCC providers. */
+export const directorDccCapabilityIdSchema = z.enum([
+  "scene",
+  "camera",
+  "animation",
+  "skeleton",
+  "materials",
+  "stable_ids",
+  "roundtrip",
+  "headless",
+  "live_link",
+]);
+
+export type DirectorDccCapabilityId = z.infer<typeof directorDccCapabilityIdSchema>;
+
+/** Maturity level of a DCC capability. */
+export const directorDccCapabilityLevelSchema = z.enum(["native", "exchange", "planned"]);
+export type DirectorDccCapabilityLevel = z.infer<typeof directorDccCapabilityLevelSchema>;
+
+/** Which layer supplies a given capability. */
+export const directorDccCapabilityLayerSchema = z.enum(["connector", "exchange-format", "director-manifest"]);
+export type DirectorDccCapabilityLayer = z.infer<typeof directorDccCapabilityLayerSchema>;
+
+/** A single capability advertised by a DCC provider. */
+export const directorDccCapabilitySchema = z
+  .strictObject({
+    id: directorDccCapabilityIdSchema,
+    level: directorDccCapabilityLevelSchema,
+    /**
+     * Identifies the layer that actually supplies the advertised capability.
+     * Optional only for backwards-compatible third-party descriptors. Built-in
+     * descriptors always publish it, so Agents never infer host-native support
+     * from a portable layout package.
+     */
+    layer: directorDccCapabilityLayerSchema.optional(),
+    /** Portable formats that carry an exchange-format capability. */
+    formats: z.array(directorDccPortableExchangeFormatSchema).min(1).optional(),
+  })
+  .superRefine((capability, context) => {
+    if (
+      !capability.layer &&
+      capability.level === "exchange" &&
+      (capability.id === "animation" || capability.id === "skeleton" || capability.id === "materials")
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["layer"],
+        message: `${capability.id} exchange claims must identify their supplying layer`,
+      });
+    }
+
+    if (capability.layer === "exchange-format") {
+      if (capability.level !== "exchange") {
+        context.addIssue({
+          code: "custom",
+          path: ["level"],
+          message: "exchange-format capabilities must use the exchange level",
+        });
+      }
+      if (!capability.formats?.length) {
+        context.addIssue({
+          code: "custom",
+          path: ["formats"],
+          message: "exchange-format capabilities must name at least one portable format",
+        });
+      }
+    } else if (capability.formats) {
+      context.addIssue({
+        code: "custom",
+        path: ["formats"],
+        message: "only exchange-format capabilities may name portable formats",
+      });
+    }
+
+    if (capability.layer === "connector" && capability.level === "exchange") {
+      context.addIssue({
+        code: "custom",
+        path: ["level"],
+        message: "connector capabilities must be native or planned, not exchange",
+      });
+    }
+
+    if (capability.layer === "director-manifest" && capability.id !== "stable_ids") {
+      context.addIssue({
+        code: "custom",
+        path: ["id"],
+        message: "the current Director manifest capability vocabulary only supplies stable_ids",
+      });
+    }
+  });
+
+/** Full provider descriptor: identity, capabilities, and integration metadata. */
+export const directorDccProviderDescriptorSchema = z
+  .strictObject({
+    id: directorDccProviderIdSchema,
+    label: z.string().trim().min(1).max(80),
+    category: z.enum(["dcc", "engine"]),
+    integration: z.enum(["native-roundtrip", "exchange-package"]),
+    preferredFormat: directorDccExchangeFormatSchema,
+    exchangeFormats: z.array(directorDccExchangeFormatSchema).min(1),
+    capabilities: z.array(directorDccCapabilitySchema).min(1),
+    connectorDirectory: z.string().trim().min(1).max(240),
+  })
+  .superRefine((descriptor, context) => {
+    if (!descriptor.exchangeFormats.includes(descriptor.preferredFormat)) {
+      context.addIssue({
+        code: "custom",
+        path: ["preferredFormat"],
+        message: "preferredFormat must also appear in exchangeFormats",
+      });
+    }
+
+    const seenCapabilities = new Set<DirectorDccCapabilityId>();
+    descriptor.capabilities.forEach((capability, index) => {
+      if (seenCapabilities.has(capability.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["capabilities", index, "id"],
+          message: `duplicate capability ${capability.id}`,
+        });
+      }
+      seenCapabilities.add(capability.id);
+
+      capability.formats?.forEach((format, formatIndex) => {
+        if (!descriptor.exchangeFormats.includes(format)) {
+          context.addIssue({
+            code: "custom",
+            path: ["capabilities", index, "formats", formatIndex],
+            message: `${format} is not declared in provider exchangeFormats`,
+          });
+        }
+      });
+    });
+  });
+
+export type DirectorDccProviderDescriptor = z.infer<typeof directorDccProviderDescriptorSchema>;
+
+/** Runtime status of a single DCC provider as reported by the gateway. */
+export const directorDccProviderStatusSchema = z.strictObject({
+  provider: directorDccProviderDescriptorSchema,
+  installed: z.boolean(),
+  executable: z.string().nullable(),
+  version: z.string().nullable(),
+  nativeReady: z.boolean(),
+  exchangeReady: z.boolean(),
+  reason: z.string().nullable(),
+});
+
+export type DirectorDccProviderStatus = z.infer<typeof directorDccProviderStatusSchema>;
+
+/** The full catalog of DCC providers and their runtime statuses. */
+export const directorDccProviderCatalogSchema = z.strictObject({
+  contract: z.literal("director-dcc-provider-catalog-v1"),
+  providers: z.array(directorDccProviderStatusSchema),
+});
+
+export type DirectorDccProviderCatalog = z.infer<typeof directorDccProviderCatalogSchema>;
+
+/**
+ * Declarative, exchange-only provider configuration accepted by the gateway.
+ *
+ * This is intentionally narrower than DirectorDccProviderDescriptor: a local
+ * configuration file cannot provide executable paths, commands, connector
+ * modules, native readiness, or capability-layer claims. Those runtime values
+ * are derived by the trusted registry implementation.
+ */
+export const DIRECTOR_DCC_PROVIDER_CONFIG_CONTRACT = "director-dcc-provider-config-v1" as const;
+
+const directorDccConfiguredCapabilitySchema = z.strictObject({
+  id: directorDccCapabilityIdSchema,
+  level: z.enum(["exchange", "planned"]),
+});
+
+/** User-configured provider entry in the provider config file. */
+export const directorDccConfiguredProviderSchema = z
+  .strictObject({
+    id: directorDccProviderIdSchema,
+    label: z.string().trim().min(1).max(80),
+    category: z.enum(["dcc", "engine"]),
+    integration: z.literal("exchange-package"),
+    preferredFormat: directorDccPortableExchangeFormatSchema,
+    exchangeFormats: z.array(directorDccPortableExchangeFormatSchema).min(1).max(2),
+    capabilities: z
+      .array(directorDccConfiguredCapabilitySchema)
+      .min(1)
+      .max(directorDccCapabilityIdSchema.options.length),
+  })
+  .superRefine((provider, context) => {
+    if (!provider.exchangeFormats.includes(provider.preferredFormat)) {
+      context.addIssue({
+        code: "custom",
+        path: ["preferredFormat"],
+        message: "preferredFormat must also appear in exchangeFormats",
+      });
+    }
+
+    const seenFormats = new Set<DirectorDccPortableExchangeFormat>();
+    provider.exchangeFormats.forEach((format, index) => {
+      if (seenFormats.has(format)) {
+        context.addIssue({
+          code: "custom",
+          path: ["exchangeFormats", index],
+          message: `duplicate exchange format ${format}`,
+        });
+      }
+      seenFormats.add(format);
+    });
+
+    const seenCapabilities = new Set<DirectorDccCapabilityId>();
+    provider.capabilities.forEach((capability, index) => {
+      if (seenCapabilities.has(capability.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["capabilities", index, "id"],
+          message: `duplicate capability ${capability.id}`,
+        });
+      }
+      seenCapabilities.add(capability.id);
+
+      if (
+        capability.level === "exchange" &&
+        capability.id !== "scene" &&
+        capability.id !== "camera" &&
+        capability.id !== "stable_ids"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["capabilities", index, "level"],
+          message: `${capability.id} is not supplied by the current portable layout package`,
+        });
+      }
+    });
+  });
+
+export type DirectorDccConfiguredProvider = z.infer<typeof directorDccConfiguredProviderSchema>;
+
+/** Top-level provider configuration file schema. */
+export const directorDccProviderConfigSchema = z
+  .strictObject({
+    contract: z.literal(DIRECTOR_DCC_PROVIDER_CONFIG_CONTRACT),
+    providers: z.array(directorDccConfiguredProviderSchema).max(64),
+  })
+  .superRefine((configuration, context) => {
+    const seenProviders = new Set<DirectorDccProviderId>();
+    configuration.providers.forEach((provider, index) => {
+      if (seenProviders.has(provider.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["providers", index, "id"],
+          message: `duplicate provider ${provider.id}`,
+        });
+      }
+      seenProviders.add(provider.id);
+    });
+  });
+
+export type DirectorDccProviderConfig = z.infer<typeof directorDccProviderConfigSchema>;
+
+function exchangeProvider(
+  id: DirectorDccProviderId,
+  label: string,
+  category: DirectorDccProviderDescriptor["category"],
+  preferredFormat: Exclude<DirectorDccExchangeFormat, "blend">,
+  exchangeFormats: Array<Exclude<DirectorDccExchangeFormat, "blend">>,
+): DirectorDccProviderDescriptor {
+  return directorDccProviderDescriptorSchema.parse({
+    id,
+    label,
+    category,
+    integration: "exchange-package",
+    preferredFormat,
+    exchangeFormats,
+    capabilities: [
+      { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "animation", level: "planned", layer: "connector" },
+      { id: "skeleton", level: "planned", layer: "connector" },
+      { id: "materials", level: "planned", layer: "connector" },
+      { id: "stable_ids", level: "exchange", layer: "director-manifest" },
+      { id: "roundtrip", level: "planned", layer: "connector" },
+      { id: "headless", level: "planned", layer: "connector" },
+      { id: "live_link", level: "planned", layer: "connector" },
+    ],
+    connectorDirectory: `integrations/${id}`,
+  });
+}
+
+/**
+ * Product capability catalog. Runtime installation state is deliberately kept
+ * out of this table and is supplied by the gateway registry.
+ */
+export const DIRECTOR_DCC_PROVIDERS: readonly DirectorDccProviderDescriptor[] = Object.freeze([
+  directorDccProviderDescriptorSchema.parse({
+    id: "blender",
+    label: "Blender",
+    category: "dcc",
+    integration: "native-roundtrip",
+    preferredFormat: "blend",
+    exchangeFormats: ["blend", "usda", "glb"],
+    capabilities: [
+      { id: "scene", level: "native", layer: "connector" },
+      { id: "camera", level: "native", layer: "connector" },
+      { id: "animation", level: "native", layer: "connector" },
+      { id: "skeleton", level: "native", layer: "connector" },
+      { id: "materials", level: "native", layer: "connector" },
+      { id: "stable_ids", level: "native", layer: "director-manifest" },
+      { id: "roundtrip", level: "native", layer: "connector" },
+      { id: "headless", level: "native", layer: "connector" },
+      { id: "live_link", level: "planned", layer: "connector" },
+    ],
+    connectorDirectory: "integrations/blender",
+  }),
+  exchangeProvider("maya", "Autodesk Maya", "dcc", "usda", ["usda", "glb"]),
+  exchangeProvider("unreal", "Unreal Engine", "engine", "usda", ["usda", "glb"]),
+  exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
+  exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
+  exchangeProvider("unity", "Unity", "engine", "glb", ["glb", "usda"]),
+  exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
+  exchangeProvider("godot", "Godot", "engine", "glb", ["glb"]),
+]);
+
+/**
+ * Looks up a built-in DCC provider descriptor by its stable identifier.
+ *
+ * @param provider - The provider id (e.g. "blender", "maya").
+ * @returns The frozen provider descriptor.
+ * @throws If the provider id is not in the built-in catalog.
+ */
+export function getDirectorDccProviderDescriptor(provider: DirectorDccProviderId) {
+  const descriptor = DIRECTOR_DCC_PROVIDERS.find((candidate) => candidate.id === provider);
+  if (!descriptor) throw new Error(`Unknown Director DCC provider: ${provider}`);
+  return descriptor;
+}

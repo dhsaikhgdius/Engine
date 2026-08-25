@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "ardy",
+  "displayName": "NVIDIA ARDY",
+  "repository": "https://github.com/nv-tlabs/ardy.git",
+  "commit": "693f74d13b3d04a0a22ce127ee79c929dd89756b",
+  "checkoutDirectory": "vendor/ardy",
+  "setupCommand": "npm run setup:ardy",
+  "sourceDirEnv": "DIRECTOR_ARDY_SOURCE_DIR",
+  "license": {
+    "name": "Apache License 2.0",
+    "path": "LICENSE",
+    "gitBlobSha": "fe220c7c3aa27cae7f07b54a3cd2f0a0cb53c17a",
+    "url": "https://github.com/nv-tlabs/ardy/blob/693f74d13b3d04a0a22ce127ee79c929dd89756b/LICENSE"
+  },
+  "requiredPaths": ["LICENSE", "scripts/generate.py", "pyproject.toml"]
+}

@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "library": "director-characters",
+  "generator": "tools/scripts/asset-ingest.ts",
+  "items": [
+    {
+      "id": "director:hero",
+      "name": "Hero",
+      "name_zh": null,
+      "aliases": [],
+      "category": "humanoid",
+      "tags": [
+        "mixamo",
+        "rigged"
+      ],
+      "kind": "character",
+      "files": [
+        {
+          "format": "fbx",
+          "url": "/director-characters/models/Standing Idle.fbx",
+          "bytes": 2697072,
+          "sha256": "dcde7ba1adabc2c3ef9e77d5dbc8cfa8a316574265ee3292d96c2d36c849bf8c"
+        }
+      ],
+      "primary_format": "fbx",
+      "preview": {
+        "kind": "image",
+        "thumbnail_url": "/director-characters/thumbnails/hero.svg"
+      },
+      "spatial": {
+        "bounds_m": null,
+        "footprint_m": null,
+        "height_m": 1.78,
+        "ground_offset_y": 0,
+        "front_axis": null
+      },
+      "rig": {
+        "type": "mixamo",
+        "bone_prefix": "mixamorig",
+        "bone_count": 65
+      },
+      "motion": null,
+      "source": {
+        "provider": "director",
+        "provenance": "bundled",
+        "source_url": null,
+        "license": "PolyForm-Noncommercial-1.0.0",
+        "license_url": null
+      },
+      "usage_hint": "Default rigged hero character; retarget Mixamo clips onto its mixamorig skeleton."
+    }
+  ]
+}

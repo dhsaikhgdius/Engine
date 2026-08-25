@@ -1,0 +1,143 @@
+// @vitest-environment node
+
+import type { IncomingMessage } from "node:http";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  authenticatedDirectorPreviewUrl,
+  createDirectorGatewaySecret,
+  createDirectorPreviewSecret,
+  directorAllowedOrigins,
+  directorGatewayRequestAuthorized,
+  directorGatewayTokenMatches,
+  requestDirectorGatewayToken,
+  requiresDirectorGatewayAuth,
+  trustedDirectorOrigin,
+} from "../../gatewayAuth";
+
+describe("Director gateway authorization boundary", () => {
+  const originalUiPort = process.env.DIRECTOR_UI_PORT;
+  const originalGatewayPort = process.env.STAGE_GATEWAY_PORT;
+
+  beforeEach(() => {
+    delete process.env.DIRECTOR_UI_PORT;
+    delete process.env.STAGE_GATEWAY_PORT;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (originalUiPort === undefined) delete process.env.DIRECTOR_UI_PORT;
+    else process.env.DIRECTOR_UI_PORT = originalUiPort;
+    if (originalGatewayPort === undefined) delete process.env.STAGE_GATEWAY_PORT;
+    else process.env.STAGE_GATEWAY_PORT = originalGatewayPort;
+  });
+
+  it("uses a configured or random process secret and only warns about short tokens", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(createDirectorGatewaySecret("x".repeat(32))).toBe("x".repeat(32));
+    expect(createDirectorGatewaySecret("")).toHaveLength(43);
+    expect(warn).not.toHaveBeenCalled();
+    expect(createDirectorGatewaySecret("too-short")).toBe("too-short");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("24 characters"));
+  });
+
+  it("allows only the local Director browser origins by default", () => {
+    expect(trustedDirectorOrigin("http://127.0.0.1:5175")).toBe(true);
+    expect(trustedDirectorOrigin("http://localhost:5175")).toBe(true);
+    expect(trustedDirectorOrigin("http://127.0.0.1:4173")).toBe(true);
+    expect(trustedDirectorOrigin(undefined)).toBe(true);
+    expect(trustedDirectorOrigin("http://127.0.0.1:5176")).toBe(false);
+    expect(trustedDirectorOrigin("http://127.0.0.1:5175.attacker.example")).toBe(false);
+    expect(trustedDirectorOrigin("https://attacker.example")).toBe(false);
+    expect(trustedDirectorOrigin("null")).toBe(false);
+  });
+
+  it("adds only explicitly configured browser origins", () => {
+    const allowed = directorAllowedOrigins("https://director.example, http://127.0.0.1:6200");
+
+    expect(trustedDirectorOrigin("https://director.example", allowed)).toBe(true);
+    expect(trustedDirectorOrigin("http://127.0.0.1:6200", allowed)).toBe(true);
+    expect(trustedDirectorOrigin("https://director.example.attacker.test", allowed)).toBe(false);
+    expect(trustedDirectorOrigin("http://127.0.0.1:6201", allowed)).toBe(false);
+  });
+
+  it("admits the configured UI and gateway ports into the default origin allowlist", () => {
+    process.env.DIRECTOR_UI_PORT = "6300";
+    process.env.STAGE_GATEWAY_PORT = "9600";
+    const allowed = directorAllowedOrigins("");
+
+    expect(trustedDirectorOrigin("http://127.0.0.1:6300", allowed)).toBe(true);
+    expect(trustedDirectorOrigin("http://localhost:6300", allowed)).toBe(true);
+    expect(trustedDirectorOrigin("http://127.0.0.1:9600", allowed)).toBe(true);
+    expect(trustedDirectorOrigin("http://localhost:9600", allowed)).toBe(true);
+    expect(trustedDirectorOrigin("http://127.0.0.1:5175", allowed)).toBe(true);
+    expect(trustedDirectorOrigin("http://127.0.0.1:6301", allowed)).toBe(false);
+  });
+
+  it("ignores malformed port environment values when building default origins", () => {
+    process.env.DIRECTOR_UI_PORT = "not-a-port";
+    process.env.STAGE_GATEWAY_PORT = "70000";
+    const allowed = directorAllowedOrigins("");
+
+    expect([...allowed].sort()).toEqual(
+      [
+        "http://127.0.0.1:5175",
+        "http://localhost:5175",
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+        "http://127.0.0.1:8787",
+        "http://localhost:8787",
+      ].sort(),
+    );
+  });
+
+  it("compares tokens exactly and accepts the EventSource/WebSocket query form", () => {
+    expect(directorGatewayTokenMatches("secret-value", "secret-value")).toBe(true);
+    expect(directorGatewayTokenMatches("secret-value-2", "secret-value")).toBe(false);
+    const request = { headers: {} } as IncomingMessage;
+    expect(requestDirectorGatewayToken(request, new URL("http://local/ws?browser_token=query-secret"))).toBe(
+      "query-secret",
+    );
+  });
+
+  it("protects state, production, agent, and preview routes while leaving bootstrap public", () => {
+    const post = { method: "POST", headers: {} } as IncomingMessage;
+    const get = { method: "GET", headers: {} } as IncomingMessage;
+    expect(requiresDirectorGatewayAuth(post, new URL("http://local/api/tools/director_workbench"))).toBe(true);
+    expect(requiresDirectorGatewayAuth(get, new URL("http://local/api/agent/sessions"))).toBe(true);
+    expect(requiresDirectorGatewayAuth(get, new URL("http://local/te-man/director/agent/health"))).toBe(true);
+    expect(requiresDirectorGatewayAuth(get, new URL("http://local/te-man/director/productions/main"))).toBe(true);
+    expect(requiresDirectorGatewayAuth(get, new URL("http://local/te-man/director/scenes/scene-1"))).toBe(true);
+    expect(requiresDirectorGatewayAuth(post, new URL("http://local/te-man/director/agent/bootstrap"))).toBe(false);
+    expect(requiresDirectorGatewayAuth(get, new URL("http://local/api/preview"))).toBe(true);
+  });
+
+  it("accepts a scoped, process-epoch capability for preview reads only", () => {
+    const gatewaySecret = "gateway-secret-value-that-is-long";
+    const previewSecret = createDirectorPreviewSecret();
+    const get = { method: "GET", headers: {} } as IncomingMessage;
+    const post = { method: "POST", headers: {} } as IncomingMessage;
+    const previewUrl = new URL(authenticatedDirectorPreviewUrl("http://127.0.0.1:8787", previewSecret));
+
+    expect(previewSecret).toHaveLength(43);
+    expect(previewUrl.searchParams.get("preview_token")).toBe(previewSecret);
+    expect(directorGatewayRequestAuthorized(get, previewUrl, gatewaySecret, previewSecret)).toBe(true);
+    expect(directorGatewayRequestAuthorized(post, previewUrl, gatewaySecret, previewSecret)).toBe(false);
+    expect(
+      directorGatewayRequestAuthorized(
+        get,
+        new URL(`http://local/api/stage?preview_token=${previewSecret}`),
+        gatewaySecret,
+        previewSecret,
+      ),
+    ).toBe(false);
+    expect(
+      directorGatewayRequestAuthorized(
+        get,
+        new URL("http://local/api/preview?preview_token=wrong"),
+        gatewaySecret,
+        previewSecret,
+      ),
+    ).toBe(false);
+  });
+});

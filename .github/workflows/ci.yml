@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Type-aware ESLint over frontend + gateway + packages exceeds Node's
+      # default ~2GB heap on GitHub-hosted runners.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run repo:check
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run build
+      - run: npm run test:core
+
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            docs:
+              - "docs/**"
+      - if: steps.changes.outputs.docs == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - if: steps.changes.outputs.docs == 'true'
+        run: npm ci --prefix docs/site
+      - if: steps.changes.outputs.docs == 'true'
+        run: npm run docs:build
+
+  # Binary asset acceptance tests (DIRECTOR_LOCAL_ASSET_TESTS=1). The required
+  # Mixamo/local-only assets are user-provided and must not be redistributed, so
+  # GitHub-hosted runners cannot download them. This job runs the tests only when
+  # a runner already has the assets restored (e.g. a self-hosted runner) and
+  # otherwise reports an explicit SKIP notice instead of a fake green test run.
+  # Before a release, `npm run test:assets` must pass on a workstation with all
+  # required assets restored (see README "Verify a change").
+  local-asset-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Detect required local binary assets
+        id: local-assets
+        shell: bash
+        run: |
+          set +e
+          node tools/scripts/run-local-asset-tests.mjs --check-assets
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -eq 0 ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ "$exit_code" -eq 2 ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Local asset tests SKIPPED::Required local binary assets are not available on this runner and cannot be downloaded (user-provided Mixamo exports). The asset acceptance tests did NOT run here. Run 'npm run test:assets' on a workstation with restored assets before a release."
+          else
+            exit "$exit_code"
+          fi
+      - name: Install dependencies
+        if: steps.local-assets.outputs.present == 'true'
+        run: npm ci --ignore-scripts
+      - name: Run local asset acceptance tests
+        if: steps.local-assets.outputs.present == 'true'
+        run: npm run test:assets

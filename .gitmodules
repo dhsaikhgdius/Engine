@@ -1,0 +1,19 @@
+[submodule "vendor/deepseek-harness"]
+	path = vendor/deepseek-harness
+	url = https://github.com/deepseek-ai/deepseek-harness.git
+[submodule "vendor/ltx-2"]
+	path = vendor/ltx-2
+	url = https://github.com/Lightricks/LTX-2.git
+	shallow = true
+[submodule "vendor/ardy"]
+	path = vendor/ardy
+	url = https://github.com/nv-tlabs/ardy.git
+	shallow = true
+[submodule "vendor/trellis"]
+	path = vendor/trellis
+	url = https://github.com/microsoft/TRELLIS.git
+	shallow = true
+[submodule "vendor/hunyuan3d"]
+	path = vendor/hunyuan3d
+	url = https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git
+	shallow = true

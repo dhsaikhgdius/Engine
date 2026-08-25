@@ -1,0 +1,140 @@
+/*
+ * Global notification layer. Sits above every workspace surface but below the
+ * global tooltip (z-index 100010) so hover labels stay readable.
+ */
+.director-notification-layer {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(260px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+.director-notification {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  padding: 7px 8px;
+  border: 1px solid rgb(var(--border-rgb) / 0.14);
+  border-radius: 8px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--director-popover-rgb, var(--panel-rgb)));
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
+  pointer-events: auto;
+  animation: director-notification-enter 180ms var(--director-ease, ease-out);
+}
+
+@keyframes director-notification-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+.director-notification-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-top: 1px;
+  color: rgb(var(--text-muted-rgb));
+}
+
+.director-notification.is-info .director-notification-icon {
+  color: rgb(var(--accent-rgb));
+}
+
+.director-notification.is-success .director-notification-icon {
+  color: rgb(var(--director-positive-rgb, 104 206 126));
+}
+
+.director-notification.is-warning {
+  border-color: rgb(var(--director-warning-rgb, 222 170 74) / 0.42);
+}
+
+.director-notification.is-warning .director-notification-icon {
+  color: rgb(var(--director-warning-rgb, 222 170 74));
+}
+
+.director-notification.is-error {
+  border-color: rgb(var(--director-danger-rgb, 230 96 96) / 0.5);
+}
+
+.director-notification.is-error .director-notification-icon {
+  color: rgb(var(--director-danger-rgb, 230 96 96));
+}
+
+.director-notification-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.director-notification-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.director-notification-detail {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+.director-notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.director-notification-actions button {
+  padding: 4px 10px;
+  border: 1px solid rgb(var(--border-rgb) / 0.2);
+  border-radius: var(--director-radius-sm, 7px);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-rgb) / 0.6);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.director-notification-actions button:hover {
+  border-color: rgb(var(--border-rgb) / 0.34);
+  background: rgb(var(--surface-hover-rgb));
+}
+
+.director-notification-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: -1px -2px 0 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+}
+
+.director-notification-close:hover {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--border-rgb) / 0.08);
+}

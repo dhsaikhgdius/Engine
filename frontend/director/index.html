@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#faf8f5" />
+    <script>
+      (() => {
+        try {
+          const queryTheme = new URLSearchParams(window.location.search).get("theme");
+          const storedTheme = window.localStorage.getItem("director.ui.theme.v1");
+          const systemTheme = window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+          const theme =
+            queryTheme === "light" || queryTheme === "dark"
+              ? queryTheme
+              : storedTheme === "light" || storedTheme === "dark"
+                ? storedTheme
+                : systemTheme;
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.classList.toggle("dark", theme === "dark");
+          document.documentElement.style.colorScheme = theme;
+        } catch {
+          document.documentElement.dataset.theme = "dark";
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+    <meta
+      name="description"
+      content="Comprehensive agent-native 3D Director with MCP, HTTP, CLI, timeline, storyboard, trajectories, assets, and browser controls."
+    />
+    <title>Director — Agent-native 3D Production Desk</title>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+        background: #08090d;
+      }
+      html[data-theme="light"],
+      html[data-theme="light"] body,
+      html[data-theme="light"] #root {
+        background: #eef0f3;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

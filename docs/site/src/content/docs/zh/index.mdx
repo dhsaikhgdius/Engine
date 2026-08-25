@@ -1,0 +1,34 @@
+---
+title: Director
+description: 面向 Agent 的 3D 制片台文档，涵盖场景、相机、动画、管线与可验证的 AI 创作。
+template: splash
+hero:
+  title: Director
+  tagline: 面向 Agent 的 3D 制片台。人在浏览器里导演；Agent 通过类型化工具检查并修改同一个项目。
+  actions:
+    - text: 快速开始
+      link: /zh/getting-started/
+      variant: primary
+    - text: 安装与运行
+      link: /zh/getting-started/install/
+      variant: secondary
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+Director 把场景、相机、动画和交付放在同一份项目里。先完成一个可验证镜头，再按编辑器、Agent 或管线文档往下读。
+
+<CardGrid stagger>
+  <Card title="安装" icon="rocket">
+    [安装并运行](/zh/getting-started/install/) 本地 UI 与网关。
+  </Card>
+  <Card title="快速上手" icon="puzzle">
+    在编辑器或 CLI 里搭出[第一个场景](/zh/getting-started/quick-start/)。
+  </Card>
+  <Card title="3D 编辑器" icon="laptop">
+    从[编辑器概览](/zh/editor/)看片场、相机和 Canvas。
+  </Card>
+  <Card title="Agent 控制" icon="document">
+    通过 [MCP、HTTP 或工作台](/zh/agents/) 接入 Agent。
+  </Card>
+</CardGrid>

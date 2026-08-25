@@ -1,0 +1,169 @@
+{
+  "placementModes": {
+    "auto": true,
+    "grounded": true,
+    "supported": true,
+    "attached": true,
+    "suspended": true,
+    "floating": true
+  },
+  "objectKinds": {
+    "character": true,
+    "scene": true,
+    "prop": true,
+    "camera": true,
+    "panorama": true
+  },
+  "assetKinds": {
+    "character": true,
+    "scene": true,
+    "prop": true,
+    "panorama": true
+  },
+  "assetSourceTypes": {
+    "model": true,
+    "image": true
+  },
+  "assetSources": {
+    "local": true,
+    "library": true,
+    "remote": true,
+    "generated": true
+  },
+  "lightTypes": {
+    "ambient": "环境光",
+    "hemisphere": "半球光",
+    "directional": "平行光",
+    "point": "点光源",
+    "spot": "聚光灯",
+    "rect-area": "矩形面光"
+  },
+  "materialSides": {
+    "front": "正面",
+    "back": "背面",
+    "double": "双面"
+  },
+  "materialTextureSlots": {
+    "baseColorMapAssetId": "基础色贴图",
+    "normalMapAssetId": "法线贴图",
+    "roughnessMapAssetId": "粗糙度贴图",
+    "metalnessMapAssetId": "金属度贴图",
+    "emissiveMapAssetId": "自发光贴图",
+    "aoMapAssetId": "环境遮蔽贴图",
+    "alphaMapAssetId": "透明度贴图"
+  },
+  "panoramaProjectionModes": {
+    "equirectangular": true,
+    "backdrop": true
+  },
+  "characterRigTypes": {
+    "mannequin": true,
+    "ue4-mannequin": true,
+    "mixamo": true,
+    "vrm": true,
+    "custom-humanoid": true
+  },
+  "characterBodyTypes": {
+    "mannequin": true,
+    "female": true,
+    "broad": true,
+    "muscular": true,
+    "slim": true,
+    "teen": true,
+    "child": true,
+    "chibi": true
+  },
+  "characterSources": {
+    "generic": true,
+    "asset": true
+  },
+  "animationInterpolations": {
+    "step": true,
+    "linear": true,
+    "smooth": true
+  },
+  "geometryPrimitives": {
+    "box": "立方体",
+    "sphere": "球体",
+    "cylinder": "圆柱体",
+    "torus": "环状体",
+    "cone": "圆锥",
+    "pyramid": "棱锥"
+  },
+  "trajectoryPresets": {
+    "line": "直线路径",
+    "circle": "圆形路径",
+    "rectangle": "矩形路径",
+    "custom": "自由绘制"
+  },
+  "trajectoryMotions": {
+    "none": true,
+    "slow-walk": true,
+    "walk": true,
+    "jog": true,
+    "sprint": true,
+    "run": true
+  },
+  "trajectorySources": {
+    "manual": true,
+    "preset": true,
+    "assistant": true,
+    "mcp": true
+  },
+  "characterIkEffectors": {
+    "leftHand": true,
+    "rightHand": true,
+    "leftFoot": true,
+    "rightFoot": true
+  },
+  "characterMotionLoops": {
+    "once": true,
+    "repeat": true,
+    "ping-pong": true
+  },
+  "characterRootMotionModes": {
+    "in-place": true,
+    "authored": true
+  },
+  "cameraSensorFormats": {
+    "super16": true,
+    "super35": true,
+    "fullFrame": true,
+    "imax65": true
+  },
+  "cameraHandheldShakes": {
+    "off": true,
+    "subtle": true,
+    "medium": true,
+    "strong": true
+  },
+  "cameraTargetModes": {
+    "manual": true,
+    "object": true
+  },
+  "referenceKinds": {
+    "prompt": "提示词",
+    "asset3d": "3D 资产",
+    "image": "图片",
+    "texture": "纹理",
+    "video": "视频",
+    "action": "动作",
+    "skeleton": "骨骼"
+  },
+  "storyboardShotSizes": {
+    "wide": "远景",
+    "full": "全景",
+    "medium": "中景",
+    "close-up": "近景",
+    "insert": "特写"
+  },
+  "storyboardMovements": {
+    "static": "固定机位",
+    "pan": "摇镜",
+    "tilt": "俯仰",
+    "push-in": "推进",
+    "pull-out": "拉远",
+    "dolly": "跟拍",
+    "arc": "环绕"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "stage_read": "stage",
+  "stage_scene": "stage",
+  "stage_object": "stage",
+  "stage_camera": "stage",
+  "stage_show": "stage",
+  "director_workbench": "targeted",
+  "director_creative": "targeted",
+  "stage_video": "external",
+  "blender_native": "external"
+}

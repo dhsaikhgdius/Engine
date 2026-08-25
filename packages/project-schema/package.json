@@ -1,0 +1,28 @@
+{
+  "name": "@director/project-schema",
+  "version": "0.3.1",
+  "private": true,
+  "type": "module",
+  "description": "Director project schema — shared Zod schemas and types for DirectorProject, camera geometry, poses, and production data",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./project": "./src/directorProject.ts",
+    "./project-schema": "./src/directorProjectSchema.ts",
+    "./project-revision": "./src/directorProjectRevision.ts",
+    "./camera-geometry": "./src/cameraGeometry.ts",
+    "./production": "./src/directorProduction.ts",
+    "./pose-schema": "./src/poseSchema.ts",
+    "./palette": "./src/directorPrevizPalette.ts",
+    "./primitive-geometry": "./src/primitiveGeometry.ts",
+    "./body-anchors": "./src/characterBodyAnchors.ts",
+    "./lighting": "./src/directorLighting.ts",
+    "./animation-recipes": "./src/animationRecipes.ts"
+  },
+  "dependencies": {
+    "@director/protocol": "*",
+    "three": "*",
+    "zod": "^4.4.3"
+  }
+}

@@ -1,0 +1,42 @@
+[
+  {
+    "kind": "character",
+    "title": "角色设计",
+    "collapsed": false,
+    "x": 80,
+    "y": 72,
+    "width": 460,
+    "height": 680,
+    "accent": "#8b7cf6"
+  },
+  {
+    "kind": "scene",
+    "title": "场景设定",
+    "collapsed": false,
+    "x": 580,
+    "y": 72,
+    "width": 460,
+    "height": 680,
+    "accent": "#4db8a8"
+  },
+  {
+    "kind": "generation",
+    "title": "生成与迭代",
+    "collapsed": false,
+    "x": 1080,
+    "y": 72,
+    "width": 460,
+    "height": 680,
+    "accent": "#e86b8a"
+  },
+  {
+    "kind": "final",
+    "title": "最终交付",
+    "collapsed": false,
+    "x": 1580,
+    "y": 72,
+    "width": 460,
+    "height": 680,
+    "accent": "#d4a054"
+  }
+]

@@ -1,0 +1,30 @@
+{
+  "name": "@director/model-provider",
+  "version": "0.3.1",
+  "private": true,
+  "type": "module",
+  "description": "Director unified model provider — pluggable LLM providers (DeepSeek, OpenAI, Claude, Gemini, Qwen, Ollama) with a single interface",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./registry": "./src/registry.ts",
+    "./builtinProviders": "./src/builtinProviders.ts",
+    "./runtime": "./src/runtime/index.ts",
+    "./runtime/modelDriver": "./src/runtime/modelDriver.ts",
+    "./runtime/modelDriverFactory": "./src/runtime/modelDriverFactory.ts",
+    "./runtime/http": "./src/runtime/http.ts",
+    "./runtime/openAiChatDriver": "./src/runtime/openAiChatDriver.ts",
+    "./runtime/anthropicMessagesDriver": "./src/runtime/anthropicMessagesDriver.ts",
+    "./providers/deepseek": "./src/providers/deepseek.ts",
+    "./providers/openai": "./src/providers/openai.ts",
+    "./providers/anthropic": "./src/providers/anthropic.ts",
+    "./providers/gemini": "./src/providers/gemini.ts",
+    "./providers/qwen": "./src/providers/qwen.ts",
+    "./providers/ollama": "./src/providers/ollama.ts"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

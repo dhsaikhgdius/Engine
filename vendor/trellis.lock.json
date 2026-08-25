@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "trellis",
+  "displayName": "Microsoft TRELLIS",
+  "repository": "https://github.com/microsoft/TRELLIS.git",
+  "commit": "442aa1e1afb9014e80681d3bf604e8d728a86ee7",
+  "checkoutDirectory": "vendor/trellis",
+  "setupCommand": "npm run setup:trellis",
+  "sourceDirEnv": "DIRECTOR_TRELLIS_SOURCE_DIR",
+  "submoduleRecursive": true,
+  "license": {
+    "name": "MIT License",
+    "path": "LICENSE",
+    "gitBlobSha": "9e841e7a26e4eb057b24511e7b92d42b257a80e5",
+    "url": "https://github.com/microsoft/TRELLIS/blob/442aa1e1afb9014e80681d3bf604e8d728a86ee7/LICENSE"
+  },
+  "requiredPaths": ["LICENSE", "trellis", "example.py"]
+}

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="保温瓶">
+  <rect width="320" height="220" rx="18" fill="#111a2b"/>
+  <circle cx="160" cy="106" r="88" fill="#65c7b0" opacity=".14"/>
+  <g fill="#65c7b0" stroke="#65c7b0" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M126 52h68v112h-68zM140 34h40v18h-40z"/><path d="M194 76q38 4 32 44t-32 24"/></g>
+  <style>.cut{fill:#111a2b;stroke:none} text{font:600 18px system-ui,sans-serif}</style>
+  <text x="160" y="204" text-anchor="middle" fill="#ecf4ff">保温瓶</text>
+</svg>

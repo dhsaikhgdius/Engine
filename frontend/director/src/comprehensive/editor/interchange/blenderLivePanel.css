@@ -1,0 +1,907 @@
+/*
+ * Blender live modeling panel — self-contained sidebar layout.
+ * Matches the right-inspector scale: 16px gutter, 12px labels, 11px / 600, 32px fields.
+ */
+
+.blender-live-panel.is-sidebar {
+  --blender-gutter: 16px;
+  --blender-field-height: 32px;
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 12px var(--blender-gutter) 24px;
+  overflow-x: hidden;
+  border: 0;
+  border-radius: 0;
+  color: rgb(var(--text-rgb));
+  background: transparent;
+  font-family:
+    "SF Pro Text",
+    "PingFang SC",
+    "Helvetica Neue",
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
+  font-synthesis: none;
+}
+
+.blender-live-panel.is-sidebar dl,
+.blender-live-panel.is-sidebar dt,
+.blender-live-panel.is-sidebar dd {
+  margin: 0;
+}
+
+.blender-live-panel.is-sidebar label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.blender-live-panel.is-sidebar input:not([type="checkbox"]):not([type="color"]),
+.blender-live-panel.is-sidebar select {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--blender-field-height);
+  height: var(--blender-field-height);
+  box-sizing: border-box;
+}
+
+.blender-live-panel.is-sidebar .blender-live-tool-tabs,
+.blender-live-panel.is-sidebar .blender-mesh-tabs,
+.blender-live-panel.is-sidebar .blender-mesh-segments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid rgb(var(--border-rgb) / 0.08);
+  border-radius: 10px;
+  background: rgb(var(--field-rgb) / 0.56);
+}
+
+.blender-live-panel.is-sidebar .blender-live-tool-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.blender-live-panel.is-sidebar .blender-live-tool-tabs button,
+.blender-live-panel.is-sidebar .blender-mesh-tabs button,
+.blender-live-panel.is-sidebar .blender-mesh-segments button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 30px;
+  border: 0;
+  border-radius: 8px;
+  padding: 4px 6px;
+  color: rgb(var(--text-dim-rgb));
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  white-space: nowrap;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.blender-live-panel.is-sidebar .blender-live-tool-tabs button:hover,
+.blender-live-panel.is-sidebar .blender-mesh-tabs button:hover,
+.blender-live-panel.is-sidebar .blender-mesh-segments button:hover:not(:disabled) {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.52);
+}
+
+.blender-live-panel.is-sidebar .blender-live-tool-tabs button[aria-selected="true"],
+.blender-live-panel.is-sidebar .blender-mesh-tabs button[aria-selected="true"],
+.blender-live-panel.is-sidebar .blender-mesh-segments button[aria-pressed="true"] {
+  border: 0;
+  color: rgb(var(--text-rgb));
+  font-weight: 600;
+  background: rgb(var(--panel-rgb));
+  box-shadow: none;
+}
+
+.blender-live-panel.is-sidebar .blender-live-tool-tabs button:active,
+.blender-live-panel.is-sidebar .blender-mesh-tabs button:active,
+.blender-live-panel.is-sidebar .blender-mesh-segments button:active:not(:disabled) {
+  transform: none;
+}
+
+.blender-live-panel.is-sidebar .blender-live-tabpanel,
+.blender-live-panel.is-sidebar .blender-create-panel,
+.blender-live-panel.is-sidebar .blender-geometry-editor,
+.blender-live-panel.is-sidebar .blender-mesh-edit-tools {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-editor {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-editor-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-editor-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-editor-heading strong {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgb(var(--text-dim-rgb));
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-editor-heading small {
+  overflow: hidden;
+  color: rgb(var(--text-rgb));
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-link {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 46%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-link.is-linked {
+  color: rgb(var(--text-rgb));
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-link code {
+  overflow: hidden;
+  max-width: 100%;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-picker {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-facts > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-facts dt {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-facts dd {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-picker select,
+.blender-live-panel.is-sidebar .blender-mesh-operations input,
+.blender-live-panel.is-sidebar .blender-material-editor input:not([type="color"]),
+.blender-live-panel.is-sidebar .blender-material-editor select,
+.blender-live-panel.is-sidebar .blender-uv-editor input,
+.blender-live-panel.is-sidebar .blender-live-fields input,
+.blender-live-panel.is-sidebar .blender-live-openings select,
+.blender-live-panel.is-sidebar .blender-material-nodes input:not([type="checkbox"]),
+.blender-live-panel.is-sidebar .blender-material-nodes select {
+  min-height: var(--blender-field-height);
+  border: 1px solid rgb(var(--border-rgb) / 0.16);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: rgb(var(--field-rgb));
+  font-size: 11px;
+  font-weight: 600;
+  outline: none;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-picker select:focus-visible,
+.blender-live-panel.is-sidebar .blender-mesh-operations input:focus-visible,
+.blender-live-panel.is-sidebar .blender-material-editor input:not([type="color"]):focus-visible,
+.blender-live-panel.is-sidebar .blender-material-editor select:focus-visible,
+.blender-live-panel.is-sidebar .blender-uv-editor input:focus-visible,
+.blender-live-panel.is-sidebar .blender-live-fields input:focus-visible,
+.blender-live-panel.is-sidebar .blender-live-openings select:focus-visible,
+.blender-live-panel.is-sidebar .blender-material-nodes input:not([type="checkbox"]):focus-visible,
+.blender-live-panel.is-sidebar .blender-material-nodes select:focus-visible {
+  border-color: rgb(var(--accent-rgb) / 0.48);
+  background: rgb(var(--field-rgb));
+  box-shadow: 0 0 0 2px rgb(var(--accent-rgb) / 0.1);
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-mode-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-selection-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-mode-row > small,
+.blender-live-panel.is-sidebar .blender-mesh-selection-row > small {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-selection-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-operations {
+  display: grid;
+  gap: 8px;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-operations > div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-operations > div > strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-mode-hint {
+  margin: 0;
+  padding: 2px 0;
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.blender-live-panel.is-sidebar .blender-mesh-receipt {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.blender-live-panel.is-sidebar .blender-tool-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.blender-live-panel.is-sidebar .blender-tool-section + .blender-tool-section {
+  padding-top: 12px;
+  border-top: 1px solid rgb(var(--border-rgb) / 0.1);
+}
+
+.blender-live-panel.is-sidebar .blender-tool-section-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-tool-section-heading strong {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-tool-section-heading small {
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.blender-live-panel.is-sidebar .blender-live-fields,
+.blender-live-panel.is-sidebar .blender-live-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.blender-live-panel.is-sidebar .blender-live-presets button,
+.blender-live-panel.is-sidebar .blender-live-actions button,
+.blender-live-panel.is-sidebar .blender-live-openings button,
+.blender-live-panel.is-sidebar .blender-mesh-selection-actions button,
+.blender-live-panel.is-sidebar .blender-mesh-operations > div > button,
+.blender-live-panel.is-sidebar .blender-native-editor-apply,
+.blender-live-panel.is-sidebar .blender-material-nodes button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--blender-field-height);
+  border: 1px solid rgb(var(--border-rgb) / 0.16);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--field-rgb));
+  font-size: 11px;
+  font-weight: 600;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.blender-live-panel.is-sidebar .blender-live-presets button:hover:not(:disabled),
+.blender-live-panel.is-sidebar .blender-live-actions button:hover:not(:disabled),
+.blender-live-panel.is-sidebar .blender-live-openings button:hover:not(:disabled),
+.blender-live-panel.is-sidebar .blender-mesh-selection-actions button:hover:not(:disabled),
+.blender-live-panel.is-sidebar .blender-mesh-operations > div > button:hover:not(:disabled),
+.blender-live-panel.is-sidebar .blender-material-nodes button:hover:not(:disabled) {
+  border-color: rgb(var(--border-rgb) / 0.28);
+  background: rgb(var(--surface-hover-rgb) / 0.55);
+}
+
+.blender-live-panel.is-sidebar .blender-live-presets button:active:not(:disabled),
+.blender-live-panel.is-sidebar .blender-live-actions button:active:not(:disabled),
+.blender-live-panel.is-sidebar .blender-live-openings button:active:not(:disabled),
+.blender-live-panel.is-sidebar .blender-mesh-selection-actions button:active:not(:disabled),
+.blender-live-panel.is-sidebar .blender-mesh-operations > div > button:active:not(:disabled),
+.blender-live-panel.is-sidebar .blender-material-nodes button:active:not(:disabled) {
+  transform: none;
+}
+
+.blender-live-panel.is-sidebar .blender-live-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.blender-live-panel.is-sidebar .blender-live-actions > button:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.blender-live-panel.is-sidebar .blender-live-openings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.blender-live-panel.is-sidebar .blender-live-openings > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
+}
+
+.blender-live-panel.is-sidebar .blender-material-editor,
+.blender-live-panel.is-sidebar .blender-uv-editor {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-native-editor-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.blender-live-panel.is-sidebar .blender-native-editor-summary small {
+  color: rgb(var(--text-dim-rgb));
+}
+
+.blender-live-panel.is-sidebar .blender-material-parameters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.blender-live-panel.is-sidebar .blender-material-color {
+  grid-column: 1 / -1;
+}
+
+.blender-live-panel.is-sidebar .blender-material-color input[type="color"] {
+  width: 100%;
+  height: var(--blender-field-height);
+  padding: 3px 4px;
+  border: 1px solid rgb(var(--border-rgb) / 0.16);
+  border-radius: 8px;
+  background: rgb(var(--field-rgb));
+}
+
+.blender-live-panel.is-sidebar .blender-material-scope {
+  display: grid;
+  gap: 8px;
+}
+
+.blender-live-panel.is-sidebar .blender-uv-replace {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.blender-live-panel.is-sidebar .blender-uv-replace input {
+  width: auto;
+  min-height: 0;
+  height: auto;
+}
+
+.blender-live-panel.is-sidebar .blender-uv-warning {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.blender-live-panel.is-sidebar .blender-material-nodes {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-material-nodes > summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.blender-live-panel.is-sidebar .blender-material-nodes > summary::-webkit-details-marker {
+  display: none;
+}
+
+.blender-live-panel.is-sidebar .blender-material-nodes > summary span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.blender-live-panel.is-sidebar .blender-material-nodes-body,
+.blender-live-panel.is-sidebar .blender-node-add,
+.blender-live-panel.is-sidebar .blender-node-sockets,
+.blender-live-panel.is-sidebar .blender-node-connect,
+.blender-live-panel.is-sidebar .blender-node-links {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-node-focus {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.blender-live-panel.is-sidebar .blender-node-focus button {
+  width: auto;
+}
+
+.blender-live-panel.is-sidebar .blender-node-sockets > header {
+  display: grid;
+  gap: 2px;
+}
+
+.blender-live-panel.is-sidebar .blender-node-socket-row,
+.blender-live-panel.is-sidebar .blender-node-links > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-node-socket-value {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.blender-live-panel.is-sidebar .blender-node-socket-vector {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
+  gap: 4px;
+}
+
+.blender-live-panel.is-sidebar .blender-node-socket-boolean {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.blender-live-panel.is-sidebar .blender-node-connect > div {
+  display: grid;
+  gap: 6px;
+}
+
+.blender-live-panel.is-sidebar .blender-node-output-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 22px;
+  padding: 0 0 10px;
+  overflow: visible;
+  border: 0;
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.12);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status[data-state="connected"],
+.blender-live-panel.is-sidebar .blender-live-status[data-state="busy"] {
+  border-bottom-color: rgb(var(--border-rgb) / 0.12);
+  background: transparent;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(var(--text-muted-rgb) / 0.55);
+}
+
+.blender-live-panel.is-sidebar .blender-live-status[data-state="connected"] .blender-live-status-dot {
+  background: rgb(var(--director-positive-rgb, 52 199 89));
+  box-shadow: none;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status[data-state="busy"] .blender-live-status-dot {
+  background: rgb(var(--director-warning-rgb, 222 170 74));
+  box-shadow: none;
+  animation: blender-live-pulse 1.2s ease-in-out infinite;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status-copy strong {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status-copy small {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status-refresh {
+  display: grid;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  line-height: 0;
+  color: rgb(var(--text-dim-rgb));
+  background: transparent;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status-refresh svg {
+  display: block;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status-refresh:hover:not(:disabled) {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.55);
+}
+
+.blender-live-panel.is-sidebar .blender-live-status-refresh:active:not(:disabled) {
+  transform: none;
+}
+
+.blender-live-panel.is-sidebar .blender-live-status-refresh:disabled {
+  opacity: 0.55;
+}
+
+.blender-live-spin {
+  animation: blender-live-spin 0.8s linear infinite;
+}
+
+@keyframes blender-live-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes blender-live-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blender-live-spin,
+  .blender-live-panel.is-sidebar .blender-live-status[data-state="busy"] .blender-live-status-dot {
+    animation: none;
+  }
+}
+
+.blender-live-empty {
+  display: grid;
+  justify-items: stretch;
+  gap: 12px;
+  padding: 4px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.blender-live-empty.is-syncing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 0 4px;
+}
+
+.blender-live-empty-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+}
+
+.blender-live-empty-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.blender-live-empty-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.blender-live-empty-copy small {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.blender-live-launch {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+
+.blender-live-launch > span {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.blender-live-launch-command {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.blender-live-launch-command code {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 30px;
+  overflow-x: auto;
+  padding: 0 10px;
+  border: 1px solid rgb(var(--border-rgb) / 0.16);
+  border-radius: 8px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--field-rgb));
+  font-size: 11px;
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.blender-live-launch-command button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgb(var(--border-rgb) / 0.12);
+  border-radius: 8px;
+  color: rgb(var(--text-dim-rgb));
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.blender-live-launch-command button:hover {
+  border-color: rgb(var(--border-rgb) / 0.24);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.55);
+}
+
+.blender-live-retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--blender-field-height, 32px);
+  margin-top: 0;
+  border: 1px solid rgb(var(--border-rgb) / 0.16);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--field-rgb));
+  font-size: 11px;
+  font-weight: 600;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.blender-live-retry:hover:not(:disabled) {
+  border-color: rgb(var(--border-rgb) / 0.28);
+  background: rgb(var(--surface-hover-rgb) / 0.55);
+}
+
+.blender-live-retry:disabled {
+  opacity: 0.6;
+}
+
+.blender-live-notice {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.blender-live-panel.is-sidebar output.blender-live-notice {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.blender-live-panel.is-sidebar output.blender-live-notice.is-success {
+  color: rgb(var(--director-positive-rgb, 52 199 89));
+  border-color: transparent;
+  background: transparent;
+}
+
+.blender-live-panel.is-sidebar output.blender-live-notice.is-error {
+  color: rgb(224 82 82);
+  border-color: transparent;
+  background: transparent;
+}
+
+.blender-live-panel.is-sidebar.is-object-inspector {
+  gap: 8px;
+  padding: 10px var(--blender-gutter) 12px;
+  border-top: 1px solid rgb(var(--border-rgb) / 0.08);
+}
+
+.blender-live-panel.is-sidebar.is-object-inspector .blender-mesh-tabs {
+  margin-top: 0;
+}
+
+.blender-live-panel.is-sidebar.is-object-inspector .blender-live-notice {
+  margin-top: 0;
+}

@@ -1,0 +1,64 @@
+{
+  "name": "character-animation-and-ik",
+  "description": "Create a grounded character and author pose controls, packaged motion, and IK in one Stage transaction.",
+  "steps": [
+    {
+      "label": "author character performance",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_object",
+            "id": "eval-character",
+            "name": "Eval Character",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": { "position": [0, 0, 3], "rotation": [0, 0, 0], "scale": [1, 1, 1] }
+          },
+          {
+            "action": "set_character_pose_controls",
+            "object_id": "eval-character",
+            "controls": [
+              { "control": "head.yaw", "value": 18 },
+              { "control": "leftElbow.bend", "value": 42 }
+            ]
+          },
+          {
+            "action": "set_character_motion",
+            "object_id": "eval-character",
+            "clip_id": "run",
+            "loop": "repeat",
+            "speed": 1.1,
+            "start_frame": 12
+          },
+          {
+            "action": "set_character_ik",
+            "object_id": "eval-character",
+            "effector": "leftHand",
+            "target": [0.45, 1.25, 3.2],
+            "pole": [0.2, 1, 3.8],
+            "weight": 0.8,
+            "reach_clamp": 0.9
+          }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.project_revision", "result.created.object_ids.0"]
+      }
+    },
+    {
+      "label": "inspect authored character",
+      "tool": "director_workbench",
+      "input": { "op": "inspect", "entity": "object", "id": "eval-character" },
+      "expect": { "success": true, "result_paths": ["result.project_revision"] }
+    },
+    {
+      "label": "observe character projection",
+      "tool": "director_workbench",
+      "input": { "op": "observe", "fields": ["characters"] },
+      "expect": { "success": true, "result_paths": ["result.characters", "result.project_revision"] }
+    }
+  ]
+}

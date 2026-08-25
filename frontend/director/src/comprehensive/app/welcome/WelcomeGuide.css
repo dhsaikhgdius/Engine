@@ -1,0 +1,207 @@
+.welcome-guide-overlay {
+  position: fixed;
+  z-index: 220;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(var(--overlay-rgb) / 0.58);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: welcome-guide-fade-in 180ms var(--director-ease) both;
+}
+
+.welcome-guide-card {
+  display: grid;
+  gap: 16px;
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid rgb(var(--border-rgb) / 0.14);
+  border-radius: var(--director-radius-md);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--director-popover-rgb) / 0.98);
+  box-shadow: var(--ui-shadow-panel);
+  animation: welcome-guide-rise 220ms var(--director-ease) both;
+}
+
+.welcome-guide-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.welcome-guide-header > div {
+  display: grid;
+  gap: 6px;
+}
+
+.welcome-guide-header strong {
+  font-size: 16px;
+  font-weight: 680;
+  letter-spacing: -0.015em;
+}
+
+.welcome-guide-header p {
+  margin: 0;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.welcome-guide-header > button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--director-radius-sm);
+  color: rgb(var(--text-muted-rgb));
+  background: transparent;
+  cursor: pointer;
+}
+
+.welcome-guide-header > button:hover,
+.welcome-guide-header > button:focus-visible {
+  border-color: rgb(var(--border-rgb) / 0.14);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.72);
+}
+
+.welcome-guide-workspaces {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-guide-workspaces li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: var(--director-radius-sm);
+  background: rgb(var(--surface-rgb) / 0.44);
+}
+
+.welcome-guide-workspace-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--director-radius-sm);
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.12);
+}
+
+.welcome-guide-workspaces li > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.welcome-guide-workspaces strong {
+  font-size: 12px;
+  font-weight: 640;
+}
+
+.welcome-guide-workspaces p {
+  margin: 0;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.welcome-guide-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.welcome-guide-docs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid rgb(var(--border-rgb) / 0.14);
+  border-radius: var(--director-radius-sm);
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+  font-weight: 560;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.welcome-guide-docs:hover,
+.welcome-guide-docs:focus-visible {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.72);
+}
+
+.welcome-guide-docs-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(var(--text-dim-rgb));
+  font-size: 10px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+
+.welcome-guide-primary {
+  flex: 0 0 auto;
+  padding: 7px 16px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.5);
+  border-radius: var(--director-radius-sm);
+  color: rgb(var(--director-highlight-rgb));
+  background: rgb(var(--accent-rgb));
+  font-size: 12px;
+  font-weight: 640;
+  cursor: pointer;
+  transition:
+    background-color 140ms var(--director-ease),
+    transform 140ms var(--director-ease);
+}
+
+.welcome-guide-primary:hover,
+.welcome-guide-primary:focus-visible {
+  background: rgb(var(--accent-hover-rgb));
+}
+
+.welcome-guide-primary:active {
+  transform: translateY(1px);
+}
+
+@keyframes welcome-guide-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes welcome-guide-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-guide-overlay,
+  .welcome-guide-card {
+    animation: none;
+  }
+}

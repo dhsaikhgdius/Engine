@@ -1,0 +1,57 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "name": "External editorial fixture",
+  "global_start_time": {
+    "OTIO_SCHEMA": "RationalTime.1",
+    "value": 86400,
+    "rate": 24
+  },
+  "metadata": {},
+  "tracks": {
+    "OTIO_SCHEMA": "Stack.1",
+    "name": "Tracks",
+    "metadata": {},
+    "children": [
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "name": "V1",
+        "kind": "Video",
+        "metadata": {},
+        "children": [
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "name": "Arrival",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": { "OTIO_SCHEMA": "RationalTime.1", "value": 48, "rate": 24 },
+              "duration": { "OTIO_SCHEMA": "RationalTime.1", "value": 24, "rate": 24 }
+            },
+            "media_reference": { "OTIO_SCHEMA": "MissingReference.1", "name": "Offline", "metadata": {} },
+            "metadata": {}
+          },
+          {
+            "OTIO_SCHEMA": "Gap.1",
+            "name": "Hold",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": { "OTIO_SCHEMA": "RationalTime.1", "value": 0, "rate": 24 },
+              "duration": { "OTIO_SCHEMA": "RationalTime.1", "value": 12, "rate": 24 }
+            },
+            "metadata": {}
+          },
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "name": "Departure",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": { "OTIO_SCHEMA": "RationalTime.1", "value": 0, "rate": 24 },
+              "duration": { "OTIO_SCHEMA": "RationalTime.1", "value": 36, "rate": 24 }
+            },
+            "media_reference": { "OTIO_SCHEMA": "MissingReference.1", "name": "Offline", "metadata": {} },
+            "metadata": {}
+          }
+        ]
+      }
+    ]
+  }
+}

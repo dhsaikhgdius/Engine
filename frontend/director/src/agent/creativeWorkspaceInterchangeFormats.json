@@ -1,0 +1,65 @@
+[
+  {
+    "id": "otio",
+    "workspaces": ["stage", "video"],
+    "payload_encoding": "utf8",
+    "mime_type": "application/vnd.otio+json",
+    "extensions": [".otio"]
+  },
+  {
+    "id": "otioz",
+    "workspaces": ["stage", "video"],
+    "payload_encoding": "base64",
+    "mime_type": "application/zip",
+    "extensions": [".otioz"]
+  },
+  {
+    "id": "fountain",
+    "workspaces": ["stage"],
+    "payload_encoding": "utf8",
+    "mime_type": "text/plain;charset=utf-8",
+    "extensions": [".fountain"]
+  },
+  {
+    "id": "gltf",
+    "workspaces": ["stage"],
+    "payload_encoding": "utf8",
+    "mime_type": "model/gltf+json",
+    "extensions": [".gltf"]
+  },
+  {
+    "id": "glb",
+    "workspaces": ["stage"],
+    "payload_encoding": "base64",
+    "mime_type": "model/gltf-binary",
+    "extensions": [".glb"]
+  },
+  {
+    "id": "usd",
+    "workspaces": ["stage"],
+    "payload_encoding": "utf8",
+    "mime_type": "model/vnd.usda",
+    "extensions": [".usd", ".usda"]
+  },
+  {
+    "id": "usdz",
+    "workspaces": ["stage"],
+    "payload_encoding": "base64",
+    "mime_type": "model/vnd.usdz+zip",
+    "extensions": [".usdz"]
+  },
+  {
+    "id": "obj",
+    "workspaces": ["stage"],
+    "payload_encoding": "base64",
+    "mime_type": "application/zip",
+    "extensions": [".zip"]
+  },
+  {
+    "id": "stl",
+    "workspaces": ["stage"],
+    "payload_encoding": "base64",
+    "mime_type": "application/zip",
+    "extensions": [".zip"]
+  }
+]

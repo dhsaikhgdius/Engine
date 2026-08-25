@@ -1,0 +1,13 @@
+---
+description: Director repository guide and 3D workbench skill entry point
+alwaysApply: true
+---
+
+<!-- Generated adapter. Edit AGENTS.md and `.claude/skills/director-workbench/`, then run `npm run sync:skills`. -->
+
+Read `AGENTS.md` at the repository root for the repository map, commands, and conventions.
+
+To control the live Director workbench (3D Stage, Canvas, Video Editor, Gallery), follow
+`.claude/skills/director-workbench/SKILL.md`. The Director MCP server (`director-workbench`)
+is configured in `.cursor/mcp.json` and exposes `director_workbench`, `director_creative`, and
+`director_dcc`. Never automate the UI by screen coordinates when a semantic operation exists.

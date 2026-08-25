@@ -1,0 +1,18 @@
+{
+  "name": "video-and-native-capabilities",
+  "description": "Verify that the Video provider registry and Blender native kernel status are reachable through public Agent tools.",
+  "steps": [
+    {
+      "label": "discover video providers",
+      "tool": "stage_video",
+      "input": { "op": "capabilities" },
+      "expect": { "success": true, "result_paths": ["result.providers"] }
+    },
+    {
+      "label": "read native kernel status",
+      "tool": "blender_native",
+      "input": { "op": "status" },
+      "expect": { "success": true, "result_paths": ["result.available", "result.contract"] }
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "heroLocomotion": {
+    "walkSpeed": 6.6,
+    "runSpeed": 12.8,
+    "acceleration": 18,
+    "deceleration": 22,
+    "runBlendThreshold": 9.2,
+    "walkBlendThreshold": 0.55,
+    "colliderRadius": 0.62
+  },
+  "followCamera": {
+    "followDistance": 18,
+    "followHeight": 8,
+    "followSmoothing": 8,
+    "targetLead": 0.8,
+    "lookHeight": 3.4,
+    "eyeHeight": 5.6,
+    "minDistance": 0.85,
+    "maxDistance": 90,
+    "pointerSensitivity": 0.0045,
+    "verticalDeadband": 0.18,
+    "verticalSnapDistance": 2.8,
+    "verticalWalkLambda": 12,
+    "verticalIdleLambda": 8,
+    "occlusionPadding": 1.15,
+    "occlusionMinDistance": 2.4,
+    "occlusionTargetClearanceMin": 2.25,
+    "occlusionTargetClearanceRatio": 0.38,
+    "groundClearance": 0.62,
+    "groundSoftness": 0.85,
+    "zoomStep": 0.65,
+    "hidePlayerDistanceRatio": 0.125,
+    "firstPersonForwardOffset": 1.05
+  }
+}

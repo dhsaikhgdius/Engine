@@ -1,0 +1,26 @@
+{
+  "statuses": {
+    "queued": true,
+    "running": true,
+    "succeeded": true,
+    "failed": true,
+    "cancelled": true,
+    "outcome_unknown": true,
+    "reconciling": true
+  },
+  "kinds": {
+    "canvas.image": true,
+    "canvas.video": true,
+    "image.generate": true,
+    "video.generate": true,
+    "model.generate": true,
+    "audio.generate": true,
+    "media.proxy": true,
+    "media.transcribe": true,
+    "media.transcode": true,
+    "scene.reconstruct": true,
+    "dcc.export": true,
+    "dcc.import": true,
+    "episode.package": true
+  }
+}

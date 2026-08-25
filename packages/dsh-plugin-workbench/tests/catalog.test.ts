@@ -1,0 +1,117 @@
+// @vitest-environment node
+
+import { describe, expect, it } from "vitest";
+import { directorWorkbenchOperationSchema } from "@director/agent-engine";
+import {
+  DIRECTOR_AGENT_WIRE_SCHEMAS,
+  DIRECTOR_WORKBENCH_PLUGIN_TOOLS,
+  isDirectorWorkbenchPluginTool,
+} from "../src/catalog";
+
+function pluginTool(name: (typeof DIRECTOR_WORKBENCH_PLUGIN_TOOLS)[number]["name"]) {
+  const tool = DIRECTOR_WORKBENCH_PLUGIN_TOOLS.find((candidate) => candidate.name === name);
+  if (!tool) throw new Error(`Missing Director plugin tool ${name}`);
+  return tool;
+}
+
+describe("Director DSH workbench plugin catalog", () => {
+  it("owns only Stage, Canvas/Video, generation, and Blender tools", () => {
+    expect(DIRECTOR_WORKBENCH_PLUGIN_TOOLS.map((tool) => tool.name)).toEqual([
+      "director_creative",
+      "director_workbench",
+      "stage_video",
+      "blender_native",
+    ]);
+    expect(isDirectorWorkbenchPluginTool("read")).toBe(false);
+    expect(isDirectorWorkbenchPluginTool("director_workbench")).toBe(true);
+  });
+
+  it("keeps compact discoverable envelopes for each domain tool", () => {
+    const schema = pluginTool("director_workbench").inputSchema as {
+      properties?: { op?: { enum?: unknown[] } };
+      additionalProperties?: unknown;
+    };
+    expect(schema.properties?.op?.enum).toEqual(expect.arrayContaining(["describe", "observe", "author", "capture"]));
+    expect(schema.additionalProperties).not.toBe(false);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({ op: "observe", misspelled_field: true }).success,
+    ).toBe(true);
+    expect(directorWorkbenchOperationSchema.safeParse({ op: "observe", misspelled_field: true }).success).toBe(false);
+  });
+
+  it("projects the compact contract into the JSON Schema subset enforced by DSH", () => {
+    const schema = pluginTool("director_workbench").dshParameters as {
+      properties?: { op?: { enum?: unknown[] }; catalog?: { enum?: unknown[] }; spatial?: unknown };
+      required?: string[];
+      additionalProperties?: unknown;
+    };
+    expect(schema.properties?.op?.enum).toContain("catalog");
+    expect(schema.properties?.catalog?.enum).toEqual([
+      "assets",
+      "character_assets",
+      "character_motions",
+      "project_assets",
+    ]);
+    expect(schema.properties?.spatial).toBeDefined();
+    expect(schema.required).toContain("op");
+    expect(schema.additionalProperties).toBe(true);
+    expect(JSON.stringify(schema)).not.toMatch(/\"\$schema\"|\"minLength\"|\"maximum\"|\"prefixItems\"/);
+  });
+
+  it("rejects catalog calls that omit the catalog id before dispatch", () => {
+    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({ op: "catalog" }).success).toBe(false);
+    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({ op: "catalog", catalog: "assets" }).success).toBe(
+      true,
+    );
+  });
+
+  it("exposes creative describe and requires its target before dispatch", () => {
+    const schema = pluginTool("director_creative").dshParameters as {
+      properties?: { op?: { enum?: unknown[] }; target?: unknown };
+    };
+    expect(schema.properties?.op?.enum).toContain("describe");
+    expect(schema.properties?.target).toBeDefined();
+    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.director_creative.safeParse({ op: "describe" }).success).toBe(false);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.director_creative.safeParse({ op: "describe", target: "interchange" }).success,
+    ).toBe(true);
+  });
+
+  it("exposes common author and Blender apply fields on the compact envelope", () => {
+    const workbench = pluginTool("director_workbench").dshParameters as {
+      properties?: { actions?: unknown; fields?: unknown; object_id?: unknown };
+    };
+    const blender = pluginTool("blender_native").dshParameters as {
+      properties?: { operations?: unknown; query?: unknown; assetType?: unknown };
+    };
+    expect(workbench.properties?.actions).toBeDefined();
+    expect(workbench.properties?.fields).toBeDefined();
+    expect(workbench.properties?.object_id).toBeDefined();
+    expect(blender.properties?.operations).toBeDefined();
+    expect(blender.properties?.query).toBeDefined();
+    expect(blender.properties?.assetType).toBeDefined();
+    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({ op: "polyhaven_search", query: "chair" }).success).toBe(
+      true,
+    );
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({
+        op: "capture_render",
+        cameraId: "camera_front",
+        width: 1280,
+        height: 720,
+      }).success,
+    ).toBe(true);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({
+        op: "query",
+        query: "清华",
+      }).success,
+    ).toBe(true);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native.safeParse({
+        op: "apply",
+        operations: [{ op: "polyhaven_import", assetId: "chair" }],
+      }).success,
+    ).toBe(true);
+  });
+});

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="自动取款机">
+  <rect width="320" height="220" rx="18" fill="#111a2b"/>
+  <circle cx="160" cy="106" r="88" fill="#5ba8ff" opacity=".14"/>
+  <g fill="#5ba8ff" stroke="#5ba8ff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><rect x="116" y="42" width="88" height="116" rx="8"/><rect x="132" y="60" width="56" height="38" class="cut"/><path d="M138 119h44M144 132h32"/></g>
+  <style>.cut{fill:#111a2b;stroke:none} text{font:600 18px system-ui,sans-serif}</style>
+  <text x="160" y="204" text-anchor="middle" fill="#ecf4ff">自动取款机</text>
+</svg>

@@ -1,0 +1,313 @@
+{
+  "portalCopy": {
+    "institution": {
+      "en": "OPEN RESEARCH SYSTEM",
+      "zh": "开放研究系统"
+    },
+    "research": {
+      "en": "Research",
+      "zh": "研究"
+    },
+    "overview": {
+      "en": "Overview",
+      "zh": "概览"
+    },
+    "protocol": {
+      "en": "Protocol",
+      "zh": "协议"
+    },
+    "documentation": {
+      "en": "Documentation",
+      "zh": "文档"
+    },
+    "openStudio": {
+      "en": "Open studio",
+      "zh": "打开工作台"
+    },
+    "heroEyebrow": {
+      "en": "RESEARCH PREVIEW · v0.3.1",
+      "zh": "研究预览 · v0.3.1"
+    },
+    "heroTitle": {
+      "en": "An agent-native 3D stage for reproducible production.",
+      "zh": "面向可复现制作的 Agent 原生 3D 片场。"
+    },
+    "heroLead": {
+      "en": "Director connects interactive staging, cameras, animation timelines, and verified agent operations through one inspectable project state.",
+      "zh": "Director 将交互式搭景、相机、动画时间线与可验证的 Agent 操作连接到同一份可检查的项目状态中。"
+    },
+    "readDocs": {
+      "en": "Read the documentation",
+      "zh": "阅读文档"
+    },
+    "inspectProtocol": {
+      "en": "Inspect the protocol",
+      "zh": "查看协议"
+    },
+    "discipline": {
+      "en": "Research discipline",
+      "zh": "研究准则"
+    },
+    "claimOne": {
+      "en": "Every evaluation claim should point to a scene revision, an operation trace, and a reproducible capture.",
+      "zh": "每项评测结论都应对应场景版本、操作轨迹与可复现的画面证据。"
+    },
+    "abstractLabel": {
+      "en": "Abstract",
+      "zh": "摘要"
+    },
+    "abstractTitle": {
+      "en": "A common state for artists, tools, and agents.",
+      "zh": "让创作者、工具与 Agent 共享同一状态。"
+    },
+    "abstractBody": {
+      "en": "Director is a browser-based 3D production workbench. Its editor and its MCP, HTTP, and CLI interfaces operate on the same validated project representation, so a shot can be authored, audited, replayed, and inspected without coordinate-clicking assumptions.",
+      "zh": "Director 是一个浏览器端 3D 制作工作台。编辑器及其 MCP、HTTP 和 CLI 接口操作同一份经过校验的项目表示，因此一个镜头可以在不依赖坐标点击假设的情况下被创作、审计、重放和检查。"
+    },
+    "systemLabel": {
+      "en": "System surface",
+      "zh": "系统界面"
+    },
+    "systemTitle": {
+      "en": "One project, four control surfaces.",
+      "zh": "一个项目，四个控制界面。"
+    },
+    "systemBody": {
+      "en": "Human interaction remains first-class, while coding agents can use structured tools with the same state transitions and validation boundaries.",
+      "zh": "人工交互仍是第一等能力；同时，编程 Agent 可通过结构化工具使用相同的状态迁移与校验边界。"
+    },
+    "evaluationLabel": {
+      "en": "Evaluation protocol",
+      "zh": "评测协议"
+    },
+    "evaluationTitle": {
+      "en": "Measure evidence, not impressions.",
+      "zh": "评估证据，而不是印象。"
+    },
+    "evaluationBody": {
+      "en": "The current release publishes an evaluation protocol rather than a ranked leaderboard. It specifies what can be observed, validated, replayed, and captured for each task family.",
+      "zh": "当前版本发布的是评测协议，而非排名榜单。它规定了每类任务可被观察、校验、重放和捕获的证据。"
+    },
+    "reproducibilityLabel": {
+      "en": "Reproducibility",
+      "zh": "可复现性"
+    },
+    "reproducibilityTitle": {
+      "en": "Run, inspect, replay.",
+      "zh": "运行、检查、重放。"
+    },
+    "reproducibilityBody": {
+      "en": "The source tree includes tests, schema validation, build checks, and a local gateway. The documentation records the exact commands and artifacts expected from a reproducible run.",
+      "zh": "源代码包含测试、Schema 校验、构建检查与本地网关。文档记录可复现实验应使用的准确命令与产物。"
+    },
+    "docsCta": {
+      "en": "Go to documentation",
+      "zh": "进入文档"
+    },
+    "paperLabel": {
+      "en": "Working paper structure",
+      "zh": "工作论文结构"
+    },
+    "paperTitle": {
+      "en": "From a scene specification to reviewable evidence.",
+      "zh": "从场景规范到可审查证据。"
+    },
+    "limitationsLabel": {
+      "en": "Scope & limitations",
+      "zh": "范围与限制"
+    },
+    "limitations": {
+      "en": "This website does not report fabricated benchmark scores. Formal task sets, evaluator identities, statistical methodology, and public result tables remain to be released with a versioned protocol.",
+      "zh": "本网站不报告虚构的基准成绩。正式任务集、评测者信息、统计方法和公开结果表将在带版本号的协议中发布。"
+    },
+    "sourceLabel": {
+      "en": "Source & attribution",
+      "zh": "来源与署名"
+    },
+    "source": {
+      "en": "This portal uses Director’s own code, typography, diagrams, and project-specific text.",
+      "zh": "本门户使用 Director 自己的代码、字体、图表和项目文本。"
+    },
+    "viewNotice": {
+      "en": "View third-party notice",
+      "zh": "查看第三方声明"
+    },
+    "footer": {
+      "en": "Director Research · Agent-native 3D production workbench",
+      "zh": "Director Research · Agent 原生 3D 制作工作台"
+    }
+  },
+  "researchSections": [
+    {
+      "id": "scene-state",
+      "index": "01",
+      "en": "Scene state",
+      "zh": "场景状态",
+      "description": {
+        "en": "Versioned objects, groups, cameras, and environment settings define the visible stage.",
+        "zh": "带版本的对象、分组、相机与环境设定定义可见片场。"
+      },
+      "evidence": {
+        "en": "Scene JSON + validation",
+        "zh": "场景 JSON + 校验"
+      }
+    },
+    {
+      "id": "camera-plan",
+      "index": "02",
+      "en": "Camera plan",
+      "zh": "相机方案",
+      "description": {
+        "en": "Lens, aspect, pose, target, and camera action are explicit parameters rather than implicit viewport state.",
+        "zh": "焦距、画幅、位姿、目标与镜头动作均为明确参数，而非隐式视口状态。"
+      },
+      "evidence": {
+        "en": "Camera inspection + capture",
+        "zh": "相机检查 + 捕获"
+      }
+    },
+    {
+      "id": "temporal-plan",
+      "index": "03",
+      "en": "Temporal plan",
+      "zh": "时间方案",
+      "description": {
+        "en": "Frame-native tracks, keyframes, paths, and clips describe motion as reviewable timeline data.",
+        "zh": "以帧为原生单位的轨道、关键帧、路径和片段把运动描述为可审查的时间线数据。"
+      },
+      "evidence": {
+        "en": "Timeline export + replay",
+        "zh": "时间线导出 + 重放"
+      }
+    },
+    {
+      "id": "agent-trace",
+      "index": "04",
+      "en": "Agent trace",
+      "zh": "Agent 轨迹",
+      "description": {
+        "en": "Structured authoring, audit, correction, and capture operations produce an inspectable execution trail.",
+        "zh": "结构化的创作、审计、修正与捕获操作形成可检查的执行轨迹。"
+      },
+      "evidence": {
+        "en": "Operation trace + audit",
+        "zh": "操作轨迹 + 审计"
+      }
+    }
+  ],
+  "protocolSteps": [
+    {
+      "id": "observe",
+      "en": "Observe",
+      "zh": "观察",
+      "detail": {
+        "en": "Read a compact scene or project view before changing state.",
+        "zh": "在修改状态前读取紧凑的场景或项目视图。"
+      }
+    },
+    {
+      "id": "author",
+      "en": "Author",
+      "zh": "创作",
+      "detail": {
+        "en": "Apply a validated, atomic batch of structured actions.",
+        "zh": "应用一批经校验且原子化的结构化动作。"
+      }
+    },
+    {
+      "id": "audit",
+      "en": "Audit",
+      "zh": "审计",
+      "detail": {
+        "en": "Check structural, spatial, temporal, and camera-space conditions.",
+        "zh": "检查结构、空间、时间与相机空间条件。"
+      }
+    },
+    {
+      "id": "capture",
+      "en": "Capture",
+      "zh": "捕获",
+      "detail": {
+        "en": "Export a revision-bound frame and trace for review or downstream use.",
+        "zh": "导出与版本绑定的画面和轨迹，供审查或下游使用。"
+      }
+    }
+  ],
+  "documentationSections": [
+    {
+      "id": "documentation-overview",
+      "label": {
+        "en": "Overview",
+        "zh": "概览"
+      },
+      "title": {
+        "en": "Director research documentation",
+        "zh": "Director 研究文档"
+      },
+      "body": {
+        "en": "This documentation describes the implementation as it exists in this repository. It separates verified system behavior from future benchmark claims, so external users can reproduce what is actually available today.",
+        "zh": "本文档描述本仓库中实际存在的实现。它将已验证的系统行为与未来基准结论分开，便于外部使用者复现今天真实可用的能力。"
+      }
+    },
+    {
+      "id": "documentation-reproduce",
+      "label": {
+        "en": "Reproduce",
+        "zh": "复现"
+      },
+      "title": {
+        "en": "Local run and checks",
+        "zh": "本地运行与检查"
+      },
+      "body": {
+        "en": "Install dependencies, start the UI and gateway, then run the test and production-build checks. Treat the command output as the first reproducibility artifact.",
+        "zh": "安装依赖，启动 UI 与网关，然后运行测试和生产构建检查。命令输出应被视为第一份可复现性产物。"
+      }
+    },
+    {
+      "id": "documentation-protocol",
+      "label": {
+        "en": "Protocol",
+        "zh": "协议"
+      },
+      "title": {
+        "en": "Evidence-bearing task cycle",
+        "zh": "带证据的任务循环"
+      },
+      "body": {
+        "en": "A task should begin with an observed baseline, execute only declared operations, pass validation, record an audit, and finish with a capture or portable project artifact.",
+        "zh": "一个任务应从已观察的基线开始，只执行已声明的操作，通过校验，记录审计，并以捕获画面或可移植项目产物结束。"
+      }
+    },
+    {
+      "id": "documentation-interfaces",
+      "label": {
+        "en": "Interfaces",
+        "zh": "接口"
+      },
+      "title": {
+        "en": "One state across UI and agents",
+        "zh": "UI 与 Agent 共享的状态"
+      },
+      "body": {
+        "en": "The editor, MCP server, HTTP gateway, CLI, and browser bridge are control surfaces over project data. The stable contract is the validated data and recorded result, not a coordinate-based interaction script.",
+        "zh": "编辑器、MCP 服务、HTTP 网关、CLI 与浏览器桥接均是项目数据的控制界面。稳定契约是已校验的数据与记录结果，而不是基于坐标的交互脚本。"
+      }
+    },
+    {
+      "id": "documentation-limits",
+      "label": {
+        "en": "Limitations",
+        "zh": "限制"
+      },
+      "title": {
+        "en": "What this release does not claim",
+        "zh": "本版本不作出的声明"
+      },
+      "body": {
+        "en": "This release does not claim a peer-reviewed benchmark, cross-model rankings, human preference scores, or generalization results. Those claims require a frozen task set, evaluator protocol, sampled traces, and versioned reporting.",
+        "zh": "本版本不宣称已完成同行评审基准、跨模型排名、人类偏好评分或泛化结果。这些结论需要冻结的任务集、评测者协议、抽样轨迹和带版本的报告。"
+      }
+    }
+  ]
+}

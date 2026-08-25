@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-07-27T19:24:31.302Z",
+  "sourceUrl": "https://flick.art/assets/index-CTWHeRvi.js",
+  "totalSourceEntries": 1426,
+  "localEntries": 1426,
+  "failures": [
+    {
+      "sourceUrl": "https://cdn.flick.art/stage-props/nature/Textures/colormap.png",
+      "error": "https://cdn.flick.art/stage-props/nature/Textures/colormap.png: HTTP 404"
+    }
+  ]
+}

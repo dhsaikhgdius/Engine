@@ -1,0 +1,24 @@
+{
+  "contract": "director-dcc-provider-config-v1",
+  "providers": [
+    {
+      "id": "studio.openusd",
+      "label": "Studio OpenUSD",
+      "category": "dcc",
+      "integration": "exchange-package",
+      "preferredFormat": "usda",
+      "exchangeFormats": ["usda", "glb"],
+      "capabilities": [
+        { "id": "scene", "level": "exchange" },
+        { "id": "camera", "level": "exchange" },
+        { "id": "stable_ids", "level": "exchange" },
+        { "id": "animation", "level": "planned" },
+        { "id": "skeleton", "level": "planned" },
+        { "id": "materials", "level": "planned" },
+        { "id": "roundtrip", "level": "planned" },
+        { "id": "headless", "level": "planned" },
+        { "id": "live_link", "level": "planned" }
+      ]
+    }
+  ]
+}

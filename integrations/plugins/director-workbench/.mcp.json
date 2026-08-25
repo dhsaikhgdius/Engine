@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "director-workbench": {
+      "command": "node",
+      "args": ["./mcp/server.mjs"],
+      "cwd": ".",
+      "env": {
+        "STAGE_GATEWAY_URL": "http://127.0.0.1:8787"
+      }
+    }
+  }
+}

@@ -1,0 +1,301 @@
+---
+interface TreeNode {
+  path: string;
+  description: string;
+  children?: TreeNode[];
+}
+
+interface TreeGroup {
+  id: string;
+  label: string;
+  accent: string;
+  nodes: TreeNode[];
+}
+
+interface Props {
+  locale?: "zh" | "en";
+}
+
+const { locale = "zh" } = Astro.props;
+
+const copy = {
+  zh: {
+    intro: "WorldEngine 是仓库根平台。Director 是前端产品；Gateway 与 Inference 分别拥有清晰、独立的后端运行职责。",
+    groups: [
+      {
+        id: "product",
+        label: "浏览器产品",
+        accent: "#4f8ef7",
+        nodes: [
+          {
+            path: "frontend/director/",
+            description: "Director 浏览器产品",
+            children: [
+              { path: "index.html", description: "Vite 应用入口" },
+              {
+                path: "src/comprehensive/",
+                description: "完整 React 编辑器",
+                children: [
+                  { path: "editor/", description: "R3F 视口、面板、store、时间线和工作区" },
+                  { path: "i18n/", description: "中英文界面字符串" },
+                  { path: "styles/", description: "编辑器主题与组件样式" },
+                ],
+              },
+              { path: "src/agent/", description: "浏览器 Agent UI；纯逻辑 re-export 自 @director/agent-engine" },
+              { path: "src/stage/", description: "Stage 兼容入口；实现在 @director/stage-protocol" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "backend",
+        label: "后端运行时",
+        accent: "#12b886",
+        nodes: [
+          { path: "backend/gateway/", description: "TypeScript 控制面、MCP、路由、provider 与会话" },
+          { path: "vendor/", description: "官方模型源码子模块（LTX-2、Hunyuan3D、TRELLIS、ARDY）" },
+        ],
+      },
+      {
+        id: "contracts",
+        label: "共享契约",
+        accent: "#9c4dcc",
+        nodes: [
+          { path: "packages/protocol/", description: "前后端共享、runtime-neutral 的传输契约" },
+          { path: "packages/agent-engine/", description: "Agent 工作台合约、命令执行、创作与审计" },
+          { path: "packages/project-schema/", description: "DirectorProject 类型与 Zod schema" },
+          { path: "packages/stage-protocol/", description: "StageScene schema、默认场景与道具目录" },
+        ],
+      },
+      {
+        id: "tooling",
+        label: "工具与集成",
+        accent: "#f2a900",
+        nodes: [
+          {
+            path: "tools/",
+            description: "Vite、Vitest、ESLint、TypeScript、PostCSS 配置，以及脚本、Playwright 与评测",
+            children: [
+              { path: "scripts/", description: "CLI、检查、启动器与资产生成工具" },
+              { path: "e2e/", description: "Playwright 端到端测试" },
+              { path: "evals/", description: "Agent 黄金任务评测" },
+            ],
+          },
+          { path: ".agents/skills/", description: "原生 Agent Skill 说明" },
+          { path: ".claude/skills/", description: "Claude Code Skill 说明" },
+          {
+            path: "integrations/plugins/director-workbench/",
+            description: "可移植 MCP 插件与 Agent Skill",
+          },
+          { path: "integrations/", description: "Blender 实时建模内核与文件交换" },
+        ],
+      },
+      {
+        id: "assets",
+        label: "资产与本地状态",
+        accent: "#ff7a45",
+        nodes: [
+          {
+            path: "assets/",
+            description: "schema、manifest、素材库与生成资产",
+            children: [
+              { path: "library/", description: "已跟踪 catalog/notice，加被 ignore、按需恢复的 payload" },
+              { path: "generated/", description: "被 ignore 的可变输出，例如 DCC 导入" },
+            ],
+          },
+          { path: "data/", description: "被 ignore 的本地运行状态；只跟踪 schema" },
+        ],
+      },
+      {
+        id: "research",
+        label: "独立研究",
+        accent: "#e64980",
+        nodes: [
+          {
+            path: "worldgen/",
+            description: "WorldGen 论文的独立复现（Python 研究项目），不属于产品运行时",
+          },
+        ],
+      },
+      {
+        id: "docs",
+        label: "文档",
+        accent: "#666666",
+        nodes: [
+          {
+            path: "docs/site/",
+            description: "Astro Starlight 文档站与源文档",
+            children: [{ path: "src/content/docs/", description: "操作指南与工程记录" }],
+          },
+        ],
+      },
+    ] satisfies TreeGroup[],
+  },
+  en: {
+    intro:
+      "WorldEngine is the repository-root platform. Director is the frontend product; Gateway and Inference are backend owners with separate runtime responsibilities.",
+    groups: [
+      {
+        id: "product",
+        label: "Browser product",
+        accent: "#4f8ef7",
+        nodes: [
+          {
+            path: "frontend/director/",
+            description: "Director browser product",
+            children: [
+              { path: "index.html", description: "Vite application entry" },
+              {
+                path: "src/comprehensive/",
+                description: "Complete React editor",
+                children: [
+                  { path: "editor/", description: "R3F viewport, panels, stores, timeline, and workspaces" },
+                  { path: "i18n/", description: "Chinese/English interface strings" },
+                  { path: "styles/", description: "Editor themes and component styles" },
+                ],
+              },
+              { path: "src/agent/", description: "Browser Agent UI; pure logic re-exported from @director/agent-engine" },
+              { path: "src/stage/", description: "Stage compatibility entry; implementation in @director/stage-protocol" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "backend",
+        label: "Backend runtimes",
+        accent: "#12b886",
+        nodes: [
+          { path: "backend/gateway/", description: "TypeScript control plane, MCP, routes, providers, and sessions" },
+          { path: "vendor/", description: "Official model-source submodules (LTX-2, Hunyuan3D, TRELLIS, ARDY)" },
+        ],
+      },
+      {
+        id: "contracts",
+        label: "Shared contracts",
+        accent: "#9c4dcc",
+        nodes: [
+          { path: "packages/protocol/", description: "Runtime-neutral frontend/backend transport contracts" },
+          { path: "packages/agent-engine/", description: "Agent workbench contracts, command execution, authoring, and audit" },
+          { path: "packages/project-schema/", description: "DirectorProject types and Zod schemas" },
+          { path: "packages/stage-protocol/", description: "StageScene schema, default scene, and prop catalog" },
+        ],
+      },
+      {
+        id: "tooling",
+        label: "Tooling & integrations",
+        accent: "#f2a900",
+        nodes: [
+          {
+            path: "tools/",
+            description: "Vite, Vitest, ESLint, TypeScript, and PostCSS configs plus scripts, Playwright, and evals",
+            children: [
+              { path: "scripts/", description: "CLI, checks, launchers, and asset-generation utilities" },
+              { path: "e2e/", description: "Playwright end-to-end tests" },
+              { path: "evals/", description: "Agent golden-task evals" },
+            ],
+          },
+          { path: ".agents/skills/", description: "Native Agent Skill instructions" },
+          { path: ".claude/skills/", description: "Claude Code native Skill instructions" },
+          {
+            path: "integrations/plugins/director-workbench/",
+            description: "Optional portable MCP plugin package",
+          },
+          { path: "integrations/", description: "Blender live modeling kernel and file interchange" },
+        ],
+      },
+      {
+        id: "assets",
+        label: "Assets & local state",
+        accent: "#ff7a45",
+        nodes: [
+          {
+            path: "assets/",
+            description: "Schemas, manifests, curated libraries, and generated assets",
+            children: [
+              { path: "library/", description: "Tracked catalogs/notices plus ignored, restored payloads" },
+              { path: "generated/", description: "Ignored mutable output such as DCC imports" },
+            ],
+          },
+          { path: "data/", description: "Ignored local runtime state; tracked schemas only" },
+        ],
+      },
+      {
+        id: "research",
+        label: "Standalone research",
+        accent: "#e64980",
+        nodes: [
+          {
+            path: "worldgen/",
+            description: "Standalone WorldGen paper reproduction (Python); not part of the product runtime",
+          },
+        ],
+      },
+      {
+        id: "docs",
+        label: "Documentation",
+        accent: "#666666",
+        nodes: [
+          {
+            path: "docs/site/",
+            description: "Astro Starlight documentation site and source records",
+            children: [{ path: "src/content/docs/", description: "Operator guides and engineering records" }],
+          },
+        ],
+      },
+    ] satisfies TreeGroup[],
+  },
+} as const;
+
+const content = copy[locale];
+const groups = content.groups;
+---
+
+<section class="repo-map" aria-label={locale === "zh" ? "仓库结构" : "Repository structure"}>
+  <p class="repo-map__intro">{content.intro}</p>
+  <div class="repo-map__grid">
+    {
+      groups.map((group) => (
+        <article class="repo-map__group" data-group={group.id} style={`--repo-accent: ${group.accent}`}>
+          <header class="repo-map__group-header">
+            <span class="repo-map__group-dot" aria-hidden="true" />
+            <h3 class="repo-map__group-title">{group.label}</h3>
+          </header>
+          <ul class="repo-map__tree">
+            {group.nodes.map((node) => (
+              <li class="repo-map__node">
+                <div class="repo-map__row">
+                  <code class="repo-map__path">{node.path}</code>
+                  <span class="repo-map__desc">{node.description}</span>
+                </div>
+                {node.children?.length ? (
+                  <ul class="repo-map__tree repo-map__tree--nested">
+                    {node.children.map((child) => (
+                      <li class="repo-map__node">
+                        <div class="repo-map__row">
+                          <code class="repo-map__path">{child.path}</code>
+                          <span class="repo-map__desc">{child.description}</span>
+                        </div>
+                        {child.children?.length ? (
+                          <ul class="repo-map__tree repo-map__tree--nested">
+                            {child.children.map((grandchild) => (
+                              <li class="repo-map__node">
+                                <div class="repo-map__row">
+                                  <code class="repo-map__path">{grandchild.path}</code>
+                                  <span class="repo-map__desc">{grandchild.description}</span>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </article>
+      ))
+    }
+  </div>
+</section>

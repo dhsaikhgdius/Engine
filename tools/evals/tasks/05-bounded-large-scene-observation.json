@@ -1,0 +1,368 @@
+{
+  "name": "bounded-large-scene-observation",
+  "description": "Author a multi-object block of characters and verify bounded spatial and hierarchy observations.",
+  "steps": [
+    {
+      "label": "author city block probes",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_object",
+            "id": "eval-block-01",
+            "name": "Eval Block 01",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                -6,
+                0,
+                -6
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-02",
+            "name": "Eval Block 02",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                -2,
+                0,
+                -6
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-03",
+            "name": "Eval Block 03",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                2,
+                0,
+                -6
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-04",
+            "name": "Eval Block 04",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                6,
+                0,
+                -6
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-05",
+            "name": "Eval Block 05",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                -6,
+                0,
+                -2
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-06",
+            "name": "Eval Block 06",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                -2,
+                0,
+                -2
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-07",
+            "name": "Eval Block 07",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                2,
+                0,
+                -2
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-08",
+            "name": "Eval Block 08",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                6,
+                0,
+                -2
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-09",
+            "name": "Eval Block 09",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                -6,
+                0,
+                2
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-10",
+            "name": "Eval Block 10",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                -2,
+                0,
+                2
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-11",
+            "name": "Eval Block 11",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                2,
+                0,
+                2
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-block-12",
+            "name": "Eval Block 12",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": {
+              "position": [
+                6,
+                0,
+                2
+              ],
+              "rotation": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "body_type": "mannequin"
+          }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.project_revision"
+        ]
+      }
+    },
+    {
+      "label": "query bounded radius",
+      "tool": "director_workbench",
+      "input": {
+        "op": "query_objects",
+        "spatial": {
+          "mode": "radius",
+          "center": [
+            0,
+            0,
+            0
+          ],
+          "radius_m": 20
+        },
+        "include_hidden": false,
+        "max_results": 5
+      },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.objects.0.id",
+          "result.returned_count",
+          "result.truncated",
+          "result.project_revision"
+        ]
+      }
+    },
+    {
+      "label": "observe bounded hierarchy",
+      "tool": "director_workbench",
+      "input": {
+        "op": "observe",
+        "fields": [
+          "objects"
+        ],
+        "object_mode": "hierarchy",
+        "max_objects": 5
+      },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.objects.roots",
+          "result.objects.truncated",
+          "result.project_revision"
+        ]
+      }
+    }
+  ]
+}

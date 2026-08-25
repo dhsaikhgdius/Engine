@@ -1,0 +1,27 @@
+.workspace-loading-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.workspace-loading-spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgb(var(--border-rgb) / 0.14);
+  border-top-color: rgb(var(--accent-rgb));
+  border-radius: 50%;
+  animation: workspace-loading-spin 800ms linear infinite;
+}
+
+@keyframes workspace-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-loading-spinner {
+    animation-duration: 2s;
+  }
+}

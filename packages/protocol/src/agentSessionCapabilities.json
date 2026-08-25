@@ -1,0 +1,29 @@
+{
+  "codex": {
+    "streaming": true,
+    "resume": true,
+    "fork": true,
+    "interrupt": true,
+    "approvals": true,
+    "messageQueue": true,
+    "checkpoints": true
+  },
+  "claude": {
+    "streaming": true,
+    "resume": true,
+    "fork": false,
+    "interrupt": true,
+    "approvals": false,
+    "messageQueue": true,
+    "checkpoints": true
+  },
+  "api": {
+    "streaming": true,
+    "resume": true,
+    "fork": true,
+    "interrupt": true,
+    "approvals": false,
+    "messageQueue": true,
+    "checkpoints": true
+  }
+}

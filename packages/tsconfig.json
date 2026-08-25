@@ -1,0 +1,4 @@
+{
+  // IDE project: TypeScript walks upward from package source files and stops here.
+  "extends": "../tools/tsconfig.json"
+}

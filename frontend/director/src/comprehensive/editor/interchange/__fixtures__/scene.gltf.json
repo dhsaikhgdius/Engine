@@ -1,0 +1,56 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "Director fixture",
+    "extras": {
+      "director": {
+        "adapter": "director-gltf-v1",
+        "contract": "director-interchange-v1",
+        "coordinateSystem": {
+          "linearUnit": "meter",
+          "metersPerUnit": 1,
+          "upAxis": "Y",
+          "handedness": "right"
+        }
+      }
+    }
+  },
+  "scene": 0,
+  "scenes": [{ "name": "Fixture", "nodes": [0, 1] }],
+  "nodes": [
+    {
+      "name": "Marker",
+      "translation": [1, 2, 3],
+      "extras": {
+        "director": {
+          "adapter": "director-gltf-v1",
+          "contract": "director-interchange-v1",
+          "stableId": "fixture-object-001",
+          "entityType": "object",
+          "kind": "prop"
+        }
+      }
+    },
+    {
+      "name": "Fixture Camera",
+      "translation": [0, 1.5, 5],
+      "rotation": [0, 0.3826834323650898, 0, 0.9238795325112867],
+      "camera": 0,
+      "extras": {
+        "director": {
+          "adapter": "director-gltf-v1",
+          "contract": "director-interchange-v1",
+          "stableId": "fixture-camera-001",
+          "entityType": "camera"
+        }
+      }
+    }
+  ],
+  "cameras": [
+    {
+      "name": "Fixture Camera",
+      "type": "perspective",
+      "perspective": { "yfov": 0.7853981633974483, "aspectRatio": 1.7777777778, "znear": 0.1, "zfar": 1000 }
+    }
+  ]
+}

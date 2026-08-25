@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="鹿头骨">
+  <rect width="320" height="220" rx="18" fill="#111a2b"/>
+  <circle cx="160" cy="106" r="88" fill="#d8c8a8" opacity=".14"/>
+  <g fill="#d8c8a8" stroke="#d8c8a8" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M116 82q8-40 44-40t44 40q0 36-24 50v30h-40v-30q-24-14-24-50z"/><path d="M130 36l-22-24M190 36l22-24M132 91h10M178 91h10"/></g>
+  <style>.cut{fill:#111a2b;stroke:none} text{font:600 18px system-ui,sans-serif}</style>
+  <text x="160" y="204" text-anchor="middle" fill="#ecf4ff">鹿头骨</text>
+</svg>

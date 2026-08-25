@@ -1,0 +1,26 @@
+{
+  "name": "director-workbench",
+  "version": "0.1.0",
+  "description": "Agent-native MCP control for Director 3D scenes, Canvas graphs, and Video Editor timelines.",
+  "author": {
+    "name": "Director"
+  },
+  "license": "UNLICENSED",
+  "keywords": ["3d", "mcp", "agent", "camera", "animation"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Director 3D Workbench",
+    "shortDescription": "Build 3D scenes, Canvas graphs, and edit timelines with an agent.",
+    "longDescription": "Lets coding agents discover, observe, author, animate, frame, audit, preview, deliver, correct, and undo live 3D Stage, Canvas, and Video Editor changes through one exact-target, revision-guarded, idempotent MCP workflow.",
+    "developerName": "Director",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Inspect the current 3D scene, fix its most important issue, and visually verify delivery.",
+      "Build a complete scene with characters, cameras, and animation using atomic guarded authoring.",
+      "Audit the active camera, deliver its clean evidence package, and improve the framing.",
+      "Arrange the Canvas or Video Editor and verify the result with a fingerprint-bound preview."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

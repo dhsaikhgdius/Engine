@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="背包">
+  <rect width="320" height="220" rx="18" fill="#111a2b"/>
+  <circle cx="160" cy="106" r="88" fill="#f2a65a" opacity=".14"/>
+  <g fill="#f2a65a" stroke="#f2a65a" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M108 86q0-34 52-34t52 34v76H108z"/><path d="M130 58q4-28 30-28t30 28M126 116h68v32h-68z"/></g>
+  <style>.cut{fill:#111a2b;stroke:none} text{font:600 18px system-ui,sans-serif}</style>
+  <text x="160" y="204" text-anchor="middle" fill="#ecf4ff">背包</text>
+</svg>

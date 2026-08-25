@@ -1,0 +1,51 @@
+// @vitest-environment node
+import { readdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { directorWorkbenchOperationSchema } from "../../packages/agent-engine/src/directorWorkbenchContract";
+import { creativeWorkspaceAgentRequestSchema } from "../../packages/protocol/src/creativeWorkspaceProtocol";
+import { videoModelOperationSchema } from "../../packages/protocol/src/videoGenerationProtocol";
+import { blenderNativeToolRequestSchema } from "../../packages/protocol/src/blenderLiveProtocol";
+
+const tasksDirectory = join(dirname(fileURLToPath(import.meta.url)), "tasks");
+const schemas = {
+  director_workbench: directorWorkbenchOperationSchema,
+  director_creative: creativeWorkspaceAgentRequestSchema,
+  stage_video: videoModelOperationSchema,
+  blender_native: blenderNativeToolRequestSchema,
+} as const;
+
+type GoldenTask = {
+  name: string;
+  description: string;
+  steps: Array<{
+    label: string;
+    tool: keyof typeof schemas;
+    input: unknown;
+    expect: { success: boolean };
+  }>;
+};
+
+describe("Agent golden tasks", () => {
+  it("uses known tools and valid contracts for every expected-success step", async () => {
+    const files = (await readdir(tasksDirectory)).filter((file) => file.endsWith(".json")).sort();
+    const tasks = await Promise.all(
+      files.map(async (file) => JSON.parse(await readFile(join(tasksDirectory, file), "utf8")) as GoldenTask),
+    );
+
+    expect(new Set(tasks.map((task) => task.name)).size).toBe(tasks.length);
+    for (const task of tasks) {
+      expect(task.name).not.toBe("");
+      expect(task.description).not.toBe("");
+      expect(task.steps.length).toBeGreaterThan(0);
+      expect(new Set(task.steps.map((step) => step.label)).size).toBe(task.steps.length);
+      for (const step of task.steps) {
+        expect(Object.hasOwn(schemas, step.tool), `${task.name}: unknown tool ${step.tool}`).toBe(true);
+        if (step.expect.success) {
+          expect(schemas[step.tool].safeParse(step.input).success, `${task.name}: invalid ${step.label}`).toBe(true);
+        }
+      }
+    }
+  });
+});

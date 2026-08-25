@@ -1,0 +1,680 @@
+/*
+ * Right-sidebar multi-select tools — outline groups, channel boxes, batch actions.
+ * Loaded after premiumDirectorTheme.css.
+ */
+
+.right-sidebar .object-advanced-tools-panel {
+  --object-advanced-gutter: 16px;
+  --object-advanced-field-height: 32px;
+  --object-advanced-control-radius: 7px;
+  width: 100%;
+  max-width: 100%;
+  padding: 0 var(--object-advanced-gutter) 28px;
+  overflow-x: hidden;
+  background: rgb(var(--panel-rgb));
+}
+
+.right-sidebar .object-advanced-tools-panel .right-inspector-header {
+  min-height: 52px;
+  margin: 0 calc(var(--object-advanced-gutter) * -1);
+  padding: 0 var(--object-advanced-gutter);
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.08);
+  background: transparent;
+}
+
+.right-sidebar .object-advanced-tools-panel .right-inspector-title {
+  display: block;
+  color: rgb(var(--text-rgb));
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 22px;
+}
+
+.right-sidebar .object-advanced-tools-panel .right-inspector-title::before {
+  display: none;
+}
+
+.right-sidebar .object-advanced-tools-panel .right-inspector-content,
+.right-sidebar .object-advanced-tools-panel .right-inspector-content-no-tabs {
+  display: grid;
+  gap: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 8px 0 0;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-status {
+  margin: 0 0 8px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.08);
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.4;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body {
+  display: grid;
+  container-type: inline-size;
+  gap: 0;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group {
+  display: grid;
+  gap: 10px;
+  padding: 4px 0 12px;
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.08);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group:last-child {
+  border-bottom: 0;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group.is-collapsed {
+  gap: 0;
+  padding: 0;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group > h4 {
+  margin: 0;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% + 16px);
+  min-height: 36px;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: rgb(var(--text-rgb));
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group-toggle:hover {
+  background: rgb(var(--surface-hover-rgb) / 0.5);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group-toggle:active {
+  background: rgb(var(--surface-hover-rgb) / 0.72);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px rgb(var(--accent-rgb) / 0.4);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group-chevron {
+  flex: 0 0 auto;
+  color: rgb(var(--text-dim-rgb));
+  transform: rotate(-90deg);
+  transition: transform 160ms var(--director-ease);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group-chevron.is-open {
+  transform: rotate(0deg);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-group-body {
+  display: grid;
+  gap: 10px;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-block + .object-advanced-block {
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid rgb(var(--border-rgb) / 0.06);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-block-title {
+  margin: 0 0 8px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-action-cluster,
+.right-sidebar .object-advanced-tools-panel .object-advanced-channel {
+  display: grid;
+  gap: 8px;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-action-cluster {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-button-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-channel > .inspector-field + .inspector-field,
+.right-sidebar
+  .object-advanced-tools-panel
+  .object-advanced-channel
+  > .inspector-axis-group
+  + .object-advanced-button-row,
+.right-sidebar
+  .object-advanced-tools-panel
+  .object-advanced-channel
+  > .inspector-select-field
+  + .object-advanced-button-row {
+  padding-top: 8px;
+  border-top: 1px solid rgb(var(--border-rgb) / 0.08);
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-field,
+.right-sidebar .object-advanced-tools-panel .inspector-axis-group,
+.right-sidebar .object-advanced-tools-panel .inspector-range-field,
+.right-sidebar .object-advanced-tools-panel .inspector-color-field,
+.right-sidebar .object-advanced-tools-panel .inspector-select-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  width: 100%;
+  max-width: 100%;
+  align-items: stretch;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-field-label {
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-axis-group {
+  container-type: inline-size;
+  container-name: inspector-axis-group;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-axis-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-axis-input {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  min-width: 0;
+  height: var(--object-advanced-field-height);
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 7px;
+  background: rgb(var(--panel-rgb));
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-axis-input:hover,
+.right-sidebar .object-advanced-tools-panel .inspector-axis-input.is-dragging,
+.right-sidebar .object-advanced-tools-panel .inspector-axis-input:focus-within {
+  border-color: rgb(var(--accent-rgb) / 0.42);
+  background: rgb(var(--panel-rgb));
+  box-shadow: 0 0 0 2px rgb(var(--accent-rgb) / 0.08);
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-axis-prefix {
+  width: 18px;
+  height: calc(var(--object-advanced-field-height) - 2px);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px 0 0 6px;
+  color: rgb(var(--text-dim-rgb));
+  background: transparent;
+  box-shadow: none;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-axis-prefix[data-axis="X"],
+.right-sidebar .object-advanced-tools-panel .object-advanced-axis-prefix[data-axis="X"] {
+  color: #e06b6b;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-axis-prefix[data-axis="Y"],
+.right-sidebar .object-advanced-tools-panel .object-advanced-axis-prefix[data-axis="Y"] {
+  color: #6fbe7d;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-axis-prefix[data-axis="Z"],
+.right-sidebar .object-advanced-tools-panel .object-advanced-axis-prefix[data-axis="Z"] {
+  color: #6f9fe0;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-axis-value {
+  width: 100%;
+  min-width: 0;
+  height: calc(var(--object-advanced-field-height) - 2px);
+  min-height: 0;
+  padding: 0 6px 0 2px;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  box-shadow: none;
+  color: rgb(var(--text-rgb));
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-pivot-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.right-sidebar .object-advanced-tools-panel button.inspector-dropdown-trigger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 12px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--object-advanced-field-height);
+  height: var(--object-advanced-field-height);
+  padding: 0 8px;
+  border: 1px solid rgb(var(--border-rgb) / 0.12);
+  border-radius: var(--object-advanced-control-radius);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--field-rgb));
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 14px;
+  text-align: left;
+}
+
+.right-sidebar .object-advanced-tools-panel button.inspector-dropdown-trigger:hover {
+  border-color: rgb(var(--border-rgb) / 0.22);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.55);
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-range-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-range-value {
+  width: 56px;
+  min-height: var(--object-advanced-field-height);
+  height: var(--object-advanced-field-height);
+  padding-inline: 6px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-range::-webkit-slider-runnable-track,
+.right-sidebar .object-advanced-tools-panel .inspector-range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgb(var(--border-rgb) / 0.2);
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-range::-webkit-slider-thumb,
+.right-sidebar .object-advanced-tools-panel .inspector-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgb(var(--panel-rgb));
+  border-radius: 50%;
+  background: rgb(var(--accent-rgb));
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-color-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-color-swatch {
+  width: 32px;
+  height: var(--object-advanced-field-height);
+  padding: 0;
+  border: 1px solid rgb(var(--border-rgb) / 0.14);
+  border-radius: 7px;
+}
+
+.right-sidebar .object-advanced-tools-panel .inspector-text-input,
+.right-sidebar .object-advanced-tools-panel .inspector-color-hex {
+  width: 100%;
+  min-height: var(--object-advanced-field-height);
+  height: var(--object-advanced-field-height);
+  padding-inline: 8px;
+  border: 1px solid rgb(var(--border-rgb) / 0.12);
+  border-radius: var(--object-advanced-control-radius);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--field-rgb));
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-material {
+  display: grid;
+  gap: 10px;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-material > button {
+  width: 100%;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  width: 100%;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body label.object-advanced-layer-input {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-input > span {
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-list,
+.right-sidebar .object-advanced-tools-panel .object-advanced-overlay-list {
+  display: grid;
+  gap: 0;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-row,
+.right-sidebar .object-advanced-tools-panel .object-advanced-overlay-list > div {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 0;
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.07);
+  border-radius: 0;
+  padding: 0 2px;
+  background: transparent;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-list > .object-advanced-layer-row:last-child,
+.right-sidebar .object-advanced-tools-panel .object-advanced-overlay-list > div:last-child {
+  border-bottom: 0;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-row {
+  grid-template-columns: minmax(0, 1fr) auto repeat(4, 30px);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-overlay-list > div {
+  grid-template-columns: minmax(0, 1fr) repeat(2, 30px);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-row > span,
+.right-sidebar .object-advanced-tools-panel .object-advanced-overlay-list > div > span {
+  overflow: hidden;
+  color: rgb(var(--text-rgb));
+  font-size: 11px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-row > small {
+  min-width: 18px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: rgb(var(--text-dim-rgb));
+  background: rgb(var(--border-rgb) / 0.06);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-row > button,
+.right-sidebar .object-advanced-tools-panel .object-advanced-overlay-list > div > button {
+  width: 30px;
+  min-height: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  border-radius: 7px !important;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-overlay-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-overlay-editor > button {
+  width: 100%;
+  min-height: var(--object-advanced-field-height) !important;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body textarea {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  min-height: 56px;
+  resize: vertical;
+  border: 1px solid rgb(var(--border-rgb) / 0.12);
+  border-radius: var(--object-advanced-control-radius);
+  outline: 0;
+  padding: 7px 9px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--field-rgb));
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-overlay-editor > label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+}
+
+.right-sidebar
+  .object-advanced-tools-panel
+  .object-advanced-tool-body
+  button:not(.object-advanced-group-toggle):not(.inspector-axis-prefix):not(.inspector-dropdown-option),
+.right-sidebar
+  .object-advanced-tools-panel
+  .object-advanced-tool-body
+  input:not(.inspector-axis-value):not(.inspector-range):not(.inspector-color-swatch),
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body select {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: var(--object-advanced-field-height);
+  border: 1px solid rgb(var(--border-rgb) / 0.12);
+  border-radius: var(--object-advanced-control-radius);
+  outline: 0;
+  padding: 0 8px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--field-rgb));
+  font-size: 11px;
+}
+
+.right-sidebar
+  .object-advanced-tools-panel
+  .object-advanced-tool-body
+  button:not(.object-advanced-group-toggle):not(.inspector-axis-prefix):not(.inspector-dropdown-option) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: rgb(var(--text-muted-rgb));
+  font-weight: 600;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background-color 140ms ease;
+  white-space: nowrap;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body select {
+  min-height: var(--object-advanced-field-height);
+  height: var(--object-advanced-field-height);
+  padding: 0 6px;
+  font-size: 11px !important;
+  line-height: 1.2;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body input[type="number"] {
+  height: var(--object-advanced-field-height) !important;
+  min-height: var(--object-advanced-field-height) !important;
+  padding: 0 6px !important;
+  appearance: textfield;
+  font-size: 11px !important;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2 !important;
+  text-align: right;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body input[type="number"]::-webkit-inner-spin-button,
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.right-sidebar
+  .object-advanced-tools-panel
+  .object-advanced-tool-body
+  button:not(.object-advanced-group-toggle):not(.inspector-axis-prefix):hover:not(:disabled) {
+  border-color: rgb(var(--accent-rgb) / 0.42);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--accent-rgb) / 0.08);
+}
+
+.right-sidebar
+  .object-advanced-tools-panel
+  .object-advanced-tool-body
+  button:not(.object-advanced-group-toggle):not(.inspector-axis-prefix):active:not(:disabled) {
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body button:focus-visible,
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body input:focus-visible,
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body select:focus-visible,
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body textarea:focus-visible {
+  border-color: rgb(var(--accent-rgb) / 0.62);
+  box-shadow: 0 0 0 1px rgb(var(--accent-rgb) / 0.4);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body input[type="color"] {
+  width: 100%;
+  min-height: var(--object-advanced-field-height);
+  height: var(--object-advanced-field-height);
+  padding: 4px;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-layer-input input {
+  width: 100%;
+  height: var(--object-advanced-field-height) !important;
+  min-height: var(--object-advanced-field-height) !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  text-align: left;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body button:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+  color: rgb(var(--text-dim-rgb));
+  border-color: rgb(var(--border-rgb) / 0.1);
+  background: rgb(var(--surface-rgb) / 0.28);
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body .inspector-axis-prefix {
+  min-height: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body .inspector-axis-value {
+  min-height: 0;
+  height: calc(var(--object-advanced-field-height) - 2px) !important;
+  border: 0;
+  padding: 0 6px 0 2px !important;
+  background: transparent;
+  box-shadow: none;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body .inspector-color-swatch {
+  width: 32px;
+  padding: 0;
+}
+
+.right-sidebar .object-advanced-tools-panel .object-advanced-tool-body .inspector-range {
+  min-height: 0;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+@container (max-width: 168px) {
+  .right-sidebar .object-advanced-tools-panel .object-advanced-action-cluster,
+  .right-sidebar .object-advanced-tools-panel .object-advanced-button-row,
+  .right-sidebar .object-advanced-tools-panel .object-advanced-layer-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .right-sidebar .object-advanced-tools-panel .inspector-axis-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .right-sidebar .object-advanced-tools-panel .object-advanced-layer-row {
+    grid-template-columns: minmax(0, 1fr) auto repeat(4, 26px);
+    gap: 3px;
+  }
+
+  .right-sidebar .object-advanced-tools-panel .object-advanced-layer-row > button {
+    width: 26px;
+  }
+}

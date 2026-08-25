@@ -1,0 +1,14 @@
+/* Keep a real raster so WebGL and offscreen capture are not 0×0.
+   Invisible and inert: not a PiP, not an interactive Stage. */
+
+.director-stage-capture-host {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+}

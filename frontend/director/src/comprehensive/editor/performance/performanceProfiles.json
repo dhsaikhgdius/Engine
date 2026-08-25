@@ -1,0 +1,49 @@
+{
+  "options": [
+    { "id": "auto", "label": "自动", "description": "按设备能力与真实帧时间动态调节" },
+    { "id": "fluid", "label": "流畅", "description": "降低预览分辨率和阴影成本，优先稳定交互" },
+    { "id": "balanced", "label": "均衡", "description": "兼顾清晰度与帧率的默认预算" },
+    { "id": "quality", "label": "高清", "description": "提高预览清晰度和阴影精度，适合高性能设备" }
+  ],
+  "configs": {
+    "fluid": {
+      "id": "fluid",
+      "label": "流畅",
+      "description": "低分辨率视口与 512 像素阴影，优先稳定交互",
+      "mainDpr": [1, 1.5],
+      "quadDpr": [1, 1.25],
+      "gizmoDpr": [1, 1.5],
+      "previewDpr": [0.75, 1],
+      "shadowsEnabled": true,
+      "shadowMapSize": 512,
+      "characterAnimationSampling": "adaptive",
+      "characterLabelBudget": 40
+    },
+    "balanced": {
+      "id": "balanced",
+      "label": "均衡",
+      "description": "原生分辨率视口与 1024 像素阴影",
+      "mainDpr": [1, 2],
+      "quadDpr": [1, 1.5],
+      "gizmoDpr": [1, 2],
+      "previewDpr": [1, 1.5],
+      "shadowsEnabled": true,
+      "shadowMapSize": 1024,
+      "characterAnimationSampling": "adaptive",
+      "characterLabelBudget": 40
+    },
+    "quality": {
+      "id": "quality",
+      "label": "高清",
+      "description": "全分辨率视口、资产预览与 4096 像素阴影，不启用视口 LOD",
+      "mainDpr": [2, 4],
+      "quadDpr": [2, 4],
+      "gizmoDpr": [2, 4],
+      "previewDpr": [2, 4],
+      "shadowsEnabled": true,
+      "shadowMapSize": 4096,
+      "characterAnimationSampling": "full",
+      "characterLabelBudget": null
+    }
+  }
+}

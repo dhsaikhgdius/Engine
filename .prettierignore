@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+vendor
+public/models
+frontend/director/src/comprehensive/editor/modelLibrary/assets
+integrations/plugins/**/mcp/server.mjs
+frontend/director/src/comprehensive/editor/assistant/trajectory/**

@@ -1,0 +1,82 @@
+{
+  "$schema": "./manifest.schema.json",
+  "manifestVersion": 1,
+  "release": "0.1.0-example",
+  "description": "Example only. Replace repository IDs and all-zero revisions with immutable Hugging Face commit SHAs before release.",
+  "repositories": [
+    {
+      "id": "open",
+      "provider": "huggingface",
+      "repoType": "dataset",
+      "repoId": "YOUR_HF_ORG/director-open-assets",
+      "revision": "0000000000000000000000000000000000000000",
+      "access": "public"
+    }
+  ],
+  "licenses": [
+    {
+      "id": "director-open-mannequin-mit",
+      "name": "StoryAI Open Mannequin asset-specific MIT License",
+      "spdx": "MIT",
+      "noticePath": "assets/library/models/storyai-open-mannequin.LICENSE.md",
+      "redistribution": "public"
+    },
+    {
+      "id": "mixamo-user-supplied",
+      "name": "Adobe Mixamo user-supplied content",
+      "url": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+      "redistribution": "local-only",
+      "notes": "Do not publish Mixamo files as a public standalone asset dump. A private per-user repository still requires the account holder to comply with Adobe terms."
+    }
+  ],
+  "files": [
+    {
+      "id": "open.storyai-mannequin.model",
+      "bundle": "open-models",
+      "source": {
+        "kind": "huggingface",
+        "repositoryId": "open",
+        "remotePath": "assets/library/models/storyai-open-mannequin.glb"
+      },
+      "localPath": "assets/library/models/storyai-open-mannequin.glb",
+      "sha256": "c8595e90e69e27186964891ab79a3c9386bb52d0461174f41c82060d42f01dba",
+      "size": 381808,
+      "mediaType": "model/gltf-binary",
+      "licenseRef": "director-open-mannequin-mit",
+      "required": false,
+      "description": "Procedurally generated open mannequin."
+    },
+    {
+      "id": "local.mixamo.x-bot.model",
+      "bundle": "mixamo-characters",
+      "source": {
+        "kind": "user-provided",
+        "instructions": "Export X Bot through your own Mixamo account, then run the local character packaging workflow.",
+        "instructionsUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html"
+      },
+      "localPath": "assets/library/mixamo-characters/models/x-bot.glb",
+      "sha256": "f97bce35cd99db7fff69f949e83ccf92d4cdc977930574a3da2b3c64cc48cb35",
+      "size": 260780,
+      "mediaType": "model/gltf-binary",
+      "licenseRef": "mixamo-user-supplied",
+      "required": true,
+      "description": "Local-user-supplied Mixamo X Bot runtime package."
+    },
+    {
+      "id": "local.mixamo.walk.motion",
+      "bundle": "mixamo-animations",
+      "source": {
+        "kind": "user-provided",
+        "instructions": "Export the walk motion through your own Mixamo account, then run the local animation packaging workflow.",
+        "instructionsUrl": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html"
+      },
+      "localPath": "assets/library/mixamo-animations/clips/walk.glb",
+      "sha256": "447bdeffb7e6a1369abe3a7d6873177dbd4738a6ee043c13e031afa7fbe6ce35",
+      "size": 117392,
+      "mediaType": "model/gltf-binary",
+      "licenseRef": "mixamo-user-supplied",
+      "required": true,
+      "description": "Local-user-supplied Mixamo walk animation package."
+    }
+  ]
+}

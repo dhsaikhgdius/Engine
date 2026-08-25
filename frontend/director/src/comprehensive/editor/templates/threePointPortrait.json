@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "scene": {
+    "scale": 1,
+    "position": [0, 0, 0],
+    "rotation": [0, 0, 0],
+    "backgroundColor": "#c9cdd3",
+    "panoramaYaw": 0,
+    "panoramaRadius": 60,
+    "showLabels": false,
+    "snapToGrid": false,
+    "showGround": true,
+    "groundOpacity": 0,
+    "groundHeight": 0,
+    "fog": { "enabled": false, "mode": "linear", "color": "#c9cdd3", "near": 10, "far": 80, "density": 0.02 },
+    "environment": { "enabled": false, "usePanorama": true, "intensity": 0.5, "rotation": [0, 0, 0] },
+    "objectLayers": [{ "id": "default", "visible": true, "locked": false }],
+    "annotations": [],
+    "measurements": [],
+    "timeline": {
+      "version": 1,
+      "fps": 24,
+      "timebase": { "rate": { "numerator": 24, "denominator": 1 }, "dropFrame": false, "startTimecode": "00:00:00:00" },
+      "frameStart": 0,
+      "frameEnd": 240,
+      "currentFrame": 0,
+      "loop": false
+    }
+  },
+  "assets": [],
+  "objects": [
+    {
+      "id": "char_portrait_subject",
+      "name": "角色01",
+      "kind": "character",
+      "characterSource": "asset",
+      "assetRefId": "mixamo:x-bot",
+      "placementMode": "grounded",
+      "visible": true,
+      "locked": false,
+      "bodyType": "mannequin",
+      "color": "#d19a3a",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "characterRig": { "rigType": "mixamo", "posePresetId": "stand", "controls": {} },
+      "nativeSource": { "engine": "blender", "objectId": "char_portrait_subject", "provisioned": false }
+    },
+    {
+      "id": "cam_object_1",
+      "name": "人像特写",
+      "kind": "camera",
+      "visible": true,
+      "locked": false,
+      "linkedCameraId": "cam_1",
+      "transform": {
+        "position": [0.989199, 1.689577, 6.359138],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    }
+  ],
+  "lights": [
+    {
+      "id": "light_ambient_base",
+      "name": "环境底光",
+      "type": "ambient",
+      "visible": true,
+      "locked": false,
+      "color": "#ffffff",
+      "intensity": 0.35
+    },
+    {
+      "id": "light_key",
+      "name": "主光",
+      "type": "spot",
+      "visible": true,
+      "locked": false,
+      "color": "#fff4e2",
+      "intensity": 3,
+      "position": [1.8, 2.6, 2.6],
+      "target": [0, 1.5, 0],
+      "distance": 0,
+      "decay": 2,
+      "angle": 0.45,
+      "penumbra": 0.35,
+      "castShadow": true
+    },
+    {
+      "id": "light_fill",
+      "name": "辅光",
+      "type": "spot",
+      "visible": true,
+      "locked": false,
+      "color": "#e8f0ff",
+      "intensity": 1.1,
+      "position": [-2.4, 1.7, 2.3],
+      "target": [0, 1.4, 0],
+      "distance": 0,
+      "decay": 2,
+      "angle": 0.63,
+      "penumbra": 0.7,
+      "castShadow": false
+    },
+    {
+      "id": "light_rim",
+      "name": "轮廓光",
+      "type": "spot",
+      "visible": true,
+      "locked": false,
+      "color": "#ffffff",
+      "intensity": 2.4,
+      "position": [0.5, 2.9, -2.7],
+      "target": [0, 1.6, 0],
+      "distance": 0,
+      "decay": 2,
+      "angle": 0.39,
+      "penumbra": 0.4,
+      "castShadow": false
+    }
+  ],
+  "cameras": [
+    {
+      "id": "cam_1",
+      "name": "人像特写",
+      "fov": 13.585862,
+      "focalLengthMm": 85,
+      "sensorFormat": "fullFrame",
+      "aspectRatio": "16:9",
+      "handheldShake": "off",
+      "action": { "mode": "still" },
+      "transform": {
+        "position": [0.989199, 1.689577, 6.359138],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "targetMode": "manual",
+      "target": [0, 1.52, 0],
+      "lastCaptureUrl": null,
+      "captures": []
+    }
+  ],
+  "activeCameraId": "cam_1",
+  "panoramaAssetId": null
+}

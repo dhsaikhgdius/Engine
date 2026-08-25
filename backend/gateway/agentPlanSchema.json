@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "operations"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1, "maxLength": 420 },
+    "suggested_next": { "type": "string", "minLength": 1, "maxLength": 260 },
+    "operations": {
+      "type": "array",
+      "maxItems": 48,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool", "input_json", "summary"],
+        "properties": {
+          "tool": {
+            "enum": [
+              "director_workbench",
+              "director_creative",
+              "stage_video",
+              "blender_native"
+            ]
+          },
+          "input_json": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 24000,
+            "description": ""
+          },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 360 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,95 @@
+[
+  {
+    "title": "身体",
+    "controls": [
+      { "key": "body.offsetY", "label": "高度偏移" },
+      { "key": "body.pitch", "label": "前倾" },
+      { "key": "body.yaw", "label": "转身" },
+      { "key": "body.roll", "label": "侧倾" }
+    ]
+  },
+  {
+    "title": "躯干",
+    "controls": [
+      { "key": "torso.pitch", "label": "前倾" },
+      { "key": "torso.yaw", "label": "扭转" },
+      { "key": "torso.roll", "label": "侧倾" }
+    ]
+  },
+  {
+    "title": "头部",
+    "controls": [
+      { "key": "head.pitch", "label": "点头" },
+      { "key": "head.yaw", "label": "转头" },
+      { "key": "head.roll", "label": "歪头" }
+    ]
+  },
+  {
+    "title": "左肩",
+    "controls": [
+      { "key": "leftShoulder.pitch", "label": "前举" },
+      { "key": "leftShoulder.spread", "label": "外展" },
+      { "key": "leftShoulder.twist", "label": "扭转" }
+    ]
+  },
+  {
+    "title": "右肩",
+    "controls": [
+      { "key": "rightShoulder.pitch", "label": "前举" },
+      { "key": "rightShoulder.spread", "label": "外展" },
+      { "key": "rightShoulder.twist", "label": "扭转" }
+    ]
+  },
+  { "title": "左肘", "controls": [{ "key": "leftElbow.bend", "label": "弯曲" }] },
+  { "title": "右肘", "controls": [{ "key": "rightElbow.bend", "label": "弯曲" }] },
+  {
+    "title": "左手腕",
+    "controls": [
+      { "key": "leftHand.pitch", "label": "俯仰" },
+      { "key": "leftHand.twist", "label": "扭转" },
+      { "key": "leftHand.roll", "label": "滚转" }
+    ]
+  },
+  {
+    "title": "右手腕",
+    "controls": [
+      { "key": "rightHand.pitch", "label": "俯仰" },
+      { "key": "rightHand.twist", "label": "扭转" },
+      { "key": "rightHand.roll", "label": "滚转" }
+    ]
+  },
+  {
+    "title": "左髋",
+    "controls": [
+      { "key": "leftHip.pitch", "label": "前抬" },
+      { "key": "leftHip.spread", "label": "外展" },
+      { "key": "leftHip.twist", "label": "扭转" }
+    ]
+  },
+  {
+    "title": "右髋",
+    "controls": [
+      { "key": "rightHip.pitch", "label": "前抬" },
+      { "key": "rightHip.spread", "label": "外展" },
+      { "key": "rightHip.twist", "label": "扭转" }
+    ]
+  },
+  { "title": "左膝", "controls": [{ "key": "leftKnee.bend", "label": "弯曲" }] },
+  { "title": "右膝", "controls": [{ "key": "rightKnee.bend", "label": "弯曲" }] },
+  {
+    "title": "左脚踝",
+    "controls": [
+      { "key": "leftFoot.pitch", "label": "俯仰" },
+      { "key": "leftFoot.twist", "label": "扭转" },
+      { "key": "leftFoot.roll", "label": "滚转" }
+    ]
+  },
+  {
+    "title": "右脚踝",
+    "controls": [
+      { "key": "rightFoot.pitch", "label": "俯仰" },
+      { "key": "rightFoot.twist", "label": "扭转" },
+      { "key": "rightFoot.roll", "label": "滚转" }
+    ]
+  }
+]
