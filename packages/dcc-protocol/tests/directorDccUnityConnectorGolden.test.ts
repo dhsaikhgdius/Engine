@@ -111,11 +111,7 @@ describe("Director Unity connector golden values", () => {
 
     const unity = directorTransformToEngine("unity", transform);
     const unityMatrix = new Matrix4()
-      .compose(
-        new Vector3(...unity.location),
-        new Quaternion(...unity.rotationQuaternion),
-        new Vector3(...unity.scale),
-      )
+      .compose(new Vector3(...unity.location), new Quaternion(...unity.rotationQuaternion), new Vector3(...unity.scale))
       .toArray();
     expectVectorClose(conjugated, unityMatrix, 8);
   });

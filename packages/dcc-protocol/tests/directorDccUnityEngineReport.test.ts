@@ -47,17 +47,15 @@ describe("Director Unity engine report details", () => {
   });
 
   it("rejects the unity details block on non-unity reports", () => {
-    const result = directorDccEngineReportSchema.safeParse(
-      unityReport({ provider: "godot", unity: UNITY_DETAILS }),
-    );
+    const result = directorDccEngineReportSchema.safeParse(unityReport({ provider: "godot", unity: UNITY_DETAILS }));
     expect(result.success).toBe(false);
     expect(result.success ? [] : result.error.issues.map((issue) => issue.path.join("."))).toContain("unity");
   });
 
   it("rejects unknown fields, unknown pipelines, and negative counts inside the details block", () => {
-    expect(
-      directorDccUnityEngineReportDetailsSchema.safeParse({ ...UNITY_DETAILS, arbitrary: true }).success,
-    ).toBe(false);
+    expect(directorDccUnityEngineReportDetailsSchema.safeParse({ ...UNITY_DETAILS, arbitrary: true }).success).toBe(
+      false,
+    );
     expect(
       directorDccUnityEngineReportDetailsSchema.safeParse({ ...UNITY_DETAILS, renderPipeline: "vulkan" }).success,
     ).toBe(false);
@@ -65,8 +63,7 @@ describe("Director Unity engine report details", () => {
       directorDccUnityEngineReportDetailsSchema.safeParse({ ...UNITY_DETAILS, importedLightCount: -1 }).success,
     ).toBe(false);
     expect(
-      directorDccUnityEngineReportDetailsSchema.safeParse({ ...UNITY_DETAILS, bakedAnimationClipCount: 1.5 })
-        .success,
+      directorDccUnityEngineReportDetailsSchema.safeParse({ ...UNITY_DETAILS, bakedAnimationClipCount: 1.5 }).success,
     ).toBe(false);
   });
 
