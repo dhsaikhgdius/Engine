@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Color, RGBADepthPacking, ShaderLib, type WebGLProgramParametersWithUniforms } from "three";
+import {
+  Color,
+  DoubleSide,
+  FrontSide,
+  RGBADepthPacking,
+  ShaderLib,
+  type WebGLProgramParametersWithUniforms,
+} from "three";
 import {
   WILDLIFE_PART_ANGLE_SLOTS,
   WILDLIFE_PART_AXIS_ATTRIBUTE,
@@ -102,6 +109,18 @@ describe("wildlife part materials", () => {
     expect(material.customProgramCacheKey()).toBe(other.customProgramCacheKey()); // one program for all herds
     material.dispose();
     other.dispose();
+  });
+
+  it("renders front-side by default and double-side for bird wing planes", () => {
+    const herd = createWildlifePartMaterial(0x8a6240);
+    expect(herd.side).toBe(FrontSide); // closed quadruped boxes
+    const birds = createWildlifePartMaterial(0x3b4d68, DoubleSide);
+    expect(birds.side).toBe(DoubleSide); // wing parts are single triangles
+    // three folds `side` into its own program parameters, so the shared
+    // custom cache key stays valid across both variants.
+    expect(birds.customProgramCacheKey()).toBe(herd.customProgramCacheKey());
+    herd.dispose();
+    birds.dispose();
   });
 
   it("creates a matching depth material for the shadow pass", () => {

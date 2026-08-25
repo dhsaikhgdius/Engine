@@ -13,9 +13,12 @@ import type { WorldWildlifeSpecies } from "../../../../../../../packages/protoco
  * math). This keeps one draw call per group while giving real leg swing,
  * head-down grazing, and tail motion at silhouette distances.
  *
- * Flock/school species (birds, butterflies, fish) keep their whole-body
- * flap/wiggle animation and get inert part metadata (all body) so every
- * species shares one geometry layout.
+ * Birds are articulated too: their two wing triangles are tagged as parts
+ * (repurposing the front-leg angle slots — birds have no legs at silhouette
+ * scale) so the part shader beats real wings instead of rocking the whole
+ * body. Butterflies and fish keep their whole-body flap/wiggle animation and
+ * get inert part metadata (all body) so every species shares one geometry
+ * layout.
  *
  * Geometry is non-indexed so computeVertexNormals yields faceted (flat)
  * shading, which reads better at silhouette distances than smooth normals on
@@ -35,9 +38,13 @@ export interface WildlifeRenderProfile {
   tintHex: number;
   /** Body-center height above ground at sizeScale 1 (herd species only). */
   bodyOffsetYM: number;
-  /** Whole-body roll oscillation frequency that fakes a wing flap (flock species). */
+  /**
+   * Body roll oscillation frequency (flock species). Butterflies fake their
+   * whole wing flap with it; birds beat real wing parts at the same
+   * frequency (see WILDLIFE_BIRD_WING_PROFILE) and only rock slightly.
+   */
   flapHz: number;
-  /** Peak roll amplitude of the wing-flap oscillation, radians. */
+  /** Peak roll amplitude of the body oscillation, radians. */
   flapAmplitudeRad: number;
   /** Yaw oscillation frequency that fakes a tail wiggle (fish). */
   wiggleHz: number;
@@ -45,13 +52,20 @@ export interface WildlifeRenderProfile {
   wiggleAmplitudeRad: number;
 }
 
-/** Per-species tuning constants for the placeholder silhouette render path. */
+/**
+ * Per-species tuning constants for the placeholder silhouette render path.
+ *
+ * Tints are chosen to be camera-readable at previz distance: no two species
+ * share a family. Birds are cool slate-BLUE and wolves warm timber-BROWN so
+ * the two darks can never be confused (both used to be near-neutral grays).
+ */
 export const WILDLIFE_RENDER_PROFILES: Record<WorldWildlifeSpecies, WildlifeRenderProfile> = {
   birds: {
-    tintHex: 0x4a5568,
+    tintHex: 0x3b4d68,
     bodyOffsetYM: 0,
     flapHz: 4,
-    flapAmplitudeRad: 0.45,
+    // Residual rock only: the wing parts carry the beat (wildlifeGait.ts).
+    flapAmplitudeRad: 0.12,
     wiggleHz: 0,
     wiggleAmplitudeRad: 0,
   },
@@ -88,7 +102,7 @@ export const WILDLIFE_RENDER_PROFILES: Record<WorldWildlifeSpecies, WildlifeRend
     wiggleAmplitudeRad: 0,
   },
   wolves: {
-    tintHex: 0x5a5f66,
+    tintHex: 0x5c5348,
     bodyOffsetYM: 0.59,
     flapHz: 0,
     flapAmplitudeRad: 0,
@@ -113,7 +127,8 @@ export const WILDLIFE_RENDER_PROFILES: Record<WorldWildlifeSpecies, WildlifeRend
  * Angle-slot index per animated part. Slots index into the two per-instance
  * vec4 angle attributes (8 slots total; 7 is spare). `body` never rotates in
  * the shader (whole-body motion lives in the instance matrix) so its slot
- * always carries angle 0.
+ * always carries angle 0. Birds repurpose the two front-leg slots for their
+ * wings (right = legFrontRight, left = legFrontLeft).
  */
 export const WILDLIFE_PART_SLOTS = {
   body: 0,
@@ -314,11 +329,19 @@ const BUTTERFLY_SPEC: FlockSilhouetteSpec = {
   ],
 };
 
-function buildFlockPositions(spec: FlockSilhouetteSpec): number[] {
+interface FlockPositionsBuild {
+  positions: number[];
+  /** Vertex index ranges of each wing triangle, in push order (right, left per pair). */
+  wingRanges: Array<{ start: number; end: number }>;
+}
+
+function buildFlockPositions(spec: FlockSilhouetteSpec): FlockPositionsBuild {
   const positions: number[] = [];
+  const wingRanges: Array<{ start: number; end: number }> = [];
   pushFuselageCone(positions, spec.bodyNoseZ, spec.bodyTailZ, spec.bodyHalfWidth);
   for (const wing of spec.wingPairs) {
     // Right wing then left wing; single triangles, double-sided material.
+    let start = positions.length / 3;
     pushTriangle(
       positions,
       spec.bodyHalfWidth * 0.5,
@@ -331,6 +354,8 @@ function buildFlockPositions(spec: FlockSilhouetteSpec): number[] {
       0,
       wing.rootBackZ,
     );
+    wingRanges.push({ start, end: positions.length / 3 });
+    start = positions.length / 3;
     pushTriangle(
       positions,
       -spec.bodyHalfWidth * 0.5,
@@ -343,6 +368,7 @@ function buildFlockPositions(spec: FlockSilhouetteSpec): number[] {
       wing.tipY,
       wing.tipZ,
     );
+    wingRanges.push({ start, end: positions.length / 3 });
   }
   if (spec.tailFan) {
     // Two flat half-fan triangles behind the fuselage (right, then left).
@@ -350,7 +376,7 @@ function buildFlockPositions(spec: FlockSilhouetteSpec): number[] {
     pushTriangle(positions, 0, y, rootZ, tipX, y, backZ + 0.02, 0, y, backZ);
     pushTriangle(positions, 0, y, rootZ, 0, y, backZ, -tipX, y, backZ + 0.02);
   }
-  return positions;
+  return { positions, wingRanges };
 }
 
 /** Flattened teardrop (elongated octahedron) plus a vertical tail fin. */
@@ -564,6 +590,36 @@ function buildRigidBody(positions: number[]): BasePositionsBuild {
   };
 }
 
+/**
+ * Bird with articulated wings. The two wing triangles are tagged as parts
+ * repurposing the front-leg angle slots (birds carry no legs at silhouette
+ * scale, so the slots are free). Pivots sit on the fuselage edge at the
+ * wing-root midline; the MIRRORED ±Z axes make one shared flap angle raise
+ * both tips symmetrically. The flap-glide cycle that drives the angle lives
+ * in wildlifeGait.ts (`wildlifeBirdWingFlapRad`); fuselage and tail fan stay
+ * rigid body geometry.
+ */
+function buildBirdBody(): BasePositionsBuild {
+  const { positions, wingRanges } = buildFlockPositions(BIRD_SPEC);
+  const vertexCount = positions.length / 3;
+  const partSlots = new Array<number>(vertexCount).fill(WILDLIFE_PART_SLOTS.body);
+  const [rightWing, leftWing] = wingRanges;
+  for (let v = rightWing.start; v < rightWing.end; v += 1) partSlots[v] = WILDLIFE_PART_SLOTS.legFrontRight;
+  for (let v = leftWing.start; v < leftWing.end; v += 1) partSlots[v] = WILDLIFE_PART_SLOTS.legFrontLeft;
+  const wing = BIRD_SPEC.wingPairs[0];
+  const pivotX = BIRD_SPEC.bodyHalfWidth * 0.5;
+  const pivotZ = (wing.rootZ + wing.rootBackZ) / 2;
+  return {
+    positions,
+    partSlots,
+    parts: [
+      { ...BODY_PART_PIVOT, pivot: [0, 0, 0], axis: [1, 0, 0] },
+      { name: "legFrontRight", slot: WILDLIFE_PART_SLOTS.legFrontRight, pivot: [pivotX, 0, pivotZ], axis: [0, 0, 1] },
+      { name: "legFrontLeft", slot: WILDLIFE_PART_SLOTS.legFrontLeft, pivot: [-pivotX, 0, pivotZ], axis: [0, 0, -1] },
+    ],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public builder
 // ---------------------------------------------------------------------------
@@ -571,9 +627,9 @@ function buildRigidBody(positions: number[]): BasePositionsBuild {
 function buildBase(species: WorldWildlifeSpecies): BasePositionsBuild {
   switch (species) {
     case "birds":
-      return buildRigidBody(buildFlockPositions(BIRD_SPEC));
+      return buildBirdBody();
     case "butterflies":
-      return buildRigidBody(buildFlockPositions(BUTTERFLY_SPEC));
+      return buildRigidBody(buildFlockPositions(BUTTERFLY_SPEC).positions);
     case "fish":
       return buildRigidBody(buildFishPositions());
     case "deer":

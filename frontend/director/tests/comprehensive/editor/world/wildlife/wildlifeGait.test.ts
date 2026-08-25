@@ -2,16 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   WILDLIFE_PART_ANGLE_SLOTS,
   WILDLIFE_PART_SLOTS,
+  WILDLIFE_RENDER_PROFILES,
 } from "../../../../../src/comprehensive/editor/world/wildlife/placeholderModels";
+import { WILDLIFE_CRUISE_SPEED_MPS } from "../../../../../src/comprehensive/editor/world/wildlife/wildlifeSim";
 import {
   resolveWildlifeGaitProfile,
+  WILDLIFE_BIRD_WING_PROFILE,
   WILDLIFE_GAIT_PROFILES,
+  wildlifeBirdFlapEnvelope01,
+  wildlifeBirdWingFlapRad,
   wildlifeBodyLiftM,
   wildlifeBodyPitchRad,
   wildlifeGaitPhase,
   wildlifeHeadPitchRad,
   wildlifeLegSwingRad,
   wildlifeTailSwingRad,
+  writeWildlifeBirdPartAngles,
   writeWildlifePartAngles,
 } from "../../../../../src/comprehensive/editor/world/wildlife/wildlifeGait";
 
@@ -38,6 +44,25 @@ describe("gait profiles", () => {
     expect(wildlifeGaitPhase(2, 1, 1.5)).toBeCloseTo(2 * Math.PI * 2 * 1.5 + 1, 12);
     expect(wildlifeGaitPhase(2, 1, 1.5)).toBe(wildlifeGaitPhase(2, 1, 1.5)); // pure
     expect(wildlifeGaitPhase(0, 0.25, 3)).toBe(0.25); // phase offset survives t=0
+  });
+
+  it("locks species gait character: wolf lope long+slow, sheep plod short+quick", () => {
+    // Deliberate tuning (wildlife polish track): stride frequency is fixed
+    // per species, so cadence IS the readable character. Wolves lope with a
+    // slower cadence, a longer reaching swing, and a taller bound; sheep
+    // plod with quicker, shorter, flatter steps; deer sit in between.
+    const { deer, wolves, sheep } = WILDLIFE_GAIT_PROFILES;
+    expect(wolves.strideHz).toBeLessThan(deer.strideHz);
+    expect(wolves.legSwingRad).toBeGreaterThan(deer.legSwingRad);
+    expect(wolves.bodyLiftM).toBeGreaterThan(deer.bodyLiftM);
+    expect(sheep.strideHz).toBeGreaterThan(deer.strideHz);
+    expect(sheep.legSwingRad).toBeLessThan(deer.legSwingRad);
+    expect(sheep.bodyLiftM).toBeLessThan(deer.bodyLiftM);
+    // Ground covered per stride cycle at cruise separates them on camera:
+    // wolves reach ≈ 1.85 m per cycle, sheep ≈ 0.7 m (cruise / strideHz).
+    expect(WILDLIFE_CRUISE_SPEED_MPS.wolves / wolves.strideHz).toBeGreaterThan(
+      2 * (WILDLIFE_CRUISE_SPEED_MPS.sheep / sheep.strideHz),
+    );
   });
 });
 
@@ -141,6 +166,83 @@ describe("head and tail", () => {
     }
     expect(idlePeak).toBeCloseTo(profile.tailIdleRad, 2); // alive while standing
     expect(movePeak).toBeCloseTo(profile.tailIdleRad + profile.tailMoveRad, 2);
+  });
+});
+
+describe("bird wing flap-glide", () => {
+  const profile = WILDLIFE_BIRD_WING_PROFILE;
+  // Gate = sin(2π·glideHz·t + phase·1.9): with phase 0, the gate peaks at
+  // t = 0.25/glideHz (full flap burst) and bottoms at t = 0.75/glideHz
+  // (full glide). Both are exact, so the assertions below need no search.
+  const flapPeakT = 0.25 / profile.glideHz;
+  const glideT = 0.75 / profile.glideHz;
+
+  it("keeps the beat frequency locked to the render profile body rock", () => {
+    // The render layer rocks the bird body at WILDLIFE_RENDER_PROFILES
+    // .birds.flapHz while the wing parts beat at profile.flapHz; they must
+    // stay in phase or the rock reads as detached from the beat.
+    expect(profile.flapHz).toBe(WILDLIFE_RENDER_PROFILES.birds.flapHz);
+  });
+
+  it("bounds the envelope to [0, 1] and stays pure", () => {
+    for (let t = 0; t < 20; t += 0.083) {
+      for (const phase of PHASES) {
+        const envelope = wildlifeBirdFlapEnvelope01(t, phase);
+        expect(envelope).toBeGreaterThanOrEqual(0);
+        expect(envelope).toBeLessThanOrEqual(1);
+        expect(wildlifeBirdFlapEnvelope01(t, phase)).toBe(envelope);
+      }
+    }
+  });
+
+  it("alternates full flap bursts with full glides for every agent", () => {
+    for (const phase of PHASES) {
+      let sawFlap = false;
+      let sawGlide = false;
+      // One full glide cycle sampled densely.
+      for (let t = 0; t <= 1 / profile.glideHz; t += 0.05) {
+        const envelope = wildlifeBirdFlapEnvelope01(t, phase);
+        if (envelope === 1) sawFlap = true;
+        if (envelope === 0) sawGlide = true;
+      }
+      expect(sawFlap).toBe(true);
+      expect(sawGlide).toBe(true);
+    }
+  });
+
+  it("beats sinusoidally during a burst and holds the dihedral V mid-glide", () => {
+    expect(wildlifeBirdFlapEnvelope01(glideT, 0)).toBe(0);
+    expect(wildlifeBirdWingFlapRad(glideT, 0)).toBeCloseTo(profile.glideDihedralRad, 10);
+    expect(wildlifeBirdFlapEnvelope01(flapPeakT, 0)).toBe(1);
+    const expectedBeat = Math.sin(flapPeakT * Math.PI * 2 * profile.flapHz) * profile.flapAmplitudeRad;
+    expect(wildlifeBirdWingFlapRad(flapPeakT, 0)).toBeCloseTo(expectedBeat, 10);
+    // The beat sweeps the full amplitude across a burst.
+    let peak = 0;
+    for (let t = flapPeakT - 0.5; t <= flapPeakT + 0.5; t += 0.01) {
+      peak = Math.max(peak, Math.abs(wildlifeBirdWingFlapRad(t, 0)));
+    }
+    expect(peak).toBeGreaterThan(profile.flapAmplitudeRad * 0.9);
+  });
+
+  it("writes the shared wing angle to both wing slots and zeros the rest", () => {
+    const target = new Float32Array(WILDLIFE_PART_ANGLE_SLOTS * 3).fill(99);
+    writeWildlifeBirdPartAngles(target, 1, flapPeakT, 0.7, 0.42);
+    const base = WILDLIFE_PART_ANGLE_SLOTS;
+    const wing = wildlifeBirdWingFlapRad(flapPeakT, 0.7);
+    // One shared angle: the mirrored ±Z part axes resolve left vs right.
+    expect(target[base + WILDLIFE_PART_SLOTS.legFrontLeft]).toBeCloseTo(wing, 6);
+    expect(target[base + WILDLIFE_PART_SLOTS.legFrontRight]).toBeCloseTo(wing, 6);
+    expect(target[base + WILDLIFE_PART_SLOTS.body]).toBe(0);
+    expect(target[base + WILDLIFE_PART_SLOTS.head]).toBe(0);
+    expect(target[base + WILDLIFE_PART_SLOTS.legHindLeft]).toBe(0);
+    expect(target[base + WILDLIFE_PART_SLOTS.legHindRight]).toBe(0);
+    expect(target[base + WILDLIFE_PART_SLOTS.tail]).toBe(0);
+    expect(target[base + WILDLIFE_PART_ANGLE_SLOTS - 1]).toBeCloseTo(0.42, 6); // shade slot
+    for (let index = 0; index < target.length; index += 1) {
+      if (index < base || index >= base + WILDLIFE_PART_ANGLE_SLOTS) {
+        expect(target[index]).toBe(99); // canaries intact
+      }
+    }
   });
 });
 

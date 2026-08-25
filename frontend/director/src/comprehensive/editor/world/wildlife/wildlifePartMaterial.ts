@@ -1,4 +1,4 @@
-import { MeshDepthMaterial, MeshStandardMaterial, RGBADepthPacking } from "three";
+import { FrontSide, MeshDepthMaterial, MeshStandardMaterial, RGBADepthPacking, type Side } from "three";
 
 /**
  * Vertex-shader part articulation for the herd placeholder InstancedMesh.
@@ -109,14 +109,18 @@ export function injectWildlifePartFragmentShader(fragmentShader: string): string
 
 /**
  * Tinted standard material with the part-articulation vertex stage and the
- * per-agent shade fragment stage. All herd materials share one program
- * (constant cache key; the tint is a uniform).
+ * per-agent shade fragment stage. All materials with the same `side` share
+ * one program (the custom cache key is constant and the tint is a uniform;
+ * three folds `side` into its own program parameters). Herd boxes render
+ * front-side; birds pass DoubleSide because their wing parts are single
+ * triangles.
  */
-export function createWildlifePartMaterial(tintHex: number): MeshStandardMaterial {
+export function createWildlifePartMaterial(tintHex: number, side: Side = FrontSide): MeshStandardMaterial {
   const material = new MeshStandardMaterial({
     color: tintHex,
     roughness: 0.9,
     metalness: 0,
+    side,
   });
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = injectWildlifePartVertexShader(shader.vertexShader);
