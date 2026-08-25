@@ -7,7 +7,12 @@ import type { DirectorWorkspaceMode } from "../../editor/workspaces/directorWork
 export type DirectorAppWorkspace = DirectorWorkspaceMode | "agent";
 
 /** Every workspace tab shown in the top bar, in display order. */
-export const DIRECTOR_APP_WORKSPACES = ["canvas", "stage", "video", "agent"] as const satisfies readonly DirectorAppWorkspace[];
+export const DIRECTOR_APP_WORKSPACES = [
+  "canvas",
+  "stage",
+  "video",
+  "agent",
+] as const satisfies readonly DirectorAppWorkspace[];
 
 /**
  * Normalizes a raw query-parameter value into a valid workspace identifier.

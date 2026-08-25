@@ -19,6 +19,10 @@ import {
   type BlenderNativeToolRequest,
   type BlenderObjectInspection,
 } from "../../../../../../packages/protocol/src/blenderLiveProtocol";
+import {
+  blenderLiveLinkPollSchema,
+  type BlenderLiveLinkPoll,
+} from "../../../../../../packages/protocol/src/blenderLiveLinkProtocol";
 import { directorControlPlaneFetch } from "./directorControlPlaneClient";
 
 const errorEnvelopeSchema = z.object({
@@ -135,11 +139,7 @@ async function readResult<T>(path: string, schema: z.ZodType<T>, init?: RequestI
   }
   const envelope = z.object({ success: z.literal(true), result: schema }).safeParse(payload);
   if (!envelope.success) {
-    throw new BlenderLiveClientError(
-      "Blender returned an incompatible response.",
-      response.status,
-      "invalid_response",
-    );
+    throw new BlenderLiveClientError("Blender returned an incompatible response.", response.status, "invalid_response");
   }
   return envelope.data.result;
 }
@@ -163,9 +163,7 @@ export function getBlenderLiveStatus(options: { signal?: AbortSignal } = {}): Pr
  * @param options - Optional abort signal for cancellation.
  * @returns The preview GLB blob with revision and scene epoch.
  */
-export async function getBlenderLivePreviewGlb(
-  options: { signal?: AbortSignal } = {},
-): Promise<BlenderLivePreviewGlb> {
+export async function getBlenderLivePreviewGlb(options: { signal?: AbortSignal } = {}): Promise<BlenderLivePreviewGlb> {
   const response = await directorControlPlaneFetch("/api/dcc/blender/preview.glb", {
     signal: options.signal,
   });
@@ -209,14 +207,33 @@ export async function getBlenderLivePreviewGlb(
 }
 
 /**
+ * Polls the preview-only live-link delta feed from the Blender live kernel.
+ *
+ * Frames are NEVER authoritative and never write into the Director project:
+ * they only exist so the Stage can mirror an in-progress Blender edit with
+ * low latency. Without a cursor the kernel answers with a resync directive;
+ * with `(sceneEpoch, since)` it serves the contiguous frames after that
+ * sequence number or an explicit resync.
+ *
+ * @param cursor - The `(sceneEpoch, since)` cursor from the replay guard, or undefined on first contact.
+ * @param options - Optional abort signal for cancellation.
+ * @returns The live-link poll response (frames or a resync directive).
+ */
+export function pollBlenderLiveLink(
+  cursor?: { sceneEpoch: string; since: number },
+  options: { signal?: AbortSignal } = {},
+): Promise<BlenderLiveLinkPoll> {
+  const query = cursor ? `?epoch=${encodeURIComponent(cursor.sceneEpoch)}&since=${cursor.since}` : "";
+  return readResult(`/api/dcc/blender/live-link${query}`, blenderLiveLinkPollSchema, { signal: options.signal });
+}
+
+/**
  * Fetches the full scene snapshot from the Blender live kernel.
  *
  * @param options - Optional abort signal for cancellation.
  * @returns The live scene snapshot with all objects.
  */
-export function getBlenderLiveScene(
-  options: { signal?: AbortSignal } = {},
-): Promise<BlenderLiveSceneSnapshot> {
+export function getBlenderLiveScene(options: { signal?: AbortSignal } = {}): Promise<BlenderLiveSceneSnapshot> {
   return readResult("/api/dcc/blender/scene", blenderLiveSceneSnapshotSchema, {
     signal: options.signal,
   });
@@ -342,10 +359,7 @@ export function blenderMeshSelectionOperation(options: {
   };
 }
 
-export function blenderMeshEditOperation(
-  objectId: string,
-  edit: BlenderMeshEdit,
-): BlenderAgentOperation {
+export function blenderMeshEditOperation(objectId: string, edit: BlenderMeshEdit): BlenderAgentOperation {
   const context = { selectedIds: [objectId], activeId: objectId, mode: "EDIT" };
   switch (edit.tool) {
     case "subdivide":
@@ -679,10 +693,7 @@ export function submitBlenderLiveCommands(
  * @param options - Optional abort signal for cancellation.
  * @returns The job with its current status.
  */
-export function getBlenderLiveJob(
-  jobId: string,
-  options: { signal?: AbortSignal } = {},
-): Promise<BlenderLiveJob> {
+export function getBlenderLiveJob(jobId: string, options: { signal?: AbortSignal } = {}): Promise<BlenderLiveJob> {
   return readResult(`/api/dcc/blender/jobs/${encodeURIComponent(jobId)}`, blenderLiveJobSchema, {
     signal: options.signal,
   });
@@ -712,11 +723,7 @@ export async function pollBlenderLiveJob(
     const job = await getBlenderLiveJob(jobId, { signal: options.signal });
     if (job.status === "succeeded") return job;
     if (job.status === "failed") {
-      throw new BlenderLiveClientError(
-        job.error || "Blender could not apply the scene edit.",
-        409,
-        "job_failed",
-      );
+      throw new BlenderLiveClientError(job.error || "Blender could not apply the scene edit.", 409, "job_failed");
     }
     if (Date.now() >= deadline) {
       throw new BlenderLiveClientError("Blender did not finish the scene edit in time.", 408, "job_timeout");
@@ -856,10 +863,7 @@ export function createBlenderCameraBatch(
   });
 }
 
-export function createBlenderLightBatch(
-  expectedRevision: number,
-  expectedSceneEpoch: string,
-): BlenderLiveCommandBatch {
+export function createBlenderLightBatch(expectedRevision: number, expectedSceneEpoch: string): BlenderLiveCommandBatch {
   const requestId = crypto.randomUUID();
   return blenderLiveCommandBatchSchema.parse({
     contract: BLENDER_LIVE_CONTRACT,

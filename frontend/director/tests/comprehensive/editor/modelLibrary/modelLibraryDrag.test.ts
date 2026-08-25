@@ -1,5 +1,9 @@
 import { expect, it, vi } from "vitest";
-import { createModelLibraryDragPayload, parseModelLibraryDragData, setModelLibraryDragData } from "../../../../src/comprehensive/editor/modelLibrary/modelLibraryDrag";
+import {
+  createModelLibraryDragPayload,
+  parseModelLibraryDragData,
+  setModelLibraryDragData,
+} from "../../../../src/comprehensive/editor/modelLibrary/modelLibraryDrag";
 
 const cat = {
   assetSource: "library" as const,

@@ -1,13 +1,26 @@
 import { describe, expect, it } from "vitest";
 
 import { createDefaultDirectorProject } from "../../../../src/comprehensive/editor/store/directorStore";
-import { createProductionGraphIdentityMap, migrateProductionGraphIdentities } from "../../../../src/comprehensive/editor/productionGraph/productionGraphMigration";
+import { getDirectorProjectRevision } from "../../../../src/comprehensive/editor/schema/directorProjectRevision";
+import { parseDirectorProject } from "../../../../src/comprehensive/editor/schema/directorProjectSchema";
+import {
+  createProductionGraphIdentityMap,
+  migrateProductionGraphIdentities,
+  persistProductionGraphIdentities,
+} from "../../../../src/comprehensive/editor/productionGraph/productionGraphMigration";
 
 const migratedAt = "2026-08-03T00:00:00.000Z";
 
+function withoutIdentities<T extends { productionGraphIdentities?: unknown }>(
+  project: T,
+): Omit<T, "productionGraphIdentities"> {
+  const { productionGraphIdentities: _omitted, ...legacy } = project;
+  return legacy;
+}
+
 describe("ProductionGraph identity migration", () => {
   it("backfills deterministic identities and emits an immutable receipt", () => {
-    const project = createDefaultDirectorProject();
+    const project = withoutIdentities(createDefaultDirectorProject());
     const result = migrateProductionGraphIdentities(project, { migratedAt });
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -18,7 +31,7 @@ describe("ProductionGraph identity migration", () => {
   });
 
   it("dual-reads an existing map and returns a deterministic noop", () => {
-    const project = createDefaultDirectorProject();
+    const project = withoutIdentities(createDefaultDirectorProject());
     const first = migrateProductionGraphIdentities(project, { migratedAt });
     expect(first.success).toBe(true);
     if (!first.success) return;
@@ -35,7 +48,7 @@ describe("ProductionGraph identity migration", () => {
   });
 
   it("blocks a conflicting legacy mapping and preserves the source project", () => {
-    const project = createDefaultDirectorProject();
+    const project = withoutIdentities(createDefaultDirectorProject());
     const first = migrateProductionGraphIdentities(project, { migratedAt });
     expect(first.success).toBe(true);
     if (!first.success) return;
@@ -62,7 +75,7 @@ describe("ProductionGraph identity migration", () => {
   });
 
   it("keeps removed legacy identities as stale additive evidence", () => {
-    const project = createDefaultDirectorProject();
+    const project = withoutIdentities(createDefaultDirectorProject());
     const first = migrateProductionGraphIdentities(project, { migratedAt });
     expect(first.success).toBe(true);
     if (!first.success) return;
@@ -79,5 +92,15 @@ describe("ProductionGraph identity migration", () => {
       sourceId: "removed-object",
       graphNodeId: "object:removed-object",
     });
+  });
+
+  it("persists identities onto the project without changing the revision hash", () => {
+    const legacy = withoutIdentities(createDefaultDirectorProject());
+    const persisted = persistProductionGraphIdentities(legacy);
+    expect(persisted.productionGraphIdentities?.entries.length).toBeGreaterThan(0);
+    expect(getDirectorProjectRevision(persisted)).toBe(getDirectorProjectRevision(legacy));
+    const roundTrip = parseDirectorProject(JSON.parse(JSON.stringify(persisted)));
+    expect(roundTrip.productionGraphIdentities).toEqual(persisted.productionGraphIdentities);
+    expect(persistProductionGraphIdentities(persisted)).toBe(persisted);
   });
 });

@@ -21,6 +21,18 @@ import {
 } from "@director/dcc-protocol";
 import type { DirectorProject } from "@director/project-schema";
 import type { DirectorDccExchangePackager } from "./dccExchangePackage";
+import { runUnrealCleanFrame } from "./unrealCleanFrame";
+import { writeUnrealSequencerBake, type UnrealSequencerBakeFile } from "./unrealSequencerBake";
+import { writeGodotAnimationBake, type GodotAnimationBakeFile } from "./godotAnimationBake";
+import {
+  checkGodotAddonEnabled,
+  GODOT_DEFAULT_EXECUTABLE_PATHS,
+  GODOT_EXECUTABLE_COMMANDS,
+  GODOT_HEADLESS_ENTRY,
+  probeGodotConnectorHealth,
+  type GodotConnectorHealthProbeResult,
+} from "./godotProbe";
+import { discoverUnityEditorExecutableCandidates } from "./unityProbe";
 
 /** Environment variable naming the engine editor binary, per engine. */
 export const DIRECTOR_ENGINE_BINARY_ENV: Record<DirectorDccEngineId, string> = {
@@ -41,22 +53,35 @@ type EngineRuntimeProbe = {
   defaultPaths: string[];
 };
 
+/** Epic Games Launcher versions probed at their per-platform default roots. */
+const UNREAL_LAUNCHER_VERSIONS = ["5.6", "5.5", "5.4"] as const;
+
 const ENGINE_RUNTIME_PROBES: Record<DirectorDccEngineId, EngineRuntimeProbe> = {
   unreal: {
-    commands: ["UnrealEditor-Cmd", "UnrealEditor"],
+    // Windows PATH entries resolve the .exe names; POSIX resolves the bare ones.
+    commands: ["UnrealEditor-Cmd", "UnrealEditor", "UnrealEditor-Cmd.exe", "UnrealEditor.exe"],
     defaultPaths: [
-      "/Users/Shared/Epic Games/UE_5.6/Engine/Binaries/Mac/UnrealEditor-Cmd",
-      "/Users/Shared/Epic Games/UE_5.5/Engine/Binaries/Mac/UnrealEditor-Cmd",
-      "/Users/Shared/Epic Games/UE_5.4/Engine/Binaries/Mac/UnrealEditor-Cmd",
+      // Epic Games Launcher installs (macOS and Windows).
+      ...UNREAL_LAUNCHER_VERSIONS.flatMap((version) => [
+        `/Users/Shared/Epic Games/UE_${version}/Engine/Binaries/Mac/UnrealEditor-Cmd`,
+        `C:\\Program Files\\Epic Games\\UE_${version}\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe`,
+      ]),
+      // Linux has no launcher; probe the conventional binary-drop / source-build roots.
+      "/opt/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd",
+      "/opt/unreal-engine/Engine/Binaries/Linux/UnrealEditor-Cmd",
+      "/usr/local/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd",
     ],
   },
   unity: {
-    commands: ["Unity", "unity", "unityhub-editor"],
-    defaultPaths: ["/Applications/Unity/Unity.app/Contents/MacOS/Unity"],
+    commands: ["Unity", "unity", "Unity.exe", "unityhub-editor"],
+    // Unity default paths are produced per-platform by unityProbe.ts
+    // (Unity Hub per-version installs plus legacy/containerized layouts).
+    defaultPaths: [],
   },
   godot: {
-    commands: ["godot", "godot4", "godot4.4", "godot4.3"],
-    defaultPaths: ["/Applications/Godot.app/Contents/MacOS/Godot"],
+    // macOS, Linux, Flatpak/Snap, and Windows locations live in godotProbe.ts.
+    commands: [...GODOT_EXECUTABLE_COMMANDS],
+    defaultPaths: [...GODOT_DEFAULT_EXECUTABLE_PATHS],
   },
 };
 
@@ -73,8 +98,8 @@ const ENGINE_PROJECT_CONNECTOR_FILES: Record<DirectorDccEngineId, string[]> = {
 /** Fixed Unity batch-mode entry method; never taken from a request. */
 const UNITY_IMPORT_METHOD = "Director.Bridge.Editor.DirectorBridgeCli.Import";
 
-/** Fixed Godot headless entry script inside the engine project; never request-supplied. */
-const GODOT_HEADLESS_ENTRY = "res://addons/director_bridge/director_headless.gd";
+// The fixed Godot headless entry (never request-supplied) is GODOT_HEADLESS_ENTRY
+// from ./godotProbe.
 
 /** Fixed Unreal headless entry script inside the engine project; never request-supplied. */
 const UNREAL_HEADLESS_ENTRY = "Plugins/DirectorBridge/Content/Python/director_headless.py";
@@ -111,6 +136,12 @@ export interface DirectorDccEngineSendOptions {
   formats?: DirectorDccPortableExchangeFormat[];
   cameraId?: string;
   frame?: number;
+  /**
+   * Unreal-only: after a successful import, render one optional clean still
+   * (no gizmos/labels) and attach its receipt. Render problems degrade to a
+   * `skipped` receipt with a reason; they never fail the handoff.
+   */
+  cleanFrame?: boolean;
 }
 
 /**
@@ -155,6 +186,15 @@ export interface CreateDirectorDccEngineBridgeOptions {
   runProcess?: EngineProcessRunner;
   /** Optional host version probe override for tests. */
   probeHostVersion?: (provider: DirectorDccEngineId, executable: string) => Promise<string | null>;
+  /**
+   * Optional connector health probe override for tests. Only Godot runs a
+   * connector health probe today: the fixed headless entry in `--mode health`
+   * must print a valid health JSON line before the provider reports ready.
+   */
+  probeConnectorHealth?: (
+    provider: DirectorDccEngineId,
+    context: { executable: string; projectDirectory: string; expectedConnectorVersion: string | null },
+  ) => Promise<GodotConnectorHealthProbeResult>;
   /** Maximum time in milliseconds for a headless engine job. */
   jobTimeoutMs?: number;
   /** Health result cache lifetime in milliseconds (0 disables caching). */
@@ -246,7 +286,9 @@ async function discoverOnPath(commands: readonly string[], environment: NodeJS.P
 async function discoverEngineExecutable(provider: DirectorDccEngineId, environment: NodeJS.ProcessEnv) {
   const configured = environment[DIRECTOR_ENGINE_BINARY_ENV[provider]]?.trim();
   const probe = ENGINE_RUNTIME_PROBES[provider];
-  const candidates = [configured, ...probe.defaultPaths].filter((candidate): candidate is string => Boolean(candidate));
+  const defaultPaths =
+    provider === "unity" ? await discoverUnityEditorExecutableCandidates({ environment }) : probe.defaultPaths;
+  const candidates = [configured, ...defaultPaths].filter((candidate): candidate is string => Boolean(candidate));
   for (const candidate of candidates) if (await isFile(candidate)) return candidate;
   return discoverOnPath(probe.commands, environment);
 }
@@ -376,10 +418,14 @@ const ENGINE_RECOVERY_HINTS: Record<DirectorDccEngineId, Record<string, string>>
       "Copy integrations/unity/com.director.bridge into <Project>/Packages (or reference it from Packages/manifest.json).",
   },
   godot: {
-    executable: "Set DIRECTOR_GODOT_BIN to the godot / godot4 binary (Godot 4.2 or newer).",
+    executable: "Set DIRECTOR_GODOT_BIN to the godot / godot4 binary (Godot 4.2 or newer; Godot 4.x only).",
     engine_project: "Set DIRECTOR_GODOT_PROJECT to the Godot project directory that should receive Director scenes.",
     project_connector:
       "Copy integrations/godot/addons/director_bridge into <Project>/addons and enable the plugin in Project Settings.",
+    project_plugin_enabled:
+      "Enable Director Bridge in Project → Project Settings → Plugins so project.godot lists res://addons/director_bridge/plugin.cfg.",
+    connector_health:
+      "Run the connector health probe manually: godot --headless --path <Project> --script res://addons/director_bridge/director_headless.gd -- --mode health.",
   },
 };
 
@@ -517,8 +563,50 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       }
     }
 
+    // Godot readiness is deeper than file presence: the addon must be enabled
+    // in project.godot and the fixed headless entry must answer a --mode
+    // health probe with a valid JSON line from a Godot 4.x host. Detecting a
+    // godot binary on PATH alone is only ever `installed`.
+    let providerExtraChecksOk = true;
+    if (provider === "godot" && project.ok && project.projectDirectory && projectConnectorOk) {
+      const pluginEnabled = await checkGodotAddonEnabled(project.projectDirectory);
+      checks.push({ id: "project_plugin_enabled", ok: pluginEnabled.ok, detail: pluginEnabled.detail });
+      if (!pluginEnabled.ok) {
+        providerExtraChecksOk = false;
+        warnings.push("The Director Bridge addon is present but not enabled in the configured Godot project.");
+        recovery.push(hints.project_plugin_enabled!);
+      } else if (executable && hostVersion) {
+        const connectorHealth = options.probeConnectorHealth
+          ? await options.probeConnectorHealth(provider, {
+              executable,
+              projectDirectory: project.projectDirectory,
+              expectedConnectorVersion: manifest?.version ?? null,
+            })
+          : await probeGodotConnectorHealth({
+              executable,
+              projectDirectory: project.projectDirectory,
+              expectedConnectorVersion: manifest?.version ?? null,
+              runProcess,
+            });
+        checks.push({ id: "connector_health", ok: connectorHealth.ok, detail: connectorHealth.detail });
+        if (!connectorHealth.ok) {
+          providerExtraChecksOk = false;
+          warnings.push(`The Godot connector health probe failed: ${connectorHealth.detail}`);
+          recovery.push(hints.connector_health!);
+        }
+      } else {
+        providerExtraChecksOk = false;
+      }
+    }
+
     const ready =
-      Boolean(manifest) && entriesOk && Boolean(executable) && Boolean(hostVersion) && project.ok && projectConnectorOk;
+      Boolean(manifest) &&
+      entriesOk &&
+      Boolean(executable) &&
+      Boolean(hostVersion) &&
+      project.ok &&
+      projectConnectorOk &&
+      providerExtraChecksOk;
     if (!ready && !recovery.includes(`Portable ${descriptor.exchangeFormats.join("/")} exchange remains available.`)) {
       recovery.push(`Portable ${descriptor.exchangeFormats.join("/")} exchange remains available.`);
     }
@@ -569,6 +657,8 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     reportPath: string,
     returnDirectory: string,
     logPath: string,
+    unrealBake?: UnrealSequencerBakeFile,
+    godotBake?: GodotAnimationBakeFile,
   ): string[] {
     if (provider === "unreal") {
       const script = resolve(projectResolution.projectDirectory, UNREAL_HEADLESS_ENTRY);
@@ -582,6 +672,16 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
         quoteForUnrealScriptArgument(reportPath),
         "--return-dir",
         quoteForUnrealScriptArgument(returnDirectory),
+        // The Sequencer bake is hash-pinned so the connector can refuse a
+        // sidecar that does not match what the Gateway wrote.
+        ...(unrealBake
+          ? [
+              "--animation",
+              quoteForUnrealScriptArgument(unrealBake.bakePath),
+              "--animation-sha256",
+              unrealBake.bakeSha256,
+            ]
+          : []),
       ].join(" ");
       return [
         projectResolution.projectPath,
@@ -627,6 +727,9 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       reportPath,
       "--return-dir",
       returnDirectory,
+      // The animation bake is hash-pinned so the connector can refuse a
+      // sidecar that does not match what the Gateway wrote.
+      ...(godotBake ? ["--animation", godotBake.bakePath, "--animation-sha256", godotBake.bakeSha256] : []),
     ];
   }
 
@@ -663,6 +766,33 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     const returnDirectory = resolve(jobDirectory, "return");
     const logPath = resolve(jobDirectory, "host.log");
 
+    // Engine-specific: bake time-sampled animation into a hash-pinned sidecar.
+    // A bake failure downgrades to a static import with a warning rather than
+    // failing the whole handoff.
+    let unrealBake: UnrealSequencerBakeFile | undefined;
+    let godotBake: GodotAnimationBakeFile | undefined;
+    const bakeWarnings: string[] = [];
+    if (provider === "unreal") {
+      try {
+        unrealBake = await writeUnrealSequencerBake(project, exchange.jobId, exchange.sourceRevision, jobDirectory);
+        bakeWarnings.push(...unrealBake.bake.warnings);
+      } catch (error) {
+        bakeWarnings.push(
+          `Sequencer animation bake failed (${error instanceof Error ? error.message : String(error)}); the import continues without baked animation.`,
+        );
+      }
+    }
+    if (provider === "godot") {
+      try {
+        godotBake = await writeGodotAnimationBake(project, exchange.jobId, exchange.sourceRevision, jobDirectory);
+        bakeWarnings.push(...godotBake.bake.warnings);
+      } catch (error) {
+        bakeWarnings.push(
+          `Godot animation bake failed (${error instanceof Error ? error.message : String(error)}); the import continues without baked animation.`,
+        );
+      }
+    }
+
     const args = engineArguments(
       provider,
       { projectPath: currentHealth.projectPath, projectDirectory },
@@ -670,6 +800,8 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       reportPath,
       returnDirectory,
       logPath,
+      unrealBake,
+      godotBake,
     );
     try {
       await runProcess(currentHealth.executable, args, jobTimeoutMs);
@@ -736,6 +868,53 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       }
     }
 
+    const sendWarnings: string[] = [];
+
+    // Structured warn-and-omit: pose/rig channels the bake could not carry are
+    // reported from the Gateway's own sidecar, so an outdated connector can
+    // never silently flatten them out of the result.
+    const omittedAnimationChannels = (unrealBake?.bake.entities ?? [])
+      .filter((entity) => entity.omittedChannels?.length)
+      .map((entity) => ({
+        directorId: entity.directorId,
+        entityType: entity.entityType,
+        channels: entity.omittedChannels!,
+      }));
+    if (omittedAnimationChannels.length > 0) {
+      sendWarnings.push(
+        `${omittedAnimationChannels.length} baked entity/entities carry pose or rig channels the Sequencer bake cannot transfer; only world transforms were baked (warn-and-omit, see omittedAnimationChannels).`,
+      );
+    }
+
+    // Unreal-only optional clean frame: a second offscreen invocation (never
+    // -nullrhi) whose receipt degrades to skipped-with-reason on any failure.
+    let cleanFrame: Awaited<ReturnType<typeof runUnrealCleanFrame>> | undefined;
+    if (sendOptions.cleanFrame) {
+      if (provider === "unreal") {
+        cleanFrame = await runUnrealCleanFrame(
+          {
+            executable: currentHealth.executable,
+            projectPath: currentHealth.projectPath,
+            scriptPath: resolve(projectDirectory, UNREAL_HEADLESS_ENTRY),
+            packageDirectory: exchange.packagePath,
+            jobDirectory,
+            expectedPackageId: exchange.jobId,
+            expectedSourceRevision: exchange.sourceRevision,
+            runProcess,
+            timeoutMs: jobTimeoutMs,
+          },
+          { cameraId: sendOptions.cameraId, frame: sendOptions.frame },
+        );
+        if (cleanFrame.status === "skipped") {
+          sendWarnings.push(`Clean-frame render was skipped: ${cleanFrame.skipReason}`);
+        }
+      } else {
+        sendWarnings.push(
+          `clean_frame was ignored: only the unreal connector renders clean frames (provider: ${provider}).`,
+        );
+      }
+    }
+
     return directorDccEngineSendResultSchema.parse({
       contract: DIRECTOR_DCC_ENGINE_SEND_CONTRACT,
       jobId: exchange.jobId,
@@ -748,7 +927,9 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       reportPath,
       report,
       returnPackagePath,
-      warnings: [...exchange.warnings, ...report.warnings],
+      ...(omittedAnimationChannels.length > 0 ? { omittedAnimationChannels } : {}),
+      ...(cleanFrame ? { cleanFrame } : {}),
+      warnings: [...exchange.warnings, ...bakeWarnings, ...report.warnings, ...sendWarnings],
     });
   }
 

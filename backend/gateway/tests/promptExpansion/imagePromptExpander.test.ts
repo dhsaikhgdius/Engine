@@ -33,8 +33,9 @@ function expanderWith(replies: string[]) {
 function lastUserText(request: ModelCompletionRequest): string {
   return request.messages
     .at(-1)!
-    .content.filter((item): item is Extract<(typeof request.messages)[number]["content"][number], { type: "text" }> =>
-      item.type === "text",
+    .content.filter(
+      (item): item is Extract<(typeof request.messages)[number]["content"][number], { type: "text" }> =>
+        item.type === "text",
     )
     .map((item) => item.text)
     .join("\n");
@@ -110,7 +111,8 @@ describe("ImagePromptExpander", () => {
         negative_prompt: null,
       }),
       JSON.stringify({
-        prompt: 'A vintage café poster with a hand-painted sign reading “黄昏咖啡馆” above the door, warm tungsten glow.',
+        prompt:
+          "A vintage café poster with a hand-painted sign reading “黄昏咖啡馆” above the door, warm tungsten glow.",
         negative_prompt: null,
       }),
     ]);
@@ -128,7 +130,8 @@ describe("ImagePromptExpander", () => {
         negative_prompt: null,
       }),
       JSON.stringify({
-        prompt: "The character from image 1 stands in a relaxed pose, softly lit from the right, plain studio backdrop.",
+        prompt:
+          "The character from image 1 stands in a relaxed pose, softly lit from the right, plain studio backdrop.",
         negative_prompt: null,
       }),
     ]);

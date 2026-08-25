@@ -559,7 +559,10 @@ export interface WaterFrameState {
  */
 export function writeWaterFrameUniforms(uniforms: WaterSurfaceUniforms, frame: WaterFrameState): void {
   const { context, body, waves, amplitudeSum } = frame;
-  const weather = context.settings.weather;
+  // Weather comes from the evaluated climate: identical to the authored
+  // block in static mode, continuously ramped while a weather cycle runs.
+  const climate = context.climate;
+  const weather = climate.weather;
   const windX = context.windVector[0];
   const windZ = context.windVector[2];
   const windSpeedMps = Math.hypot(windX, windZ);
@@ -604,10 +607,7 @@ export function writeWaterFrameUniforms(uniforms: WaterSurfaceUniforms, frame: W
   uniforms.uDetailScrollA.value.set(flowX * scrollA, flowZ * scrollA);
   uniforms.uDetailScrollB.value.set(flowX * scrollB, flowZ * scrollB);
 
-  // Weather comes from the evaluated climate: identical to the authored
-  // block in static mode, continuously ramped while a weather cycle runs.
-  const climate = context.climate;
-  const weather = climate.weather;  const hours = evaluateWorldTimeOfDayHours(context.settings.timeOfDay, context.worldSeconds);
+  const hours = evaluateWorldTimeOfDayHours(context.settings.timeOfDay, context.worldSeconds);
   computeWaterSunDirectionInto(uniforms.uSunDirection.value, hours);
   uniforms.uSunIntensity.value = computeWaterSunIntensity(hours, weather.cloudCover);
   computeWaterSunColorInto(uniforms.uSunColor.value, hours);

@@ -19,16 +19,27 @@ _INTERCHANGE_DIR = str(Path(__file__).resolve().parent)
 if _INTERCHANGE_DIR not in sys.path:
     sys.path.insert(0, _INTERCHANGE_DIR)
 
-from director_signature import mesh_content_signature
+from director_pose_bones import resolve_pose_bone_roles
+from director_properties import (
+    CAMERA_TARGET_PROPERTY,
+    POSE_BONE_BASELINE_PROPERTY,
+    POSE_BONE_MAP_PROPERTY,
+    POSE_CONTROL_PREFIX,
+    POSE_CONTROLS_BASELINE_PROPERTY,
+    SOURCE_CAMERA_OPTICS_PROPERTY,
+    SOURCE_LIGHT_PROPERTY,
+    SOURCE_MESH_SIGNATURE_PROPERTY,
+    SOURCE_POSE_FINGERPRINT_PROPERTY,
+    SOURCE_TRANSFORM_PROPERTY,
+    SOURCE_UNMAPPED_POSE_FINGERPRINT_PROPERTY,
+)
+from director_signature import armature_pose_fingerprint, mesh_content_signature
 
 import bpy
 from mathutils import Vector
 
 
 REPORT_PREFIX = "DIRECTOR_DCC_RESULT:"
-SOURCE_TRANSFORM_PROPERTY = "director_source_transform"
-SOURCE_MESH_SIGNATURE_PROPERTY = "director_source_mesh_signature"
-CAMERA_TARGET_PROPERTY = "director_camera_target"
 
 
 def parse_args() -> argparse.Namespace:
@@ -103,19 +114,94 @@ def blender_transform(target: Any) -> dict[str, list[float]]:
     }
 
 
+def camera_optics_state(camera_object: Any, sensor_format: str | None) -> dict[str, Any]:
+    """Read the evaluated camera optics that the return exporter diffs against."""
+    data = camera_object.data
+    state: dict[str, Any] = {
+        "focalLengthMm": float(data.lens),
+        "apertureFStop": float(data.dof.aperture_fstop),
+        "focusDistanceM": float(data.dof.focus_distance),
+        "nearClipM": float(data.clip_start),
+        "farClipM": float(data.clip_end),
+        "sensorWidthMm": float(data.sensor_width),
+        "sensorHeightMm": float(data.sensor_height),
+    }
+    if sensor_format:
+        state["sensorFormat"] = sensor_format
+    return state
+
+
+def stamp_pose_bone_baselines(root: Any) -> None:
+    """Stamp the Director bone-role map plus per-bone baselines for the return trip.
+
+    Only bones stamped here reconcile direct pose edits back into portable
+    ``director_pose.*`` control values; the exporter warns about and omits
+    everything else. When several armatures sit under one root, the one that
+    resolves the most Director roles is mapped and the rest stay covered by
+    the unmapped-bone fingerprint.
+    """
+    armatures = sorted(
+        (item for item in [root, *list(root.children_recursive)] if item.type == "ARMATURE"),
+        key=lambda item: item.name,
+    )
+    best: tuple[Any, dict[str, str]] | None = None
+    for armature in armatures:
+        resolved = resolve_pose_bone_roles(bone.name for bone in armature.pose.bones)
+        if resolved and (best is None or len(resolved) > len(best[1])):
+            best = (armature, resolved)
+    if best is None:
+        return
+    armature, resolved = best
+    baselines: dict[str, dict[str, list[float]]] = {}
+    for role, bone_name in resolved.items():
+        bone = armature.pose.bones.get(bone_name)
+        if bone is None:
+            continue
+        location, rotation, scale = bone.matrix_basis.decompose()
+        baselines[role] = {
+            "rotation": [float(rotation.w), float(rotation.x), float(rotation.y), float(rotation.z)],
+            "location": [float(location.x), float(location.y), float(location.z)],
+            "scale": [float(scale.x), float(scale.y), float(scale.z)],
+        }
+    root[POSE_BONE_MAP_PROPERTY] = json.dumps(
+        {"armature": armature.name, "bones": resolved}, separators=(",", ":"), sort_keys=True
+    )
+    root[POSE_BONE_BASELINE_PROPERTY] = json.dumps(baselines, separators=(",", ":"), sort_keys=True)
+    unmapped_fingerprint = armature_pose_fingerprint(
+        root, exclude={(armature.name, bone_name) for bone_name in resolved.values()}
+    )
+    if unmapped_fingerprint is not None:
+        root[SOURCE_UNMAPPED_POSE_FINGERPRINT_PROPERTY] = unmapped_fingerprint
+
+
 def stamp_source_baselines(payload: dict[str, Any]) -> None:
     """Persist evaluated import baselines after Blender has returned to currentFrame."""
     object_ids = {item["id"] for item in payload["objects"]}
-    camera_targets = {item["id"]: item["target"] for item in payload["cameras"]}
+    camera_items = {item["id"]: item for item in payload["cameras"]}
     for root in bpy.context.scene.objects:
         director_id = root.get("director_id")
         if not isinstance(director_id, str):
             continue
         root[SOURCE_TRANSFORM_PROPERTY] = json.dumps(blender_transform(root), separators=(",", ":"), sort_keys=True)
-        if director_id in object_ids and any(item.type == "MESH" for item in [root, *list(root.children_recursive)]):
-            root[SOURCE_MESH_SIGNATURE_PROPERTY] = mesh_content_signature(root)
-        if director_id in camera_targets:
-            root[CAMERA_TARGET_PROPERTY] = json.dumps(camera_targets[director_id], separators=(",", ":"))
+        if director_id in object_ids:
+            if any(item.type == "MESH" for item in [root, *list(root.children_recursive)]):
+                root[SOURCE_MESH_SIGNATURE_PROPERTY] = mesh_content_signature(root)
+            pose_fingerprint = armature_pose_fingerprint(root)
+            if pose_fingerprint is not None:
+                root[SOURCE_POSE_FINGERPRINT_PROPERTY] = pose_fingerprint
+                stamp_pose_bone_baselines(root)
+        camera_item = camera_items.get(director_id)
+        if camera_item is not None:
+            root[CAMERA_TARGET_PROPERTY] = json.dumps(camera_item["target"], separators=(",", ":"))
+            if root.type == "CAMERA":
+                # The optics baseline uses evaluated values (a focal-length
+                # animation may have moved data.lens away from the package
+                # value at currentFrame), so an untouched round trip is a no-op.
+                root[SOURCE_CAMERA_OPTICS_PROPERTY] = json.dumps(
+                    camera_optics_state(root, camera_item.get("sensorFormat")),
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
 
 
 def add_primitive(kind: str | None, name: str, color: str | None):
@@ -209,6 +295,15 @@ def add_object(item: dict[str, Any], warnings: list[str]) -> Any:
         keyframe_transform(root, keyframe)
         if keyframe.get("poseValues"):
             root[f"director_pose_frame_{keyframe['frame']}"] = json.dumps(keyframe["poseValues"], sort_keys=True)
+
+    pose_controls = item.get("poseControls")
+    if isinstance(pose_controls, dict) and pose_controls:
+        # The baseline JSON is immutable; the per-control custom properties are
+        # the editable surface. The return exporter diffs one against the other
+        # and sends a portable pose_update back to the same Director binding.
+        root[POSE_CONTROLS_BASELINE_PROPERTY] = json.dumps(pose_controls, separators=(",", ":"), sort_keys=True)
+        for control, value in pose_controls.items():
+            root[POSE_CONTROL_PREFIX + control] = float(value)
     return root
 
 
@@ -264,6 +359,57 @@ def add_camera(item: dict[str, Any]) -> Any:
     return camera_object
 
 
+BLENDER_LIGHT_TYPES = {"directional": "SUN", "point": "POINT", "spot": "SPOT", "rect-area": "AREA"}
+
+
+def light_baseline(item: dict[str, Any]) -> dict[str, Any]:
+    """The import-time light state the return exporter diffs against."""
+    baseline = {
+        "type": item["type"],
+        "position": [float(value) for value in item["position"]],
+        "color": item["color"],
+        "intensity": float(item["intensity"]),
+        "energy": float(item["energy"]),
+        "wattsPerIntensity": float(item["wattsPerIntensity"]),
+    }
+    if item.get("target") is not None:
+        baseline["target"] = [float(value) for value in item["target"]]
+    return baseline
+
+
+def add_light(item: dict[str, Any], warnings: list[str]) -> Any:
+    blender_type = BLENDER_LIGHT_TYPES.get(item["type"])
+    if blender_type is None:
+        warnings.append(f"{item['id']}: light type {item['type']!r} has no Blender equivalent; skipped.")
+        return None
+    light_data = bpy.data.lights.new(name=f"{item['name']}_Data", type=blender_type)
+    # Director colors are #RRGGBB; the raw 0-1 triplet is stored without a
+    # color-space conversion so the return exporter can invert it exactly.
+    light_data.color = rgba(item["color"], (1.0, 1.0, 1.0, 1.0))[:3]
+    light_data.energy = float(item["energy"])
+    light_data.use_shadow = bool(item.get("castShadow", False))
+    if blender_type == "SPOT":
+        if item.get("angleRad") is not None:
+            # Director stores the half-angle; Blender spot_size is the full cone.
+            light_data.spot_size = 2.0 * float(item["angleRad"])
+        light_data.spot_blend = float(item.get("penumbra", 0.0))
+    if blender_type == "AREA":
+        light_data.shape = "RECTANGLE"
+        light_data.size = float(item.get("widthM", 1.0))
+        light_data.size_y = float(item.get("heightM", 1.0))
+    light_object = bpy.data.objects.new(item["name"], light_data)
+    bpy.context.scene.collection.objects.link(light_object)
+    light_object["director_id"] = item["id"]
+    light_object.location = item["position"]
+    if item.get("target") is not None:
+        aim_camera(light_object, item["target"])  # Blender lights also aim along -Z.
+    visible = bool(item.get("visible", True))
+    light_object.hide_render = not visible
+    light_object.hide_viewport = not visible
+    light_object[SOURCE_LIGHT_PROPERTY] = json.dumps(light_baseline(item), separators=(",", ":"), sort_keys=True)
+    return light_object
+
+
 def add_ground(scene_payload: dict[str, Any]) -> None:
     if not scene_payload["showGround"]:
         return
@@ -309,6 +455,10 @@ def configure_scene(payload: dict[str, Any]) -> None:
     scene.render.resolution_percentage = 100
     scene.world.color = rgba(payload["scene"]["backgroundColor"], (0.035, 0.045, 0.065, 1.0))[:3]
 
+    if payload.get("lights"):
+        # The package carries the authored Director lights; adding the default
+        # blocking rig on top would double-light the scene.
+        return
     bpy.ops.object.light_add(type="AREA", location=(4.0, -4.0, 7.0))
     key = bpy.context.object
     key.name = "Director_Key_Light"
@@ -373,6 +523,7 @@ def main() -> dict[str, Any]:
     add_ground(payload["scene"])
     for item in payload["objects"]:
         add_object(item, warnings)
+    lights = [added for item in payload.get("lights") or [] if (added := add_light(item, warnings)) is not None]
 
     cameras = {item["id"]: add_camera(item) for item in payload["cameras"]}
     active_camera = cameras.get(payload.get("activeCameraId")) or next(iter(cameras.values()), None)
@@ -412,6 +563,7 @@ def main() -> dict[str, Any]:
         "previewPath": rendered_preview,
         "objectCount": len(payload["objects"]),
         "cameraCount": len(payload["cameras"]),
+        "lightCount": len(lights),
         "warnings": warnings,
         "blenderVersion": bpy.app.version_string,
     }

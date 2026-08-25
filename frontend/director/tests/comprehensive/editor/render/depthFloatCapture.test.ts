@@ -12,7 +12,11 @@ import {
   type ColorRepresentation,
   type WebGLRenderer,
 } from "three";
-import { captureDirectorDepthFloat, linearizeDirectorWindowDepth, unpackDirectorRgbaDepth } from "../../../../src/comprehensive/editor/render/depthFloatCapture";
+import {
+  captureDirectorDepthFloat,
+  linearizeDirectorWindowDepth,
+  unpackDirectorRgbaDepth,
+} from "../../../../src/comprehensive/editor/render/depthFloatCapture";
 
 /** Mirror of three.js r18x packDepthToRGBA at byte level (RGB integer, A sub-LSB fraction). */
 function packDepthBytes(depth: number): [number, number, number, number] {

@@ -73,6 +73,81 @@ def quat_rotate_vector(q: Sequence[float], v: Sequence[float]) -> Vec3:
     ]
 
 
+def vec_sub(left: Sequence[float], right: Sequence[float]) -> Vec3:
+    return [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
+
+
+def vec_cross(left: Sequence[float], right: Sequence[float]) -> Vec3:
+    return [
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    ]
+
+
+def vec_length_sq(value: Sequence[float]) -> float:
+    return value[0] * value[0] + value[1] * value[1] + value[2] * value[2]
+
+
+def vec_normalize(value: Sequence[float]) -> Vec3:
+    length = math.sqrt(vec_length_sq(value))
+    if length == 0.0:
+        return [0.0, 0.0, 0.0]
+    return [component / length for component in value]
+
+
+def quat_from_basis(x_axis: Sequence[float], y_axis: Sequence[float], z_axis: Sequence[float]) -> Quat:
+    """Quaternion from an orthonormal column basis (mirror of three.js setFromRotationMatrix)."""
+    m11, m12, m13 = x_axis[0], y_axis[0], z_axis[0]
+    m21, m22, m23 = x_axis[1], y_axis[1], z_axis[1]
+    m31, m32, m33 = x_axis[2], y_axis[2], z_axis[2]
+    trace = m11 + m22 + m33
+    if trace > 0.0:
+        scale = 0.5 / math.sqrt(trace + 1.0)
+        return quat_normalize([(m32 - m23) * scale, (m13 - m31) * scale, (m21 - m12) * scale, 0.25 / scale])
+    if m11 > m22 and m11 > m33:
+        scale = 2.0 * math.sqrt(1.0 + m11 - m22 - m33)
+        return quat_normalize([0.25 * scale, (m12 + m21) / scale, (m13 + m31) / scale, (m32 - m23) / scale])
+    if m22 > m33:
+        scale = 2.0 * math.sqrt(1.0 + m22 - m11 - m33)
+        return quat_normalize([(m12 + m21) / scale, 0.25 * scale, (m23 + m32) / scale, (m13 - m31) / scale])
+    scale = 2.0 * math.sqrt(1.0 + m33 - m11 - m22)
+    return quat_normalize([(m13 + m31) / scale, (m23 + m32) / scale, 0.25 * scale, (m21 - m12) / scale])
+
+
+def camera_look_quaternion(
+    position: Sequence[float],
+    target: Sequence[float],
+    fallback_rotation_euler_xyz: Sequence[float],
+) -> Quat:
+    """Director camera look-at rotation (camera forward local -Z, +Y up).
+
+    Mirrors ``directorCameraLookQuaternion`` in
+    ``packages/dcc-interchange/src/cameraOrientation.ts`` (three.js
+    ``Matrix4.lookAt`` semantics) so headless-spawned cameras aim exactly like
+    the glTF/OpenUSD exports. Falls back to the camera's authored Euler
+    rotation when position and target coincide.
+    """
+    forward = vec_sub(target, position)
+    if vec_length_sq(forward) <= sys.float_info.epsilon:
+        return quat_from_euler_xyz(*fallback_rotation_euler_xyz)
+    forward = vec_normalize(forward)
+    up = [0.0, 0.0, 1.0] if abs(forward[1]) > 0.999 else [0.0, 1.0, 0.0]
+    z_axis = vec_normalize(vec_sub(position, target))
+    x_axis = vec_cross(up, z_axis)
+    if vec_length_sq(x_axis) == 0.0:
+        # Mirror three.js lookAt degeneracy handling: nudge z before re-crossing.
+        if abs(up[2]) == 1.0:
+            z_axis[0] += 0.0001
+        else:
+            z_axis[2] += 0.0001
+        z_axis = vec_normalize(z_axis)
+        x_axis = vec_cross(up, z_axis)
+    x_axis = vec_normalize(x_axis)
+    y_axis = vec_cross(z_axis, x_axis)
+    return quat_from_basis(x_axis, y_axis, z_axis)
+
+
 def compose_world_transform(
     scene_position: Sequence[float],
     scene_rotation_euler_xyz: Sequence[float],
@@ -227,6 +302,22 @@ def run_self_test() -> int:
             failures.append(f"quaternion round trip failed for {quaternion}")
         if not _close(unreal_scale_to_director(director_scale_to_unreal(sample)), sample):
             failures.append(f"scale round trip failed for {sample}")
+    # Camera look-at: identity when looking down -Z, quarter yaw toward +X,
+    # Euler fallback for coincident targets, and the forward-carrying property.
+    if not _quat_close(camera_look_quaternion([0, 0, 0], [0, 0, -1], [0, 0, 0]), [0, 0, 0, 1], 1e-9):
+        failures.append("look-at toward -Z is not the identity rotation")
+    quarter = math.sqrt(0.5)
+    if not _quat_close(camera_look_quaternion([0, 0, 0], [1, 0, 0], [0, 0, 0]), [0, -quarter, 0, quarter], 1e-9):
+        failures.append("look-at toward +X is not a -90 degree yaw")
+    fallback = quat_from_euler_xyz(0.3, -0.4, 0.5)
+    if not _quat_close(camera_look_quaternion([1, 2, 3], [1, 2, 3], [0.3, -0.4, 0.5]), fallback, 1e-9):
+        failures.append("coincident look-at target does not fall back to the Euler rotation")
+    for eye, target in [([0, 1, 0], [2, 0.5, -3]), ([-1, 2, 4], [-1, -5, 4.0001]), ([3, 3, 3], [3, 9, 3])]:
+        rotation = camera_look_quaternion(eye, target, [0, 0, 0])
+        carried = quat_rotate_vector(rotation, [0.0, 0.0, -1.0])
+        expected_forward = vec_normalize(vec_sub(target, eye))
+        if not _close(carried, expected_forward, 1e-3):
+            failures.append(f"look-at from {eye} to {target} does not carry -Z onto the forward ray: {carried}")
     if failures:
         print(json.dumps({"ok": False, "failures": failures}))
         return 1

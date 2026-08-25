@@ -44,16 +44,18 @@ The process token authenticates the client to the gateway. It is separate from t
 
 ## Discovery
 
-| Method | Path                              | Result                                           |
-| ------ | --------------------------------- | ------------------------------------------------ |
-| `GET`  | `/health`                         | Unauthenticated process health and browser count |
-| `GET`  | `/api/control-plane/capabilities` | Redacted Agent and video configuration           |
-| `GET`  | `/api/agent/providers`            | Local/API session-provider availability          |
-| `GET`  | `/api/agent/profiles`             | Public Profile metadata and model capabilities   |
-| `GET`  | `/api/video/providers`            | Live video-provider capability report            |
-| `GET`  | `/api/dcc/status`                 | Blender/DCC bridge status                        |
-| `GET`  | `/api/stage`                      | Legacy StageScene projection                     |
-| `GET`  | `/api/preview`                    | Latest captured preview; authenticated read      |
+| Method | Path                               | Result                                           |
+| ------ | ---------------------------------- | ------------------------------------------------ |
+| `GET`  | `/health`                          | Unauthenticated process health and browser count |
+| `GET`  | `/api/control-plane/capabilities`  | Redacted Agent and video configuration           |
+| `GET`  | `/api/control-plane/tool-manifest` | Machine-readable Director tool catalog           |
+| `GET`  | `/api/control-plane/a2a-agent-card` | Discovery-only A2A-style agent card             |
+| `GET`  | `/api/agent/providers`             | Local/API session-provider availability          |
+| `GET`  | `/api/agent/profiles`              | Public Profile metadata and model capabilities   |
+| `GET`  | `/api/video/providers`             | Live video-provider capability report            |
+| `GET`  | `/api/dcc/status`                  | Blender/DCC bridge status                        |
+| `GET`  | `/api/stage`                       | Legacy StageScene projection                     |
+| `GET`  | `/api/preview`                     | Latest captured preview; authenticated read      |
 
 ```bash
 curl -fsS "$BASE/api/agent/profiles" \
@@ -62,6 +64,26 @@ curl -fsS "$BASE/api/agent/profiles" \
 
 Discovery responses never contain model API keys, worker credentials, or raw credential environment
 variable names.
+
+`GET /api/control-plane/tool-manifest` returns the `director-tool-manifest-v1` catalog: every
+Director tool with its surface (`mcp`, `http`, or `both`), category, wire `op` enum, and its HTTP
+binding when one exists. Typed tools bind to `POST /api/tools/<name>`; `stage_*` entries are marked
+`legacy` (HTTP-only compatibility, no longer advertised over MCP); `director_film` and
+`director_production` report `http: null` because their HTTP surface is their own domain routes
+(`/api/film/runs`, `/api/production/*`), not `/api/tools/<name>`. Use each tool's `describe`
+operation for exact per-operation JSON Schemas; the manifest deliberately stays a catalog.
+
+```bash
+curl -fsS "$BASE/api/control-plane/tool-manifest" \
+  -H "X-Director-Browser-Token: $TOKEN" | jq '.tools[] | {name, surface, legacy}'
+```
+
+`GET /api/control-plane/a2a-agent-card` returns the `director-a2a-agent-card-v1` card decided by
+[ADR 0004](/engineering/adr/0004-a2a-gateway-spike/). It is **discovery-only**: Director does not
+run an A2A JSON-RPC server (`a2a.jsonrpc_endpoint` is `null`; streaming and push notifications are
+`false`), its `url` is the loopback gateway origin rather than a public A2A service, and its skills
+mirror `director_workbench`, `director_creative`, `blender_native`, and `stage_video` from the live
+tool manifest. Execute work over MCP or `POST /api/tools/{tool}`, not A2A.
 
 Capture results may include a process-epoch `preview_token` URL. It is a read-only capability for that
 preview route, allowing browsers and vision-capable Agents to render the image without receiving the
@@ -223,7 +245,9 @@ preservation and degradation boundary.
 
 `director_dcc` also runs headless engine round trips through the Director-authored connectors in
 `integrations/{unreal,unity,godot}`. Check readiness first; `nativeReady` requires the connector
-files, a version-probed executable, and the connector installed in the configured engine project:
+files, a version-probed executable, and the connector installed in the configured engine project.
+For Godot, readiness additionally requires the addon enabled in `project.godot` and a valid
+fixed-entry `--mode health` JSON line (Godot 4.x only, connector version matching the workspace):
 
 ```bash
 curl -fsS -X POST "$BASE/api/tools/director_dcc" \
@@ -234,7 +258,10 @@ curl -fsS -X POST "$BASE/api/tools/director_dcc" \
 
 Send the current project into the engine. The Gateway exports an exchange package into a private
 job directory, invokes the fixed connector entry point (never a request-supplied script), and
-returns the schema-validated host report:
+returns the schema-validated host report. For Godot, the Gateway also bakes timeline animation
+into a hash-pinned `animation.json` sidecar that the connector keys into an
+`AnimationPlayer`/`AnimationLibrary`, and the report carries a Godot-specific receipt
+(track/key/light/skeleton/material/texture counts) read back from the saved scene:
 
 ```bash
 curl -sS -X POST "$BASE/api/tools/director_dcc" \
@@ -247,6 +274,14 @@ When the connector is not ready, the route responds `409 engine_not_ready` with 
 `diagnostics` (`provider`, `mode`, `ready`, `warnings`, `recovery`) instead of a bare failure.
 Follow the recovery steps (set `DIRECTOR_GODOT_BIN` / `DIRECTOR_GODOT_PROJECT`, install the addon)
 or fall back to `export_exchange_package`.
+
+For `provider: "unreal"`, the Gateway additionally samples the project's animation into a
+hash-pinned `director-unreal-sequencer-bake-v1` sidecar inside the private job directory. The
+connector keys LevelSequence tracks from it, and the returned report can carry Unreal-only fields:
+a `sequencer` receipt (display rate, tick resolution, start timecode, playback range, track and key
+counts read back from the authored asset) plus `importedSkeletalMeshCount` and
+`appliedMaterialCount`. A bake failure downgrades to a static import with a warning; a tampered
+sidecar fails the job.
 
 Bring engine edits back with the same preview-then-apply protocol as Blender returns. Engine return
 packages carry canonical Director-space transforms, so pass the producing provider explicitly:
@@ -295,7 +330,13 @@ whose analysis status is `degraded` and mode is `local`. See
 | Production state  | `/te-man/director/productions/{id}` and nested `/scenes`; `/scenes/{id}/project`     |
 | DCC               | `GET /api/dcc/status` plus the versioned DCC job operations documented by the bridge |
 | Reconstruction    | `POST /api/reconstruction/reference-scene/analyze`                                   |
+| Observability     | `GET /api/agent/traces`, `GET /api/agent/traces/summary`, `GET /api/agent/usage`, `GET /api/agent/progress` |
 | Legacy Stage      | `GET /api/stage`, `PUT /api/stage`                                                   |
+
+Observability routes return redacted execution receipts, model-usage aggregates, and one unified
+progress shape for production jobs, multi-agent runs, and film runs. Tool calls may self-identify
+their entry surface with the `x-director-trace-source: ui|mcp|http|cli` header; unknown or missing
+values are recorded as `http`. Trace receipts never contain prompts, tool payloads, or credentials.
 
 Prefer structured tools over raw `PUT /api/stage`: Workbench operations participate in revision,
 idempotency, exact-target, quality, asset, audit, and evidence contracts.

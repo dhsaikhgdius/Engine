@@ -8,6 +8,7 @@ import {
 import { getDirectorProjectRevision } from "../../src/comprehensive/editor/schema/directorProjectRevision";
 import { getDirectorSessionRuntime } from "../../src/comprehensive/editor/session/directorSessionRuntime";
 import { createDefaultScene } from "@director/stage-protocol";
+import { getDirectorAgentCatalogAsset } from "@director/agent-engine/asset-catalog";
 
 const agentGatewayMocks = vi.hoisted(() => ({
   bootstrap: vi.fn(async () => ({ browserToken: "browser-token" })),
@@ -265,12 +266,23 @@ it("captures opt-in author evidence against the committed project revision", asy
         expected_revision: beforeRevision,
         idempotency_key: "author-evidence-1",
         actions: [
+          { action: "upsert_asset", asset: getDirectorAgentCatalogAsset("flick:animals:cat.glb")!.asset },
+          {
+            action: "upsert_asset",
+            asset: {
+              id: "asset-evidence-box",
+              kind: "prop",
+              sourceType: "model",
+              fileName: "evidence-box.glb",
+              url: "https://assets.example.test/evidence-box.glb",
+            },
+          },
           {
             action: "add_object",
             id: "evidence-box",
             name: "Evidence box",
             kind: "prop",
-            geometry_type: "box",
+            asset_id: "flick:animals:cat.glb",
           },
         ],
         evidence: {},

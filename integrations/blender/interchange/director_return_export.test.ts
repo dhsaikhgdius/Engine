@@ -40,10 +40,13 @@ describe("Blender return exporter CLI", () => {
       readFile(signatureScript, "utf8"),
     ]);
     for (const source of [returnSource, bridgeSource]) {
-      expect(source).toContain("from director_signature import mesh_content_signature");
+      expect(source).toMatch(/from director_signature import [^\n]*\bmesh_content_signature\b/);
+      expect(source).toMatch(/from director_signature import [^\n]*\barmature_pose_fingerprint\b/);
       expect(source).not.toContain("def mesh_content_signature");
+      expect(source).not.toContain("def armature_pose_fingerprint");
     }
     expect(sharedSource).toContain("def mesh_content_signature");
+    expect(sharedSource).toContain("def armature_pose_fingerprint");
     expect(sharedSource).not.toMatch(/\b(requests|urllib|eval|exec)\s*\(/);
   });
 
@@ -233,5 +236,411 @@ print(json.dumps(result["changes"]))
     expect(bridge).toContain('camera_object["director_camera_orientation_authority"] = "target"');
     expect(bridge).toContain('aim_camera(camera_object, keyframe.get("lookTarget", base_target))');
     expect(bridge).toContain("stamp_source_baselines(payload)");
+  });
+
+  it("imports Director lights, stamps pose controls, and stamps optics baselines in the bridge", async () => {
+    const bridge = await import("node:fs/promises").then(({ readFile }) => readFile(bridgeScript, "utf8"));
+    // Lights: concrete Blender datablocks with the deterministic energy already
+    // computed by the scene package builder, plus a diffable baseline.
+    expect(bridge).toContain("def add_light(");
+    expect(bridge).toContain(
+      'BLENDER_LIGHT_TYPES = {"directional": "SUN", "point": "POINT", "spot": "SPOT", "rect-area": "AREA"}',
+    );
+    expect(bridge).toContain("light_object[SOURCE_LIGHT_PROPERTY]");
+    // Director sends the authored lights; the default previz rig must not double-light them.
+    expect(bridge).toMatch(/if payload\.get\("lights"\):\n[^\n]*\n[^\n]*\n\s+return/);
+    // Pose controls: immutable baseline JSON plus editable per-control properties.
+    expect(bridge).toContain("root[POSE_CONTROLS_BASELINE_PROPERTY]");
+    expect(bridge).toContain("root[POSE_CONTROL_PREFIX + control] = float(value)");
+    // Optics baseline is stamped from evaluated camera data after frame_set.
+    expect(bridge).toContain("def camera_optics_state(");
+    expect(bridge).toContain("root[SOURCE_CAMERA_OPTICS_PROPERTY]");
+    expect(bridge).toContain("root[SOURCE_POSE_FINGERPRINT_PROPERTY]");
+  });
+
+  it("emits camera_update with only the changed optics and bundles the moved transform", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+identity = {"location":[0,0,0],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]}
+moved = {"location":[1,0,0],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]}
+baseline = {"focalLengthMm":35.0,"apertureFStop":2.8,"focusDistanceM":3.0,"nearClipM":0.1,"farClipM":500.0,"sensorWidthMm":36.0,"sensorHeightMm":20.25,"sensorFormat":"super35"}
+class Root(dict):
+    def __init__(self):
+        super().__init__(director_id="camera-1", director_source_transform=json.dumps(identity), director_source_camera_optics=json.dumps(baseline))
+        self.name, self.type, self.parent, self.children_recursive = "Camera", "CAMERA", None, []
+root = Root()
+module.bpy = type("Bpy", (), {"context": type("Context", (), {"scene": type("Scene", (), {"objects": [root]})()})(), "app": type("App", (), {"version_string": "test"})()})()
+module.blender_transform = lambda unused: moved
+module.current_camera_optics = lambda unused: {**baseline, "focalLengthMm": 85.0, "focusDistanceM": 1.5}
+source = {"packageId":"source", "sourceRevision":"director-project-revision:v1:sha256:" + "0" * 64, "objects":[], "cameras":[{"id":"camera-1","transform":identity}]}
+with tempfile.TemporaryDirectory() as directory:
+    result = module.build_return_package(source, Path(directory))
+print(json.dumps({"changes": result["changes"], "warnings": result["warnings"]}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.changes).toEqual([
+      {
+        kind: "camera_update",
+        directorId: "camera-1",
+        entityType: "camera",
+        optics: { focalLengthMm: 85, focusDistanceM: 1.5 },
+        transform: { location: [1, 0, 0], rotationQuaternion: [0, 0, 0, 1], scale: [1, 1, 1] },
+      },
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("warns and omits Blender sensor-dimension edits instead of guessing a Director sensor gate", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+baseline = {"focalLengthMm":35.0,"apertureFStop":2.8,"focusDistanceM":3.0,"nearClipM":0.1,"farClipM":500.0,"sensorWidthMm":36.0,"sensorHeightMm":20.25}
+current = {**baseline, "sensorWidthMm": 54.12}
+optics, warnings = module.diff_camera_optics(baseline, current)
+print(json.dumps({"optics": optics, "warnings": warnings}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.optics).toEqual({});
+    expect(result.warnings).toEqual([expect.stringContaining("named gates")]);
+  });
+
+  it("omits legacy-blend optics edits with a re-export warning instead of guessing", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+identity = {"location":[0,0,0],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]}
+class Root(dict):
+    def __init__(self):
+        super().__init__(director_id="camera-1", director_source_transform=json.dumps(identity))
+        self.name, self.type, self.parent, self.children_recursive = "Camera", "CAMERA", None, []
+root = Root()
+module.bpy = type("Bpy", (), {"context": type("Context", (), {"scene": type("Scene", (), {"objects": [root]})()})(), "app": type("App", (), {"version_string": "test"})()})()
+module.blender_transform = lambda unused: identity
+module.current_camera_optics = lambda unused: {"focalLengthMm": 85.0, "apertureFStop": 2.8, "focusDistanceM": 3.0, "nearClipM": 0.1, "farClipM": 500.0}
+source = {"packageId":"source", "sourceRevision":"director-project-revision:v1:sha256:" + "0" * 64, "objects":[], "cameras":[{"id":"camera-1","transform":identity,"focalLengthMm":35.0,"apertureFStop":2.8,"focusDistanceM":3.0,"nearClipM":0.1,"farClipM":500.0}]}
+with tempfile.TemporaryDirectory() as directory:
+    result = module.build_return_package(source, Path(directory))
+print(json.dumps({"changes": result["changes"], "warnings": result["warnings"]}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.changes).toEqual([]);
+    expect(result.warnings).toEqual([expect.stringContaining("predates stamped optics baselines")]);
+  });
+
+  it("emits light_update for edited director_id lights and inverts the stamped watts factor", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+identity = {"location":[2,1,3],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]}
+baseline = {"type":"point","position":[2.0,1.0,3.0],"color":"#ffaa00","intensity":40.0,"energy":2000.0,"wattsPerIntensity":50.0}
+class Light(dict):
+    def __init__(self):
+        super().__init__(director_id="light-1", director_source_transform=json.dumps(identity), director_source_light=json.dumps(baseline))
+        self.name, self.type, self.parent, self.children_recursive = "Key", "LIGHT", None, []
+light = Light()
+untouched_baseline = {**baseline, "position": [0.0, 0.0, 5.0]}
+class Untouched(dict):
+    def __init__(self):
+        super().__init__(director_id="light-2", director_source_transform=json.dumps(identity), director_source_light=json.dumps(untouched_baseline))
+        self.name, self.type, self.parent, self.children_recursive = "Fill", "LIGHT", None, []
+untouched = Untouched()
+module.bpy = type("Bpy", (), {"context": type("Context", (), {"scene": type("Scene", (), {"objects": [light, untouched]})()})(), "app": type("App", (), {"version_string": "test"})()})()
+module.blender_transform = lambda unused: identity
+def fake_state(root, base):
+    if root is light:
+        return {"position": [4.0, 1.0, 3.0], "color": "#ffaa00", "energy": 3000.0}
+    return {"position": base["position"], "color": base["color"], "energy": base["energy"]}
+module.current_light_state = fake_state
+source = {
+  "packageId":"source", "sourceRevision":"director-project-revision:v1:sha256:" + "0" * 64,
+  "objects":[], "cameras":[],
+  "lights":[{"id":"light-1", **baseline}, {"id":"light-2", **untouched_baseline}],
+}
+with tempfile.TemporaryDirectory() as directory:
+    result = module.build_return_package(source, Path(directory))
+print(json.dumps({"changes": result["changes"], "warnings": result["warnings"]}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.changes).toEqual([
+      {
+        kind: "light_update",
+        directorId: "light-1",
+        entityType: "light",
+        properties: { position: [4, 1, 3], intensity: 60 },
+      },
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("bakes out-of-range light energy to Director's 0-100 intensity with a warning", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+baseline = {"type":"point","position":[0.0,0.0,0.0],"color":"#ffffff","intensity":40.0,"energy":2000.0,"wattsPerIntensity":50.0}
+current = {"position":[0.0,0.0,0.0],"color":"#ffffff","energy":999999.0}
+properties, warnings = module.light_update_properties(baseline, current)
+print(json.dumps({"properties": properties, "warnings": warnings}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.properties).toEqual({ intensity: 100 });
+    expect(result.warnings).toEqual([expect.stringContaining("baked to 100")]);
+  });
+
+  it("warns about untracked Blender lights but stays silent about the Director previz rig", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+class Plain:
+    def __init__(self, name, kind):
+        self.name, self.type, self.parent, self.children_recursive = name, kind, None, []
+    def get(self, key, default=None):
+        return default
+rig = Plain("Director_Key_Light", "LIGHT")
+foreign = Plain("Artist_Light", "LIGHT")
+module.bpy = type("Bpy", (), {"context": type("Context", (), {"scene": type("Scene", (), {"objects": [rig, foreign]})()})(), "app": type("App", (), {"version_string": "test"})()})()
+source = {"packageId":"source", "sourceRevision":"director-project-revision:v1:sha256:" + "0" * 64, "objects":[], "cameras":[]}
+with tempfile.TemporaryDirectory() as directory:
+    result = module.build_return_package(source, Path(directory))
+print(json.dumps({"changes": result["changes"], "warnings": result["warnings"]}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.changes).toEqual([]);
+    expect(result.warnings).toEqual([expect.stringContaining("Artist_Light")]);
+    expect(result.warnings[0]).toContain("does not auto-create lights");
+  });
+
+  it("emits a full pose_update sample with root motion when director_pose.* controls change", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+identity = {"location":[0,0,0],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]}
+moved = {"location":[0.5,0,0],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]}
+baseline = {"head.yaw": 0.0, "leftElbow.bend": 15.0}
+class Root(dict):
+    def __init__(self):
+        super().__init__(
+            director_id="character-1",
+            director_source_transform=json.dumps(identity),
+            director_source_mesh_signature="same",
+            director_pose_controls=json.dumps(baseline),
+        )
+        self["director_pose.head.yaw"] = 25.0
+        self["director_pose.leftElbow.bend"] = 15.0
+        self["director_pose.not.a.control"] = 3.0
+        self.name, self.type, self.parent, self.children_recursive = "Hero", "EMPTY", None, []
+root = Root()
+module.bpy = type("Bpy", (), {"context": type("Context", (), {"scene": type("Scene", (), {"objects": [root]})()})(), "app": type("App", (), {"version_string": "test"})()})()
+module.blender_transform = lambda unused: moved
+module.descendant_meshes = lambda unused: [object()]
+module.mesh_content_signature = lambda unused: "same"
+source = {"packageId":"source", "sourceRevision":"director-project-revision:v1:sha256:" + "0" * 64, "objects":[{"id":"character-1","name":"Hero","kind":"character","transform":identity}], "cameras":[]}
+with tempfile.TemporaryDirectory() as directory:
+    result = module.build_return_package(source, Path(directory))
+print(json.dumps({"changes": result["changes"], "warnings": result["warnings"]}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.changes).toEqual([
+      {
+        kind: "pose_update",
+        directorId: "character-1",
+        entityType: "object",
+        controls: { "head.yaw": 25, "leftElbow.bend": 15 },
+        transform: { location: [0.5, 0, 0], rotationQuaternion: [0, 0, 0, 1], scale: [1, 1, 1] },
+      },
+    ]);
+    expect(result.warnings).toEqual([expect.stringContaining("not a portable Director control")]);
+  });
+
+  it("prefers mesh_replacement over a simultaneous pose edit and warns instead of dropping it silently", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+identity = {"location":[0,0,0],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]}
+baseline = {"head.yaw": 0.0}
+class Root(dict):
+    def __init__(self):
+        super().__init__(
+            director_id="character-1",
+            director_source_transform=json.dumps(identity),
+            director_source_mesh_signature="before",
+            director_pose_controls=json.dumps(baseline),
+        )
+        self["director_pose.head.yaw"] = 20.0
+        self.name, self.type, self.parent, self.children_recursive = "Hero", "EMPTY", None, []
+root = Root()
+module.bpy = type("Bpy", (), {"context": type("Context", (), {"scene": type("Scene", (), {"objects": [root]})()})(), "app": type("App", (), {"version_string": "test"})()})()
+module.blender_transform = lambda unused: identity
+module.descendant_meshes = lambda unused: [object()]
+module.mesh_content_signature = lambda unused: "after"
+module.unapplied_modifier_warnings = lambda unused: []
+module.export_glb = lambda unused_root, destination, unused_source: destination.write_bytes(b"glb")
+source = {"packageId":"source", "sourceRevision":"director-project-revision:v1:sha256:" + "0" * 64, "objects":[{"id":"character-1","name":"Hero","kind":"character","transform":identity}], "cameras":[]}
+with tempfile.TemporaryDirectory() as directory:
+    result = module.build_return_package(source, Path(directory))
+print(json.dumps({"kinds": [change["kind"] for change in result["changes"]], "warnings": result["warnings"]}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.kinds).toEqual(["mesh_replacement"]);
+    expect(result.warnings).toEqual([expect.stringContaining("pose sample was omitted")]);
+  });
+
+  it("stamps the pose bone map, per-bone baselines, and unmapped fingerprint in the bridge", async () => {
+    const bridge = await import("node:fs/promises").then(({ readFile }) => readFile(bridgeScript, "utf8"));
+    expect(bridge).toContain("def stamp_pose_bone_baselines(");
+    expect(bridge).toContain("resolve_pose_bone_roles");
+    expect(bridge).toContain("root[POSE_BONE_MAP_PROPERTY]");
+    expect(bridge).toContain("root[POSE_BONE_BASELINE_PROPERTY]");
+    expect(bridge).toContain("root[SOURCE_UNMAPPED_POSE_FINGERPRINT_PROPERTY]");
+  });
+
+  it("reconciles mapped pose-bone edits into a pose_update and lets explicit control edits win", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, math, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+class Vec:
+    def __init__(self, x, y, z):
+        self.x, self.y, self.z = float(x), float(y), float(z)
+class Quat:
+    def __init__(self, w, x, y, z):
+        self.w, self.x, self.y, self.z = float(w), float(x), float(y), float(z)
+class Basis:
+    def __init__(self, loc, rot, scale):
+        self._parts = (Vec(*loc), Quat(*rot), Vec(*scale))
+    def decompose(self):
+        return self._parts
+class FakeBone:
+    def __init__(self, name, basis):
+        self.name, self.matrix_basis = name, basis
+
+identity_basis = ([0,0,0], [1,0,0,0], [1,1,1])
+half = math.radians(30.0) / 2.0
+bones = {
+    "mixamorig:LeftForeArm": FakeBone("mixamorig:LeftForeArm", Basis([0,0,0], [math.cos(half),0,0,math.sin(half)], [1,1,1])),
+    "mixamorig:Head": FakeBone("mixamorig:Head", Basis(*identity_basis)),
+    "mixamorig:Hips": FakeBone("mixamorig:Hips", Basis([0,0.25,0], [1,0,0,0], [1,1,1])),
+}
+class Pose:
+    class BoneLookup:
+        def get(self, name):
+            return bones.get(name)
+    bones = BoneLookup()
+class Armature:
+    def __init__(self):
+        self.type, self.name, self.pose, self.children_recursive = "ARMATURE", "Rig", Pose(), []
+
+identity = {"location":[0,0,0],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]}
+baseline_controls = {"leftElbow.bend": 15.0, "head.yaw": 0.0, "body.pitch": 0.0}
+bone_map = {"armature": "Rig", "bones": {"leftElbow": "mixamorig:LeftForeArm", "head": "mixamorig:Head", "body": "mixamorig:Hips"}}
+bone_baselines = {
+    "leftElbow": {"rotation":[1,0,0,0],"location":[0,0,0],"scale":[1,1,1]},
+    "head": {"rotation":[1,0,0,0],"location":[0,0,0],"scale":[1,1,1]},
+    "body": {"rotation":[1,0,0,0],"location":[0,0,0],"scale":[1,1,1]},
+}
+class Root(dict):
+    def __init__(self):
+        super().__init__(
+            director_id="character-1",
+            director_source_transform=json.dumps(identity),
+            director_source_mesh_signature="same",
+            director_pose_controls=json.dumps(baseline_controls),
+            director_source_pose_bones="fingerprint-at-import",
+            director_pose_bone_map=json.dumps(bone_map),
+            director_pose_bone_baseline=json.dumps(bone_baselines),
+            director_source_unmapped_pose_bones="unmapped-at-import",
+        )
+        for control, value in baseline_controls.items():
+            self["director_pose." + control] = float(value)
+        self["director_pose.head.yaw"] = 40.0  # explicit custom-prop edit
+        self.name, self.type, self.parent = "Hero", "EMPTY", None
+        self.children_recursive = [Armature()]
+root = Root()
+bones["mixamorig:Head"] = FakeBone("mixamorig:Head", Basis([0,0,0], [math.cos(math.radians(5)),0,math.sin(math.radians(5)),0], [1,1,1]))
+module.bpy = type("Bpy", (), {"context": type("Context", (), {"scene": type("Scene", (), {"objects": [root]})()})(), "app": type("App", (), {"version_string": "test"})()})()
+module.blender_transform = lambda unused: identity
+module.descendant_meshes = lambda unused: [object()]
+module.mesh_content_signature = lambda unused: "same"
+module.armature_pose_fingerprint = lambda unused, exclude=None: "fingerprint-after-edit" if exclude is None else "unmapped-after-edit"
+source = {"packageId":"source", "sourceRevision":"director-project-revision:v1:sha256:" + "0" * 64, "objects":[{"id":"character-1","name":"Hero","kind":"character","transform":identity}], "cameras":[]}
+with tempfile.TemporaryDirectory() as directory:
+    result = module.build_return_package(source, Path(directory))
+print(json.dumps({"changes": result["changes"], "warnings": result["warnings"]}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      kind: "pose_update",
+      directorId: "character-1",
+      entityType: "object",
+    });
+    // The 30-degree elbow bend reconciles on top of the 15-degree baseline; the
+    // explicit head.yaw custom property wins over the direct head bone edit.
+    expect(result.changes[0].controls["leftElbow.bend"]).toBeCloseTo(45, 4);
+    expect(result.changes[0].controls["head.yaw"]).toBeCloseTo(40, 6);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("outside the Director character binding were edited"),
+      expect.stringContaining("bone translations have no portable Director control"),
+      expect.stringContaining("explicit custom-property value wins"),
+    ]);
+    expect(result.warnings[1]).toContain("director_pose.body.offsetY");
+  });
+
+  it("warns about direct armature pose-bone edits instead of pretending to reconcile them", async () => {
+    const { stdout } = await runPython(String.raw`
+import importlib.util, json, sys, tempfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("director_return_export", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+identity = {"location":[0,0,0],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]}
+class Root(dict):
+    def __init__(self):
+        super().__init__(
+            director_id="character-1",
+            director_source_transform=json.dumps(identity),
+            director_source_mesh_signature="same",
+            director_source_pose_bones="fingerprint-at-import",
+        )
+        self.name, self.type, self.parent, self.children_recursive = "Hero", "EMPTY", None, []
+root = Root()
+module.bpy = type("Bpy", (), {"context": type("Context", (), {"scene": type("Scene", (), {"objects": [root]})()})(), "app": type("App", (), {"version_string": "test"})()})()
+module.blender_transform = lambda unused: identity
+module.descendant_meshes = lambda unused: [object()]
+module.mesh_content_signature = lambda unused: "same"
+module.armature_pose_fingerprint = lambda unused: "fingerprint-after-edit"
+source = {"packageId":"source", "sourceRevision":"director-project-revision:v1:sha256:" + "0" * 64, "objects":[{"id":"character-1","name":"Hero","kind":"character","transform":identity}], "cameras":[]}
+with tempfile.TemporaryDirectory() as directory:
+    result = module.build_return_package(source, Path(directory))
+print(json.dumps({"changes": result["changes"], "warnings": result["warnings"]}))
+`);
+    const result = JSON.parse(stdout);
+    expect(result.changes).toEqual([]);
+    expect(result.warnings).toEqual([expect.stringContaining("not\u0020reconciled")]);
   });
 });

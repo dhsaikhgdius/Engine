@@ -1,11 +1,11 @@
 {
   "contract": "director-dcc-connector-v1",
   "provider": "unity",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "entryPoints": {
     "health": "com.director.bridge/Editor/DirectorBridgeCli.cs",
     "import": "com.director.bridge/Editor/DirectorBridgeCli.cs",
     "export": "com.director.bridge/Editor/DirectorBridgeCli.cs"
   },
-  "hostRequirement": "Unity 2022.3 LTS or newer with the com.director.bridge package installed"
+  "hostRequirement": "Unity 2022.3 LTS or newer with the com.director.bridge package installed; a glTF importer (com.unity.cloud.gltfast recommended) is required for mesh payloads"
 }

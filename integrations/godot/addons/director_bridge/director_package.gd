@@ -3,13 +3,15 @@
 ## Reads and hash-verifies director-dcc-exchange-package-v1 manifests, and
 ## writes director-dcc-return-v1 packages plus director-dcc-engine-report-v1
 ## receipts. Pure file I/O; no scene code.
-class_name DirectorPackage
+##
+## No class_name: headless `godot --script` runs on a fresh project have no
+## global class cache, so every module is referenced through `preload`.
 
 const EXCHANGE_CONTRACT := "director-dcc-exchange-package-v1"
 const RETURN_CONTRACT := "director-dcc-return-v1"
 const REPORT_CONTRACT := "director-dcc-engine-report-v1"
 const PROVIDER := "godot"
-const CONNECTOR_VERSION := "0.1.0"
+const CONNECTOR_VERSION := "0.3.0"
 
 
 ## Loads an exchange package manifest, verifying the contract, the provider,
@@ -93,6 +95,8 @@ static func write_return_package(
 
 
 ## Writes the director-dcc-engine-report-v1 receipt the Gateway validates.
+## `extra` carries schema-approved extension fields (for example the `godot`
+## import receipt); it never overrides the required report fields.
 static func write_report(
 	report_path: String,
 	host_version: String,
@@ -102,7 +106,8 @@ static func write_report(
 	imported_camera_count: int,
 	scene_path,
 	return_package_dir,
-	warnings: Array
+	warnings: Array,
+	extra: Dictionary = {}
 ) -> void:
 	DirAccess.make_dir_recursive_absolute(report_path.get_base_dir())
 	var report := {
@@ -119,6 +124,9 @@ static func write_report(
 		"returnPackageDir": return_package_dir,
 		"warnings": warnings,
 	}
+	for key in extra:
+		if not report.has(key):
+			report[key] = extra[key]
 	var handle := FileAccess.open(report_path, FileAccess.WRITE)
 	handle.store_string(JSON.stringify(report, "  ") + "\n")
 	handle.close()
@@ -130,3 +138,14 @@ static func write_failure_report(report_path: String, error: String) -> void:
 	var handle := FileAccess.open(report_path, FileAccess.WRITE)
 	handle.store_string(JSON.stringify({"ok": false, "error": error}, "  ") + "\n")
 	handle.close()
+
+
+## Sanitizes a Director entity name into a safe Godot node name.
+static func safe_node_name(value: String) -> String:
+	var cleaned := ""
+	for character in value:
+		if character.is_valid_identifier() or character == "-" or character == ".":
+			cleaned += character
+		else:
+			cleaned += "_"
+	return cleaned.substr(0, 96) if not cleaned.is_empty() else "director_node"

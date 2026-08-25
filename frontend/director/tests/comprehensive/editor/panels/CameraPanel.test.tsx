@@ -1,9 +1,18 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, vi } from "vitest";
-import { clearViewportCaptureHandler, setViewportCaptureHandler } from "../../../../src/comprehensive/editor/io/captureBridge";
-import { clearDirectorDeskHostBridge, initDirectorDeskHostBridge } from "../../../../src/comprehensive/editor/io/hostBridge";
-import { getCameraRigPositionFromViewSnapshot, getVerticalFovFromFocalLength } from "../../../../src/comprehensive/editor/schema/cameraGeometry";
+import {
+  clearViewportCaptureHandler,
+  setViewportCaptureHandler,
+} from "../../../../src/comprehensive/editor/io/captureBridge";
+import {
+  clearDirectorDeskHostBridge,
+  initDirectorDeskHostBridge,
+} from "../../../../src/comprehensive/editor/io/hostBridge";
+import {
+  getCameraRigPositionFromViewSnapshot,
+  getVerticalFovFromFocalLength,
+} from "../../../../src/comprehensive/editor/schema/cameraGeometry";
 import { createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
 import { useVideoRecordingStore } from "../../../../src/comprehensive/editor/video/videoRecordingStore";
 import { CameraPanel } from "../../../../src/comprehensive/editor/panels/CameraPanel";

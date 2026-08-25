@@ -50,11 +50,7 @@ import {
   throwIfViewportCaptureAborted,
   type ViewportCaptureHandlerRequest,
 } from "../io/captureBridge";
-import {
-  buildScreenshotMeta,
-  filterVisibleObjectIdColors,
-  type ScreenshotResult,
-} from "../io/screenshotExport";
+import { buildScreenshotMeta, filterVisibleObjectIdColors, type ScreenshotResult } from "../io/screenshotExport";
 import { captureDirectorRenderPass, type DirectorCaptureBackgroundMode } from "../render/renderPassCapture";
 import { composeDirectorLineartPass } from "../render/lineartPassCapture";
 import { captureDirectorPosePass } from "../render/posePassCapture";
@@ -132,11 +128,7 @@ import { getUE4GroundedLabelY } from "../runtime/ue4Mannequin/ue4MannequinRig";
 import { getDirectorObjectFocusSnapshot } from "./viewportObjectFocus";
 import { CameraPreviewModeGlyph } from "./cameraPreviewModeGlyph";
 import { SceneRoot } from "./SceneRoot";
-import {
-  BlenderSceneLayer,
-  type BlenderSceneLayerPhase,
-  type BlenderSceneLayerStatus,
-} from "./BlenderSceneLayer";
+import { BlenderSceneLayer, type BlenderSceneLayerPhase, type BlenderSceneLayerStatus } from "./BlenderSceneLayer";
 import { DirectorClippingPlanes } from "./DirectorClippingPlanes";
 import { CameraViewportProperties } from "./CameraViewportProperties";
 import { copyPictureInPicturePreviewToFreezeCanvas } from "./cameraPictureInPictureFreeze";
@@ -1597,23 +1589,20 @@ function CanvasCaptureBridge({
   // Stage target before its visible R3F canvas is capture-ready. The bridge
   // keeps this lease across Vite module replacement; mount/unmount still owns
   // the actual WebGL handler lifetime.
-  useLayoutEffect(
-    () => {
-      if (!enabled) return undefined;
-      return setViewportCaptureHandler(async (request) => {
-        // Every capture — screenshot, recording frame, export frame — must
-        // render with a frozen ambient world clock so the frame prepared for
-        // the request is exactly the frame that gets encoded.
-        setWorldAmbientClockSuspended(true);
-        try {
-          return await captureRef.current(request);
-        } finally {
-          setWorldAmbientClockSuspended(false);
-        }
-      });
-    },
-    [enabled],
-  );
+  useLayoutEffect(() => {
+    if (!enabled) return undefined;
+    return setViewportCaptureHandler(async (request) => {
+      // Every capture — screenshot, recording frame, export frame — must
+      // render with a frozen ambient world clock so the frame prepared for
+      // the request is exactly the frame that gets encoded.
+      setWorldAmbientClockSuspended(true);
+      try {
+        return await captureRef.current(request);
+      } finally {
+        setWorldAmbientClockSuspended(false);
+      }
+    });
+  }, [enabled]);
 
   return null;
 }
@@ -2925,8 +2914,7 @@ export function DirectorCanvas({
   const [cameraPreviewMode, setCameraPreviewMode] = useState<DirectorCameraPreviewMode>("rgb");
   const [toolbarHeight, setToolbarHeight] = useState(DEFAULT_VIEWPORT_TOOLBAR_HEIGHT);
   const viewportChromeSuppressed = useViewportChromeSuppressed();
-  const [blenderCollisionEnvironment, setBlenderCollisionEnvironment] =
-    useState<PlayerStaticEnvironment | null>(null);
+  const [blenderCollisionEnvironment, setBlenderCollisionEnvironment] = useState<PlayerStaticEnvironment | null>(null);
   const [collisionReferenceRoot, setCollisionReferenceRoot] = useState<Object3D | null>(null);
   const [currentFrame, setCurrentFrame] = useState(() => sceneSettings.timeline?.currentFrame ?? 0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -3086,9 +3074,7 @@ export function DirectorCanvas({
       assets,
       lights,
       nativeSceneRevision:
-        blenderLiveVisible && nativeProjectId
-          ? `${nativeProjectId}:${nativeSceneShadowRevision ?? "loading"}`
-          : null,
+        blenderLiveVisible && nativeProjectId ? `${nativeProjectId}:${nativeSceneShadowRevision ?? "loading"}` : null,
       objects: staticShadowObjects,
       scene: shadowSceneTransform,
       shadowMapSize: performanceConfig.shadowMapSize,
@@ -4625,7 +4611,9 @@ export function DirectorCanvas({
           const command = envelope.command;
           if (command.type === "enter") {
             if (command.actor_id) {
-              const exists = useDirectorStore.getState().project.objects.some((object) => object.id === command.actor_id);
+              const exists = useDirectorStore
+                .getState()
+                .project.objects.some((object) => object.id === command.actor_id);
               if (!exists) {
                 publishDirectorSessionCommandResult({
                   requestId: envelope.requestId,
@@ -4740,10 +4728,7 @@ export function DirectorCanvas({
             return;
           }
           if (command.type === "interact") {
-            const objectId =
-              command.object_id ??
-              useDirectorStore.getState().selectedObjectId ??
-              undefined;
+            const objectId = command.object_id ?? useDirectorStore.getState().selectedObjectId ?? undefined;
             if (!objectId) {
               publishDirectorSessionCommandResult({
                 requestId: envelope.requestId,

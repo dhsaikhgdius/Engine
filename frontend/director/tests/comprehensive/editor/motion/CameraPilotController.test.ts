@@ -11,7 +11,11 @@ import {
   getCameraPilotInputResponse,
   getCameraPilotLookResponse,
 } from "../../../../src/comprehensive/editor/motion/cameraPilotMotion";
-import { getPilotLookIntent, getPilotMovementIntent, getPilotSpeedMultiplier } from "../../../../src/comprehensive/editor/motion/pilotControls";
+import {
+  getPilotLookIntent,
+  getPilotMovementIntent,
+  getPilotSpeedMultiplier,
+} from "../../../../src/comprehensive/editor/motion/pilotControls";
 
 describe("camera pilot controls", () => {
   it("maps movement and scales look sensitivity", () => {

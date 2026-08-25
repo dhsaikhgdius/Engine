@@ -75,6 +75,28 @@ API keys and their environment-variable names are never exposed by discovery rou
 durable session JSON. Conversation v2 stores canonical messages instead of provider wire formats;
 captured image bytes are only attached to the current model request.
 
+## Agent workspace (SQL-backed instructions / skills / memory)
+
+The in-product agent workspace persists instructions, learnings, skill references, and memory
+entries (with TTL) in `agent-workspace.sqlite` under the data directory, edited through
+**Settings → Agent Workspace** and `/api/agent/workspace/*`. The harness merges instruction
+layers lowest-precedence-first: **repo skills → DB workspace (org → user) → session override**.
+
+| Variable                        | Purpose                                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------- |
+| `DIRECTOR_SESSION_INSTRUCTIONS` | Ephemeral per-session instruction override (highest precedence, not persisted) |
+| `DIRECTOR_WORKSPACE_REFRESH_MS` | Workspace prompt refresh cadence in the DSH plugin; `0` disables, clamped 5s–10min (default 30s) |
+
+Merge strategy with `DIRECTOR_AGENT_PROFILES_JSON`: the two are separate axes and are not
+migrated into each other. Model/provider profiles — including every credential — stay on the
+profile axis: `DIRECTOR_AGENT_PROFILES_JSON` (environment) merged with `agent-api-providers.json`
+(user), environment first, user overlays on id collision, and reserved ids
+(`api-default`, local CLIs) always environment-owned. The workspace stores only prose
+instructions, learnings, skill references, and memory; its export bundle is structurally unable
+to carry provider credentials. Workspace prompt text passes the same redaction rules as harness
+diagnostics, and memory entries are user-controlled untrusted data that are never injected
+automatically into any prompt.
+
 `web_search` and `web_fetch` are DeepSeek Harness tools. When you run the harness with
 `npm run dsh`, they come from the pinned official DSH release (`vendor/deepseek-harness`) and are
 configured through the harness's own settings. The Gateway no longer ships an in-tree copy of
@@ -181,8 +203,12 @@ data root unless a production explicitly owns another path.
 
 Detecting an executable makes a provider `installed`, never `nativeReady`. Native
 engine operations require the full health check (connector files, versioned
-executable, configured project, and installed in-project connector) to pass. Engine
-job artifacts live under `data/dcc-jobs/<provider>/`.
+executable, configured project, and installed in-project connector) to pass. Godot
+additionally requires the addon to be enabled in `project.godot`
+(`[editor_plugins]`) and a valid fixed-entry `--mode health` JSON line whose
+connector version matches the workspace; the probe covers macOS, Linux
+(including Flatpak and Snap), and Windows install locations, and accepts Godot
+4.x only. Engine job artifacts live under `data/dcc-jobs/<provider>/`.
 
 ## Application commands
 

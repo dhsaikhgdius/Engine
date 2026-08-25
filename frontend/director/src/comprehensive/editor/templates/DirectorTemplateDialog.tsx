@@ -158,7 +158,11 @@ export function DirectorTemplateDialog({ onClose }: { onClose: () => void }) {
                 {t("将替换当前 3D 片场工程（可用撤销恢复）")}
               </p>
               <div>
-                <button className="director-template-confirm-cancel" onClick={() => setPendingTemplate(null)} type="button">
+                <button
+                  className="director-template-confirm-cancel"
+                  onClick={() => setPendingTemplate(null)}
+                  type="button"
+                >
                   {t("取消")}
                 </button>
                 <button

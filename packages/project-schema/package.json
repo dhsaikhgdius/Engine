@@ -18,7 +18,8 @@
     "./primitive-geometry": "./src/primitiveGeometry.ts",
     "./body-anchors": "./src/characterBodyAnchors.ts",
     "./lighting": "./src/directorLighting.ts",
-    "./animation-recipes": "./src/animationRecipes.ts"
+    "./animation-recipes": "./src/animationRecipes.ts",
+    "./production-graph": "./src/productionGraph/index.ts"
   },
   "dependencies": {
     "@director/protocol": "*",

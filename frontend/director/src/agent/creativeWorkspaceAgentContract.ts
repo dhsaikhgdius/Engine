@@ -5,6 +5,8 @@ import {
   directorCanvasProductionConfigSchema,
 } from "../comprehensive/editor/workspaces/canvasPipelineProtocol";
 import {
+  DIRECTOR_CLIP_EDGE_EPSILON_SEC,
+  findDirectorTransitionPredecessor,
   getDirectorCreativeWorkspaceScope,
   useDirectorCreativeWorkspaceStore,
   type DirectorBoardEdge,
@@ -292,6 +294,7 @@ function projectEditClip(clip: DirectorEditClip) {
     volume: clip.volume,
     fade_in_sec: clip.fadeInSec,
     fade_out_sec: clip.fadeOutSec,
+    transition_in_sec: clip.transitionInSec ?? 0,
     scale: clip.scale,
     position_x: clip.positionX,
     position_y: clip.positionY,
@@ -740,6 +743,7 @@ function mapClipPatch(patch: z.infer<typeof editClipPatchSchema>): Partial<Omit<
     ...(patch.volume !== undefined ? { volume: patch.volume } : {}),
     ...(patch.fade_in_sec !== undefined ? { fadeInSec: patch.fade_in_sec } : {}),
     ...(patch.fade_out_sec !== undefined ? { fadeOutSec: patch.fade_out_sec } : {}),
+    ...(patch.transition_in_sec !== undefined ? { transitionInSec: patch.transition_in_sec } : {}),
     ...(patch.scale !== undefined ? { scale: patch.scale } : {}),
     ...(patch.position_x !== undefined ? { positionX: patch.position_x } : {}),
     ...(patch.position_y !== undefined ? { positionY: patch.position_y } : {}),
@@ -1450,6 +1454,24 @@ export function executeCreativeWorkspaceAgentOperation(
       if (nextFadeIn + nextFadeOut > nextDuration + Number.EPSILON) {
         return semanticFailure(operation.op, "conflict", "Clip fade durations cannot exceed clip duration.");
       }
+      if (operation.patch.transition_in_sec !== undefined && operation.patch.transition_in_sec > 0) {
+        const predecessor = findDirectorTransitionPredecessor(owner.track, owner.clip.id);
+        if (!predecessor) {
+          return semanticFailure(
+            operation.op,
+            "conflict",
+            `Clip "${owner.clip.id}" has no adjacent same-track predecessor to dissolve from.`,
+          );
+        }
+        const maxTransition = Math.min(nextDuration, predecessor.durationSec);
+        if (operation.patch.transition_in_sec > maxTransition + Number.EPSILON) {
+          return semanticFailure(
+            operation.op,
+            "conflict",
+            `Clip transition cannot exceed ${maxTransition} seconds (limited by the clip and its predecessor).`,
+          );
+        }
+      }
       state.updateClip(owner.clip.id, mapClipPatch(operation.patch));
       const updated = findClip(context.workspace.getState(), owner.clip.id)!.clip;
       return success(
@@ -1521,6 +1543,27 @@ export function executeCreativeWorkspaceAgentOperation(
       if (!owner) return semanticFailure(operation.op, "not_found", `Edit clip "${operation.clip_id}" does not exist.`);
       if (owner.track.locked)
         return semanticFailure(operation.op, "locked", `Edit track "${owner.track.id}" is locked.`);
+      if (operation.ripple) {
+        // Mirrors rippleRemoveClip: later same-track clips shift earlier by the
+        // removed clip's duration; clips starting at or before it stay put.
+        const shiftedClipIds = owner.track.clips
+          .filter((clip) => clip.startSec > owner.clip.startSec + DIRECTOR_CLIP_EDGE_EPSILON_SEC)
+          .map((clip) => clip.id);
+        state.rippleRemoveClip(owner.clip.id);
+        return success(
+          operation.op,
+          `Ripple-removed edit clip "${owner.clip.name}"; ${shiftedClipIds.length} later clip${
+            shiftedClipIds.length === 1 ? "" : "s"
+          } shifted earlier by ${owner.clip.durationSec}s.`,
+          {
+            removed_id: owner.clip.id,
+            track_id: owner.track.id,
+            ripple_shift_sec: owner.clip.durationSec,
+            shifted_clip_ids: shiftedClipIds,
+          },
+          context,
+        );
+      }
       state.removeClip(owner.clip.id);
       return success(
         operation.op,

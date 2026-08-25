@@ -3,6 +3,15 @@ title: ADR 0002：统一持久化 ProductionJob 状态机
 description: 为生成、转码、代理、DCC 和其他重型任务建立统一的可恢复状态机。
 ---
 
+- **状态：** Accepted（核验于 2026-08-25）
+- **证据：** `ProductionJobStore`（`backend/gateway/jobs/productionJobStore.ts`）与
+  `packages/protocol/src/productionJobProtocol.ts` 中的 `transitionProductionJob` 状态机
+  （状态 `queued` / `running` / `succeeded` / `failed` / `cancelled` / `outcome_unknown` /
+  `reconciling`；kind 覆盖 canvas、图像/视频/3D/音频生成、media proxy / transcribe /
+  transcode、场景重建、DCC export/import 与 episode package）。
+  `backend/gateway/tests/jobs/productionJobStore.test.ts` 覆盖非法迁移拒绝、精确幂等去重与
+  changed-reuse 拒绝、重启恢复到 `outcome_unknown`，以及重试前 reconciliation 并保留历史 attempt。
+
 ## 背景
 
 图像、视频、音频、代理生成、转码和 DCC 工作目前拥有不同的生命周期。进程重启、

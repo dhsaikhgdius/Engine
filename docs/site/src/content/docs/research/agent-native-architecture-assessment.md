@@ -6,7 +6,7 @@ description: Evaluate Director against the Builder.io agent-native architecture 
 This document evaluates Director against the framework in
 [Builder.io: Agent-Native — The Next Architecture for Software](https://www.builder.io/blog/agent-native-architecture#where-agent-native-fits-in-the-software-stack).
 
-Last verified: **2026-08-13**. Aligns with [Feature Status](/reference/feature-status/).
+Last verified: **2026-08-25**. Aligns with [Feature Status](/reference/feature-status/).
 
 Related docs:
 
@@ -21,6 +21,8 @@ Related docs:
 Director **aligns with the agent-native definition in direction and core implementation**. Its control plane, protocol exposure, and evidence loop are materially stronger than typical "sidebar chat plus partial API" products. It has **not yet reached the article's ideal state**; the main gaps are UI/agent parity, a unified action registry, and team governance.
 
 **Composite score: ~4/5** — design-first and substantially implemented for an agent-native product.
+The M2 JSON gaps (interchange import, collaboration comment/version writes) closed on 2026-08-25;
+the composite score stays at 4/5 until UI parity (M1) and unified governance (M3) land.
 
 ---
 
@@ -52,15 +54,15 @@ Conclusion: Director is an **agent-native product architecture, not bolt-on AI**
 
 **Aligned:**
 
-- Core capabilities (scene authoring, cameras, characters, timeline, Canvas/Video, interchange export, collaboration observe/comment, audit/deliver) are reachable through MCP / HTTP / CLI
+- Core capabilities (scene authoring, cameras, characters, timeline, Canvas/Video, interchange export and import, collaboration comments and versions, audit/deliver) are reachable through MCP / HTTP / CLI
+- **Interchange** and **Collaboration** are fully exposed as `director_creative` JSON operations: interchange `capabilities` / `plan-export` / `export` plus `plan-import` (inline, Gallery `media_id`, or `workspace_path` source) and guarded `import` (`plan_id` + `expected_guard_fingerprint` + `confirm:true`); collaboration `observe` / `list-comments` / `add-comment` / `resolve-comment` / `reopen-comment` / `update-comment` / `delete-comment` / `list-versions` / `compare` / `create-version` / `restore-version` / `delete-version` (`packages/protocol/src/creativeWorkspaceProtocol.ts`, `frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts`). What stays **Limited** in Feature Status is format subsets and collaboration room auth, not missing JSON operations
 - DOM-coordinate automation is not a supported authoring contract ([Feature Status](/reference/feature-status/))
 - Agent results are inspectable in the UI (revision, diff, capture, receipts)
 
 **Gaps:**
 
-- **Interchange** and **Collaboration** are **partially** exposed as `director_creative` JSON operations. Shipped: interchange `capabilities` / `plan-export` / `export`; collaboration `observe` / `list-comments` / `add-comment` / `list-versions` / `compare`. Remaining: interchange **import** stays human-file-picker-only; collaboration **writes** still lack comment resolve and version create/restore
-- Most `directorStore` mutators (camera panel, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, storyboard) now route through `dispatchDirectorAuthoringActions` shared with Agent authoring; remaining direct-store paths are creation flows (asset drop, preset characters, crowds, camera shots), UI-only grouping (object lists, crowd labels), gizmo/slider drag batches, and the Canvas/Video stores
-- Viewport drag, pilot, and other interactive controls lack full semantic equivalents
+- Most `directorStore` mutators (camera panel, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, storyboard) now route through `dispatchDirectorAuthoringActions` shared with Agent authoring, and discrete Canvas/Video mutators (node add/remove, edge connect/remove, DAG layout, clip split/remove/transition, track management, edit settings) dispatch through `dispatchCreativeWorkspaceOperations` over the same `creativeWorkspaceAgentContract` agents use; remaining direct-store paths are creation flows (asset drop, preset characters, crowds, camera shots), UI-only grouping (object lists, crowd labels), and gizmo/slider/trim drag streams — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)
+- Viewport drag, pilot, and other interactive controls lack full semantic equivalents; slider/gizmo undo batches intentionally keep the lightweight direct writer
 
 **Rating: 3.5/5**
 
@@ -113,7 +115,7 @@ All control surfaces converge on the same gateway execution and validation layer
 | Live `DirectorProject` | Browser store                  | `frontend/director/src/comprehensive/editor/store/directorStore.ts`        |
 | Agent observe/author   | Same store (browser execution) | `frontend/director/src/agent/directorWorkbenchExecutor.ts`, `frontend/director/src/agent/gatewayClient.ts` |
 | Wire contract          | Shared Zod schema              | `packages/protocol/src/agentGatewayProtocol.ts`                            |
-| Agent sessions/events  | SQLite WAL                     | `backend/gateway/agentSessionStore.ts`                                     |
+| Agent sessions/events  | DeepSeek Harness               | `vendor/deepseek-harness` (DSH-owned session storage)                      |
 
 
 - Selective `observe {"fields":[...]}` slices avoid stale full-project snapshots
@@ -122,7 +124,7 @@ All control surfaces converge on the same gateway execution and validation layer
 
 **Rating: 4.5/5**
 
-### 4. Protocol-ready by design — MCP strong ✅, A2A weak ⚠️
+### 4. Protocol-ready by design — MCP strong ✅, A2A evaluated: runtime no-go ⚠️
 
 **Aligned:**
 
@@ -131,34 +133,42 @@ All control surfaces converge on the same gateway execution and validation layer
 | ------------- | -------------------------------------------- | --------------------------------------------------------------------------- |
 | **MCP**       | stdio server, structured output              | `backend/gateway/mcp-server.ts`, `integrations/plugins/director-workbench/` |
 | **HTTP**      | `POST /api/tools/{tool-name}`                | `backend/gateway/routes/stageRoutes.ts`                                     |
+| **Tool manifest** | `GET /api/control-plane/tool-manifest` (generated from Zod schemas) | `backend/gateway/controlPlane/toolManifest.ts`                        |
 | **WebSocket** | Browser target binding and command responses | `frontend/director/src/agent/gatewayClient.ts`, `backend/gateway/agent-gateway.ts` |
 | **CLI**       | `npm run stage --`                           | [Control surfaces](/agents/control-surfaces/)                               |
 
 
 MCP tools forward to the gateway without duplicating business logic. Distributable plugin includes `.mcp.json`, Skills, and Codex plugin manifest.
+`GET /api/control-plane/tool-manifest` publishes the machine-readable `director-tool-manifest-v1`
+catalog (surfaces, op enums, HTTP bindings, legacy `stage_*` flags) derived from the same Zod
+schemas (`backend/gateway/controlPlane/toolManifest.ts`).
+`GET /api/control-plane/a2a-agent-card` serves a discovery-only A2A-style agent card that points
+A2A-aware clients at MCP and the tool manifest — no remote A2A endpoint
+(`backend/gateway/controlPlane/a2aAgentCard.ts`).
 
 **Gaps:**
 
-- No standard **A2A (agent-to-agent)** protocol
+- No standard **A2A (agent-to-agent)** runtime, by decision: [ADR 0004](/engineering/adr/0004-a2a-gateway-spike/) evaluated wrapping the gateway as a live A2A agent and concluded **no-go** (loopback/process-token auth mismatch, second execution protocol, no guard mapping); only the discovery-only card is served
 - Multi-agent orchestration is a fixed serial DAG, status **Experimental**
 
 **Rating: 4/5**
 
-### 5. Governed execution — audit strong ✅, HTTP/UI still ungated ⚠️
+### 5. Governed execution — audit strong ✅, human UI still ungated ⚠️
 
-**Aligned:**
+**Aligned** (verified 2026-08-25):
 
 - Production audit (spatial, grounding, graph issues) — `packages/agent-engine/src/directorAudit.ts`
 - `deliver` machine acceptance boundary
 - Revision / idempotency / exact target fail-closed (428 / 409)
 - Agent event store, structured MCP receipts, credential redaction
 - Shared film-role tool policy (e.g. visual-critic read-only) — `backend/gateway/agents/filmRoleToolPolicy.ts`, used by MCP (`DIRECTOR_FILM_ROLE`), the local Agent harness, and the hosted API adapter
+- Raw HTTP `POST /api/tools/{tool-name}` (and therefore the CLI and DSH plugin) applies the same policy through `backend/gateway/agents/httpToolPolicy.ts`, rejecting before browser-target execution with the same structured 403 body as MCP
+- Unified gateway audit trail: every `/api/tools/*` invocation is appended to `backend/gateway/agents/toolInvocationAuditStore.ts` tagged `source: ui | mcp | http | cli | dsh | unknown` (derived from the payload `session_id` prefix; the Stage CLI's `STAGE_AGENT_SESSION` defaults to `cli-default`), queryable via authorized `GET /api/agent/audit`
 
 **Gaps:**
 
-- Raw HTTP `POST /api/tools/{tool-name}` and the CLI path that calls it do **not** apply `filmRoleToolPolicy`
+- Resolved 2026-08-25: raw HTTP `POST /api/tools/{tool-name}` (and the CLI path that calls it) now applies `filmRoleToolPolicy`, and tool invocations share one **unified audit trail** tagged `source: ui | mcp | http | cli` (`backend/gateway/agentToolAuditStore.ts`)
 - Human UI actions have no equivalent permission gate
-- Tool invocations are not yet one **unified audit trail** tagged `source: ui | mcp | http | cli`
 - Collaboration production-room auth and internet deployment hardening remain **Limited**
 
 **Rating: 4/5**
@@ -176,7 +186,7 @@ Against the article's [Where agent-native fits in the software stack](https://ww
 | ------------------------- | -------------------------- | ------------------------ | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----- |
 | **Control**               | Vendor                     | User prompts             | Developer/team owns app           | Open source, local gateway, modifiable code                                                                                  | 5/5   |
 | **Human UI quality**      | Strong                     | Weak/none                | Full product UI                   | Full Canvas / 3D / Video editor                                                                                              | 4.5/5 |
-| **Agent access**          | Partial bolt-on            | Broad but unstructured   | Full access via app actions       | Strong on core paths; interchange export and collab observe/comment are JSON; import and remaining collab writes are limited | 4.5/5 |
+| **Agent access**          | Partial bolt-on            | Broad but unstructured   | Full access via app actions       | Strong on core paths; interchange export/import and full collaboration comment/version writes are JSON; format subsets and room auth stay Limited | 4.5/5 |
 | **Customizability**       | Settings/integrations      | One-off prompts          | Cloneable code/workflows          | Profiles, Skills, MCP plugin                                                                                                 | 4/5   |
 | **Data ownership**        | Vendor DB                  | Depends on tools         | Your DB/schema                    | Local SQLite / JSON / browser media                                                                                          | 4.5/5 |
 | **Runtime customization** | Vendor roadmap             | One-off chat             | SQL workspaces, runtime tools     | Skills/Profiles; no SQL-backed in-product workspace                                                                          | 3/5   |
@@ -231,8 +241,7 @@ Browser (gatewayClient.ts, directorStore)
 agent-gateway.ts (composition root)
     ├─ stageRoutes.ts → commandEngine / browser workbench executor
     ├─ mcp-server.ts (stdio; filmRoleToolPolicy via DIRECTOR_FILM_ROLE)
-    ├─ AgentHarness + agentAdapters (Codex/Claude; same policy)
-    ├─ openAiCompatibleAdapter (same filmRoleToolPolicy)
+    ├─ POST /api/tools/:name ← DeepSeek Harness plugin (packages/dsh-plugin-workbench; same policy)
     ├─ ProductionRunOrchestrator (multi-agent)
     └─ controlPlaneRoutes / video / dcc
 ```
@@ -254,9 +263,9 @@ agent-gateway.ts (composition root)
 
 ## Main gaps
 
-1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring. Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, gizmo drag batches, and the Canvas/Video stores
-2. **Incomplete governance surfaces** — MCP, local harness, and hosted adapter share `filmRoleToolPolicy`; raw HTTP and human UI still bypass film roles, and audit is not unified across entry points
-3. **Protocol breadth** — MCP is strong; no standard A2A; multi-agent is a custom serial graph
+1. **UI parity in progress** — interchange import, collaboration writes (resolve/reopen, version create/restore/delete), Gallery purge / media.relink, and Player/Pilot session ops are on the Agent JSON surface; Stage deletes, one-shot transforms, camera panel edits, pose/IK/motion, world systems, lights, object metadata/materials, batch spatial edits, layers, annotations/measurements, composites, and storyboard now go through `dispatchDirectorAuthoringActions` shared with Agent authoring, and discrete Canvas/Video mutators go through `dispatchCreativeWorkspaceOperations` over the shared creative contract. Remaining direct-store paths: creation flows (asset drop, preset characters, crowds, camera shots), UI-only object lists / crowd grouping, and gizmo/trim/slider drag streams — per-mutator status in the [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/)
+2. **Incomplete governance surfaces** — MCP, local harness, hosted adapter, and (since 2026-08-25) raw HTTP/CLI share `filmRoleToolPolicy` with a unified per-source audit trail; human UI actions still bypass film roles
+3. **Protocol breadth** — MCP is strong and the HTTP tool manifest is published; A2A evaluated and rejected for a runtime (ADR 0004; discovery-only card served); multi-agent is a custom serial graph
 4. **Dual surface legacy** — `stage_`* compatibility layer vs full `director_workbench` model
 5. **Runtime workspace** — no in-product SQL-backed AGENTS.md / LEARNINGS.md pattern described in the article
 
@@ -268,10 +277,10 @@ agent-gateway.ts (composition root)
 
 See the full phased plan in [Agent-Native Optimization Roadmap](/engineering/agent_native_roadmap/).
 
-1. **Keep routing UI mutators through shared authoring dispatch** — camera / pose / timeline / Canvas·Video still dual-write
-2. **Apply the shared role policy to raw HTTP and UI, and unify the audit trail** — MCP / local / hosted already share `filmRoleToolPolicy.ts`
+1. **Keep routing UI mutators through shared authoring dispatch** — creation flows and continuous drag streams still write the stores directly; camera / pose / timeline / discrete Canvas·Video paths already share dispatch
+2. **Finish remaining governance on human UI and the optional read-only mode** — raw HTTP/CLI already share `filmRoleToolPolicy.ts` with a unified audit trail
 3. **Strengthen team/observability layers** — collaboration auth, agent trace/cost dashboard
-4. **Evaluate A2A or OpenAPI tool manifest export** — enable cross-app agent orchestration
+4. **Cross-app orchestration** — the tool manifest export shipped (`GET /api/control-plane/tool-manifest`); the A2A spike concluded in ADR 0004 (runtime no-go; discovery-only card at `GET /api/control-plane/a2a-agent-card`); revisit only if a partner requires A2A task execution; the cross-app receipt handoff recipe remains
 
 ---
 

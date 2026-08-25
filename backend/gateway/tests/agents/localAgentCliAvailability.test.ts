@@ -15,10 +15,7 @@ describe("probeLocalAgentCliAvailability", () => {
     expect(commandAvailable("codex", spawn)).toBe(true);
     expect(commandAvailable("claude", spawn)).toBe(false);
     expect(
-      probeLocalAgentCliAvailability(
-        { CODEX_CLI_COMMAND: "present-cli", CLAUDE_CLI_COMMAND: "missing-cli" },
-        spawn,
-      ),
+      probeLocalAgentCliAvailability({ CODEX_CLI_COMMAND: "present-cli", CLAUDE_CLI_COMMAND: "missing-cli" }, spawn),
     ).toEqual({
       api: true,
       codex: true,

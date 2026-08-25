@@ -158,10 +158,7 @@ async function inflateRaw(bytes: Uint8Array, cap: number): Promise<Uint8Array> {
   if (typeof DecompressionStream !== "function") {
     throw new ArdyNpzError("this environment cannot decode deflate npz members (DecompressionStream unsupported)");
   }
-  const reader = new Blob([bytes as BlobPart])
-    .stream()
-    .pipeThrough(new DecompressionStream("deflate-raw"))
-    .getReader();
+  const reader = new Blob([bytes as BlobPart]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
   for (;;) {
@@ -320,8 +317,7 @@ function scalarFpsOf(parsed: ParsedNpy, label: string): number {
 /** Validate one row-major 3x3: finite, orthonormal rows/columns, det +1. */
 function checkRotationMatrix(m: Float32Array, offset: number, frame: number, joint: number) {
   for (let axis = 0; axis < 3; axis += 1) {
-    const rowNorm =
-      m[offset + axis * 3]! ** 2 + m[offset + axis * 3 + 1]! ** 2 + m[offset + axis * 3 + 2]! ** 2;
+    const rowNorm = m[offset + axis * 3]! ** 2 + m[offset + axis * 3 + 1]! ** 2 + m[offset + axis * 3 + 2]! ** 2;
     const columnNorm = m[offset + axis]! ** 2 + m[offset + 3 + axis]! ** 2 + m[offset + 6 + axis]! ** 2;
     if (
       !Number.isFinite(rowNorm) ||

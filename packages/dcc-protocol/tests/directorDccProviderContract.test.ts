@@ -71,6 +71,14 @@ describe("Director DCC provider contract", () => {
       preferredFormat: "blend",
       category: "dcc",
     });
+    // Blender live_link is a preview-only delta feed backed by host-free
+    // protocol tests and the live kernel /health liveLink stanza. It stays a
+    // connector capability and must never become an exchange claim.
+    const blenderCapabilities = new Map(
+      getDirectorDccProviderDescriptor("blender").capabilities.map((capability) => [capability.id, capability]),
+    );
+    expect(blenderCapabilities.get("live_link")).toEqual({ id: "live_link", level: "native", layer: "connector" });
+    expect(blenderCapabilities.get("roundtrip")).toEqual({ id: "roundtrip", level: "native", layer: "connector" });
     expect(getDirectorDccProviderDescriptor("unreal")).toMatchObject({
       integration: "engine-headless",
       preferredFormat: "usda",
@@ -135,10 +143,12 @@ describe("Director DCC provider contract", () => {
       expect(byId.get("headless")).toEqual({ id: "headless", level: "native", layer: "connector" });
       expect(byId.get("roundtrip")).toEqual({ id: "roundtrip", level: "native", layer: "connector" });
       expect(byId.get("stable_ids")).toEqual({ id: "stable_ids", level: "native", layer: "director-manifest" });
-      // Animation/skeleton/material fidelity and live link remain unproven.
-      for (const id of ["animation", "skeleton", "materials", "live_link"] as const) {
-        expect(byId.get(id)).toEqual({ id, level: "planned", layer: "connector" });
+      for (const id of ["animation", "skeleton", "materials"] as const) {
+        expect(byId.get(id)).toEqual({ id, level: "native", layer: "connector" });
       }
+      // Unreal, Unity, and Godot all ship tested preview-only live links
+      // (never the durable scene channel).
+      expect(byId.get("live_link")).toEqual({ id: "live_link", level: "native", layer: "connector" });
     }
   });
 

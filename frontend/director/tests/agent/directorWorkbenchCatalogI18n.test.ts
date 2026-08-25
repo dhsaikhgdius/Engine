@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { createDefaultDirectorProject, useDirectorStore } from "../../src/comprehensive/editor/store/directorStore";
 import {
-  createDefaultDirectorProject,
-  useDirectorStore,
-} from "../../src/comprehensive/editor/store/directorStore";
-import { executeDirectorWorkbenchOperation, resetDirectorWorkbenchRuntimeForTests } from "../../src/agent/directorWorkbenchExecutor";
+  executeDirectorWorkbenchOperation,
+  resetDirectorWorkbenchRuntimeForTests,
+} from "../../src/agent/directorWorkbenchExecutor";
 
 // The generated flick metadata.i18n.json overlay and the model-library
 // catalog.v2.json are wired into the aggregated Agent catalog at module init

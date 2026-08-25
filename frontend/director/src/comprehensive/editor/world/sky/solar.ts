@@ -9,7 +9,7 @@ import {
   solveAtmosphere,
   type AtmosphereSolution,
 } from "./atmosphere";
-import { evaluateSkyWeatherMood } from "./skyWeather";
+import { evaluateSkyWeatherMood, type SkyWeatherMood } from "./skyWeather";
 
 /**
  * Pure solar/sky lighting model for the Living World sky layer.
@@ -150,19 +150,32 @@ function presetScalar(
   return blendWorldPresetScalar(table, climate);
 }
 
-/** Storm darkening on the key light; ramps with the evaluated storm factor. */
-function getStormDarkening(weather: DirectorWorldWeather, climate?: WorldClimateState): number {
-  if (climate?.evolving) return lerp(1, 0.45, clamp01(weather.intensity) * climate.stormFactor);
-  return weather.preset === "storm" ? lerp(1, 0.45, clamp01(weather.intensity)) : 1;
+/**
+ * Sky weather mood under an optional climate: static evaluates the weather
+ * block directly (bit-exact legacy path), an evolving climate blends the
+ * mood outputs across the active preset transition so weather ramps never
+ * pop the key light, ambient, effective cover, or stars.
+ */
+function skyWeatherMoodFor(weather: DirectorWorldWeather, climate?: WorldClimateState): SkyWeatherMood {
+  if (!climate?.evolving || climate.fromPreset === climate.toPreset) return evaluateSkyWeatherMood(weather);
+  const from = evaluateSkyWeatherMood({ ...weather, preset: climate.fromPreset });
+  const to = evaluateSkyWeatherMood({ ...weather, preset: climate.toPreset });
+  const t = clamp01(climate.blend);
+  return {
+    directTransmission: lerp(from.directTransmission, to.directTransmission, t),
+    ambientScale: lerp(from.ambientScale, to.ambientScale, t),
+    effectiveCloudCover: lerp(from.effectiveCloudCover, to.effectiveCloudCover, t),
+    starVisibility: lerp(from.starVisibility, to.starVisibility, t),
+    cloudOpacityScale: lerp(from.cloudOpacityScale, to.cloudOpacityScale, t),
+    cloudSizeScale: lerp(from.cloudSizeScale, to.cloudSizeScale, t),
+    cloudShaderDarkening: lerp(from.cloudShaderDarkening, to.cloudShaderDarkening, t),
+  };
 }
 
-/** Fraction of direct key light surviving cloud cover, weather preset, and storm darkening. */
+/** Fraction of direct key light surviving cloud cover, weather preset, and intensity. */
 function getDirectWeatherTransmission(weather: DirectorWorldWeather, climate?: WorldClimateState): number {
-  return (
-    (1 - 0.72 * clamp01(weather.cloudCover)) *
-    presetScalar(PRESET_DIRECT_LIGHT, weather, climate) *
-    getStormDarkening(weather, climate)
-  );}
+  return skyWeatherMoodFor(weather, climate).directTransmission;
+}
 
 const SUN_COLOR_NOON: readonly [number, number, number] = [1, 0.975, 0.93];
 const SUN_COLOR_HORIZON: readonly [number, number, number] = [1, 0.6, 0.3];
@@ -264,8 +277,8 @@ export function evaluateSkyLighting(
   const hours = evaluateWorldTimeOfDayHours(settings.timeOfDay, worldSeconds);
   const arc = getSkySolarArc(hours);
   const weather = climate ? climate.weather : settings.weather;
-  const cloudCover = clamp01(weather.cloudCover);
-  const stormDarkening = getStormDarkening(weather, climate);
+  const mood = skyWeatherMoodFor(weather, climate);
+  const cloudCover = mood.effectiveCloudCover;
   const atmosphere = evaluateAtmosphereForSky(settings, worldSeconds, climate);
   // 0 at deep night, 1 in full daylight, easing through twilight.
   const daylight = smoothstep(-0.12, 0.25, arc.altitudeSin);
@@ -276,7 +289,7 @@ export function evaluateSkyLighting(
     ? directionFromAngles(arc.elevationRadians, arc.azimuthRadians)
     : directionFromAngles(-arc.elevationRadians, arc.azimuthRadians + Math.PI);
 
-  const directWeather = getDirectWeatherTransmission(weather, climate);
+  const directWeather = mood.directTransmission;
   const sunIntensity = sunUp
     ? SKY_NOON_SUN_INTENSITY * smoothstep(0, 0.25, arc.altitudeSin) * directWeather
     : SKY_NOON_SUN_INTENSITY * SKY_MOONLIGHT_INTENSITY_RATIO * smoothstep(0, 0.25, -arc.altitudeSin) * directWeather;
@@ -286,8 +299,7 @@ export function evaluateSkyLighting(
   const sunColor = sunUp ? lerpColor(SUN_COLOR_NOON, atmosphere.sunColor, sunWarmthBlend) : [...MOON_COLOR];
 
   const cloudLift = 1 + 0.3 * cloudCover * daylight;
-  const ambientIntensity =
-    lerp(0.14, 0.85, daylight) * cloudLift * presetScalar(PRESET_AMBIENT_LIGHT, weather, climate) * stormDarkening;
+  const ambientIntensity = lerp(0.14, 0.85, daylight) * cloudLift * mood.ambientScale;
   const skyFill = chromaticityOf(atmosphere.skyIrradianceUp);
   const ambientColor = lerpColor(
     lerpColor(AMBIENT_COLOR_NIGHT, skyFill, daylight),
@@ -305,7 +317,7 @@ export function evaluateSkyLighting(
     presetScalar(PRESET_AERIAL_FOG_DENSITY, weather, climate) * (1 + 0.55 * cloudCover) * stormFogBoost;
 
   const nightFactor = 1 - smoothstep(-0.18, 0.03, arc.altitudeSin);
-  const starsOpacity = clamp01(nightFactor * (1 - cloudCover) * presetScalar(PRESET_STARS, weather, climate));
+  const starsOpacity = clamp01(nightFactor * (1 - cloudCover) * mood.starVisibility);
   const skyTurbidity = clamp(2.2 + 9 * cloudCover + presetScalar(PRESET_TURBIDITY, weather, climate), 2, 20);
   const skyRayleigh = clamp(1 + 2.4 * horizonWarmth * daylight, 0.3, 4);
 

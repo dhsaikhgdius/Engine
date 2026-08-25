@@ -13,10 +13,7 @@ import { executeDirectorWorkbenchOperation } from "../../../agent/directorWorkbe
 import type { DirectorWorkbenchOperation } from "@director/agent-engine";
 import type { DirectorUiState } from "@director/protocol/workbench-ui";
 import { useDirectorStore, type DirectorStore } from "../store/directorStore";
-import {
-  computeDirectorSessionFingerprintFromState,
-  type DirectorWorkbenchStateSnapshot,
-} from "./sessionFingerprint";
+import { computeDirectorSessionFingerprintFromState, type DirectorWorkbenchStateSnapshot } from "./sessionFingerprint";
 import type { SessionRecord } from "./sessionRecordTypes";
 
 export interface DirectorSessionReplayOptions {

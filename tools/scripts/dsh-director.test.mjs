@@ -53,7 +53,13 @@ describe("dsh-director launcher", () => {
   });
 
   it("passes through only the Director variables that are actually set", () => {
-    expect(DIRECTOR_ENV_PASSTHROUGH).toEqual(["STAGE_GATEWAY_URL", "DIRECTOR_GATEWAY_TOKEN", "DIRECTOR_TARGET_TOKEN"]);
+    expect(DIRECTOR_ENV_PASSTHROUGH).toEqual([
+      "STAGE_GATEWAY_URL",
+      "DIRECTOR_GATEWAY_TOKEN",
+      "DIRECTOR_TARGET_TOKEN",
+      "DIRECTOR_SESSION_INSTRUCTIONS",
+      "DIRECTOR_WORKSPACE_REFRESH_MS",
+    ]);
     expect(collectDirectorEnv({})).toEqual({});
     expect(
       collectDirectorEnv({

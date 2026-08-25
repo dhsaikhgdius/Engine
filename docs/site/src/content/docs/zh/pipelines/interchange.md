@@ -20,8 +20,10 @@ Director 使用 manifest-first 的交换契约。每个边界都声明身份、�
 | OBJ/MTL ZIP      | 导出      | 全部或选中的受支持 Stage 基础体、烘焙世界变换、标量材质、稳定 ID、米制/Y-up manifest 与 SHA-256 文件回执 | 仅静态基础体网格；关联模型字节、相机、灯光、动画、贴图与层级会省略并显示警告                      |
 | ASCII STL ZIP    | 导出      | 全部或选中的受支持 Stage 基础体、烘焙世界变换、稳定 ID solid 名、米制/Y-up manifest 与 SHA-256 文件回执  | 不含材质、贴图、层级、相机、灯光、动画或内嵌单位声明；完整解释必须保留 sidecar                    |
 | Blender `.blend` | 导入      | active scene 的 current-frame GLB 快照、选中静态透视相机、源时间审核元数据                               | 无深层可编辑层级、动画播放/时间线映射、实时同步或不可信文件安全处理；Blender 专属语义不支持或有损 |
-| Blender 往返     | 导出/回传 | 经过验证的场景/相机交接、clay 预览、按稳定 ID 回传 mesh/变换                                             | 仅接受 DCC job 根下带 hash 的受限 package；不自动导入 Blender 游离对象、光学与灯光修改            |
-| 引擎交接（Unreal/Unity/Godot） | 发送/回传 | 无头连接器导入场景布局、相机与镜头范围并写入 `director:id`；以 canonical 空间回传变换 | 需要用户引擎工程中已安装 Director 官方连接器（`nativeReady`）；不宣称动画、骨骼、材质或 live link |
+| Blender 往返     | 导出/回传 | 经过验证的场景/相机/灯光交接、clay 预览、按稳定 ID 回传 mesh、变换、机位光学、`director_id` 灯光与可移植 pose control | 仅接受 DCC job 根下带 hash 的受限 package；新建对象只能通过 stamp `director_id` 加显式 `include_new_objects` 选择加入导入，骨骼编辑只在 stamp 的骨骼角色映射覆盖范围内 reconcile（其余 warn-and-omit） |
+| 引擎交接（Unreal/Unity/Godot） | 发送/回传 | 无头连接器导入场景布局、相机与镜头范围并写入 `director:id`；以 canonical 空间回传变换。Unreal 额外将 Gateway 烘焙的变换/相机动画写入 Sequencer（有理帧率、SMPTE 起始时间码），把带蒙皮 GLB 以绑定姿态导入为骨骼网格，并将 Director PBR 参数应用为材质实例。Unity 额外把 Director 动画与语义姿势通道烘焙到 Timeline、从蒙皮 GLB 构建 Avatar，应用 PBR 材质回退与灯光，并提供仅出站的预览 live link。Godot 4 额外导入基于有理时基的 Gateway 烘焙 `AnimationPlayer` 动画、绑定姿态的蒙皮 GLB 骨架、带哈希外置纹理的 `StandardMaterial3D` 材质，以及 Omni/Spot/Directional 灯光 | 需要用户引擎工程中已安装 Director 官方连接器（`nativeReady`）；Unreal、Unity 与 Godot 预览 live link 均为 native（永不改写项目）；Unreal `clean_frame` 为尽力而为；Unreal 的 Control Rig 姿态、动作片段与贴图以警告省略处理；Godot 的绑定姿态通道与环境光/面光警告省略 |
+| Unreal 场景      | 导入      | 关卡 GLB 包（几何、材质、骨骼网格）、类型化层级快照、Cine 相机光学、方向/点/聚光/矩形/天空光、稳定 actor ID | Sequencer 动画仅按名称清单化；裁剪面用 Director 默认值；回程 roundtrip 为 planned                 |
+| Unity 场景       | 导入      | 场景 GLB 包（几何、材质、蒙皮网格）、类型化层级快照、物理相机光学、方向/点/聚光/矩形灯 + Flat 环境光、`GlobalObjectId` 稳定 ID | 圆盘灯与 skybox 环境光记录为 gap；动画剪辑仅带时长清单化；回程 roundtrip 为 planned              |
 
 编辑器顶部 **Interchange** 菜单是人类入口。Stage OTIO 与 Video 工作区 OTIO 使用不同
 adapter，因为二者保留的 source model 不同。导入必须先校验，再替换或合并状态。
@@ -72,6 +74,28 @@ skin、morph、材质与内嵌 GLB 动画 clip 可以留在资产内部，但 Di
 这是一条可信本地操作。`--disable-autoexec` 能防止自动执行内嵌 Python/driver，但不能为
 Blender 原生文件解析器提供 OS/container sandbox。私有 job 路径、大小限制和进程超时只是
 约束措施，不是 sandbox。不可信 `.blend` 应先在容器或虚拟机中处理，再交给 Director。
+
+## 游戏引擎场景（Unreal / Unity）
+
+Unreal Engine 5 与 Unity 场景走与 `.blend` 相同的 preview/apply 纪律，但包格式不同：
+引擎内导出器（`integrations/unreal/interchange/director_scene_export.py`、
+`integrations/unity/interchange/DirectorSceneExport.cs`）自己负责坐标转换，写出
+`director-engine-scene-v1` 包，其中所有变换已是 Director 的右手 Y-up 米制约定。
+manifest 声明实际应用的线性映射（Unreal `(x,y,z)->(y,z,-x)*0.01`、Unity
+`(x,y,z)->(-x,y,z)`）、层级快照、相机、灯光、动画剪辑清单、警告与每个文件的 SHA-256。
+
+两条摄取路径产出同一种包。`director_dcc extract_engine_scene` 对本地工程 headless 运行
+已安装的引擎（Unreal 走 `UnrealEditor-Cmd -run=pythonscript`，Unity 走
+`-batchmode -executeMethod`；Unity 额外需要已激活的许可证）。把引擎内导出的 `.zip` 上传到
+`POST /api/dcc/engine-scene/uploads?provider=unreal|unity` 则完全不依赖引擎安装，是云环境
+可 headless 验证的路径。
+
+`preview_engine_scene_import` 生成服务端持久化的 `director-engine-scene-import-plan-v1`；
+`apply_engine_scene_import` 重新校验哈希、把 GLB 复制进内容寻址存储，并用 `plan_id`、
+`expected_revision` 与仅限重试的 `idempotency_key` 执行一次原子 authoring 变更。几何保持
+`modelNormalization: "preserve"`。可渲染几何依赖引擎侧 glTF 导出器（Unreal 的 glTF
+Exporter 插件、Unity 的 `com.unity.cloud.gltfast`）；缺失时包仍可导入相机、灯光与层级，
+并把几何缺口记录在案。回程 roundtrip 是声明为 `planned` 的能力，当前不可用。
 
 ## 坐标系统
 
@@ -146,13 +170,18 @@ RGB、可见像素数、画面占比与以左上角为原点的像素边界；�
 ## Agent 边界
 
 `director_creative interchange` 为有界 OTIO/OTIOZ、Fountain、glTF/GLB、USD/USDZ、OBJ
-和 STL 传输提供 `capabilities`、`plan-export` 与 `export`。每个计划绑定精确 Stage revision
-或 creative-workspace fingerprint。导出返回 UTF-8 或 base64 payload、archive SHA-256、
-字节数、兼容性警告和稳定回执；inline 传输上限是 8 MiB。OBJ/STL 计划可携带精确
-`object_ids`，并把它写入计划身份和 ZIP manifest。
+和 STL 传输提供 `capabilities`、`plan-export`、`export`、`plan-import` 与 `import`。每个计划
+绑定精确 Stage revision 或 creative-workspace fingerprint。导出返回 UTF-8 或 base64 payload、
+archive SHA-256、字节数、兼容性警告和稳定回执；inline 传输上限是 8 MiB。OBJ/STL 计划可携带
+精确 `object_ids`，并把它写入计划身份和 ZIP manifest。
 
-导入仍是 human-file-picker-only，因为 Agent 不会伪造浏览器文件句柄。请使用 Interchange
-菜单或对应可信 host adapter；没有真实用户选中文件和校验结果时，不得宣称完成导入。
+导入沿用同一套 plan/receipt 纪律，分两个 JSON 步骤完成。`plan-import` 校验一个 source —
+有界 `inline` payload、已存在的 Gallery `media_id`，或可读的 `workspace_path` — 并返回绑定
+当前 guard fingerprint 的计划；`import` 随后精确应用该 `plan_id`，携带
+`expected_guard_fingerprint` 与 `confirm:true`，fingerprint 过期时必须重新生成计划。OBJ/STL
+仍是只导出格式；文档所列 **Limited** 格式子集边界不变。浏览器
+文件选择器仍作为便捷入口保留（针对人类本地已打开的文件），但不再是唯一导入路径。没有已
+校验的计划和回执时，不得宣称完成导入。
 
 Stage 验收与 provider-neutral 证据使用 `director_workbench` 的 `shot_ir`、`shot_package` 或
 `deliver`。Blender 与引擎连接器先发现并调用 `director_dcc`：`discover`/`status` 如实报告就绪状态，

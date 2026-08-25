@@ -12,7 +12,7 @@ namespace Director.Bridge
         [Tooltip("Stable director_id assigned by Director. Do not edit by hand.")]
         public string directorId = string.Empty;
 
-        [Tooltip("Director entity type: object or camera.")]
+        [Tooltip("Director entity type: object, camera, or light. Only objects and cameras round-trip transforms.")]
         public string entityType = "object";
     }
 }

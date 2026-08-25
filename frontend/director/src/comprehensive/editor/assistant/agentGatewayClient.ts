@@ -68,6 +68,8 @@ async function jsonRequest(path: string, init: RequestInit = {}): Promise<{ stat
     ...init,
     headers: {
       Accept: "application/json",
+      // Observability (M5): attribute browser-issued calls to the UI surface.
+      "X-Director-Trace-Source": "ui",
       ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
       ...(bootstrap?.browserToken ? { "X-Director-Browser-Token": bootstrap.browserToken } : {}),
       ...init.headers,
@@ -168,6 +170,7 @@ export async function directorAgentFetch(
   const current = await bootstrapDirectorAgent();
   const headers = new Headers(init.headers);
   headers.set("X-Director-Browser-Token", current.browserToken);
+  headers.set("X-Director-Trace-Source", "ui");
   const response = await fetch(input, { ...init, headers });
   if (response.status === 401 && retryUnauthorized) {
     resetDirectorAgentCredentials();

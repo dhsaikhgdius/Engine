@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorProject, DirectorTimeline } from "../../../../src/comprehensive/editor/schema/directorProject";
-import { duplicateStoryboardShot, insertStoryboardShotAtFrame, reorderStoryboardShot } from "../../../../src/comprehensive/editor/storyboard/directorStoryboard";
+import {
+  duplicateStoryboardShot,
+  insertStoryboardShotAtFrame,
+  reorderStoryboardShot,
+} from "../../../../src/comprehensive/editor/storyboard/directorStoryboard";
 
 const timeline: DirectorTimeline = {
   version: 1,

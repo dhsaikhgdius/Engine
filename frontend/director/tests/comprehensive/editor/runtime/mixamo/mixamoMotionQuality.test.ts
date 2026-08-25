@@ -23,7 +23,10 @@ import {
   configureDirectorCharacterMotionAction,
   retargetMixamoAnimationClip,
 } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoMotion";
-import { applyMixamoFootGrounding, createMixamoFootGroundingState } from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootGrounding";
+import {
+  applyMixamoFootGrounding,
+  createMixamoFootGroundingState,
+} from "../../../../../src/comprehensive/editor/runtime/mixamo/mixamoFootGrounding";
 
 /**
  * Numeric quality gates for the packaged Mixamo motion pipeline on X Bot.

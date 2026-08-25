@@ -8,6 +8,7 @@
  */
 
 export * from "./agentGatewayProtocol";
+export * from "./agentObservabilityProtocol";
 export * from "./agentTools";
 export * from "./assetCatalogProtocol";
 export * from "./captureReconstructionProtocol";
@@ -29,6 +30,7 @@ export * from "./mediaTranscriptionProtocol";
 export * from "./primitives";
 export * from "./productionArtifactProtocol";
 export * from "./productionJobProtocol";
+export * from "./productionJobReceipt";
 export * from "./referenceSceneReconstructionProtocol";
 export * from "./stableJson";
 export * from "./stageProtocol";
@@ -37,6 +39,7 @@ export * from "./vehicleProtocol";
 export * from "./videoGenerationProtocol";
 export * from "./worldSystemsProtocol";
 export * from "./blenderKernel";
+export * from "./blenderLiveLinkProtocol";
 export * from "./blenderLiveProtocol";
 export * from "./blenderNativeDescribe";
 export * from "./blenderOperationManifest";

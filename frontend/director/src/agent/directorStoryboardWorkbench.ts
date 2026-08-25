@@ -320,7 +320,11 @@ export async function executeDirectorStoryboardWorkbenchCommand(
       },
     } satisfies DirectorWorkbenchExecution;
     if (decorated.success) {
-      storyboardRetryReceipts.set(receiptKey, { signature, projectRevisionAfter, execution: structuredClone(decorated) });
+      storyboardRetryReceipts.set(receiptKey, {
+        signature,
+        projectRevisionAfter,
+        execution: structuredClone(decorated),
+      });
       // Evict the oldest receipt (FIFO) when the cache exceeds the limit.
       if (storyboardRetryReceipts.size > STORYBOARD_RECEIPT_LIMIT) {
         storyboardRetryReceipts.delete(storyboardRetryReceipts.keys().next().value!);

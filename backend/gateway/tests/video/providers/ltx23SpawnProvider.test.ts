@@ -149,7 +149,9 @@ describe("Ltx23SpawnProvider", () => {
   });
 
   it("reports cold health and official-source capabilities", async () => {
-    const { provider: ltx } = createProvider(vi.fn(() => fakeChild()) as unknown as Ltx23SpawnProviderOptions["spawnImpl"]);
+    const { provider: ltx } = createProvider(
+      vi.fn(() => fakeChild()) as unknown as Ltx23SpawnProviderOptions["spawnImpl"],
+    );
     await expect(ltx.health()).resolves.toMatchObject({
       provider: "ltx-2.3",
       status: "cold",

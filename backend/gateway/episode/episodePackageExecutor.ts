@@ -132,8 +132,7 @@ export class EpisodePackageExecutor {
 
       const actionTrackJson = stableLexicalJson(spec.actionTrack);
       const captionsJson = stableLexicalJson(spec.captions);
-      const sessionRecordJson =
-        spec.sessionRecord === undefined ? null : stableLexicalJson(spec.sessionRecord);
+      const sessionRecordJson = spec.sessionRecord === undefined ? null : stableLexicalJson(spec.sessionRecord);
 
       const files: PlannedFile[] = [
         {

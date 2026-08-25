@@ -1,8 +1,4 @@
-import type {
-  DirectorEntityAnimation,
-  DirectorTrajectoryMotion,
-  DirectorTransform,
-} from "../schema/directorProject";
+import type { DirectorEntityAnimation, DirectorTrajectoryMotion, DirectorTransform } from "../schema/directorProject";
 import { normalizeDirectorFps } from "../timeline/frameTime";
 import { createFrameTrajectoryAnimation, type DirectorTrajectoryWaypoint } from "../trajectory/trajectoryMath";
 

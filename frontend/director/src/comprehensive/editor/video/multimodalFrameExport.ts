@@ -168,9 +168,9 @@ async function toBytes(source: DirectorPngFrameSource, remainingBytes: number): 
 }
 
 async function sha256(value: Uint8Array | string): Promise<`sha256:${string}`> {
+  // Digest the view directly; see shotPackage.ts sha256 for the realm rationale.
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
-  const source = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", source));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return `sha256:${Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 

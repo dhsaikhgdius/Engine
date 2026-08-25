@@ -1,11 +1,17 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { resetDirectorSessionRuntime, updateDirectorSessionRuntime } from "../../../../src/comprehensive/editor/session/directorSessionRuntime";
+import {
+  resetDirectorSessionRuntime,
+  updateDirectorSessionRuntime,
+} from "../../../../src/comprehensive/editor/session/directorSessionRuntime";
 import {
   DirectorNotificationLayer,
   isDirectorRemoteRevisionSyncNotice,
 } from "../../../../src/comprehensive/app/notifications/DirectorNotificationLayer";
-import { clearDirectorNotifications, getDirectorNotifications } from "../../../../src/comprehensive/app/notifications/directorNotificationStore";
+import {
+  clearDirectorNotifications,
+  getDirectorNotifications,
+} from "../../../../src/comprehensive/app/notifications/directorNotificationStore";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -72,7 +78,9 @@ it("shows the gateway-offline notice after a delay, then auto-dismisses it", () 
     vi.advanceTimersByTime(1);
   });
   expect(screen.getByText("网关未连接，Agent 与生成功能不可用")).toBeInTheDocument();
-  expect(screen.getByText("请在项目根目录运行 npm run dev（或单独运行 npm run gateway）启动 Agent Gateway。")).toBeInTheDocument();
+  expect(
+    screen.getByText("请在项目根目录运行 npm run dev（或单独运行 npm run gateway）启动 Agent Gateway。"),
+  ).toBeInTheDocument();
 
   act(() => {
     vi.advanceTimersByTime(7_999);

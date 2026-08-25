@@ -1113,13 +1113,7 @@
 .creative-canvas-node-inspector {
   position: absolute;
   top: max(12px, var(--creative-node-inspector-top));
-  left: max(
-    12px,
-    min(
-      calc(var(--creative-media-width) + var(--creative-node-inspector-left)),
-      calc(100% - 336px)
-    )
-  );
+  left: max(12px, min(calc(var(--creative-media-width) + var(--creative-node-inspector-left)), calc(100% - 336px)));
   z-index: 30;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

@@ -14,7 +14,9 @@ Blender DCC 目录将 `connectorDirectory` 设为 `"integrations/blender"`——
 | `blender/live/` | 无头 Blender 实时建模内核。`BLENDER_USER_SCRIPTS` 指向此处，Blender 自动加载 `addons/worldengine_studio/`。`npm run blender` 启动。 |
 | `blender/interchange/` | 可信 `.blend` 导入与 Director 场景往返（`director_bridge.py`、`director_scene_export.py`、`director_return_export.py`）。 |
 | `unreal/` | Director 自研 `DirectorBridge` Unreal 编辑器插件（Python），提供固定的无头导入/导出入口。配置 `DIRECTOR_UNREAL_EDITOR_BIN` + `DIRECTOR_UNREAL_PROJECT`。详见 `unreal/README.zh-CN.md`。 |
+| `unreal/interchange/` | Unreal Engine 5 → Director 场景导入：引擎内 Python 导出器，产出 `director-engine-scene-v1` 包。 |
 | `unity/` | Director 自研 `com.director.bridge` UPM 编辑器包（C#），提供 `-batchmode -executeMethod` 入口。配置 `DIRECTOR_UNITY_BIN` + `DIRECTOR_UNITY_PROJECT`。详见 `unity/README.zh-CN.md`。 |
+| `unity/interchange/` | Unity → Director 场景导入：Editor-only C# 导出器，产出 `director-engine-scene-v1` 包。 |
 | `godot/` | Director 自研 `director_bridge` Godot 4 编辑器插件（GDScript），提供固定的 `--headless` 入口。配置 `DIRECTOR_GODOT_BIN` + `DIRECTOR_GODOT_PROJECT`。详见 `godot/README.zh-CN.md`。 |
 | `plugins/director-workbench/` | 可移植 Agent/MCP 插件，基于同一套工作台合约构建。**勿手改**生成的 `mcp/server.mjs`。 |
 | `dcc-providers.example.json` | 声明式、仅交换的 DCC provider 目录模板。复制到旁边（如 `integrations/dcc-providers.json`）并将 `DIRECTOR_DCC_PROVIDER_CONFIG` 指向该副本。 |
@@ -84,6 +86,18 @@ Blender DCC 目录将 `connectorDirectory` 设为 `"integrations/blender"`——
 | `addons/director_bridge/director_package.gd` | 交换包读取器与返回包/报告写入器。 |
 | `addons/director_bridge/director_headless.gd` | 固定无头入口：health、import（Node3D 场景 + GLB 实例化 + 元数据）、export（打标节点返回差异）。 |
 | `addons/director_bridge/director_bridge.gd` | 编辑器插件脚本，提供编辑器内健康检查。 |
+
+### `unreal/interchange/`
+
+| 路径 | 中文用途 |
+| --- | --- |
+| `director_scene_export.py` | 引擎内（UE5）导出器：将已加载关卡转换为 `director-engine-scene-v1` 包（manifest + 经 glTF Exporter 插件导出的 GLB），支持 headless。 |
+
+### `unity/interchange/`
+
+| 路径 | 中文用途 |
+| --- | --- |
+| `DirectorSceneExport.cs` | Editor-only 导出器：将打开的场景转换为 `director-engine-scene-v1` 包（manifest + 经 `com.unity.cloud.gltfast` 导出的 GLB），支持 batch 模式。网关在 `extract_engine_scene` 时复制到 `Assets/Editor/DirectorInterchange/`。 |
 
 ### `plugins/director-workbench/`
 

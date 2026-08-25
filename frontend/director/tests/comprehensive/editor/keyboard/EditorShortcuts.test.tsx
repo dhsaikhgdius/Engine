@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { EditorShortcuts, openDirectorEditorShortcuts } from "../../../../src/comprehensive/editor/keyboard/EditorShortcuts";
+import {
+  EditorShortcuts,
+  openDirectorEditorShortcuts,
+} from "../../../../src/comprehensive/editor/keyboard/EditorShortcuts";
 
 describe("EditorShortcuts", () => {
   it("lists the full video editor bindings grouped by workspace", () => {

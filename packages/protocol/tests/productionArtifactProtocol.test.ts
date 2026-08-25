@@ -9,6 +9,7 @@ import {
   getProductionArtifactVersionFingerprint,
   productionArtifactVersionSchema,
   productionEvidenceRequestSchema,
+  assertNewApprovalBindsProjectRevision,
   type ProductionApproval,
   type ProductionApprovalFingerprint,
   type ProductionArtifactVersionInput,
@@ -246,5 +247,18 @@ describe("production artifact protocol", () => {
         supersedesApprovalId: "approval-1",
       }),
     ).toThrow(/cannot supersede itself/);
+  });
+
+  it("requires new write-path approvals to bind a live project revision", () => {
+    const unbound = approval([{ kind: "artifact", value: `artifact-version:v1:sha256:${"2".repeat(64)}` }]);
+    expect(() => assertNewApprovalBindsProjectRevision(unbound)).toThrow(/kind:project/);
+    expect(() =>
+      assertNewApprovalBindsProjectRevision(
+        approval([
+          { kind: "artifact", value: `artifact-version:v1:sha256:${"2".repeat(64)}` },
+          { kind: "project", value: `director-project-revision:v1:sha256:${"1".repeat(64)}` },
+        ]),
+      ),
+    ).not.toThrow();
   });
 });

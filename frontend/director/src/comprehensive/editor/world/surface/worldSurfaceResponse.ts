@@ -207,11 +207,18 @@ export function computeClimateAmbientAudioGains(
   windSpeedMps: number,
 ): WorldAmbientAudioGains {
   const intensity = clamp01(climate.intensity);
-  const wind = Math.min(1, Math.max(0, windSpeedMps / 14)) * 0.45;
+  const windNorm = Math.min(1, Math.max(0, windSpeedMps / 14));
+  const wind = windNorm * 0.45;
+  // Same quadratic wind→rustle mapping as the legacy path so static climates
+  // stay bit-exact; the storm rumble fades with the evaluated storm factor
+  // instead of stepping on the preset gate.
+  const rustle = windNorm * windNorm * 0.3;
   const rainGain = exactLerp(0.2 + 0.75 * intensity, 0.45 + 0.55 * intensity, climate.stormFactor);
   return {
     wind,
     rain: clamp01(climate.rainPresence * rainGain),
     snow: clamp01(climate.snowPresence * (0.12 + 0.4 * intensity)),
+    rumble: clamp01((0.25 + 0.45 * intensity) * climate.stormFactor),
+    rustle,
   };
 }

@@ -113,6 +113,39 @@ async function getGatewayToken(
 }
 
 /**
+ * GETs one authenticated Director gateway JSON resource (bootstrap token flow
+ * included). Used for non-tool reads such as the agent workspace prompt.
+ */
+export async function fetchDirectorGatewayJson(
+  path: string,
+  config: DirectorWorkbenchGatewayConfig = {},
+  signal?: AbortSignal,
+): Promise<DirectorWorkbenchGatewayResult> {
+  const gatewayUrl = (config.gatewayUrl ?? trimEnv(process.env.STAGE_GATEWAY_URL) ?? "http://127.0.0.1:8787").replace(
+    /\/$/,
+    "",
+  );
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const request = (gatewayToken: string) =>
+    gatewayFetch(
+      fetchImpl,
+      `${gatewayUrl}${path}`,
+      { headers: { accept: "application/json", "x-director-browser-token": gatewayToken }, signal },
+      gatewayUrl,
+    );
+  let response = await request(await getGatewayToken(gatewayUrl, config, fetchImpl, signal));
+  if (response.status === 401) {
+    gatewayTokens.delete(gatewayUrl);
+    response = await request(await bootstrapGatewayToken(gatewayUrl, fetchImpl, signal));
+  }
+  const raw: unknown = await response.json().catch(() => ({}));
+  return {
+    status: response.status,
+    body: asRecord(raw) ?? { success: false, error: "Director gateway returned a non-object response" },
+  };
+}
+
+/**
  * POSTs one Director domain tool call to the Gateway `/api/tools/:name` surface.
  * DeepSeek Harness owns the loop; this client is the plugin's only Director hop.
  */
@@ -131,9 +164,19 @@ export async function dispatchDirectorWorkbenchTool(
   if (!sessionId) throw new Error("Director tools require the current DeepSeek Harness session id");
   const omitScene = config.omitScene ?? (tool === "director_workbench" || tool === "director_creative");
   const fetchImpl = config.fetchImpl ?? fetch;
+  // A confirm token confirms one destructive/publish operation (deliver,
+  // interchange export, …). It rides the envelope, not the strict tool input.
+  const inputRecord = asRecord(input);
+  const rawConfirmToken = inputRecord?.confirm_token;
+  const confirmToken = typeof rawConfirmToken === "string" && rawConfirmToken.trim() ? rawConfirmToken : undefined;
+  const effectiveInput =
+    confirmToken && inputRecord
+      ? Object.fromEntries(Object.entries(inputRecord).filter(([key]) => key !== "confirm_token"))
+      : input;
   const body = JSON.stringify({
-    input,
+    input: effectiveInput,
     session_id: `dsh-${sessionId}`,
+    ...(confirmToken ? { confirm_token: confirmToken } : {}),
     ...(targetToken ? { target_token: targetToken } : {}),
     ...(omitScene ? { omit_scene: true } : {}),
   });
@@ -146,6 +189,9 @@ export async function dispatchDirectorWorkbenchTool(
         headers: {
           "content-type": "application/json",
           "x-director-browser-token": gatewayToken,
+          // DeepSeek Harness is the MCP-style agent entry point; the gateway
+          // tags the unified tool audit trail with this source.
+          "x-director-tool-source": "mcp",
         },
         body,
         signal,

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { analyzeDirectorCanvasDag, layoutDirectorCanvasDag, wouldCreateDirectorCanvasCycle } from "../../../../src/comprehensive/editor/workspaces/canvasDag";
+import {
+  analyzeDirectorCanvasDag,
+  layoutDirectorCanvasDag,
+  wouldCreateDirectorCanvasCycle,
+} from "../../../../src/comprehensive/editor/workspaces/canvasDag";
 
 const nodes = ["idea", "image", "voice", "edit"].map((id) => ({ id, width: 240, height: 160 }));
 const edges = [

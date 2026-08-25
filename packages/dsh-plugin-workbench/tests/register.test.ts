@@ -24,14 +24,20 @@ function capturedGuidance(): string {
 }
 
 describe("Director DSH agent guidance", () => {
-  it("teaches the white-box workflow instead of primitive assembly", () => {
+  it("declares the canonical source order and points at describe for exact vocabulary", () => {
+    const guidance = capturedGuidance();
+    expect(guidance).toContain("Canonical source order");
+    expect(guidance).toContain("describe wins");
+    expect(guidance).toContain('{"op":"describe","target":"author.add_object"}');
+    expect(guidance).toContain('{"op":"describe","target":"create_blockout"}');
+    expect(guidance).toContain('{"op":"describe","target":"interchange"}');
+  });
+
+  it("teaches the white-box principles instead of primitive assembly", () => {
     const guidance = capturedGuidance();
     expect(guidance).toContain("geometry_type are rejected");
     expect(guidance).toContain("create_blockout");
     expect(guidance).toContain("create_opening");
-    expect(guidance).toContain("floor/wall/room/corridor/stairs");
-    expect(guidance).toContain('modelNormalization "preserve"');
-    expect(guidance).toContain("grounded:true");
     expect(guidance).toContain("never a darker box");
     expect(guidance).toContain("35-65mm");
   });
@@ -40,5 +46,23 @@ describe("Director DSH agent guidance", () => {
     const guidance = capturedGuidance();
     expect(guidance).toContain("capture or author.evidence");
     expect(guidance).toContain("audit ready=true is structural validation only");
+  });
+
+  it("stays principles and pointers instead of a second parameter vocabulary", () => {
+    const guidance = capturedGuidance();
+    // Exact parameter vocabulary is canonical only in capabilities/describe
+    // (channel 1). The system-prompt channel must not re-grow field-level
+    // spellings that drift when the contract changes.
+    for (const vocabulary of [
+      "floor/wall/room/corridor/stairs",
+      "wallThickness",
+      "grounded:true",
+      "createIfMissing",
+      '"preserve"',
+      "sillHeight",
+    ]) {
+      expect(guidance).not.toContain(vocabulary);
+    }
+    expect(guidance.length).toBeLessThan(4200);
   });
 });

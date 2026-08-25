@@ -8,6 +8,7 @@ import {
   useDirectorStore,
 } from "../../../../../src/comprehensive/editor/store/directorStore";
 import type { LivingWorldFrameContext } from "../../../../../src/comprehensive/editor/world/livingWorldContracts";
+import { evaluateWorldClimate } from "../../../../../src/comprehensive/editor/world/worldClimate";
 import SkyLayer, { shouldShowSkyDome } from "../../../../../src/comprehensive/editor/world/sky/SkyLayer";
 
 /**
@@ -43,6 +44,7 @@ function contextWith(settings: DirectorWorldSettings): LivingWorldFrameContext {
     isPlaying: false,
     seed: settings.seed,
     settings,
+    climate: evaluateWorldClimate(settings, 0),
     windVector: [0, 0, 0],
     groundHeight: 0,
   };

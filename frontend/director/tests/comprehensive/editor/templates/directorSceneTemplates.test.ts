@@ -4,8 +4,15 @@ import {
   getMixamoCharacterCatalogItem,
 } from "../../../../src/comprehensive/editor/modelLibrary/mixamoCharacterCatalog";
 import { safeParseDirectorProject } from "../../../../src/comprehensive/editor/schema/directorProjectSchema";
-import { createDefaultDirectorProject, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
-import { buildDirectorSceneTemplateProject, DIRECTOR_SCENE_TEMPLATES, getDirectorSceneTemplate } from "../../../../src/comprehensive/editor/templates/index";
+import {
+  createDefaultDirectorProject,
+  useDirectorStore,
+} from "../../../../src/comprehensive/editor/store/directorStore";
+import {
+  buildDirectorSceneTemplateProject,
+  DIRECTOR_SCENE_TEMPLATES,
+  getDirectorSceneTemplate,
+} from "../../../../src/comprehensive/editor/templates/index";
 
 beforeEach(() => {
   useDirectorStore.getState().replaceProject(createDefaultDirectorProject());
@@ -15,9 +22,7 @@ describe("场景模板库数据", () => {
   it("提供 4–6 个元数据完整且 id 唯一的模板", () => {
     expect(DIRECTOR_SCENE_TEMPLATES.length).toBeGreaterThanOrEqual(4);
     expect(DIRECTOR_SCENE_TEMPLATES.length).toBeLessThanOrEqual(6);
-    expect(new Set(DIRECTOR_SCENE_TEMPLATES.map((template) => template.id)).size).toBe(
-      DIRECTOR_SCENE_TEMPLATES.length,
-    );
+    expect(new Set(DIRECTOR_SCENE_TEMPLATES.map((template) => template.id)).size).toBe(DIRECTOR_SCENE_TEMPLATES.length);
     DIRECTOR_SCENE_TEMPLATES.forEach((template) => {
       expect(template.name.trim()).not.toBe("");
       expect(template.description.trim()).not.toBe("");
@@ -47,9 +52,9 @@ describe("场景模板库数据", () => {
       expect(project.cameras.length).toBeGreaterThan(0);
       expect(project.cameras.some((camera) => camera.id === project.activeCameraId)).toBe(true);
       project.cameras.forEach((camera) => {
-        expect(
-          project.objects.some((object) => object.kind === "camera" && object.linkedCameraId === camera.id),
-        ).toBe(true);
+        expect(project.objects.some((object) => object.kind === "camera" && object.linkedCameraId === camera.id)).toBe(
+          true,
+        );
       });
     },
   );

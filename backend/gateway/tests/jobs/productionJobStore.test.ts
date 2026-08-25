@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { hashInputFingerprint, transitionProductionJob } from "../../../../packages/protocol/src/productionJobProtocol";
-import { executeCanvasImageJob, ProductionJobIdempotencyConflictError, ProductionJobStore } from "../../jobs/productionJobStore";
+import {
+  executeCanvasImageJob,
+  ProductionJobIdempotencyConflictError,
+  ProductionJobStore,
+} from "../../jobs/productionJobStore";
 
 describe("ProductionJobStore", () => {
   const tempDirs: string[] = [];
@@ -243,9 +247,9 @@ describe("ProductionJobStore", () => {
     const results = await Promise.allSettled([store.update(running), store.update(cancelled)]);
     expect(results.every((result) => result.status === "fulfilled")).toBe(true);
     expect((await store.get(queued.id))?.status).toBe("cancelled");
-    const persisted = JSON.parse(
-      await readFile(join(dir, "production-jobs", queued.id, "job.json"), "utf8"),
-    ) as { status: string };
+    const persisted = JSON.parse(await readFile(join(dir, "production-jobs", queued.id, "job.json"), "utf8")) as {
+      status: string;
+    };
     expect(persisted.status).toBe("cancelled");
   });
 

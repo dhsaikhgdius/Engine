@@ -11,6 +11,7 @@
     "editable lights, fog, and panorama environment lighting",
     "composable semantic spatial relations",
     "bounded spatial object queries",
+    "read-only ProductionGraph lineage projection",
     "characters",
     "character semantic pose controls",
     "character two-bone IK",

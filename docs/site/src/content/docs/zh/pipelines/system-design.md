@@ -68,8 +68,12 @@ Director 有意使用多套模型；每套模型只负责一个领域，适配�
 
 ### 跨工作区身份
 
-Canvas、Stage、Video、生成任务和 DCC package 都有稳定本地 ID，但还没有共享单一的项目级血缘图。
-下一份主要契约应是 `ProductionGraph`：负责稳定的资产、剧本节拍、镜头、artifact、使用关系和审阅身份，同时让各编辑器继续管理自己的详细状态。
+只读 `ProductionGraph` 投影器已经可以从 `DirectorProject` 暴露稳定的资产、镜头、take、
+coverage、job 与 artifact 身份。Graph ID 以 `productionGraphIdentities` additive
+写回（不计入 project revision）。Agent 通过 `director_workbench` observe
+`fields:["production_graph"]` 选择加入（摘要含指纹与完整性；`detail:"full"` 含
+nodes/edges）。各编辑器仍是 Canvas / Stage / Video 详细状态的权威来源。该 graph 不
+写入这些 store 的详细字段，也不替代 Canvas 生产 DAG。
 
 ### 持久化任务
 

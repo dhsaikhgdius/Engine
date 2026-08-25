@@ -1,19 +1,23 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { applyDirectorAuthoringActions } from "@director/agent-engine/authoring";
+import { applyDirectorAuthoringActions, type DirectorAuthoringAction } from "@director/agent-engine/authoring";
 import {
   DEFAULT_DIRECTOR_CAMERA_SENSOR_FORMAT,
   getDirectorProjectRevision,
   getVerticalFovFromFocalLength,
   type DirectorWorldRoad,
 } from "@director/project-schema";
-import {
-  createInitialDirectorState,
-  useDirectorStore,
-} from "../../src/comprehensive/editor/store/directorStore";
+import type { DirectorCharacterMotionState } from "../../src/comprehensive/editor/schema/directorProject";
+import { createInitialDirectorState, useDirectorStore } from "../../src/comprehensive/editor/store/directorStore";
 import {
   compileDirectorDeleteObjectActions,
   dispatchDirectorAuthoringActions,
 } from "../../src/agent/dispatchDirectorAuthoringActions";
+import {
+  compileDirectorAddLightAction,
+  compileDirectorCameraUpdateAction,
+  compileDirectorCharacterMotionAction,
+  compileDirectorLightUpdateAction,
+} from "../../src/agent/compileDirectorUiAuthoringActions";
 
 function resetDirectorStore() {
   useDirectorStore.setState({
@@ -250,5 +254,164 @@ describe("dispatchDirectorAuthoringActions", () => {
     expect(getDirectorProjectRevision(useDirectorStore.getState().project)).toBe(beforeRevision);
     const object = useDirectorStore.getState().project.objects.find((item) => item.id === "locked-guard-box");
     expect(object?.transform.position).not.toEqual([9, 1, 9]);
+  });
+});
+
+describe("Stage mutator parity with direct agent authoring", () => {
+  beforeEach(() => {
+    resetDirectorStore();
+  });
+
+  /** Apply actions with the agent engine on a clone of the current project. */
+  function agentRevisionFor(actions: DirectorAuthoringAction[]) {
+    const before = structuredClone(useDirectorStore.getState().project);
+    return getDirectorProjectRevision(applyDirectorAuthoringActions(before, actions).project);
+  }
+
+  function storeRevision() {
+    return getDirectorProjectRevision(useDirectorStore.getState().project);
+  }
+
+  it("updateCamera focal-length edits match a direct update_camera apply", () => {
+    const project = useDirectorStore.getState().project;
+    const camera = project.cameras[0];
+    const focalLengthMm = 50;
+    const patch = {
+      focalLengthMm,
+      fov: getVerticalFovFromFocalLength(focalLengthMm, camera.aspectRatio, camera.sensorFormat),
+    };
+
+    const action = compileDirectorCameraUpdateAction(project, camera.id, patch);
+    expect(action).not.toBeNull();
+    const agentRevision = agentRevisionFor([action!]);
+
+    useDirectorStore.getState().updateCamera(camera.id, patch);
+
+    expect(storeRevision()).toBe(agentRevision);
+    expect(useDirectorStore.getState().project.cameras[0].focalLengthMm).toBe(focalLengthMm);
+  });
+
+  it("updateCamera target-object edits match a direct update_camera apply", () => {
+    const project = useDirectorStore.getState().project;
+    const camera = project.cameras[0];
+    const patch = { targetMode: "object" as const, targetObjectId: "char_default_a" };
+
+    const action = compileDirectorCameraUpdateAction(project, camera.id, patch);
+    expect(action).toEqual({
+      action: "update_camera",
+      camera_id: camera.id,
+      patch: { target_object_id: "char_default_a" },
+    });
+    const agentRevision = agentRevisionFor([action!]);
+
+    useDirectorStore.getState().updateCamera(camera.id, patch);
+
+    expect(storeRevision()).toBe(agentRevision);
+    const updated = useDirectorStore.getState().project.cameras[0];
+    expect(updated.targetMode).toBe("object");
+    expect(updated.targetObjectId).toBe("char_default_a");
+  });
+
+  it("setActiveCamera matches a direct set_active_camera apply", () => {
+    const newCameraId = useDirectorStore.getState().addCameraShot();
+    expect(newCameraId).not.toBe("");
+    expect(useDirectorStore.getState().project.activeCameraId).toBe(newCameraId);
+
+    const agentRevision = agentRevisionFor([{ action: "set_active_camera", camera_id: "cam_1" }]);
+
+    useDirectorStore.getState().setActiveCamera("cam_1");
+
+    expect(storeRevision()).toBe(agentRevision);
+    expect(useDirectorStore.getState().project.activeCameraId).toBe("cam_1");
+  });
+
+  it("setCharacterMotion matches a direct set_character_motion apply", () => {
+    const motion: DirectorCharacterMotionState = {
+      clipId: "walk",
+      enabled: true,
+      loop: "repeat",
+      speed: 1,
+      weight: 1,
+      blendInS: 0.2,
+      blendOutS: 0.2,
+      rootMotion: "in-place",
+      startFrame: 0,
+    };
+
+    const action = compileDirectorCharacterMotionAction("char_default_a", motion);
+    expect(action).not.toBeNull();
+    const agentRevision = agentRevisionFor([action!]);
+
+    useDirectorStore.getState().setCharacterMotion("char_default_a", motion);
+
+    expect(storeRevision()).toBe(agentRevision);
+    const character = useDirectorStore.getState().project.objects.find((object) => object.id === "char_default_a");
+    expect(character?.characterRig?.motion?.clipId).toBe("walk");
+  });
+
+  it("clearing a character motion matches a direct clear_character_motion apply", () => {
+    const motion: DirectorCharacterMotionState = {
+      clipId: "walk",
+      enabled: true,
+      loop: "repeat",
+      speed: 1,
+      weight: 1,
+      blendInS: 0.2,
+      blendOutS: 0.2,
+      rootMotion: "in-place",
+      startFrame: 0,
+    };
+    useDirectorStore.getState().setCharacterMotion("char_default_a", motion);
+
+    const agentRevision = agentRevisionFor([
+      { action: "clear_character_motion", object_id: "char_default_a", force: true },
+    ]);
+
+    useDirectorStore.getState().setCharacterMotion("char_default_a", undefined);
+
+    expect(storeRevision()).toBe(agentRevision);
+    const character = useDirectorStore.getState().project.objects.find((object) => object.id === "char_default_a");
+    expect(character?.characterRig?.motion).toBeUndefined();
+  });
+
+  it("addLight matches a direct add_light apply", () => {
+    const compiled = compileDirectorAddLightAction(useDirectorStore.getState().project, "point");
+    const agentRevision = agentRevisionFor([compiled.action]);
+
+    const lightId = useDirectorStore.getState().addLight("point");
+
+    expect(lightId).toBe(compiled.lightId);
+    expect(storeRevision()).toBe(agentRevision);
+    expect((useDirectorStore.getState().project.lights ?? []).some((light) => light.id === lightId)).toBe(true);
+  });
+
+  it("updateLight matches a direct update_light apply", () => {
+    const light = (useDirectorStore.getState().project.lights ?? []).find((item) => item.id === "light_directional_1");
+    expect(light).toBeDefined();
+    const patch = { intensity: 2.5, color: "#ff8800" };
+
+    const action = compileDirectorLightUpdateAction(light!, patch);
+    expect(action).not.toBeNull();
+    const agentRevision = agentRevisionFor([action!]);
+
+    useDirectorStore.getState().updateLight("light_directional_1", patch);
+
+    expect(storeRevision()).toBe(agentRevision);
+    const updated = (useDirectorStore.getState().project.lights ?? []).find(
+      (item) => item.id === "light_directional_1",
+    );
+    expect(updated?.intensity).toBe(2.5);
+    expect(updated?.color).toBe("#ff8800");
+  });
+
+  it("removeLight matches a direct delete_lights apply", () => {
+    const agentRevision = agentRevisionFor([{ action: "delete_lights", light_ids: ["light_directional_1"] }]);
+
+    useDirectorStore.getState().removeLight("light_directional_1");
+
+    expect(storeRevision()).toBe(agentRevision);
+    expect((useDirectorStore.getState().project.lights ?? []).some((light) => light.id === "light_directional_1")).toBe(
+      false,
+    );
   });
 });

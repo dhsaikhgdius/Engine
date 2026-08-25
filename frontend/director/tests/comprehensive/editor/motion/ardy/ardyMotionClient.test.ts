@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { fetchArdyBridgeStatus, generateArdyMotion } from "../../../../../src/comprehensive/editor/motion/ardy/ardyMotionClient";
+import {
+  fetchArdyBridgeStatus,
+  generateArdyMotion,
+} from "../../../../../src/comprehensive/editor/motion/ardy/ardyMotionClient";
 
 function ndjsonResponse(lines: unknown[], { status = 200 }: { status?: number } = {}) {
   const encoder = new TextEncoder();
@@ -42,7 +45,13 @@ describe("generateArdyMotion", () => {
         return ndjsonResponse([
           { event: "status", message: "Generating 4s of motion with ARDY core8…" },
           { event: "status", message: "Loaded model: core8" },
-          { event: "done", jobId: "motion-abc", motionUrl: "/api/motion/ardy/motions/motion-abc", bytes: 9, model: "core8" },
+          {
+            event: "done",
+            jobId: "motion-abc",
+            motionUrl: "/api/motion/ardy/motions/motion-abc",
+            bytes: 9,
+            model: "core8",
+          },
         ]);
       },
     );
@@ -73,7 +82,9 @@ describe("generateArdyMotion", () => {
 
   it("rejects when the stream ends without a done event", async () => {
     await expect(
-      generateArdyMotion({ prompt: "x", durationS: 4 }, async () => ndjsonResponse([{ event: "status", message: "…" }])),
+      generateArdyMotion({ prompt: "x", durationS: 4 }, async () =>
+        ndjsonResponse([{ event: "status", message: "…" }]),
+      ),
     ).rejects.toThrow(/without a completed motion/);
   });
 

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -44,6 +46,45 @@ def request_json(url: str, *, body: dict | None = None, token: str | None = None
     except HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Gateway returned HTTP {error.code}: {detail}") from error
+
+
+def seed_director_project(data_directory: Path) -> str:
+    """Persist the Director project a browser workbench would have saved.
+
+    blender_native `apply` binds Blender's native scene to the one Director
+    project that carries a nativeScene identity. A live workbench mints that
+    identity (ensureNativeSceneBinding) and the gateway persists it to
+    director-workbench.json; this headless smoke stages the same persisted
+    state up front in an isolated data directory.
+    """
+    project_id = str(uuid.uuid4())
+    project = {
+        "version": 1,
+        "nativeScene": {"engine": "blender", "projectId": project_id},
+        "scene": {
+            "scale": 1,
+            "position": [0, 0, 0],
+            "rotation": [0, 0, 0],
+            "backgroundColor": "#182033",
+            "panoramaYaw": 0,
+            "panoramaRadius": 60,
+            "showLabels": True,
+            "snapToGrid": False,
+            "showGround": True,
+            "groundOpacity": 0.9,
+            "groundHeight": 0,
+        },
+        "assets": [],
+        "objects": [],
+        "cameras": [],
+        "activeCameraId": None,
+        "panoramaAssetId": None,
+    }
+    data_directory.mkdir(parents=True, exist_ok=True)
+    (data_directory / "director-workbench.json").write_text(
+        json.dumps(project), encoding="utf-8"
+    )
+    return project_id
 
 
 def wait_for_gateway() -> None:
@@ -83,9 +124,12 @@ def check_session_auth() -> None:
 
 def main() -> None:
     worldengine_studio.register()
+    data_directory = Path(tempfile.mkdtemp(prefix="worldengine-gateway-smoke-"))
+    os.environ["DIRECTOR_DATA_DIRECTORY"] = str(data_directory)
     try:
         assert bpy.ops.worldengine.setup_workspace() == {'FINISHED'}
         check_session_auth()
+        project_id = seed_director_project(data_directory)
         native_session.start(SESSION_PORT)
         director_runtime.start(ui_port=UI_PORT, gateway_port=GATEWAY_PORT, session_port=SESSION_PORT)
         wait_for_gateway()
@@ -98,6 +142,32 @@ def main() -> None:
 
         def submit_edit() -> None:
             try:
+                # A live workbench binds its Director project before any agent
+                # edit lands; replay that lifecycle through the same gateway
+                # route so the scene epoch read below is the bound epoch.
+                bind_accepted = request_json(
+                    f"http://127.0.0.1:{GATEWAY_PORT}/api/dcc/blender/commands",
+                    token=bootstrap["browserToken"],
+                    body={
+                        "contract": "worldengine-blender-live-v1",
+                        "requestId": str(uuid.uuid4()),
+                        "operations": [
+                            {"op": "bind_director_project", "projectId": project_id}
+                        ],
+                    },
+                )
+                bind_job_id = bind_accepted["result"]["jobId"]
+                bind_deadline = time.monotonic() + 15.0
+                bind_job = None
+                while time.monotonic() < bind_deadline:
+                    bind_job = request_json(
+                        f"http://127.0.0.1:{GATEWAY_PORT}/api/dcc/blender/jobs/{bind_job_id}",
+                        token=bootstrap["browserToken"],
+                    )["result"]
+                    if bind_job["status"] in {"succeeded", "failed"}:
+                        break
+                    time.sleep(0.05)
+                result["bind_job"] = bind_job
                 result["catalog"] = request_json(
                     f"http://127.0.0.1:{GATEWAY_PORT}/api/tools/blender_native",
                     token=bootstrap["browserToken"],
@@ -223,6 +293,8 @@ def main() -> None:
 
         if "error" in result:
             raise result["error"]
+        bind_job = result.get("bind_job")
+        assert isinstance(bind_job, dict) and bind_job["status"] == "succeeded", bind_job
         catalog = result.get("catalog")
         assert isinstance(catalog, dict) and catalog.get("success") is True
         catalog_result = catalog["result"]["result"]
@@ -265,6 +337,8 @@ def main() -> None:
         director_runtime.stop()
         native_session.stop()
         worldengine_studio.unregister()
+        os.environ.pop("DIRECTOR_DATA_DIRECTORY", None)
+        shutil.rmtree(data_directory, ignore_errors=True)
 
 
 main()

@@ -114,6 +114,34 @@ const creative = await window.stageAgent.creative({ op: "observe" });
 console.log(creative.result);
 ```
 
+## 跨 app 回执交接
+
+外部 app（合成、审阅工具或其他 agent-native 产品）应通过回执消费 Director 的产出，绝不依赖
+截图或未验证的文件路径。有两类回执；两者背后的 plan/receipt 模型见
+[ADR 0003](/zh/engineering/adr/0003-import-export-receipts/)：
+
+- **Stage delivery** — `director_workbench` `{"op":"deliver"}` 返回 `status: "delivered"`、
+  `capture_verified: true`、自绑定的 `project_revision`，以及 `delivery` 对象：
+  `package_fingerprint`（shot-package manifest 的 SHA-256）、`shot_revision_fingerprint`、完整
+  `manifest`，以及 `files[]`（每个文件带 `path`、`mimeType`、`byteLength`、`sha256`）。
+- **Interchange 导出** — `director_creative` interchange `plan-export` → `export` 返回
+  `director-interchange-export-v1` 回执：`receipt_id`、实际提交的 `plan_id`、`format`、
+  `file_name`、`mime_type`、`byte_length`、导出校验所依据的 `guard`（`kind` 加 `fingerprint`）、
+  编码后的 `payload`，以及记录降级语义的 `warnings`。OBJ/STL ZIP 的报告 sidecar 还会记录每个
+  几何 payload 的 SHA-256。
+
+消费方式：
+
+1. **身份与产物同存。** 把 `plan_id`、`receipt_id` 和 guard fingerprint（或
+   `project_revision` / `shot_revision_fingerprint`）与拷贝出的字节放在一起保存。
+2. **用前先验证。** 对收到的字节重新计算 SHA-256 与字节长度，与回执中的 `sha256` /
+   `byteLength`（delivery 文件）或 `byte_length`（导出 payload）比对；不一致直接拒绝，不做
+   “尽力而为”的摄取。
+3. **用 fingerprint 检测过期。** 在再次导出、diff 或回写之前，先 observe 同一 workspace；当前
+   fingerprint 与回执不一致说明源头已前进——应申请新 plan，而不是混用不同 revision 的产物。
+4. **没有回执就没有产物。** 文本层面的成功声明不等于 delivery；回执中的 `warnings` 才是降级的
+   诚实记录。
+
 ## 选择控制面
 
 | 需求                          | 推荐控制面                   |

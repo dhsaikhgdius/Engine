@@ -8,7 +8,7 @@ These examples show the shortest useful request shape. Add optional fields only 
 { "op": "observe" }
 ```
 
-Bare observe is complete on the executor and HTTP/CLI. Model-facing MCP and hosted-harness surfaces summarize oversized results and keep `project_revision` plus counts. Use focused fields or `inspect` when you need IDs:
+Bare observe is complete on the executor and HTTP/CLI. Model-facing MCP and DeepSeek Harness surfaces summarize oversized results and keep `project_revision` plus counts. Use focused fields or `inspect` when you need IDs:
 
 ```json
 { "op": "observe", "fields": ["objects", "cameras", "timeline"] }

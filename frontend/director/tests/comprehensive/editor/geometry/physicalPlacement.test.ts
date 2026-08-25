@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorObject } from "../../../../src/comprehensive/editor/schema/directorProject";
-import { getDirectorSupportContact, resolveDirectorPhysicalPlacements } from "../../../../src/comprehensive/editor/geometry/physicalPlacement";
+import {
+  getDirectorSupportContact,
+  resolveDirectorPhysicalPlacements,
+} from "../../../../src/comprehensive/editor/geometry/physicalPlacement";
 
 function object(input: Partial<DirectorObject> & Pick<DirectorObject, "id" | "kind">): DirectorObject {
   const { id, kind, ...overrides } = input;

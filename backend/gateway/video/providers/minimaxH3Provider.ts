@@ -169,14 +169,18 @@ export class MinimaxH3Provider implements VideoProvider {
     }
 
     const resolution = minimaxH3Resolution(request.width, request.height);
-    warnings.push(`MiniMax H3 renders at 768P or 2K; ${request.width}x${request.height} was submitted as ${resolution}.`);
+    warnings.push(
+      `MiniMax H3 renders at 768P or 2K; ${request.width}x${request.height} was submitted as ${resolution}.`,
+    );
 
     const reference = request.conditioning.find((input) => input.role === "clean-frame" || input.role === "reference");
     const skippedRoles = [
       ...new Set(request.conditioning.filter((input) => input !== reference).map((input) => input.role)),
     ];
     if (skippedRoles.length) {
-      warnings.push(`MiniMax H3 consumed only the first reference frame; ${skippedRoles.join(", ")} inputs were not submitted.`);
+      warnings.push(
+        `MiniMax H3 consumed only the first reference frame; ${skippedRoles.join(", ")} inputs were not submitted.`,
+      );
     }
 
     const content: Array<Record<string, unknown>> = [{ type: "text", text: request.prompt }];
@@ -315,10 +319,7 @@ export class MinimaxH3Provider implements VideoProvider {
         responseBody && typeof responseBody.error === "object" && responseBody.error
           ? (responseBody.error as { message?: unknown; type?: unknown })
           : null;
-      const detail =
-        error && typeof error.message === "string"
-          ? error.message
-          : `HTTP ${response.status}`;
+      const detail = error && typeof error.message === "string" ? error.message : `HTTP ${response.status}`;
       throw new VideoProviderHttpError(
         `MiniMax request failed: ${detail}`,
         response.status,

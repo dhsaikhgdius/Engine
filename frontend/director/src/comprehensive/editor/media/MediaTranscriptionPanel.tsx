@@ -101,7 +101,8 @@ export function MediaTranscriptionPanel({
         setActiveJob(matching[0] ?? null);
       })
       .catch((loadError) => {
-        if (!controller.signal.aborted) setError(loadError instanceof Error ? friendlyErrorMessage(loadError) : t("转录服务不可用"));
+        if (!controller.signal.aborted)
+          setError(loadError instanceof Error ? friendlyErrorMessage(loadError) : t("转录服务不可用"));
       });
     return () => controller.abort();
   }, [asset.id, t]);

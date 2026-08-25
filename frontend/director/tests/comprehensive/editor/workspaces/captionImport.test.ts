@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { insertDirectorCaptionCuesIntoTimeline, parseDirectorCaptionFile } from "../../../../src/comprehensive/editor/workspaces/captionImport";
+import {
+  insertDirectorCaptionCuesIntoTimeline,
+  parseDirectorCaptionFile,
+} from "../../../../src/comprehensive/editor/workspaces/captionImport";
 import { useDirectorCreativeWorkspaceStore } from "../../../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
 
 beforeEach(() => useDirectorCreativeWorkspaceStore.getState().resetCreativeWorkspaces());

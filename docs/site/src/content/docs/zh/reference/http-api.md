@@ -43,16 +43,18 @@ query string 中的 `browser_token`，但 header 不会把凭据泄漏到 URL �
 
 ## 发现接口
 
-| Method | Path                              | 结果                                |
-| ------ | --------------------------------- | ----------------------------------- |
-| `GET`  | `/health`                         | 无需鉴权的进程状态与 browser 数     |
-| `GET`  | `/api/control-plane/capabilities` | 已脱敏的 Agent 与视频配置           |
-| `GET`  | `/api/agent/providers`            | 本地/API session provider 可用性    |
-| `GET`  | `/api/agent/profiles`             | Profile 公开元数据与模型 capability |
-| `GET`  | `/api/video/providers`            | 视频 provider 的实时 capability     |
-| `GET`  | `/api/dcc/status`                 | Blender/DCC bridge 状态             |
-| `GET`  | `/api/stage`                      | 旧版 StageScene projection          |
-| `GET`  | `/api/preview`                    | 最近一次 capture，读取需要鉴权      |
+| Method | Path                               | 结果                                |
+| ------ | ---------------------------------- | ----------------------------------- |
+| `GET`  | `/health`                          | 无需鉴权的进程状态与 browser 数     |
+| `GET`  | `/api/control-plane/capabilities`  | 已脱敏的 Agent 与视频配置           |
+| `GET`  | `/api/control-plane/tool-manifest` | 机器可读的 Director tool catalog    |
+| `GET`  | `/api/control-plane/a2a-agent-card` | 仅用于发现的 A2A 风格 agent card   |
+| `GET`  | `/api/agent/providers`             | 本地/API session provider 可用性    |
+| `GET`  | `/api/agent/profiles`              | Profile 公开元数据与模型 capability |
+| `GET`  | `/api/video/providers`             | 视频 provider 的实时 capability     |
+| `GET`  | `/api/dcc/status`                  | Blender/DCC bridge 状态             |
+| `GET`  | `/api/stage`                       | 旧版 StageScene projection          |
+| `GET`  | `/api/preview`                     | 最近一次 capture，读取需要鉴权      |
 
 ```bash
 curl -fsS "$BASE/api/agent/profiles" \
@@ -60,6 +62,25 @@ curl -fsS "$BASE/api/agent/profiles" \
 ```
 
 发现响应不会包含模型 API key、worker credential 或原始 credential 环境变量名。
+
+`GET /api/control-plane/tool-manifest` 返回 `director-tool-manifest-v1` catalog：每个 Director
+工具的 surface（`mcp`、`http` 或 `both`）、category、wire `op` 枚举，以及存在时的 HTTP 绑定。
+类型化工具绑定到 `POST /api/tools/<name>`；`stage_*` 条目标记为 `legacy`（HTTP-only 兼容层，
+MCP 不再对模型公布）；`director_film` 与 `director_production` 的 `http` 为 `null`，因为它们的
+HTTP 面是各自的 domain 路由（`/api/film/runs`、`/api/production/*`），不是 `/api/tools/<name>`。
+精确的逐操作 JSON Schema 请使用各工具的 `describe` 操作；manifest 有意保持为 catalog。
+
+```bash
+curl -fsS "$BASE/api/control-plane/tool-manifest" \
+  -H "X-Director-Browser-Token: $TOKEN" | jq '.tools[] | {name, surface, legacy}'
+```
+
+`GET /api/control-plane/a2a-agent-card` 返回 [ADR 0004](/zh/engineering/adr/0004-a2a-gateway-spike/)
+决定的 `director-a2a-agent-card-v1` 卡片。它**仅用于发现**：Director 不运行 A2A JSON-RPC
+server（`a2a.jsonrpc_endpoint` 为 `null`；streaming 与 push notification 均为 `false`），`url`
+是 loopback gateway origin 而非公网 A2A 服务，skills 镜像实时 tool manifest 中的
+`director_workbench`、`director_creative`、`blender_native` 与 `stage_video`。执行请走 MCP 或
+`POST /api/tools/{tool}`，而不是 A2A。
 
 Capture 结果可能返回带有进程周期 `preview_token` 的 URL。它是仅允许读取 preview 路由的
 capability，使浏览器与可读取图像的 Agent 无需获得 gateway 主 token 也能显示图像；gateway
@@ -216,7 +237,9 @@ Blender 原生解析器的 OS 或 container sandbox；私有 job 路径、限制
 ## 引擎交接（Unreal / Unity / Godot）
 
 `director_dcc` 还会通过 `integrations/{unreal,unity,godot}` 中的 Director 官方连接器跑无头引擎往返。
-先查就绪状态；`nativeReady` 要求连接器文件、带版本探测的可执行文件，以及连接器已安装到配置的引擎工程：
+先查就绪状态；`nativeReady` 要求连接器文件、带版本探测的可执行文件，以及连接器已安装到配置的引擎工程。
+Godot 还额外要求 `project.godot` 中已启用该插件，以及有效的固定入口 `--mode health` JSON 输出
+（仅限 Godot 4.x，连接器版本须与工作区一致）：
 
 ```bash
 curl -fsS -X POST "$BASE/api/tools/director_dcc" \
@@ -226,7 +249,9 @@ curl -fsS -X POST "$BASE/api/tools/director_dcc" \
 ```
 
 把当前项目送入引擎。Gateway 把交换包导出到私有作业目录，调用固定连接器入口（绝不用请求提供的脚本），
-并返回经 schema 校验的主机报告：
+并返回经 schema 校验的主机报告。对 Godot，Gateway 还会把时间线动画烘焙成哈希固定的
+`animation.json` 边车文件，由连接器写入 `AnimationPlayer`/`AnimationLibrary` 关键帧；报告中携带
+从已保存场景读回的 Godot 专属回执（轨道/关键帧/灯光/骨架/材质/纹理计数）：
 
 ```bash
 curl -sS -X POST "$BASE/api/tools/director_dcc" \
@@ -238,6 +263,12 @@ curl -sS -X POST "$BASE/api/tools/director_dcc" \
 连接器未就绪时，路由返回 `409 engine_not_ready` 以及结构化 `diagnostics`（`provider`、`mode`、
 `ready`、`warnings`、`recovery`），而不是裸失败。按 recovery 步骤设置 `DIRECTOR_GODOT_BIN` /
 `DIRECTOR_GODOT_PROJECT` 并安装插件，或回退到 `export_exchange_package`。
+
+当 `provider: "unreal"` 时，Gateway 还会把项目动画逐帧采样为私有作业目录内哈希锁定的
+`director-unreal-sequencer-bake-v1` sidecar。连接器据此为 LevelSequence 打关键帧，返回的报告可携带
+Unreal 专有字段：`sequencer` 回执（从已创作资产回读的显示帧率、tick 分辨率、起始时间码、播放范围、
+轨道与关键帧数量）以及 `importedSkeletalMeshCount` 与 `appliedMaterialCount`。烘焙失败会降级为带警告
+的静态导入；sidecar 被篡改则任务失败。
 
 把引擎侧编辑带回来时，使用与 Blender 回传相同的预览再 Apply 协议。引擎回传包携带 canonical
 Director 空间变换，因此必须显式传入产生该包的提供商：
@@ -284,7 +315,12 @@ analysis status 为 `degraded`、mode 为 `local` 的计划。完整信任边界
 | Production state  | `/te-man/director/productions/{id}` 及其 `/scenes`；`/scenes/{id}/project`    |
 | DCC               | `GET /api/dcc/status`，以及 bridge 文档中记录的版本化 DCC job 操作            |
 | 参考图重建        | `POST /api/reconstruction/reference-scene/analyze`                            |
+| 可观测性          | `GET /api/agent/traces`、`GET /api/agent/traces/summary`、`GET /api/agent/usage`、`GET /api/agent/progress` |
 | 旧版 Stage        | `GET /api/stage`、`PUT /api/stage`                                            |
+
+可观测性路由返回经 redaction 的执行回执、模型用量聚合，以及生产任务、multi-agent run 与 film run
+共用的统一 progress。工具调用可通过 `x-director-trace-source: ui|mcp|http|cli` 头自报入口来源；
+未知或缺失的值记录为 `http`。轨迹回执从不包含提示词、工具载荷或密钥。
 
 优先使用结构化工具而不是直接 `PUT /api/stage`：Workbench 操作会参与 revision、idempotency、精确
 target、quality、asset、audit 和 evidence contract。

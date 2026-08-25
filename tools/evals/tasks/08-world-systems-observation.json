@@ -1,0 +1,60 @@
+{
+  "name": "world-systems-observation",
+  "description": "Author Living World settings and one effect through the public workbench, then verify the world observation projection.",
+  "steps": [
+    {
+      "label": "describe set_world_settings",
+      "tool": "director_workbench",
+      "input": { "op": "describe", "target": "author.set_world_settings" },
+      "expect": { "success": true, "result_paths": ["result.json_schema"] }
+    },
+    {
+      "label": "author weather wind and one effect",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "set_world_settings",
+            "settings": {
+              "enabled": true,
+              "weather": { "preset": "rain", "intensity": 0.7, "cloud_cover": 0.8 },
+              "wind": { "speed_mps": 6, "direction_degrees": 45 }
+            }
+          },
+          {
+            "action": "add_world_effect",
+            "id": "eval-world-rain",
+            "name": "Eval rain",
+            "kind": "rain",
+            "intensity": 0.8
+          }
+        ]
+      },
+      "expect": { "success": true }
+    },
+    {
+      "label": "observe world systems",
+      "tool": "director_workbench",
+      "input": { "op": "observe", "fields": ["world", "counts"] },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.world.settings.weather.preset",
+          "result.world.settings.wind.speedMps",
+          "result.world.effects.0.id",
+          "result.counts"
+        ]
+      }
+    },
+    {
+      "label": "remove the eval effect",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [{ "action": "remove_world_effects", "effect_ids": ["eval-world-rain"] }]
+      },
+      "expect": { "success": true }
+    }
+  ]
+}

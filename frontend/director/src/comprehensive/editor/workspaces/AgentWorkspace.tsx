@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { useLanguage } from "../../i18n/language";
+import { AgentTracePanel } from "./AgentTracePanel";
 import "./AgentWorkspace.css";
 
 /** DSH Web 默认监听地址（`webStartup.port ?? 3080`）。 */
@@ -49,6 +50,7 @@ export function AgentWorkspace() {
   const { t } = useLanguage();
   const src = resolveDshWebUrl();
   const [status, setStatus] = useState<DshStatus>("checking");
+  const [traceOpen, setTraceOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,43 +86,58 @@ export function AgentWorkspace() {
 
   return (
     <main aria-label={t("Agent 工作区")} className="director-agent-workspace">
-      {status === "ready" ? (
-        <iframe
-          allow="clipboard-read; clipboard-write"
-          className="director-agent-workspace-frame"
-          src={src}
-          title={t("DeepSeek Harness")}
-        />
-      ) : null}
-      {status === "unavailable" ? (
-        <section className="director-agent-workspace-guide">
-          <h1>{t("用 DeepSeek Harness 驱动导演台")}</h1>
-          <p>
-            {t(
-              "嵌入的 DeepSeek Harness 自带 skill、todo、后台任务、网页与 bash 等内置工具；Director 导演台工具由 overlay 插件加载。",
-            )}
-          </p>
-          <ol>
-            <li>
-              {t("启动 Gateway：")}
-              <code>npm run dev:gateway</code>
-            </li>
-            <li>
-              {t("在仓库根目录运行：")}
+      {traceOpen ? null : (
+        <button
+          aria-expanded={traceOpen}
+          className="director-agent-workspace-trace-toggle"
+          onClick={() => setTraceOpen(true)}
+          type="button"
+        >
+          {t("Agent 轨迹")}
+        </button>
+      )}
+      <div className="director-agent-workspace-body">
+        <div className="director-agent-workspace-main">
+          {status === "ready" ? (
+            <iframe
+              allow="clipboard-read; clipboard-write"
+              className="director-agent-workspace-frame"
+              src={src}
+              title={t("DeepSeek Harness")}
+            />
+          ) : null}
+          {status === "unavailable" ? (
+            <section className="director-agent-workspace-guide">
+              <h1>{t("用 DeepSeek Harness 驱动导演台")}</h1>
+              <p>
+                {t(
+                  "嵌入的 DeepSeek Harness 自带 skill、todo、后台任务、网页与 bash 等内置工具；Director 导演台工具由 overlay 插件加载。",
+                )}
+              </p>
+              <ol>
+                <li>
+                  {t("启动 Gateway：")}
+                  <code>npm run dev:gateway</code>
+                </li>
+                <li>
+                  {t("在仓库根目录运行：")}
+                  <code>npm run dsh</code>
+                </li>
+                <li>{t("本页会自动重连；也可以手动刷新。")}</li>
+              </ol>
+            </section>
+          ) : null}
+          {status === "incompatible" ? (
+            <section className="director-agent-workspace-guide">
+              <h1>{t("DeepSeek Harness 未加载 Director 插件")}</h1>
+              <p>{t("当前运行的 Agent 无法可靠操作导演台，请停止它并从项目根目录重新启动。")}</p>
+              <p>{t("从仓库根目录启动才会加载 Director overlay 插件与 director-workbench 技能。")}</p>
               <code>npm run dsh</code>
-            </li>
-            <li>{t("本页会自动重连；也可以手动刷新。")}</li>
-          </ol>
-        </section>
-      ) : null}
-      {status === "incompatible" ? (
-        <section className="director-agent-workspace-guide">
-          <h1>{t("DeepSeek Harness 未加载 Director 插件")}</h1>
-          <p>{t("当前运行的 Agent 无法可靠操作导演台，请停止它并从项目根目录重新启动。")}</p>
-          <p>{t("从仓库根目录启动才会加载 Director overlay 插件与 director-workbench 技能。")}</p>
-          <code>npm run dsh</code>
-        </section>
-      ) : null}
+            </section>
+          ) : null}
+        </div>
+        {traceOpen ? <AgentTracePanel onClose={() => setTraceOpen(false)} /> : null}
+      </div>
     </main>
   );
 }

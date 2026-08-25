@@ -3,7 +3,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { productionJobSpecSchema, transitionProductionJob } from "../../../../packages/protocol/src/productionJobProtocol";
+import {
+  productionJobSpecSchema,
+  transitionProductionJob,
+} from "../../../../packages/protocol/src/productionJobProtocol";
 import { ProductionJobStore } from "../../jobs/productionJobStore";
 import type { MediaProcessResult, MediaProcessRunner } from "../../media/mediaProcessRunner";
 import {

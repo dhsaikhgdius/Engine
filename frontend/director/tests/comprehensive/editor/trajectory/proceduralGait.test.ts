@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorEntityAnimation } from "../../../../src/comprehensive/editor/schema/directorProject";
-import { getProceduralGaitControls, isProceduralGaitActive } from "../../../../src/comprehensive/editor/trajectory/proceduralGait";
+import {
+  getProceduralGaitControls,
+  isProceduralGaitActive,
+} from "../../../../src/comprehensive/editor/trajectory/proceduralGait";
 
 const animation: DirectorEntityAnimation = {
   version: 1,

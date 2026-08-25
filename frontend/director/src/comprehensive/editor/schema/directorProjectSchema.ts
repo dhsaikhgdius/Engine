@@ -44,6 +44,7 @@ import {
 import { comfyGenerationParametersSchema } from "../../../../../../packages/protocol/src/comfyGenerationProtocol";
 import { directorWorldSchema } from "../../../../../../packages/protocol/src/worldSystemsProtocol";
 import { directorVehicleProfileSchema } from "../../../../../../packages/protocol/src/vehicleProtocol";
+import { productionGraphIdentityMapSchema } from "../../../../../../packages/project-schema/src/productionGraph/productionGraphIdentityMap";
 
 /** A finite number schema (no NaN, no Infinity). */
 export const directorFiniteNumberSchema = z.number().finite();
@@ -851,6 +852,7 @@ const directorProjectBaseSchema = z.strictObject({
   referenceReconstructions: z.array(referenceSceneReconstructionPlanSchema).max(64).optional(),
   proceduralRecipes: z.array(directorProceduralRecipeSchema).max(128).optional(),
   world: directorWorldSchema.optional(),
+  productionGraphIdentities: productionGraphIdentityMapSchema.optional(),
   activeCameraId: z.string().nullable(),
   panoramaAssetId: z.string().nullable(),
 });

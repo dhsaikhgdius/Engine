@@ -26,12 +26,15 @@ does not vendor Blender's C source.
 
 | Path | Purpose |
 | --- | --- |
-| `director_bridge.py` | Import a validated Director DCC scene package into Blender: stamps `director_id` custom properties, mesh signatures, source transforms; explicitly accepts only data. |
+| `director_bridge.py` | Import a validated Director DCC scene package into Blender: stamps `director_id` custom properties, mesh signatures, source transforms, and character pose-bone baselines; explicitly accepts only data. |
 | `director_scene_export.py` | Extract an open `.blend` scene: exports a `director-blend-scene-v1` package (manifest.json + scene.glb + camera optics + hash receipts). Gateway runs this after launching Blender with `--factory-startup --disable-autoexec`. |
-| `director_return_export.py` | Export a `director-dcc-return-v1` return package from a refined `.blend`: only objects with `director_id` are exported; generates GLB + SHA-256 receipts; top-level objects without `director_id` are warnings only. |
+| `director_return_export.py` | Export a `director-dcc-return-v1` return package from a refined `.blend`: only objects with `director_id` are exported; generates GLB + SHA-256 receipts; new roots stamped with a fresh `director_id` become hashed `object_addition` entries; mapped pose-bone rotations reconcile into `director_pose.*` control deltas; top-level objects without `director_id` are warnings only. |
 | `director_signature.py` | Shared mesh-content fingerprint: `director_bridge.py` stamps it on export, `director_return_export.py` recomputes it on return; both sides must feed byte-identical data. |
+| `director_properties.py` | Shared custom-property names for the round trip (baselines, fingerprints, bone map). |
+| `director_pose_bones.py` | Host-free pose-bone ↔ portable-control mapping used by the bridge and return exporter. |
 | `director_scene_export.test.ts` | vitest unit tests for the scene export script. |
 | `director_return_export.test.ts` | vitest unit tests for the return export script. |
+| `director_pose_bones.test.ts` | Host-free vitest tests for the pose-bone mapping and alias-table sync. |
 
 ## Live modeling kernel
 
@@ -124,7 +127,10 @@ The output is manifest-first: `manifest.json` uses `director-dcc-return-v1`;
 `meshes/*.glb` retain `extras.director.stableId`; an untouched `.blend` returns
 an empty change set; mesh fingerprints exclude the Director wrapper transform;
 every emitted file has a SHA-256 receipt; top-level objects without
-`director_id` are warnings and are never silently imported.
+`director_id` are warnings and are never silently imported. To submit a new
+object for review, stamp a fresh `director_id` custom property on its root: it
+returns as a hashed `object_addition` and imports as a prop only under the
+explicit `include_new_objects` opt-in during preview.
 
 Preview the merge before applying it:
 

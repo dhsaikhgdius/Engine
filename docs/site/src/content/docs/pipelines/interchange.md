@@ -21,8 +21,10 @@ standard.
 | OBJ/MTL ZIP        | export        | All or selected supported Stage primitives, baked world transforms, scalar materials, stable IDs, metric/Y-up manifest, and SHA-256 file receipts | Static primitive geometry only; linked model bytes, cameras, lights, animation, texture maps, and hierarchy are omitted with visible warnings                    |
 | ASCII STL ZIP      | export        | All or selected supported Stage primitives, baked world transforms, stable-ID solid names, metric/Y-up manifest, and SHA-256 file receipts        | No materials, textures, hierarchy, cameras, lights, animation, or embedded unit declaration; the sidecar is required for full interpretation                     |
 | Blender `.blend`   | import        | Active-scene current-frame GLB snapshot, selected static perspective cameras, source-time audit metadata                                          | No deep editable hierarchy, animation playback/timeline remap, live sync, or safe processing of untrusted files; Blender-only semantics are unsupported or lossy |
-| Blender round trip | export/return | Validated scene/camera handoff, clay preview, stable-ID mesh/transform return                                                                     | Return is limited to hashed packages below the DCC job root; Blender-only objects and optics/light edits are not auto-imported                                   |
-| Engine handoff (Unreal/Unity/Godot) | send/receive | Headless connector import of scene layout, cameras, and shot ranges with `director:id` metadata; canonical-space transform return | Requires the Director-authored connector installed in the user's engine project (`nativeReady`); animation, skeletons, materials, and live link are not claimed |
+| Blender round trip | export/return | Validated scene/camera/light handoff, clay preview, stable-ID return of meshes, transforms, camera optics, `director_id` lights, and portable pose controls | Return is limited to hashed packages below the DCC job root; new objects import only via a stamped `director_id` plus the explicit `include_new_objects` opt-in, and bone edits reconcile only where the stamped bone-role map covers them (others warn-and-omit) |
+| Engine handoff (Unreal/Unity/Godot) | send/receive | Headless connector import of scene layout, cameras, and shot ranges with `director:id` metadata; canonical-space transform return. Unreal additionally keys Gateway-baked transform/camera animation into Sequencer (rational rates, SMPTE start timecode), imports skinned GLBs as bind-pose skeletal meshes, and applies Director PBR parameters as material instances. Unity additionally bakes Director animation and semantic pose channels onto Timeline, builds Avatars from skinned GLB, applies PBR material fallback and lights, and offers an outbound-only preview live link. Godot 4 additionally imports Gateway-baked `AnimationPlayer` animation on a rational timebase, skinned GLB skeletons in bind pose, `StandardMaterial3D` materials with hashed external textures, and Omni/Spot/Directional lights | Requires the Director-authored connector installed in the user's engine project (`nativeReady`); Unreal, Unity, and Godot preview live link are native (never a project mutation); Unreal `clean_frame` is best-effort; Unreal Control-Rig poses, motion clips, and textures warn-and-omit; Godot rig pose channels and ambient/rect lights warn-and-omit |
+| Unreal scene       | import        | Level GLB bundle (geometry, materials, skeletal meshes), typed hierarchy snapshot, cine camera optics, directional/point/spot/rect/sky lights, stable actor IDs | Sequencer animation is inventoried by name only; clip planes use Director defaults; round-trip back to Unreal is planned                                          |
+| Unity scene        | import        | Scene GLB bundle (geometry, materials, skinned meshes), typed hierarchy snapshot, physical camera optics, directional/point/spot/rect lights + flat ambient, `GlobalObjectId` stable IDs | Disc lights and skybox ambient become gaps; animation clips are inventoried with durations only; round-trip back to Unity is planned                              |
 
 The editor's **Interchange** menu is the human entry point. Stage OTIO and Video workspace OTIO
 have separate adapters because they preserve different source models. Import always validates
@@ -82,6 +84,31 @@ This is a trusted-local operation. `--disable-autoexec` prevents automatic embed
 execution, but it does not provide an OS/container sandbox for Blender's native file parser. Private
 job paths, size limits, and process timeouts are containment measures, not a sandbox. Process
 untrusted `.blend` files in a container or VM before they reach Director.
+
+## Game-engine scenes (Unreal / Unity)
+
+Unreal Engine 5 and Unity scenes import through the same preview/apply discipline as `.blend`
+files, but the package format differs: the in-engine exporters
+(`integrations/unreal/interchange/director_scene_export.py`,
+`integrations/unity/interchange/DirectorSceneExport.cs`) own the coordinate conversion and write a
+`director-engine-scene-v1` package whose transforms are already in Director's right-handed Y-up
+metre convention. The manifest declares the exact linear map that was applied
+(Unreal `(x,y,z)->(y,z,-x)*0.01`, Unity `(x,y,z)->(-x,y,z)`), the hierarchy snapshot, cameras,
+lights, animation clip inventory, warnings, and SHA-256 hashes for every file.
+
+Two ingestion paths produce identical packages. `director_dcc extract_engine_scene` runs the
+installed engine headlessly against a local project (Unreal `UnrealEditor-Cmd -run=pythonscript`,
+Unity `-batchmode -executeMethod`; Unity additionally requires an activated license). Uploading a
+`.zip` exported inside the engine to `POST /api/dcc/engine-scene/uploads?provider=unreal|unity`
+works without any engine installed and is the headless-verifiable path for cloud environments.
+
+`preview_engine_scene_import` builds a server-persisted `director-engine-scene-import-plan-v1`;
+`apply_engine_scene_import` revalidates hashes, copies the GLB into content-addressed storage, and
+performs one atomic authoring mutation with `plan_id`, `expected_revision`, and a retry-only
+`idempotency_key`. Geometry keeps `modelNormalization: "preserve"`. Renderable geometry requires
+the engine-side glTF exporter (Unreal's glTF Exporter plugin, Unity's `com.unity.cloud.gltfast`);
+without it the package still imports cameras, lights, and hierarchy and records the geometry gap.
+Round-trip back to the engines is a declared `planned` capability, not an available one.
 
 ## Coordinate system
 
@@ -163,16 +190,20 @@ frame coverage, and top-left pixel bounds. It does not claim an occlusion ratio 
 
 ## Agent boundary
 
-`director_creative interchange` exposes `capabilities`, `plan-export`, and `export` for bounded
-OTIO/OTIOZ, Fountain, glTF/GLB, USD/USDZ, OBJ, and STL transfer. Every plan is tied to the exact
-Stage revision or creative-workspace fingerprint. Export returns UTF-8 or base64 payload, archive
-SHA-256, byte count, compatibility warnings, and a stable receipt; inline transfer is capped at
-8 MiB. OBJ/STL plans may carry exact `object_ids`, which become part of the plan identity and ZIP
-manifest.
+`director_creative interchange` exposes `capabilities`, `plan-export`, `export`, `plan-import`, and
+`import` for bounded OTIO/OTIOZ, Fountain, glTF/GLB, USD/USDZ, OBJ, and STL transfer. Every plan is
+tied to the exact Stage revision or creative-workspace fingerprint. Export returns UTF-8 or base64
+payload, archive SHA-256, byte count, compatibility warnings, and a stable receipt; inline transfer
+is capped at 8 MiB. OBJ/STL plans may carry exact `object_ids`, which become part of the plan
+identity and ZIP manifest.
 
-Import remains human-file-picker-only because a browser file handle is not fabricated for an
-Agent. Use the Interchange menu or a corresponding trusted host adapter, and never claim an import
-without an actual user-selected file and validated result.
+Import is the same plan/receipt discipline in two JSON steps. `plan-import` validates one source —
+a bounded `inline` payload, an existing Gallery `media_id`, or a readable `workspace_path` — and
+returns a plan bound to the current guard fingerprint. `import` then applies exactly that `plan_id`
+with `expected_guard_fingerprint` and `confirm:true`; a stale fingerprint requires a new plan. The
+browser file picker remains available as a convenience for local files a human already has open,
+but it is no longer the only import path. Never claim an import without a validated plan and
+receipt.
 
 For Stage acceptance and provider-neutral evidence, use `director_workbench` `shot_ir`,
 `shot_package`, or `deliver`. For Blender and the engine connectors, discover and invoke

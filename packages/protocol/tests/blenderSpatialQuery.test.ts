@@ -47,9 +47,7 @@ describe("Blender spatial queries", () => {
   });
 
   it("accepts NAME object-search queries", () => {
-    const parsed = blenderLiveCommandBatchSchema.parse(
-      queryBatch([{ kind: "NAME", namePattern: "清华" }]),
-    );
+    const parsed = blenderLiveCommandBatchSchema.parse(queryBatch([{ kind: "NAME", namePattern: "清华" }]));
     expect(parsed.operations[0]).toMatchObject({
       op: "query_spatial",
       queries: [{ kind: "NAME", namePattern: "清华", maxResults: 50 }],
@@ -58,9 +56,7 @@ describe("Blender spatial queries", () => {
 
   it("does not require a scene epoch for a pure spatial-query batch", () => {
     expect(
-      blenderLiveCommandBatchSchema.parse(
-        queryBatch([{ kind: "GROUND", id: "chair-a" }]),
-      ).expectedSceneEpoch,
+      blenderLiveCommandBatchSchema.parse(queryBatch([{ kind: "GROUND", id: "chair-a" }])).expectedSceneEpoch,
     ).toBeUndefined();
   });
 
@@ -73,9 +69,7 @@ describe("Blender spatial queries", () => {
 
   it("rejects malformed spatial queries", () => {
     expect(() =>
-      blenderLiveCommandBatchSchema.parse(
-        queryBatch([{ kind: "RAYCAST", origin: [0, 0, 0], direction: [0, 0, 0] }]),
-      ),
+      blenderLiveCommandBatchSchema.parse(queryBatch([{ kind: "RAYCAST", origin: [0, 0, 0], direction: [0, 0, 0] }])),
     ).toThrow(/non-zero/);
     expect(() => blenderLiveCommandBatchSchema.parse(queryBatch([]))).toThrow();
     expect(() =>
@@ -83,9 +77,7 @@ describe("Blender spatial queries", () => {
         queryBatch(Array.from({ length: 33 }, () => ({ kind: "OVERLAP", idA: "a-1", idB: "b-1" }))),
       ),
     ).toThrow();
-    expect(() =>
-      blenderLiveCommandBatchSchema.parse(queryBatch([{ kind: "TELEPORT", id: "chair-a" }])),
-    ).toThrow();
+    expect(() => blenderLiveCommandBatchSchema.parse(queryBatch([{ kind: "TELEPORT", id: "chair-a" }]))).toThrow();
     expect(() =>
       blenderLiveCommandBatchSchema.parse(
         queryBatch([{ kind: "RAYCAST", origin: [0, 0, 0], direction: [0, -1, 0], maxDistance: -5 }]),
@@ -120,9 +112,7 @@ describe("Blender spatial queries", () => {
         { kind: "GROUND", id: "chair-a" },
       ],
     });
-    expect(() =>
-      blenderNativeToolRequestSchema.parse({ op: "query", queries: [] }),
-    ).toThrow();
+    expect(() => blenderNativeToolRequestSchema.parse({ op: "query", queries: [] })).toThrow();
     expect(blenderNativeReadOperationNames).toContain("query");
   });
 
@@ -131,9 +121,7 @@ describe("Blender spatial queries", () => {
       op: "query",
       queries: [{ kind: "NAME", namePattern: "清华", maxResults: 50 }],
     });
-    expect(
-      blenderNativeToolRequestInputSchema.parse({ op: "query", name_pattern: "gate" }),
-    ).toMatchObject({
+    expect(blenderNativeToolRequestInputSchema.parse({ op: "query", name_pattern: "gate" })).toMatchObject({
       queries: [{ kind: "NAME", namePattern: "gate" }],
     });
   });

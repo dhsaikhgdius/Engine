@@ -30,6 +30,7 @@ import {
   User,
   Users,
 } from "lucide-react";
+import { useStageAuthoringGate } from "../api/filmRoleGate";
 import { ObjectReferenceBindings } from "./ObjectReferenceBindings";
 import { VirtualizedObjectList, type VirtualizedObjectRowLayout } from "./VirtualizedObjectList";
 import {
@@ -40,7 +41,7 @@ import {
   flattenVisibleSceneTree,
   nestSceneTreeItems,
 } from "./objectTreeHierarchy";
-import type { DirectorObject } from "../schema/directorProject";
+import type { DirectorAssetRef, DirectorObject } from "../schema/directorProject";
 import { useDirectorStore } from "../store/directorStore";
 import { applyDirectorPageEvent } from "../assistant/pageStateBridge";
 import { getDirectorObjectFocusSnapshot } from "../canvas/viewportObjectFocus";
@@ -128,7 +129,14 @@ function projectObjectForTree(object: DirectorObject): ObjectTreeObject {
 }
 
 function objectTreeObjectMatches(object: DirectorObject, projected: ObjectTreeObject) {
-  return OBJECT_TREE_FIELDS.every((field) => object[field] === projected[field]);
+  return OBJECT_TREE_FIELDS.every((field) => {
+    const left = object[field];
+    const right = projected[field];
+    if (Array.isArray(left) && Array.isArray(right)) {
+      return left.length === right.length && left.every((value, index) => value === right[index]);
+    }
+    return left === right;
+  });
 }
 
 /**
@@ -154,6 +162,35 @@ function createObjectTreeObjectsSelector() {
     }
 
     previousResult = source.map(projectObjectForTree);
+    return previousResult;
+  };
+}
+
+function createStableIdListSelector(read: (state: ReturnType<typeof useDirectorStore.getState>) => string[]) {
+  let previous: string[] = [];
+  return (state: ReturnType<typeof useDirectorStore.getState>) => {
+    const source = read(state);
+    if (source.length === previous.length && source.every((id, index) => id === previous[index])) return previous;
+    previous = source;
+    return previous;
+  };
+}
+
+function createProjectAssetsSelector() {
+  let previousSource: DirectorAssetRef[] | null = null;
+  let previousResult: DirectorAssetRef[] = [];
+
+  return (state: ReturnType<typeof useDirectorStore.getState>) => {
+    const source = state.project.assets;
+    if (source === previousSource) return previousResult;
+    previousSource = source;
+    if (
+      source.length === previousResult.length &&
+      source.every((asset, index) => asset.id === previousResult[index]!.id && asset.url === previousResult[index]!.url)
+    ) {
+      return previousResult;
+    }
+    previousResult = source;
     return previousResult;
   };
 }
@@ -302,6 +339,10 @@ function getSceneTreeItemLabel(item: SceneTreeItem) {
 export function ObjectTreePanel() {
   const objectTreeScrollRef = useRef<HTMLDivElement>(null);
   const { t } = useLanguage();
+  // Same roleAllowsTool policy the gateway applies to director_workbench
+  // author: read-only film roles (e.g. visual-critic) see disabled deletes.
+  const { canAuthor: canAuthorScene } = useStageAuthoringGate();
+  const readOnlyRoleTitle = canAuthorScene ? undefined : t("当前 Director 角色为只读");
   const [query, setQuery] = useState("");
   const [expandedListIds, setExpandedListIds] = useState<string[]>([]);
   const [expandedReferenceIds, setExpandedReferenceIds] = useState<string[]>([]);
@@ -311,11 +352,13 @@ export function ObjectTreePanel() {
   const [renamingItemId, setRenamingItemId] = useState<string | null>(null);
   const [openActionMenu, setOpenActionMenu] = useState<ObjectActionMenuState | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
-  const assets = useDirectorStore((state) => state.project.assets);
+  const selectProjectAssets = useMemo(createProjectAssetsSelector, []);
+  const assets = useDirectorStore(selectProjectAssets);
   const selectObjectTreeObjects = useMemo(createObjectTreeObjectsSelector, []);
   const objects = useDirectorStore(selectObjectTreeObjects);
+  const selectSelectedObjectIds = useMemo(() => createStableIdListSelector((state) => state.selectedObjectIds), []);
   const selectedObjectId = useDirectorStore((state) => state.selectedObjectId);
-  const selectedObjectIds = useDirectorStore((state) => state.selectedObjectIds);
+  const selectedObjectIds = useDirectorStore(selectSelectedObjectIds);
   const selectedCrowdId = useDirectorStore((state) => state.selectedCrowdId);
   const selectObject = useDirectorStore((state) => state.selectObject);
   const selectCrowd = useDirectorStore((state) => state.selectCrowd);
@@ -611,7 +654,9 @@ export function ObjectTreePanel() {
       const path = collectSceneTreeRevealPath(group.items, { crowdId: selectedCrowdId, objectId });
       if (!path) continue;
       revealedSelectionKeyRef.current = selectionKey;
-      setCollapsedGroupKeys((current) => (current.includes(group.key) ? current.filter((key) => key !== group.key) : current));
+      setCollapsedGroupKeys((current) =>
+        current.includes(group.key) ? current.filter((key) => key !== group.key) : current,
+      );
       if (path.ancestors.length) {
         setExpandedListIds((current) => {
           const next = new Set(current);
@@ -910,6 +955,8 @@ export function ObjectTreePanel() {
               role="menuitem"
               type="button"
               aria-label={`删除 ${childName}`}
+              disabled={!canAuthorScene}
+              title={readOnlyRoleTitle}
               onClick={() => {
                 deleteObjects([child.object.id]);
                 closeActionMenu();
@@ -1112,6 +1159,8 @@ export function ObjectTreePanel() {
                               className="object-flag-button object-icon-flag-button"
                               type="button"
                               aria-label={`删除 ${label}`}
+                              disabled={!canAuthorScene}
+                              title={readOnlyRoleTitle}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 deleteObjects(item.objectIds);
@@ -1193,6 +1242,8 @@ export function ObjectTreePanel() {
                                 role="menuitem"
                                 type="button"
                                 aria-label={`解散 ${item.name} 组合`}
+                                disabled={!canAuthorScene}
+                                title={readOnlyRoleTitle}
                                 onClick={() => {
                                   deleteObjects([item.compositeParentId!]);
                                   closeActionMenu();
@@ -1206,6 +1257,8 @@ export function ObjectTreePanel() {
                                 role="menuitem"
                                 type="button"
                                 aria-label={`删除 ${item.name}`}
+                                disabled={!canAuthorScene}
+                                title={readOnlyRoleTitle}
                                 onClick={() => {
                                   deleteObjects(item.objectIds);
                                   closeActionMenu();

@@ -51,6 +51,10 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import {
+  dispatchCreativeWorkspaceOperations,
+  type CreativeWorkspaceOperationInput,
+} from "../../../agent/dispatchCreativeWorkspaceOperations";
 import { useLanguage } from "../../i18n/language";
 import {
   DIRECTOR_COMMON_FRAME_RATES,
@@ -684,6 +688,24 @@ type DirectorEditClipNumericField = {
   [Field in keyof DirectorEditClip]-?: DirectorEditClip[Field] extends number ? Field : never;
 }[keyof DirectorEditClip];
 
+/**
+ * Property-panel number inputs commit discrete values, so they dispatch as
+ * edit.clip.update patch fields through the shared agent contract. Range
+ * sliders (opacity / volume / scale) are absent on purpose: they stream
+ * continuous samples and keep the local store mutator.
+ */
+const CLIP_NUMERIC_PATCH_FIELDS = {
+  startSec: "start_sec",
+  durationSec: "duration_sec",
+  inSec: "in_sec",
+  playbackRate: "playback_rate",
+  fadeInSec: "fade_in_sec",
+  fadeOutSec: "fade_out_sec",
+  positionX: "position_x",
+  positionY: "position_y",
+  rotationDeg: "rotation_deg",
+} as const satisfies Partial<Record<DirectorEditClipNumericField, string>>;
+
 function ClipNumericField({
   label,
   value,
@@ -736,24 +758,17 @@ export function VideoEditorWorkspace() {
   );
   const timelineZoom = useDirectorCreativeWorkspaceStore((state) => state.timelineZoom);
   const editSettings = useDirectorCreativeWorkspaceStore((state) => state.editSettings);
+  // Clip split/remove/transition, track management, and settings dispatch
+  // through the shared agent contract (dispatchCreativeWorkspaceOperations).
+  // Only continuous interactions (drags, trims, fades, range sliders, live
+  // typing) and overwrite placement flows keep the direct store mutators.
   const addClip = useDirectorCreativeWorkspaceStore((state) => state.addClip);
-  const addTrack = useDirectorCreativeWorkspaceStore((state) => state.addTrack);
   const updateClip = useDirectorCreativeWorkspaceStore((state) => state.updateClip);
   const moveClipToTrack = useDirectorCreativeWorkspaceStore((state) => state.moveClipToTrack);
-  const splitClip = useDirectorCreativeWorkspaceStore((state) => state.splitClip);
-  const setClipTransition = useDirectorCreativeWorkspaceStore((state) => state.setClipTransition);
-  const removeClip = useDirectorCreativeWorkspaceStore((state) => state.removeClip);
   const commitClipPlacement = useDirectorCreativeWorkspaceStore((state) => state.commitClipPlacement);
-  const rippleRemoveClip = useDirectorCreativeWorkspaceStore((state) => state.rippleRemoveClip);
   const selectClip = useDirectorCreativeWorkspaceStore((state) => state.selectClip);
   const setPlayhead = useDirectorCreativeWorkspaceStore((state) => state.setPlayhead);
   const setTimelineZoom = useDirectorCreativeWorkspaceStore((state) => state.setTimelineZoom);
-  const toggleTrackMute = useDirectorCreativeWorkspaceStore((state) => state.toggleTrackMute);
-  const toggleTrackLock = useDirectorCreativeWorkspaceStore((state) => state.toggleTrackLock);
-  const toggleTrackVisibility = useDirectorCreativeWorkspaceStore((state) => state.toggleTrackVisibility);
-  const removeTrack = useDirectorCreativeWorkspaceStore((state) => state.removeTrack);
-  const renameTrack = useDirectorCreativeWorkspaceStore((state) => state.renameTrack);
-  const updateEditSettings = useDirectorCreativeWorkspaceStore((state) => state.updateEditSettings);
   const beginHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.beginHistoryBatch);
   const endHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.endHistoryBatch);
   const canUndo = useDirectorCreativeWorkspaceStore((state) => state.canUndo);
@@ -827,8 +842,32 @@ export function VideoEditorWorkspace() {
     ? persistentCreativeMediaLibrary.getAsset(transcriptionMediaId)
     : null;
   const selectedIsTimedMedia = selectedMedia?.kind === "video" || selectedMedia?.kind === "audio";
+  /**
+   * Shared UI entry into the creative workspace agent contract. Applies one
+   * atomic mutation (or batch) and surfaces contract rejections in the status
+   * line instead of silently no-oping.
+   */
+  const dispatchVideo = useCallback(
+    (operations: CreativeWorkspaceOperationInput | CreativeWorkspaceOperationInput[], failureTitle: string) => {
+      const receipt = dispatchCreativeWorkspaceOperations(operations);
+      if (!receipt.ok) setImportMessage(`${failureTitle}：${receipt.error}`);
+      return receipt;
+    },
+    [],
+  );
   const updateSelectedClipNumber = (field: DirectorEditClipNumericField, value: number) => {
-    if (selected) updateClip(selected.clip.id, { [field]: value } as Partial<DirectorEditClip>);
+    // Number inputs emit NaN while the field is being cleared mid-typing.
+    if (!selected || !Number.isFinite(value)) return;
+    const patchField = CLIP_NUMERIC_PATCH_FIELDS[field as keyof typeof CLIP_NUMERIC_PATCH_FIELDS];
+    if (patchField) {
+      dispatchVideo(
+        { op: "edit.clip.update", clip_id: selected.clip.id, patch: { [patchField]: value } },
+        t("剪辑更新失败"),
+      );
+      return;
+    }
+    // Range sliders (opacity / volume / scale) stream continuous samples and keep the local mutator.
+    updateClip(selected.clip.id, { [field]: value } as Partial<DirectorEditClip>);
   };
   const duration = getDirectorEditDuration(tracks);
   const contentDuration = getDirectorTimelineContentDuration(tracks, mediaById);
@@ -852,37 +891,22 @@ export function VideoEditorWorkspace() {
 
   useEffect(() => setStartTimecodeDraft(editTimebase.startTimecode), [editTimebase.startTimecode]);
 
+  // The edit.settings.update contract re-derives drop-frame validity and
+  // converts the start timecode separator, so the UI only states the intent.
   function updateEditFrameRate(serializedRate: string) {
     const rate = normalizeDirectorFrameRate(serializedRate, editTimebase.rate);
-    const dropFrame = editTimebase.dropFrame && supportsDirectorDropFrame(rate);
-    const candidateStart = dropFrame
-      ? editTimebase.startTimecode.replace(/:(\d{2})$/, ";$1")
-      : editTimebase.startTimecode.replace(/;(\d{2})$/, ":$1");
-    const startTimecode =
-      parseSmpteTimecode(candidateStart, rate, { dropFrame })?.timecode ?? (dropFrame ? "00:00:00;00" : "00:00:00:00");
-    updateEditSettings({
-      fps: frameRateToNumber(rate),
-      timebase: {
-        rate,
-        dropFrame,
-        startTimecode,
-      },
-    });
+    dispatchVideo(
+      { op: "edit.settings.update", patch: { frame_rate: { numerator: rate.numerator, denominator: rate.denominator } } },
+      t("时间基准更新失败"),
+    );
   }
 
   function toggleEditDropFrame() {
     if (!supportsDirectorDropFrame(editTimebase.rate)) return;
-    const dropFrame = !editTimebase.dropFrame;
-    updateEditSettings({
-      fps: exportFps,
-      timebase: {
-        ...editTimebase,
-        dropFrame,
-        startTimecode: dropFrame
-          ? editTimebase.startTimecode.replace(/:(\d{2})$/, ";$1")
-          : editTimebase.startTimecode.replace(/;(\d{2})$/, ":$1"),
-      },
-    });
+    dispatchVideo(
+      { op: "edit.settings.update", patch: { drop_frame: !editTimebase.dropFrame } },
+      t("时间基准更新失败"),
+    );
   }
 
   function commitEditStartTimecode() {
@@ -893,10 +917,11 @@ export function VideoEditorWorkspace() {
       setStartTimecodeDraft(editTimebase.startTimecode);
       return;
     }
-    updateEditSettings({
-      fps: exportFps,
-      timebase: { ...editTimebase, startTimecode: parsed.timecode },
-    });
+    const receipt = dispatchVideo(
+      { op: "edit.settings.update", patch: { start_timecode: parsed.timecode } },
+      t("时间基准更新失败"),
+    );
+    if (!receipt.ok) setStartTimecodeDraft(editTimebase.startTimecode);
   }
 
   /** Keep the anchored timeline instant under the same viewport pixel across a zoom change. */
@@ -1200,8 +1225,10 @@ export function VideoEditorWorkspace() {
       if ((event.key === "Backspace" || event.key === "Delete") && selectedClipId) {
         event.preventDefault();
         // Shift+Delete ripple-deletes: later clips on the track close the gap.
-        if (event.shiftKey) rippleRemoveClip(selectedClipId);
-        else removeClip(selectedClipId);
+        dispatchVideo(
+          { op: "edit.clip.remove", clip_id: selectedClipId, ...(event.shiftKey ? { ripple: true } : {}) },
+          t("剪辑删除失败"),
+        );
         return;
       }
       if (key === "s" && selected) {
@@ -1211,7 +1238,7 @@ export function VideoEditorWorkspace() {
           playheadSec < selected.clip.startSec + selected.clip.durationSec - 0.1;
         if (canCut) {
           event.preventDefault();
-          splitClip(selected.clip.id, playheadSec);
+          dispatchVideo({ op: "edit.clip.split", clip_id: selected.clip.id, at_sec: playheadSec }, t("剪辑分割失败"));
         }
         return;
       }
@@ -2095,7 +2122,9 @@ export function VideoEditorWorkspace() {
             <button
               aria-label={t(snapEnabled ? "关闭磁吸" : "开启磁吸")}
               aria-pressed={snapEnabled}
-              onClick={() => updateEditSettings({ snapEnabled: !snapEnabled })}
+              onClick={() =>
+                dispatchVideo({ op: "edit.settings.update", patch: { snap_enabled: !snapEnabled } }, t("设置更新失败"))
+              }
               title={t(snapEnabled ? "磁吸对齐已开启" : "磁吸对齐已关闭")}
               type="button"
             >
@@ -2103,7 +2132,12 @@ export function VideoEditorWorkspace() {
             </button>
             <CreativeTransportDropdown
               ariaLabel={t("画幅比例")}
-              onSelect={(nextAspectRatio) => updateEditSettings({ aspectRatio: nextAspectRatio as typeof aspectRatio })}
+              onSelect={(nextAspectRatio) =>
+                dispatchVideo(
+                  { op: "edit.settings.update", patch: { aspect_ratio: nextAspectRatio as typeof aspectRatio } },
+                  t("设置更新失败"),
+                )
+              }
               options={ASPECT_RATIO_OPTIONS.map((option) => ({ ...option }))}
               trigger={ASPECT_RATIO_OPTIONS.find((option) => option.id === aspectRatio)?.label ?? "16:9"}
               value={aspectRatio}
@@ -2112,7 +2146,15 @@ export function VideoEditorWorkspace() {
               className="creative-transport-action"
               disabled={!canSplit}
               onClick={() =>
-                selected && splitClip(selected.clip.id, useDirectorCreativeWorkspaceStore.getState().playheadSec)
+                selected &&
+                dispatchVideo(
+                  {
+                    op: "edit.clip.split",
+                    clip_id: selected.clip.id,
+                    at_sec: useDirectorCreativeWorkspaceStore.getState().playheadSec,
+                  },
+                  t("剪辑分割失败"),
+                )
               }
               title={`${t("在播放头处分割选中剪辑")} (S)`}
               type="button"
@@ -2145,7 +2187,9 @@ export function VideoEditorWorkspace() {
             />
             <CreativeTransportDropdown
               ariaLabel={t("添加轨道")}
-              onSelect={(trackKind) => addTrack(trackKind as "video" | "audio")}
+              onSelect={(trackKind) =>
+                dispatchVideo({ op: "edit.track.add", kind: trackKind as "video" | "audio" }, t("轨道创建失败"))
+              }
               options={[
                 { id: "video", label: t("视频轨"), icon: <Video aria-hidden size={14} /> },
                 { id: "audio", label: t("音频轨"), icon: <Volume2 aria-hidden size={14} /> },
@@ -2236,7 +2280,13 @@ export function VideoEditorWorkspace() {
                       autoFocus
                       className="creative-track-name-input"
                       onBlur={() => {
-                        renameTrack(track.id, trackNameDraft);
+                        const name = trackNameDraft.trim();
+                        if (name && name !== track.name) {
+                          dispatchVideo(
+                            { op: "edit.track.update", track_id: track.id, patch: { name } },
+                            t("轨道重命名失败"),
+                          );
+                        }
                         setRenamingTrackId(null);
                       }}
                       onChange={(event) => setTrackNameDraft(event.currentTarget.value)}
@@ -2264,7 +2314,12 @@ export function VideoEditorWorkspace() {
                       aria-label={`${t(track.visible ? "隐藏画面" : "显示画面")} ${t(track.name)}`}
                       aria-pressed={track.visible}
                       className={track.visible ? "" : "is-off"}
-                      onClick={() => toggleTrackVisibility(track.id)}
+                      onClick={() =>
+                        dispatchVideo(
+                          { op: "edit.track.update", track_id: track.id, patch: { visible: !track.visible } },
+                          t("轨道更新失败"),
+                        )
+                      }
                       type="button"
                     >
                       {track.visible ? <Eye aria-hidden size={12} /> : <EyeOff aria-hidden size={12} />}
@@ -2274,7 +2329,12 @@ export function VideoEditorWorkspace() {
                     aria-label={`${t(track.muted ? "取消静音" : "静音")} ${t(track.name)}`}
                     aria-pressed={!track.muted}
                     className={track.muted ? "is-off" : ""}
-                    onClick={() => toggleTrackMute(track.id)}
+                    onClick={() =>
+                      dispatchVideo(
+                        { op: "edit.track.update", track_id: track.id, patch: { muted: !track.muted } },
+                        t("轨道更新失败"),
+                      )
+                    }
                     type="button"
                   >
                     {track.muted ? <VolumeX aria-hidden size={12} /> : <Volume2 aria-hidden size={12} />}
@@ -2283,7 +2343,12 @@ export function VideoEditorWorkspace() {
                     aria-label={`${t(track.locked ? "解锁" : "锁定")} ${t(track.name)}`}
                     aria-pressed={track.locked}
                     className={track.locked ? "is-active" : ""}
-                    onClick={() => toggleTrackLock(track.id)}
+                    onClick={() =>
+                      dispatchVideo(
+                        { op: "edit.track.update", track_id: track.id, patch: { locked: !track.locked } },
+                        t("轨道更新失败"),
+                      )
+                    }
                     type="button"
                   >
                     {track.locked ? <Lock aria-hidden size={12} /> : <Unlock aria-hidden size={12} />}
@@ -2316,7 +2381,7 @@ export function VideoEditorWorkspace() {
                       className="is-danger"
                       disabled={track.kind === "video" && tracks.filter((item) => item.kind === "video").length <= 1}
                       onClick={() => {
-                        removeTrack(track.id);
+                        dispatchVideo({ op: "edit.track.remove", track_id: track.id }, t("轨道删除失败"));
                         setTrackMenuId(null);
                       }}
                       role="menuitem"
@@ -2725,7 +2790,17 @@ export function VideoEditorWorkspace() {
                         : selected.clip.durationSec
                     }
                     min={0}
-                    onValueChange={(value) => setClipTransition(selected.clip.id, value)}
+                    onValueChange={(value) => {
+                      if (!Number.isFinite(value)) return;
+                      dispatchVideo(
+                        {
+                          op: "edit.clip.update",
+                          clip_id: selected.clip.id,
+                          patch: { transition_in_sec: Math.max(0, value) },
+                        },
+                        t("剪辑更新失败"),
+                      );
+                    }}
                     step="0.1"
                     value={(selected.clip.transitionInSec ?? 0).toFixed(2)}
                   />
@@ -2762,7 +2837,14 @@ export function VideoEditorWorkspace() {
                     <span>{t("适配")}</span>
                     <select
                       onChange={(event) =>
-                        updateClip(selected.clip.id, { fit: event.currentTarget.value as DirectorEditClip["fit"] })
+                        dispatchVideo(
+                          {
+                            op: "edit.clip.update",
+                            clip_id: selected.clip.id,
+                            patch: { fit: event.currentTarget.value as DirectorEditClip["fit"] },
+                          },
+                          t("剪辑更新失败"),
+                        )
                       }
                       value={selected.clip.fit}
                     >
@@ -2773,14 +2855,24 @@ export function VideoEditorWorkspace() {
                 </div>
                 <div className="creative-clip-align-actions">
                   <button
-                    onClick={() => updateClip(selected.clip.id, { positionX: 0 })}
+                    onClick={() =>
+                      dispatchVideo(
+                        { op: "edit.clip.update", clip_id: selected.clip.id, patch: { position_x: 0 } },
+                        t("剪辑更新失败"),
+                      )
+                    }
                     title={t("水平居中")}
                     type="button"
                   >
                     <AlignCenterHorizontal aria-hidden size={14} /> {t("水平居中")}
                   </button>
                   <button
-                    onClick={() => updateClip(selected.clip.id, { positionY: 0 })}
+                    onClick={() =>
+                      dispatchVideo(
+                        { op: "edit.clip.update", clip_id: selected.clip.id, patch: { position_y: 0 } },
+                        t("剪辑更新失败"),
+                      )
+                    }
                     title={t("垂直居中")}
                     type="button"
                   >
@@ -2789,7 +2881,14 @@ export function VideoEditorWorkspace() {
                   <button
                     className="creative-clip-reset-transform"
                     onClick={() =>
-                      updateClip(selected.clip.id, { scale: 1, positionX: 0, positionY: 0, rotationDeg: 0 })
+                      dispatchVideo(
+                        {
+                          op: "edit.clip.update",
+                          clip_id: selected.clip.id,
+                          patch: { scale: 1, position_x: 0, position_y: 0, rotation_deg: 0 },
+                        },
+                        t("剪辑更新失败"),
+                      )
                     }
                     title={t("重置变换")}
                     type="button"
@@ -2811,7 +2910,9 @@ export function VideoEditorWorkspace() {
             )}
             <button
               className="creative-danger-button"
-              onClick={() => removeClip(selected.clip.id)}
+              onClick={() =>
+                dispatchVideo({ op: "edit.clip.remove", clip_id: selected.clip.id }, t("剪辑删除失败"))
+              }
               title={`${t("删除剪辑")} (Delete)`}
               type="button"
             >
@@ -2872,7 +2973,14 @@ export function VideoEditorWorkspace() {
           <button
             disabled={!contextMenuCanSplit}
             onClick={() => {
-              splitClip(contextMenuTarget.clip.id, useDirectorCreativeWorkspaceStore.getState().playheadSec);
+              dispatchVideo(
+                {
+                  op: "edit.clip.split",
+                  clip_id: contextMenuTarget.clip.id,
+                  at_sec: useDirectorCreativeWorkspaceStore.getState().playheadSec,
+                },
+                t("剪辑分割失败"),
+              );
               setClipContextMenu(null);
             }}
             role="menuitem"
@@ -2902,10 +3010,17 @@ export function VideoEditorWorkspace() {
             }
             onClick={() => {
               const clip = contextMenuTarget.clip;
-              if ((clip.transitionInSec ?? 0) > 0) {
-                setClipTransition(clip.id, 0);
-              } else if (contextMenuPredecessor) {
-                setClipTransition(clip.id, Math.min(0.5, clip.durationSec, contextMenuPredecessor.durationSec));
+              const nextTransition =
+                (clip.transitionInSec ?? 0) > 0
+                  ? 0
+                  : contextMenuPredecessor
+                    ? Math.min(0.5, clip.durationSec, contextMenuPredecessor.durationSec)
+                    : null;
+              if (nextTransition !== null) {
+                dispatchVideo(
+                  { op: "edit.clip.update", clip_id: clip.id, patch: { transition_in_sec: nextTransition } },
+                  t("剪辑更新失败"),
+                );
               }
               setClipContextMenu(null);
             }}
@@ -2918,7 +3033,10 @@ export function VideoEditorWorkspace() {
           <button
             disabled={contextMenuTarget.track.locked}
             onClick={() => {
-              rippleRemoveClip(contextMenuTarget.clip.id);
+              dispatchVideo(
+                { op: "edit.clip.remove", clip_id: contextMenuTarget.clip.id, ripple: true },
+                t("剪辑删除失败"),
+              );
               setClipContextMenu(null);
             }}
             role="menuitem"
@@ -2932,7 +3050,7 @@ export function VideoEditorWorkspace() {
             className="is-danger"
             disabled={contextMenuTarget.track.locked}
             onClick={() => {
-              removeClip(contextMenuTarget.clip.id);
+              dispatchVideo({ op: "edit.clip.remove", clip_id: contextMenuTarget.clip.id }, t("剪辑删除失败"));
               setClipContextMenu(null);
             }}
             role="menuitem"
@@ -3001,7 +3119,13 @@ export function VideoEditorWorkspace() {
                 <select
                   disabled={exporting}
                   onChange={(event) =>
-                    updateEditSettings({ exportQuality: event.currentTarget.value as typeof exportQuality })
+                    dispatchVideo(
+                      {
+                        op: "edit.settings.update",
+                        patch: { export_quality: event.currentTarget.value as typeof exportQuality },
+                      },
+                      t("设置更新失败"),
+                    )
                   }
                   value={exportQuality}
                 >

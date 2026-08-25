@@ -7,6 +7,7 @@ import type {
 import { hashCombine, worldStreamId } from "../worldRandom";
 import {
   EFFECT_PRESETS,
+  RAIN_SPLASH_FRACTION,
   STORM_DENSITY_MULTIPLIER,
   WEATHER_PRECIPITATION_BOX_SIZE,
   getEffectParticleCount,
@@ -226,6 +227,7 @@ export function buildClimateWeatherSystemConfig(
     sizeScale: 1,
     speedScale: 1,
     windInfluence: 1,
+    splashFraction: kind === "rain" ? RAIN_SPLASH_FRACTION : 0,
     tint: null,
     blending: preset.blending,
     wrapExtents: WEATHER_PRECIPITATION_BOX_SIZE,

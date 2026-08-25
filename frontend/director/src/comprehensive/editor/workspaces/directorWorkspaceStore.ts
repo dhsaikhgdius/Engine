@@ -343,7 +343,8 @@ const MAX_CLIP_DURATION_SEC = 60 * 60 * 24;
 const MIN_CLIP_DURATION_SEC = 0.1;
 // Clips whose edges differ by no more than this are treated as merely
 // touching, so drag snaps and float error never trigger overwrite trims.
-const CLIP_EDGE_EPSILON = 1e-6;
+export const DIRECTOR_CLIP_EDGE_EPSILON_SEC = 1e-6;
+const CLIP_EDGE_EPSILON = DIRECTOR_CLIP_EDGE_EPSILON_SEC;
 // Frame snapping leaves adjacent clips up to a frame-ish gap apart, so
 // cross-dissolve adjacency uses a looser tolerance than overwrite trims.
 /**
@@ -737,10 +738,7 @@ export function resolveDirectorTrackOverwrite(
  * end edge touches this clip's start within the frame-snap tolerance
  * (1e-3s). Returns null when the clip has no adjacent predecessor.
  */
-export function findDirectorTransitionPredecessor(
-  track: DirectorEditTrack,
-  clipId: string,
-): DirectorEditClip | null {
+export function findDirectorTransitionPredecessor(track: DirectorEditTrack, clipId: string): DirectorEditClip | null {
   const clip = track.clips.find((item) => item.id === clipId);
   if (!clip) return null;
   return (
@@ -1608,7 +1606,11 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
               opacity: clamp(finiteNumberOr(patch.opacity, current.opacity), 0, 1),
               volume: clamp(finiteNumberOr(patch.volume, current.volume), 0, 1),
               ...fades,
-              transitionInSec: clamp(finiteNumberOr(patch.transitionInSec, current.transitionInSec ?? 0), 0, nextDuration),
+              transitionInSec: clamp(
+                finiteNumberOr(patch.transitionInSec, current.transitionInSec ?? 0),
+                0,
+                nextDuration,
+              ),
               scale: clamp(finiteNumberOr(patch.scale, current.scale ?? 1), MIN_CLIP_SCALE, MAX_CLIP_SCALE),
               positionX: clamp(
                 finiteNumberOr(patch.positionX, current.positionX ?? 0),

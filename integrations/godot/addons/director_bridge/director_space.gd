@@ -8,7 +8,9 @@
 ## packages/dcc-protocol/src/directorDccEngineSpace.ts). The functions exist
 ## so the provider boundary stays explicit and greppable, and so the world
 ## composition with Director's uniform scene scale lives in one place.
-class_name DirectorSpace
+##
+## No class_name: headless `godot --script` runs on a fresh project have no
+## global class cache, so every module is referenced through `preload`.
 
 
 static func director_point_to_godot(point: Array) -> Vector3:
@@ -44,6 +46,18 @@ static func quat_from_euler_xyz(rx: float, ry: float, rz: float) -> Quaternion:
 	return (qx * qy * qz).normalized()
 
 
+## Composes the Director scene transform (uniform scale) with a world-space
+## point, returning the canonical world position as a Vector3.
+static func compose_world_point(scene: Dictionary, point: Array) -> Vector3:
+	var scene_quat := quat_from_euler_xyz(
+		scene["rotation"][0], scene["rotation"][1], scene["rotation"][2]
+	)
+	var scene_scale: float = scene["scale"]
+	var local := Vector3(point[0], point[1], point[2])
+	var rotated := scene_quat * (local * scene_scale)
+	return rotated + Vector3(scene["position"][0], scene["position"][1], scene["position"][2])
+
+
 ## Composes the Director scene transform (uniform scale) with an entity's
 ## local TRS. Uniform scene scale commutes with rotation, so the world
 ## decomposition is exact. Returns {"location": Array, "rotation": Array,
@@ -75,10 +89,14 @@ static func compose_world_transform(scene: Dictionary, transform: Dictionary) ->
 	}
 
 
-## Godot Transform3D for a canonical wire TRS.
+## Godot Transform3D for a canonical wire TRS. Composes R * S explicitly
+## (Basis.scaled_local only exists in Godot 4.4+, and the connector supports
+## Godot 4.2+); this also keeps negative/mirrored scale exact.
 static func godot_transform_from_canonical(canonical: Dictionary) -> Transform3D:
-	var basis := Basis(director_quat_to_godot(canonical["rotationQuaternion"]))
-	basis = basis.scaled_local(director_scale_to_godot(canonical["scale"]))
+	var basis := (
+		Basis(director_quat_to_godot(canonical["rotationQuaternion"]))
+		* Basis.from_scale(director_scale_to_godot(canonical["scale"]))
+	)
 	return Transform3D(basis, director_point_to_godot(canonical["location"]))
 
 

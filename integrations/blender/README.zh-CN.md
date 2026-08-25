@@ -25,12 +25,15 @@ Python 代码分布于两个同级子树：
 
 | 路径 | 中文用途 |
 | --- | --- |
-| `director_bridge.py` | 将经验证的 Director DCC 场景包导入 Blender：写入 `director_id` 自定义属性、网格签名、源变换，显式不接受数据之外的任何内容。 |
+| `director_bridge.py` | 将经验证的 Director DCC 场景包导入 Blender：写入 `director_id` 自定义属性、网格签名、源变换与角色 pose-bone 基线，显式不接受数据之外的任何内容。 |
 | `director_scene_export.py` | 从已打开的 `.blend` 提取场景：导出 `director-blend-scene-v1` 包（manifest.json + scene.glb + 相机参数 + 哈希收据）。网关以 `--factory-startup --disable-autoexec` 启动 Blender 后运行此脚本。 |
-| `director_return_export.py` | 从精修后的 `.blend` 导出 `director-dcc-return-v1` 返回包：仅导出携带 `director_id` 的对象，生成 GLB + SHA-256 收据，无 `director_id` 的顶层对象仅作警告。 |
+| `director_return_export.py` | 从精修后的 `.blend` 导出 `director-dcc-return-v1` 返回包：仅导出携带 `director_id` 的对象，生成 GLB + SHA-256 收据；stamp 了全新 `director_id` 的新建根对象成为带 hash 的 `object_addition` 条目；已映射 pose bone 的旋转编辑 reconcile 为 `director_pose.*` control 增量；无 `director_id` 的顶层对象仅作警告。 |
 | `director_signature.py` | 共享的网格内容指纹模块：`director_bridge.py` 在导出时写入签名，`director_return_export.py` 在返回时重新计算；两端必须传入字节级一致的数据。 |
+| `director_properties.py` | 往返共享的自定义属性名（基线、指纹、骨骼映射）。 |
+| `director_pose_bones.py` | 桥接与回传导出器共用的免主机 pose bone ↔ 可移植 control 映射模块。 |
 | `director_scene_export.test.ts` | 场景导出脚本的 vitest 单元测试。 |
 | `director_return_export.test.ts` | 返回导出脚本的 vitest 单元测试。 |
+| `director_pose_bones.test.ts` | pose-bone 映射与别名表同步的免主机 vitest 测试。 |
 
 ## 实时建模内核
 
@@ -102,7 +105,9 @@ blender --background scene.blend \
 
 输出为 manifest-first：`manifest.json` 使用 `director-dcc-return-v1`；`meshes/*.glb` 保留
 `extras.director.stableId`；未修改的 `.blend` 返回空变更集；网格指纹排除 Director 包装变换；
-每个输出文件均有 SHA-256 收据；无 `director_id` 的顶层对象为警告，绝不静默导入。
+每个输出文件均有 SHA-256 收据；无 `director_id` 的顶层对象为警告，绝不静默导入。若要提交
+新建对象供审阅，请在其根对象上 stamp 一个全新的 `director_id` 自定义属性：它将以带 hash 的
+`object_addition` 回传，且只有在预览时显式 `include_new_objects` 选择加入才作为 prop 导入。
 
 应用前预览合并：
 

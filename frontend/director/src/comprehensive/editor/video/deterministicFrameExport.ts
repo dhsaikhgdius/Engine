@@ -324,12 +324,9 @@ async function normalizePngSource(source: DirectorPngFrameSource, maximumBytes: 
 }
 
 async function sha256(bytes: Uint8Array | string): Promise<`sha256:${string}`> {
+  // Digest the view directly; see shotPackage.ts sha256 for the realm rationale.
   const sourceBytes = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
-  const source = sourceBytes.buffer.slice(
-    sourceBytes.byteOffset,
-    sourceBytes.byteOffset + sourceBytes.byteLength,
-  ) as ArrayBuffer;
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", source));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", sourceBytes));
   return `sha256:${Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 

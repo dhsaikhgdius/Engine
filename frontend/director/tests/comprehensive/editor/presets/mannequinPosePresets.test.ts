@@ -1,5 +1,9 @@
 import { getCharacterPoseControlValueLimits } from "../../../../src/comprehensive/editor/schema/poseSchema";
-import { getMannequinPosePreset, MANNEQUIN_POSE_PRESETS, resolveCharacterPoseControls } from "../../../../src/comprehensive/editor/presets/mannequinPosePresets";
+import {
+  getMannequinPosePreset,
+  MANNEQUIN_POSE_PRESETS,
+  resolveCharacterPoseControls,
+} from "../../../../src/comprehensive/editor/presets/mannequinPosePresets";
 
 it("exports the approved 22 pose presets", () => {
   expect(MANNEQUIN_POSE_PRESETS.map((item) => item.label)).toEqual([

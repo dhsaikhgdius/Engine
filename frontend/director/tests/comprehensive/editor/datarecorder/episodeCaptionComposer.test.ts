@@ -108,7 +108,10 @@ function minimalManifest(frameCount: number): EpisodeManifest {
 }
 
 function containsMotionWord(text: string): string | null {
-  const tokens = text.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const tokens = text
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean);
   return MOTION_WORDS.find((word) => tokens.includes(word)) ?? null;
 }
 

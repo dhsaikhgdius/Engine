@@ -316,29 +316,85 @@ function exchangeProvider(
   });
 }
 
-function engineProvider(
-  id: DirectorDccProviderId,
-  label: string,
-  preferredFormat: Exclude<DirectorDccExchangeFormat, "blend">,
-  exchangeFormats: Array<Exclude<DirectorDccExchangeFormat, "blend">>,
-): DirectorDccProviderDescriptor {
+/**
+ * Unreal Engine descriptor. Split from the shared `engineProvider()` literal
+ * because the Unreal connector ships deeper host-side coverage than the other
+ * engine connectors; the shared helper must keep its conservative claims.
+ * Every native claim below is backed by host-free golden fixtures
+ * (`backend/gateway/tests/dcc/unreal*.test.ts`) and remains gated at runtime
+ * by the engine bridge health check (`nativeReady`).
+ */
+const UNREAL_PROVIDER_DESCRIPTOR: DirectorDccProviderDescriptor = directorDccProviderDescriptorSchema.parse({
+  id: "unreal",
+  label: "Unreal Engine",
+  category: "engine",
+  integration: "engine-headless",
+  preferredFormat: "usda",
+  exchangeFormats: ["usda", "glb"],
+  capabilities: [
+    // Scene layout and cameras still travel through the portable package;
+    // the connector performs the host-side import but the format carries them.
+    { id: "scene", level: "exchange", layer: "exchange-format", formats: ["usda", "glb"] },
+    { id: "camera", level: "exchange", layer: "exchange-format", formats: ["usda", "glb"] },
+    // Time-sampled transform and camera animation is baked by the Gateway
+    // (canonical evaluators) and keyed into LevelSequence tracks by the
+    // connector. Control-Rig-style pose channels stay warn-and-omit.
+    { id: "animation", level: "native", layer: "connector" },
+    // Skinned GLB payloads import as skeletal meshes in bind pose with
+    // director_id tags; non-skinned character payloads warn-and-omit.
+    { id: "skeleton", level: "native", layer: "connector" },
+    // Director PBR parameters map to material instances on the parent
+    // DirectorPbr materials; unsupported channels warn-and-omit.
+    { id: "materials", level: "native", layer: "connector" },
+    { id: "stable_ids", level: "native", layer: "director-manifest" },
+    { id: "roundtrip", level: "native", layer: "connector" },
+    { id: "headless", level: "native", layer: "connector" },
+    // Preview-only live link: the Gateway loopback transport
+    // (backend/gateway/dcc/unrealLivePreview.ts) and the connector session
+    // (director_livelink.py) both carry tested disconnect/reorder/duplicate
+    // semantics, and neither side can turn a live frame into a project
+    // mutation. The durable scene channel remains the hash-verified
+    // exchange/return package.
+    { id: "live_link", level: "native", layer: "connector" },
+  ],
+  connectorDirectory: "integrations/unreal",
+});
+
+/**
+ * Unity descriptor, split out of the shared {@link engineProvider} table
+ * because its connector maturity diverges from the other engines: the
+ * `com.director.bridge` Editor package bakes Director animation onto Unity
+ * Timeline, builds Humanoid/generic Avatars from skinned GLB payloads, and
+ * translates Director PBR materials to URP/Built-in — each validated by the
+ * in-package Unity EditMode suite plus the Unity-named Gateway golden tests.
+ * Live link is a preview-only, outbound-only polling transport: the Editor
+ * client long-polls the gateway with a scoped bearer token and sequence
+ * numbers, and the gateway hub is covered by disconnect-safety tests. It is
+ * never authoritative and exposes no remote-execute surface.
+ */
+function unityEngineProvider(): DirectorDccProviderDescriptor {
+  const exchangeFormats: Array<Exclude<DirectorDccExchangeFormat, "blend">> = ["glb", "usda"];
   return directorDccProviderDescriptorSchema.parse({
-    id,
-    label,
+    id: "unity",
+    label: "Unity",
     category: "engine",
     integration: "engine-headless",
-    preferredFormat,
+    preferredFormat: "glb",
     exchangeFormats,
     capabilities: [
       // Scene layout and cameras still travel through the portable package;
       // the connector performs the host-side import but the format carries them.
       { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
       { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
-      // Animation, skeletons, and materials stay planned until a version-tested
-      // acceptance suite validates the host-side work end to end.
-      { id: "animation", level: "planned", layer: "connector" },
-      { id: "skeleton", level: "planned", layer: "connector" },
-      { id: "materials", level: "planned", layer: "connector" },
+      // The connector bakes Director keyframe/trajectory animation into Unity
+      // AnimationClips on Timeline; unsupported channels warn-and-omit.
+      { id: "animation", level: "native", layer: "connector" },
+      // Humanoid Avatars are built from Mixamo-compatible skinned GLB payloads
+      // (generic Avatar fallback); characters resolve by assetRefId, never index.
+      { id: "skeleton", level: "native", layer: "connector" },
+      // Director PBR manifest materials fall back to URP/Lit or Standard;
+      // unsupported material graphs warn-and-omit.
+      { id: "materials", level: "native", layer: "connector" },
       // The Director manifest and connector preserve stable director:id
       // metadata on both directions of the handoff.
       { id: "stable_ids", level: "native", layer: "director-manifest" },
@@ -346,12 +402,65 @@ function engineProvider(
       // connector; runtime availability is still gated by nativeReady.
       { id: "roundtrip", level: "native", layer: "connector" },
       { id: "headless", level: "native", layer: "connector" },
-      // No live preview transport ships yet; see MULTI_DCC_INTEGRATION.md.
-      { id: "live_link", level: "planned", layer: "connector" },
+      // Preview-only live link: the DirectorLiveLink Editor window long-polls
+      // the gateway hub (scoped bearer token, monotonic sequence numbers,
+      // snapshot resync) and never writes back. Disconnect safety is pinned by
+      // the gateway unityLiveLink tests; there is no remote-execute endpoint.
+      { id: "live_link", level: "native", layer: "connector" },
     ],
-    connectorDirectory: `integrations/${id}`,
+    connectorDirectory: "integrations/unity",
   });
 }
+
+/**
+ * Godot 4 descriptor. Split from the shared `engineProvider()` literal because
+ * the Godot connector ships deeper host-side coverage than the shared helper's
+ * conservative claims. Every native claim below is backed by host-free golden
+ * fixtures (`backend/gateway/tests/dcc/godot*.test.ts`) plus a skip-if-missing
+ * real headless roundtrip, and remains gated at runtime by the engine bridge
+ * health check (`nativeReady`: connector source + Godot 4 executable + enabled
+ * addon in the configured project + connector health JSON).
+ */
+const GODOT_PROVIDER_DESCRIPTOR: DirectorDccProviderDescriptor = directorDccProviderDescriptorSchema.parse({
+  id: "godot",
+  label: "Godot",
+  category: "engine",
+  integration: "engine-headless",
+  preferredFormat: "glb",
+  exchangeFormats: ["glb"],
+  capabilities: [
+    // Scene layout and cameras still travel through the portable package;
+    // the connector performs the host-side import but the format carries them.
+    { id: "scene", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+    { id: "camera", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+    // Time-sampled transform and camera-fov animation is baked by the Gateway
+    // (canonical evaluators) into a hash-pinned sidecar and keyed by the
+    // connector into an AnimationPlayer/AnimationLibrary on director_id nodes.
+    // Rig pose channels stay warn-and-omit.
+    { id: "animation", level: "native", layer: "connector" },
+    // Skinned GLB payloads import through GLTFDocument as Skeleton3D + skin in
+    // bind pose with director_id tags; characters without a skeleton
+    // warn-and-omit.
+    { id: "skeleton", level: "native", layer: "connector" },
+    // glTF PBR payload materials become StandardMaterial3D with textures
+    // externalized to hashed res:// resources; Director PBR overrides map onto
+    // StandardMaterial3D. Custom shaders warn-and-omit.
+    { id: "materials", level: "native", layer: "connector" },
+    { id: "stable_ids", level: "native", layer: "director-manifest" },
+    { id: "roundtrip", level: "native", layer: "connector" },
+    { id: "headless", level: "native", layer: "connector" },
+    // Outbound-only preview transport (director-godot-live-link-v1): the
+    // editor plugin pushes sequence-numbered ephemeral frames to the Gateway's
+    // token-guarded live-link routes; Godot never listens on a port. Preview
+    // state is never authoritative — a disconnect (missed bye or idle
+    // timeout) always leaves the last committed Director revision intact,
+    // verified by the sequence/replay/disconnect goldens in
+    // backend/gateway/tests/dcc/godotLiveLink.test.ts. Durable changes still
+    // travel only through the reviewed return-package path.
+    { id: "live_link", level: "native", layer: "connector" },
+  ],
+  connectorDirectory: "integrations/godot",
+});
 
 /**
  * Product capability catalog. Runtime installation state is deliberately kept
@@ -374,17 +483,21 @@ export const DIRECTOR_DCC_PROVIDERS: readonly DirectorDccProviderDescriptor[] = 
       { id: "stable_ids", level: "native", layer: "director-manifest" },
       { id: "roundtrip", level: "native", layer: "connector" },
       { id: "headless", level: "native", layer: "connector" },
-      { id: "live_link", level: "planned", layer: "connector" },
+      // Preview-only delta feed from the native live kernel (sequence numbers,
+      // replay protection, resync on epoch change/eviction). Never
+      // authoritative: committed Director state only changes through the
+      // revision-guarded live command batches or the reviewed return import.
+      { id: "live_link", level: "native", layer: "connector" },
     ],
     connectorDirectory: "integrations/blender",
   }),
   exchangeProvider("maya", "Autodesk Maya", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("unreal", "Unreal Engine", "usda", ["usda", "glb"]),
+  UNREAL_PROVIDER_DESCRIPTOR,
   exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("unity", "Unity", "glb", ["glb", "usda"]),
+  unityEngineProvider(),
   exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("godot", "Godot", "glb", ["glb"]),
+  GODOT_PROVIDER_DESCRIPTOR,
 ]);
 
 /**

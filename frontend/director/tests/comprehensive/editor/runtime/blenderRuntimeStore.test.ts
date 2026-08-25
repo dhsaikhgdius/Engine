@@ -80,6 +80,29 @@ it("does not let a slower poll replace newer scene evidence", () => {
   });
 });
 
+it("publishes a status whose only change is a newer live-link sequence", () => {
+  const status = {
+    available: true as const,
+    ok: true as const,
+    contract: BLENDER_LIVE_CONTRACT,
+    projectId: snapshot.projectId,
+    sceneEpoch: snapshot.sceneEpoch,
+    blenderVersion: "5.1.2",
+    revision: 4,
+    busy: false,
+  };
+  useBlenderRuntimeStore
+    .getState()
+    .publishStatus({ ...status, liveLink: { seq: 1, bufferedFrames: 1, capacity: 256 } });
+  // Same revision and epoch: only the preview-only delta feed advanced.
+  useBlenderRuntimeStore
+    .getState()
+    .publishStatus({ ...status, liveLink: { seq: 7, bufferedFrames: 2, capacity: 256 } });
+
+  const published = useBlenderRuntimeStore.getState().status;
+  expect(published?.available === true && published.liveLink).toEqual({ seq: 7, bufferedFrames: 2, capacity: 256 });
+});
+
 it("publishes native rig capability evidence by root object", () => {
   useBlenderRuntimeStore.getState().publishNativeRigCapability({
     rootObjectId: "character-root",

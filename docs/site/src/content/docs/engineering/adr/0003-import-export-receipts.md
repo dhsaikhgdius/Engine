@@ -2,7 +2,12 @@
 title: "ADR 0003: plans, manifests, and receipts for interchange"
 ---
 
-- **Status:** Proposed
+- **Status:** Accepted for the shipped adapters (verified 2026-08-25) — creative interchange
+  `plan-import` → `import` and `plan-export` → `export` (Fountain, OTIO/OTIOZ, glTF/GLB, USD/USDZ;
+  OBJ/STL export with SHA-256 file receipts) implement the plan/receipt runtime path
+  (`frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts` + import/export tests), and
+  the Blender `.blend` import ships a server-persisted plan with guarded atomic apply. Adapter
+  paths not listed here remain Proposed.
 - **Decision owners:** Director interchange and DCC maintainers
 - **Related:** `PIPELINE_SYSTEM_DESIGN.md`, `PIPELINE_IMPLEMENTATION_ROADMAP.md`
 

@@ -22,8 +22,12 @@ vi.mock("../../../../src/comprehensive/editor/generated3d/generated3dClient", ()
   retryGenerated3DJob: mocks.retry,
   reconcileGenerated3DJob: mocks.reconcile,
 }));
-vi.mock("../../../../src/comprehensive/editor/generated3d/generated3dPromotion", () => ({ promoteGenerated3DJob: mocks.promote }));
-vi.mock("../../../../src/comprehensive/editor/reconstruction/referenceImageAnalysis", () => ({ prepareDirectorReferenceImage: mocks.prepare }));
+vi.mock("../../../../src/comprehensive/editor/generated3d/generated3dPromotion", () => ({
+  promoteGenerated3DJob: mocks.promote,
+}));
+vi.mock("../../../../src/comprehensive/editor/reconstruction/referenceImageAnalysis", () => ({
+  prepareDirectorReferenceImage: mocks.prepare,
+}));
 
 import { Generated3DDialog } from "../../../../src/comprehensive/editor/generated3d/Generated3DDialog";
 

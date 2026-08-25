@@ -131,8 +131,8 @@ export interface MixamoCrouchPoseFrame {
 function hasLegChain(bones: MixamoResolvedBones, side: "left" | "right") {
   return Boolean(
     bones[side === "left" ? "leftHip" : "rightHip"] &&
-      bones[side === "left" ? "leftKnee" : "rightKnee"] &&
-      bones[side === "left" ? "leftFoot" : "rightFoot"],
+    bones[side === "left" ? "leftKnee" : "rightKnee"] &&
+    bones[side === "left" ? "leftFoot" : "rightFoot"],
   );
 }
 

@@ -48,6 +48,7 @@ export default tseslint.config(
             "tools/scripts/assetIngestGates.ts",
             "tools/scripts/assetIngestGates.test.ts",
             "tools/scripts/generate-flick-metadata.test.ts",
+            "tools/scripts/i18n-completeness.test.ts",
           ],
         },
         sourceType: "module",
@@ -75,8 +76,7 @@ export default tseslint.config(
           patterns: [
             {
               group: ["**/frontend/director/**", "../../../frontend/**"],
-              message:
-                "Agent-engine must stay store-free. Browser execution belongs in frontend/director/src/agent/.",
+              message: "Agent-engine must stay store-free. Browser execution belongs in frontend/director/src/agent/.",
             },
           ],
         },

@@ -7,7 +7,10 @@ import {
   disposeDirectorStaticPrimitiveRenderMesh,
   getDirectorStaticPrimitiveMaterialProps,
 } from "../../../../src/comprehensive/editor/canvas/StaticPrimitiveBatches";
-import { isDirectorBatchedObjectBatchMesh, isDirectorInstancedObjectBatchMesh } from "../../../../src/comprehensive/editor/canvas/directorObjectBatch";
+import {
+  isDirectorBatchedObjectBatchMesh,
+  isDirectorInstancedObjectBatchMesh,
+} from "../../../../src/comprehensive/editor/canvas/directorObjectBatch";
 
 function createBox(id: string, patch: Partial<DirectorObject> = {}): DirectorObject {
   return {

@@ -18,6 +18,7 @@ import {
   migrateDirectorProduction,
   reconcileDirectorProduction,
 } from "../schema/directorProduction";
+import { persistProductionGraphIdentities } from "../productionGraph/productionGraphMigration";
 import type {
   DirectorAssetRef,
   DirectorAssetSource,
@@ -255,8 +256,7 @@ interface DirectorInternalState {
 }
 
 type DirectorHistoryEntry =
-  | { domain: "director"; state: DirectorState }
-  | { domain: "blender"; projectId: string; sceneEpoch: string };
+  { domain: "director"; state: DirectorState } | { domain: "blender"; projectId: string; sceneEpoch: string };
 
 type PendingBlenderSync = {
   sceneEpoch: string;
@@ -592,6 +592,42 @@ function cloneJsonValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Restore structural sharing after a whole-document rebuild (structuredClone
+ * or JSON round trip): every subtree that is deep-equal to the previous
+ * document keeps the previous reference. Store subscribers selecting an
+ * untouched branch (assets, cameras, production, ...) then see an identical
+ * reference and skip re-rendering when an authored edit changed something else.
+ */
+function reuseUnchangedJsonReferences<T>(previous: unknown, next: T): T {
+  if (Object.is(previous, next)) return next;
+  if (Array.isArray(previous) && Array.isArray(next)) {
+    let reusedAll = previous.length === next.length;
+    const merged = next.map((item, index) => {
+      const reused = reuseUnchangedJsonReferences(previous[index], item);
+      if (!Object.is(reused, previous[index])) reusedAll = false;
+      return reused;
+    });
+    return (reusedAll ? previous : merged) as T;
+  }
+  if (isPlainJsonObject(previous) && isPlainJsonObject(next)) {
+    const nextKeys = Object.keys(next);
+    let reusedAll = Object.keys(previous).length === nextKeys.length;
+    const merged: Record<string, unknown> = {};
+    for (const key of nextKeys) {
+      const reused = reuseUnchangedJsonReferences(previous[key], next[key]);
+      merged[key] = reused;
+      if (!Object.is(reused, previous[key])) reusedAll = false;
+    }
+    return (reusedAll ? previous : merged) as T;
+  }
+  return next;
+}
+
 function readPersistedLocalModelAssets() {
   const storage = getLocalStorageSafe();
   if (!storage) return [];
@@ -793,7 +829,7 @@ export function migrateDirectorProject(project: DirectorProject): DirectorProjec
       : object,
   );
 
-  return migrateDirectorProduction(migratedProject);
+  return persistProductionGraphIdentities(migrateDirectorProduction(migratedProject));
 }
 
 function withReconciledProduction(project: DirectorProject): DirectorProject {
@@ -1100,7 +1136,9 @@ function createUndoStackEntry(state: DirectorRuntimeState) {
   return extractPersistedDirectorState(state);
 }
 
-function createDirectorHistoryEntry(state: DirectorRuntimeState): Extract<DirectorHistoryEntry, { domain: "director" }> {
+function createDirectorHistoryEntry(
+  state: DirectorRuntimeState,
+): Extract<DirectorHistoryEntry, { domain: "director" }> {
   return { domain: "director", state: createUndoStackEntry(state) };
 }
 
@@ -1112,15 +1150,15 @@ export function createDefaultDirectorProject({
   includePersistedLocalAssets?: boolean;
 } = {}): DirectorProject {
   const project = createCanonicalDefaultDirectorProject();
-  if (!includePersistedLocalAssets) return project;
+  if (!includePersistedLocalAssets) return persistProductionGraphIdentities(project);
   const defaultCharacterAsset = project.assets[0];
-  return {
+  return persistProductionGraphIdentities({
     ...project,
     assets: [
       ...project.assets,
       ...readPersistedLocalModelAssets().filter((asset) => asset.id !== defaultCharacterAsset?.id),
     ],
-  };
+  });
 }
 
 export function createInitialDirectorState(options: DirectorStateOptions = {}): DirectorState {
@@ -2194,7 +2232,10 @@ function blenderDirectorTransform(object: BlenderLiveSceneSnapshot["objects"][nu
   };
 }
 
-function blenderForwardTarget(position: readonly [number, number, number], rotation: readonly [number, number, number]) {
+function blenderForwardTarget(
+  position: readonly [number, number, number],
+  rotation: readonly [number, number, number],
+) {
   const target = new Vector3(0, 0, -1)
     .applyEuler(new Euler(rotation[0], rotation[1], rotation[2], "XYZ"))
     .multiplyScalar(10)
@@ -2209,10 +2250,7 @@ function blenderCameraVerticalFov(camera: BlenderLiveSceneSnapshot["cameras"][nu
   return (2 * Math.atan(sensorHeight / (2 * camera.focalLengthMm)) * 180) / Math.PI;
 }
 
-function reconcileBlenderCameras(
-  existing: DirectorCameraShot[],
-  nativeCameras: BlenderLiveSceneSnapshot["cameras"],
-) {
+function reconcileBlenderCameras(existing: DirectorCameraShot[], nativeCameras: BlenderLiveSceneSnapshot["cameras"]) {
   const nativeIds = new Set(nativeCameras.map((camera) => camera.id));
   const cameras = existing.filter(
     (camera) => camera.nativeSource?.engine !== "blender" || nativeIds.has(camera.nativeSource.objectId),
@@ -2435,10 +2473,9 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       const directorHistoryEntry = shouldPushDirectorHistory ? createDirectorHistoryEntry(currentState) : null;
       const runtimeState: DirectorRuntimeState = {
         ...nextState,
-        undoStack:
-          directorHistoryEntry
-            ? trimUndoStack([...currentState.undoStack, directorHistoryEntry.state])
-            : nextState.undoStack,
+        undoStack: directorHistoryEntry
+          ? trimUndoStack([...currentState.undoStack, directorHistoryEntry.state])
+          : nextState.undoStack,
         historyUndoStack: directorHistoryEntry
           ? trimHistoryStack([...currentState.historyUndoStack, directorHistoryEntry])
           : nextState.historyUndoStack,
@@ -2958,8 +2995,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             : state.pendingBlenderSyncs.filter(
                 (pending) => pending.sceneEpoch !== snapshot.sceneEpoch || pending.revision > snapshot.revision,
               );
-          const adoptBlenderState =
-            previousSceneWasSynchronized && pendingSync?.origin !== "director-projection";
+          const adoptBlenderState = previousSceneWasSynchronized && pendingSync?.origin !== "director-projection";
 
           const roots = blenderRootObjects(snapshot);
           const rootsByDirectorId = new Map(roots.map((root) => [blenderDirectorObjectId(root), root]));
@@ -3084,8 +3120,9 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           const lights = reconcileBlenderLights(nextState.project.lights ?? [], snapshot.lights);
           const activeNativeCamera = snapshot.cameras.find((camera) => camera.active);
           const activeCameraId = activeNativeCamera
-            ? cameras.find((camera) => camera.nativeSource?.objectId === activeNativeCamera.id)?.id ?? null
-            : nextState.project.activeCameraId && cameras.some((camera) => camera.id === nextState.project.activeCameraId)
+            ? (cameras.find((camera) => camera.nativeSource?.objectId === activeNativeCamera.id)?.id ?? null)
+            : nextState.project.activeCameraId &&
+                cameras.some((camera) => camera.id === nextState.project.activeCameraId)
               ? nextState.project.activeCameraId
               : (cameras[0]?.id ?? null);
           const synchronizedState = withProjectPatch(nextState, {
@@ -5888,9 +5925,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         clipboardPasteCount: currentState.clipboardPasteCount,
         undoStack: currentState.undoStack.slice(0, -1),
         redoStack: trimUndoStack([...(currentState.redoStack ?? []), redoState]),
-        historyUndoStack: historyEntry
-          ? currentState.historyUndoStack.slice(0, -1)
-          : currentState.historyUndoStack,
+        historyUndoStack: historyEntry ? currentState.historyUndoStack.slice(0, -1) : currentState.historyUndoStack,
         historyRedoStack: trimHistoryStack([
           ...currentState.historyRedoStack,
           { domain: "director", state: redoState },
@@ -5923,9 +5958,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           ...currentState.historyUndoStack,
           { domain: "director", state: undoState },
         ]),
-        historyRedoStack: historyEntry
-          ? currentState.historyRedoStack.slice(0, -1)
-          : currentState.historyRedoStack,
+        historyRedoStack: historyEntry ? currentState.historyRedoStack.slice(0, -1) : currentState.historyRedoStack,
         pendingBlenderSyncs: currentState.pendingBlenderSyncs,
       });
       persistDirectorStateImmediately(nextState);
@@ -5973,19 +6006,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       const characterIssues = getDirectorCharacterAssetBindingIssues(migratedProject);
       if (characterIssues.length) throw new Error(`人物资产绑定无效：${characterIssues[0]}`);
       commitMutation((state) => {
-        const remainingIds = new Set(migratedProject.objects.map((object) => object.id));
+        const nextProject = reuseUnchangedJsonReferences(state.project, migratedProject);
+        const remainingIds = new Set(nextProject.objects.map((object) => object.id));
         const nextSelectedIds = getOrderedSelectedObjectIds(state).filter((id) => remainingIds.has(id));
+        const selectionUnchanged =
+          nextSelectedIds.length === state.selectedObjectIds.length &&
+          nextSelectedIds.every((id, index) => state.selectedObjectIds[index] === id);
         const nextCrowdId =
           state.selectedCrowdId &&
-          migratedProject.objects.some(
-            (object) => object.kind === "character" && object.crowdId === state.selectedCrowdId,
-          )
+          nextProject.objects.some((object) => object.kind === "character" && object.crowdId === state.selectedCrowdId)
             ? state.selectedCrowdId
             : null;
         return {
           ...state,
-          project: migratedProject,
-          ...selectedObjectsPatch(nextSelectedIds, nextCrowdId),
+          project: nextProject,
+          ...selectedObjectsPatch(selectionUnchanged ? state.selectedObjectIds : nextSelectedIds, nextCrowdId),
         };
       });
     },

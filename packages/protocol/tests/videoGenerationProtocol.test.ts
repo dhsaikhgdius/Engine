@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeLtxDimension, normalizeLtxFrameCount, videoModelOperationSchema } from "../src/videoGenerationProtocol";
+import {
+  normalizeLtxDimension,
+  normalizeLtxFrameCount,
+  videoModelOperationSchema,
+} from "../src/videoGenerationProtocol";
 
 describe("video generation protocol", () => {
   it("normalizes LTX-2.3 spatial and temporal constraints", () => {

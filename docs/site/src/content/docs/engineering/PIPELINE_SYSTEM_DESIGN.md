@@ -36,7 +36,7 @@ recovery paths are.
 | Media engineering                      | Implemented core | Persistent bytes, waveform cache, proxy selection, offline state, relink       |
 | Collaboration and review               | Implemented core | Yjs document, awareness, comments, versions, comparison, restore               |
 | Blender handoff                        | Partial          | Validated one-way `.blend` export and optional preview; no round-trip merge    |
-| Unreal Engine handoff                  | Proposed         | USD-based package plus explicit import/return receipts                         |
+| Unreal Engine handoff                  | Partial          | Headless connector with Sequencer bake, skeletal/material import, and receipts |
 | Generation orchestration               | Partial          | Inspectable image/video jobs exist; no unified durable job DAG                 |
 | Cross-workspace production graph       | Partial          | Stable local IDs exist, but identity and lineage are still split across stores |
 

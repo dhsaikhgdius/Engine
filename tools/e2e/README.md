@@ -28,6 +28,9 @@ Requirements: repository dependencies installed and a Playwright Chromium downlo
 | `timeline-editing.spec.ts` | Drag clips, scrub playhead, split with S key, undo |
 | `media-drag-drop.spec.ts` | Real browser drag-and-drop: drag a media card onto a timeline track so it lands |
 | `export-dialog.spec.ts` | Open the export dialog, inspect output summary, close with Escape |
+| `stage-authoring.spec.ts` | 3D stage authoring: rename an object via the object tree, duplicate via clipboard shortcuts, undo both |
+| `canvas-dag.spec.ts` | Canvas production DAG: add note nodes, auto-layout, connect an edge, reject cycles, delete the edge, undo |
+| `gallery-media.spec.ts` | Gallery/media library: import a PNG in the Canvas workspace, verify the board node, search and collection filters |
 | `render-golden.spec.ts` | 3D stage pixel-level regression snapshots: import a pinned project, sample multiple monitor modes and viewport pixels |
 
 ## Helpers

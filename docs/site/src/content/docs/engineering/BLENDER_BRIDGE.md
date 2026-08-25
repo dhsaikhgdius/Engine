@@ -107,6 +107,36 @@ loaded only for a new accepted native scene version, while selection evidence ca
 creating a second scene loader. Native preview export bakes the current deformation without exporting
 skin state, so generating a preview cannot reset the live armature pose or its Director state token.
 
+### Preview-only live link
+
+The live kernel also publishes a bounded, preview-only delta feed. Every accepted scene snapshot is
+diffed into a live-link frame with a per-scene-epoch monotonic sequence number: `transform` frames
+carry object/camera/light transform, lens, and energy previews, while `structure` frames carry no
+entity data and signal that something bigger changed (created or deleted datablocks, mesh or
+material edits, renames, or an oversized delta), so the consumer must refetch the authoritative
+snapshot instead of patching. The kernel keeps a fixed ring of recent frames (128 by default) and
+reports the feed on `/health` as `liveLink { seq, bufferedFrames, capacity }`; the Modeling
+connection header shows the same sequence number.
+
+Clients poll through the read-only `blender_native` operation
+`{ "op": "live_link", "cursor": { "sceneEpoch": "…", "seq": N } }` or the equivalent browser route
+`GET /api/dcc/blender/live-link?epoch=…&since=N`. The response either returns the
+contiguous frames after the cursor or a `resync` marker (`initial`, `epoch_changed`, or
+`history_evicted`). The shared replay guard in `packages/protocol/src/blenderLiveLinkProtocol.ts`
+drops duplicate or replayed frames and forces a snapshot resync on any sequence gap or epoch change,
+so a consumer can never silently desynchronize.
+
+The Stage consumes this feed as a read-only preview: while the Modeling layer is visible, it polls
+the delta feed at a faster cadence than the authoritative snapshot loop and re-poses the mounted
+preview nodes and the active-camera preview directly. The preview never calls a store mutator and
+never writes a project revision — `structure` frames and any replay-guard resync pause the deltas
+and force a fresh authoritative snapshot instead of patching.
+
+Live-link frames are never authoritative. Committed Director state changes only through the
+revision-guarded live command batches or the reviewed return import, so dropping the link, evicting
+buffered history, or restarting Blender leaves the last committed Director revision intact by
+construction.
+
 The file-import and round-trip workflows below remain available for projects
 that intentionally exchange snapshots with a separate Blender installation.
 
@@ -205,8 +235,12 @@ limits, and process timeouts reduce exposure but do not turn Blender into a sand
 The local Gateway snapshots the current validated `DirectorProject`, writes a
 versioned scene package, invokes Blender in background mode, and returns the generated
 `.blend`, report, and optional camera preview paths. The return exporter emits a
-`director-dcc-return-v1` package containing only stable-ID mesh replacements and
-transform updates. Director verifies all hashes, builds a reviewable
+`director-dcc-return-v1` package containing stable-ID mesh replacements, transform
+updates, camera updates (transform plus focal length, aperture, focus distance, and
+clip distances), light updates for lights that carry a `director_id`, portable
+character pose-control updates with optional root motion, and hashed
+`object_addition` entries for new root objects the artist explicitly stamped with a
+fresh `director_id`. Director verifies all hashes, builds a reviewable
 `director-dcc-import-plan-v1`, and applies the exact plan through the same
 revision-guarded authoring engine used by Agents and the UI.
 
@@ -234,9 +268,16 @@ with the original `scene.director-dcc.json`. Preview and apply the return:
 {
   "op": "import_return_package",
   "package_dir": "JOB_ID/return-package",
-  "dry_run": true
+  "dry_run": true,
+  "include_new_objects": false
 }
 ```
+
+`include_new_objects` defaults to `false`: `object_addition` entries are skipped with a warning
+until the operator explicitly opts in, so Director never auto-imports new Blender objects without
+review. Opted-in additions plan as `create_prop` operations (asset upsert plus a new prop object); a
+`director_id` that already exists in the live project is reported as a `duplicate_director_id`
+conflict instead of being applied.
 
 ```json
 {
@@ -249,8 +290,9 @@ with the original `scene.director-dcc.json`. Preview and apply the return:
 
 `import_return_package` never mutates the live project. Apply re-reads the
 package, verifies every SHA-256, checks the source and live revisions, rebuilds
-the plan, then emits one `upsert_asset + update_object/update_camera` authoring
-batch. Take, Coverage, Storyboard, and Shot IR identities are not replaced.
+the plan, then emits one authoring batch (`upsert_asset`, `update_object`,
+`update_camera`, `update_light`, and character pose-control updates). Take,
+Coverage, Storyboard, and Shot IR identities are not replaced.
 
 HTTP equivalents are `GET /api/dcc/status` and
 `POST /api/tools/director_dcc`. Raw HTTP clients must first bootstrap the local
@@ -271,6 +313,13 @@ installed in the standard macOS application path or available on `PATH`.
 - Camera: focal length (including animated lens keys), cropped sensor gate,
   aperture, focus distance, shutter angle, ISO, clipping planes, anamorphic
   squeeze metadata, aspect ratio, and target
+- Lights: `director_id`-stamped directional/point/spot/rect-area lights carrying
+  Director color/intensity plus the exact wattage conversion factor used on
+  import, so intensity edits invert losslessly on return
+- Character pose: portable `director_pose.*` custom properties (one per control)
+  next to a JSON baseline, an armature pose-bone fingerprint, a Director
+  bone-role map (`director_pose_bone_map`), and per-role pose-bone baselines
+  stamped at import time so mapped bone edits can reconcile on return
 
 Every job lives under `data/dcc-jobs/blender/<uuid>/` and contains:
 
@@ -310,12 +359,35 @@ native IK and motion blend ramps remain capability-gated rather than presenting 
 nothing.
 
 Object and camera transforms share the Director timeline and Mixamo/GLB character
-geometry is imported. Refined object meshes plus object/camera transforms can
-return by stable ID with preview-before-apply conflict reporting. New Blender-only
-objects are warnings and are not auto-created in v1.5. Character pose-control
-values are preserved as per-frame metadata, but they are not yet baked onto
-Blender armature bones. Materials ride inside the refined GLB, while light
-creation, camera optics changes, interactive add-on synchronization, final
-animation rendering, and Unreal Interchange remain outside this round-trip
-contract. Arbitrary `.blend` files use the separate scene-import contract above;
-they do not gain stable-ID round-trip semantics automatically.
+geometry is imported. Refined object meshes, object/camera transforms, camera
+optics (focal length, aperture, focus distance, clip distances), `director_id`
+lights (position, target, color, intensity), and portable character pose controls
+with root motion can return by stable ID with preview-before-apply conflict
+reporting. Values outside Director's authoring limits are baked to the nearest
+limit with an explicit warning, never silently dropped. Sensor-size edits are
+warn-and-omit: Blender sensor dimensions never overwrite the Director sensor
+format.
+
+Direct armature pose-bone edits reconcile only where the stamped Director
+bone-role map covers them: rotation deltas on mapped bones convert into portable
+`director_pose.*` control deltas (exact for single-axis edits such as bending an
+elbow or turning the head; large combined multi-axis edits are an explicit
+warned approximation because Euler composition is not linear). Bone
+translations, bone scales, edits to unmapped bones, and legacy `.blend` files
+without a stamped bone map remain warn-and-omit, and an explicit
+custom-property edit always wins over a bone-derived delta on the same control.
+
+New Blender objects import only through review: the artist stamps a fresh
+`director_id` custom property on the new root object, the exporter emits a
+hashed `object_addition` with honesty warnings (default datablock names, linked
+libraries, unapplied modifiers, non-mesh datablock types), and the plan includes
+it only under the explicit `include_new_objects` opt-in — as a prop, never as a
+character or light. Objects and lights without a `director_id` stay warnings and
+are never auto-created. Materials ride inside the refined GLB, while light
+creation, interactive add-on synchronization, final animation rendering,
+shader/constraint/simulation transfer (no lossless shaders, constraints, or
+simulations), and Unreal Interchange remain outside this round-trip contract.
+File interchange always runs Blender with `--factory-startup
+--disable-autoexec`, and no request-supplied Python is ever executed.
+Arbitrary `.blend` files use the separate scene-import contract above; they do
+not gain stable-ID round-trip semantics automatically.

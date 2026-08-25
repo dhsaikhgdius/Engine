@@ -158,7 +158,15 @@ function currentInterchangeGuard(
 
 function interchangeFailure(
   action: string,
-  code: "unsupported" | "not_found" | "stale_guard" | "capacity" | "unavailable" | "export_failed" | "import_failed" | "aborted",
+  code:
+    | "unsupported"
+    | "not_found"
+    | "stale_guard"
+    | "capacity"
+    | "unavailable"
+    | "export_failed"
+    | "import_failed"
+    | "aborted",
   error: string,
   suggestedNext: string,
   currentGuard?: SemanticGuard,
@@ -448,12 +456,14 @@ async function resolveImportSourceBytes(
   signal?: AbortSignal,
 ): Promise<{ bytes: Uint8Array; fileName: string; sourceKind: "inline" | "media_id" | "workspace_path" }> {
   if (source.kind === "inline") {
-    const bytes =
-      source.encoding === "utf8" ? new TextEncoder().encode(source.payload) : base64ToBytes(source.payload);
+    const bytes = source.encoding === "utf8" ? new TextEncoder().encode(source.payload) : base64ToBytes(source.payload);
     if (bytes.byteLength > maxInlineBytes || bytes.byteLength > MAX_INLINE_EXPORT_BYTES) {
-      throw Object.assign(new Error(`Inline import payload is ${bytes.byteLength} bytes, above the ${maxInlineBytes} byte limit.`), {
-        code: "capacity" as const,
-      });
+      throw Object.assign(
+        new Error(`Inline import payload is ${bytes.byteLength} bytes, above the ${maxInlineBytes} byte limit.`),
+        {
+          code: "capacity" as const,
+        },
+      );
     }
     return {
       bytes,
@@ -470,9 +480,12 @@ async function resolveImportSourceBytes(
     }
     const bytes = new Uint8Array(await blob.arrayBuffer());
     if (bytes.byteLength > maxInlineBytes || bytes.byteLength > MAX_INLINE_EXPORT_BYTES) {
-      throw Object.assign(new Error(`Media ${source.media_id} is ${bytes.byteLength} bytes, above the ${maxInlineBytes} byte limit.`), {
-        code: "capacity" as const,
-      });
+      throw Object.assign(
+        new Error(`Media ${source.media_id} is ${bytes.byteLength} bytes, above the ${maxInlineBytes} byte limit.`),
+        {
+          code: "capacity" as const,
+        },
+      );
     }
     const asset = persistentCreativeMediaLibrary.getAsset(source.media_id);
     return {
@@ -483,7 +496,9 @@ async function resolveImportSourceBytes(
   }
   if (!context.resolveWorkspacePath) {
     throw Object.assign(
-      new Error("workspace_path imports require a host that can read the Agent workspace; use inline or media_id in the browser."),
+      new Error(
+        "workspace_path imports require a host that can read the Agent workspace; use inline or media_id in the browser.",
+      ),
       { code: "unavailable" as const },
     );
   }
@@ -493,11 +508,17 @@ async function resolveImportSourceBytes(
   const resolved = await context.resolveWorkspacePath(source.path, signal);
   if (resolved.bytes.byteLength > maxInlineBytes || resolved.bytes.byteLength > MAX_INLINE_EXPORT_BYTES) {
     throw Object.assign(
-      new Error(`Workspace path ${source.path} is ${resolved.bytes.byteLength} bytes, above the ${maxInlineBytes} byte limit.`),
+      new Error(
+        `Workspace path ${source.path} is ${resolved.bytes.byteLength} bytes, above the ${maxInlineBytes} byte limit.`,
+      ),
       { code: "capacity" as const },
     );
   }
-  return { bytes: resolved.bytes, fileName: safeFileName(resolved.fileName, source.path.split(/[\\/]/).at(-1) ?? "import.bin"), sourceKind: "workspace_path" };
+  return {
+    bytes: resolved.bytes,
+    fileName: safeFileName(resolved.fileName, source.path.split(/[\\/]/).at(-1) ?? "import.bin"),
+    sourceKind: "workspace_path",
+  };
 }
 
 async function parseInterchangeImport(
@@ -569,7 +590,7 @@ async function planInterchangeImport(
           }
         : {
             video_tracks: Array.isArray((payload.imported as { editTracks?: unknown[] }).editTracks)
-              ? ((payload.imported as { editTracks: unknown[] }).editTracks.length)
+              ? (payload.imported as { editTracks: unknown[] }).editTracks.length
               : 0,
             video_clips: Array.isArray((payload.imported as { editTracks?: Array<{ clips?: unknown[] }> }).editTracks)
               ? (payload.imported as { editTracks: Array<{ clips?: unknown[] }> }).editTracks.reduce(
@@ -598,7 +619,19 @@ async function planInterchangeImport(
   } catch (error) {
     const code =
       error && typeof error === "object" && "code" in error
-        ? (error as { code: "unsupported" | "not_found" | "stale_guard" | "capacity" | "unavailable" | "export_failed" | "import_failed" | "aborted" }).code
+        ? (
+            error as {
+              code:
+                | "unsupported"
+                | "not_found"
+                | "stale_guard"
+                | "capacity"
+                | "unavailable"
+                | "export_failed"
+                | "import_failed"
+                | "aborted";
+            }
+          ).code
         : "import_failed";
     return interchangeFailure(
       request.action,
@@ -646,9 +679,10 @@ async function commitInterchangeImport(
   }
   try {
     if (payload.kind === "stage") {
-      (context.replaceStageProject ?? ((project: DirectorProject) => useDirectorStore.getState().replaceProject(project)))(
-        payload.project,
-      );
+      (
+        context.replaceStageProject ??
+        ((project: DirectorProject) => useDirectorStore.getState().replaceProject(project))
+      )(payload.project);
     } else {
       const interchange = await import("../comprehensive/editor/interchange");
       if (!interchange.applyDirectorCreativeOtioImport(payload.imported as never)) {

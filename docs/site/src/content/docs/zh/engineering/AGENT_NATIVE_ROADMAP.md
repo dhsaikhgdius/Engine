@@ -5,7 +5,7 @@ description: 基于 Agent-Native 架构符合性评估，分阶段提升 UI/Agen
 
 本路线图将 [Agent-Native 架构符合性评估](/zh/research/agent-native-architecture-assessment/) 中的差距，转化为可分批交付的里程碑。目标是在不推翻现有 Stage / Canvas / Video / Agent store 的前提下，把 Director 从「核心路径 agent-native」推进到「全面对等 + 统一治理」。
 
-Drafted: **2026-08-02**。最近核验：**2026-08-13**。
+Drafted: **2026-08-02**。最近核验：**2026-08-25**。
 
 ## 已完成基础：naive caller boundary
 
@@ -58,14 +58,14 @@ Blender `apply` 会快照原生场景并注入缺失的 epoch、revision 和 int
 
 | 阶段   | 主题                   | 状态        | 主要产出                                                                         | 依赖             |
 | ------ | ---------------------- | ----------- | -------------------------------------------------------------------------------- | ---------------- |
-| **M0** | 基线与度量             | Planned     | UI/Agent parity 清单、parity harness                                             | 无               |
-| **M1** | Shared action registry | Planned     | UI 高频路径经 `applyDirectorAuthoringActions`                                    | M0               |
-| **M2** | Human-only 面消除      | **Partial** | Interchange 导出 + collab observe/comment 已交付；导入与剩余 collab 写操作未完成 | M1（部分可并行） |
-| **M3** | Gateway 统一治理       | **Partial** | MCP / 本地 / 托管已共享 `filmRoleToolPolicy`；原始 HTTP/UI 与统一审计未完成      | M1               |
-| **M4** | 产品内 workspace       | Planned     | SQL-backed instructions / skills / memory                                        | M3               |
-| **M5** | 可观测性               | Planned     | Trace、cost、长任务进度                                                          | M3               |
+| **M0** | 基线与度量             | **Partial**     | Stage 清单 + parity 测试 + Feature Status 行已交付；生成脚本与 `stage_*` 对照表未完成 | 无               |
+| **M1** | Shared action registry | **Partial**     | Stage 单次 mutator 已共享 `applyDirectorAuthoringActions`；Canvas/Video 离散 mutator（1e/1f）已走 `dispatchCreativeWorkspaceOperations`；创建流程与 gizmo/trim 拖拽仍待 | M0               |
+| **M2** | Human-only 面消除      | **Implemented** | Interchange 导出与导入（`plan-import`/`import`）及全部 collab 评论/版本写操作均为 JSON；文件选择器仅作为本地文件的可选便捷入口保留 | M1（部分可并行） |
+| **M3** | Gateway 统一治理       | **Partial** | 策略、统一审计与确认边界已覆盖原始 HTTP/CLI；role 限制 UI 已交付；只读 mode 未完成 | M1               |
+| **M4** | 产品内 workspace       | **已交付**  | SQL 持久化 instructions / skills / memory、Settings 编辑器、bundle 导出/导入     | M3               |
+| **M5** | 可观测性               | **Partial** | Session trace、cost/latency 计量、统一 progress 与 `/api/agent/*` 已交付；eval hooks 未做 | M3               |
 | **M6** | 团队就绪               | Planned     | Collaboration auth、multi-agent 增强                                             | M3、M5           |
-| **M7** | 生态协议               | Planned     | OpenAPI manifest、A2A 评估                                                       | M2、M3           |
+| **M7** | 生态协议               | **Implemented** | Tool manifest、A2A go/no-go 已在 ADR 0004 得出结论（runtime no-go；提供 discovery-only card）、cross-app 回执 recipe。A2A runtime 未交付 | M2、M3           |
 
 ```mermaid
 flowchart LR
@@ -83,56 +83,70 @@ flowchart LR
 
 ## Milestone 0 — 基线与度量
 
+**状态：Partial**（核验于 2026-08-25）。
+
 **目标：** 让后续 parity 工作可量化、可回归。
 
-### 工作项
+### 已交付
 
-- 审计 `directorStore` 中所有 mutation 入口，产出 **UI mutation inventory**（文件、函数、是否已有 semantic twin）。
-- 对照 `directorAuthoringActionSchema`，标记 **parity gap 列表**（高 / 中 / 低优先级）。
-- 新增 **parity harness** 测试套件：
-  - 给定一组 authoring actions → UI executor 与 agent executor 产出相同 revision；
-  - 失败时输出 diff，而非仅断言 boolean。
-- 在 Feature Status 增加一行 **Agent UI parity coverage**（百分比 + 链接到 inventory）。
+- [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/) 覆盖 Stage `directorStore` 全部
+  变更入口，含 mutator、文件、semantic action 与
+  `shared` / `ui-only` / `human-only-interactive` 状态（35 / 87 项目 mutator 已 shared，约 40%）。
+- `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 的 parity 测试断言
+  store mutator 与直接 `applyDirectorAuthoringActions` 对删除、变换、相机 update/add/activate、
+  角色 motion set/clear、灯光 add/update/delete 产出相同 `getDirectorProjectRevision`。
+- Feature Status 已有 **Agent UI parity coverage** 行并链接清单。
+
+### 剩余工作
+
+- 把清单扩展到 Canvas/Video 的 top 变更路径（目前只有 out-of-scope 说明，没有逐 mutator 行）。
+- Parity harness 失败时应输出 revision **diff**，而非仅 boolean 断言。
+- 可选清单生成脚本（`tools/scripts/auditUiMutations.ts`），防止文档漂移。
 - 文档化 `stage_*` → `director_workbench` **迁移对照表**（op 映射、废弃时间表）。
 
 ### 验收
 
-- Inventory 覆盖 Stage / Canvas / Video 三大 workspace 的 top 20 变更路径。
+- Inventory 覆盖 Stage / Canvas / Video 三大 workspace 的 top 20 变更路径（Stage 已穷举；
+  Canvas/Video 行仍未完成）。
 - Parity harness 至少对现有 `directorAuthoring` 全集通过。
 - 无运行时行为变更。
-
-### 建议 PR 顺序
-
-1. Inventory 文档 + 生成脚本（可选：`tools/scripts/auditUiMutations.ts`）
-2. Parity harness 框架 + 5 个 seed cases
-3. Feature Status 与 assessment 文档互链
 
 ---
 
 ## Milestone 1 — Shared Action Registry
 
+**状态：Partial**（核验于 2026-08-25）。Stage 的对象、相机、角色/motion/IK、灯光、世界、场景、
+Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAuthoringActions` 执行
+（1a–1c 批次加灯光/世界；每个 mutator 的精确状态与旧路径回退见
+[对等清单](/zh/engineering/ui-agent-parity-inventory/)）。Canvas/Video 离散 mutator（1e/1f）现已经
+`dispatchCreativeWorkspaceOperations` 走共享 Creative 契约执行。Timeline 音频、标注/测量、图层、材质、
+资产流程以及 Canvas/Video 的创建流程与连续拖拽流仍直接 patch 状态，因此 M1 **尚未完成**。
+
 **目标：** UI 与 Agent 共享同一 mutation 路径，消除「双轨写入」。
 
 ### 工作项
 
-#### 1.1 引入 UI dispatch 层
+#### 1.1 引入 UI dispatch 层 — Stage 已交付
 
-- 新增 `dispatchDirectorAuthoringActions(actions, context)` — UI 专用薄封装：
+- `dispatchDirectorAuthoringActions(actions, context)`
+  （`frontend/director/src/agent/dispatchDirectorAuthoringActions.ts`）— UI 专用薄封装：
   - 自动填充 `expected_revision` / `idempotency_key`；
   - 统一错误 toast / undo 挂钩；
   - 内部仍调用 `applyDirectorAuthoringActions`。
-- Canvas / Video 同理：Creative workspace 经 `creativeWorkspaceAgentContract` 执行，UI 不再直接 patch snapshot。
+- UI patch → action 编译器在
+  `frontend/director/src/agent/compileDirectorUiAuthoringActions.ts`。
+- Canvas / Video 同理 — 已交付 `dispatchCreativeWorkspaceOperations`：自动填充 snapshot-fingerprint guard 与 idempotency key，执行 Agent 同一份 `creativeWorkspaceAgentContract` envelope。
 
 #### 1.2 分批迁移 UI mutation（按 inventory 优先级）
 
-| 批次   | 范围                 | 典型 action                                       |
-| ------ | -------------------- | ------------------------------------------------- |
-| **1a** | 对象 CRUD、transform | `create_object`, `update_object`, `delete_object` |
-| **1b** | 相机与镜头           | `create_camera`, `update_camera`, `frame_camera`  |
-| **1c** | 角色与 motion        | `assign_motion`, `update_character_pose`          |
-| **1d** | Timeline / coverage  | `create_coverage`, `assign_take`                  |
-| **1e** | Canvas nodes / edges | creative `author` batch                           |
-| **1f** | Video tracks / clips | creative `author` batch                           |
+| 批次   | 范围                 | 典型 action                                            | 状态                                               |
+| ------ | -------------------- | ------------------------------------------------------ | -------------------------------------------------- |
+| **1a** | 对象 CRUD、transform | `add_object`, `update_object`, `delete_objects`        | 删除/单次变换/开关已 shared；新建流程与多选批量未完成 |
+| **1b** | 相机与镜头           | `add_camera`, `update_camera`, `set_active_camera`     | 已 shared                                          |
+| **1c** | 角色与 motion        | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | 已 shared                       |
+| **1d** | Timeline / coverage  | `add_coverage_shot`, `add_performance_take`, timeline 音频 | Storyboard + 实体动画已 shared；timeline 音频未完成 |
+| **1e** | Canvas nodes / edges | `canvas.node.*` / `canvas.edge.*` / `canvas.dag.layout` 经 `dispatchCreativeWorkspaceOperations` | **已交付** |
+| **1f** | Video tracks / clips | `edit.clip.*` / `edit.track.*` / `edit.settings.update` 经 `dispatchCreativeWorkspaceOperations` | **已交付** |
 
 #### 1.3 交互式操控的 semantic 等价物
 
@@ -148,7 +162,9 @@ flowchart LR
 
 ### 验收
 
-- Parity harness 覆盖 **1a–1d** 批次，UI 与 Agent 路径 revision 一致。
+- Parity harness 覆盖 **1a–1d** 批次，UI 与 Agent 路径 revision 一致
+  （目前已覆盖 1a–1c 加灯光/世界/Storyboard；timeline 音频未完成）。
+  **1e–1f** 由 `frontend/director/tests/agent/dispatchCreativeWorkspaceOperations.test.ts` 覆盖，对 UI dispatch 与 Agent envelope 的归一化 snapshot 做 diff。
 - 无新增「UI 直连 store、Agent 无等价」的高优先级 gap。
 - 现有 MCP / HTTP / CLI 集成测试全部通过。
 
@@ -163,109 +179,116 @@ flowchart LR
 
 ## Milestone 2 — Human-only 面消除
 
-**状态：Partial**（核验于 2026-08-13）。
+**状态：Implemented**（核验于 2026-08-25）。
 
 **目标：** Interchange、Collaboration、Media 可通过 JSON 操作完成，且带 plan/receipt。
 
 ### 已交付
 
-`director_creative` 已暴露：
+`director_creative` 已暴露完整 JSON 操作面：
 
-| 操作面                        | Actions                                                               | 证据                                                                                                              |
-| ----------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Interchange 导出              | `capabilities`、`plan-export`、`export`                               | `packages/protocol/src/creativeWorkspaceProtocol.ts`、Creative Agent 测试、[交换格式](/zh/pipelines/interchange/) |
-| Collaboration 读取 + 添加评论 | `observe`、`list-comments`、`add-comment`、`list-versions`、`compare` | 同一协议 + 语义操作测试                                                                                           |
-| Gallery / media 变更          | `gallery.media.*`、`media.proxy.attach` 及相关 execute ops            | Feature Status 中 Gallery 为 **Implemented**；持久媒体为 **Limited**                                              |
+| 操作面                 | Actions                                                                                                                                                       | 证据                                                                                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Interchange 导出       | `capabilities`、`plan-export`、`export`                                                                                                                         | `packages/protocol/src/creativeWorkspaceProtocol.ts`、Creative Agent 测试、[交换格式](/zh/pipelines/interchange/)                                            |
+| Interchange 导入       | `plan-import`（source 支持 `inline`、Gallery `media_id`、`workspace_path`），随后 `import`（`plan_id` + `expected_guard_fingerprint` + `confirm:true`）         | 同一协议、`frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts`、`frontend/director/tests/agent/creativeWorkspaceAgentContract.test.ts`      |
+| Collaboration 评论     | `observe`、`list-comments`、`add-comment`、`resolve-comment`、`reopen-comment`、`update-comment`、`delete-comment`（fingerprint guard + idempotency；删除需确认） | 同一协议、`frontend/director/tests/agent/creativeWorkspaceSemanticOperations.test.ts`（resolve-comment）                                                     |
+| Collaboration 版本     | `list-versions`、`compare`、`create-version`、`restore-version`、`delete-version`（restore/delete 需 `confirm:true`）                                           | 同一协议 + 语义操作测试（create-version、restore-version）                                                                                                   |
+| Gallery / media 变更   | `gallery.media.*`、`media.proxy.attach` 及相关 execute ops                                                                                                      | Feature Status 中 Gallery 为 **Implemented**；持久媒体为 **Limited**                                                                                         |
 
-导入仍是 human-file-picker-only：Agent 不会伪造浏览器文件句柄。
+浏览器文件选择器仍作为可选便捷入口保留（针对人类本地已打开的文件），但它不再是唯一导入路径，
+也不再阻塞 Agent 自动化。格式边界不变：Feature Status 中 Fountain / OTIO / glTF / USD 仍为
+**Limited**（记录在案的子集；FBX 导出与丰富 rig/动画往返仍不在范围内），大媒体字节仍不进入 Yjs。
 
-### 剩余项
+### 保留边界
 
-#### 2.1 Interchange 导入
+- OBJ/STL 仍是只导出格式；Feature Status **Limited** 的 Fountain / OTIO / glTF / USD 子集边界不变。
+- `workspace_path` 来源需要可信 host 解析；纯浏览器 target 会显式拒绝并提示改用 `inline` 或 `media_id`。
 
-- `import_plan` / `import_apply`（或等价 host-adapter 路径），带 `expected_revision` + idempotency
-- 对齐 [ADR 0003 import/export receipts](/zh/engineering/adr/0003-import-export-receipts/)
-- 保持 Feature Status **Limited** 的 Fountain / OTIO / glTF / USD 子集边界
+### 遗留项（非阻塞）
 
-#### 2.2 剩余 collaboration 写操作
-
-| op                                   | 说明               |
-| ------------------------------------ | ------------------ |
-| comment resolve                      | 关闭或解决审核评论 |
-| `version_create` / `version_restore` | 命名版本           |
-
-大媒体字节仍不进入 Yjs。
-
-### 验收（剩余项）
-
-- 每个剩余 op 有 Zod schema、executor、MCP 暴露、至少一个 integration test。
-- Skill / capabilities 把 JSON 列为 execution surface；导入在落地前仍显式标注为 human-file-picker-only。
-- Verified-shot 教程可 **纯 Agent** 完成一次 OTIO 导入 + 版本快照（可选人类 review）。
+- Verified-shot 教程尚未以「纯 Agent 完成 OTIO 导入 + 版本快照」的形式重录；所需 JSON 操作均已存在。
 
 ---
 
 ## Milestone 3 — Gateway 统一治理
 
-**状态：Partial**（核验于 2026-08-13）。
+**状态：Partial**（核验于 2026-08-25）。
 
 **目标：** 任意控制面入口受同一 permission 与 audit 策略约束。
 
 ### 已交付
 
-角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP、本地 Agent harness 与托管 API adapter 共用：
+角色策略在 `backend/gateway/agents/filmRoleToolPolicy.ts`（并未另建 `gatewayToolPolicy.ts`）。MCP、Multi-Agent production runner 与原始 gateway HTTP 工具边界共用：
 
-| 入口         | 绑定                                                                  |
-| ------------ | --------------------------------------------------------------------- |
-| MCP          | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`             |
-| 本地 harness | `agentAdapters.ts` 的 prompt + 派发前的 `filmRoleToolPolicyRejection` |
-| 托管 adapter | `openAiCompatibleAdapter.ts` 的可见性与拒绝                           |
+| 入口            | 绑定                                                                |
+| --------------- | -------------------------------------------------------------------- |
+| MCP             | `backend/gateway/mcp-server.ts` 中的 `DIRECTOR_FILM_ROLE`            |
+| Multi-Agent run | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` 及其路由 |
+| 原始 HTTP / CLI | `backend/gateway/agents/httpToolGovernance.ts` 应用于每条 `/api/tools/*` 路由（先取 `x-director-film-role` header，再取 `DIRECTOR_FILM_ROLE`，外加 `DIRECTOR_PLAN_MODE`；Stage CLI 与 DSH plugin 走同一批路由，因此同样被覆盖） |
 
 ### 剩余项
 
-#### 3.1 原始 HTTP 与 UI 权限
+#### 3.1b 可选 UI 权限门控
 
-- 把 `filmRoleToolPolicy` 接到原始 `POST /api/tools/{tool-name}`（因此也覆盖 CLI）。
-- 可选：只读 mode、role 限制下的 UI 禁用 — 与 policy 同源。
+- 已交付（2026-08-25）：`backend/gateway/agents/httpToolGovernance.ts` 已把 `filmRoleToolPolicy` 接到所有原始 `POST /api/tools/{tool-name}`（因此也覆盖 CLI）。Role 依次取 `x-director-film-role` header、`DIRECTOR_FILM_ROLE` 环境变量，否则不受限；策略拒绝返回 HTTP 403。
+- 已交付（2026-08-25）：与 policy 同源的 role 限制 UI。Allow-table 移至 `packages/protocol/src/filmRoleToolPolicy.ts`（gateway 路径 re-export），`GET /api/control-plane/film-role` 暴露当前 role，`frontend/director/src/comprehensive/editor/api/filmRoleGate.ts` 对不可 author 的 role（如 `visual-critic`）禁用 Stage 写控件与 UI authoring dispatch；observe/capture 保持可用。
+- 可选（未完成）：完整只读 mode。
 
 #### 3.2 统一 audit trail
 
-- 所有 tool invocation 写入 `agentSessionStore`（含 UI-dispatched author，标记 `source: ui | mcp | http | cli`）。
-- 结构化字段：`tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`。
+- 已交付（2026-08-25）：所有 tool invocation 写入 JSON 持久化的 `backend/gateway/agentToolAuditStore.ts`（含 UI-dispatched author，标记 `source: ui | mcp | http | cli`），可经 `GET /api/agent/tool-audit` 读取。
+- 结构化字段：`tool`, `operation`, `revision_before`, `revision_after`, `idempotency_key`, `role`, `outcome`, `session_id`。
 
 #### 3.3 确认边界（governed execution）
 
-- 定义 **destructive / publish** action 列表（如 `deliver`, `export`, `version_restore`）。
-- Agent 路径：harness approval 或 explicit `confirm_token`；
-- UI 路径：现有 modal；两者共享同一 `confirm_token` 生成逻辑。
+- 已交付（2026-08-25）：`CONFIRMABLE_TOOL_OPERATIONS` 定义封闭的 destructive/publish 列表（`director_workbench` `deliver`；`director_creative` interchange `export`/`import`、collaboration `restore-version`/`delete-version`/`delete-comment`、`gallery.media.purge`）。这些操作在 `POST /api/tools/*`（HTTP、MCP、CLI）上仅当 schema 已定义的 protocol 级 `confirm: true` 字段存在、或携带有效的单次 `confirm_token` 时才执行；否则返回 403 `confirm_required`（含 issue-on-deny 重试信息），绝不执行。
+- Token 由 `POST /api/agent/confirm-token` 签发（需 gateway auth），2 分钟过期、单次使用、绑定 tool + operation + role + session，以 SHA-256 hash 存于 `backend/gateway/agentConfirmTokenStore.ts`（JSON + `writeJsonAtomic`，与审计 store 同目录）。调用方以 body 顶层 `confirm_token` 字段（MCP/CLI 会从 tool input 中提出；CLI 亦读取 `DIRECTOR_CONFIRM_TOKEN`）或 `x-director-confirm-token` header 传递。Role policy 优先：被拒绝的 role 在读取 token 之前即被拒绝。
+- UI modal 继续使用 protocol 级 `confirm: true`；不阻塞无关编辑。
 
-### 验收（剩余项）
+### 验收
 
-- 同一 role 下，MCP 被拒绝的 op 在原始 HTTP/CLI 也被拒绝。
-- Audit log 可跨入口还原一次完整 author 会话的 tool 链。
-- 新增 governance integration test 覆盖 HTTP 与 UI 绕过路径。
+- 同一 role 下，MCP 被拒绝的 op 在原始 HTTP/CLI 也被拒绝 — 已完成（`backend/gateway/tests/routes/httpToolPolicyRoutes.test.ts`）。
+- Audit log 可通过 `GET /api/agent/audit` 跨 HTTP/CLI/MCP/DSH 入口还原 tool 链 — 已完成（`backend/gateway/tests/routes/agentAuditRoutes.test.ts`）；UI-dispatched author 操作待 UI 门控落地后纳入。
+- Governance 测试已覆盖 HTTP 绕过路径；UI 绕过路径随 3.1b 继续。
 
 ---
 
 ## Milestone 4 — 产品内 Agent Workspace
 
+**状态：已交付**（2026-08-25 验证）。
+
 **目标：** 团队指令、skills、memory 存于 SQLite，可在 app 内编辑，而非仅 repo 文件。
 
-### 工作项
+### 已交付
 
-- 新增 `agent_workspace` 表族（org / user scope）：
-  - `instructions`（等价 AGENTS.md）
-  - `learnings`（等价 LEARNINGS.md）
-  - `skill_refs`（指向 bundled 或 custom skills）
-  - `memory_entries`（结构化 KV，带 TTL）
-- Workbench harness 启动时 merge：repo Skills → DB workspace → session override。
-- UI：**Settings → Agent Workspace** 编辑器（Markdown + 版本历史）。
-- 与现有 `DIRECTOR_AGENT_PROFILES_JSON` 合并或迁移。
+- `agent_workspace_*` 表族（org / user scope），实现于
+  `backend/gateway/agents/agentWorkspaceStore.ts`，使用 Node 内置 `node:sqlite`
+  （数据目录下 `agent-workspace.sqlite`，WAL）：
+  - `agent_workspace_documents` + `agent_workspace_document_versions` —— `instructions`
+    （等价 AGENTS.md）与 `learnings`（等价 LEARNINGS.md），带有限长版本历史；
+  - `agent_workspace_skill_refs` —— 指向 bundled 或 custom skills 的引用（永不存可执行内容）；
+  - `agent_workspace_memory` —— 结构化 KV，带 TTL，访问时清理过期项。
+- Harness merge（优先级从低到高）：**repo skills → DB workspace（org → user）→ session
+  override**。网关在 `GET /api/agent/workspace/prompt` 合成生效提示词
+  （`agentWorkspacePrompt.ts`）；DSH 插件
+  （`packages/dsh-plugin-workbench/src/workspacePrompt.ts`）把它注册为
+  `director:workspace` system-prompt section 并周期刷新，DB 修改无需改 repo、无需重启
+  harness 即对新 session 生效。`DIRECTOR_SESSION_INSTRUCTIONS` 提供临时会话覆盖。
+- UI：**Settings → Agent 工作区** 弹出面板（`AgentWorkspaceSettings.tsx`），支持文档编辑、
+  版本历史恢复、技能引用、记忆条目、JSON bundle 导出/导入。
+- 与 `DIRECTOR_AGENT_PROFILES_JSON` 的合并策略见
+  [配置参考](/zh/reference/configuration/)：模型/供应商 Profile（含凭据）保留在 Profile 轴
+  （环境 JSON + `agent-api-providers.json`，环境优先、用户覆盖、保留 id 归环境）；workspace
+  只存 instructions / learnings / skill refs / memory，bundle 结构上不可能包含供应商凭据。
 
-### 验收
+### 验收（已验证）
 
-- 修改 DB instructions 后，新 session 可见，无需改 repo。
-- Export/import workspace bundle（JSON）用于 clone 场景。
-- 敏感字段 redaction 与现有 harness 一致。
+- 修改 DB instructions 后，新 session 可见，无需改 repo（store + prompt + 插件测试覆盖）。
+- Export/import workspace bundle（JSON）round-trip 通过（`agentWorkspaceStore.test.ts` 与路由测试）。
+- 敏感字段 redaction 与现有 harness 一致：planner 诊断与 workspace 提示词合成共享
+  `backend/gateway/redaction.ts` 同一套规则。
+- 红线：记忆由用户掌控、标记为不可信数据，**永远不会自动注入**任何提示词；合成逻辑在
+  结构上排除记忆，并有专项测试。
 
 ---
 
@@ -273,17 +296,31 @@ flowchart LR
 
 **目标：** 长任务、多步 Agent 工作可监督、可度量。
 
+**状态：Partial。** Session trace（`agentObservabilityProtocol` + gateway `AgentTraceStore`）、
+来自 model-provider adapter 的 cost/latency 计量、统一 progress schema、
+`/api/agent/traces|usage|progress` 路由以及 Agent 工作区的轨迹面板已交付；eval hooks 未做。
+
 ### 工作项
 
 - **Trace 视图**：按 session 展示 tool 链、revision 变化、capture 缩略图。
+  已交付：每次 `/api/tools/*` 调用记录一条执行回执（操作名、结果、guard revision、
+  idempotency key、去 token 的 capture 引用），并通过 `x-director-trace-source` 头
+  标注 `ui|mcp|http|cli` 来源；Agent 工作区轨迹面板可回放最近一次会话。回执从不
+  存储提示词、工具载荷或密钥，错误文本在持久化前做 redaction。
 - **Cost / latency**：从 provider adapter 汇总 token、wall time、retry 次数。
+  已交付：可注入的 `AgentUsageMeter` 按次记录 token、墙钟与传输层重试；
+  `GET /api/agent/usage` 返回样本与聚合。
 - **Progress API**：video job、multi-agent run、DCC export 统一 progress schema。
-- **Eval hooks**：deliver 后可挂载 rubric score（人工或自动），写入 session artifact。
+  已交付：`unifiedProgressSchema` 适配生产任务（含 `dcc.export` / `dcc.import`）、
+  multi-agent run 与 film run，经 `GET /api/agent/progress` 暴露，不改动源记录。
+- **Eval hooks**：deliver 后可挂载 rubric score（人工或自动），写入 session artifact。未做。
 
 ### 验收
 
-- Workbench UI 或独立 `/agent/traces` 页可查看最近一次 production run。
-- Feature Status 新增 Observability 行，状态从 Partial → Implemented。
+- Workbench UI 或独立 `/agent/traces` 页可查看最近一次 production run。已满足：
+  `/api/agent/traces/summary` 可重建最近一次会话的 tool 链，轨迹面板负责展示。
+- Feature Status 新增 Observability 行，状态从 Partial → Implemented。（当前在
+  Feature Status 中为 **Limited**；eval hooks 与长期留存是剩余边界。）
 
 ---
 
@@ -312,18 +349,27 @@ flowchart LR
 
 ## Milestone 7 — 生态协议
 
+**状态：Implemented**（核验于 2026-08-25；完整 A2A runtime 有意未交付）。
+
 **目标：** 与其他 agent-native app 互操作。
 
-### 工作项
+### 已交付
 
-- **OpenAPI / tool manifest 导出**：从 Zod schema 自动生成 HTTP tool catalog。
-- **A2A 评估 spike**：是否包装现有 gateway 为 A2A agent card；记录 go/no-go ADR。
-- **Cross-app recipe**：文档化「Director deliver → 外部 video post」的 receipt handoff 格式。
-
-### 验收
-
-- `GET /api/control-plane/tool-manifest` 返回可机器读取的 tool 列表。
-- A2A spike 有书面结论，不强制实现。
+- **Tool manifest 导出**：`GET /api/control-plane/tool-manifest` 返回机器可读的
+  `director-tool-manifest-v1` catalog，由与执行校验相同的 Zod schema 派生 —
+  surface（`mcp` / `http` / `both`）、wire `op` 枚举、HTTP 绑定，以及 HTTP-only
+  `stage_*` 兼容工具上的 `legacy` 标记。证据：`backend/gateway/controlPlane/toolManifest.ts`、
+  `backend/gateway/routes/controlPlaneRoutes.ts` 及对应测试。
+- **A2A spike 结论**：[ADR 0004](/zh/engineering/adr/0004-a2a-gateway-spike/) 给出书面
+  go/no-go —— live A2A JSON-RPC runtime 为 **no-go**（与 loopback-only、进程 token 的
+  gateway 鉴权不匹配；会形成第二套执行协议；exact-target 与 revision 守卫没有 A2A 原生
+  字段），discovery-only agent card 为 **go**。`GET /api/control-plane/a2a-agent-card`
+  提供该卡片：`discovery_only: true`、A2A endpoint 为 `null`、只含 loopback URL，skills
+  镜像实时 tool manifest。完整 A2A 持续推迟，除非合作产品具体需要。
+- **Cross-app recipe**：[Control surfaces — 跨 app 回执交接](/zh/agents/control-surfaces/#跨-app-回执交接)
+  文档化外部 app 如何消费 `deliver` 与 interchange `export` 回执 ——
+  `plan_id` / `receipt_id`、guard fingerprint 与逐文件 SHA-256 校验 —— 依照
+  [ADR 0003](/zh/engineering/adr/0003-import-export-receipts/)。
 
 ---
 
@@ -350,7 +396,7 @@ flowchart LR
 
 - 替换 Zustand 为远程 CRDT 主 store
 - 完整 SaaS 多租户 billing
-- 标准 A2A 完整实现（仅 spike，除非 M7 go）
+- 标准 A2A 完整实现（ADR 0004：runtime no-go；仅 discovery-only card，除非合作方有更多需求）
 - 移除 `stage_*` 工具（仅冻结扩展）
 - LTX / UE pipeline 完成（见 [Pipeline roadmap](/zh/engineering/pipeline_implementation_roadmap/)）
 
@@ -358,18 +404,19 @@ flowchart LR
 
 ## 成功指标
 
-| 指标                             | 当前（2026-08-13）        | 剩余 M2/M3 完成后      | M4 后 |
-| -------------------------------- | ------------------------- | ---------------------- | ----- |
-| Parity coverage（top mutations） | ~60%                      | ≥85%                   | ≥95%  |
-| Human-only 能力（已文档化）      | 导入 + 剩余 collab 写操作 | 导入在落地前仍显式标注 | 0 类  |
-| Gateway 入口 policy 一致         | 部分（MCP / 本地 / 托管） | 是，含原始 HTTP/UI     | 是    |
-| In-product workspace             | 否                        | 否                     | 是    |
-| Agent-native 综合评分（自评）    | 4.0                       | 4.2                    | 4.5   |
+| 指标                             | 当前（2026-08-25）                                    | 剩余 M3 完成后     | 剩余 M1 拖拽流完成后 |
+| -------------------------------- | ----------------------------------------------------- | ------------------ | -------------------- |
+| Parity coverage（top mutations） | top mutations 约 60%；全部 Stage 项目 mutator 约 40%（35/87，见[对等清单](/zh/engineering/ui-agent-parity-inventory/)） | ≥85%               | ≥95%  |
+| Human-only 能力（已文档化）      | 0 类必需（文件选择器仅作为本地文件的可选导入便捷入口；OBJ/STL 仍只导出） | 0 类必需           | 0 类  |
+| Gateway 入口 policy 一致         | 是（MCP / 本地 / 托管 / 原始 HTTP+CLI；role 限制 UI 已交付） | 是，含完整只读 mode | 是    |
+| In-product workspace             | **是（SQL instructions/skills/memory 已于 2026-08-25 交付）** | 是                 | 是    |
+| Agent-native 综合评分（自评）    | 4.1（M2 JSON 缺口已闭合；HTTP 治理、tool manifest 与 M4 workspace 已交付；UI parity 部分完成） | 4.2                | 4.5   |
 
 ---
 
 ## 下一步行动
 
-1. 完成剩余 M2：interchange 导入 JSON，然后是 collaboration comment resolve 与 version create/restore
-2. 完成剩余 M3：把 `filmRoleToolPolicy` 接到原始 HTTP/UI，然后统一审计轨迹
+1. M1 剩余：Canvas/Video UI store（1e/1f）以及[对等清单](/zh/engineering/ui-agent-parity-inventory/)中仍为 ui-only 的 Stage 写入
+2. 完成剩余 M3：可选的完整只读 mode（原始 HTTP/CLI 策略、统一审计轨迹、确认边界与 role 限制 UI 已于 2026-08-25 交付）
 3. 落地时在同一变更中更新 [Feature Status](/zh/reference/feature-status/) 与[架构符合性评估](/zh/research/agent-native-architecture-assessment/)
+4. M7 遗留已落地：ADR 0004 完成 A2A spike 结论（runtime no-go；已提供 discovery-only card），cross-app 回执 recipe 已写入 Control surfaces

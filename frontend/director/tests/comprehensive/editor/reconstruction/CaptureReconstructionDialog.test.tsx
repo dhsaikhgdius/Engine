@@ -15,7 +15,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../../src/comprehensive/editor/reconstruction/captureReconstructionClient", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../../../../src/comprehensive/editor/reconstruction/captureReconstructionClient")>();
+  const original =
+    await importOriginal<
+      typeof import("../../../../src/comprehensive/editor/reconstruction/captureReconstructionClient")
+    >();
   return {
     ...original,
     stageCaptureSource: mocks.stage,
@@ -25,7 +28,9 @@ vi.mock("../../../../src/comprehensive/editor/reconstruction/captureReconstructi
     fetchCaptureArtifactBlob: mocks.fetchArtifact,
   };
 });
-vi.mock("../../../../src/comprehensive/editor/api/blenderLiveClient", () => ({ uploadBlenderModelAsset: mocks.uploadModel }));
+vi.mock("../../../../src/comprehensive/editor/api/blenderLiveClient", () => ({
+  uploadBlenderModelAsset: mocks.uploadModel,
+}));
 
 const sha256 = "a".repeat(64);
 

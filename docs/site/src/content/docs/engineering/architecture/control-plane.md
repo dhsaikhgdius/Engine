@@ -7,10 +7,10 @@ title: Director control-plane architecture
 Director separates interactive execution, durable orchestration, and GPU inference into three processes. This is a runtime boundary, not only a source-directory convention:
 
 1. the **browser execution plane** owns the live editors, React state, WebGL rendering, exact-tab tool execution, and visual capture;
-2. the **TypeScript control plane** owns authentication, runtime configuration, Agent sessions, role orchestration, provider adapters, job manifests, and durable event records;
+2. the **TypeScript control plane** owns authentication, runtime configuration, tool validation and scheduling, role orchestration, job manifests, and durable production records;
 3. the **Python GPU worker** owns LTX-2.3 model residency, its single-device queue, inference, encoding, and worker-local artifacts.
 
-The implemented system supports local Codex and Claude runtimes plus a server-owned OpenAI-compatible API Harness. It also supports provider-neutral video jobs with ComfyUI and an HTTP LTX-2.3 provider. It does **not** yet upload conditioning media to a remote LTX worker or promote the worker's completed output into Director's persistent media library.
+The agent loop and its sessions are owned by DeepSeek Harness (`vendor/deepseek-harness`); the Director plugin in `packages/dsh-plugin-workbench/` registers the domain tools, and every agent surface (DSH plugin, MCP, CLI) reaches the Gateway through `POST /api/tools/:name`. The control plane also supports provider-neutral video jobs with ComfyUI and an HTTP LTX-2.3 provider. It does **not** yet upload conditioning media to a remote LTX worker or promote the worker's completed output into Director's persistent media library.
 
 ## Process topology
 
@@ -27,9 +27,9 @@ The implemented system supports local Codex and Claude runtimes plus a server-ow
 ┌───────────────────────────────▼───────────────────────────────────────────────────────────┐
 │ TypeScript control plane (`backend/gateway/agent-gateway.ts`)                             │
 │  ├─ gateway auth and target routing                                                       │
-│  ├─ AgentProfileRegistry + AgentAdapterRegistry                                           │
-│  ├─ durable AgentSession / AgentEvent store                                               │
-│  ├─ API Harness tool loop                                                                 │
+│  ├─ AgentProfileRegistry (public model/runtime profiles)                                  │
+│  ├─ POST /api/tools/:name for the DSH plugin, MCP, and CLI                                │
+│  ├─ agentToolScheduler + agentToolMemory (exclusive mutations, idempotent replay)         │
 │  ├─ ProductionRunOrchestrator + hashed role artifacts                                     │
 │  └─ VideoGenerationService + provider adapters                                            │
 └──────────────────────┬─────────────────────────────────────────┬───────────────────────────┘
@@ -84,7 +84,7 @@ Gateway authentication is implemented in `backend/gateway/gatewayAuth.ts`:
 
 | State                                                      | Current owner                                        | Durable location                                        |
 | ---------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------- |
-| Agent sessions, events, checkpoints, queued messages       | `backend/gateway/agentSessionStore.ts`               | `data/director-agent-sessions.sqlite`                   |
+| Agent sessions and events                                  | DeepSeek Harness (`vendor/deepseek-harness`)         | DSH-owned session storage, outside the Gateway          |
 | Multi-Agent production runs and role artifacts             | `backend/gateway/multiAgent/multiAgentRunStore.ts`   | `data/multi-agent-runs/*.json`                          |
 | Production manifest and per-scene DirectorProject records  | `backend/gateway/production/productionStateStore.ts` | `data/director-production-state.json`                   |
 | Video request, resolved parameters, provider job, warnings | `backend/gateway/video/videoGenerationService.ts`    | `data/video-jobs/<job-id>/manifest.json`                |
@@ -101,19 +101,9 @@ All `/api/*` endpoints below require gateway authentication unless noted otherwi
 | `GET /health`                                                  | Minimal unauthenticated gateway health                                               |
 | `POST /te-man/director/agent/bootstrap`                        | Obtain the local process-epoch browser token                                         |
 | `GET /api/control-plane/capabilities`                          | Sanitized Agent/video configuration summary; never includes secrets                  |
+| `GET /api/control-plane/tool-manifest`                         | Machine-readable `director-tool-manifest-v1` tool catalog: surfaces, op enums, HTTP bindings, legacy `stage_*` flags; never includes secrets |
+| `GET /api/control-plane/a2a-agent-card`                        | Discovery-only `director-a2a-agent-card-v1` card (ADR 0004): no live A2A endpoint; points at MCP and the tool manifest; never includes secrets |
 | `GET /api/agent/profiles`                                      | Public model/runtime profiles and capabilities                                       |
-| `GET /api/agent/providers`                                     | Runtime availability for `codex`, `claude`, and `api`                                |
-| `GET, POST /api/agent/sessions`                                | List or create durable sessions                                                      |
-| `GET /api/agent/sessions/:id`                                  | Session, durable events, and checkpoints                                             |
-| `GET /api/agent/sessions/:id/events`                           | Poll events after a sequence                                                         |
-| `GET /api/agent/sessions/:id/events/stream`                    | Server-Sent Event stream with reconnect support                                      |
-| `POST /api/agent/sessions/:id/messages`                        | Start or queue an exact-target turn                                                  |
-| `POST /api/agent/sessions/:id/fork`                            | Fork a session and hand off durable context                                          |
-| `POST /api/agent/sessions/:id/interrupt`                       | Abort the active provider turn                                                       |
-| `POST /api/agent/sessions/:id/retry`                           | Re-run the last user message against a valid target                                  |
-| `POST /api/agent/sessions/:id/checkpoints`                     | Store a validated Director project checkpoint                                        |
-| `POST /api/agent/sessions/:id/checkpoints/:checkpoint/restore` | Restore a validated checkpoint                                                       |
-| `POST /api/agent/sessions/:id/approvals`                       | Resolve an adapter approval request                                                  |
 | `GET, POST /api/agent/runs`                                    | List or create durable Multi-Agent runs                                              |
 | `GET /api/agent/runs/:id`                                      | Inspect run, node attempts, and artifacts                                            |
 | `POST /api/agent/runs/:id/resume`                              | Resume non-succeeded nodes without repeating succeeded work                          |
@@ -121,53 +111,31 @@ All `/api/*` endpoints below require gateway authentication unless noted otherwi
 | `GET /api/video/providers`                                     | Live normalized provider capabilities                                                |
 | `POST /api/tools/stage_video`                                  | `capabilities`, `prepare`, `render`, `submit`, `status`, or `cancel` video operation |
 
-The structured tool endpoint family also contains `stage_read`, `director_workbench`, `director_creative`, and the remaining Stage tools. Their schemas remain the execution boundary; the API Harness does not send arbitrary JavaScript or shell commands to the browser.
+The structured tool endpoint family also contains `stage_read`, `director_workbench`, `director_creative`, and the remaining Stage tools. Their schemas remain the execution boundary; no agent surface sends arbitrary JavaScript or shell commands to the browser. Agent session endpoints are not part of the Gateway: sessions, events, and the conversation loop live in DeepSeek Harness.
 
-## Agent runtimes and the API Harness
+## Agent runtime ownership
 
-`backend/gateway/agents/agentAdapterRegistry.ts` normalizes three durable session providers:
+The agent runtime is DeepSeek Harness (`vendor/deepseek-harness`, DSH). DSH owns the tool loop,
+sessions, todo state, subagents, and the workspace / web / job tools. Director's creative surface is
+the Cordis plugin `packages/dsh-plugin-workbench/`, whose tool executions validate arguments with
+Zod and dispatch to the Gateway's `POST /api/tools/:name`; MCP (`backend/gateway/mcp-server.ts`) and
+the Stage CLI (`tools/scripts/stage-cli.mjs`) converge on the same route. The Gateway does not run a
+second tool loop: it validates, schedules (`backend/gateway/agents/agentToolScheduler.ts`), applies
+role policy (`backend/gateway/agents/filmRoleToolPolicy.ts`), and executes against the exact
+browser target.
 
-- `codex`: local Codex app-server adapter;
-- `claude`: local Claude stream-JSON adapter;
-- `api`: the hosted API execution surface. Its server-owned Profile selects native OpenAI,
-  native Anthropic Messages, or an OpenAI-compatible endpoint.
-
-Profiles are Gateway-owned records from `backend/gateway/agents/agentProfileRegistry.ts`. A client selects a public `profileId`, but cannot submit a base URL, model endpoint, or API key in a session or production-run request.
-
-The API Harness in `backend/gateway/agents/openAiCompatibleAdapter.ts` resolves `session.profileId`, chooses
-a provider-neutral Model Driver, and runs one bounded tool loop. OpenAI and compatible profiles map
-the canonical messages to Chat Completions; Anthropic profiles map them to native `tool_use`,
-`tool_result`, `input_schema`, and image blocks:
-
-1. load or create the durable conversation;
-2. send the role prompt and Director's structured tool definitions;
-3. validate and normalize returned tool calls into the canonical Model Turn IR;
-4. enforce role policy;
-5. execute the tool through the authenticated local gateway against the pinned browser target;
-6. return a bounded, redacted tool result to the model;
-7. attach captured pixels only to the next model request as ephemeral vision context;
-8. persist canonical conversation v2 and emit normalized `AgentEvent` records.
-
-The loop defaults to 12 tool rounds and can be configured up to 48. HTTP 429 and 5xx responses retry up to three attempts with bounded backoff. Abort signals cover API requests, backoff waits, and local tool calls.
-
-API keys, gateway credentials, exact-target capability tokens, data URLs, and base64-like payloads are redacted before durable events or conversations are written. Visual evidence is available to the current reasoning turn but its raw base64 bytes are not persisted in the API conversation.
-
+Profiles are Gateway-owned records from `backend/gateway/agents/agentProfileRegistry.ts`. A client
+selects a public `profileId`, but cannot submit a base URL, model endpoint, or API key in a request.
 Multiple hosted profiles are accepted through strict `DIRECTOR_AGENT_PROFILES_JSON`, and the
 Agent workspace can persist additional providers to `agent-api-providers.json`. The public
 profile endpoint exposes only label, runtime, model, endpoint host, capabilities, availability, and
 whether a credential exists. Endpoint URLs on public profiles, secret values, and secret
 environment-variable names remain server-side except the workspace settings list, which returns
-base URLs so they can be edited. Legacy `DIRECTOR_AGENT_API_*` settings continue to create `api-default`.
+base URLs so they can be edited.
 
-Foreground Hosted-Agent delegation follows the same ownership model. The `subagent` tool asks
-`AgentHarness` to create a child `api` session with the parent Profile, role, workspace, and pinned
-browser target. The child is marked as isolated, so hosted-history reconstruction does not flatten
-the parent conversation into it. Its final answer returns through the parent's normal tool result;
-the spawning abort signal interrupts the child. Delegated children do not receive the tool, which
-enforces one level without a second runtime. A background child uses that same durable session as
-its Job record, so owner-scoped `job_output`, `job_list`, and `job_kill` do not duplicate state.
-Generic producer Jobs, automatic completion wakeups, and continuable child-control tools are not
-implemented yet.
+Delegation belongs to DSH: its `subagent` and job tools create and track child sessions. Director
+does not duplicate that lifecycle; a delegated child reaches Director state only through the same
+typed tool HTTP as its parent.
 
 ## Multi-Agent production graph
 
@@ -226,7 +194,7 @@ Read-only Workbench operations are `capabilities`, `observe`, `catalog`, `audit`
 The visual critic additionally receives `capture`, `shot_package`, and `deliver` so it can inspect
 real helper-free pixels and hashes, while authoring operations remain rejected.
 
-This exact tool filter is presently enforced by the native API adapter. Local Codex/Claude adapters share the structured Director tools and receive the assigned role, but should not yet be described as having the same adapter-level role-policy proof. Moving policy enforcement below every adapter, at the gateway tool boundary, remains a hardening task.
+This exact tool filter is enforced by the native API adapter, and since 2026-08-25 also below every adapter at the gateway tool boundary: `backend/gateway/agents/httpToolGovernance.ts` applies the shared film-role policy (`DIRECTOR_FILM_ROLE` + `DIRECTOR_PLAN_MODE`, same 403 rejection body as MCP) on every `/api/tools/*` route before browser-target execution, so raw HTTP, the Stage CLI, and the DSH plugin cannot bypass it. Each invocation is also appended to a source-tagged audit trail (`backend/gateway/agentToolAuditStore.ts`, queryable via authorized `GET /api/agent/audit`). Local Codex/Claude adapters share the structured Director tools and receive the assigned role; their tool calls now pass through the same gateway-boundary gate.
 
 ## Video generation and LTX-2.3
 

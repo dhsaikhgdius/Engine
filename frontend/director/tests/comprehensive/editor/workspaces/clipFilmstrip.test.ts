@@ -208,10 +208,7 @@ describe("sampling pipeline", () => {
     expect(strip?.tiles).toEqual([TILE_DATA_URL, TILE_DATA_URL]);
     expect(listener.mock.calls.length).toBeGreaterThanOrEqual(1);
     // Tile centers: inSec 1 + (0.5/2)*4 = 2 and 1 + (1.5/2)*4 = 4, ascending.
-    expect(seekLog).toEqual([
-      directorFilmstripTileTimeSec(request, 0),
-      directorFilmstripTileTimeSec(request, 1),
-    ]);
+    expect(seekLog).toEqual([directorFilmstripTileTimeSec(request, 0), directorFilmstripTileTimeSec(request, 1)]);
     unsubscribe();
   });
 

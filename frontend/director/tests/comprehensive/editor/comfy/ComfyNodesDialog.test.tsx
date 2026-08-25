@@ -15,7 +15,11 @@ vi.mock("../../../../src/comprehensive/editor/workspaces/galleryGenerationBridge
   removeComfyGenerationNode: bridgeMocks.remove,
 }));
 
-import { ComfyNodesDialog, deriveComfyNodeId, isComfyNodeAvailabilityError } from "../../../../src/comprehensive/editor/comfy/ComfyNodesDialog";
+import {
+  ComfyNodesDialog,
+  deriveComfyNodeId,
+  isComfyNodeAvailabilityError,
+} from "../../../../src/comprehensive/editor/comfy/ComfyNodesDialog";
 
 function nodeSnapshot(overrides: Partial<ComfyNodeSnapshot> = {}): ComfyNodeSnapshot {
   return {

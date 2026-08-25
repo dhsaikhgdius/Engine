@@ -82,8 +82,11 @@ import { createBlenderBridge } from "./dcc/blenderBridge";
 import { createBlenderReturnImporter, createDccReturnImporter } from "./dcc/blenderReturnImport";
 import { createBlenderSceneImporter } from "./dcc/blenderSceneImport";
 import { createDirectorDccEngineBridge } from "./dcc/engineBridge";
+import { createEngineSceneImporter } from "./dcc/engineSceneImport";
+import { createGodotLiveLinkHub } from "./dcc/godotLiveLink";
 import { handleDccRoute } from "./routes/dccRoutes";
 import { createDirectorDccProviderRegistry, registerConfiguredDirectorDccProviders } from "./dcc/dccProviderRegistry";
+import { createUnityLiveLinkHub } from "./dcc/unityLiveLink";
 import { createDirectorDccExchangePackager } from "./dcc/dccExchangePackage";
 import { createBlenderNativeSession, BlenderNativeSessionError } from "./dcc/blenderNativeSession";
 import { bindBlenderNativeSessionProject, executeBlenderNativeTool } from "./dcc/blenderNativeTool";
@@ -109,6 +112,8 @@ import {
   mergeHostedAgentProfiles,
 } from "./agents/agentApiProviderStore";
 import { handleAgentApiProviderRoute } from "./routes/agentApiProviderRoutes";
+import { AgentWorkspaceStore } from "./agents/agentWorkspaceStore";
+import { handleAgentWorkspaceRoute } from "./routes/agentWorkspaceRoutes";
 import { MultiAgentRunStore } from "./multiAgent/multiAgentRunStore";
 import { ProductionRunOrchestrator } from "./multiAgent/productionRunOrchestrator";
 import { HostedProductionAgentRunner } from "./multiAgent/hostedProductionAgentRunner";
@@ -121,6 +126,10 @@ import { handleProductionJobRoute } from "./routes/productionJobRoutes";
 import { ProductionJobStore } from "./jobs/productionJobStore";
 import { ProductionArtifactStore } from "./artifacts/productionArtifactStore";
 import { handleProductionArtifactRoute } from "./routes/productionArtifactRoutes";
+import { AgentToolAuditStore } from "./agentToolAuditStore";
+import { AgentConfirmTokenStore } from "./agentConfirmTokenStore";
+import { handleAgentToolAuditRoute } from "./routes/agentToolAuditRoutes";
+import { handleAgentConfirmTokenRoute } from "./routes/agentConfirmTokenRoutes";
 import { handleGeneratedAssetRoute } from "./routes/generatedAssetRoutes";
 import { handleGenerationRoute } from "./routes/generationRoutes";
 import { createComfyGenerationRuntime } from "./generation/createComfyGenerationRuntime";
@@ -135,12 +144,16 @@ import { createReferenceSceneAnalyzer } from "./reconstruction/referenceSceneAna
 import { handleReferenceSceneRoute } from "./routes/referenceSceneRoutes";
 import { createMediaTranscriptionRuntime } from "./transcription/createMediaTranscriptionRuntime";
 import { createMediaTranscodeRuntime } from "./media/createMediaTranscodeRuntime";
+import { createCaptureReconstructionRuntime } from "./reconstruction/createCaptureReconstructionRuntime";
+import { handleCaptureReconstructionRoute } from "./routes/captureReconstructionRoutes";
 import { handleMediaTranscriptionRoute } from "./routes/mediaTranscriptionRoutes";
 import { ArdyMotionService } from "./motion/ardyMotionService";
 import { handleMotionGenerationRoute } from "./routes/motionGenerationRoutes";
 import { handleSceneGenerationRoute } from "./routes/sceneGenerationRoutes";
 import { registerBuiltinProviders, resolveModelProvider } from "./agents/modelProviderIntegration";
 import { DirectorAgentTargetScheduler } from "./agents/agentToolScheduler";
+import { AgentTraceStore } from "./agents/agentTraceStore";
+import { handleAgentTraceRoute } from "./routes/agentTraceRoutes";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const controlPlaneConfig = loadDirectorControlPlaneConfig(root);
@@ -264,19 +277,29 @@ const collaborationHub = new DirectorCollaborationWebSocketHub({
 const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
 const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
 const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
+const engineSceneImporter = createEngineSceneImporter({ workspaceRoot: root, dataDirectory });
 const dccExchangePackager = createDirectorDccExchangePackager({ workspaceRoot: root, dataDirectory });
 const dccEngineBridge = createDirectorDccEngineBridge({
   workspaceRoot: root,
   dataDirectory,
   exchangePackager: dccExchangePackager,
 });
+// Outbound-only Godot preview transport: the connector pushes ephemeral
+// ordered frames to these token-guarded routes; nothing here can mutate the
+// Director project.
+const godotLiveLinkHub = createGodotLiveLinkHub();
 const dccEngineReturnImporters = {
   unreal: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "unreal" }),
   unity: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "unity" }),
   godot: createDccReturnImporter({ workspaceRoot: root, dataDirectory, provider: "godot" }),
 };
-const dccProviders = createDirectorDccProviderRegistry({ blender: blenderBridge, engines: dccEngineBridge });
+const dccProviders = createDirectorDccProviderRegistry({
+  blender: blenderBridge,
+  engines: dccEngineBridge,
+  workspaceRoot: root,
+});
 await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
+const unityLiveLinkHub = createUnityLiveLinkHub();
 const blenderNativeSession = createBlenderNativeSession(controlPlaneConfig.dcc.blender);
 
 /** Hard deadline in milliseconds for a planner subprocess to produce output. */
@@ -308,6 +331,7 @@ const localCliAvailability = probeLocalAgentCliAvailability();
 const agentProfileRegistry = new AgentProfileRegistry(controlPlaneConfig, localCliAvailability);
 const agentApiProviderStore = new AgentApiProviderStore(dataDirectory);
 await agentApiProviderStore.load();
+const agentWorkspaceStore = new AgentWorkspaceStore(dataDirectory);
 const applyHostedApiProfiles = (profiles: readonly HostedAgentProfileConfig[]) => {
   agentProfileRegistry.replaceExtraHostedProfiles(profiles);
 };
@@ -318,7 +342,8 @@ applyHostedApiProfiles(
   ),
 );
 const referenceSceneAnalyzer = createReferenceSceneAnalyzer({ profiles: agentProfileRegistry });
-const productionAgentRunner = new HostedProductionAgentRunner(agentProfileRegistry);
+const agentTraceStore = new AgentTraceStore({ dataDirectory });
+const productionAgentRunner = new HostedProductionAgentRunner(agentProfileRegistry, undefined, agentTraceStore.meter());
 const multiAgentRunStore = new MultiAgentRunStore(dataDirectory);
 const productionRunOrchestrator = new ProductionRunOrchestrator(
   productionAgentRunner,
@@ -342,12 +367,24 @@ const ardyMotionService = new ArdyMotionService({
   dataDirectory,
 });
 const productionJobStore = new ProductionJobStore(dataDirectory);
+// Unified tool-invocation audit trail shared by every POST /api/tools entry
+// point (HTTP, MCP, CLI) plus UI-dispatched authoring ingest. Destructive /
+// publish operations additionally consume single-use confirm tokens issued by
+// POST /api/agent/confirm-token and stored hashed next to the audit trail.
+const agentToolAuditStore = new AgentToolAuditStore(dataDirectory);
+const agentConfirmTokenStore = new AgentConfirmTokenStore(dataDirectory);
+const toolGovernance = { auditStore: agentToolAuditStore, confirmTokens: agentConfirmTokenStore };
 const mediaTranscriptionRuntime = createMediaTranscriptionRuntime(
   controlPlaneConfig,
   dataDirectory,
   productionJobStore,
 );
 const mediaTranscodeRuntime = createMediaTranscodeRuntime(controlPlaneConfig, dataDirectory, productionJobStore);
+const captureReconstructionRuntime = createCaptureReconstructionRuntime(
+  controlPlaneConfig,
+  productionJobStore,
+  mediaTranscodeRuntime.inputs,
+);
 const comfyGenerationRuntime = createComfyGenerationRuntime(controlPlaneConfig, dataDirectory, productionJobStore);
 const imagePromptExpander = createImagePromptExpander(controlPlaneConfig);
 const assetSizeEstimator = createAssetSizeEstimator(controlPlaneConfig);
@@ -528,10 +565,15 @@ async function readCodexPlannerOutput(path: string, fallback: string) {
  *
  * @param command - The executable to spawn.
  * @param args - Command-line arguments for the executable.
- * @param timeoutMs - Hard deadline in milliseconds; defaults to {@link AGENT_PLAN_TIMEOUT_MS}.
+ * @param options - Optional stdin payload and hard deadline (defaults to {@link AGENT_PLAN_TIMEOUT_MS}).
  * @returns A {@link PlannerRunResult} capturing stdout, stderr, and termination flags.
  */
-function runProcess(command: string, args: string[], timeoutMs = AGENT_PLAN_TIMEOUT_MS): Promise<PlannerRunResult> {
+function runProcess(
+  command: string,
+  args: string[],
+  options: { stdinInput?: string; timeoutMs?: number } = {},
+): Promise<PlannerRunResult> {
+  const { stdinInput, timeoutMs = AGENT_PLAN_TIMEOUT_MS } = options;
   return new Promise((resolveRun) => {
     const output = new BoundedTextBuffer(
       AGENT_PLAN_STDOUT_MAX_BYTES,
@@ -554,15 +596,32 @@ function runProcess(command: string, args: string[], timeoutMs = AGENT_PLAN_TIME
     };
     let child;
     try {
-      child = spawn(command, args, {
-        cwd: root,
-        env: process.env,
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: SPAWN_IN_OWN_PROCESS_GROUP,
-      });
+      // Two literal stdio tuples keep the ChildProcessByStdio overloads, so
+      // stdout/stderr stay typed as non-null streams in both branches.
+      child =
+        stdinInput === undefined
+          ? spawn(command, args, {
+              cwd: root,
+              env: process.env,
+              stdio: ["ignore", "pipe", "pipe"],
+              detached: SPAWN_IN_OWN_PROCESS_GROUP,
+            })
+          : spawn(command, args, {
+              cwd: root,
+              env: process.env,
+              stdio: ["pipe", "pipe", "pipe"],
+              detached: SPAWN_IN_OWN_PROCESS_GROUP,
+            });
     } catch (error) {
       finish({ output: "", error: error instanceof Error ? error.message : String(error) });
       return;
+    }
+    if (stdinInput !== undefined && child.stdin) {
+      // The planner may exit before consuming the whole prompt; a surfaced
+      // EPIPE here would crash the gateway, so the close handler owns the
+      // failure report instead.
+      child.stdin.on("error", () => {});
+      child.stdin.end(stdinInput);
     }
     const terminate = () => {
       if (termination) return;
@@ -659,20 +718,28 @@ async function runAgentPlanner(
     const temporaryDirectory = await mkdtemp(resolve(tmpdir(), "director-codex-plan-"));
     const outputPath = resolve(temporaryDirectory, "plan.json");
     try {
-      const result = await runProcess("codex", [
-        "exec",
-        "--sandbox",
-        "read-only",
-        "--ephemeral",
-        "--skip-git-repo-check",
-        "--output-schema",
-        agentPlanSchemaPath,
-        "--output-last-message",
-        outputPath,
-        "--cd",
-        root,
-        prompt,
-      ]);
+      // The prompt embeds full authoring/creative JSON schemas plus live
+      // observations, which can exceed the OS single-argument limit
+      // (Linux MAX_ARG_STRLEN, 128 KiB) and fail spawn with E2BIG. The "-"
+      // sentinel makes codex exec read the whole prompt from stdin instead.
+      const result = await runProcess(
+        "codex",
+        [
+          "exec",
+          "--sandbox",
+          "read-only",
+          "--ephemeral",
+          "--skip-git-repo-check",
+          "--output-schema",
+          agentPlanSchemaPath,
+          "--output-last-message",
+          outputPath,
+          "--cd",
+          root,
+          "-",
+        ],
+        { stdinInput: prompt },
+      );
       if (result.outputLimitExceeded) {
         return outputLimitFailure(agent, `Codex stdout exceeded the safety limit\nretained_tail=${result.output}`);
       }
@@ -704,24 +771,29 @@ async function runAgentPlanner(
     }
   }
 
-  const result = await runProcess("claude", [
-    "--print",
-    "--permission-mode",
-    "plan",
-    "--no-session-persistence",
-    "--effort",
-    "low",
-    "--output-format",
-    "json",
-    "--json-schema",
-    JSON.stringify(AGENT_PLAN_SCHEMA),
-    // Claude treats --tools as a variadic option. The -- delimiter keeps the
-    // planner prompt from being consumed as another tool name.
-    "--tools",
-    "",
-    "--",
-    prompt,
-  ]);
+  // The prompt is piped through stdin: claude --print reads it there when no
+  // positional prompt is given, and stdin has no OS argument-length limit
+  // (the argv form can fail spawn with E2BIG once schemas plus observations
+  // pass Linux MAX_ARG_STRLEN). This also keeps the variadic --tools option
+  // from consuming the prompt as another tool name.
+  const result = await runProcess(
+    "claude",
+    [
+      "--print",
+      "--permission-mode",
+      "plan",
+      "--no-session-persistence",
+      "--effort",
+      "low",
+      "--output-format",
+      "json",
+      "--json-schema",
+      JSON.stringify(AGENT_PLAN_SCHEMA),
+      "--tools",
+      "",
+    ],
+    { stdinInput: prompt },
+  );
   if (result.outputLimitExceeded) {
     return outputLimitFailure(agent, `Claude stdout exceeded the safety limit\nretained_tail=${result.output}`);
   }
@@ -756,10 +828,25 @@ function json(response: ServerResponse, status: number, body: unknown) {
 }
 
 /**
+ * A malformed or oversized request body is the caller's fault, so it carries
+ * the client-error status the top-level handler should answer with instead of
+ * being folded into the generic 500 path.
+ */
+class RequestBodyError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RequestBodyError";
+  }
+}
+
+/**
  * Reads and parses the JSON request body, enforcing an 8 MiB size limit.
  *
  * @returns The parsed JSON value, or an empty object when the body is empty.
- * @throws {Error} When the body exceeds 8 MiB or is not valid JSON.
+ * @throws {RequestBodyError} 413 when the body exceeds 8 MiB, 400 when it is not valid JSON.
  */
 async function body(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -767,10 +854,18 @@ async function body(request: IncomingMessage): Promise<unknown> {
   for await (const chunk of request) {
     const buffer = Buffer.from(chunk);
     size += buffer.length;
-    if (size > 8 * 1024 * 1024) throw new Error("Request body is too large");
+    if (size > 8 * 1024 * 1024) throw new RequestBodyError(413, "Request body is too large");
     chunks.push(buffer);
   }
-  return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch (error) {
+    throw new RequestBodyError(
+      400,
+      `Request body is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /** Atomically writes the current in-memory scene to the durable scene file. */
@@ -1879,6 +1974,11 @@ function liveStageRouteDependencies(): Omit<StageRouteDependencies, "readBody" |
     }),
     executeVideoModel: (currentScene, input) => videoGenerationService.execute(currentScene, input),
     targetScheduler: agentTargetScheduler,
+    recordTrace: (event) => {
+      void agentTraceStore.record(event).catch((error) => {
+        console.warn("Agent trace store rejected a tool trace event", error);
+      });
+    },
   };
 }
 
@@ -1920,6 +2020,7 @@ const server = createServer(async (request, response) => {
         listAgentProfiles: () => agentProfileRegistry.list(),
         listAgentSessions: () => listAgentSessionTargets("director_workbench"),
         videoCapabilities: () => videoGenerationService.capabilities(),
+        filmRole: () => process.env.DIRECTOR_FILM_ROLE?.trim() || null,
       })
     )
       return;
@@ -1930,6 +2031,14 @@ const server = createServer(async (request, response) => {
         store: agentApiProviderStore,
         environmentProfiles: controlPlaneConfig.agents.profiles,
         applyHostedProfiles: applyHostedApiProfiles,
+      })
+    )
+      return;
+    if (
+      await handleAgentWorkspaceRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: agentWorkspaceStore,
       })
     )
       return;
@@ -1987,6 +2096,17 @@ const server = createServer(async (request, response) => {
     )
       return;
     if (
+      await handleCaptureReconstructionRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: productionJobStore,
+        executor: captureReconstructionRuntime.executor,
+        createJobId: () => `scenerecon-job-${crypto.randomUUID()}`,
+        onBackgroundError: (error) => console.error("Capture reconstruction job failed", error),
+      })
+    )
+      return;
+    if (
       await handleProductionJobRoute(request, response, url, {
         readBody: body,
         json,
@@ -1994,6 +2114,8 @@ const server = createServer(async (request, response) => {
         createJobId: () => `canvas-job-${crypto.randomUUID()}`,
         mediaTranscode: mediaTranscodeRuntime.executor,
         mediaInputs: mediaTranscodeRuntime.inputs,
+        captureReconstruction: captureReconstructionRuntime.executor,
+        artifactVersions: productionArtifactStore,
         onBackgroundError: (error) => console.error("Production job executor failed", error),
       })
     )
@@ -2037,6 +2159,16 @@ const server = createServer(async (request, response) => {
         store: filmPipeline.store,
         orchestrator: filmPipeline.orchestrator,
         unconfiguredReason: filmPipeline.unconfiguredReason,
+      })
+    )
+      return;
+    if (
+      await handleAgentTraceRoute(request, response, url, {
+        json,
+        store: agentTraceStore,
+        listProductionJobs: () => productionJobStore.list(),
+        listMultiAgentRuns: () => multiAgentRunStore.list(),
+        listFilmRuns: () => filmPipeline.store.list(),
       })
     )
       return;
@@ -2113,6 +2245,7 @@ const server = createServer(async (request, response) => {
         json,
         session: blenderNativeSession,
         loadDirectorProject: () => readPersistedWorkbenchProject(),
+        governance: toolGovernance,
       })
     )
       return;
@@ -2148,9 +2281,12 @@ const server = createServer(async (request, response) => {
         providers: dccProviders,
         exchangePackager: dccExchangePackager,
         sceneImporter: blenderSceneImporter,
+        engineImporter: engineSceneImporter,
         returnImporter: blenderReturnImporter,
         engineBridge: dccEngineBridge,
         engineReturnImporters: dccEngineReturnImporters,
+        unityLiveLink: unityLiveLinkHub,
+        godotLiveLink: godotLiveLinkHub,
         applyAuthoring: async (operation) => {
           const remote = await requestWorkbenchCommand(operation);
           return remote
@@ -2161,6 +2297,7 @@ const server = createServer(async (request, response) => {
               }
             : null;
         },
+        governance: toolGovernance,
       })
     )
       return;
@@ -2188,6 +2325,7 @@ const server = createServer(async (request, response) => {
         headers,
         json,
         ...liveStageRouteDependencies(),
+        governance: toolGovernance,
       })
     )
       return;
@@ -2196,11 +2334,37 @@ const server = createServer(async (request, response) => {
         readBody: body,
         json,
         resolveProvider: async (providerId) => resolveModelProvider(providerId),
+        governance: toolGovernance,
+      })
+    )
+      return;
+    if (
+      await handleAgentToolAuditRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: agentToolAuditStore,
+      })
+    )
+      return;
+    if (
+      await handleAgentConfirmTokenRoute(request, response, url, {
+        readBody: body,
+        json,
+        store: agentConfirmTokenStore,
       })
     )
       return;
     return json(response, 404, { error: "Not found" });
   } catch (error) {
+    if (error instanceof RequestBodyError) {
+      // The client may still be streaming the rejected body on this socket.
+      // Closing the connection keeps a poisoned keep-alive stream from
+      // stalling the next request that would otherwise reuse it. The socket
+      // is torn down only after the error response has been flushed.
+      response.setHeader("connection", "close");
+      response.once("finish", () => request.destroy());
+      return json(response, error.status, { error: error.message });
+    }
     return json(response, 500, { error: error instanceof Error ? error.message : String(error) });
   }
 });

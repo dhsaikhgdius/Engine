@@ -3,8 +3,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "../../../../src/comprehensive/i18n/language";
-import { STAGE_VIEWPORT_AUDIO_STORAGE_KEY, setStageViewportAudioEnabled } from "../../../../src/comprehensive/editor/audio/stageViewportAudio";
-import { DEFAULT_VIEWPORT_CHARACTER_MOVE_SPEED, DEFAULT_VIEWPORT_MOVE_SPEED } from "../../../../src/comprehensive/editor/schema/viewportNavigation";
+import {
+  STAGE_VIEWPORT_AUDIO_STORAGE_KEY,
+  setStageViewportAudioEnabled,
+} from "../../../../src/comprehensive/editor/audio/stageViewportAudio";
+import {
+  DEFAULT_VIEWPORT_CHARACTER_MOVE_SPEED,
+  DEFAULT_VIEWPORT_MOVE_SPEED,
+} from "../../../../src/comprehensive/editor/schema/viewportNavigation";
 import { useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
 import { ViewportNavigationSettings } from "../../../../src/comprehensive/editor/canvas/ViewportNavigationSettings";
 

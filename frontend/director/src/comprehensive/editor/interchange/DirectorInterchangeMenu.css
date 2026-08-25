@@ -507,6 +507,22 @@
   color: rgb(var(--text-dim-rgb));
 }
 
+.director-dcc-return-opt-in {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size);
+}
+
+.director-dcc-return .director-dcc-return-opt-in input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  padding: 0;
+  accent-color: rgb(var(--accent-rgb));
+}
+
 .director-dcc-return-plan {
   display: grid;
   gap: 6px;
