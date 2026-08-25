@@ -55381,10 +55381,7 @@ var episodeTimebaseSchema = external_exports.strictObject({
   frameCount: external_exports.number().int().positive().max(MAX_FRAME_COUNT),
   startTimecode: external_exports.string().regex(SMPTE_TIMECODE_PATTERN).optional()
 });
-var episodeSceneRevisionSchema = external_exports.union([
-  external_exports.string().trim().min(1).max(240),
-  external_exports.number().int().nonnegative()
-]);
+var episodeSceneRevisionSchema = external_exports.union([external_exports.string().trim().min(1).max(240), external_exports.number().int().nonnegative()]);
 var episodeRendererSchema = external_exports.strictObject({
   /** Open backend identifier, e.g. "three-webgl" or "blender-cycles". */
   backendId: external_exports.string().trim().min(1).max(160),
