@@ -127,6 +127,7 @@ describe("DirectorDccEngineBridge", () => {
         await readFile(resolve(repositoryRoot, "integrations", provider, "connector.json"), "utf8"),
       ) as { version: string };
       expect(health.connectorVersion).toBe(manifest.version);
+      expect(health.connectorVersion).toMatch(/^\d+\.\d+\.\d+$/);
       expect((await bridge.diagnostics(provider)).mode).toBe("native");
     },
   );

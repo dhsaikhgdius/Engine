@@ -282,19 +282,24 @@ Director adapter implemented.
 | Unreal Engine    | **Implemented headless connector (scene/cameras/animation/skeleton/materials)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer tracks, timecode, skeletal import, and material instances implemented; Live Link preview still planned | P0       |
 | SideFX Houdini   | **Exchange**                                       | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional         | P1       |
 | Cinema 4D        | **Exchange**                                       | USDA, then GLB          | Python SDK and `c4dpy`                             | Headless bake/export plus authenticated in-host connector          | P1       |
-| Unity            | **Implemented headless connector (scene/cameras)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline shot mapping implemented; preview transport still planned | P2       |
+| Unity            | **Implemented headless connector (scene/cameras/animation/avatars/materials)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline animation baking, Avatars, lights, and PBR fallback implemented; preview transport still planned | P2       |
 | Autodesk 3ds Max | **Exchange**                                       | USDA, then GLB          | `3dsmaxbatch`, Python, MAXScript                   | Windows headless adapter and optional in-host plug-in              | P2       |
 | Godot 4          | **Implemented headless connector (scene/cameras)** | GLB                     | `godot --headless`, GDScript editor plug-ins       | Editor addon plus headless round trip; live preview still planned  | P2       |
 
 "Implemented headless connector" means the Director-authored connector performs
 the headless scene/camera import and transform-level return round trip verified
-by Director's host-free tests. For Unity and Godot it does not claim lossless
+by Director's host-free tests. For Godot it does not claim lossless
 animation, skeleton, or material transfer; those remain `planned` until
-version-pinned acceptance fixtures pass inside each engine. The Unreal
+version-pinned acceptance fixtures pass inside the engine. The Unreal
 connector claims exactly the deeper subset its fixtures verify: Gateway-baked
 transform/camera animation into Sequencer, skinned-GLB skeletal mesh import,
 and PBR material instances — not lossless USD animation, Control Rig transfer,
-or texture translation.
+or texture translation. Unity is the other carve-out its row states
+explicitly: its connector additionally bakes Director animation onto Timeline,
+builds Humanoid/Generic Avatars from skinned GLB, and translates PBR materials,
+pinned by the in-package EditMode suite plus the host-free Unity golden tests —
+still a warned, bounded subset, and live link remains `planned` for every
+engine.
 
 The table does not promise complete USD or glTF fidelity. Director only claims the
 subset covered by its schemas, fixtures, validators, and provider acceptance tests.
@@ -473,22 +478,44 @@ Implemented Director boundary (see `integrations/unity/README.md`):
 
 - a source UPM Editor package (`com.director.bridge`) with batch
   `-executeMethod` entry points for health, import, and export;
-- headless import builds a Unity scene from the exchange package, stamps a
-  `DirectorId` component on every object and camera, maps Director storyboard
-  shots to a Timeline asset, and echoes a canonical-space return package;
+- headless import builds a Unity scene from the hash-verified exchange package,
+  stamps a `DirectorId` component on every object, camera, and light, and
+  echoes a canonical-space return package;
+- GLB payloads are copied under content-hashed names and imported through the
+  project's glTF `ScriptedImporter` (for example `com.unity.cloud.gltfast`);
+  the connector never parses GLB bytes itself, and a missing importer
+  warns-and-omits;
+- Director storyboard shots map to Timeline activation tracks, and Director
+  keyframe/trajectory animation is baked into `AnimationClip`s through C# ports
+  of Director's easing and trajectory evaluators (unsupported channels
+  warn-and-omit);
+- skinned character payloads resolve by `assetRefId` and receive Humanoid
+  Avatars when the Mixamo-compatible required bones resolve, Generic Avatars
+  otherwise;
+- Director PBR manifest materials fall back to URP/Lit or Built-in Standard by
+  detected render pipeline, with hashed relative textures; unsupported graphs
+  warn-and-omit;
+- cameras import as physical Unity cameras (focal length, sensor-gate crop,
+  lens shift; anamorphic squeeze warned and omitted), and lights map to Unity
+  `Light` objects or `RenderSettings`;
 - headless export reopens the scene, collects `DirectorId` components, converts
   Unity left-handed transforms back to Director canonical space, and diffs
-  against the exchange baseline;
+  against the exchange baseline (objects and cameras only; the return contract
+  has no light entity type);
+- the C# math ports are pinned by an in-package EditMode (NUnit) suite and the
+  host-free Gateway golden tests
+  (`packages/dcc-protocol/tests/directorDccUnityConnectorGolden.test.ts`), so
+  Unity is never required in CI;
 - GLB remains the preferred portable asset format; Unity scene YAML is never an
   exchange format.
 
 Still planned:
 
-- animation/skeleton transfer through the official FBX path or a validated USD
-  importer (USD stays experimental until Director has version-pinned acceptance
-  tests); and
 - an authenticated outbound preview connection rather than an exposed arbitrary
-  C# execution endpoint.
+  C# execution endpoint (`live_link` stays `planned` until disconnect-safe
+  transport tests exist); and
+- production USD round trip (USD stays experimental until Director has
+  version-pinned acceptance tests against the pre-release Unity packages).
 
 ### Autodesk 3ds Max
 
@@ -767,8 +794,9 @@ and pass/fail evidence.
 
 ### Phase 5 — Unity, Godot, and 3ds Max paths
 
-- ✅ The Unity UPM package (`com.director.bridge`) with batch import/export and
-  Timeline shot mapping.
+- ✅ The Unity UPM package (`com.director.bridge`) with batch import/export,
+  Timeline shot mapping and baked Director animation, Humanoid/Generic Avatars,
+  PBR material fallback, physical cameras, and lights.
 - ✅ The Godot `director_bridge` addon with `--headless` import/export around GLB.
 - Add the Windows `3dsmaxbatch` worker around USD and validated fixtures.
 - Keep Unity USD export experimental until the upstream package and Director tests

@@ -17,7 +17,7 @@ namespace Director.Bridge.Editor
         public const string ReturnContract = "director-dcc-return-v1";
         public const string ReportContract = "director-dcc-engine-report-v1";
         public const string Provider = "unity";
-        public const string ConnectorVersion = "0.1.0";
+        public const string ConnectorVersion = "0.2.0";
 
         public static string Sha256File(string path)
         {
@@ -122,7 +122,12 @@ namespace Director.Bridge.Editor
             return manifestPath;
         }
 
-        /// <summary>Writes the director-dcc-engine-report-v1 receipt the Gateway validates.</summary>
+        /// <summary>
+        /// Writes the director-dcc-engine-report-v1 receipt the Gateway
+        /// validates. The optional unity block carries connector-specific
+        /// facts (render pipeline, glTF importer availability, baked clip and
+        /// avatar counts) matching directorDccUnityEngineReportDetailsSchema.
+        /// </summary>
         public static void WriteReport(
             string reportPath,
             string hostVersion,
@@ -132,7 +137,8 @@ namespace Director.Bridge.Editor
             int importedCameraCount,
             string scenePath,
             string returnPackageDir,
-            IEnumerable<string> warnings)
+            IEnumerable<string> warnings,
+            JObject unityDetails = null)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(reportPath) ?? ".");
             var report = new JObject
@@ -150,6 +156,10 @@ namespace Director.Bridge.Editor
                 ["returnPackageDir"] = returnPackageDir == null ? JValue.CreateNull() : (JToken)returnPackageDir,
                 ["warnings"] = new JArray(warnings),
             };
+            if (unityDetails != null)
+            {
+                report["unity"] = unityDetails;
+            }
             File.WriteAllText(reportPath, report.ToString(Newtonsoft.Json.Formatting.Indented) + "\n");
         }
 
