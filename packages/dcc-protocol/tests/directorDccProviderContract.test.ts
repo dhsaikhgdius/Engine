@@ -135,9 +135,17 @@ describe("Director DCC provider contract", () => {
       expect(byId.get("headless")).toEqual({ id: "headless", level: "native", layer: "connector" });
       expect(byId.get("roundtrip")).toEqual({ id: "roundtrip", level: "native", layer: "connector" });
       expect(byId.get("stable_ids")).toEqual({ id: "stable_ids", level: "native", layer: "director-manifest" });
-      // Animation/skeleton/material fidelity and live link remain unproven.
-      for (const id of ["animation", "skeleton", "materials", "live_link"] as const) {
-        expect(byId.get(id)).toEqual({ id, level: "planned", layer: "connector" });
+      // No engine has a disconnect-safe live preview transport yet.
+      expect(byId.get("live_link")).toEqual({ id: "live_link", level: "planned", layer: "connector" });
+      for (const id of ["animation", "skeleton", "materials"] as const) {
+        if (descriptor.id === "unity") {
+          // The Unity connector bakes animation onto Timeline, builds Avatars
+          // from skinned GLB, and translates Director PBR materials; the other
+          // engine connectors have not promoted these capabilities yet.
+          expect(byId.get(id)).toEqual({ id, level: "native", layer: "connector" });
+        } else {
+          expect(byId.get(id)).toEqual({ id, level: "planned", layer: "connector" });
+        }
       }
     }
   });

@@ -55,27 +55,67 @@ export const directorDccConnectorManifestSchema = z.strictObject({
 export type DirectorDccConnectorManifest = z.infer<typeof directorDccConnectorManifestSchema>;
 
 /**
+ * Unity-specific details block the `com.director.bridge` connector appends to
+ * its run report. Every field is an observed fact about the finished import —
+ * not a capability claim — so the Gateway and Agents can audit what the
+ * connector actually produced without parsing Unity project files.
+ */
+export const directorDccUnityEngineReportDetailsSchema = z.strictObject({
+  /** Project-relative Timeline asset path, or null when no shots/animation mapped. */
+  timelinePath: z.string().trim().min(1).max(1_024).nullable(),
+  /** Render pipeline the material fallback targeted during the run. */
+  renderPipeline: z.enum(["built-in", "urp", "hdrp", "custom"]),
+  /** Whether a glTF ScriptedImporter produced prefabs for GLB payloads. */
+  gltfImporterAvailable: z.boolean(),
+  /** Lights created from the manifest with director_id markers. */
+  importedLightCount: z.number().int().nonnegative(),
+  /** AnimationClips baked from Director keyframe/trajectory channels. */
+  bakedAnimationClipCount: z.number().int().nonnegative(),
+  /** Humanoid Avatars built from Mixamo-compatible skinned payloads. */
+  humanoidAvatarCount: z.number().int().nonnegative(),
+  /** Generic Avatars built where Humanoid mapping was not possible. */
+  genericAvatarCount: z.number().int().nonnegative(),
+  /** Materials created from Director PBR manifest fallback. */
+  materialFallbackCount: z.number().int().nonnegative(),
+});
+
+/** Unity-specific details block of an engine connector run report. */
+export type DirectorDccUnityEngineReportDetails = z.infer<typeof directorDccUnityEngineReportDetailsSchema>;
+
+/**
  * The receipt an engine connector writes after a headless import run. The
  * gateway schema-validates this file; a malformed or `ok:false` report fails
  * the job with structured diagnostics.
  */
-export const directorDccEngineReportSchema = z.strictObject({
-  ok: z.literal(true),
-  contract: z.literal(DIRECTOR_DCC_ENGINE_REPORT_CONTRACT),
-  provider: directorDccEngineIdSchema,
-  hostVersion: nonEmpty.max(200),
-  connectorVersion: nonEmpty.max(60),
-  /** The exchange package id this run consumed. */
-  packageId: nonEmpty.max(240),
-  sourceRevision: z.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
-  importedObjectCount: z.number().int().nonnegative(),
-  importedCameraCount: z.number().int().nonnegative(),
-  /** Host-side scene path (e.g. `/Game/Director/...`, `Assets/Director/...`, `res://director/...`). */
-  scenePath: z.string().trim().min(1).max(1_024).nullable(),
-  /** Relative directory of an echoed return package when the connector produced one. */
-  returnPackageDir: safeRelativePathSchema.nullable(),
-  warnings: z.array(z.string().max(2_000)).max(20_000),
-});
+export const directorDccEngineReportSchema = z
+  .strictObject({
+    ok: z.literal(true),
+    contract: z.literal(DIRECTOR_DCC_ENGINE_REPORT_CONTRACT),
+    provider: directorDccEngineIdSchema,
+    hostVersion: nonEmpty.max(200),
+    connectorVersion: nonEmpty.max(60),
+    /** The exchange package id this run consumed. */
+    packageId: nonEmpty.max(240),
+    sourceRevision: z.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+    importedObjectCount: z.number().int().nonnegative(),
+    importedCameraCount: z.number().int().nonnegative(),
+    /** Host-side scene path (e.g. `/Game/Director/...`, `Assets/Director/...`, `res://director/...`). */
+    scenePath: z.string().trim().min(1).max(1_024).nullable(),
+    /** Relative directory of an echoed return package when the connector produced one. */
+    returnPackageDir: safeRelativePathSchema.nullable(),
+    warnings: z.array(z.string().max(2_000)).max(20_000),
+    /** Unity connector details; only the unity provider may write this block. */
+    unity: directorDccUnityEngineReportDetailsSchema.optional(),
+  })
+  .superRefine((report, context) => {
+    if (report.unity && report.provider !== "unity") {
+      context.addIssue({
+        code: "custom",
+        path: ["unity"],
+        message: "only unity connector reports may carry the unity details block",
+      });
+    }
+  });
 
 /** A validated engine connector run report. */
 export type DirectorDccEngineReport = z.infer<typeof directorDccEngineReportSchema>;
