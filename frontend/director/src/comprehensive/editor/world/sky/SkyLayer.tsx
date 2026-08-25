@@ -5,7 +5,7 @@ import type { DirectorProject } from "../../schema/directorProject";
 import { useDirectorStore } from "../../store/directorStore";
 import type { SkyLayerProps } from "../livingWorldContracts";
 import WorldAmbientClockDriver from "../worldClock";
-import { evaluateLightningState } from "./lightning";
+import { evaluateLightningState, getLightningBoltAnchor } from "./lightning";
 import { AtmosphereSky } from "./AtmosphereSky";
 import SkyClouds from "./SkyClouds";
 import SkyLightningBolt from "./SkyLightningBolt";
@@ -97,6 +97,12 @@ export default function SkyLayer({ context }: SkyLayerProps) {
     if (lightningKeyRef.current) {
       lightningKeyRef.current.visible = frameLightning.active;
       lightningKeyRef.current.intensity = 2.2 * frameLightning.intensity;
+      if (frameLightning.active && frameLightning.strikeWindowIndex !== undefined) {
+        // The flash key shines from where the visible channel hangs, so set
+        // shadows and highlights agree with the bolt the camera sees.
+        const anchor = getLightningBoltAnchor(seed, frameLightning.strikeWindowIndex);
+        lightningKeyRef.current.position.set(anchor[0], anchor[1], anchor[2]);
+      }
     }
   };
 
@@ -145,6 +151,8 @@ export default function SkyLayer({ context }: SkyLayerProps) {
             name="living-world-lightning-fill"
             visible={lightning.active}
           />
+          {/* Placeholder position; syncSkyFrame re-aims the key from the
+              active strike's channel anchor every frame. */}
           <directionalLight
             ref={lightningKeyRef}
             color="#e8eeff"
