@@ -77,7 +77,7 @@ Tests live in `tests/`, mirroring gateway source.
 
 | Directory | Purpose |
 |-----------|---------|
-| `agents/` | Agent runtime components: adapter registry, model drivers (Anthropic/OpenAI), hosted session history & replay, tool pipeline, role policies |
+| `agents/` | Agent runtime components: agent profiles, API provider store, tool registry/schemas, tool memory, scheduler, result projection, role policies. The agent loop itself lives in DeepSeek Harness (`vendor/deepseek-harness`) with the Director plugin in `packages/dsh-plugin-workbench/` |
 | `artifacts/` | Artifact versioning & approval: production artifact version management, approval workflow, promotion pointers |
 | `controlPlane/` | Control plane configuration: unified env var parsing, Zod schemas, hosted agent defaults |
 | `dcc/` | DCC integration: Blender bridge, scene import/export, Blender native session, glTF preparation |
@@ -102,17 +102,16 @@ Tests live in `tests/`, mirroring gateway source.
 
 | Path | Purpose |
 |------|---------|
-| `agents/agentAdapterRegistry.ts` | Adapter registry: manages registration and lookup of `AgentHarnessAdapter` instances |
 | `agents/agentProfileRegistry.ts` | Agent profile registry: resolves local and hosted agent capabilities, drivers, model configs |
-| `agents/openAiCompatibleAdapter.ts` | OpenAI-compatible adapter: universal `AgentHarnessAdapter` supporting Anthropic Messages and OpenAI Chat drivers |
-| `agents/agentToolPipeline.ts` | Tool pipeline: intercepts `director_workbench`/`director_creative`/`blender_native` tool calls, applies role policies, execution, spill, projection |
+| `agents/agentApiModels.ts` | API provider model discovery: fetches and validates the model list of a user-configured provider |
+| `agents/agentApiProviderStore.ts` | API provider store: persists user-configured hosted model providers (endpoint, driver, models) |
+| `agents/agentToolRegistry.ts` | Tool registry: canonical compact wire schemas, definitions, timeouts, read/write modes for Director tools |
+| `agents/agentToolMemory.ts` | Tool memory: idempotency replay and duplicate-call detection keyed by `idempotency_key` |
 | `agents/agentToolOutcomes.ts` | Tool outcome classification: classifies tool results as `completed`/`failed`/`timed_out`/`stale_revision`/`outcome_unknown` |
-| `agents/agentToolResultProjection.ts` | Tool result projection: compresses and summarizes large tool results, spills to file when over budget |
-| `agents/agentSpillStore.ts` | Tool result spill store: session-scoped file storage for large tool results exceeding model context budget |
-| `agents/agentPromptSegments.ts` | Prompt segments: injects `director-workbench` skill file, agent identity statement, skill catalog hint |
-| `agents/hostedReplay.ts` | Hosted replay: replays recorded model requests/responses in hosted sessions, supports sequence and fingerprint matching |
-| `agents/hostedSessionHistory.ts` | Hosted session history: reconstructs model message history from Agent event stream, extracts tool calls |
-| `agents/hostedSurfaceMeter.ts` | Hosted surface meter: monitors model context window usage, triggers compaction when over threshold |
+| `agents/agentToolResultProjection.ts` | Tool result projection re-export: canonical implementation lives in `packages/dsh-plugin-workbench/src/toolResultProjection.ts`, wired into both the DSH plugin and the MCP server |
+| `agents/agentToolScheduler.ts` | Tool scheduler: ordered call windows, read parallelism, process-wide exact-target write barriers |
+| `agents/localAgentCliAvailability.ts` | Local CLI availability: probes Codex/Claude CLI presence at gateway start |
+| `agents/modelProviderIntegration.ts` | Model provider integration: registers built-in `@director/model-provider` factories for the gateway |
 | `agents/filmRoleToolPolicy.ts` | Film role tool policy: restricts available tools and operations by `FilmRoleId` (read-only vs write) |
 
 ### `artifacts/` File listing

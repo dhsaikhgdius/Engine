@@ -77,7 +77,7 @@ Director(WorldEngine)的 TypeScript 网关控制平面。它提供 Agent 运行�
 
 | 目录 | 用途 |
 |-----------|---------|
-| `agents/` | Agent 运行时组件:适配器注册表、模型驱动(Anthropic/OpenAI)、托管会话历史与回放、工具管道、角色策略 |
+| `agents/` | Agent 运行时组件:Agent 配置、API 提供方存储、工具注册表/Schema、工具记忆、调度器、结果投影、角色策略。Agent 循环本体在 DeepSeek Harness(`vendor/deepseek-harness`),Director 插件在 `packages/dsh-plugin-workbench/` |
 | `artifacts/` | 产物版本与审批:生产产物版本管理、审批工作流、晋升指针 |
 | `controlPlane/` | 控制平面配置:统一环境变量解析、Zod 模式、托管 Agent 默认值 |
 | `dcc/` | DCC 集成:Blender 桥接、场景导入/导出、Blender 原生会话、glTF 准备 |
@@ -102,17 +102,16 @@ Director(WorldEngine)的 TypeScript 网关控制平面。它提供 Agent 运行�
 
 | 路径 | 用途 |
 |------|---------|
-| `agents/agentAdapterRegistry.ts` | 适配器注册表:管理 `AgentHarnessAdapter` 实例的注册与查找 |
 | `agents/agentProfileRegistry.ts` | Agent 配置注册表:解析本地与托管 Agent 的能力、驱动、模型配置 |
-| `agents/openAiCompatibleAdapter.ts` | OpenAI 兼容适配器:通用 `AgentHarnessAdapter`,支持 Anthropic Messages 与 OpenAI Chat 驱动 |
-| `agents/agentToolPipeline.ts` | 工具管道:拦截 `director_workbench`/`director_creative`/`blender_native` 工具调用,应用角色策略、执行、溢出、投影 |
+| `agents/agentApiModels.ts` | API 提供方模型发现:拉取并校验用户自配提供方的模型列表 |
+| `agents/agentApiProviderStore.ts` | API 提供方存储:持久化用户配置的托管模型提供方(端点、驱动、模型) |
+| `agents/agentToolRegistry.ts` | 工具注册表:Director 工具的紧凑 wire schema、定义、超时、读/写模式 |
+| `agents/agentToolMemory.ts` | 工具记忆:按 `idempotency_key` 做幂等回放与重复调用检测 |
 | `agents/agentToolOutcomes.ts` | 工具结果分类:将工具结果分类为 `completed`/`failed`/`timed_out`/`stale_revision`/`outcome_unknown` |
-| `agents/agentToolResultProjection.ts` | 工具结果投影:压缩并汇总大型工具结果,超出预算时溢出到文件 |
-| `agents/agentSpillStore.ts` | 工具结果溢出存储:为超出模型上下文预算的大型工具结果提供会话级文件存储 |
-| `agents/agentPromptSegments.ts` | 提示词片段:注入 `director-workbench` 技能文件、Agent 身份声明、技能目录提示 |
-| `agents/hostedReplay.ts` | 托管回放:在托管会话中回放已录制的模型请求/响应,支持序列与指纹匹配 |
-| `agents/hostedSessionHistory.ts` | 托管会话历史:从 Agent 事件流重建模型消息历史,提取工具调用 |
-| `agents/hostedSurfaceMeter.ts` | 托管界面计量:监控模型上下文窗口使用,超阈值时触发压缩 |
+| `agents/agentToolResultProjection.ts` | 工具结果投影再导出:规范实现位于 `packages/dsh-plugin-workbench/src/toolResultProjection.ts`,已接入 DSH 插件与 MCP 服务器两个模型面 |
+| `agents/agentToolScheduler.ts` | 工具调度器:有序调用窗口、读并行、进程级同目标写屏障 |
+| `agents/localAgentCliAvailability.ts` | 本地 CLI 可用性:网关启动时探测 Codex/Claude CLI 是否存在 |
+| `agents/modelProviderIntegration.ts` | 模型提供方集成:为网关注册内置 `@director/model-provider` 工厂 |
 | `agents/filmRoleToolPolicy.ts` | 影片角色工具策略:按 `FilmRoleId` 限制可用工具与操作(只读 vs 写) |
 
 ### `artifacts/` 文件清单

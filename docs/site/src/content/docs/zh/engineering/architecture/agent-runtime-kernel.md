@@ -4,56 +4,50 @@ title: Agent 运行时内核
 
 ## 状态
 
-已实现。Director 在 TypeScript Gateway 中只拥有一套 Agent 运行时内核。Provider Bridge 可以翻译外部协议，但不能再拥有独立的会话状态、消息队列或 Director 工具策略。
+已被 DeepSeek Harness 集成取代。Director 不再自研 Agent 运行时内核:工具循环、会话存储、提示词组装以及 workspace / web / job 工具全部来自 `vendor/deepseek-harness`(DSH)。Director 的创作面是 Cordis 插件 `packages/dsh-plugin-workbench/`,它把 Director 工具与系统指导注册进 DSH。本页早期描述的自研模块(`AgentSessionStore`、`AgentHarness`、`agentToolPipeline`、Provider 适配器)已从 Gateway 中删除。
 
 ## 运行链路
 
 ```text
-AgentSessionStore
-  → 共享会话投影
-  → Durable Inbox
-  → AgentHarness owned run
-  → Provider Bridge
-  → 统一工具注册与执行管线
-  → 进程级精确目标调度器
-  → Director 项目或 Blender 原生场景
+DSH 会话(vendor/deepseek-harness,循环 + 会话 + 提示词)
+  → Cordis 插件 packages/dsh-plugin-workbench(director_workbench / director_creative /
+    stage_video / blender_native / director_model_routes)
+  → Gateway POST /api/tools/:name
+  → handleStageRoute(backend/gateway/routes/stageRoutes.ts)
+  → 调度窗口 / Revision 守卫 / 角色策略
+  → Director 项目(浏览器 Stage)或 Blender 原生场景
 ```
 
-持久事件流是生命周期的唯一事实来源。`agent_sessions` 只是物化投影，并与事件在同一事务中更新。浏览器直接使用 `@director/agent-engine/session-projection` 中的同一 reducer，不再维护第二套生命周期状态机。
+编码 Agent(Cursor、Claude Code、Codex)通过 `backend/gateway/mcp-server.ts` 走同一套 Gateway 契约,MCP 面暴露 `director_workbench`、`director_creative`、`director_dcc`。两个面共用同一份严格 Schema 校验与同一套工具结果投影。
 
 ## 不变量
 
-1. 只要 Session 仍被保留，它的有序事件流就保持完整。Session 级保留策略可以删除过期 Session 及其所有从属数据，但追加事件时不会再删除早期事件。
-2. 队列载荷变化与 `queue.updated` 在同一事务中提交。Gateway 停止时仍处于 running 的消息会在下次启动时回到队列，未闭合 Turn 会转为 interrupted。
-3. 一个 Session 同时最多拥有一个活动 Turn。`whenIdle()` 同时等待 owned turn 和已经调度的 Inbox drain。
-4. 关闭时先停止 Provider，记录仍未结束的 Turn，等待运行时静止，冲刷流式缓冲，最后才关闭 SQLite。
-5. Codex 动态工具和 Hosted 模型工具共享同一个工具注册、角色策略、超时、精确目标校验、Revision 记忆、结果投影、溢出存储和结果归一化。Gateway 进程内的调用直接走 `handleStageRoute`，不再经 localhost HTTP 回环；MCP、CLI 和 `blender_native` 仍使用 `POST /api/tools/*`。
-6. 明确只读的工具窗口可以有界并发，返回给模型的结果仍保持原始调用顺序。指向同一精确 Director 目标的 Workbench/Creative 调用会跨 Session、跨 Provider 共享进程级读写队列；修改独占执行，排队期间取消的请求不会下发到浏览器。Blender 保留自身带 Revision 的事务边界。
+1. Gateway 对 Agent 循环无状态。会话历史、Turn 所有权、队列与压缩归 DSH 所有;Director 不再重复实现。
+2. 每次修改都会用 `expected_revision` 对照实时项目校验,并返回新 Revision。Stale-revision 拒绝会携带当前 Revision,调用方可以重新 observe 后重试。
+3. 明确只读的工具窗口可以有界并发,返回给模型的结果仍保持原始调用顺序。指向同一精确 Director 目标的调用会跨会话、跨表面共享进程级读写队列(`agents/agentToolScheduler.ts`);修改独占执行。Blender 保留自身带 Revision 的事务边界。
+4. 领域工具对所有模型表面只公布一个紧凑操作信封。精确字段通过 `describe` 与 `capabilities` 渐进披露(`agents/agentToolRegistry.ts`),Gateway 仍按完整严格 Schema 校验每次执行。
+5. 超大工具结果在到达模型前会被摘要。规范投影实现位于 `packages/dsh-plugin-workbench/src/toolResultProjection.ts`,已接入 DSH 插件结果路径与 `createMcpToolResponse`;编码媒体载荷会从文本/JSON 中剥离,只经附件通道传输一次。
+6. 修改操作携带 `idempotency_key`;重放由工具记忆(`agents/agentToolMemory.ts`)直接应答,不会重复执行。
+7. 公开 authoring 调用设置 Stage `geometry_type` 会被拒绝。缺失建筑用 `blender_native`(`create_blockout` / `create_opening`)建模或用 `generated_3d` 生成;白膜是 clay look,不是堆 Stage 盒子。
 
 ## 主要模块
 
-| 模块                                                  | 职责                                                        |
-| ----------------------------------------------------- | ----------------------------------------------------------- |
-| `packages/agent-engine/src/agentSessionProjection.ts` | 前后端共享的事件到 Session reducer                          |
-| `backend/gateway/agentSessionStore.ts`                | SQLite 事件流、投影、Inbox、恢复与批量追加                  |
-| `backend/gateway/agentHarness.ts`                     | Turn 所有权、队列调度、取消与安静关闭                       |
-| `backend/gateway/agents/agentToolRegistry.ts`         | 统一工具定义、超时和执行模式                                |
-| `backend/gateway/agents/workspace/`                   | 工作区工具与受沙箱限制的前台 Bash                           |
-| `backend/gateway/agents/web/`                         | Hosted `web_search` / `web_fetch`（DSH 能力缝，DeepSeek 官方 + Exa + HTTP） |
-| `backend/gateway/agents/agentPluginSettingsStore.ts`  | 插件页：搜索提供方/密钥、Agent 循环并行度                   |
-| `backend/gateway/agents/agentToolPipeline.ts`         | 策略、目标路由、执行和有界模型结果                          |
-| `backend/gateway/agents/localDirectorToolDispatch.ts` | Hosted / Codex 进程内 Stage 路由分发                        |
-| `backend/gateway/agents/agentToolScheduler.ts`        | 有序调用窗口与进程级精确目标屏障                            |
-| `backend/gateway/agentAdapters.ts`                    | Codex、Claude 协议翻译                                          |
+| 模块                                                    | 职责                                                       |
+| ------------------------------------------------------- | ---------------------------------------------------------- |
+| `vendor/deepseek-harness`                                | 工具循环、会话存储、提示词组装、workspace/web/job 工具     |
+| `packages/dsh-plugin-workbench/src/register.ts`          | Director 工具注册与 `DIRECTOR_AGENT_GUIDANCE`              |
+| `packages/dsh-plugin-workbench/src/catalog.ts`           | 从 `packages/protocol` Zod 投影出的模型侧工具 Schema       |
+| `packages/dsh-plugin-workbench/src/toolResultProjection.ts` | 规范的超大结果摘要与媒体剥离实现                       |
+| `backend/gateway/routes/stageRoutes.ts`                  | 所有表面共用的 `POST /api/tools/:name` 执行                |
+| `backend/gateway/agents/agentToolRegistry.ts`            | 统一紧凑 wire schema、定义、超时与读/写模式                |
+| `backend/gateway/agents/agentToolScheduler.ts`           | 有序调用窗口与进程级精确目标屏障                           |
+| `backend/gateway/agents/agentToolMemory.ts`              | 按 `idempotency_key` 的幂等重放                            |
+| `backend/gateway/agents/agentToolOutcomes.ts`            | 结果归一化(`completed` / `failed` / `stale_revision` …)  |
+| `backend/gateway/agents/filmRoleToolPolicy.ts`           | 按角色限制工具与操作                                       |
+| `backend/gateway/mcp-server.ts`                          | 编码 Agent 的 MCP 表面(Cursor / Claude Code / Codex)     |
 
-Claude 仍通过便携 MCP 进程通信，因为该传输由 CLI 管理。它们共享相同的 Gateway 契约和角色策略；Provider 特有的消息格式只保留在 Bridge 边界。
-
-## Workspace Bash 边界
-
-Hosted Bash 不是给外部 Coding CLI 使用的 node-pty 终端。每次调用只启动一个新的、非交互、前台进程，并返回 stdout、stderr、退出码、超时、截断和沙箱拒绝事实。非零退出码表示命令执行完成，不是 Gateway 传输失败。
-
-Gateway 在运行时选择 macOS Seatbelt 或 Linux Bubblewrap；两者都不可用时，能力会明确显示 unavailable，并拒绝执行，不会静默退化为裸 Shell。写入只允许发生在 Director 工作区和临时目录，子进程环境会过滤 Gateway 凭据。后台 Job 与权限提升仍是独立的后续能力。
+`npm run dsh` 准备 Director workbench overlay 并在 `:3080` 启动固定版本的 DSH Web;`npm run mcp` 启动面向编码 Agent 的 MCP 服务器,对接 `:8787` 的 Gateway。
 
 ## 尚未统一的边界
 
-Agent 检查点当前保存 Director 项目快照。Blender 原生 Revision 会进入事件流，但还不能与项目快照一起原子恢复。后续统一检查点必须绑定 Director Project Revision 与 Blender Scene Revision 或原生 Savepoint；在完成前，恢复接口必须继续明确标记为 Director-only scope。
+Director 项目 Revision 与 Blender 原生场景 Revision 是两条独立的事务边界。Blender 编辑会话由自身的快照指纹与 Revision 链保护;目前没有把 Director 项目 Revision 与 Blender 场景 Revision 原子绑定的统一检查点。在统一检查点出现之前,恢复接口必须继续明确标记为 Director-only scope。
