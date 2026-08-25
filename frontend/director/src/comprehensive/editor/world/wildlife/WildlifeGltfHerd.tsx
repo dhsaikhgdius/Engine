@@ -44,7 +44,7 @@ interface WildlifeGltfAgent {
   currentActionIndex: number;
 }
 
-const scratchGroundPose: WildlifeGroundPose = { groundY: 0, slopePitchRad: 0 };
+const scratchGroundPose: WildlifeGroundPose = { groundY: 0, slopePitchRad: 0, slopeRollRad: 0, clipLiftM: 0 };
 
 function buildAgents(binding: WildlifeAssetBinding, group: DirectorWorldWildlifeGroup): WildlifeGltfAgent[] {
   const targetHeight = resolveWildlifePlaceholderHeightM(group.species) * group.sizeScale;
@@ -131,16 +131,20 @@ export default function WildlifeGltfHerd({
       const grazeBlend = lerp(prev.grazeBlend[i], curr.grazeBlend[i], alpha);
 
       // Terrain snapping stays render-side: the sim's py is the flat plane
-      // (checkpoint-replayed state must not depend on scene contents).
+      // (checkpoint-replayed state must not depend on scene contents). The
+      // pose includes lateral roll and a clip-compensation lift so models
+      // lie onto slopes instead of stabbing through them.
       let groundY = py;
       let slopePitch = 0;
+      let slopeRoll = 0;
       if (sample) {
         sampleWildlifeGroundPose(sample, px, pz, yaw, py, probeHalfSpacing, scratchGroundPose);
-        groundY = scratchGroundPose.groundY;
+        groundY = scratchGroundPose.groundY + scratchGroundPose.clipLiftM;
         slopePitch = scratchGroundPose.slopePitchRad;
+        slopeRoll = scratchGroundPose.slopeRollRad;
       }
       agent.container.position.set(px, groundY, pz);
-      agent.container.rotation.set(slopePitch, yaw, 0);
+      agent.container.rotation.set(slopePitch, yaw, slopeRoll);
 
       if (agent.actions.length > 0) {
         // grazeBlend is the sim's smoothed 0..1 head-down blend; past the

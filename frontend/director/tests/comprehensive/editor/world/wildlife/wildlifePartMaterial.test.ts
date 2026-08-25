@@ -9,14 +9,15 @@ import {
 import {
   createWildlifePartDepthMaterial,
   createWildlifePartMaterial,
+  injectWildlifePartFragmentShader,
   injectWildlifePartVertexShader,
   WILDLIFE_PART_ANGLES_ATTRIBUTE_0,
   WILDLIFE_PART_ANGLES_ATTRIBUTE_1,
   WILDLIFE_PART_VERTEX_PRELUDE,
 } from "../../../../../src/comprehensive/editor/world/wildlife/wildlifePartMaterial";
 
-function fakeShader(vertexShader: string): WebGLProgramParametersWithUniforms {
-  return { vertexShader, fragmentShader: "", uniforms: {} } as unknown as WebGLProgramParametersWithUniforms;
+function fakeShader(vertexShader: string, fragmentShader = ""): WebGLProgramParametersWithUniforms {
+  return { vertexShader, fragmentShader, uniforms: {} } as unknown as WebGLProgramParametersWithUniforms;
 }
 
 describe("wildlife part vertex shader injection", () => {
@@ -27,6 +28,8 @@ describe("wildlife part vertex shader injection", () => {
       expect(source).toContain("#include <begin_vertex>");
     }
     expect(ShaderLib.standard.vertexShader).toContain("#include <beginnormal_vertex>");
+    expect(ShaderLib.standard.fragmentShader).toContain("#include <common>");
+    expect(ShaderLib.standard.fragmentShader).toContain("#include <color_fragment>");
   });
 
   it("declares the geometry and instance attributes used by the render layer", () => {
@@ -62,8 +65,27 @@ describe("wildlife part vertex shader injection", () => {
     expect(injected.indexOf("wildlifeRotateAboutAxis")).toBeGreaterThan(-1);
   });
 
+  it("forwards the slot-7 shade varying from the position chunk", () => {
+    const injected = injectWildlifePartVertexShader(ShaderLib.standard.vertexShader);
+    expect(injected).toContain("varying float vWildlifeShade");
+    expect(injected).toContain("vWildlifeShade = aPartAngles1.w");
+  });
+
   it("is a no-op on sources without anchors instead of corrupting them", () => {
     expect(injectWildlifePartVertexShader("void main() {}")).toBe("void main() {}");
+    expect(injectWildlifePartFragmentShader("void main() {}")).toBe("void main() {}");
+  });
+});
+
+describe("wildlife part fragment shader injection", () => {
+  it("applies the per-agent shade to the albedo after color_fragment", () => {
+    const injected = injectWildlifePartFragmentShader(ShaderLib.standard.fragmentShader);
+    const varyingDecl = injected.indexOf("varying float vWildlifeShade");
+    const shade = injected.indexOf("diffuseColor.rgb *= (0.85 + 0.27 * vWildlifeShade)");
+    const colorAnchor = injected.indexOf("#include <color_fragment>");
+    expect(varyingDecl).toBeGreaterThan(-1);
+    expect(shade).toBeGreaterThan(colorAnchor); // shade applies after base color
+    expect(varyingDecl).toBeLessThan(shade); // declaration precedes use
   });
 });
 
@@ -72,9 +94,10 @@ describe("wildlife part materials", () => {
     const material = createWildlifePartMaterial(0x8a6240);
     expect(material.color.getHex()).toBe(new Color(0x8a6240).getHex());
     expect(material.roughness).toBeCloseTo(0.9, 6);
-    const shader = fakeShader(ShaderLib.standard.vertexShader);
+    const shader = fakeShader(ShaderLib.standard.vertexShader, ShaderLib.standard.fragmentShader);
     material.onBeforeCompile(shader, undefined as never);
     expect(shader.vertexShader).toContain("wildlifePartAngleRad");
+    expect(shader.fragmentShader).toContain("vWildlifeShade");
     const other = createWildlifePartMaterial(0x5a5f66);
     expect(material.customProgramCacheKey()).toBe(other.customProgramCacheKey()); // one program for all herds
     material.dispose();

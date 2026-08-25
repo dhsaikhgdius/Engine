@@ -26,11 +26,16 @@ const HERD_PART_NAMES: WildlifePartName[] = [
   "tail",
 ];
 
-/** Locked layout: 36 vertices per box; changing a silhouette must be deliberate. */
+/**
+ * Locked layout: 36 vertices per box; changing a silhouette must be
+ * deliberate. Golden update (wildlife ecology track): birds gained a tail
+ * fan (+2 tris) and fish gained dorsal + pectoral fins (+3 tris) so the two
+ * species read correctly at silhouette distance instead of as darts.
+ */
 const EXPECTED_VERTEX_COUNTS: Record<WorldWildlifeSpecies, number> = {
-  birds: 24, // 6 fuselage tris + 2 wing tris
+  birds: 30, // 6 fuselage tris + 2 wing tris + 2 tail-fan tris
   butterflies: 30, // 6 fuselage tris + 4 wing tris
-  fish: 27, // 8 body tris + 1 tail fin tri
+  fish: 36, // 8 body tris + 1 tail fin + 1 dorsal fin + 2 pectoral fins
   deer: 432, // 12 boxes: body, neck, head, 2×(antler beam + fork), tail, 4 legs
   rabbits: 360, // 10 boxes: body, haunches, head, 2 ears, tail, 4 legs
   wolves: 360, // 10 boxes: body, head, snout, 2 ears, tail, 4 legs

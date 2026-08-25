@@ -78,7 +78,7 @@ const tempPosition = new Vector3();
 const tempQuaternion = new Quaternion();
 const tempEuler = new Euler();
 const UNIT_SCALE = new Vector3(1, 1, 1);
-const tempGroundPose: WildlifeGroundPose = { groundY: 0, slopePitchRad: 0 };
+const tempGroundPose: WildlifeGroundPose = { groundY: 0, slopePitchRad: 0, slopeRollRad: 0, clipLiftM: 0 };
 
 function composeGroupMatrices(
   mesh: InstancedMesh,
@@ -111,6 +111,14 @@ function composeGroupMatrices(
     archetype === "flock" && group.species === "butterflies" && groundSample
       ? (groundSample(group.area.center[0], group.area.center[2]) ?? context.groundHeight)
       : null;
+  // Render-side wind response (pure in context: windVector is evaluated at
+  // worldSeconds): fliers bank into the crosswind and butterflies flap harder
+  // in gusts. Sim state never reads these — they are cosmetic only.
+  const windX = context.windVector[0];
+  const windZ = context.windVector[2];
+  const windSpeed = Math.sqrt(windX * windX + windZ * windZ);
+  const flapWindGain =
+    archetype === "flock" && group.species === "butterflies" ? 1 + Math.min(windSpeed * 0.05, 0.5) : 1;
 
   for (let i = 0; i < count; i += 1) {
     const px = lerp(prev.posX[i], curr.posX[i], alpha);
@@ -133,12 +141,15 @@ function composeGroupMatrices(
       const grazeBlend = lerp(prev.grazeBlend[i], curr.grazeBlend[i], alpha);
       if (groundSample) {
         // Sim py IS the flat plane for herds; snapping replaces it with the
-        // sampled terrain height and tilts the body to the local fore/aft
-        // slope. Sampling stays render-side so replayed sim state never
-        // depends on scene contents (see livingWorldContracts).
+        // sampled terrain height, tilts the body to the local fore/aft AND
+        // lateral slope, and lifts it clear of slopes steeper than the tilt
+        // clamp so uphill legs stop sinking into terrain. Sampling stays
+        // render-side so replayed sim state never depends on scene contents
+        // (see livingWorldContracts).
         sampleWildlifeGroundPose(groundSample, px, pz, yaw, py, slopeProbeHalfSpacing, tempGroundPose);
-        py = tempGroundPose.groundY;
+        py = tempGroundPose.groundY + tempGroundPose.clipLiftM;
         pitch += tempGroundPose.slopePitchRad;
+        roll += tempGroundPose.slopeRollRad;
       }
       py += bodyOffsetY;
       if (gait) {
@@ -148,8 +159,10 @@ function composeGroupMatrices(
         pitch += wildlifeBodyPitchRad(gait, gaitPhase, speedFactor);
         if (angleArray) {
           // Leg swing, head nod/graze pitch, and tail motion resolve in the
-          // vertex shader from these per-agent part angles.
-          writeWildlifePartAngles(angleArray, i, gait, gaitPhase, speedFactor, grazeBlend);
+          // vertex shader from these per-agent part angles; the spare slot
+          // carries a per-agent shade (from the immutable phase) so herd
+          // members stop looking like identical clones.
+          writeWildlifePartAngles(angleArray, i, gait, gaitPhase, speedFactor, grazeBlend, agentPhase / TWO_PI);
         }
       }
     } else {
@@ -161,8 +174,14 @@ function composeGroupMatrices(
         yaw = agentPhase;
       }
       if (archetype === "flock") {
-        // Whole-body roll oscillation fakes the wing flap cheaply.
-        roll = Math.sin(seconds * TWO_PI * profile.flapHz + agentPhase) * profile.flapAmplitudeRad;
+        // Whole-body roll oscillation fakes the wing flap cheaply; gusts
+        // speed the butterfly flap up and every flier banks into the
+        // crosswind component (windVector is pure in worldSeconds, so this
+        // stays scrub/export-stable).
+        roll =
+          Math.sin(seconds * TWO_PI * profile.flapHz + agentPhase) * profile.flapAmplitudeRad * flapWindGain;
+        const crosswind = windX * Math.cos(yaw) - windZ * Math.sin(yaw);
+        roll += Math.min(Math.max(crosswind * 0.015, -0.2), 0.2);
         if (butterflyLiftReferenceY !== null && groundSample) {
           py += wildlifeTerrainLift(groundSample(px, pz), butterflyLiftReferenceY);
         }

@@ -228,8 +228,10 @@ export function wildlifeTailSwingRad(profile: WildlifeGaitProfile, phase: number
 /**
  * Writes the 8 per-part angle slots for one agent into an interleaved
  * Float32Array (stride WILDLIFE_PART_ANGLE_SLOTS). Slot layout follows
- * WILDLIFE_PART_SLOTS; the body slot (0) and the spare slot (7) always carry
- * 0 so untagged vertices never rotate.
+ * WILDLIFE_PART_SLOTS; the body slot (0) always carries 0 so untagged
+ * vertices never rotate. Slot 7 is not an angle: it carries the agent's
+ * 0..1 shade variation, read directly by the fragment stage of the part
+ * material (no vertex has part id 7, so the angle picker never sees it).
  */
 export function writeWildlifePartAngles(
   target: Float32Array,
@@ -238,6 +240,7 @@ export function writeWildlifePartAngles(
   phase: number,
   speedFactor: number,
   grazeBlend: number,
+  shade01 = 0,
 ): void {
   const base = agentIndex * WILDLIFE_PART_ANGLE_SLOTS;
   target[base + WILDLIFE_PART_SLOTS.body] = 0;
@@ -246,5 +249,5 @@ export function writeWildlifePartAngles(
     target[base + WILDLIFE_PART_SLOTS.legFrontLeft + leg] = wildlifeLegSwingRad(profile, phase, leg, speedFactor);
   }
   target[base + WILDLIFE_PART_SLOTS.tail] = wildlifeTailSwingRad(profile, phase, speedFactor);
-  target[base + WILDLIFE_PART_ANGLE_SLOTS - 1] = 0;
+  target[base + WILDLIFE_PART_ANGLE_SLOTS - 1] = shade01;
 }

@@ -73,6 +73,36 @@ export function wildlifeSlopePitchRad(
 }
 
 /**
+ * Body roll (radians, Euler-YXZ Z axis) from two heights sampled across the
+ * heading. Positive Z roll lifts the model's +X (right) side, so terrain
+ * rising to the right yields a positive roll that lays the body onto the
+ * lateral slope. Clamped to ±`maxTiltRad`.
+ */
+export function wildlifeSlopeRollRad(
+  heightLeft: number,
+  heightRight: number,
+  spacing: number,
+  maxTiltRad: number = WILDLIFE_MAX_SLOPE_TILT_RAD,
+): number {
+  if (!Number.isFinite(heightLeft) || !Number.isFinite(heightRight)) return 0;
+  const raw = Math.atan2(heightRight - heightLeft, Math.max(spacing, 1e-3));
+  return Math.min(maxTiltRad, Math.max(-maxTiltRad, raw)) + 0;
+}
+
+/**
+ * Extra body lift (metres) that keeps the uphill feet out of the terrain
+ * when the real slope exceeds the tilt clamp: the uphill probe sits
+ * |heightDelta|/2 above the centre sample, while a body tilted at
+ * `appliedTiltRad` only reaches tan(|tilt|) × halfSpan there — the shortfall
+ * is how deep the uphill leg would visually sink.
+ */
+export function wildlifeClipLiftM(heightDeltaM: number, halfSpanM: number, appliedTiltRad: number): number {
+  if (!Number.isFinite(heightDeltaM)) return 0;
+  const reach = Math.tan(Math.abs(appliedTiltRad)) * Math.max(halfSpanM, 0);
+  return Math.max(0, Math.abs(heightDeltaM) / 2 - reach);
+}
+
+/**
  * Vertical band offset for low-flying flocks (butterflies): the authored
  * altitude band follows local terrain relief measured against the flat ground
  * plane. Null samples (holes, water pits) keep the flat band.
@@ -86,13 +116,19 @@ export interface WildlifeGroundPose {
   groundY: number;
   /** Slope-following body pitch, radians (Euler-YXZ X axis), clamped. */
   slopePitchRad: number;
+  /** Slope-following body roll, radians (Euler-YXZ Z axis), clamped. */
+  slopeRollRad: number;
+  /** Extra lift keeping uphill feet above ground when slopes beat the clamp. */
+  clipLiftM: number;
 }
 
 /**
- * Samples ground plus a fore/aft pair along the heading and folds them into a
- * ground pose. The three samples hit the shared quantized cache, so the
- * steady-state cost is three Map lookups. Missing fore/aft samples fall back
- * to the centre height (flat pitch contribution).
+ * Samples ground plus fore/aft and left/right probe pairs around the heading
+ * and folds them into a ground pose: snap height, slope pitch AND roll, and
+ * a clip-compensation lift for slopes steeper than the tilt clamp. The five
+ * samples hit the shared quantized cache, so the steady-state cost is five
+ * Map lookups. Missing probe samples fall back to the centre height (flat
+ * contribution).
  */
 export function sampleWildlifeGroundPose(
   sample: WorldGroundSampler,
@@ -105,12 +141,23 @@ export function sampleWildlifeGroundPose(
 ): WildlifeGroundPose {
   const groundY = resolveWildlifeGroundY(sample(x, z), flatGroundY);
   // Heading convention matches the sim: yaw about +Y with forward +Z, so the
-  // forward ground offset is (sin(yaw), cos(yaw)).
-  const dx = Math.sin(headingRad) * probeHalfSpacingM;
-  const dz = Math.cos(headingRad) * probeHalfSpacingM;
-  const ahead = resolveWildlifeGroundY(sample(x + dx, z + dz), groundY);
-  const behind = resolveWildlifeGroundY(sample(x - dx, z - dz), groundY);
+  // forward offset is (sin(yaw), cos(yaw)) and the model's +X (right) side
+  // maps to (cos(yaw), -sin(yaw)).
+  const forwardDx = Math.sin(headingRad) * probeHalfSpacingM;
+  const forwardDz = Math.cos(headingRad) * probeHalfSpacingM;
+  const rightDx = Math.cos(headingRad) * probeHalfSpacingM;
+  const rightDz = -Math.sin(headingRad) * probeHalfSpacingM;
+  const ahead = resolveWildlifeGroundY(sample(x + forwardDx, z + forwardDz), groundY);
+  const behind = resolveWildlifeGroundY(sample(x - forwardDx, z - forwardDz), groundY);
+  const right = resolveWildlifeGroundY(sample(x + rightDx, z + rightDz), groundY);
+  const left = resolveWildlifeGroundY(sample(x - rightDx, z - rightDz), groundY);
+  const spacing = probeHalfSpacingM * 2;
   out.groundY = groundY;
-  out.slopePitchRad = wildlifeSlopePitchRad(behind, ahead, probeHalfSpacingM * 2);
+  out.slopePitchRad = wildlifeSlopePitchRad(behind, ahead, spacing);
+  out.slopeRollRad = wildlifeSlopeRollRad(left, right, spacing);
+  out.clipLiftM = Math.max(
+    wildlifeClipLiftM(ahead - behind, probeHalfSpacingM, out.slopePitchRad),
+    wildlifeClipLiftM(right - left, probeHalfSpacingM, out.slopeRollRad),
+  );
   return out;
 }

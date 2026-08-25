@@ -291,6 +291,8 @@ interface FlockSilhouetteSpec {
   bodyHalfWidth: number;
   /** Wing triangles: [rootZ, tipX, tipY, tipZ, rootBackZ] per wing pair. */
   wingPairs: Array<{ rootZ: number; rootBackZ: number; tipX: number; tipY: number; tipZ: number }>;
+  /** Optional tail fan: two flat triangles spreading behind the fuselage. */
+  tailFan?: { rootZ: number; backZ: number; tipX: number; y: number };
 }
 
 const BIRD_SPEC: FlockSilhouetteSpec = {
@@ -298,6 +300,8 @@ const BIRD_SPEC: FlockSilhouetteSpec = {
   bodyTailZ: -0.12,
   bodyHalfWidth: 0.05,
   wingPairs: [{ rootZ: 0.04, rootBackZ: -0.1, tipX: 0.45, tipY: 0.03, tipZ: -0.06 }],
+  // The tail fan breaks the dart symmetry so a banking bird reads as a bird.
+  tailFan: { rootZ: -0.1, backZ: -0.3, tipX: 0.12, y: 0.01 },
 };
 
 const BUTTERFLY_SPEC: FlockSilhouetteSpec = {
@@ -340,6 +344,12 @@ function buildFlockPositions(spec: FlockSilhouetteSpec): number[] {
       wing.tipZ,
     );
   }
+  if (spec.tailFan) {
+    // Two flat half-fan triangles behind the fuselage (right, then left).
+    const { rootZ, backZ, tipX, y } = spec.tailFan;
+    pushTriangle(positions, 0, y, rootZ, tipX, y, backZ + 0.02, 0, y, backZ);
+    pushTriangle(positions, 0, y, rootZ, 0, y, backZ, -tipX, y, backZ + 0.02);
+  }
   return positions;
 }
 
@@ -362,6 +372,11 @@ function buildFishPositions(): number[] {
   }
   // Tail fin: single vertical triangle behind the body.
   pushTriangle(positions, 0, 0, -0.08, 0, 0.055, -0.17, 0, -0.055, -0.17);
+  // Dorsal fin: vertical triangle on the spine — the classic fish read.
+  pushTriangle(positions, 0, 0.045, 0.06, 0, 0.09, -0.02, 0, 0.045, -0.06);
+  // Pectoral fin pair: small angled triangles below the lateral line.
+  pushTriangle(positions, 0.015, -0.005, 0.06, 0.05, -0.04, 0.005, 0.015, -0.015, 0.015);
+  pushTriangle(positions, -0.015, -0.005, 0.06, -0.015, -0.015, 0.015, -0.05, -0.04, 0.005);
   return positions;
 }
 

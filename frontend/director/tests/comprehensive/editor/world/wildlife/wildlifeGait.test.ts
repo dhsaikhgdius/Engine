@@ -158,7 +158,7 @@ describe("writeWildlifePartAngles", () => {
       );
     }
     expect(target[base + WILDLIFE_PART_SLOTS.tail]).toBeCloseTo(wildlifeTailSwingRad(profile, phase, 0.8), 6);
-    expect(target[base + WILDLIFE_PART_ANGLE_SLOTS - 1]).toBe(0); // spare slot stays inert
+    expect(target[base + WILDLIFE_PART_ANGLE_SLOTS - 1]).toBe(0); // shade defaults to 0
 
     for (let index = 0; index < target.length; index += 1) {
       if (index < base || index >= base + WILDLIFE_PART_ANGLE_SLOTS) {
@@ -167,12 +167,25 @@ describe("writeWildlifePartAngles", () => {
     }
   });
 
+  it("carries the per-agent shade in slot 7 without touching angle slots", () => {
+    const profile = WILDLIFE_GAIT_PROFILES.sheep;
+    const plain = new Float32Array(WILDLIFE_PART_ANGLE_SLOTS);
+    const shaded = new Float32Array(WILDLIFE_PART_ANGLE_SLOTS);
+    writeWildlifePartAngles(plain, 0, profile, 2.2, 0.5, 0.3);
+    writeWildlifePartAngles(shaded, 0, profile, 2.2, 0.5, 0.3, 0.42);
+    expect(shaded[WILDLIFE_PART_ANGLE_SLOTS - 1]).toBeCloseTo(0.42, 6);
+    // Every angle slot is identical: shade is fragment-only data.
+    for (let slot = 0; slot < WILDLIFE_PART_ANGLE_SLOTS - 1; slot += 1) {
+      expect(shaded[slot]).toBe(plain[slot]);
+    }
+  });
+
   it("is deterministic for identical inputs", () => {
     const profile = WILDLIFE_GAIT_PROFILES.rabbits;
     const a = new Float32Array(WILDLIFE_PART_ANGLE_SLOTS);
     const b = new Float32Array(WILDLIFE_PART_ANGLE_SLOTS);
-    writeWildlifePartAngles(a, 0, profile, 5.5, 0.6, 0);
-    writeWildlifePartAngles(b, 0, profile, 5.5, 0.6, 0);
+    writeWildlifePartAngles(a, 0, profile, 5.5, 0.6, 0, 0.77);
+    writeWildlifePartAngles(b, 0, profile, 5.5, 0.6, 0, 0.77);
     expect(Array.from(a)).toEqual(Array.from(b));
   });
 });
