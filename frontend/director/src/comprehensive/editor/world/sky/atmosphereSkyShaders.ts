@@ -26,6 +26,8 @@ export const ATMOSPHERE_SKY_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 sunDir;
   uniform vec3 sunColor;
   uniform float sunIntensity;
+  uniform float discOpacity;
+  uniform float glowOpacity;
   uniform float cloudAmount;
   uniform float cloudDarken;
   uniform float time;
@@ -72,15 +74,19 @@ export const ATMOSPHERE_SKY_FRAGMENT_SHADER = /* glsl */ `
     vec3 dir = normalize(vWorldDir);
     vec3 col = texture2D(skyLUT, dirToLatLong(dir)).rgb;
 
+    // Disc and aureole are gated by evaluateSunDiscState: weather transmission
+    // crushes them (overcast keeps no hard disc, a storm only a faint smudge)
+    // and the twilight fade zeroes them, so no disc ever shines through the
+    // below-horizon ground fill at night.
     float mu = dot(dir, sunDir);
     float discCos = cos(0.0046);
-    if (mu > discCos) {
+    if (mu > discCos && discOpacity > 0.001) {
       float r = sqrt(max(0.0, 1.0 - mu * mu)) / 0.0046;
       float limb = pow(max(0.0, 1.0 - r * r * 0.72), 0.42);
-      col += sunColor * 8.0 * limb;
+      col += sunColor * 8.0 * limb * discOpacity;
     }
     float aureole = pow(max(0.0, mu), 1800.0) * 2.4 + pow(max(0.0, mu), 96.0) * 0.12;
-    col += sunColor * aureole;
+    col += sunColor * aureole * glowOpacity;
 
     if (cloudAmount > 0.02 && dir.y > 0.0) {
       float planeY = 1.0 / max(0.06, dir.y);
@@ -103,6 +109,10 @@ export const ATMOSPHERE_SKY_FRAGMENT_SHADER = /* glsl */ `
       cloud *= smoothstep(0.0, 0.14, dir.y) * mix(zenithFade, 1.0, cloudAmount);
       float sunLit = pow(max(0.0, mu * 0.5 + 0.5), 3.0) * (1.0 - 0.75 * cloudAmount);
       vec3 cloudCol = mix(vec3(0.6, 0.65, 0.74), sunColor * 1.05, sunLit) * cloudDarken;
+      // Clouds are lit by the sky: after sunset the deck must fall to a
+      // near-black blue-grey with the rest of the dome instead of glowing.
+      float dayLight = smoothstep(-0.1, 0.16, sunDir.y);
+      cloudCol *= mix(0.03, 1.0, dayLight);
       col = mix(col, cloudCol * (0.62 + sunIntensity * 0.05), cloud * mix(0.4, 0.94, cloudAmount));
     }
 

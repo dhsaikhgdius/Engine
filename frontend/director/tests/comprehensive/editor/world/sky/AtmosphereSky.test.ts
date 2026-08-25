@@ -10,7 +10,10 @@ import {
   atmosphereSkyRidgeAmplitude,
   createAtmosphereEnvironmentTexture,
 } from "../../../../../src/comprehensive/editor/world/sky/AtmosphereSky";
-import { ATMOSPHERE_SKY_FRAGMENT_SHADER, ATMOSPHERE_SKY_VERTEX_SHADER } from "../../../../../src/comprehensive/editor/world/sky/atmosphereSkyShaders";
+import {
+  ATMOSPHERE_SKY_FRAGMENT_SHADER,
+  ATMOSPHERE_SKY_VERTEX_SHADER,
+} from "../../../../../src/comprehensive/editor/world/sky/atmosphereSkyShaders";
 
 describe("atmosphere sky film-set defaults", () => {
   it("does not flip the CPU zenith row and does not draw a default mountain matte", () => {
@@ -32,6 +35,24 @@ describe("atmosphere sky film-set defaults", () => {
     expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).toContain("* cloudDarken");
     // The old constant 35% blend cap must be gone: heavy skies read covered.
     expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).not.toContain("cloud * 0.35");
+  });
+
+  it("gates the visible sun disc and aureole on the weather/twilight opacity", () => {
+    // The disc must not be a hard-coded full-brightness dot: overcast keeps
+    // no hard disc, storms crush it to a smudge, and at night the zeroed
+    // opacity keeps it from shining through the below-horizon ground fill.
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).toContain("uniform float discOpacity");
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).toContain("uniform float glowOpacity");
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).toContain("* limb * discOpacity");
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).toContain("* aureole * glowOpacity");
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).not.toContain("sunColor * 8.0 * limb;");
+  });
+
+  it("drops the cloud deck to near-black after sunset instead of a glowing grey", () => {
+    // Clouds are lit by the sky: the deck colour must follow the sun's
+    // elevation so an overcast midnight reads as a dark ceiling.
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).toContain("smoothstep(-0.1, 0.16, sunDir.y)");
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).toContain("mix(0.03, 1.0, dayLight)");
   });
 
   it("places the dome far from the camera instead of on an 80 m wall", () => {

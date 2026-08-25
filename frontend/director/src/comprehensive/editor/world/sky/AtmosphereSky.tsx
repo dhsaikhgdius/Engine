@@ -24,7 +24,7 @@ import {
 } from "./atmosphere";
 import { ATMOSPHERE_SKY_FRAGMENT_SHADER, ATMOSPHERE_SKY_VERTEX_SHADER } from "./atmosphereSkyShaders";
 import { evaluateSkyWeatherMood } from "./skyWeather";
-import { evaluateSkyAtmosphere, evaluateSkyLighting, getSolarDirectionForHours } from "./solar";
+import { evaluateSkyAtmosphere, evaluateSkyLighting, evaluateSunDiscState, getSolarDirectionForHours } from "./solar";
 
 const SKY_BOX_EXTENT = 4200;
 const ATMOSPHERE_SKY_RENDER_ORDER = -1000;
@@ -102,6 +102,8 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
       sunDir: { value: sunDir },
       sunColor: { value: sunColor },
       sunIntensity: { value: 1 },
+      discOpacity: { value: 0 },
+      glowOpacity: { value: 0 },
       cloudAmount: { value: 0 },
       cloudDarken: { value: 1 },
       time: { value: 0 },
@@ -124,6 +126,12 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
     sunDir.set(trueSun[0], trueSun[1], trueSun[2]);
     sunColor.set(solution.sunColor[0], solution.sunColor[1], solution.sunColor[2]);
     material.uniforms.sunIntensity.value = Math.max(lighting.sunIntensity, 0.08);
+    // The visible disc/halo follow the same weather-and-twilight gate as the
+    // key light: overcast keeps no hard disc, storms crush it to a smudge,
+    // and below civil-twilight depth both terms drop to exactly zero.
+    const sunDisc = evaluateSunDiscState(settings, seconds);
+    material.uniforms.discOpacity.value = sunDisc.discOpacity;
+    material.uniforms.glowOpacity.value = sunDisc.glowOpacity;
     // Shader clouds follow the preset-floored effective cover: an overcast
     // or storm sky closes its deck even at a low authored cover slider.
     const mood = evaluateSkyWeatherMood(settings.weather);
@@ -137,11 +145,20 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
   };
 
   useLayoutEffect(() => {
+    const previousEnvironmentIntensity = scene.environmentIntensity;
     sync(context.worldSeconds);
     return () => {
-      if (scene.environment === lutTexture) scene.environment = null;
+      // Hand the environment slot back untouched (e.g. to a panorama IBL):
+      // clear only our own texture and restore the intensity we overrode.
+      if (scene.environment === lutTexture) {
+        scene.environment = null;
+        scene.environmentIntensity = previousEnvironmentIntensity;
+      }
       lutTexture.dispose();
     };
+    // Mount-time sync and environment handoff only; the per-frame sync below
+    // tracks the live mutated context without re-running this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lutTexture, scene]);
 
   useFrame(() => {
