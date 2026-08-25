@@ -6,7 +6,7 @@ import {
 } from "@director/agent-engine";
 import { creativeWorkspaceAgentRequestSchema } from "@director/protocol/creative-workspace";
 import { blenderNativeToolRequestSchema } from "@director/protocol/blender-live";
-import { videoModelOperationSchema } from "@director/protocol/video-generation";
+import { videoModelOperationSchema, videoProviderIdSchema } from "@director/protocol/video-generation";
 
 type OperationUnionSchema = {
   options: ReadonlyArray<{ shape: { op: { value: string } } }>;
@@ -73,10 +73,31 @@ const directorWorkbenchWireSchema = compactWireSchema(
   directorWorkbenchOperationSchema,
   'Operation. Use {"op":"describe","target":"<op>"}, target "author.<action>", or target "author.evidence" when exact fields are unknown. Other fields ride alongside op and are strictly validated by the Gateway.',
 ).extend({
+  // pilot reuses target as an [x,y,z] look-at point; the union keeps that valid.
+  target: z
+    .union([z.string(), z.array(z.number())])
+    .optional()
+    .describe(
+      'Required for op="describe": the operation or author action to reflect, e.g. "capture", "author.add_object", or "author.evidence". (op="pilot" set_view instead uses target as an [x,y,z] look-at point.)',
+    ),
   catalog: directorWorkbenchCatalogIdSchema
     .optional()
     .describe('Required for op="catalog". Use catalog, never target, collection, source, or catalog_type.'),
+  query: z
+    .string()
+    .optional()
+    .describe('Search text for op="catalog"; Chinese matches indexed names, aliases, and tags.'),
   spatial: directorObjectSpatialQuerySchema.optional().describe('Selector for op="query_objects".'),
+  name_pattern: z
+    .string()
+    .optional()
+    .describe(
+      'Top-level selector for op="query_objects": case-insensitive substring of the object name or id (Chinese ok, e.g. "门" matches "木门").',
+    ),
+  kind: z
+    .enum(["character", "scene", "prop", "camera", "panorama"])
+    .optional()
+    .describe('Top-level object-kind selector for op="query_objects"; also the asset-kind filter for op="catalog".'),
   max_results: z.number().int().min(1).max(200).optional().describe('Result bound for op="query_objects".'),
   actions: z
     .array(z.looseObject({ action: z.string().min(1) }))
@@ -84,7 +105,45 @@ const directorWorkbenchWireSchema = compactWireSchema(
     .describe(
       'Required for op="author". Deletion is delete_objects with object_ids (remove_object + id is accepted).',
     ),
+  evidence: z
+    .looseObject({})
+    .optional()
+    .describe(
+      'Optional post-commit visual proof for op="author". An object, never a boolean: {} captures a clean 640x360 frame through the active camera. Optional fields via {"op":"describe","target":"author.evidence"}.',
+    ),
   fields: z.array(z.string()).optional().describe('Optional observe fields, e.g. counts, ui, objects.'),
+  since_revision: z
+    .string()
+    .optional()
+    .describe(
+      'For op="observe": return only persisted changes since this project_revision from a recent response (excludes ui).',
+    ),
+  object_mode: z
+    .enum(["flat", "hierarchy"])
+    .optional()
+    .describe('For op="observe" with fields ["objects"]: "hierarchy" returns the parent-child scene graph.'),
+  max_objects: z.number().int().min(1).max(500).optional().describe('Object bound for op="observe".'),
+  max_changes: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe('Per-collection change bound for op="observe" with since_revision.'),
+  entity: z
+    .enum([
+      "object",
+      "light",
+      "camera",
+      "asset",
+      "catalog_asset",
+      "storyboard_shot",
+      "performance_take",
+      "coverage_sequence",
+      "coverage_shot",
+    ])
+    .optional()
+    .describe('Required with id for op="inspect", e.g. {"op":"inspect","entity":"object","id":"door-1"}.'),
   object_id: z.string().optional().describe("Object id for inspect or a single-object author action."),
   id: z.string().optional(),
   camera_id: z.string().optional(),
@@ -101,6 +160,12 @@ const directorCreativeWireSchema = compactWireSchema(
     .array(z.looseObject({ operation: z.looseObject({ op: z.string().min(1) }).optional() }))
     .optional()
     .describe('Required for op="execute_batch".'),
+  request: z
+    .looseObject({ action: z.string().min(1) })
+    .optional()
+    .describe(
+      'Required for op="interchange", "collaboration", and "pipeline": the action envelope, e.g. {"op":"interchange","request":{"action":"capabilities"}}. Exact fields via {"op":"describe","target":"interchange"}.',
+    ),
 });
 
 export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
@@ -119,6 +184,24 @@ export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
     "Operation. Use capabilities for providers and parameters; prepare validates, submit starts a durable job, and status polls it.",
   ).extend({
     prompt: z.string().optional().describe("Prompt for prepare/submit when the provider needs one."),
+    job_id: z
+      .string()
+      .optional()
+      .describe('Required for op="submit", "status", and "cancel": the video-… job id returned by prepare.'),
+    provider: videoProviderIdSchema
+      .optional()
+      .describe('Provider for op="prepare"/"render"; omit to use the default provider from capabilities.'),
+    duration_s: z.number().optional().describe("Clip length in seconds (0.5-30) for prepare/render."),
+    width: z
+      .number()
+      .int()
+      .optional()
+      .describe("Output width in pixels (256-4096) for prepare/render; the gateway snaps provider multiples."),
+    height: z
+      .number()
+      .int()
+      .optional()
+      .describe("Output height in pixels (256-4096) for prepare/render; the gateway snaps provider multiples."),
   }),
   blender_native: compactWireSchema(
     blenderNativeToolRequestSchema,
@@ -131,6 +214,10 @@ export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
     operator: z.string().optional().describe('RNA id for op="describe", e.g. mesh.bevel.'),
     target: z.string().optional().describe('Typed apply op for op="describe", e.g. create_primitive or polyhaven_import.'),
     query: z.string().optional().describe('When op="query", Blender object name substring (e.g. "清华"). Also search text for catalog, polyhaven_search, and sketchfab_search.'),
+    name_pattern: z
+      .string()
+      .optional()
+      .describe('Accepted alias of query for op="query": object name substring lifted to a NAME query.'),
     queries: z
       .array(z.looseObject({ kind: z.string().min(1) }))
       .optional()
