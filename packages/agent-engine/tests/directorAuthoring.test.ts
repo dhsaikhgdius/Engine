@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultDirectorProject } from "../src/directorDefaultProject";
-import { getCameraViewSnapshotFromShot } from "@director/project-schema";
+import {
+  getCameraViewSnapshotFromShot,
+  getFocalLengthFromVerticalFov,
+  getVerticalFovFromFocalLength,
+} from "@director/project-schema";
 import { getDirectorAgentCatalogAsset } from "../src/directorAgentAssetCatalog";
 import { safeParseDirectorProject } from "@director/project-schema";
 import { getMannequinPosePreset } from "@director/project-schema";
@@ -355,6 +359,247 @@ describe("semantic Director authoring", () => {
     expect(cleaned.project.objects.filter((object) => object.parentObjectId === "overlay-group")).toHaveLength(0);
     expect(cleaned.project.scene.annotations).toEqual([]);
     expect(cleaned.project.scene.measurements).toEqual([]);
+  });
+
+  it("authors named object lists as a multi-select helper distinct from composite groups", () => {
+    const seeded = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      { action: "add_object", id: "list-a", name: "A", kind: "prop", geometry_type: "box" },
+      { action: "add_object", id: "list-b", name: "B", kind: "prop", geometry_type: "sphere" },
+      {
+        action: "add_object",
+        id: "crowd-member",
+        name: "群众演员",
+        kind: "character",
+        asset_id: "mixamo:x-bot",
+        crowd_id: "crowd_1",
+        crowd_label: "群众（1x1）",
+      },
+    ]);
+
+    const created = applyDirectorAuthoringActions(seeded.project, [
+      {
+        action: "set_object_list",
+        list_id: "object_list_1",
+        object_ids: ["list-a", "list-b", "crowd-member"],
+        label: "前景道具",
+      },
+    ]);
+    const members = created.project.objects.filter((object) => object.objectListId === "object_list_1");
+    expect(members.map((object) => object.id).sort()).toEqual(["list-a", "list-b"]);
+    expect(members.every((object) => object.objectListLabel === "前景道具")).toBe(true);
+    // Lists do not reparent: unlike group_objects there is no composite parent.
+    expect(members.every((object) => object.parentObjectId === undefined)).toBe(true);
+    expect(created.notes.join(" ")).toMatch(/crowd-member/);
+    expect(created.project.objects.find((object) => object.id === "crowd-member")?.objectListId).toBeUndefined();
+
+    const grown = applyDirectorAuthoringActions(created.project, [
+      { action: "add_object", id: "list-c", name: "C", kind: "prop", geometry_type: "cone" },
+      { action: "set_object_list", list_id: "object_list_1", object_ids: ["list-c"] },
+    ]);
+    expect(grown.project.objects.find((object) => object.id === "list-c")).toMatchObject({
+      objectListId: "object_list_1",
+      objectListLabel: "前景道具",
+    });
+
+    const renamed = applyDirectorAuthoringActions(grown.project, [
+      { action: "rename_object_list", list_id: "object_list_1", label: "主镜头道具" },
+    ]);
+    expect(
+      renamed.project.objects
+        .filter((object) => object.objectListId === "object_list_1")
+        .every((object) => object.objectListLabel === "主镜头道具"),
+    ).toBe(true);
+
+    const cleared = applyDirectorAuthoringActions(renamed.project, [
+      { action: "clear_object_list", object_ids: ["list-a"] },
+    ]);
+    expect(cleared.project.objects.find((object) => object.id === "list-a")).toMatchObject({
+      objectListDetached: true,
+    });
+    expect(cleared.project.objects.find((object) => object.id === "list-a")?.objectListId).toBeUndefined();
+    expect(cleared.project.objects.find((object) => object.id === "list-b")?.objectListId).toBe("object_list_1");
+  });
+
+  it("rejects camera rigs, crowd-only member sets, and unknown lists in object list authoring", () => {
+    const source = createDefaultDirectorProject();
+    const cameraRig = source.objects.find((object) => object.kind === "camera")!;
+
+    expect(() =>
+      applyDirectorAuthoringActions(source, [
+        { action: "set_object_list", list_id: "object_list_1", object_ids: [cameraRig.id], label: "机位组" },
+      ]),
+    ).toThrow(/cannot join an object list/);
+
+    const crowd = applyDirectorAuthoringActions(source, [
+      {
+        action: "add_object",
+        id: "crowd-only",
+        name: "群众演员",
+        kind: "character",
+        asset_id: "mixamo:x-bot",
+        crowd_id: "crowd_1",
+        crowd_label: "群众（1x1）",
+      },
+    ]);
+    expect(() =>
+      applyDirectorAuthoringActions(crowd.project, [
+        { action: "set_object_list", list_id: "object_list_1", object_ids: ["crowd-only"], label: "群众列表" },
+      ]),
+    ).toThrow(/crowd grouping is exclusive/);
+
+    expect(() =>
+      applyDirectorAuthoringActions(source, [
+        { action: "set_object_list", list_id: "object_list_9", object_ids: ["char_default_a"] },
+      ]),
+    ).toThrow(/Pass label to create it/);
+    expect(() =>
+      applyDirectorAuthoringActions(source, [
+        { action: "rename_object_list", list_id: "object_list_9", label: "不存在" },
+      ]),
+    ).toThrow(/No object list/);
+  });
+
+  it("instances model assets with rig defaults and the Blender provisioning marker via add_object_from_asset", () => {
+    const seeded = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      {
+        action: "upsert_asset",
+        asset: {
+          id: "local:user-crate",
+          kind: "prop",
+          sourceType: "model",
+          fileName: "crate.glb",
+          url: "blob:director-user-crate",
+          assetSource: "local",
+        },
+      },
+    ]);
+
+    const instanced = applyDirectorAuthoringActions(seeded.project, [
+      { action: "add_object_from_asset", id: "obj_9", asset_id: "local:user-crate" },
+      {
+        action: "add_object_from_asset",
+        id: "char_from_asset",
+        asset_id: "mixamo:x-bot",
+        transform: { position: [2, 0, 1], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    ]);
+
+    // Prop instances derive their display name from the file name like the
+    // Stage asset drop and carry the unprovisioned Blender marker up front.
+    expect(instanced.project.objects.find((object) => object.id === "obj_9")).toMatchObject({
+      name: "crate",
+      kind: "prop",
+      assetRefId: "local:user-crate",
+      nativeSource: { engine: "blender", objectId: "obj_9", provisioned: false },
+    });
+    expect(instanced.project.objects.find((object) => object.id === "char_from_asset")).toMatchObject({
+      kind: "character",
+      characterSource: "asset",
+      placementMode: "grounded",
+      assetRefId: "mixamo:x-bot",
+      transform: { position: [2, 0, 1] },
+      characterRig: { rigType: "mixamo", posePresetId: "stand", controls: {} },
+      nativeSource: { engine: "blender", objectId: "char_from_asset", provisioned: false },
+    });
+    expect(instanced.created.object_ids).toEqual(expect.arrayContaining(["obj_9", "char_from_asset"]));
+
+    const withAudio = applyDirectorAuthoringActions(seeded.project, [
+      {
+        action: "upsert_asset",
+        asset: {
+          id: "local:user-track",
+          kind: "audio",
+          sourceType: "audio",
+          fileName: "track.mp3",
+          url: "blob:director-user-track",
+          assetSource: "local",
+        },
+      },
+    ]);
+    expect(() =>
+      applyDirectorAuthoringActions(withAudio.project, [
+        { action: "add_object_from_asset", id: "obj_bad", asset_id: "local:user-track" },
+      ]),
+    ).toThrow(/not an instanceable model asset/);
+    expect(() =>
+      applyDirectorAuthoringActions(seeded.project, [
+        { action: "add_object_from_asset", id: "obj_missing", asset_id: "local:missing" },
+      ]),
+    ).toThrow(/No asset/);
+  });
+
+  it("authors crowd membership only on characters and requires the crowd id for labels", () => {
+    const authored = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      {
+        action: "add_object",
+        id: "char_preset_1",
+        name: "角色 02",
+        kind: "character",
+        asset_id: "mixamo:x-bot",
+        body_type: "female",
+        color: "#4F8EF7",
+        placement_mode: "grounded",
+        crowd_id: "crowd_1",
+        crowd_label: "群众（2x1）",
+      },
+    ]);
+    expect(authored.project.objects.find((object) => object.id === "char_preset_1")).toMatchObject({
+      crowdId: "crowd_1",
+      crowdLabel: "群众（2x1）",
+      bodyType: "female",
+      color: "#4F8EF7",
+    });
+
+    expect(
+      directorAuthoringActionSchema.safeParse({
+        action: "add_object",
+        id: "crate",
+        name: "Crate",
+        kind: "prop",
+        crowd_id: "crowd_1",
+      }).success,
+    ).toBe(false);
+    expect(
+      directorAuthoringActionSchema.safeParse({
+        action: "add_object",
+        id: "char_preset_2",
+        name: "角色 03",
+        kind: "character",
+        crowd_label: "群众（2x1）",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps the exact viewport vertical FOV when add_camera passes vertical_fov_deg", () => {
+    const snapshotFov = 48.735021;
+    const authored = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      {
+        action: "add_camera",
+        id: "cam_2",
+        object_id: "cam_object_2",
+        name: "机位 02",
+        position: [0, 2, 8],
+        target: [0, 1, 0],
+        focal_length_mm: getFocalLengthFromVerticalFov(snapshotFov),
+        vertical_fov_deg: snapshotFov,
+      },
+      {
+        action: "add_camera",
+        id: "cam_3",
+        object_id: "cam_object_3",
+        name: "机位 03",
+        position: [1, 2, 8],
+        target: [0, 1, 0],
+        focal_length_mm: 50,
+      },
+    ]);
+
+    // The snapshot camera keeps the exact viewport fov rather than the
+    // focal-length round trip (fov -> focal 3dp -> fov 6dp).
+    expect(authored.project.cameras.find((camera) => camera.id === "cam_2")?.fov).toBe(snapshotFov);
+    expect(authored.project.cameras.find((camera) => camera.id === "cam_3")?.fov).toBe(
+      getVerticalFovFromFocalLength(50),
+    );
   });
 
   it("never mutates the source when a later semantic action fails", () => {

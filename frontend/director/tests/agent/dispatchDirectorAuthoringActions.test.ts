@@ -251,4 +251,135 @@ describe("dispatchDirectorAuthoringActions", () => {
     const object = useDirectorStore.getState().project.objects.find((item) => item.id === "locked-guard-box");
     expect(object?.transform.position).not.toEqual([9, 1, 9]);
   });
+
+  it("matches set_object_list revision when store object-list mutators manage a named list", () => {
+    seedProp("list-box-a");
+    seedProp("list-box-b", [1, 0, 0]);
+    const before = structuredClone(useDirectorStore.getState().project);
+
+    const agentApplied = applyDirectorAuthoringActions(before, [
+      { action: "set_object_list", list_id: "object_list_1", object_ids: ["list-box-a", "list-box-b"], label: "道具组" },
+    ]);
+    useDirectorStore.getState().applyAuthoredProject(agentApplied.project);
+    const agentRevision = getDirectorProjectRevision(useDirectorStore.getState().project);
+
+    useDirectorStore.getState().applyAuthoredProject(structuredClone(before));
+    const listId = useDirectorStore.getState().createObjectList(["list-box-a", "list-box-b"], "道具组");
+
+    expect(listId).toBe("object_list_1");
+    expect(getDirectorProjectRevision(useDirectorStore.getState().project)).toBe(agentRevision);
+
+    useDirectorStore.getState().updateObjectListLabel("object_list_1", "主镜头道具");
+    expect(
+      useDirectorStore
+        .getState()
+        .project.objects.filter((object) => object.objectListId === "object_list_1")
+        .every((object) => object.objectListLabel === "主镜头道具"),
+    ).toBe(true);
+
+    seedProp("list-box-c", [2, 0, 0]);
+    useDirectorStore.getState().addObjectsToObjectList(["list-box-c"], "object_list_1");
+    expect(
+      useDirectorStore.getState().project.objects.find((object) => object.id === "list-box-c")?.objectListLabel,
+    ).toBe("主镜头道具");
+
+    useDirectorStore.getState().removeObjectsFromObjectList(["list-box-a"]);
+    const removed = useDirectorStore.getState().project.objects.find((object) => object.id === "list-box-a");
+    expect(removed?.objectListId).toBeUndefined();
+    expect(removed?.objectListDetached).toBe(true);
+
+    useDirectorStore.getState().undo();
+    expect(useDirectorStore.getState().project.objects.find((object) => object.id === "list-box-a")?.objectListId).toBe(
+      "object_list_1",
+    );
+  });
+
+  it("routes store.addObjectFromAsset through add_object_from_asset with the provisioning marker", () => {
+    const seeded = applyDirectorAuthoringActions(useDirectorStore.getState().project, [
+      {
+        action: "upsert_asset",
+        asset: {
+          id: "local:user-crate",
+          kind: "prop",
+          sourceType: "model",
+          fileName: "crate.glb",
+          url: "blob:director-user-crate",
+          assetSource: "local",
+        },
+      },
+    ]);
+    useDirectorStore.getState().applyAuthoredProject(seeded.project);
+
+    const objectId = useDirectorStore.getState().addObjectFromAsset("local:user-crate");
+
+    expect(objectId).not.toBeNull();
+    const object = useDirectorStore.getState().project.objects.find((item) => item.id === objectId);
+    expect(object).toMatchObject({
+      name: "crate",
+      kind: "prop",
+      assetRefId: "local:user-crate",
+      nativeSource: { engine: "blender", objectId, provisioned: false },
+    });
+    expect(useDirectorStore.getState().selectedObjectId).toBe(objectId);
+
+    expect(useDirectorStore.getState().addObjectFromAsset("local:missing")).toBeNull();
+  });
+
+  it("keeps per-add body types and the rotating palette when store.addPresetCharacter dispatches", () => {
+    useDirectorStore.getState().addPresetCharacter("female");
+    useDirectorStore.getState().addPresetCharacter("teen");
+
+    const characters = useDirectorStore
+      .getState()
+      .project.objects.filter((object) => object.kind === "character" && object.id.startsWith("char_preset_"));
+    // The default role counts toward the sequential index, matching the
+    // historical local mutator: the first preset add lands on char_preset_2.
+    expect(characters.map((object) => object.id)).toEqual(["char_preset_2", "char_preset_3"]);
+    expect(characters.map((object) => object.bodyType)).toEqual(["female", "teen"]);
+    expect(characters.every((object) => object.assetRefId === "mixamo:x-bot")).toBe(true);
+    expect(characters.every((object) => object.characterSource === "asset")).toBe(true);
+    const allCharacters = useDirectorStore.getState().project.objects.filter((object) => object.kind === "character");
+    expect(new Set(allCharacters.map((object) => object.color)).size).toBe(allCharacters.length);
+    expect(useDirectorStore.getState().project.assets.some((asset) => asset.id === "mixamo:x-bot")).toBe(true);
+    expect(useDirectorStore.getState().selectedObjectId).toBe("char_preset_3");
+  });
+
+  it("dispatches store.addCrowdCharacters as one authored batch with crowd grouping and one undo entry", () => {
+    const undoDepthBefore = useDirectorStore.getState().undoStack.length;
+
+    const createdIds = useDirectorStore.getState().addCrowdCharacters({ rows: 2, columns: 2, spacing: 1 });
+
+    expect(createdIds).toHaveLength(4);
+    const members = useDirectorStore
+      .getState()
+      .project.objects.filter((object) => createdIds.includes(object.id));
+    expect(members).toHaveLength(4);
+    expect(members.every((object) => object.crowdId === "crowd_1")).toBe(true);
+    expect(members.every((object) => object.crowdLabel === "群众（2x2）")).toBe(true);
+    expect(useDirectorStore.getState().undoStack.length).toBe(undoDepthBefore + 1);
+    expect(useDirectorStore.getState().selectedCrowdId).toBe("crowd_1");
+
+    useDirectorStore.getState().undo();
+    expect(
+      useDirectorStore.getState().project.objects.some((object) => createdIds.includes(object.id)),
+    ).toBe(false);
+  });
+
+  it("keeps the exact viewport FOV and sequential ids when store.addCameraShot dispatches", () => {
+    const snapshotFov = 48.735021;
+
+    const cameraId = useDirectorStore.getState().addCameraShot({
+      fov: snapshotFov,
+      position: [0, 2, 8],
+      target: [0, 1, 0],
+    });
+
+    expect(cameraId).toBe("cam_2");
+    const camera = useDirectorStore.getState().project.cameras.find((item) => item.id === "cam_2");
+    expect(camera?.fov).toBe(snapshotFov);
+    expect(useDirectorStore.getState().project.activeCameraId).toBe("cam_2");
+    const rig = useDirectorStore.getState().project.objects.find((item) => item.linkedCameraId === "cam_2");
+    expect(rig?.id).toBe("cam_object_2");
+    expect(useDirectorStore.getState().selectedObjectId).toBe("cam_object_2");
+  });
 });
