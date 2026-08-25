@@ -223,7 +223,9 @@ preservation and degradation boundary.
 
 `director_dcc` also runs headless engine round trips through the Director-authored connectors in
 `integrations/{unreal,unity,godot}`. Check readiness first; `nativeReady` requires the connector
-files, a version-probed executable, and the connector installed in the configured engine project:
+files, a version-probed executable, and the connector installed in the configured engine project.
+For Godot, readiness additionally requires the addon enabled in `project.godot` and a valid
+fixed-entry `--mode health` JSON line (Godot 4.x only, connector version matching the workspace):
 
 ```bash
 curl -fsS -X POST "$BASE/api/tools/director_dcc" \
@@ -234,7 +236,10 @@ curl -fsS -X POST "$BASE/api/tools/director_dcc" \
 
 Send the current project into the engine. The Gateway exports an exchange package into a private
 job directory, invokes the fixed connector entry point (never a request-supplied script), and
-returns the schema-validated host report:
+returns the schema-validated host report. For Godot, the Gateway also bakes timeline animation
+into a hash-pinned `animation.json` sidecar that the connector keys into an
+`AnimationPlayer`/`AnimationLibrary`, and the report carries a Godot-specific receipt
+(track/key/light/skeleton/material/texture counts) read back from the saved scene:
 
 ```bash
 curl -sS -X POST "$BASE/api/tools/director_dcc" \

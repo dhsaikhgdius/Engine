@@ -177,8 +177,12 @@ data root unless a production explicitly owns another path.
 
 Detecting an executable makes a provider `installed`, never `nativeReady`. Native
 engine operations require the full health check (connector files, versioned
-executable, configured project, and installed in-project connector) to pass. Engine
-job artifacts live under `data/dcc-jobs/<provider>/`.
+executable, configured project, and installed in-project connector) to pass. Godot
+additionally requires the addon to be enabled in `project.godot`
+(`[editor_plugins]`) and a valid fixed-entry `--mode health` JSON line whose
+connector version matches the workspace; the probe covers macOS, Linux
+(including Flatpak and Snap), and Windows install locations, and accepts Godot
+4.x only. Engine job artifacts live under `data/dcc-jobs/<provider>/`.
 
 ## Application commands
 

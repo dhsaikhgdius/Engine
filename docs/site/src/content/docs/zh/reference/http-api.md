@@ -216,7 +216,9 @@ Blender 原生解析器的 OS 或 container sandbox；私有 job 路径、限制
 ## 引擎交接（Unreal / Unity / Godot）
 
 `director_dcc` 还会通过 `integrations/{unreal,unity,godot}` 中的 Director 官方连接器跑无头引擎往返。
-先查就绪状态；`nativeReady` 要求连接器文件、带版本探测的可执行文件，以及连接器已安装到配置的引擎工程：
+先查就绪状态；`nativeReady` 要求连接器文件、带版本探测的可执行文件，以及连接器已安装到配置的引擎工程。
+Godot 还额外要求 `project.godot` 中已启用该插件，以及有效的固定入口 `--mode health` JSON 输出
+（仅限 Godot 4.x，连接器版本须与工作区一致）：
 
 ```bash
 curl -fsS -X POST "$BASE/api/tools/director_dcc" \
@@ -226,7 +228,9 @@ curl -fsS -X POST "$BASE/api/tools/director_dcc" \
 ```
 
 把当前项目送入引擎。Gateway 把交换包导出到私有作业目录，调用固定连接器入口（绝不用请求提供的脚本），
-并返回经 schema 校验的主机报告：
+并返回经 schema 校验的主机报告。对 Godot，Gateway 还会把时间线动画烘焙成哈希固定的
+`animation.json` 边车文件，由连接器写入 `AnimationPlayer`/`AnimationLibrary` 关键帧；报告中携带
+从已保存场景读回的 Godot 专属回执（轨道/关键帧/灯光/骨架/材质/纹理计数）：
 
 ```bash
 curl -sS -X POST "$BASE/api/tools/director_dcc" \
