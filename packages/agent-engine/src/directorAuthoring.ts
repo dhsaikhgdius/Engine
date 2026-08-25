@@ -121,6 +121,12 @@ import {
 } from "@director/protocol/vehicleProtocol";
 import { buildDirectorBlockingActions, directorComposeBlockingActionSchema } from "./directorBlocking";
 import {
+  buildDirectorFrameShotActions,
+  buildDirectorMarkCameraMoveActions,
+  directorFrameShotActionSchema,
+  directorMarkCameraMoveActionSchema,
+} from "./directorFraming";
+import {
   buildDirectorSpatialAuthoringActions,
   directorArrangeFacingPairActionSchema,
   directorArrangeGroupActionSchema,
@@ -856,6 +862,8 @@ export const directorAuthoringActionSchema = z
     }),
     strictAction("clear_vehicle_profile", { object_id: id }),
     directorComposeBlockingActionSchema,
+    directorFrameShotActionSchema,
+    directorMarkCameraMoveActionSchema,
     directorPlaceRelativeActionSchema,
     directorArrangeGroupActionSchema,
     directorArrangeFacingPairActionSchema,
@@ -1464,6 +1472,20 @@ export function applyDirectorAuthoringActions(
     const item = pendingActions[actionIndex];
     if (item.action === "compose_blocking") {
       pendingActions.splice(actionIndex, 1, ...buildDirectorBlockingActions(item, project.scene.groundHeight));
+      actionIndex -= 1;
+      continue;
+    }
+    if (item.action === "frame_shot") {
+      const expansion = buildDirectorFrameShotActions(project, item);
+      result.notes.push(...expansion.notes);
+      pendingActions.splice(actionIndex, 1, ...expansion.actions);
+      actionIndex -= 1;
+      continue;
+    }
+    if (item.action === "mark_camera_move") {
+      const expansion = buildDirectorMarkCameraMoveActions(project, item);
+      result.notes.push(...expansion.notes);
+      pendingActions.splice(actionIndex, 1, ...expansion.actions);
       actionIndex -= 1;
       continue;
     }

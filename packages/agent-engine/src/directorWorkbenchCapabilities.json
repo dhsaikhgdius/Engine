@@ -107,6 +107,8 @@
     "set_vehicle_profile",
     "clear_vehicle_profile",
     "compose_blocking",
+    "frame_shot",
+    "mark_camera_move",
     "place_relative",
     "arrange_group",
     "arrange_facing_pair",

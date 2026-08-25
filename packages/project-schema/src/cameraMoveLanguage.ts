@@ -331,6 +331,8 @@ export function formatDirectorCameraMoveSlate(move: DirectorCameraMoveDescriptio
 }
 
 /** Chains segment phrases in time order for a multi-key camera track. */
-export function buildDirectorCameraMovePhrase(segments: readonly DirectorCameraMoveDescription[]): string {
+export function buildDirectorCameraMovePhrase(
+  segments: ReadonlyArray<Pick<DirectorCameraMoveDescription, "phrase">>,
+): string {
   return segments.map((segment) => segment.phrase).join(", then ");
 }
