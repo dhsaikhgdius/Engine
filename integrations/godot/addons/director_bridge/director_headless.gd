@@ -355,7 +355,7 @@ func _run_export(arguments: Dictionary, manifest: Dictionary) -> int:
 		var world := _world_transform_of(node, root)
 		var canonical := DirectorSpace.canonical_from_godot_transform(world)
 		var baseline: Array = baselines[director_id]
-		if _moved(canonical, baseline[1]):
+		if _moved(world, baseline[1]):
 			changes.append(
 				{
 					"kind": "transform_update",
@@ -476,16 +476,20 @@ func _world_transform_of(node: Node3D, root: Node) -> Transform3D:
 	return world
 
 
-func _moved(canonical: Dictionary, baseline: Dictionary) -> bool:
-	for index in range(3):
-		if absf(canonical["location"][index] - baseline["location"][index]) > TRANSFORM_TOLERANCE:
+## Matrix-level drift check. Mirrored (negative-determinant) transforms
+## decompose ambiguously — Godot spreads the determinant sign across the scale
+## axes differently from a direct TRS composition — so drift is measured on the
+## composed Transform3D, never on decomposed location/quaternion/scale parts.
+func _moved(world: Transform3D, baseline_canonical: Dictionary) -> bool:
+	var baseline := DirectorSpace.godot_transform_from_canonical(baseline_canonical)
+	for column in range(3):
+		for row in range(3):
+			if absf(world.basis[column][row] - baseline.basis[column][row]) > TRANSFORM_TOLERANCE:
+				return true
+	for axis in range(3):
+		if absf(world.origin[axis] - baseline.origin[axis]) > TRANSFORM_TOLERANCE:
 			return true
-		if absf(canonical["scale"][index] - baseline["scale"][index]) > TRANSFORM_TOLERANCE:
-			return true
-	var dot := 0.0
-	for index in range(4):
-		dot += canonical["rotationQuaternion"][index] * baseline["rotationQuaternion"][index]
-	return absf(absf(dot) - 1.0) > TRANSFORM_TOLERANCE
+	return false
 
 
 func _set_owner_recursive(node: Node, owner: Node) -> void:
