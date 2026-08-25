@@ -7,6 +7,17 @@ description: Control the live Director 3D workbench, Canvas production DAG, Vide
 
 Use `director_workbench` for the 3D Stage and `director_creative` for Canvas, Video Editor, Gallery, collaboration, and generation pipelines.
 
+## Canonical source order
+
+Four channels teach the same contract. They repeat key lessons on purpose — each channel reaches an agent population the others cannot — but they are ranked, and only one of them is vocabulary:
+
+1. **`capabilities` / `describe`** — the only canonical vocabulary for operations, parameters, enums, and defaults. When any other channel disagrees with a live `describe` result, `describe` wins.
+2. **This skill and the DSH system guidance** (`DIRECTOR_AGENT_GUIDANCE` in `packages/dsh-plugin-workbench/src/register.ts`) — principles, working order, and pointers. Parameter spellings quoted here are convenience copies, never the source of truth; verify a failing or disputed field against `describe` before concluding the contract changed.
+3. **Tool descriptions** — short routing envelopes that pick the right tool and name its entry operations. They never grow into a parameter reference.
+4. **Rejection messages** — each rejection carries the corrective call for that exact failure (the `geometry_type` rejection points at `create_blockout`, a stale revision returns the current revision). They are teaching moments, not a fifth vocabulary.
+
+Recommend an operation or parameter as currently available only when it appears in `capabilities` or `describe`; otherwise label it a product proposal. Do not add a fifth teaching channel for discoverability. `npm run repo:check` mechanically verifies that documentation only references `backend/gateway/**` paths that exist and never resurrects removed gateway modules or capability promises that are not wired.
+
 ## Default working loop
 
 1. Read the user's requested outcome.
@@ -32,7 +43,6 @@ Do not add review passes, acceptance gates, or recovery branches unless the user
 - At the public Agent boundary, callers may state only the mutation intent. Director binds the exact browser target, observes and injects a missing project revision, and returns the generated retry key in `agent_boundary`.
 - Use `capture` when the user asks for an image, `audit` when they ask for diagnostics, and `deliver` or `shot_package` when they ask for an export package.
 - `audit.ready` means zero error-severity structural issues (graph, scale, spatial layout, timeline, storyboard, camera framing). It does not judge visual quality, photorealism, or whether geometry is recognizable. Outdoor scenes often produce spatial warnings such as large ground planes and canopy overlap. Do not claim a scene looks finished from audit alone; use `capture` or `author.evidence` when appearance matters.
-- Recommend an operation or parameter as currently available only when it appears in `capabilities` or `describe`; otherwise label it as a product proposal.
 
 ### Large scenes
 

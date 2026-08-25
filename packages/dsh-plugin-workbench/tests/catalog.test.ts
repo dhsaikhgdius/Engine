@@ -70,6 +70,16 @@ describe("Director DSH workbench plugin catalog", () => {
     expect(pluginTool("director_workbench").description).toContain("geometry_type");
   });
 
+  it("keeps every tool description a short routing envelope, not a parameter reference", () => {
+    // Channel 3 of the canonical source order: descriptions route to the right
+    // tool and name entry operations. Exact parameter vocabulary stays in
+    // capabilities/describe; a description that outgrows this budget is
+    // becoming a second vocabulary.
+    for (const tool of DIRECTOR_WORKBENCH_PLUGIN_TOOLS) {
+      expect(tool.description.length).toBeLessThan(1200);
+    }
+  });
+
   it("rejects catalog calls that omit the catalog id before dispatch", () => {
     expect(DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({ op: "catalog" }).success).toBe(false);
     expect(DIRECTOR_AGENT_WIRE_SCHEMAS.director_workbench.safeParse({ op: "catalog", catalog: "assets" }).success).toBe(

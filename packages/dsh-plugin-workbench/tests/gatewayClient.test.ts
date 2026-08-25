@@ -184,14 +184,18 @@ describe("Director DSH workbench plugin gateway client", () => {
       ],
       guidance: "Omit provider/model to inherit the current route. Never guess provider or model ids.",
     });
-    expect(section).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "director:workbench",
-        text: expect.stringMatching(
-          /workflow result of null.*child failed[\s\S]*Shell output.*never mutation evidence[\s\S]*Never claim a workspace was changed[\s\S]*image_attached=false/,
-        ),
-      }),
-    );
+    const guidanceCall = section.mock.calls
+      .map(([registered]) => registered as { name: string; text: string })
+      .find((registered) => registered.name === "director:workbench");
+    expect(guidanceCall).toBeDefined();
+    for (const principle of [
+      "workflow result of null means its child failed",
+      "never mutation evidence",
+      "Never claim a workspace was changed",
+      "image_attached=false",
+    ]) {
+      expect(guidanceCall?.text).toContain(principle);
+    }
   });
 
   it("uses the live DSH session and returns captures as durable image blocks", async () => {
