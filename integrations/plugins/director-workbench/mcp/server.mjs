@@ -134018,6 +134018,73 @@ function engineProvider(id4, label, preferredFormat, exchangeFormats) {
     connectorDirectory: `integrations/${id4}`
   });
 }
+var UNREAL_PROVIDER_DESCRIPTOR = directorDccProviderDescriptorSchema.parse({
+  id: "unreal",
+  label: "Unreal Engine",
+  category: "engine",
+  integration: "engine-headless",
+  preferredFormat: "usda",
+  exchangeFormats: ["usda", "glb"],
+  capabilities: [
+    // Scene layout and cameras still travel through the portable package;
+    // the connector performs the host-side import but the format carries them.
+    { id: "scene", level: "exchange", layer: "exchange-format", formats: ["usda", "glb"] },
+    { id: "camera", level: "exchange", layer: "exchange-format", formats: ["usda", "glb"] },
+    // Time-sampled transform and camera animation is baked by the Gateway
+    // (canonical evaluators) and keyed into LevelSequence tracks by the
+    // connector. Control-Rig-style pose channels stay warn-and-omit.
+    { id: "animation", level: "native", layer: "connector" },
+    // Skinned GLB payloads import as skeletal meshes in bind pose with
+    // director_id tags; non-skinned character payloads warn-and-omit.
+    { id: "skeleton", level: "native", layer: "connector" },
+    // Director PBR parameters map to material instances on the parent
+    // DirectorPbr materials; unsupported channels warn-and-omit.
+    { id: "materials", level: "native", layer: "connector" },
+    { id: "stable_ids", level: "native", layer: "director-manifest" },
+    { id: "roundtrip", level: "native", layer: "connector" },
+    { id: "headless", level: "native", layer: "connector" },
+    // A preview-only loopback protocol exists in the connector, but no
+    // durable gateway transport ships yet, so the claim stays planned.
+    { id: "live_link", level: "planned", layer: "connector" }
+  ],
+  connectorDirectory: "integrations/unreal"
+});
+function unityEngineProvider() {
+  const exchangeFormats = ["glb", "usda"];
+  return directorDccProviderDescriptorSchema.parse({
+    id: "unity",
+    label: "Unity",
+    category: "engine",
+    integration: "engine-headless",
+    preferredFormat: "glb",
+    exchangeFormats,
+    capabilities: [
+      // Scene layout and cameras still travel through the portable package;
+      // the connector performs the host-side import but the format carries them.
+      { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
+      // The connector bakes Director keyframe/trajectory animation into Unity
+      // AnimationClips on Timeline; unsupported channels warn-and-omit.
+      { id: "animation", level: "native", layer: "connector" },
+      // Humanoid Avatars are built from Mixamo-compatible skinned GLB payloads
+      // (generic Avatar fallback); characters resolve by assetRefId, never index.
+      { id: "skeleton", level: "native", layer: "connector" },
+      // Director PBR manifest materials fall back to URP/Lit or Standard;
+      // unsupported material graphs warn-and-omit.
+      { id: "materials", level: "native", layer: "connector" },
+      // The Director manifest and connector preserve stable director:id
+      // metadata on both directions of the handoff.
+      { id: "stable_ids", level: "native", layer: "director-manifest" },
+      // Headless import/return round trip is performed by the Director-authored
+      // connector; runtime availability is still gated by nativeReady.
+      { id: "roundtrip", level: "native", layer: "connector" },
+      { id: "headless", level: "native", layer: "connector" },
+      // No live preview transport ships yet; see MULTI_DCC_INTEGRATION.md.
+      { id: "live_link", level: "planned", layer: "connector" }
+    ],
+    connectorDirectory: "integrations/unity"
+  });
+}
 var DIRECTOR_DCC_PROVIDERS = Object.freeze([
   directorDccProviderDescriptorSchema.parse({
     id: "blender",
@@ -134040,10 +134107,10 @@ var DIRECTOR_DCC_PROVIDERS = Object.freeze([
     connectorDirectory: "integrations/blender"
   }),
   exchangeProvider("maya", "Autodesk Maya", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("unreal", "Unreal Engine", "usda", ["usda", "glb"]),
+  UNREAL_PROVIDER_DESCRIPTOR,
   exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("unity", "Unity", "glb", ["glb", "usda"]),
+  unityEngineProvider(),
   exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
   engineProvider("godot", "Godot", "glb", ["glb"])
 ]);
@@ -134230,12 +134297,132 @@ var directorDccOperationSchema = external_exports.discriminatedUnion("op", [
 var DIRECTOR_TO_BLENDER_BASIS = new Matrix4().set(1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1);
 var BLENDER_TO_DIRECTOR_BASIS = DIRECTOR_TO_BLENDER_BASIS.clone().invert();
 
+// packages/dcc-protocol/src/directorUnrealSequencerContract.ts
+var DIRECTOR_UNREAL_SEQUENCER_BAKE_CONTRACT = "director-unreal-sequencer-bake-v1";
+var nonEmpty5 = external_exports.string().trim().min(1);
+var directorUnrealTimecodeSchema = external_exports.string().regex(/^\d{2}:\d{2}:\d{2}[:;]\d{2}$/);
+var directorUnrealRationalRateSchema = external_exports.strictObject({
+  numerator: external_exports.number().int().positive().max(1e6),
+  denominator: external_exports.number().int().positive().max(1e6)
+});
+var directorUnrealSequencerTimebaseSchema = external_exports.strictObject({
+  rate: directorUnrealRationalRateSchema,
+  dropFrame: external_exports.boolean(),
+  startTimecode: directorUnrealTimecodeSchema
+});
+var directorUnrealTransformSampleSchema = external_exports.strictObject({
+  frame: external_exports.number().int().min(-1e6).max(75e9),
+  transform: directorDccTransformSchema
+});
+var directorUnrealFocalLengthSampleSchema = external_exports.strictObject({
+  frame: external_exports.number().int().min(-1e6).max(75e9),
+  focalLengthMm: external_exports.number().finite().positive().max(1e4)
+});
+function strictlyIncreasingFrames(samples) {
+  for (let index = 1; index < samples.length; index += 1) {
+    if (samples[index].frame <= samples[index - 1].frame) return index;
+  }
+  return -1;
+}
+var directorUnrealBakedEntitySchema = external_exports.strictObject({
+  directorId: nonEmpty5.max(200),
+  entityType: external_exports.enum(["object", "camera"]),
+  name: external_exports.string().max(240),
+  transformSamples: external_exports.array(directorUnrealTransformSampleSchema).min(1).max(1e5),
+  /** Camera-only: per-frame focal length derived from Director's vertical fov keys. */
+  focalLengthSamples: external_exports.array(directorUnrealFocalLengthSampleSchema).max(1e5).optional(),
+  /** Camera-only: physical filmback the focal lengths were derived against. */
+  filmback: external_exports.strictObject({
+    sensorWidthMm: external_exports.number().finite().positive().max(1e3),
+    sensorHeightMm: external_exports.number().finite().positive().max(1e3)
+  }).optional(),
+  /** Channels present in the source animation that the bake could not carry (warn-and-omit). */
+  omittedChannels: external_exports.array(external_exports.enum(["pose_values", "motion_blocks", "character_rig"])).max(8).optional(),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(200)
+}).superRefine((entity, context) => {
+  const badTransformIndex = strictlyIncreasingFrames(entity.transformSamples);
+  if (badTransformIndex >= 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["transformSamples", badTransformIndex, "frame"],
+      message: "transform sample frames must be strictly increasing"
+    });
+  }
+  const badFocalIndex = strictlyIncreasingFrames(entity.focalLengthSamples ?? []);
+  if (badFocalIndex >= 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["focalLengthSamples", badFocalIndex, "frame"],
+      message: "focal length sample frames must be strictly increasing"
+    });
+  }
+  if (entity.entityType !== "camera" && (entity.focalLengthSamples?.length || entity.filmback)) {
+    context.addIssue({
+      code: "custom",
+      path: ["entityType"],
+      message: "focal length samples and filmback are camera-only channels"
+    });
+  }
+});
+var directorUnrealSequencerBakeSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_UNREAL_SEQUENCER_BAKE_CONTRACT),
+  schemaVersion: external_exports.literal(1),
+  packageId: external_exports.string().uuid(),
+  provider: external_exports.literal("unreal"),
+  sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+  /** Transforms are canonical Director-space; the connector owns the basis change. */
+  coordinateSystem: directorDccCanonicalReturnCoordinateSystemSchema,
+  timebase: directorUnrealSequencerTimebaseSchema,
+  playback: external_exports.strictObject({
+    frameStart: external_exports.number().int().min(-1e6).max(75e9),
+    frameEnd: external_exports.number().int().min(-1e6).max(75e9)
+  }).refine((playback) => playback.frameEnd >= playback.frameStart, {
+    message: "frameEnd must be at or after frameStart",
+    path: ["frameEnd"]
+  }),
+  /** Sampling stride in frames; 1 unless the sample budget forced downsampling. */
+  frameStride: external_exports.number().int().positive().max(1e3),
+  entities: external_exports.array(directorUnrealBakedEntitySchema).max(2048),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e3)
+}).superRefine((bake, context) => {
+  const seen = /* @__PURE__ */ new Set();
+  bake.entities.forEach((entity, index) => {
+    if (seen.has(entity.directorId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["entities", index, "directorId"],
+        message: `duplicate baked entity ${entity.directorId}`
+      });
+    }
+    seen.add(entity.directorId);
+  });
+});
+var rationalRateStringSchema = external_exports.string().regex(/^[1-9]\d{0,6}\/[1-9]\d{0,6}$/);
+var directorUnrealSequencerReceiptSchema = external_exports.strictObject({
+  /** Content path of the LevelSequence asset (for example `/Game/Director/Sequences/...`). */
+  sequencePath: nonEmpty5.max(1024),
+  /** Rational display rate applied to the sequence, e.g. `24000/1001`. */
+  displayRate: rationalRateStringSchema,
+  /** Rational tick resolution applied to the sequence, e.g. `24000/1`. */
+  tickResolution: rationalRateStringSchema,
+  dropFrame: external_exports.boolean(),
+  startTimecode: directorUnrealTimecodeSchema,
+  /** The start timecode converted to a frame offset at the display rate. */
+  startFrameOffset: external_exports.number().int().min(-1e9).max(1e9),
+  playbackStart: external_exports.number().int().min(-1e9).max(1e9),
+  playbackEnd: external_exports.number().int().min(-1e9).max(1e9),
+  cameraCutCount: external_exports.number().int().nonnegative().max(1e5),
+  transformTrackCount: external_exports.number().int().nonnegative().max(1e5),
+  focalLengthTrackCount: external_exports.number().int().nonnegative().max(1e5),
+  bakedKeyCount: external_exports.number().int().nonnegative().max(1e8)
+});
+
 // packages/dcc-protocol/src/directorDccEngineContract.ts
 var DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT = "director-dcc-connector-v1";
 var DIRECTOR_DCC_ENGINE_REPORT_CONTRACT = "director-dcc-engine-report-v1";
 var DIRECTOR_DCC_ENGINE_HEALTH_CONTRACT = "director-dcc-engine-health-v1";
 var DIRECTOR_DCC_ENGINE_SEND_CONTRACT = "director-dcc-engine-send-v1";
-var nonEmpty5 = external_exports.string().trim().min(1);
+var nonEmpty6 = external_exports.string().trim().min(1);
 var sha256Schema = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
 var safeRelativePathSchema = external_exports.string().trim().min(1).max(1024).refine(
   (path) => !path.startsWith("/") && !path.includes("\\") && !/^[A-Za-z]:/.test(path) && path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
@@ -134245,7 +134432,7 @@ var directorDccConnectorManifestSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT),
   provider: directorDccEngineIdSchema,
   /** Version of the Director-authored connector source. */
-  version: nonEmpty5.max(60),
+  version: nonEmpty6.max(60),
   /** Fixed entry points relative to the connector directory. */
   entryPoints: external_exports.strictObject({
     health: safeRelativePathSchema,
@@ -134253,16 +134440,34 @@ var directorDccConnectorManifestSchema = external_exports.strictObject({
     export: safeRelativePathSchema
   }),
   /** Human-readable host requirement, e.g. "Unreal Engine 5.3+". */
-  hostRequirement: nonEmpty5.max(200)
+  hostRequirement: nonEmpty6.max(200)
+});
+var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
+  /** Project-relative Timeline asset path, or null when no shots/animation mapped. */
+  timelinePath: external_exports.string().trim().min(1).max(1024).nullable(),
+  /** Render pipeline the material fallback targeted during the run. */
+  renderPipeline: external_exports.enum(["built-in", "urp", "hdrp", "custom"]),
+  /** Whether a glTF ScriptedImporter produced prefabs for GLB payloads. */
+  gltfImporterAvailable: external_exports.boolean(),
+  /** Lights created from the manifest with director_id markers. */
+  importedLightCount: external_exports.number().int().nonnegative(),
+  /** AnimationClips baked from Director keyframe/trajectory channels. */
+  bakedAnimationClipCount: external_exports.number().int().nonnegative(),
+  /** Humanoid Avatars built from Mixamo-compatible skinned payloads. */
+  humanoidAvatarCount: external_exports.number().int().nonnegative(),
+  /** Generic Avatars built where Humanoid mapping was not possible. */
+  genericAvatarCount: external_exports.number().int().nonnegative(),
+  /** Materials created from Director PBR manifest fallback. */
+  materialFallbackCount: external_exports.number().int().nonnegative()
 });
 var directorDccEngineReportSchema = external_exports.strictObject({
   ok: external_exports.literal(true),
   contract: external_exports.literal(DIRECTOR_DCC_ENGINE_REPORT_CONTRACT),
   provider: directorDccEngineIdSchema,
-  hostVersion: nonEmpty5.max(200),
-  connectorVersion: nonEmpty5.max(60),
+  hostVersion: nonEmpty6.max(200),
+  connectorVersion: nonEmpty6.max(60),
   /** The exchange package id this run consumed. */
-  packageId: nonEmpty5.max(240),
+  packageId: nonEmpty6.max(240),
   sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
   importedObjectCount: external_exports.number().int().nonnegative(),
   importedCameraCount: external_exports.number().int().nonnegative(),
@@ -134270,7 +134475,23 @@ var directorDccEngineReportSchema = external_exports.strictObject({
   scenePath: external_exports.string().trim().min(1).max(1024).nullable(),
   /** Relative directory of an echoed return package when the connector produced one. */
   returnPackageDir: safeRelativePathSchema.nullable(),
-  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4)
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4),
+  /** Unreal-only: Sequencer receipt read back from the authored LevelSequence. */
+  sequencer: directorUnrealSequencerReceiptSchema.optional(),
+  /** Unreal-only: number of skinned GLB payloads imported as skeletal meshes. */
+  importedSkeletalMeshCount: external_exports.number().int().nonnegative().optional(),
+  /** Unreal-only: number of Director PBR materials applied as material instances. */
+  appliedMaterialCount: external_exports.number().int().nonnegative().optional(),
+  /** Unity connector details; only the unity provider may write this block. */
+  unity: directorDccUnityEngineReportDetailsSchema.optional()
+}).superRefine((report, context) => {
+  if (report.unity && report.provider !== "unity") {
+    context.addIssue({
+      code: "custom",
+      path: ["unity"],
+      message: "only unity connector reports may carry the unity details block"
+    });
+  }
 });
 var directorDccEngineHealthCheckIdSchema = external_exports.enum([
   "executable",
@@ -134288,7 +134509,7 @@ var directorDccEngineHealthSchema = external_exports.strictObject({
   hostVersion: external_exports.string().nullable(),
   connectorVersion: external_exports.string().nullable(),
   /** Workspace-relative connector source directory. */
-  connectorDirectory: nonEmpty5.max(240),
+  connectorDirectory: nonEmpty6.max(240),
   /** The configured engine project path, or null when not configured. */
   projectPath: external_exports.string().nullable(),
   checks: external_exports.array(
@@ -134312,12 +134533,12 @@ var directorDccEngineSendResultSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_DCC_ENGINE_SEND_CONTRACT),
   jobId: external_exports.string().uuid(),
   provider: directorDccEngineIdSchema,
-  packagePath: nonEmpty5.max(2048),
-  manifestPath: nonEmpty5.max(2048),
+  packagePath: nonEmpty6.max(2048),
+  manifestPath: nonEmpty6.max(2048),
   manifestSha256: sha256Schema,
   packageDigest: sha256Schema,
   sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
-  reportPath: nonEmpty5.max(2048),
+  reportPath: nonEmpty6.max(2048),
   report: directorDccEngineReportSchema,
   /** Absolute path of the echoed return package directory, when produced. */
   returnPackagePath: external_exports.string().nullable(),

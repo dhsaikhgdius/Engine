@@ -6,9 +6,7 @@ using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
-using UnityEngine.Playables;
 using UnityEngine.SceneManagement;
-using UnityEngine.Timeline;
 
 namespace Director.Bridge.Editor
 {
@@ -18,7 +16,8 @@ namespace Director.Bridge.Editor
     /// <c>-batchmode -nographics -quit -executeMethod
     /// Director.Bridge.Editor.DirectorBridgeCli.Import</c> plus
     /// <c>-directorPackage/-directorReport/-directorReturnDir</c> arguments.
-    /// Request-supplied C# is never executed.
+    /// Request-supplied C# is never executed; every path is verified against
+    /// the hash-checked exchange package.
     /// </summary>
     public static class DirectorBridgeCli
     {
@@ -39,7 +38,12 @@ namespace Director.Bridge.Editor
             return null;
         }
 
-        /// <summary>Prints a JSON health line with host and connector versions.</summary>
+        /// <summary>
+        /// Prints a JSON health line with host and connector versions plus the
+        /// facts the Gateway needs to distinguish installed from nativeReady:
+        /// active render pipeline, glTF importer availability, and Timeline
+        /// package presence.
+        /// </summary>
         public static void Health()
         {
             var payload = new JObject
@@ -48,6 +52,8 @@ namespace Director.Bridge.Editor
                 ["provider"] = DirectorExchange.Provider,
                 ["hostVersion"] = HostVersion,
                 ["connectorVersion"] = DirectorExchange.ConnectorVersion,
+                ["renderPipeline"] = DirectorMaterialImport.DetectRenderPipeline(),
+                ["gltfImporterAvailable"] = DirectorGlbImport.GltfImporterAvailable(),
             };
             Debug.Log(payload.ToString(Newtonsoft.Json.Formatting.None));
             if (Application.isBatchMode)
@@ -73,10 +79,22 @@ namespace Director.Bridge.Editor
                 string packageId = (string)manifest["packageId"];
                 string shortId = SafeName(packageId.Substring(0, Math.Min(8, packageId.Length)));
 
+                string renderPipeline = DirectorMaterialImport.DetectRenderPipeline();
+                bool gltfImporterAvailable = DirectorGlbImport.GltfImporterAvailable();
+                if (!gltfImporterAvailable)
+                {
+                    warnings.Add(
+                        "No glTF ScriptedImporter is installed in this project; GLB mesh payloads import as " +
+                        "empty GameObjects. Install com.unity.cloud.gltfast (or another glTF importer).");
+                }
+
                 Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-                var byDirectorId = BuildSceneEntities(manifest, packageDir, shortId, warnings,
-                    out int objectCount, out int cameraCount, out Dictionary<string, GameObject> cameras);
-                BuildTimeline(manifest, shortId, cameras, warnings);
+                var counters = new ImportCounters();
+                var byDirectorId = BuildSceneEntities(
+                    manifest, packageDir, shortId, renderPipeline, warnings, counters,
+                    out Dictionary<string, GameObject> cameras);
+                DirectorTimelineBuilder.Result timelineResult = DirectorTimelineBuilder.Build(
+                    manifest, shortId, byDirectorId, cameras, warnings);
 
                 Directory.CreateDirectory("Assets/Director/Scenes");
                 string scenePath = $"Assets/Director/Scenes/Director_{shortId}.unity";
@@ -99,9 +117,22 @@ namespace Director.Bridge.Editor
                     returnPackageDir = RelativeTo(reportPath, returnDir);
                 }
 
+                var unityDetails = new JObject
+                {
+                    ["timelinePath"] = timelineResult.TimelinePath == null
+                        ? JValue.CreateNull()
+                        : (JToken)timelineResult.TimelinePath,
+                    ["renderPipeline"] = renderPipeline,
+                    ["gltfImporterAvailable"] = gltfImporterAvailable,
+                    ["importedLightCount"] = counters.ImportedLightCount,
+                    ["bakedAnimationClipCount"] = timelineResult.BakedAnimationClipCount,
+                    ["humanoidAvatarCount"] = counters.HumanoidAvatarCount,
+                    ["genericAvatarCount"] = counters.GenericAvatarCount,
+                    ["materialFallbackCount"] = counters.MaterialFallbackCount,
+                };
                 DirectorExchange.WriteReport(
                     reportPath, HostVersion, packageId, (string)manifest["sourceRevision"],
-                    objectCount, cameraCount, scenePath, returnPackageDir, warnings);
+                    counters.ObjectCount, counters.CameraCount, scenePath, returnPackageDir, warnings, unityDetails);
                 ExitBatch(0);
             }
             catch (Exception error)
@@ -117,7 +148,9 @@ namespace Director.Bridge.Editor
 
         /// <summary>
         /// Exports the canonical-space transforms of every director_id-tagged
-        /// entity that moved relative to the exchange package baseline.
+        /// entity that moved relative to the exchange package baseline. Only
+        /// objects and cameras round-trip; lights carry a director_id for
+        /// inspection but the return contract has no light entity type.
         /// </summary>
         public static void Export()
         {
@@ -153,6 +186,10 @@ namespace Director.Bridge.Editor
                              FindObjectsInactive.Include, FindObjectsSortMode.None))
                 {
                     seen += 1;
+                    if (marker.entityType == "light")
+                    {
+                        continue;
+                    }
                     (double[] location, double[] quaternion, double[] scale) = CanonicalFromUnity(marker.transform);
                     if (!baselines.TryGetValue(marker.directorId, out var baseline))
                     {
@@ -187,159 +224,263 @@ namespace Director.Bridge.Editor
             }
         }
 
+        private sealed class ImportCounters
+        {
+            public int ObjectCount;
+            public int CameraCount;
+            public int ImportedLightCount;
+            public int HumanoidAvatarCount;
+            public int GenericAvatarCount;
+            public int MaterialFallbackCount;
+        }
+
         private static Dictionary<string, GameObject> BuildSceneEntities(
             JObject manifest,
             string packageDir,
             string shortId,
+            string renderPipeline,
             List<string> warnings,
-            out int objectCount,
-            out int cameraCount,
+            ImportCounters counters,
             out Dictionary<string, GameObject> cameras)
         {
             JObject project = (JObject)manifest["project"];
             JObject scene = (JObject)project["scene"];
+            double[] scenePosition = Vec3(scene["position"]);
+            double[] sceneRotation = Vec3(scene["rotation"]);
+            double sceneScale = (double)scene["scale"];
             var byDirectorId = new Dictionary<string, GameObject>();
             cameras = new Dictionary<string, GameObject>();
+            string assetFolder = $"Assets/Director/Packages/{shortId}";
 
-            var assetPathsById = new Dictionary<string, string>();
+            var payloadsByAssetRefId = new Dictionary<string, (string Path, string Sha256)>();
             foreach (JToken assetEntry in (JArray)(manifest["assets"] ?? new JArray()))
             {
-                assetPathsById[(string)assetEntry["assetRefId"]] =
-                    DirectorExchange.ResolvePackageFile(packageDir, (string)assetEntry["relativePath"]);
+                payloadsByAssetRefId[(string)assetEntry["assetRefId"]] = (
+                    DirectorExchange.ResolvePackageFile(packageDir, (string)assetEntry["relativePath"]),
+                    (string)assetEntry["sha256"]);
             }
-            var importedAssets = new Dictionary<string, GameObject>();
-
-            objectCount = 0;
-            foreach (JToken entity in (JArray)project["objects"])
+            var projectAssetsById = new Dictionary<string, JObject>();
+            foreach (JToken assetToken in (JArray)project["assets"])
             {
+                projectAssetsById[(string)assetToken["id"]] = (JObject)assetToken;
+            }
+            var importedPayloads = new Dictionary<string, DirectorGlbImport.ImportedPayload>();
+            var importedTextures = new Dictionary<string, Texture2D>();
+
+            Texture2D ResolveTexture(string assetRefId)
+            {
+                if (importedTextures.TryGetValue(assetRefId, out Texture2D cached))
+                {
+                    return cached;
+                }
+                Texture2D texture = null;
+                if (payloadsByAssetRefId.TryGetValue(assetRefId, out (string Path, string Sha256) payload))
+                {
+                    texture = DirectorGlbImport.ImportTexture(
+                        assetRefId, payload.Path, payload.Sha256, assetFolder, warnings);
+                }
+                importedTextures[assetRefId] = texture;
+                return texture;
+            }
+
+            foreach (JToken entityToken in (JArray)project["objects"])
+            {
+                var entity = (JObject)entityToken;
+                string directorId = (string)entity["id"];
                 GameObject gameObject = InstantiatePayload(
-                    entity, assetPathsById, importedAssets, shortId, warnings);
+                    entity, payloadsByAssetRefId, importedPayloads, assetFolder, warnings,
+                    out DirectorGlbImport.ImportedPayload payloadInfo);
                 gameObject.name = (string)entity["name"];
                 ApplyCanonicalTransform(gameObject.transform, scene, (JObject)entity["transform"]);
                 DirectorId marker = gameObject.AddComponent<DirectorId>();
-                marker.directorId = (string)entity["id"];
+                marker.directorId = directorId;
                 marker.entityType = "object";
                 if (entity["visible"] != null && !(bool)entity["visible"])
                 {
                     gameObject.SetActive(false);
                 }
-                byDirectorId[marker.directorId] = gameObject;
-                objectCount += 1;
+
+                ApplyMaterialOverride(
+                    entity, gameObject, renderPipeline, shortId, ResolveTexture, warnings, counters);
+                BuildCharacterAvatar(
+                    entity, gameObject, payloadInfo, projectAssetsById, assetFolder, warnings, counters);
+
+                byDirectorId[directorId] = gameObject;
+                counters.ObjectCount += 1;
             }
 
             // Restore the Director parent hierarchy while keeping world transforms.
-            foreach (JToken entity in (JArray)project["objects"])
+            foreach (JToken entityToken in (JArray)project["objects"])
             {
-                string parentId = (string)entity["parentObjectId"];
-                string id = (string)entity["id"];
+                string parentId = (string)entityToken["parentObjectId"];
+                string id = (string)entityToken["id"];
                 if (parentId != null && byDirectorId.ContainsKey(parentId) && byDirectorId.ContainsKey(id))
                 {
                     byDirectorId[id].transform.SetParent(byDirectorId[parentId].transform, true);
                 }
             }
 
-            cameraCount = 0;
-            foreach (JToken cameraEntity in (JArray)project["cameras"])
+            double fps = (double?)scene["timeline"]?["fps"] ?? 24.0;
+            string activeCameraId = (string)project["activeCameraId"];
+            double[] ResolveObjectWorldPoint(string objectId)
             {
-                var gameObject = new GameObject((string)cameraEntity["name"]);
-                Camera camera = gameObject.AddComponent<Camera>();
-                camera.fieldOfView = (float)(double)cameraEntity["fov"];
-                if (cameraEntity["focalLengthMm"] != null)
-                {
-                    camera.usePhysicalProperties = true;
-                    camera.focalLength = (float)(double)cameraEntity["focalLengthMm"];
-                }
-                camera.enabled = cameraCount == 0;
-                ApplyCanonicalTransform(gameObject.transform, scene, (JObject)cameraEntity["transform"]);
-                DirectorId marker = gameObject.AddComponent<DirectorId>();
-                marker.directorId = (string)cameraEntity["id"];
-                marker.entityType = "camera";
-                byDirectorId[marker.directorId] = gameObject;
-                cameras[marker.directorId] = gameObject;
-                cameraCount += 1;
+                return byDirectorId.TryGetValue(objectId, out GameObject target)
+                    ? DirectorSpace.UnityPointToDirector(target.transform.position)
+                    : null;
             }
+            foreach (JToken cameraToken in (JArray)project["cameras"])
+            {
+                var cameraEntity = (JObject)cameraToken;
+                string directorId = (string)cameraEntity["id"];
+                GameObject gameObject = DirectorCameraImport.CreateCamera(
+                    cameraEntity, scene, fps, ResolveObjectWorldPoint, warnings);
+                Camera camera = gameObject.GetComponent<Camera>();
+                camera.enabled = activeCameraId != null ? directorId == activeCameraId : counters.CameraCount == 0;
+                DirectorId marker = gameObject.AddComponent<DirectorId>();
+                marker.directorId = directorId;
+                marker.entityType = "camera";
+                byDirectorId[directorId] = gameObject;
+                cameras[directorId] = gameObject;
+                counters.CameraCount += 1;
+            }
+
+            counters.ImportedLightCount = DirectorLightImport.ImportLights(
+                (JArray)project["lights"],
+                point =>
+                {
+                    double[] world = DirectorSpace.ComposeWorldPoint(scenePosition, sceneRotation, sceneScale, point);
+                    return DirectorSpace.DirectorPointToUnity(world[0], world[1], world[2]);
+                },
+                byDirectorId,
+                warnings);
+
             return byDirectorId;
         }
 
-        private static GameObject InstantiatePayload(
-            JToken entity,
-            Dictionary<string, string> assetPathsById,
-            Dictionary<string, GameObject> importedAssets,
-            string shortId,
-            List<string> warnings)
-        {
-            string assetRefId = (string)entity["assetRefId"];
-            if (assetRefId == null || !assetPathsById.TryGetValue(assetRefId, out string sourcePath) ||
-                !sourcePath.EndsWith(".glb", StringComparison.OrdinalIgnoreCase))
+        private static readonly IReadOnlyDictionary<string, PrimitiveType> GeometryPrimitives =
+            new Dictionary<string, PrimitiveType>
             {
-                if (assetRefId != null)
+                ["box"] = PrimitiveType.Cube,
+                ["sphere"] = PrimitiveType.Sphere,
+                ["cylinder"] = PrimitiveType.Cylinder,
+                ["plane"] = PrimitiveType.Plane,
+                ["capsule"] = PrimitiveType.Capsule,
+            };
+
+        private static GameObject InstantiatePayload(
+            JObject entity,
+            Dictionary<string, (string Path, string Sha256)> payloadsByAssetRefId,
+            Dictionary<string, DirectorGlbImport.ImportedPayload> importedPayloads,
+            string assetFolder,
+            List<string> warnings,
+            out DirectorGlbImport.ImportedPayload payloadInfo)
+        {
+            payloadInfo = null;
+            string directorId = (string)entity["id"];
+            string assetRefId = (string)entity["assetRefId"];
+            if (assetRefId != null && payloadsByAssetRefId.TryGetValue(assetRefId, out (string Path, string Sha256) payload) &&
+                payload.Path.EndsWith(".glb", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!importedPayloads.TryGetValue(assetRefId, out payloadInfo))
                 {
-                    warnings.Add(
-                        $"Object {(string)entity["id"]} references asset {assetRefId} without a GLB payload; " +
-                        "created an empty GameObject (warn-and-omit).");
+                    payloadInfo = DirectorGlbImport.ImportPayload(
+                        assetRefId, payload.Path, payload.Sha256, assetFolder, warnings);
+                    importedPayloads[assetRefId] = payloadInfo;
                 }
+                return payloadInfo.Prefab != null
+                    ? (GameObject)UnityEngine.Object.Instantiate(payloadInfo.Prefab)
+                    : new GameObject();
+            }
+
+            string geometryType = (string)entity["geometryType"];
+            if (geometryType != null)
+            {
+                if (GeometryPrimitives.TryGetValue(geometryType, out PrimitiveType primitive))
+                {
+                    return GameObject.CreatePrimitive(primitive);
+                }
+                warnings.Add(
+                    $"Object {directorId}: geometry primitive \"{geometryType}\" has no Unity built-in mesh; " +
+                    "created an empty GameObject (warn-and-omit).");
                 return new GameObject();
             }
-            if (!importedAssets.TryGetValue(assetRefId, out GameObject prefab))
+            if (assetRefId != null)
             {
-                string assetFolder = $"Assets/Director/Packages/{shortId}";
-                Directory.CreateDirectory(assetFolder);
-                string destination = $"{assetFolder}/{SafeName(assetRefId)}.glb";
-                File.Copy(sourcePath, destination, true);
-                AssetDatabase.ImportAsset(destination, ImportAssetOptions.ForceSynchronousImport);
-                prefab = AssetDatabase.LoadAssetAtPath<GameObject>(destination);
-                if (prefab == null)
-                {
-                    warnings.Add(
-                        $"No GLB importer produced a prefab for {destination}; install com.unity.cloud.gltfast (or " +
-                        "another glTF importer) for mesh payloads. Created an empty GameObject (warn-and-omit).");
-                }
-                importedAssets[assetRefId] = prefab;
+                warnings.Add(
+                    $"Object {directorId} references asset {assetRefId} without a GLB payload; " +
+                    "created an empty GameObject (warn-and-omit).");
             }
-            return prefab != null
-                ? (GameObject)UnityEngine.Object.Instantiate(prefab)
-                : new GameObject();
+            return new GameObject();
         }
 
-        private static void BuildTimeline(
-            JObject manifest, string shortId, Dictionary<string, GameObject> cameras, List<string> warnings)
+        private static void ApplyMaterialOverride(
+            JObject entity,
+            GameObject gameObject,
+            string renderPipeline,
+            string shortId,
+            Func<string, Texture2D> resolveTexture,
+            List<string> warnings,
+            ImportCounters counters)
         {
-            JObject project = (JObject)manifest["project"];
-            var shots = ((JArray)(project["storyboard"]?["shots"] ?? new JArray()))
-                .Where(shot => shot["cameraId"] != null && cameras.ContainsKey((string)shot["cameraId"]))
-                .ToList();
-            if (shots.Count == 0)
+            var materialJson = (JObject)entity["material"];
+            if (materialJson == null && entity["color"] != null)
+            {
+                // Plain-colored objects synthesize a one-property PBR override.
+                materialJson = new JObject { ["baseColor"] = (string)entity["color"] };
+            }
+            if (materialJson == null)
             {
                 return;
             }
-            try
+            Renderer[] renderers = gameObject.GetComponentsInChildren<Renderer>(true);
+            if (renderers.Length == 0)
             {
-                double fps = (double?)project["scene"]?["timeline"]?["fps"] ?? 24.0;
-                Directory.CreateDirectory("Assets/Director/Timelines");
-                string timelinePath = $"Assets/Director/Timelines/Director_{shortId}.playable";
-                var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-                AssetDatabase.CreateAsset(timeline, timelinePath);
-                foreach (JToken shot in shots)
-                {
-                    GameObject cameraObject = cameras[(string)shot["cameraId"]];
-                    var track = timeline.CreateTrack<ActivationTrack>(null, (string)shot["title"] ?? "Shot");
-                    TimelineClip clip = track.CreateDefaultClip();
-                    clip.start = (double)shot["frameStart"] / fps;
-                    clip.duration = Math.Max(1.0 / fps, ((double)shot["frameEnd"] - (double)shot["frameStart"]) / fps);
-                    var director = cameraObject.GetComponent<PlayableDirector>() ??
-                                   cameraObject.AddComponent<PlayableDirector>();
-                    director.playableAsset = timeline;
-                    director.SetGenericBinding(track, cameraObject);
-                }
-                AssetDatabase.SaveAssets();
-                warnings.Add(
-                    "Storyboard shots were mapped to Timeline activation tracks over each camera from the static " +
-                    "snapshot; per-frame animation baking stays planned until the animation capability is promoted.");
+                return;
             }
-            catch (Exception error)
+            Material material = DirectorMaterialImport.CreateFallbackMaterial(
+                materialJson, (string)entity["id"], renderPipeline,
+                $"Assets/Director/Packages/{shortId}/Materials", resolveTexture, warnings);
+            if (material == null)
             {
-                warnings.Add($"Timeline mapping was skipped: {error.Message}");
+                return;
             }
+            foreach (Renderer renderer in renderers)
+            {
+                renderer.sharedMaterials =
+                    Enumerable.Repeat(material, Math.Max(1, renderer.sharedMaterials.Length)).ToArray();
+            }
+            counters.MaterialFallbackCount += 1;
+        }
+
+        private static void BuildCharacterAvatar(
+            JObject entity,
+            GameObject gameObject,
+            DirectorGlbImport.ImportedPayload payloadInfo,
+            Dictionary<string, JObject> projectAssetsById,
+            string assetFolder,
+            List<string> warnings,
+            ImportCounters counters)
+        {
+            if (payloadInfo == null || !payloadInfo.HasSkinnedMesh)
+            {
+                return;
+            }
+            string assetRefId = (string)entity["assetRefId"];
+            JObject characterMetadata =
+                assetRefId != null && projectAssetsById.TryGetValue(assetRefId, out JObject assetJson)
+                    ? (JObject)assetJson["characterMetadata"]
+                    : null;
+            DirectorSkeletonImport.AvatarKind kind = DirectorSkeletonImport.BuildAvatar(
+                gameObject, characterMetadata, (string)entity["id"], $"{assetFolder}/Avatars", warnings);
+            if (kind == DirectorSkeletonImport.AvatarKind.Humanoid)
+            {
+                counters.HumanoidAvatarCount += 1;
+            }
+            else if (kind == DirectorSkeletonImport.AvatarKind.Generic)
+            {
+                counters.GenericAvatarCount += 1;
+            }
+            DirectorSkeletonImport.WarnUntransferredRigState(entity, warnings);
         }
 
         private static void ApplyCanonicalTransform(Transform target, JObject scene, JObject transform)
@@ -415,6 +556,10 @@ namespace Director.Bridge.Editor
             foreach (KeyValuePair<string, GameObject> pair in byDirectorId)
             {
                 DirectorId marker = pair.Value.GetComponent<DirectorId>();
+                if (marker.entityType == "light")
+                {
+                    continue;
+                }
                 (double[] location, double[] quaternion, double[] scale) = CanonicalFromUnity(pair.Value.transform);
                 changes.Add(TransformUpdate(pair.Key, marker.entityType, location, quaternion, scale));
             }
