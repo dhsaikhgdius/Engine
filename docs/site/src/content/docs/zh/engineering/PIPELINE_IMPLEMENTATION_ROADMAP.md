@@ -22,6 +22,8 @@ description: ProductionGraph、持久化任务、artifact、互操作和运营�
 
 ## Milestone 1：ProductionGraph v1（只读）
 
+**状态：已完成（2026-08-25）。** 投影器位于 `packages/project-schema/src/productionGraph/`；Agent 通过 observe 字段 `production_graph` 读取。
+
 ### 新模块
 
 增加 graph schema、identity resolver、projection reader、fingerprint、查询 API 和
@@ -49,6 +51,8 @@ graph 不能吞掉编辑器细节。无法映射的字段进入 warning/degradat
 字段可见；只读 graph 不改变编辑器行为。
 
 ## Milestone 2：增量持久化 graph ID
+
+**状态：已完成（2026-08-25）。** Identity map 以 `DirectorProject.productionGraphIdentities` additive 写回。加载（`migrateDirectorProject`）与 JSON 导出（`serializeProject`）会回填缺失 ID。该字段从 `director-project-revision` 中省略，因此后台迁移不会扰动 mutation guard 或撤销。冲突的旧映射只出现在 receipt 中，不会改写源 ID。
 
 在现有实体中 additive 写入 graph ID，提供旧项目确定性回填、迁移 receipt、回滚开关和
 双读校验。禁止用时间戳、文件路径或对象数组索引代替稳定 ID。验收包括新旧项目、复制、
@@ -119,6 +123,8 @@ preview/hash。不能回传任意脚本或直接覆盖源项目。
 format。Package 声明无法表达的 Director 语义，并提供 fixture round trip、hash 和 receipt。
 
 ## Milestone 8：fingerprint-bound approval
+
+**状态：已完成 live 项目 revision 绑定（2026-08-25）。** 新的 `putApproval` 必须带 `kind:project` 指纹；观测到的 director-project-revision 变化会使带项目指纹的审批过期。creative/package/schema 仍为可选附加指纹。
 
 approval 绑定 project、creative snapshot、Shot Package、artifact 和 schema fingerprint。
 任何 revision、素材或 provider 变化都会使 approval 失效，必须重新审查。

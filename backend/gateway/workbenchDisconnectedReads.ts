@@ -186,6 +186,7 @@ export function executeDisconnectedWorkbenchRead(
           ...observeDirectorProject(sources.project, operation.fields, {
             objectMode: operation.object_mode,
             maxObjects: operation.max_objects,
+            detail: operation.detail === "full" ? "full" : "summary",
           }),
           ...disconnectedMeta(sources, "persisted_project"),
         },

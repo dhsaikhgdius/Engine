@@ -28,3 +28,4 @@ export * from "./primitiveGeometry";
 export * from "./characterBodyAnchors";
 export * from "./directorLighting";
 export * from "./animationRecipes";
+export * from "./productionGraph";

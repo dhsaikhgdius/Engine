@@ -38,6 +38,7 @@ import { directorCameraAspectRatioSchema } from "@director/protocol/camera";
 import { referenceSceneReconstructionPlanSchema } from "@director/protocol/reference-scene";
 import { directorProceduralRecipeSchema } from "@director/protocol/procedural";
 import { DIRECTOR_GENERATED_3D_CONTRACT, generated3dProviderIdSchema } from "@director/protocol/generated-3d";
+import { productionGraphIdentityMapSchema } from "./productionGraph/productionGraphIdentityMap";
 import { comfyGenerationParametersSchema } from "@director/protocol/comfy-generation";
 import { directorWorldSchema } from "@director/protocol/world-systems";
 import { directorVehicleProfileSchema } from "@director/protocol/vehicle";
@@ -814,6 +815,7 @@ const directorProjectBaseSchema = z.strictObject({
   referenceReconstructions: z.array(referenceSceneReconstructionPlanSchema).max(64).optional(),
   proceduralRecipes: z.array(directorProceduralRecipeSchema).max(128).optional(),
   world: directorWorldSchema.optional(),
+  productionGraphIdentities: productionGraphIdentityMapSchema.optional(),
   activeCameraId: z.string().nullable(),
   panoramaAssetId: z.string().nullable(),
 });

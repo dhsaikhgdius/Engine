@@ -14,6 +14,8 @@ export const DIRECTOR_PROJECT_REVISION_PATTERN = /^director-project-revision:v1:
 export type DirectorProjectRevision = `${typeof DIRECTOR_PROJECT_REVISION_CONTRACT}:sha256:${string}`;
 
 const OMIT = Symbol("omit-from-director-project-revision");
+/** Root keys that persist on disk but are not portable scene mutation truth. */
+export const DIRECTOR_PROJECT_REVISION_OMITTED_ROOT_KEYS = ["productionGraphIdentities"] as const;
 const MAX_DATA_URL_METADATA_LENGTH = 1_024;
 const SHA256_INITIAL_STATE = [
   0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
@@ -119,7 +121,11 @@ function canonicalizeValue(value: unknown, path: string, ancestors: Set<object>)
  * omitted, -0 is normalized to 0, and non-finite numbers are rejected.
  */
 export function canonicalizeDirectorProjectForRevision(project: DirectorProject): string {
-  const canonicalProject = canonicalizeValue(project, "$", new Set());
+  const portable: Record<string, unknown> = { ...project };
+  for (const key of DIRECTOR_PROJECT_REVISION_OMITTED_ROOT_KEYS) {
+    delete portable[key];
+  }
+  const canonicalProject = canonicalizeValue(portable, "$", new Set());
   if (canonicalProject === OMIT) {
     throw new TypeError("Director project revision requires a project object.");
   }

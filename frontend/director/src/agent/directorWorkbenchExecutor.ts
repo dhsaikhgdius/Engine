@@ -1105,7 +1105,7 @@ function summarizeAuditResult(audit: ReturnType<typeof auditDirectorProject>) {
 function observe(
   store: DirectorStore,
   fields?: DirectorWorkbenchObserveField[],
-  options: { objectMode?: "flat" | "hierarchy"; maxObjects?: number } = {},
+  options: { objectMode?: "flat" | "hierarchy"; maxObjects?: number; detail?: "summary" | "full" } = {},
 ) {
   return observeDirectorProject(store.project, fields, {
     ...options,
@@ -1374,6 +1374,7 @@ function executeDirectorWorkbenchOperationCore(
         const observation = observe(store, observationFields, {
           objectMode: operation.object_mode,
           maxObjects: operation.max_objects,
+          detail: operation.detail === "full" ? "full" : "summary",
         });
         const result = operation.detail === "summary" ? { ...observation, detail: "summary" as const } : observation;
         if (!operation.since_turn && !operation.since_audit) return { success: true, result };

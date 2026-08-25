@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import {
+  assertNewApprovalBindsProjectRevision,
   createProductionArtifactPromotion,
   createProductionArtifactVersion,
   createProductionApproval,
+  productionApprovalProjectFingerprint,
   productionApprovalSchema,
   productionArtifactPromotionSchema,
   productionArtifactVersionSchema,
@@ -487,6 +489,11 @@ export class ProductionArtifactStore {
     input: ProductionApprovalInput,
   ): Promise<{ approval: ProductionApproval; replayed: boolean }> {
     await this.ensureLoaded();
+    try {
+      assertNewApprovalBindsProjectRevision(input);
+    } catch (error) {
+      throw new ProductionArtifactValidationError(error instanceof Error ? error.message : String(error));
+    }
     const approval = createProductionApproval(input);
     const existing = this.approvalsById.get(approval.approvalId);
     if (existing) {
@@ -587,6 +594,9 @@ export class ProductionArtifactStore {
     });
 
     const existing = this.promotionsById.get(input.promotionId);
+    const requireCurrentApproval =
+      input.requireCurrentApproval ||
+      approvals.some((approval) => Boolean(productionApprovalProjectFingerprint(approval)));
     if (existing) {
       const replay = createValidatedPromotion({
         ...input,
@@ -594,6 +604,7 @@ export class ProductionArtifactStore {
         version,
         previousVersionId: input.expectedPreviousVersionId,
         approvals,
+        requireCurrentApproval,
       });
       if (
         replay.target.workspace !== existing.target.workspace ||
@@ -641,6 +652,7 @@ export class ProductionArtifactStore {
       version,
       previousVersionId: actualPreviousVersionId,
       approvals,
+      requireCurrentApproval,
     });
     await writeJsonAtomic(this.recordPath("promotions", promotion.promotionId), promotion, { trailingNewline: true });
     this.promotionsById.set(promotion.promotionId, promotion);

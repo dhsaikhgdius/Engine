@@ -39,6 +39,7 @@ import {
   migrateDirectorProduction,
   reconcileDirectorProduction,
 } from "../schema/directorProduction";
+import { persistProductionGraphIdentities } from "../productionGraph/productionGraphMigration";
 import { createDefaultDirectorFrameTimeline } from "../timeline/frameTime";
 import { backfillDirectorAssetMetricScale } from "./directorScaleMigration";
 import {
@@ -375,7 +376,7 @@ export function migrateDirectorProject(project: DirectorProject): DirectorProjec
       ? { ...object, nativeSource: { engine: "blender" as const, objectId: object.id, provisioned: false } }
       : object,
   );
-  return migrateDirectorProduction(migratedProject);
+  return persistProductionGraphIdentities(migrateDirectorProduction(migratedProject));
 }
 
 export function withReconciledProduction(project: DirectorProject): DirectorProject {

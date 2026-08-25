@@ -75,11 +75,13 @@ the actual bytes.
 
 ### Cross-workspace identity
 
-Canvas, Stage, Video, generation jobs, and DCC packages have stable local IDs, but do
-not yet share a single project-level lineage graph. The next major contract should be
-a `ProductionGraph` that owns stable asset, screenplay beat, shot, artifact, usage,
-and review identities while leaving each editor responsible for its own detailed
-state.
+A read-only `ProductionGraph` projector now exposes stable asset, shot, take,
+coverage, job, and artifact identities from `DirectorProject`. Graph IDs persist
+additively on `productionGraphIdentities` (omitted from the project revision hash).
+Agents opt in with `director_workbench` observe `fields:["production_graph"]`
+(summary fingerprints and integrity; `detail:"full"` includes nodes/edges).
+Editors remain authoritative for detailed Canvas, Stage, and Video state. The
+graph does not mutate those stores or replace the Canvas production DAG.
 
 ### Durable jobs
 

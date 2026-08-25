@@ -1,5 +1,6 @@
 import type { DirectorProject } from "@director/project-schema";
 import { getCameraViewSnapshotFromShot, normalizeDirectorCameraOptics } from "@director/project-schema";
+import { observeDirectorProductionGraph } from "@director/project-schema/production-graph";
 import { getDirectorProjectGraphIssues } from "./directorProjectGraph";
 import { buildDirectorObjectHierarchy } from "./directorObjectHierarchy";
 import type { DirectorWorkbenchObserveField } from "./directorWorkbenchContract";
@@ -21,6 +22,8 @@ export type DirectorWorkbenchObserveOptions = {
   maxObjects?: number;
   /** Transient UI snapshot. Omit when no live Stage tab is connected. */
   ui?: unknown;
+  /** Observe payload detail. `production_graph` full mode includes nodes/edges. */
+  detail?: "summary" | "full";
 };
 
 /**
@@ -204,9 +207,12 @@ export function observeDirectorProject(
     requested_fields: fields,
     ...(objectHierarchy ? { object_mode: "hierarchy" } : {}),
   };
+  const graphDetail = options.detail === "full" ? "full" : "summary";
   fields.forEach((field) => {
     if (field === "characters") selected.characters = objects.filter((object) => object.kind === "character");
-    else selected[field] = complete[field];
+    else if (field === "production_graph") {
+      selected.production_graph = observeDirectorProductionGraph(project, graphDetail);
+    } else selected[field] = complete[field];
   });
   return selected;
 }
