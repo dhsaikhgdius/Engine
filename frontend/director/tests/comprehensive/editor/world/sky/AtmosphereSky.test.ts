@@ -24,6 +24,16 @@ describe("atmosphere sky film-set defaults", () => {
     expect(atmosphereSkyCloudAmount(1.4)).toBe(1);
   });
 
+  it("drives the dome cloud deck from coverage and darkens it per weather", () => {
+    // Coverage must set the fbm threshold (not just scale a fixed wisp mask)
+    // so a full cover closes the deck, and storms darken the deck colour.
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).toContain("mix(0.58, 0.02, cloudAmount)");
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).toContain("uniform float cloudDarken");
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).toContain("* cloudDarken");
+    // The old constant 35% blend cap must be gone: heavy skies read covered.
+    expect(ATMOSPHERE_SKY_FRAGMENT_SHADER).not.toContain("cloud * 0.35");
+  });
+
   it("places the dome far from the camera instead of on an 80 m wall", () => {
     expect(ATMOSPHERE_SKY_VERTEX_SHADER).toContain("* 4000.0");
     expect(ATMOSPHERE_SKY_VERTEX_SHADER).not.toContain("* 80.0");

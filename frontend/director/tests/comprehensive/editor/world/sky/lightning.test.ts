@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorWorldWeather } from "../../../../../src/comprehensive/editor/schema/directorProject";
-import { evaluateLightningState, LIGHTNING_WINDOW_SECONDS } from "../../../../../src/comprehensive/editor/world/sky/lightning";
+import {
+  createLightningBoltPolyline,
+  evaluateLightningState,
+  LIGHTNING_BOLT_MAX_DISTANCE,
+  LIGHTNING_BOLT_MAX_JITTER,
+  LIGHTNING_BOLT_MAX_TOP_HEIGHT,
+  LIGHTNING_BOLT_MIN_DISTANCE,
+  LIGHTNING_BOLT_MIN_TOP_HEIGHT,
+  LIGHTNING_BOLT_POINT_COUNT,
+  LIGHTNING_WINDOW_SECONDS,
+} from "../../../../../src/comprehensive/editor/world/sky/lightning";
 
 function weather(preset: DirectorWorldWeather["preset"], intensity: number): DirectorWorldWeather {
   return { preset, intensity, wetness: 0.5, cloudCover: 0.8 };
@@ -54,5 +64,77 @@ describe("storm lightning", () => {
       expect(state.intensity).toBeGreaterThan(0);
       expect(state.intensity).toBeLessThanOrEqual(1);
     }
+  });
+
+  it("replays strike moments bit-identically regardless of scrub order", () => {
+    const storm = weather("storm", 0.8);
+    const times = Array.from({ length: 600 }, (_, index) => index * 0.117);
+    const forward = times.map((t) => evaluateLightningState(11, t, storm));
+    const shuffled = [...times].reverse().map((t) => evaluateLightningState(11, t, storm));
+    shuffled.reverse();
+    expect(shuffled).toEqual(forward);
+    // Every active flash names the window it belongs to, so overlays can
+    // rebuild the identical bolt for the identical moment.
+    for (let index = 0; index < forward.length; index += 1) {
+      const state = forward[index]!;
+      if (!state.active) continue;
+      expect(state.strikeWindowIndex).toBe(Math.floor(times[index]! / LIGHTNING_WINDOW_SECONDS));
+    }
+  });
+
+  it("flashes brighter on average as storm intensity rises", () => {
+    const averagePeakIntensity = (intensity: number): number => {
+      let sum = 0;
+      let strikes = 0;
+      for (let index = 0; index < 8000; index += 1) {
+        const state = evaluateLightningState(3, index * LIGHTNING_WINDOW_SECONDS + 0.01, weather("storm", intensity));
+        if (!state.active) continue;
+        sum += state.intensity;
+        strikes += 1;
+      }
+      expect(strikes).toBeGreaterThan(0);
+      return sum / strikes;
+    };
+    expect(averagePeakIntensity(1)).toBeGreaterThan(averagePeakIntensity(0.2) * 1.8);
+  });
+});
+
+describe("lightning bolt polyline", () => {
+  it("is a pure function of (seed, strikeWindowIndex)", () => {
+    expect(createLightningBoltPolyline(42, 137)).toEqual(createLightningBoltPolyline(42, 137));
+    expect(createLightningBoltPolyline(42, 137)).not.toEqual(createLightningBoltPolyline(42, 138));
+    expect(createLightningBoltPolyline(42, 137)).not.toEqual(createLightningBoltPolyline(43, 137));
+  });
+
+  it("runs top-to-ground inside the cloud shell with bounded jag", () => {
+    for (const window of [0, 7, 991, 123456]) {
+      const points = createLightningBoltPolyline(20260813, window);
+      expect(points).toHaveLength(LIGHTNING_BOLT_POINT_COUNT * 3);
+      const topY = points[1]!;
+      expect(topY).toBeGreaterThanOrEqual(LIGHTNING_BOLT_MIN_TOP_HEIGHT);
+      expect(topY).toBeLessThanOrEqual(LIGHTNING_BOLT_MAX_TOP_HEIGHT);
+      expect(points[(LIGHTNING_BOLT_POINT_COUNT - 1) * 3 + 1]).toBe(0);
+      for (let joint = 1; joint < LIGHTNING_BOLT_POINT_COUNT; joint += 1) {
+        // The channel strictly descends; only lateral jag varies per joint.
+        expect(points[joint * 3 + 1]!).toBeLessThan(points[(joint - 1) * 3 + 1]!);
+        const planar = Math.hypot(points[joint * 3]!, points[joint * 3 + 2]!);
+        expect(planar).toBeGreaterThan(LIGHTNING_BOLT_MIN_DISTANCE - 2 * LIGHTNING_BOLT_MAX_JITTER);
+        expect(planar).toBeLessThan(LIGHTNING_BOLT_MAX_DISTANCE + 2 * LIGHTNING_BOLT_MAX_JITTER);
+      }
+    }
+  });
+
+  it("keeps the geometry streams from perturbing strike moments", () => {
+    const storm = weather("storm", 1);
+    const before = Array.from({ length: 2000 }, (_, index) =>
+      evaluateLightningState(9, index * LIGHTNING_WINDOW_SECONDS + 0.01, storm).active,
+    );
+    // Building bolts for arbitrary windows consumes no shared state...
+    for (let window = 0; window < 500; window += 7) createLightningBoltPolyline(9, window);
+    const after = Array.from({ length: 2000 }, (_, index) =>
+      evaluateLightningState(9, index * LIGHTNING_WINDOW_SECONDS + 0.01, storm).active,
+    );
+    // ...so the strike pattern is unchanged.
+    expect(after).toEqual(before);
   });
 });

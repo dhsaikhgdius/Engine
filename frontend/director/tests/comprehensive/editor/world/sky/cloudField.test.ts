@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { DirectorWorldWind } from "../../../../../src/comprehensive/editor/schema/directorProject";
+import { createDefaultDirectorWorldSettings } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
+import type { DirectorWorldWeather, DirectorWorldWind } from "../../../../../src/comprehensive/editor/schema/directorProject";
 import {
   createSkyCloudPlacements,
   getSkyCloudClusterCount,
   getSkyCloudDriftRadians,
+  getSkyCloudPalette,
   getSkyCloudPosition,
   SKY_CLOUD_DRIFT_CIRCUIT_SECONDS,
   SKY_CLOUD_MAX_CLUSTERS,
@@ -16,9 +18,15 @@ import {
   SKY_CLOUD_MIN_QUADS_PER_CLUSTER,
   SKY_CLOUD_MIN_SHELL_RADIUS,
 } from "../../../../../src/comprehensive/editor/world/sky/cloudField";
+import { evaluateSkyWeatherMood } from "../../../../../src/comprehensive/editor/world/sky/skyWeather";
+import { evaluateSkyLighting } from "../../../../../src/comprehensive/editor/world/sky/solar";
 
 function wind(overrides: Partial<DirectorWorldWind> = {}): DirectorWorldWind {
   return { directionDegrees: 90, speedMps: 10, gustiness: 0.35, turbulence: 0.3, ...overrides };
+}
+
+function weatherOf(overrides: Partial<DirectorWorldWeather> = {}): DirectorWorldWeather {
+  return { preset: "clear", intensity: 0.5, wetness: 0.2, cloudCover: 0.3, ...overrides };
 }
 
 describe("seeded cloud placement", () => {
@@ -83,6 +91,50 @@ describe("cloud cover to cluster count", () => {
     expect(lower.length).toBeGreaterThan(0);
     expect(higher.length).toBeGreaterThan(lower.length);
     expect(higher.slice(0, lower.length)).toEqual(lower);
+  });
+});
+
+describe("weather-driven cloudscape", () => {
+  it("fills the sky with clusters on overcast and storm even at a low cover slider", () => {
+    const clusterCountFor = (weather: DirectorWorldWeather): number =>
+      getSkyCloudClusterCount(evaluateSkyWeatherMood(weather).effectiveCloudCover);
+    const clear = clusterCountFor(weatherOf({ preset: "clear", cloudCover: 0.2 }));
+    const overcast = clusterCountFor(weatherOf({ preset: "overcast", cloudCover: 0.2 }));
+    const storm = clusterCountFor(weatherOf({ preset: "storm", cloudCover: 0.2, intensity: 1 }));
+    expect(clear).toBeLessThanOrEqual(4);
+    expect(overcast).toBeGreaterThanOrEqual(Math.floor(SKY_CLOUD_MAX_CLUSTERS * 0.7));
+    expect(storm).toBe(SKY_CLOUD_MAX_CLUSTERS);
+    // The five presets remain distinct in visible cluster count.
+    const counts = (["clear", "overcast", "rain", "snow", "storm"] as const).map((preset) =>
+      clusterCountFor(weatherOf({ preset })),
+    );
+    expect(new Set(counts).size).toBe(counts.length);
+  });
+
+  it("thickens and enlarges cloud quads as the weather worsens", () => {
+    const clear = evaluateSkyWeatherMood(weatherOf({ preset: "clear" }));
+    const overcast = evaluateSkyWeatherMood(weatherOf({ preset: "overcast" }));
+    const storm = evaluateSkyWeatherMood(weatherOf({ preset: "storm" }));
+    expect(overcast.cloudOpacityScale).toBeGreaterThan(clear.cloudOpacityScale * 1.3);
+    expect(storm.cloudOpacityScale).toBeGreaterThan(overcast.cloudOpacityScale);
+    expect(overcast.cloudSizeScale).toBeGreaterThan(clear.cloudSizeScale);
+    expect(storm.cloudSizeScale).toBeGreaterThan(overcast.cloudSizeScale);
+  });
+
+  it("darkens the storm palette beyond the plain lighting collapse", () => {
+    const settings = createDefaultDirectorWorldSettings();
+    settings.timeOfDay = { ...settings.timeOfDay, mode: "fixed", hours: 12, drivesSky: true };
+    const stormWeather = weatherOf({ preset: "storm", intensity: 1, cloudCover: 0.8 });
+    const stormSettings = { ...settings, weather: stormWeather };
+    const lighting = evaluateSkyLighting(stormSettings, 0);
+    const plain = getSkyCloudPalette(lighting);
+    const weathered = getSkyCloudPalette(lighting, stormWeather);
+    expect(weathered.top[0]).toBeLessThan(plain.top[0]);
+    expect(weathered.bottom[1]).toBeLessThan(plain.bottom[1]);
+    // Clear weather leaves the palette untouched.
+    const clearWeather = weatherOf({ preset: "clear" });
+    const clearLighting = evaluateSkyLighting({ ...settings, weather: clearWeather }, 0);
+    expect(getSkyCloudPalette(clearLighting, clearWeather)).toEqual(getSkyCloudPalette(clearLighting));
   });
 });
 

@@ -63,6 +63,60 @@ describe("evaluateSkyLighting", () => {
     expect(evaluateSkyLighting(settings, 123.456)).toEqual(evaluateSkyLighting(settings, 123.456));
   });
 
+  it("is seek-stable: scrubbing order never changes a frame's lighting", () => {
+    const settings = settingsAt(16.2, { preset: "storm", intensity: 0.85, cloudCover: 0.7 });
+    const times = [512.75, 0, 9999.125, 42.5, 512.75, 3.25, 0];
+    const forward = times.map((t) => evaluateSkyLighting(settings, t));
+    const reversed = [...times].reverse().map((t) => evaluateSkyLighting(settings, t));
+    reversed.reverse();
+    expect(forward).toEqual(reversed);
+    // Re-seeking the same frame after visiting others replays it exactly.
+    expect(forward[0]).toEqual(forward[4]);
+    expect(forward[1]).toEqual(forward[6]);
+  });
+
+  it("makes the five weather presets glance-distinct in key, ambient, and stars", () => {
+    const presets = ["clear", "overcast", "rain", "snow", "storm"] as const;
+    const noon = presets.map((preset) =>
+      evaluateSkyLighting(settingsAt(12, { preset, intensity: 0.5, cloudCover: 0.3 }), 0),
+    );
+    expect(new Set(noon.map((state) => state.sunIntensity)).size).toBe(presets.length);
+    expect(new Set(noon.map((state) => state.ambientIntensity)).size).toBe(presets.length);
+    const midnight = presets.map((preset) =>
+      evaluateSkyLighting(settingsAt(0, { preset, intensity: 0.5, cloudCover: 0.3 }), 0),
+    );
+    expect(new Set(midnight.map((state) => state.starsOpacity)).size).toBe(presets.length);
+    // Clear keeps the brightest key and the clearest stars; storm the least.
+    const clearNoon = noon[0]!;
+    const stormNoon = noon[4]!;
+    expect(clearNoon.sunIntensity).toBeGreaterThan(2 * Math.max(...noon.slice(1).map((s) => s.sunIntensity)));
+    expect(stormNoon.sunIntensity).toBeLessThan(Math.min(...noon.slice(0, 4).map((s) => s.sunIntensity)));
+    // Clear midnight at 0.3 cover keeps most stars; a storm blots them out.
+    expect(midnight[0]!.starsOpacity).toBeGreaterThan(0.6);
+    expect(midnight[4]!.starsOpacity).toBeLessThan(0.01);
+  });
+
+  it("moves lighting when the intensity slider moves, for every non-clear preset", () => {
+    for (const preset of ["overcast", "rain", "snow", "storm"] as const) {
+      const faint = evaluateSkyLighting(settingsAt(12, { preset, intensity: 0.1, cloudCover: 0.3 }), 0);
+      const violent = evaluateSkyLighting(settingsAt(12, { preset, intensity: 1, cloudCover: 0.3 }), 0);
+      expect(violent.sunIntensity, `${preset} key light must dim with intensity`).toBeLessThan(faint.sunIntensity);
+    }
+  });
+
+  it("hides stars on an overcast night even when the authored cover slider is low", () => {
+    const overcastNight = evaluateSkyLighting(settingsAt(0, { preset: "overcast", intensity: 0.6, cloudCover: 0.1 }), 0);
+    expect(overcastNight.starsOpacity).toBeLessThan(0.05);
+  });
+
+  it("reads golden hour warmer than noon on the key light", () => {
+    const noon = evaluateSkyLighting(settingsAt(12), 0);
+    const golden = evaluateSkyLighting(settingsAt(17.2), 0);
+    const noonWarmth = noon.sunColor[0] / Math.max(noon.sunColor[2], 1e-6);
+    const goldenWarmth = golden.sunColor[0] / Math.max(golden.sunColor[2], 1e-6);
+    expect(goldenWarmth).toBeGreaterThan(noonWarmth * 1.5);
+  });
+
   it("dims the direct sun monotonically as cloud cover grows while lifting ambient", () => {
     const covers = [0, 0.25, 0.5, 0.75, 1];
     const sunIntensities = covers.map((cloudCover) => evaluateSkyLighting(settingsAt(12, { cloudCover }), 0));
