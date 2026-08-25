@@ -113,6 +113,24 @@ function uniqueBlendSceneWarnings(
 }
 
 /**
+ * 按操作类型汇总 DCC 回传计划；资产、变换与提示始终显示，
+ * 富回传条目（相机光学、灯光、角色姿态）仅在非零时显示。
+ */
+function dccReturnPlanSegments(plan: DirectorDccImportPlanV1, t: (source: string) => string): string[] {
+  const countOf = (op: DirectorDccImportPlanV1["operations"][number]["op"]) =>
+    plan.operations.filter((operation) => operation.op === op).length;
+  const segments = [`${countOf("link_refined_asset")} ${t("个资产")}`, `${countOf("update_transform")} ${t("个变换")}`];
+  const cameraOpticsCount = countOf("update_camera_optics");
+  if (cameraOpticsCount) segments.push(`${cameraOpticsCount} ${t("个相机光学")}`);
+  const lightCount = countOf("update_light");
+  if (lightCount) segments.push(`${lightCount} ${t("个灯光更新")}`);
+  const poseCount = countOf("set_character_pose");
+  if (poseCount) segments.push(`${poseCount} ${t("个角色姿态")}`);
+  segments.push(`${plan.warnings.length} ${t("条提示")}`);
+  return segments;
+}
+
+/**
  * 专业格式交换菜单，根据 workspace 模式提供导入导出、模板新建和 DCC 工作流入口。
  * @param workspace - 工作区模式，影响导出格式和可用功能。
  */
@@ -794,12 +812,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                     {dccPlan ? (
                       <div className="director-dcc-return-plan">
                         <span data-ready={dccPlan.ready}>{dccPlan.ready ? t("可应用") : t("有冲突")}</span>
-                        <p>
-                          {dccPlan.operations.filter((operation) => operation.op === "link_refined_asset").length}{" "}
-                          {t("个资产")} ·{" "}
-                          {dccPlan.operations.filter((operation) => operation.op === "update_transform").length}{" "}
-                          {t("个变换")} · {dccPlan.warnings.length} {t("条提示")}
-                        </p>
+                        <p>{dccReturnPlanSegments(dccPlan, t).join(" · ")}</p>
                         {dccPlan.conflicts.length ? (
                           <ul className="director-interchange-list is-danger">
                             {dccPlan.conflicts.slice(0, 6).map((conflict) => (
@@ -807,6 +820,16 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                             ))}
                             {dccPlan.conflicts.length > 6 ? (
                               <li className="director-interchange-more">+{dccPlan.conflicts.length - 6}</li>
+                            ) : null}
+                          </ul>
+                        ) : null}
+                        {dccPlan.warnings.length ? (
+                          <ul aria-label={t("DCC 回传提示")} className="director-interchange-list is-warning">
+                            {dccPlan.warnings.slice(0, 6).map((warning) => (
+                              <li key={warning}>{warning}</li>
+                            ))}
+                            {dccPlan.warnings.length > 6 ? (
+                              <li className="director-interchange-more">+{dccPlan.warnings.length - 6}</li>
                             ) : null}
                           </ul>
                         ) : null}
