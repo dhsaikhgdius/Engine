@@ -114,7 +114,7 @@ function uniqueBlendSceneWarnings(
 
 /**
  * 按操作类型汇总 DCC 回传计划；资产、变换与提示始终显示，
- * 富回传条目（相机光学、灯光、角色姿态）仅在非零时显示。
+ * 富回传条目（相机光学、灯光、角色姿态、新增对象）仅在非零时显示。
  */
 function dccReturnPlanSegments(plan: DirectorDccImportPlanV1, t: (source: string) => string): string[] {
   const countOf = (op: DirectorDccImportPlanV1["operations"][number]["op"]) =>
@@ -126,6 +126,8 @@ function dccReturnPlanSegments(plan: DirectorDccImportPlanV1, t: (source: string
   if (lightCount) segments.push(`${lightCount} ${t("个灯光更新")}`);
   const poseCount = countOf("set_character_pose");
   if (poseCount) segments.push(`${poseCount} ${t("个角色姿态")}`);
+  const additionCount = countOf("create_prop");
+  if (additionCount) segments.push(`${additionCount} ${t("个新增对象")}`);
   segments.push(`${plan.warnings.length} ${t("条提示")}`);
   return segments;
 }
@@ -152,6 +154,8 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   const [dccPackageDir, setDccPackageDir] = useState("");
   const [dccPlan, setDccPlan] = useState<DirectorDccImportPlanV1 | null>(null);
   const [dccReturnProvider, setDccReturnProvider] = useState<DirectorDccConnectorProviderId>("blender");
+  /** Blender 专属：是否将 .blend 中新建（新 director_id）的对象纳入回传计划。默认关闭，绝不自动导入。 */
+  const [dccIncludeNewObjects, setDccIncludeNewObjects] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const blendInputRef = useRef<HTMLInputElement | null>(null);
   const entryRef = useRef<HTMLDivElement | null>(null);
@@ -343,7 +347,9 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
     setDccPlan(null);
     note("busy", t("正在校验 DCC 回传包…"));
     try {
-      const preview = await previewDirectorDccReturnPackage(dccPackageDir.trim(), dccReturnProvider);
+      const preview = await previewDirectorDccReturnPackage(dccPackageDir.trim(), dccReturnProvider, {
+        includeNewObjects: dccReturnProvider === "blender" && dccIncludeNewObjects,
+      });
       setDccPlan(preview.plan);
       note(
         preview.ready ? "success" : "warning",
@@ -809,6 +815,20 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                         {t("预览差异")}
                       </button>
                     </div>
+                    {dccReturnProvider === "blender" ? (
+                      <label className="director-dcc-return-opt-in">
+                        <input
+                          checked={dccIncludeNewObjects}
+                          disabled={busy}
+                          onChange={(event) => {
+                            setDccIncludeNewObjects(event.currentTarget.checked);
+                            setDccPlan(null);
+                          }}
+                          type="checkbox"
+                        />
+                        <span>{t("纳入 Blender 新建对象（经审阅后作为道具导入）")}</span>
+                      </label>
+                    ) : null}
                     {dccPlan ? (
                       <div className="director-dcc-return-plan">
                         <span data-ready={dccPlan.ready}>{dccPlan.ready ? t("可应用") : t("有冲突")}</span>
