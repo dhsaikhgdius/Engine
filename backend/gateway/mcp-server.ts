@@ -36,6 +36,10 @@ import {
   rememberDirectorAgentToolCall,
 } from "./agents/agentToolMemory";
 import { compactWireSchema, DIRECTOR_AGENT_WIRE_SCHEMAS, dynamicToolTimeoutMs } from "./agents/agentToolRegistry";
+import {
+  projectOversizedDirectorAgentToolEnvelope,
+  stripEncodedMediaPayloads,
+} from "./agents/agentToolResultProjection";
 
 const gatewayUrl = process.env.STAGE_GATEWAY_URL ?? "http://127.0.0.1:8787";
 const sessionId = process.env.DIRECTOR_MCP_SESSION_ID?.trim() || `mcp-${process.pid}-${crypto.randomUUID()}`;
@@ -314,7 +318,7 @@ for (const tool of AGENT_TOOL_NAMES.filter(
       if (rejection) return rejection;
       try {
         const result = await callGateway(tool, input as Record<string, unknown>);
-        return createMcpToolResponse(result);
+        return createMcpToolResponse(result, tool);
       } catch (error) {
         return {
           content: [
@@ -366,6 +370,13 @@ registerVisibleTool("blender_native", () => {
               ? capture.data
               : null;
         const mimeType = typeof capture?.mimeType === "string" ? capture.mimeType : null;
+        // The capture travels once, as the image block below. Base64 payloads
+        // are stripped from the text/structured views, and an oversized native
+        // result (full scene dumps, giant receipts) is summarized for the model.
+        const modelPayload = projectOversizedDirectorAgentToolEnvelope(
+          "blender_native",
+          stripEncodedMediaPayloads(payload) as Record<string, unknown>,
+        );
         const content: Array<
           | { type: "text"; text: string }
           | {
@@ -374,7 +385,7 @@ registerVisibleTool("blender_native", () => {
               mimeType: string;
               annotations: { audience: ["assistant"]; priority: number };
             }
-        > = [{ type: "text", text: JSON.stringify(payload) }];
+        > = [{ type: "text", text: JSON.stringify(modelPayload) }];
         if (imageData && mimeType) {
           content.push({
             type: "image",
@@ -385,7 +396,7 @@ registerVisibleTool("blender_native", () => {
         }
         return {
           content,
-          structuredContent: payload,
+          structuredContent: modelPayload,
           isError: !response.ok || payload.success === false,
         };
       } catch (error) {

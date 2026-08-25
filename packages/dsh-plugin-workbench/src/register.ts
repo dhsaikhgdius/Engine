@@ -5,6 +5,7 @@ import {
 } from "./catalog";
 import { dispatchDirectorWorkbenchTool, type DirectorWorkbenchGatewayConfig } from "./gatewayClient";
 import { flattenDirectorToolResult } from "./flattenToolResult";
+import { projectOversizedDirectorAgentToolEnvelope, stripEncodedMediaPayloads } from "./toolResultProjection";
 
 type DirectorImageRef = {
   attachmentId: string;
@@ -122,20 +123,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
-function stripEncodedMediaPayloads(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripEncodedMediaPayloads);
-  const candidate = record(value);
-  if (!candidate) return value;
-  const encodedMedia =
-    typeof candidate.mimeType === "string" &&
-    (typeof candidate.data === "string" || typeof candidate.dataBase64 === "string");
-  return Object.fromEntries(
-    Object.entries(candidate).flatMap(([key, nested]) =>
-      encodedMedia && (key === "data" || key === "dataBase64") ? [] : [[key, stripEncodedMediaPayloads(nested)]],
-    ),
-  );
-}
-
 function imageRef(value: unknown): DirectorImageRef | undefined {
   const candidate = record(value);
   if (
@@ -171,12 +158,19 @@ async function routeAcceptsImages(context: DirectorWorkbenchPluginContext, exec?
 
 async function prepareDirectorResult(
   context: DirectorWorkbenchPluginContext,
+  tool: string,
   body: Record<string, unknown>,
   exec?: DirectorToolExecution,
 ): Promise<Record<string, unknown>> {
   const capture = record(body.capture);
   const encoded = typeof capture?.data === "string" ? capture.data : capture?.dataBase64;
-  const sanitizedBody = stripEncodedMediaPayloads(body) as Record<string, unknown>;
+  // Media payloads travel through the attachment channel, and an oversized
+  // result (full-project observe, heavy catalog page) is summarized before it
+  // reaches the model; retrieval hints point at bounded re-queries instead.
+  const sanitizedBody = projectOversizedDirectorAgentToolEnvelope(
+    tool,
+    stripEncodedMediaPayloads(body) as Record<string, unknown>,
+  );
   if (!capture || typeof encoded !== "string" || typeof capture.mimeType !== "string") {
     return flattenDirectorToolResult(sanitizedBody);
   }
@@ -350,7 +344,7 @@ export function registerDirectorWorkbenchPlugin(
                 : `Director ${tool.name} failed with HTTP ${result.status}`,
             );
           }
-          return prepareDirectorResult(context, result.body, exec);
+          return prepareDirectorResult(context, tool.name, result.body, exec);
         },
       }),
     );

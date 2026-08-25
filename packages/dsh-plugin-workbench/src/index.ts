@@ -23,3 +23,19 @@ export {
   type DirectorWorkbenchDefineTool,
   type DirectorWorkbenchPluginContext,
 } from "./register";
+export {
+  DIRECTOR_AGENT_HEAVY_COLLECTION_LIMIT,
+  DIRECTOR_AGENT_TOOL_RESULT_BUDGET_BYTES,
+  directorAgentModelEnvelope,
+  directorAgentToolResultNeedsProjection,
+  finalizeDirectorAgentToolEnvelope,
+  projectDirectorAgentToolEnvelope,
+  projectOversizedDirectorAgentToolEnvelope,
+  slimDirectorAgentToolResult,
+  stripEncodedMediaPayloads,
+  utf8ByteLength,
+  type DirectorAgentToolProjection,
+  type DirectorAgentToolProjectionReason,
+  type DirectorAgentToolSpillRef,
+  type FinalizeDirectorAgentToolEnvelopeOptions,
+} from "./toolResultProjection";
