@@ -35,6 +35,7 @@ import { ViewportNavigationSettings } from "./editor/canvas/ViewportNavigationSe
 import { isViewportCaptureHostNeeded, subscribeViewportCaptureHost } from "./editor/io/captureBridge";
 import { clearDirectorDeskHostBridge, initDirectorDeskHostBridge } from "./editor/io/hostBridge";
 import { importLocalDirectorDeskCaptures } from "./editor/io/localCaptureImport";
+import { AgentWorkspaceSettings } from "./editor/assistant/AgentWorkspaceSettings";
 import { PerformanceSettings } from "./editor/performance/PerformanceSettings";
 import { EditorShortcuts } from "./editor/keyboard/EditorShortcuts";
 import { BlenderProjectSyncBridge } from "./editor/runtime/BlenderProjectSyncBridge";
@@ -347,6 +348,7 @@ function DirectorApp() {
               }
             />
             <PerformanceSettings />
+            {!comfyUiEmbedded ? <AgentWorkspaceSettings /> : null}
             <DirectorTaskTrayMenu />
             {!comfyUiEmbedded ? <HelpMenu /> : null}
             <EditorShortcuts workspace={creativeWorkspaceMode} />
