@@ -19,7 +19,10 @@ import {
   sameDirectorAgentTarget,
   type DirectorAgentTargetWire,
 } from "../../packages/protocol/src/agentGatewayProtocol";
-import { createMcpToolResponse, mcpToolStructuredOutputSchema } from "./mcpToolResponse";
+import {
+  createMcpToolResponse,
+  mcpToolStructuredOutputSchema,
+} from "./mcpToolResponse";
 import { directorDccOperationSchema } from "@director/dcc-protocol";
 import { blenderNativeToolRequestSchema } from "../../packages/protocol/src/blenderLiveProtocol";
 import {
@@ -376,8 +379,7 @@ registerVisibleTool("blender_native", () => {
         const modelPayload = projectOversizedDirectorAgentToolEnvelope(
           "blender_native",
           stripEncodedMediaPayloads(payload) as Record<string, unknown>,
-        );
-        const content: Array<
+        );        const content: Array<
           | { type: "text"; text: string }
           | {
               type: "image";
@@ -385,8 +387,7 @@ registerVisibleTool("blender_native", () => {
               mimeType: string;
               annotations: { audience: ["assistant"]; priority: number };
             }
-        > = [{ type: "text", text: JSON.stringify(modelPayload) }];
-        if (imageData && mimeType) {
+        > = [{ type: "text", text: JSON.stringify(modelPayload) }];        if (imageData && mimeType) {
           content.push({
             type: "image",
             data: imageData,
@@ -396,8 +397,7 @@ registerVisibleTool("blender_native", () => {
         }
         return {
           content,
-          structuredContent: modelPayload,
-          isError: !response.ok || payload.success === false,
+          structuredContent: modelPayload,          isError: !response.ok || payload.success === false,
         };
       } catch (error) {
         return {
