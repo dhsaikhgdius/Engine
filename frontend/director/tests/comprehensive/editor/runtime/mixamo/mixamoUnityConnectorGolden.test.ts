@@ -39,9 +39,10 @@ const GOLDEN_CONTROLS: Record<string, number> = {
   "rightFoot.roll": 10,
 };
 
-function expectVectorClose(actual: readonly number[], expected: readonly number[]) {
-  expect(actual.length).toBe(expected.length);
-  actual.forEach((value, index) => expect(value).toBeCloseTo(expected[index]!, 9));
+function expectVectorClose(actual: readonly number[] | undefined, expected: readonly number[]) {
+  expect(actual).toBeDefined();
+  expect(actual!.length).toBe(expected.length);
+  actual!.forEach((value, index) => expect(value).toBeCloseTo(expected[index]!, 9));
 }
 
 describe("Mixamo pose golden values for the Unity connector port", () => {
