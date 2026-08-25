@@ -99,7 +99,9 @@ function workbenchOperationName(operation: DirectorWorkbenchOperation): string {
 }
 
 function authoringActionTargetIds(action: DirectorAuthoringAction): string[] | null {
-  if (SINGLE_OBJECT_AUTHOR_ACTIONS.has(action.action) && "object_id" in action) return [action.object_id];
+  if (SINGLE_OBJECT_AUTHOR_ACTIONS.has(action.action) && "object_id" in action && typeof action.object_id === "string") {
+    return [action.object_id];
+  }
   if (MULTI_OBJECT_AUTHOR_ACTIONS.has(action.action) && "object_ids" in action) return [...action.object_ids];
   if (ANIMATION_AUTHOR_ACTIONS.has(action.action) && "target_type" in action) {
     // Camera animation is outside a character possession scope.
