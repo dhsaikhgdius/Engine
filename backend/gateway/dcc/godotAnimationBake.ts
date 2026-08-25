@@ -8,6 +8,7 @@ import {
   type DirectorDccTransform,
   type DirectorGodotAnimationBake,
   type DirectorGodotBakedEntity,
+  type DirectorGodotShotRange,
   type DirectorGodotTransformSample,
 } from "@director/dcc-protocol";
 import { directorCameraLookEuler } from "@director/dcc-interchange";
@@ -30,6 +31,12 @@ const MAX_TOTAL_TRANSFORM_SAMPLES = 120_000;
 
 /** Maximum baked entities; beyond this the bake truncates with a warning. */
 const MAX_BAKED_ENTITIES = 2_048;
+
+/** Maximum storyboard shot ranges carried by one bake. */
+const MAX_BAKED_SHOTS = 512;
+
+/** Cap on the omitted pose-control / motion-clip samples carried per entity. */
+const MAX_OMITTED_SAMPLES = 32;
 
 const POSITION_TOLERANCE = 1e-7;
 const QUATERNION_DOT_TOLERANCE = 1e-9;
@@ -110,10 +117,17 @@ function sampledFrames(frameStart: number, frameEnd: number, stride: number): nu
   return frames;
 }
 
-function omittedChannelsOf(entity: {
-  animation?: { keyframes: Array<{ poseValues?: Record<string, number> }>; motionBlocks?: unknown[] } | undefined;
+type OmittableEntity = {
+  animation?:
+    | {
+        keyframes: Array<{ poseValues?: Record<string, number> }>;
+        motionBlocks?: Array<{ id: string; frameStart: number; frameEnd: number }>;
+      }
+    | undefined;
   characterRig?: unknown;
-}): DirectorGodotBakedEntity["omittedChannels"] {
+};
+
+function omittedChannelsOf(entity: OmittableEntity): DirectorGodotBakedEntity["omittedChannels"] {
   const omitted: NonNullable<DirectorGodotBakedEntity["omittedChannels"]> = [];
   if (entity.animation?.keyframes.some((keyframe) => keyframe.poseValues)) omitted.push("pose_values");
   if (entity.animation?.motionBlocks?.length) omitted.push("motion_blocks");
@@ -121,17 +135,115 @@ function omittedChannelsOf(entity: {
   return omitted.length > 0 ? omitted : undefined;
 }
 
-function omissionWarnings(name: string, omitted: DirectorGodotBakedEntity["omittedChannels"]): string[] {
+/**
+ * Structured detail behind the `omittedChannels` claim: which pose controls
+ * and motion clips were left out, so agents can act on the omission instead
+ * of parsing prose. Lists are capped samples; counts stay authoritative.
+ */
+function omittedDetailOf(
+  entity: OmittableEntity,
+  omitted: DirectorGodotBakedEntity["omittedChannels"],
+): DirectorGodotBakedEntity["omittedDetail"] {
+  if (!omitted?.includes("pose_values") && !omitted?.includes("motion_blocks")) return undefined;
+  const poseControls = new Set<string>();
+  for (const keyframe of entity.animation?.keyframes ?? []) {
+    for (const control of Object.keys(keyframe.poseValues ?? {})) poseControls.add(control);
+  }
+  const motionBlocks = entity.animation?.motionBlocks ?? [];
+  return {
+    poseControlCount: poseControls.size,
+    poseControls: [...poseControls].sort().slice(0, MAX_OMITTED_SAMPLES),
+    motionClipCount: motionBlocks.length,
+    motionClips: motionBlocks.slice(0, MAX_OMITTED_SAMPLES).map((block) => ({
+      id: block.id,
+      frameStart: Math.round(block.frameStart),
+      frameEnd: Math.round(block.frameEnd),
+    })),
+  };
+}
+
+function omissionWarnings(
+  name: string,
+  omitted: DirectorGodotBakedEntity["omittedChannels"],
+  detail: DirectorGodotBakedEntity["omittedDetail"],
+): string[] {
   if (!omitted) return [];
   const labels: Record<NonNullable<DirectorGodotBakedEntity["omittedChannels"]>[number], string> = {
     pose_values: "rig pose keyframes (bone-level channels)",
-    motion_blocks: "character motion clips",
+    motion_blocks: "character motion clips (in-place limb articulation; the root path is baked)",
     character_rig: "character rig state",
+  };
+  const scope: Record<NonNullable<DirectorGodotBakedEntity["omittedChannels"]>[number], string> = {
+    pose_values: detail?.poseControlCount ? ` ${detail.poseControlCount} pose controls affected.` : "",
+    motion_blocks: detail?.motionClipCount ? ` ${detail.motionClipCount} clips affected.` : "",
+    character_rig: "",
   };
   return omitted.map(
     (channel) =>
-      `${name}: ${labels[channel]} are not carried by the Godot animation bake; only world transforms were baked (warn-and-omit).`,
+      `${name}: ${labels[channel]} are not carried by the Godot animation bake; only world transforms were baked (warn-and-omit code: ${channel}).${scope[channel]}`,
   );
+}
+
+/**
+ * Normalize storyboard shots into the bake's camera-cut ranges: rounded to
+ * integer frames, clamped into the playback window, deduplicated, sorted by
+ * start frame, and capped. Shots fully outside the window (or beyond the cap)
+ * warn-and-omit at the Gateway; camera bindings are resolved by the connector
+ * so a missing host node still gets a structured warning there.
+ */
+function bakedShotsOf(
+  project: DirectorProject,
+  frameStart: number,
+  frameEnd: number,
+  warnings: string[],
+): DirectorGodotShotRange[] | undefined {
+  const shots = project.storyboard?.shots ?? [];
+  if (shots.length === 0) return undefined;
+  const cameraIds = new Set(project.cameras.map((camera) => camera.id));
+  const seenIds = new Set<string>();
+  const ranges: DirectorGodotShotRange[] = [];
+  for (const shot of shots) {
+    if (seenIds.has(shot.id)) {
+      warnings.push(`Shot ${shot.id} appears more than once in the storyboard; later duplicates were skipped.`);
+      continue;
+    }
+    seenIds.add(shot.id);
+    const start = Math.round(shot.frameStart);
+    const end = Math.max(start, Math.round(shot.frameEnd));
+    if (end < frameStart || start > frameEnd) {
+      warnings.push(
+        `Shot ${shot.id} (${start}-${end}) lies outside the playback window ${frameStart}-${frameEnd}; it was omitted from the camera-cut track (warn-and-omit code: shot_outside_playback).`,
+      );
+      continue;
+    }
+    const clampedStart = Math.max(start, frameStart);
+    const clampedEnd = Math.min(end, frameEnd);
+    if (clampedStart !== start || clampedEnd !== end) {
+      warnings.push(
+        `Shot ${shot.id} was clamped from ${start}-${end} into the playback window ${frameStart}-${frameEnd}.`,
+      );
+    }
+    if (shot.cameraId && !cameraIds.has(shot.cameraId)) {
+      warnings.push(
+        `Shot ${shot.id} references camera ${shot.cameraId} which is not in the project; the connector will omit its cut (warn-and-omit code: shot_camera_not_imported).`,
+      );
+    }
+    ranges.push({
+      shotId: shot.id,
+      title: shot.title,
+      cameraDirectorId: shot.cameraId,
+      frameStart: clampedStart,
+      frameEnd: clampedEnd,
+    });
+  }
+  ranges.sort((left, right) => left.frameStart - right.frameStart || left.frameEnd - right.frameEnd);
+  if (ranges.length > MAX_BAKED_SHOTS) {
+    warnings.push(
+      `${ranges.length - MAX_BAKED_SHOTS} shots were omitted beyond the ${MAX_BAKED_SHOTS}-shot bake limit.`,
+    );
+    ranges.length = MAX_BAKED_SHOTS;
+  }
+  return ranges.length > 0 ? ranges : undefined;
 }
 
 /**
@@ -143,7 +255,9 @@ function omissionWarnings(name: string, omitted: DirectorGodotBakedEntity["omitt
  * Director-space world transforms. Camera vertical-fov keys are carried as-is
  * because Godot's `Camera3D.fov` uses the same vertical-degrees convention.
  * Entities whose sampled transforms never change and that have no authored
- * keyframes are skipped.
+ * keyframes are skipped. Storyboard shot ranges ride along (clamped into the
+ * playback window) so the connector can key a discrete `Camera3D.current`
+ * camera-cut track without a `.tscn` exchange.
  *
  * @param project - The live Director project snapshot from the exchange package.
  * @param packageId - The exchange package id this bake belongs to.
@@ -223,13 +337,15 @@ export function buildGodotAnimationBake(
       continue;
     }
     const omittedChannels = omittedChannelsOf(object);
+    const omittedDetail = omittedDetailOf(object, omittedChannels);
     entities.push({
       directorId: object.id,
       entityType: "object",
       name: object.name,
       transformSamples: samples,
       ...(omittedChannels ? { omittedChannels } : {}),
-      warnings: omissionWarnings(object.name, omittedChannels),
+      ...(omittedDetail ? { omittedDetail } : {}),
+      warnings: omissionWarnings(object.name, omittedChannels, omittedDetail),
     });
   }
 
@@ -262,6 +378,8 @@ export function buildGodotAnimationBake(
     warnings.push(`${truncated} animated entities were omitted beyond the ${MAX_BAKED_ENTITIES}-entity bake limit.`);
   }
 
+  const shots = bakedShotsOf(project, frameStart, frameEnd, warnings);
+
   return directorGodotAnimationBakeSchema.parse({
     contract: DIRECTOR_GODOT_ANIMATION_BAKE_CONTRACT,
     schemaVersion: 1,
@@ -278,6 +396,7 @@ export function buildGodotAnimationBake(
     playback: { frameStart, frameEnd },
     frameStride,
     entities,
+    ...(shots ? { shots } : {}),
     warnings,
   });
 }
