@@ -34,6 +34,10 @@ import {
 } from "./directorDccSharedContract";
 import { directorDccImportPlanSchema } from "./directorDccReturnContract";
 import { directorBlendSceneImportSelectionSchema } from "./directorBlendSceneImportContract";
+import {
+  directorEngineSceneImportSelectionSchema,
+  directorEngineSceneProviderSchema,
+} from "./directorEngineSceneImportContract";
 import { strictOperation } from "../../../../packages/protocol/src/strictProtocolVariant";
 import { directorCameraAspectRatioSchema } from "../../../../packages/protocol/src/directorCameraProtocol";
 import { directorDccPortableExchangeFormatSchema, directorDccProviderIdSchema } from "./directorDccProviderContract";
@@ -236,6 +240,32 @@ export const directorDccOperationSchema = z.discriminatedUnion("op", [
       ),
     expected_revision: z.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
     idempotency_key: z.string().trim().min(1).max(240),
+  }),
+  strictOperation("preview_engine_scene_import", {
+    provider: directorEngineSceneProviderSchema,
+    package_dir: z.string().trim().min(1).max(2_048),
+    selection: directorEngineSceneImportSelectionSchema.optional(),
+  }),
+  strictOperation("apply_engine_scene_import", {
+    plan_id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(512)
+      .refine(
+        (value) =>
+          !value.startsWith("/") &&
+          !value.includes("\\") &&
+          value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
+        { message: "plan_id must be a safe relative identifier" },
+      ),
+    expected_revision: z.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+    idempotency_key: z.string().trim().min(1).max(240),
+  }),
+  strictOperation("extract_engine_scene", {
+    provider: directorEngineSceneProviderSchema,
+    project_dir: z.string().trim().min(1).max(2_048),
+    scene: z.string().trim().min(1).max(512).optional(),
   }),
 ]);
 

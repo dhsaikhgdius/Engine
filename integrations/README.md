@@ -16,7 +16,9 @@ Python file lives.
 | `blender/live/` | Headless live modeling kernel. `BLENDER_USER_SCRIPTS` points here so Blender loads `addons/worldengine_studio/`. Start with `npm run blender`. |
 | `blender/interchange/` | Trusted `.blend` import and Director scene round-trip (`director_bridge.py`, `director_scene_export.py`, `director_return_export.py`). |
 | `unreal/` | Director-authored `DirectorBridge` Unreal Editor plugin (Python) with fixed headless import/export entry points. Configure `DIRECTOR_UNREAL_EDITOR_BIN` + `DIRECTOR_UNREAL_PROJECT`. See `unreal/README.md`. |
+| `unreal/interchange/` | Unreal Engine 5 → Director scene import: in-engine Python exporter producing `director-engine-scene-v1` packages. See `unreal/README.md`. |
 | `unity/` | Director-authored `com.director.bridge` UPM Editor package (C#) with `-batchmode -executeMethod` entry points. Configure `DIRECTOR_UNITY_BIN` + `DIRECTOR_UNITY_PROJECT`. See `unity/README.md`. |
+| `unity/interchange/` | Unity → Director scene import: Editor-only C# exporter producing `director-engine-scene-v1` packages. See `unity/README.md`. |
 | `godot/` | Director-authored `director_bridge` Godot 4 editor addon (GDScript) with a fixed `--headless` entry point. Configure `DIRECTOR_GODOT_BIN` + `DIRECTOR_GODOT_PROJECT`. See `godot/README.md`. |
 | `plugins/director-workbench/` | Portable Agent/MCP plugin built from the same workbench contracts. Do **not** hand-edit generated `mcp/server.mjs`. |
 | `dcc-providers.example.json` | Template for the declarative exchange-only DCC provider catalog. Copy it beside itself (e.g. `integrations/dcc-providers.json`) and point `DIRECTOR_DCC_PROVIDER_CONFIG` at the copy. |
@@ -66,6 +68,12 @@ executable alone is never enough. No engine source, SDK, or binary is vendored.
 | `plugins/DirectorBridge/Content/Python/director_headless.py` | Fixed headless entry: health, import (actors + CineCameras + Sequencer camera cuts), export (tagged-actor return diff). |
 | `plugins/DirectorBridge/Content/Python/init_unreal.py` | Editor menu hook for an in-editor health check. |
 
+### `unreal/interchange/`
+
+| Path | Purpose |
+| --- | --- |
+| `director_scene_export.py` | In-engine (UE5) exporter: converts the loaded level into a `director-engine-scene-v1` package (manifest + GLB via the glTF Exporter plugin), headless-capable. |
+
 ### `unity/`
 
 | Path | Purpose |
@@ -76,6 +84,12 @@ executable alone is never enough. No engine source, SDK, or binary is vendored.
 | `com.director.bridge/Editor/DirectorSpace.cs` | Director ↔ Unity coordinate conversion (left-handed Y-up). |
 | `com.director.bridge/Editor/DirectorExchange.cs` | Exchange-package reader and return-package/report writer. |
 | `com.director.bridge/Editor/DirectorBridgeCli.cs` | Fixed batch entry: health, import (scene + Timeline), export (DirectorId return diff). |
+
+### `unity/interchange/`
+
+| Path | Purpose |
+| --- | --- |
+| `DirectorSceneExport.cs` | Editor-only exporter: converts the open scene into a `director-engine-scene-v1` package (manifest + GLB via `com.unity.cloud.gltfast`), batch-mode-capable. The gateway copies it into `Assets/Editor/DirectorInterchange/` for `extract_engine_scene`. |
 
 ### `godot/`
 

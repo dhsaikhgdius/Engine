@@ -1,6 +1,6 @@
 {
-  "install": "git submodule update --init --depth 1 vendor/deepseek-harness\nnpm ci\nnpx playwright install chromium",
-  "start": "echo \"Director cloud env ready: Node $(node -v), npm $(npm -v)\"",
+  "install": "git submodule update --init --depth 1 vendor/deepseek-harness\nnpm ci\nnpx playwright install chromium\nbash tools/scripts/install-dcc-runtimes.sh || true",
+  "start": "echo \"Director cloud env ready: Node $(node -v), npm $(npm -v), Blender $(command -v blender || echo missing), Unity $(command -v unity || echo missing)\"",
   "terminals": [
     {
       "name": "director-dev",
