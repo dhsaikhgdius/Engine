@@ -32,19 +32,14 @@ export function stageAuthoringAllowedForRole(role: string | null | undefined): b
   return roleAllowsTool(role, "director_workbench", { op: "author" });
 }
 
-type FilmRoleGateState = {
-  /** The gateway-reported film role, or `null` when unrestricted/not yet known. */
-  role: string | null;
-  /** True once the gateway answered (or definitively failed). */
-  loaded: boolean;
-};
-
-let state: FilmRoleGateState = { role: null, loaded: false };
+let currentRole: string | null = null;
 let loadPromise: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
-function setState(next: FilmRoleGateState) {
-  state = next;
+/** Notifies subscribers only on a real role change so idle loads never rerender. */
+function setRole(next: string | null) {
+  if (next === currentRole) return;
+  currentRole = next;
   for (const listener of listeners) listener();
 }
 
@@ -56,7 +51,7 @@ function subscribe(listener: () => void) {
 }
 
 function getSnapshot() {
-  return state;
+  return currentRole;
 }
 
 const filmRoleResponseSchema = z.looseObject({ role: z.string().nullable() });
@@ -70,10 +65,9 @@ export function loadDirectorFilmRole(): Promise<void> {
     try {
       const response = await directorControlPlaneFetch("/api/control-plane/film-role");
       const payload = filmRoleResponseSchema.safeParse(await response.json().catch(() => ({})));
-      const role = response.ok && payload.success && payload.data.role?.trim() ? payload.data.role.trim() : null;
-      setState({ role, loaded: true });
+      if (response.ok && payload.success) setRole(payload.data.role?.trim() || null);
     } catch {
-      setState({ role: state.role, loaded: true });
+      // Keep the last known role; the unrestricted default stays in place.
     }
   })();
   return loadPromise;
@@ -81,7 +75,7 @@ export function loadDirectorFilmRole(): Promise<void> {
 
 /** The last known gateway film role (synchronous; `null` until loaded). */
 export function directorFilmRole(): string | null {
-  return state.role;
+  return currentRole;
 }
 
 /**
@@ -91,7 +85,7 @@ export function directorFilmRole(): string | null {
  */
 export function stageAuthoringAllowed(): boolean {
   void loadDirectorFilmRole();
-  return stageAuthoringAllowedForRole(state.role);
+  return stageAuthoringAllowedForRole(currentRole);
 }
 
 /**
@@ -99,15 +93,15 @@ export function stageAuthoringAllowed(): boolean {
  * gateway film role (e.g. `visual-critic`) may not author the Stage.
  */
 export function useStageAuthoringGate() {
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const role = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   useEffect(() => {
     void loadDirectorFilmRole();
   }, []);
-  return { role: snapshot.role, loaded: snapshot.loaded, canAuthor: stageAuthoringAllowedForRole(snapshot.role) };
+  return { role, canAuthor: stageAuthoringAllowedForRole(role) };
 }
 
 /** Resets the gate and optionally primes a role without a gateway round trip. Tests only. */
 export function resetFilmRoleGateForTests(role: string | null = null) {
   loadPromise = role === null ? null : Promise.resolve();
-  setState({ role, loaded: role !== null });
+  setRole(role);
 }
