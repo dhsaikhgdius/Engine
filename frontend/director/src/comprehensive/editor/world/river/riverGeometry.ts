@@ -19,10 +19,20 @@ export interface RiverRibbonData {
   uvs: Float32Array;
   /** Flow direction tangents (world space), 3 floats per vertex. */
   flowTangents: Float32Array;
-  /** Per-vertex slope magnitude, 1 float per vertex. */
+  /**
+   * Per-vertex downhill slope (descent along the flow direction, ≥ 0),
+   * 1 float per vertex. Uphill stretches read 0 — only water falling with
+   * gravity churns into rapids.
+   */
   slopes: Float32Array;
   /** Per-vertex curvature magnitude, 1 float per vertex. */
   curvatures: Float32Array;
+  /**
+   * Per-vertex width multiplier from `widthProfile` (1 when absent), 1 float
+   * per vertex. Lets the shader speed flow up through narrows (continuity:
+   * same discharge through a narrower channel means faster water).
+   */
+  widthFactors: Float32Array;
   /** Triangle-strip index buffer: two triangles per sample pair. */
   indices: Uint32Array;
   /** Number of cross-section samples along the centerline. */
@@ -37,6 +47,7 @@ interface RiverSample {
   normal: [number, number, number];
   lateral: [number, number, number];
   widthM: number;
+  widthFactor: number;
   slope: number;
   curvature: number;
   distanceM: number;
@@ -142,7 +153,8 @@ function createSample(
     1,
   );
   const normalized = (span + t) / Math.max(1, points.length - 1);
-  const widthM = river.widthM * sampleWidthMultiplier(river.widthProfile, normalized);
+  const widthFactor = sampleWidthMultiplier(river.widthProfile, normalized);
+  const widthM = river.widthM * widthFactor;
   const distanceM = previous ? previous.distanceM + length3(subtract(point, previous.point)) : 0;
   return {
     point,
@@ -150,7 +162,10 @@ function createSample(
     normal,
     lateral,
     widthM,
-    slope: clamp(Math.abs(tangent[1]) / Math.max(horizontalLength, 1e-5), 0, 2),
+    widthFactor,
+    // Downhill descent only: flow runs along the tangent, so water is falling
+    // exactly when tangent.y < 0. Uphill stretches must not read as rapids.
+    slope: clamp(Math.max(0, -tangent[1]) / Math.max(horizontalLength, 1e-5), 0, 2),
     curvature,
     distanceM,
   };
@@ -182,6 +197,7 @@ export function buildRiverRibbonData(river: DirectorWorldRiver): RiverRibbonData
   const flowTangents = new Float32Array(samples.length * 2 * 3);
   const slopes = new Float32Array(samples.length * 2);
   const curvatures = new Float32Array(samples.length * 2);
+  const widthFactors = new Float32Array(samples.length * 2);
   const uvScale = Math.max(river.widthM, 0.5);
 
   samples.forEach((sample, sampleIndex) => {
@@ -198,6 +214,7 @@ export function buildRiverRibbonData(river: DirectorWorldRiver): RiverRibbonData
       uvs[vertex * 2 + 1] = sample.distanceM / uvScale;
       slopes[vertex] = sample.slope;
       curvatures[vertex] = sample.curvature;
+      widthFactors[vertex] = sample.widthFactor;
     }
   });
 
@@ -217,6 +234,7 @@ export function buildRiverRibbonData(river: DirectorWorldRiver): RiverRibbonData
     flowTangents,
     slopes,
     curvatures,
+    widthFactors,
     indices,
     sampleCount: samples.length,
     totalLengthM: samples.at(-1)?.distanceM ?? 0,

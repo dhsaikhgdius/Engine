@@ -13,12 +13,14 @@ import type { LivingWorldFrameContext } from "../livingWorldContracts";
 import { evaluateWorldTimeOfDayHours } from "../worldTime";
 import {
   computeWaterDetailPhase,
+  computeWaterMurkiness,
   computeWaterRainAgitation,
   computeWaterSkyReflectionInto,
   computeWaterSunColorInto,
   computeWaterSunDirectionInto,
   computeWaterSunIntensity,
   computeWaterTroughLift,
+  computeWeatherFoamBoost,
 } from "../water/waterParams";
 
 interface RiverUniforms {
@@ -27,6 +29,12 @@ interface RiverUniforms {
   uFlowSpeed: IUniform<number>;
   uWaveAmplitude: IUniform<number>;
   uFoamIntensity: IUniform<number>;
+  /** Weather foam gain ≥ 1 (storm/rain churn); 1 leaves the authored foam. */
+  uFoamBoost: IUniform<number>;
+  /** Suspended-sediment murkiness [0, 1] from weather churn + wetness. */
+  uMurkiness: IUniform<number>;
+  /** Authored base channel width in metres (before `widthProfile` factors). */
+  uWidthM: IUniform<number>;
   uOpacity: IUniform<number>;
   uColorShallow: IUniform<Color>;
   uColorDeep: IUniform<Color>;
@@ -41,6 +49,20 @@ interface RiverUniforms {
   uRainAgitation: IUniform<number>;
   uPhase: IUniform<number>;
   uTroughLift: IUniform<number>;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+/**
+ * Continuity speed factor for a reach narrowed or widened by `widthProfile`:
+ * the same discharge through a narrower section means faster water, so flow
+ * scroll, ripple travel, and foam all speed up through narrows.
+ * MIRRORED in RIVER_VERTEX_SHADER and RIVER_FRAGMENT_SHADER.
+ */
+export function computeRiverFlowSpeedFactor(widthFactor: number): number {
+  return clamp(1 / Math.max(widthFactor, 0.1), 0.55, 2.4);
 }
 
 /** Typed {@link ShaderMaterial} whose uniforms block is narrowed to the river uniform set. */
@@ -102,13 +124,16 @@ export function resolveRiverOccluderHeight(
  * Vertex shader for river surfaces.
  *
  * Displaces each vertex vertically with a two-octave sin wave whose amplitude
- * is scaled by the local slope (rapids) and curvature. The displaced position,
- * world normal, tangent, slope, and curvature are passed to the fragment stage.
+ * is scaled by the local rapids signal (downhill descent + bend curvature +
+ * narrows). Ripples travel faster through narrow reaches (continuity). The
+ * displaced position, world normal, tangent, rapids strength, and width
+ * factor are passed to the fragment stage.
  */
 export const RIVER_VERTEX_SHADER = /* glsl */ `
 attribute vec3 aFlowTangent;
 attribute float aSlope;
 attribute float aCurvature;
+attribute float aWidthFactor;
 
 uniform float uTime;
 uniform float uFlowSpeed;
@@ -119,14 +144,18 @@ varying vec2 vRiverUv;
 varying vec3 vWorldPosition;
 varying vec3 vWorldNormal;
 varying vec3 vWorldTangent;
-varying float vSlope;
-varying float vCurvature;
+varying float vRapid;
+varying float vWidthFactor;
 
 #include <fog_pars_vertex>
 
 void main() {
-  float rapid = clamp(aSlope * 2.5 + aCurvature * 0.8, 0.0, 1.0);
-  float phase = uv.y * 5.4 - uTime * max(uFlowSpeed, 0.05) * 3.0 + uv.x * 2.2;
+  // Continuity: mirrors computeRiverFlowSpeedFactor() in riverMaterial.ts.
+  float speedFactor = clamp(1.0 / max(aWidthFactor, 0.1), 0.55, 2.4);
+  // Rapids: downhill descent (aSlope is descent-only), bend curvature, and
+  // the extra churn of water forced through a narrows.
+  float rapid = clamp(aSlope * 2.5 + aCurvature * 0.8 + (speedFactor - 1.0) * 0.45, 0.0, 1.0);
+  float phase = uv.y * 5.4 - uTime * max(uFlowSpeed * speedFactor, 0.05) * 3.0 + uv.x * 2.2;
   float wave = sin(phase) * uWaveAmplitude * (0.28 + rapid * 0.72);
   wave += sin(phase * 1.73 + uv.x * 7.0) * uWaveAmplitude * 0.22;
 
@@ -139,8 +168,8 @@ void main() {
   vWorldPosition = worldPosition.xyz;
   vWorldNormal = normalize(mat3(modelMatrix) * normal);
   vWorldTangent = normalize(mat3(modelMatrix) * aFlowTangent);
-  vSlope = aSlope;
-  vCurvature = aCurvature;
+  vRapid = rapid;
+  vWidthFactor = aWidthFactor;
 
   gl_Position = projectionMatrix * mvPosition;
   #include <fog_vertex>
@@ -150,15 +179,20 @@ void main() {
 /**
  * Fragment shader for river surfaces.
  *
- * Shading model: travelling sinusoid + value-noise normal perturbation →
- * Schlick fresnel → procedural sky reflection blended with the shared
- * environment probe → Blinn-Phong sun specular (broad + sharp lobes) →
- * bank foam + rapid foam broken up by noise.
+ * Shading model: travelling sinusoid + value-noise normal perturbation
+ * (stretched along the flow, faster through narrows) → Schlick fresnel →
+ * procedural sky reflection blended with the shared environment probe →
+ * Blinn-Phong sun specular (broad + sharp lobes) → metric bank foam with a
+ * lapping pulse + downhill rapid whitewater streaked downstream. Weather
+ * murk tints the body colour and storms boost every foam term.
  */
 export const RIVER_FRAGMENT_SHADER = /* glsl */ `
 uniform float uTime;
 uniform float uFlowSpeed;
 uniform float uFoamIntensity;
+uniform float uFoamBoost;
+uniform float uMurkiness;
+uniform float uWidthM;
 uniform float uOpacity;
 uniform vec3 uColorShallow;
 uniform vec3 uColorDeep;
@@ -177,8 +211,8 @@ varying vec2 vRiverUv;
 varying vec3 vWorldPosition;
 varying vec3 vWorldNormal;
 varying vec3 vWorldTangent;
-varying float vSlope;
-varying float vCurvature;
+varying float vRapid;
+varying float vWidthFactor;
 
 #include <fog_pars_fragment>
 
@@ -200,22 +234,34 @@ void main() {
   vec3 baseNormal = normalize(vWorldNormal);
   vec3 tangent = normalize(vWorldTangent);
   vec3 lateral = normalize(cross(baseNormal, tangent));
-  float travel = vRiverUv.y - uTime * max(uFlowSpeed, 0.05) * 0.22;
+  // Continuity: mirrors computeRiverFlowSpeedFactor() in riverMaterial.ts —
+  // ripples, foam, and scroll all run faster through narrow reaches.
+  float speedFactor = clamp(1.0 / max(vWidthFactor, 0.1), 0.55, 2.4);
+  float flowRate = max(uFlowSpeed * speedFactor, 0.05);
+  float travel = vRiverUv.y - uTime * flowRate * 0.22;
+  // Flow stretch: fast or churning water elongates the surface pattern
+  // downstream, so along-flow frequencies drop as speed and rapids rise.
+  float stretch = 1.0 / (1.0 + 0.5 * (speedFactor - 1.0) + vRapid * 0.8);
 
-  float bandA = sin(travel * 29.0 + vRiverUv.x * 13.0 + uPhase);
-  float bandB = sin(travel * 53.0 - vRiverUv.x * 21.0 + uPhase * 1.7);
-  float micro = valueNoise(vec2(vRiverUv.x * 34.0, travel * 19.0) + uPhase) * 2.0 - 1.0;
+  float bandA = sin(travel * 29.0 * stretch + vRiverUv.x * 13.0 + uPhase);
+  float bandB = sin(travel * 53.0 * stretch - vRiverUv.x * 21.0 + uPhase * 1.7);
+  float micro = valueNoise(vec2(vRiverUv.x * 34.0, travel * 19.0 * stretch) + uPhase) * 2.0 - 1.0;
   float rain = valueNoise(vec2(vRiverUv.x * 91.0, travel * 67.0 + uTime * 2.4));
-  float roughness = 0.035 + uWindRoughness * 0.12;
+  float roughness = 0.035 + uWindRoughness * 0.12 + vRapid * 0.05;
   vec3 normal = normalize(
     baseNormal +
     lateral * (bandA * roughness + micro * roughness * 0.65) +
     tangent * (bandB * roughness * 0.72 + (rain - 0.5) * uRainAgitation * 0.16)
   );
 
-  float bankDistance = min(vRiverUv.x, 1.0 - vRiverUv.x) * 2.0;
-  float channelDepth = smoothstep(0.05, 0.72, bankDistance);
+  // Metric bank distance: the shallow band and the foam hug the banks at a
+  // physical width whatever the channel width (or its widthProfile) is.
+  float widthM = max(uWidthM * max(vWidthFactor, 0.1), 0.5);
+  float bankDistM = min(vRiverUv.x, 1.0 - vRiverUv.x) * widthM;
+  float channelDepth = smoothstep(0.1, widthM * 0.36, bankDistM);
   vec3 body = mix(uColorShallow, uColorDeep, channelDepth);
+  // Storm-churned sediment pulls the body colour toward silt grey-brown.
+  body = mix(body, vec3(0.31, 0.28, 0.21), uMurkiness * 0.6);
 
   vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
   float nDotV = max(dot(normal, viewDirection), 0.0);
@@ -237,13 +283,27 @@ void main() {
   float sharpGlint = pow(max(dot(normal, halfVector), 0.0), 180.0);
   color += uSunColor * uSunIntensity * (broadSpecular * 0.3 + sharpGlint * 0.75);
 
-  float bankFoam = 1.0 - smoothstep(0.0, 0.13, bankDistance);
-  float rapidFoam = clamp(vSlope * 1.8 + vCurvature * 1.25, 0.0, 1.0);
+  // Bank foam: a metric lapping band that breathes as it travels downstream,
+  // broken up along the arc so the banks never read as printed borders;
+  // rapids push extra wash onto the banks.
+  float foamGain = clamp(uFoamIntensity * uFoamBoost, 0.0, 1.0);
+  float lap = 0.5 + 0.5 * sin(travel * 9.0 + vRiverUv.x * 2.0 + uPhase * 2.3);
+  float bankWidthM = 0.18 + 0.22 * lap + 0.5 * vRapid;
+  float bankFoam = (1.0 - smoothstep(0.0, bankWidthM, bankDistM))
+    * (0.55 + 0.45 * valueNoise(vec2(vRiverUv.x * 9.0, vRiverUv.y * 2.3 - uTime * flowRate * 0.12) + uPhase));
+
+  // Rapid whitewater: downhill/narrows churn, streaked downstream (the noise
+  // is sampled ~6× longer along the flow than across it).
+  float streaks = valueNoise(vec2(vRiverUv.x * 24.0, travel * 4.0) + uPhase);
   float foamBreakup = smoothstep(0.38, 0.72, valueNoise(vec2(vRiverUv.x * 17.0, travel * 11.0) + uPhase));
-  float foam = clamp((bankFoam * 0.75 + rapidFoam * foamBreakup) * uFoamIntensity, 0.0, 1.0);
+  float rapidFoam = vRapid * (0.35 + 0.65 * smoothstep(0.3, 0.8, streaks)) * (0.55 + 0.45 * foamBreakup);
+
+  float foam = clamp((bankFoam * 0.8 + rapidFoam) * foamGain, 0.0, 1.0);
   color = mix(color, vec3(0.88, 0.94, 0.96), foam);
 
-  gl_FragColor = vec4(color, uOpacity);
+  // Murky water is less transparent; foam caps read almost opaque.
+  float alpha = clamp(uOpacity + uMurkiness * 0.1 + foam * 0.12, 0.0, 1.0);
+  gl_FragColor = vec4(color, alpha);
   #include <fog_fragment>
 }
 `;
@@ -264,6 +324,9 @@ export function createRiverSurfaceMaterial(body: DirectorWorldWaterBody): RiverS
       uFlowSpeed: { value: body.flowSpeedMps },
       uWaveAmplitude: { value: body.waveAmplitude },
       uFoamIntensity: { value: body.foamIntensity },
+      uFoamBoost: { value: 1 },
+      uMurkiness: { value: 0 },
+      uWidthM: { value: body.river?.widthM ?? Math.max(body.surface.sizeZ, 0.5) },
       uOpacity: { value: body.opacity },
       uColorShallow: { value: new Color(body.colorShallow) },
       uColorDeep: { value: new Color(body.colorDeep) },
@@ -307,25 +370,29 @@ export function writeRiverFrameUniforms(
   occluderHeight: number = context.groundHeight,
 ) {
   const uniforms = material.uniforms;
+  const weather = context.settings.weather;
   const hours = evaluateWorldTimeOfDayHours(context.settings.timeOfDay, context.worldSeconds);
   const windSpeed = Math.hypot(...context.windVector);
   uniforms.uTime.value = context.worldSeconds;
   uniforms.uFlowSpeed.value = body.flowSpeedMps;
   uniforms.uWaveAmplitude.value = body.waveAmplitude;
   uniforms.uFoamIntensity.value = body.foamIntensity;
+  uniforms.uFoamBoost.value = computeWeatherFoamBoost(weather);
+  uniforms.uMurkiness.value = computeWaterMurkiness(weather);
+  uniforms.uWidthM.value = body.river?.widthM ?? Math.max(body.surface.sizeZ, 0.5);
   uniforms.uOpacity.value = body.opacity;
   uniforms.uColorShallow.value.set(body.colorShallow);
   uniforms.uColorDeep.value.set(body.colorDeep);
   uniforms.uWindRoughness.value = Math.min(1, windSpeed / 9);
-  uniforms.uRainAgitation.value = computeWaterRainAgitation(context.settings.weather);
+  uniforms.uRainAgitation.value = computeWaterRainAgitation(weather);
   uniforms.uPhase.value = computeWaterDetailPhase(context.seed, body.id);
   uniforms.uTroughLift.value = computeWaterTroughLift(
     riverSurfaceMinY(body),
     body.waveAmplitude * RIVER_WAVE_TROUGH_FACTOR,
     occluderHeight,
   );
-  computeWaterSkyReflectionInto(uniforms.uSkyHorizon.value, uniforms.uSkyZenith.value, hours, context.settings.weather);
+  computeWaterSkyReflectionInto(uniforms.uSkyHorizon.value, uniforms.uSkyZenith.value, hours, weather);
   computeWaterSunDirectionInto(uniforms.uSunDirection.value, hours);
   computeWaterSunColorInto(uniforms.uSunColor.value, hours);
-  uniforms.uSunIntensity.value = computeWaterSunIntensity(hours, context.settings.weather.cloudCover);
+  uniforms.uSunIntensity.value = computeWaterSunIntensity(hours, weather.cloudCover);
 }

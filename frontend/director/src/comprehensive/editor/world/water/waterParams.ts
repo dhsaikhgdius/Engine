@@ -25,13 +25,39 @@ const DEGREES_TO_RADIANS = Math.PI / 180;
 
 /** Wind speed (m/s) at which the direction pull reaches its cap. */
 const WIND_DIRECTION_FULL_SPEED_MPS = 25;
-/** Flow stays the dominant intent: wind may pull direction at most this much. */
+/** On flowing water the authored flow stays dominant: wind pulls at most this much. */
 const WIND_DIRECTION_MAX_WEIGHT = 0.45;
+/**
+ * On still water (lakes, ponds) there is no current to fight, so strong wind
+ * may take over the wave travel direction almost completely.
+ */
+const WIND_DIRECTION_MAX_WEIGHT_STILL = 0.85;
+/** Flow speed (m/s) at which the authored flow fully re-asserts direction dominance. */
+const WIND_DIRECTION_FLOW_DOMINANT_MPS = 1.5;
 /** ×(1 + 0.04·|wind|) amplitude boost, capped so the schema budget stays meaningful. */
 const WIND_AMPLITUDE_GAIN_PER_MPS = 0.04;
 const WIND_AMPLITUDE_MAX_SCALE = 1.6;
 const WIND_STEEPNESS_GAIN_PER_MPS = 0.03;
 const WIND_STEEPNESS_MAX_SCALE = 1.45;
+
+/**
+ * Per-preset surface churn base [0, 1] (scaled by weather intensity):
+ * how hard active precipitation works the surface beyond the steady wind.
+ */
+const WEATHER_CHURN_BY_PRESET: Record<DirectorWorldWeather["preset"], number> = {
+  clear: 0,
+  overcast: 0.08,
+  rain: 0.45,
+  snow: 0.12,
+  storm: 1,
+};
+
+/** Weather amplitude boost at full churn (storm intensity 1): ×1.25. */
+const WEATHER_AMPLITUDE_MAX_GAIN = 0.25;
+/** Weather choppiness boost at full churn: ×1.3. */
+const WEATHER_STEEPNESS_MAX_GAIN = 0.3;
+/** Weather foam boost at full churn: ×1.8 on the authored foam intensity. */
+const WEATHER_FOAM_MAX_GAIN = 0.8;
 
 /**
  * Foam crest window on the normalized vertical displacement (offsetY / ΣA).
@@ -40,6 +66,12 @@ const WIND_STEEPNESS_MAX_SCALE = 1.45;
  */
 export const WATER_FOAM_CREST_START = 0.45;
 export const WATER_FOAM_CREST_END = 0.92;
+/**
+ * How far the crest window's lower edge widens per unit of foam boost above 1
+ * (weather churn breaks lower crests too). Interpolated into the fragment
+ * shader so the TS mask and the GPU mask stay mirrored.
+ */
+export const WATER_FOAM_BOOST_WIDEN = 0.18;
 
 /** Metres of daylight kept between a wave trough and the opaque ground plane. */
 export const WATER_GROUND_CLEARANCE_M = 0.02;
@@ -135,21 +167,89 @@ export function computeWindSteepnessScale(windSpeedMps: number): number {
   return clamp(1 + WIND_STEEPNESS_GAIN_PER_MPS * Math.max(windSpeedMps, 0), 1, WIND_STEEPNESS_MAX_SCALE);
 }
 
-/** How strongly wind pulls the wave travel direction, in [0, 0.45]. */
-export function computeWindDirectionWeight(windSpeedMps: number): number {
-  return clamp(Math.max(windSpeedMps, 0) / WIND_DIRECTION_FULL_SPEED_MPS, 0, WIND_DIRECTION_MAX_WEIGHT);
+/**
+ * Surface churn [0, 1] contributed by the weather preset × intensity: 0 in
+ * clear weather (old bodies keep their authored look), 1 in a full storm.
+ * Single source for the weather side of amplitude/steepness/foam/murk.
+ */
+export function computeWeatherChurn(weather: DirectorWorldWeather): number {
+  return clamp(WEATHER_CHURN_BY_PRESET[weather.preset] * clamp(weather.intensity, 0, 1), 0, 1);
+}
+
+/** Weather-coupled amplitude multiplier: 1 in clear weather → 1.25 in a full storm. */
+export function computeWeatherAmplitudeScale(weather: DirectorWorldWeather): number {
+  return 1 + WEATHER_AMPLITUDE_MAX_GAIN * computeWeatherChurn(weather);
+}
+
+/** Weather-coupled choppiness multiplier: 1 in clear weather → 1.3 in a full storm. */
+export function computeWeatherSteepnessScale(weather: DirectorWorldWeather): number {
+  return 1 + WEATHER_STEEPNESS_MAX_GAIN * computeWeatherChurn(weather);
+}
+
+/**
+ * Foam gain ≥ 1 applied on top of the authored foam intensity: rain and storm
+ * whip up whitecaps and shoreline froth. 1 in clear weather → 1.8 full storm.
+ */
+export function computeWeatherFoamBoost(weather: DirectorWorldWeather): number {
+  return 1 + WEATHER_FOAM_MAX_GAIN * computeWeatherChurn(weather);
+}
+
+/**
+ * Suspended-sediment murkiness [0, 1]: churned storm/rain water reads
+ * grey-brown and less transparent. Wetness (post-rain runoff) keeps a little
+ * silt in suspension even after the preset clears.
+ */
+export function computeWaterMurkiness(weather: DirectorWorldWeather): number {
+  return clamp(0.75 * computeWeatherChurn(weather) + 0.2 * clamp(weather.wetness, 0, 1), 0, 1);
+}
+
+/**
+ * Combined wind × weather amplitude multiplier — the value the GPU receives
+ * as `uGerstnerAmplitudeScale`. ΣQ safety is preserved for any scale because
+ * the per-wave anti-loop limit is rescaled by this factor (see
+ * `effectiveSteepness` in gerstner.ts).
+ */
+export function computeWaterAmplitudeScale(windSpeedMps: number, weather: DirectorWorldWeather): number {
+  return computeWindAmplitudeScale(windSpeedMps) * computeWeatherAmplitudeScale(weather);
+}
+
+/** Combined wind × weather choppiness multiplier (`uGerstnerSteepnessScale`). */
+export function computeWaterSteepnessScale(windSpeedMps: number, weather: DirectorWorldWeather): number {
+  return computeWindSteepnessScale(windSpeedMps) * computeWeatherSteepnessScale(weather);
+}
+
+/**
+ * How strongly wind pulls the wave travel direction. On flowing water the
+ * authored flow dominates (cap 0.45); on still water (flow ≈ 0 — lakes,
+ * ponds) there is no current to fight and strong wind may take over almost
+ * completely (cap 0.85). The default flow speed keeps the legacy flowing-water
+ * behaviour for callers that do not pass one.
+ */
+export function computeWindDirectionWeight(
+  windSpeedMps: number,
+  flowSpeedMps: number = WIND_DIRECTION_FLOW_DOMINANT_MPS,
+): number {
+  const flowDominance = clamp(Math.max(flowSpeedMps, 0) / WIND_DIRECTION_FLOW_DOMINANT_MPS, 0, 1);
+  const maxWeight = lerp(WIND_DIRECTION_MAX_WEIGHT_STILL, WIND_DIRECTION_MAX_WEIGHT, flowDominance);
+  return clamp(Math.max(windSpeedMps, 0) / WIND_DIRECTION_FULL_SPEED_MPS, 0, maxWeight);
 }
 
 /**
  * Blended wave travel direction (compass radians: 0 = +Z, clockwise — same
  * convention as the wind protocol). Blends unit vectors rather than angles so
  * the 0°/360° wrap needs no special casing; when flow and wind exactly cancel
- * the authored flow direction wins.
+ * the authored flow direction wins. Passing the body's flow speed lets wind
+ * dominate on still lakes while flowing bodies keep the authored direction.
  */
-export function blendFlowDirectionWithWind(flowDirectionDegrees: number, windX: number, windZ: number): number {
+export function blendFlowDirectionWithWind(
+  flowDirectionDegrees: number,
+  windX: number,
+  windZ: number,
+  flowSpeedMps: number = WIND_DIRECTION_FLOW_DOMINANT_MPS,
+): number {
   const flowRadians = flowDirectionDegrees * DEGREES_TO_RADIANS;
   const windSpeed = Math.hypot(windX, windZ);
-  const weight = computeWindDirectionWeight(windSpeed);
+  const weight = computeWindDirectionWeight(windSpeed, flowSpeedMps);
   if (weight <= 0 || windSpeed < 1e-6) return flowRadians;
   const blendedX = Math.sin(flowRadians) * (1 - weight) + (windX / windSpeed) * weight;
   const blendedZ = Math.cos(flowRadians) * (1 - weight) + (windZ / windSpeed) * weight;
@@ -420,14 +520,29 @@ export function computeWaterRainAgitation(weather: DirectorWorldWeather): number
 }
 
 /**
- * Foam crest response, mirrored by the fragment shader through the
- * interpolated WATER_FOAM_CREST_* constants: smoothstep over the normalized
- * crest height, scaled by the authored foam intensity. Always in [0, 1].
+ * Survival factor [0.3, 1] of the environment-probe reflection blend
+ * (`uEnvBlend`): an agitated surface (wind micro ripples, storm churn) breaks
+ * the mirror up, so the probe capture recedes toward the procedural sky which
+ * is already weather-dimmed. Calm clear water keeps the full mirror.
  */
-export function evaluateFoamCrestMask(normalizedCrest: number, foamIntensity: number): number {
+export function computeWaterEnvBlendScale(windSpeedMps: number, weather: DirectorWorldWeather): number {
+  const churn = computeWeatherChurn(weather);
+  const micro = computeWaterMicroRippleStrength(windSpeedMps);
+  return clamp(1 - 0.45 * churn - 0.25 * micro, 0.3, 1);
+}
+
+/**
+ * Foam crest response, mirrored by the fragment shader through the
+ * interpolated WATER_FOAM_CREST_* / WATER_FOAM_BOOST_WIDEN constants:
+ * smoothstep over the normalized crest height, scaled by the authored foam
+ * intensity × weather foam boost. A boost above 1 also lowers the crest
+ * threshold (storm water whitecaps earlier). Always in [0, 1].
+ */
+export function evaluateFoamCrestMask(normalizedCrest: number, foamIntensity: number, foamBoost = 1): number {
   const crest = clamp(normalizedCrest, 0, 1);
-  const intensity = clamp(foamIntensity, 0, 1);
-  return clamp(smoothstep(WATER_FOAM_CREST_START, WATER_FOAM_CREST_END, crest) * intensity, 0, 1);
+  const gain = clamp(clamp(foamIntensity, 0, 1) * Math.max(foamBoost, 0), 0, 1);
+  const widen = clamp((Math.max(foamBoost, 1) - 1) * WATER_FOAM_BOOST_WIDEN, 0, 0.25);
+  return clamp(smoothstep(WATER_FOAM_CREST_START - widen, WATER_FOAM_CREST_END, crest) * gain, 0, 1);
 }
 
 /** Deterministic per-body phase (radians) for the fragment detail noise. */
@@ -454,22 +569,30 @@ export function getGerstnerWaveSetInput(worldSeed: number, body: DirectorWorldWa
 }
 
 /**
- * One-call CPU surface description for a body under the current wind — the
- * exact parameters the GPU renders with. This is the hook future systems
- * (floating props, ripple-aware wildlife) should use together with
- * `evaluateGerstnerSurface` to stay pixel-consistent with the shader.
+ * One-call CPU surface description for a body under the current wind and
+ * (optionally) weather — the exact parameters the GPU renders with. This is
+ * the hook future systems (floating props, ripple-aware wildlife) should use
+ * together with `evaluateGerstnerSurface` to stay pixel-consistent with the
+ * shader. Pass the frame's weather to match the rendered storm response;
+ * omitting it keeps the legacy wind-only coupling.
  * Allocates; render-loop code assembles the same pieces incrementally instead.
  */
 export function createWaterSurfaceParams(
   worldSeed: number,
   body: DirectorWorldWaterBody,
   windVector: readonly [number, number, number],
+  weather?: DirectorWorldWeather,
 ): GerstnerSurfaceParams {
   const windSpeed = Math.hypot(windVector[0], windVector[2]);
   return {
     waves: createGerstnerWaveSet(getGerstnerWaveSetInput(worldSeed, body)),
-    baseDirectionRadians: blendFlowDirectionWithWind(body.flowDirectionDegrees, windVector[0], windVector[2]),
-    amplitudeScale: computeWindAmplitudeScale(windSpeed),
-    steepnessScale: computeWindSteepnessScale(windSpeed),
+    baseDirectionRadians: blendFlowDirectionWithWind(
+      body.flowDirectionDegrees,
+      windVector[0],
+      windVector[2],
+      body.flowSpeedMps,
+    ),
+    amplitudeScale: weather ? computeWaterAmplitudeScale(windSpeed, weather) : computeWindAmplitudeScale(windSpeed),
+    steepnessScale: weather ? computeWaterSteepnessScale(windSpeed, weather) : computeWindSteepnessScale(windSpeed),
   };
 }

@@ -17,7 +17,12 @@ import {
   writeWaterFrameUniforms,
   type WaterFrameState,
 } from "./waterMaterial";
-import { computeWaterDetailPhase, computeWaterSegmentsForAxis, resolveWaterOccluderHeight } from "./waterParams";
+import {
+  computeWaterDetailPhase,
+  computeWaterEnvBlendScale,
+  computeWaterSegmentsForAxis,
+  resolveWaterOccluderHeight,
+} from "./waterParams";
 
 /**
  * Water sub-layer: shader-based water surfaces for `DirectorWorldWaterBody`
@@ -153,9 +158,14 @@ function WaterBodySurface({ body, context }: { body: DirectorWorldWaterBody; con
       writeWaterFrameUniforms(material.uniforms, frameState.current);
       const probe = envProbeRef.current;
       if (probe !== null) {
-        probe.handleBeforeRender(renderer, scene, camera, frameState.current.context.worldSeconds);
+        const { context } = frameState.current;
+        probe.handleBeforeRender(renderer, scene, camera, context.worldSeconds);
         material.uniforms.uEnvMap.value = probe.getTexture();
-        material.uniforms.uEnvBlend.value = probe.getEnvBlend();
+        // Agitated surfaces (storm churn, strong wind) break the mirror up:
+        // the probe blend recedes toward the weather-dimmed procedural sky.
+        material.uniforms.uEnvBlend.value =
+          probe.getEnvBlend() *
+          computeWaterEnvBlendScale(Math.hypot(context.windVector[0], context.windVector[2]), context.settings.weather);
       }
       const heightMap = heightMapRef.current;
       if (heightMap !== null) {
