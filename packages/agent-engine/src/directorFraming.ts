@@ -217,20 +217,13 @@ export function buildDirectorMarkCameraMoveActions(
   };
 }
 
-/** Zod schema for the describe_camera_move read operation payload. */
-export const directorDescribeCameraMoveInputSchema = z
-  .strictObject({
-    camera_id: framingId,
-    subject_object_id: framingId,
-    from_frame: z.number().int().min(0).max(1_000_000).optional(),
-    to_frame: z.number().int().min(0).max(1_000_000).optional(),
-  })
-  .refine((value) => value.from_frame === undefined || value.to_frame === undefined || value.from_frame < value.to_frame, {
-    message: "from_frame must be before to_frame",
-    path: ["from_frame"],
-  });
-
-export type DirectorDescribeCameraMoveInput = z.infer<typeof directorDescribeCameraMoveInputSchema>;
+/** Input of the describe_camera_move read; validated by the workbench contract. */
+export interface DirectorDescribeCameraMoveInput {
+  camera_id: string;
+  subject_object_id: string;
+  from_frame?: number;
+  to_frame?: number;
+}
 
 function framingAtFrame(camera: DirectorCameraShot, frame: number): DirectorCameraFraming {
   const evaluated = evaluateDirectorCameraAtFrame(camera, frame);

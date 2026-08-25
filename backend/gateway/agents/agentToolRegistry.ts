@@ -38,6 +38,7 @@ const PARALLEL_WORKBENCH_OPS = new Set([
   "diff",
   "trace",
   "shot_ir",
+  "describe_camera_move",
 ]);
 
 /** Creative ops that only read workspace state. */

@@ -17,6 +17,7 @@
     "./audit": "./src/directorAudit.ts",
     "./automation": "./src/directorAutomation.ts",
     "./blocking": "./src/directorBlocking.ts",
+    "./framing": "./src/directorFraming.ts",
     "./creative": "./src/creativeWorkspaceAgentSchemas.ts",
     "./video": "./src/videoModelContract.ts",
     "./stage-adapter": "./src/directorStageAdapter.ts",

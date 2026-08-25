@@ -23,6 +23,7 @@ const READ_ONLY_WORKBENCH_OPERATIONS = new Set([
   "diff",
   "trace",
   "shot_ir",
+  "describe_camera_move",
 ]);
 /** Workbench operations that provide visual evidence (includes capture). */
 const VISUAL_EVIDENCE_WORKBENCH_OPERATIONS = new Set([
