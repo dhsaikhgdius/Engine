@@ -135,10 +135,25 @@ import {
 } from "../schema/viewportNavigation";
 
 import { createDefaultDirectorProject as createCanonicalDefaultDirectorProject } from "@director/agent-engine/default-project";
+import type { DirectorAuthoringAction } from "@director/agent-engine/authoring";
 import {
   compileDirectorDeleteObjectActions,
   dispatchDirectorAuthoringActions,
 } from "../../../agent/dispatchDirectorAuthoringActions";
+import {
+  compileDirectorAddCameraShotAction,
+  compileDirectorAddLightAction,
+  compileDirectorCameraUpdateAction,
+  compileDirectorCharacterMotionAction,
+  compileDirectorLightUpdateAction,
+  compileDirectorSceneUpdateAction,
+  compileDirectorWorldEffectUpsertAction,
+  compileDirectorWorldRoadUpsertAction,
+  compileDirectorWorldSettingsAction,
+  compileDirectorWorldWaterBodyUpsertAction,
+  compileDirectorWorldWildlifeUpsertAction,
+  type DirectorUiUpsertCompilation,
+} from "../../../agent/compileDirectorUiAuthoringActions";
 
 /** Input shape for importing an asset into the Director catalog. */
 export interface ImportedAssetInput {
@@ -2392,7 +2407,52 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     }
   };
 
+  /** Characters addressed by a pose/motion/IK mutator (single id or crowd). */
+  const resolveCharacterTargets = (target: ObjectMutationTarget) =>
+    get().project.objects.filter(
+      (item) =>
+        item.kind === "character" && ("id" in target ? item.id === target.id : item.crowdId === target.crowdId),
+    );
+
+  const targetKey = (target: ObjectMutationTarget) => ("id" in target ? target.id : `crowd:${target.crowdId}`);
+
+  const notifyAuthoringFailure = (title: string, error: string) => {
+    notifyDirector({ severity: "error", title, detail: error });
+  };
+
+  /**
+   * Run a compiled world upsert. Returns the boolean result the upsert mutator
+   * reports to the panel, or null when the compiler chose the legacy writer.
+   */
+  const runWorldUpsertCompilation = (compiled: DirectorUiUpsertCompilation, idempotencyKey: string) => {
+    if (compiled.kind === "legacy") return null;
+    if (compiled.kind === "noop") return true;
+    const receipt = dispatchDirectorAuthoringActions([compiled.action], { idempotencyKey });
+    if (!receipt.ok) {
+      notifyAuthoringFailure("更新失败", receipt.error);
+      return false;
+    }
+    return true;
+  };
+
   const applyTargetPosePreset = (target: ObjectMutationTarget, presetId: PosePresetId) => {
+    if (get().undoBatchDepth === 0) {
+      // update_object applies the shared mannequin preset catalog exactly like
+      // the legacy mutator (posePresetId plus a fresh controls copy).
+      const characters = resolveCharacterTargets(target).filter((item) => item.characterRig);
+      if (!characters.length) return;
+      const receipt = dispatchDirectorAuthoringActions(
+        characters.map((item) => ({
+          action: "update_object" as const,
+          object_id: item.id,
+          patch: { pose_preset_id: presetId },
+          force: true,
+        })),
+        { idempotencyKey: `ui-pose-preset:${targetKey(target)}:${presetId}` },
+      );
+      if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+      return;
+    }
     const preset = MANNEQUIN_POSE_PRESETS.find((item) => item.id === presetId);
     mutateTargetObjects(target, (item) => ({
       ...item,
@@ -2408,6 +2468,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
   const updateTargetPoseControl = (target: ObjectMutationTarget, key: string, value: number) => {
     if (!isCharacterPoseControlKey(key) || !Number.isFinite(value)) return;
+    if (get().undoBatchDepth === 0) {
+      const characters = resolveCharacterTargets(target).filter((item) => item.characterRig);
+      if (!characters.length) return;
+      const receipt = dispatchDirectorAuthoringActions(
+        characters.map((item) => ({
+          action: "set_character_pose_controls" as const,
+          object_id: item.id,
+          controls: [{ control: key, value: clampCharacterPoseControlValue(key, value, item.bodyType) }],
+          force: true,
+        })),
+        { idempotencyKey: `ui-pose-control:${targetKey(target)}:${key}` },
+      );
+      if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+      return;
+    }
     mutateTargetObjects(target, (item) => ({
       ...item,
       characterRig: item.characterRig
@@ -2423,7 +2498,34 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     }));
   };
 
-  const setTargetCharacterMotion = (target: ObjectMutationTarget, motion: DirectorCharacterMotionState | undefined) =>
+  const setTargetCharacterMotion = (target: ObjectMutationTarget, motion: DirectorCharacterMotionState | undefined) => {
+    if (get().undoBatchDepth === 0) {
+      const characters = motion
+        ? resolveCharacterTargets(target)
+        : resolveCharacterTargets(target).filter((item) => item.characterRig?.motion);
+      if (motion || characters.length) {
+        const actions: DirectorAuthoringAction[] = [];
+        let expressible = characters.length > 0;
+        for (const item of characters) {
+          const action = compileDirectorCharacterMotionAction(item.id, motion);
+          if (!action) {
+            expressible = false;
+            break;
+          }
+          actions.push(action);
+        }
+        if (expressible) {
+          const receipt = dispatchDirectorAuthoringActions(actions, {
+            idempotencyKey: `ui-character-motion:${targetKey(target)}`,
+          });
+          if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+          return;
+        }
+        if (!characters.length) return;
+      } else {
+        return;
+      }
+    }
     mutateTargetObjects(target, (item) =>
       item.kind === "character"
         ? {
@@ -2436,12 +2538,32 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           }
         : item,
     );
+  };
 
   const setTargetCharacterIk = (
     target: ObjectMutationTarget,
     effector: DirectorCharacterIkEffector,
     value: DirectorCharacterIkTarget,
-  ) =>
+  ) => {
+    if (get().undoBatchDepth === 0) {
+      const characters = resolveCharacterTargets(target);
+      if (!characters.length) return;
+      const receipt = dispatchDirectorAuthoringActions(
+        characters.map((item) => ({
+          action: "set_character_ik" as const,
+          object_id: item.id,
+          effector,
+          target: [...value.target] as [number, number, number],
+          pole: [...value.pole] as [number, number, number],
+          weight: value.weight,
+          reach_clamp: value.reachClamp,
+          force: true,
+        })),
+        { idempotencyKey: `ui-character-ik:${targetKey(target)}:${effector}` },
+      );
+      if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+      return;
+    }
     mutateTargetObjects(target, (item) =>
       item.kind === "character"
         ? {
@@ -2453,8 +2575,24 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           }
         : item,
     );
+  };
 
-  const clearTargetCharacterIk = (target: ObjectMutationTarget, effector: DirectorCharacterIkEffector) =>
+  const clearTargetCharacterIk = (target: ObjectMutationTarget, effector: DirectorCharacterIkEffector) => {
+    if (get().undoBatchDepth === 0) {
+      const characters = resolveCharacterTargets(target).filter((item) => item.characterRig?.ik?.[effector]);
+      if (!characters.length) return;
+      const receipt = dispatchDirectorAuthoringActions(
+        characters.map((item) => ({
+          action: "clear_character_ik" as const,
+          object_id: item.id,
+          effector,
+          force: true,
+        })),
+        { idempotencyKey: `ui-clear-character-ik:${targetKey(target)}:${effector}` },
+      );
+      if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+      return;
+    }
     mutateTargetObjects(target, (item) => {
       if (item.kind !== "character" || !item.characterRig?.ik?.[effector]) return item;
       const ik = { ...item.characterRig.ik };
@@ -2464,6 +2602,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         characterRig: { ...item.characterRig, ...(Object.keys(ik).length ? { ik } : { ik: undefined }) },
       };
     });
+  };
 
   return {
     ...initialRuntimeState,
@@ -2866,13 +3005,30 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         selectedObjectIds: [],
         selectedCrowdId: null,
       })),
-    updateScene: (patch) =>
+    updateScene: (patch) => {
+      if (get().undoBatchDepth === 0) {
+        const action = compileDirectorSceneUpdateAction(patch);
+        if (action) {
+          const receipt = dispatchDirectorAuthoringActions([action], { idempotencyKey: "ui-scene-update" });
+          if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+          return;
+        }
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           scene: { ...state.project.scene, ...patch },
         }),
-      ),
-    updateWorldSettings: (patch) =>
+      );
+    },
+    updateWorldSettings: (patch) => {
+      if (get().undoBatchDepth === 0) {
+        const action = compileDirectorWorldSettingsAction(patch);
+        if (action) {
+          const receipt = dispatchDirectorAuthoringActions([action], { idempotencyKey: "ui-world-settings" });
+          if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+          return;
+        }
+      }
       commitMutation((state) =>
         withWorldPatch(state, (world) => ({
           ...world,
@@ -2885,8 +3041,19 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             weather: { ...world.settings.weather, ...patch.weather },
           },
         })),
-      ),
+      );
+    },
     upsertWorldEffect: (effect) => {
+      if (get().undoBatchDepth === 0) {
+        const world = get().project.world;
+        const existing = world?.effects.find((entry) => entry.id === effect.id);
+        if (!existing && (world?.effects.length ?? 0) >= DIRECTOR_WORLD_MAX_EFFECTS) return false;
+        const outcome = runWorldUpsertCompilation(
+          compileDirectorWorldEffectUpsertAction(existing, effect),
+          `ui-world-effect:${effect.id}`,
+        );
+        if (outcome !== null) return outcome;
+      }
       let applied = false;
       commitMutation((state) =>
         withWorldPatch(state, (world) => {
@@ -2898,19 +3065,32 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return applied;
     },
     removeWorldEffects: (effectIds) => {
-      let removed = 0;
-      commitMutation((state) => {
-        const world = state.project.world;
-        if (!world) return state;
-        const ids = new Set(effectIds);
-        const remaining = world.effects.filter((effect) => !ids.has(effect.id));
-        removed = world.effects.length - remaining.length;
-        if (removed === 0) return state;
-        return withProjectPatch(state, { world: { ...world, effects: remaining } });
-      });
-      return removed;
+      const world = get().project.world;
+      const existingIds = Array.from(new Set(effectIds)).filter((id) =>
+        world?.effects.some((entry) => entry.id === id),
+      );
+      if (!existingIds.length) return 0;
+      const receipt = dispatchDirectorAuthoringActions(
+        [{ action: "remove_world_effects", effect_ids: existingIds }],
+        { idempotencyKey: `ui-remove-world-effects:${existingIds.slice().sort().join(",")}` },
+      );
+      if (!receipt.ok) {
+        notifyAuthoringFailure("删除失败", receipt.error);
+        return 0;
+      }
+      return existingIds.length;
     },
     upsertWorldWaterBody: (body) => {
+      if (get().undoBatchDepth === 0) {
+        const world = get().project.world;
+        const existing = world?.waterBodies.find((entry) => entry.id === body.id);
+        if (!existing && (world?.waterBodies.length ?? 0) >= DIRECTOR_WORLD_MAX_WATER_BODIES) return false;
+        const outcome = runWorldUpsertCompilation(
+          compileDirectorWorldWaterBodyUpsertAction(existing, body),
+          `ui-world-water:${body.id}`,
+        );
+        if (outcome !== null) return outcome;
+      }
       let applied = false;
       commitMutation((state) =>
         withWorldPatch(state, (world) => {
@@ -2922,19 +3102,32 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return applied;
     },
     removeWorldWaterBodies: (bodyIds) => {
-      let removed = 0;
-      commitMutation((state) => {
-        const world = state.project.world;
-        if (!world) return state;
-        const ids = new Set(bodyIds);
-        const remaining = world.waterBodies.filter((body) => !ids.has(body.id));
-        removed = world.waterBodies.length - remaining.length;
-        if (removed === 0) return state;
-        return withProjectPatch(state, { world: { ...world, waterBodies: remaining } });
-      });
-      return removed;
+      const world = get().project.world;
+      const existingIds = Array.from(new Set(bodyIds)).filter((id) =>
+        world?.waterBodies.some((entry) => entry.id === id),
+      );
+      if (!existingIds.length) return 0;
+      const receipt = dispatchDirectorAuthoringActions(
+        [{ action: "remove_world_water_bodies", body_ids: existingIds }],
+        { idempotencyKey: `ui-remove-world-water:${existingIds.slice().sort().join(",")}` },
+      );
+      if (!receipt.ok) {
+        notifyAuthoringFailure("删除失败", receipt.error);
+        return 0;
+      }
+      return existingIds.length;
     },
     upsertWorldWildlifeGroup: (group) => {
+      if (get().undoBatchDepth === 0) {
+        const world = get().project.world;
+        const existing = world?.wildlife.find((entry) => entry.id === group.id);
+        if (!existing && (world?.wildlife.length ?? 0) >= DIRECTOR_WORLD_MAX_WILDLIFE_GROUPS) return false;
+        const outcome = runWorldUpsertCompilation(
+          compileDirectorWorldWildlifeUpsertAction(existing, group),
+          `ui-world-wildlife:${group.id}`,
+        );
+        if (outcome !== null) return outcome;
+      }
       let applied = false;
       commitMutation((state) =>
         withWorldPatch(state, (world) => {
@@ -2946,19 +3139,32 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return applied;
     },
     removeWorldWildlifeGroups: (groupIds) => {
-      let removed = 0;
-      commitMutation((state) => {
-        const world = state.project.world;
-        if (!world) return state;
-        const ids = new Set(groupIds);
-        const remaining = world.wildlife.filter((group) => !ids.has(group.id));
-        removed = world.wildlife.length - remaining.length;
-        if (removed === 0) return state;
-        return withProjectPatch(state, { world: { ...world, wildlife: remaining } });
-      });
-      return removed;
+      const world = get().project.world;
+      const existingIds = Array.from(new Set(groupIds)).filter((id) =>
+        world?.wildlife.some((entry) => entry.id === id),
+      );
+      if (!existingIds.length) return 0;
+      const receipt = dispatchDirectorAuthoringActions(
+        [{ action: "remove_world_wildlife_groups", group_ids: existingIds }],
+        { idempotencyKey: `ui-remove-world-wildlife:${existingIds.slice().sort().join(",")}` },
+      );
+      if (!receipt.ok) {
+        notifyAuthoringFailure("删除失败", receipt.error);
+        return 0;
+      }
+      return existingIds.length;
     },
     upsertWorldRoad: (road) => {
+      if (get().undoBatchDepth === 0) {
+        const world = get().project.world;
+        const existing = world?.roads?.find((entry) => entry.id === road.id);
+        if (!existing && (world?.roads?.length ?? 0) >= DIRECTOR_WORLD_MAX_ROADS) return false;
+        const outcome = runWorldUpsertCompilation(
+          compileDirectorWorldRoadUpsertAction(existing, road),
+          `ui-world-road:${road.id}`,
+        );
+        if (outcome !== null) return outcome;
+      }
       let applied = false;
       commitMutation((state) =>
         withWorldPatch(state, (world) => {
@@ -2971,20 +3177,30 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return applied;
     },
     removeWorldRoads: (roadIds) => {
-      let removed = 0;
-      commitMutation((state) => {
-        const world = state.project.world;
-        if (!world?.roads?.length) return state;
-        const ids = new Set(roadIds);
-        const remaining = world.roads.filter((road) => !ids.has(road.id));
-        removed = world.roads.length - remaining.length;
-        if (removed === 0) return state;
-        return withProjectPatch(state, { world: { ...world, roads: remaining } });
-      });
-      return removed;
+      const world = get().project.world;
+      const existingIds = Array.from(new Set(roadIds)).filter((id) => world?.roads?.some((entry) => entry.id === id));
+      if (!existingIds.length) return 0;
+      const receipt = dispatchDirectorAuthoringActions(
+        [{ action: "remove_world_roads", road_ids: existingIds }],
+        { idempotencyKey: `ui-remove-world-roads:${existingIds.slice().sort().join(",")}` },
+      );
+      if (!receipt.ok) {
+        notifyAuthoringFailure("删除失败", receipt.error);
+        return 0;
+      }
+      return existingIds.length;
     },
-    updateStoryboard: (storyboard) =>
-      commitMutation((state) => withProjectPatch(state, { storyboard: cloneJsonValue(storyboard) })),
+    updateStoryboard: (storyboard) => {
+      if (get().undoBatchDepth === 0) {
+        const receipt = dispatchDirectorAuthoringActions(
+          [{ action: "set_storyboard", storyboard: cloneJsonValue(storyboard) }],
+          { idempotencyKey: "ui-storyboard" },
+        );
+        if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+        return;
+      }
+      commitMutation((state) => withProjectPatch(state, { storyboard: cloneJsonValue(storyboard) }));
+    },
     removePanoramaAsset: () =>
       commitMutation((state) => {
         const panoramaAssetId = state.project.panoramaAssetId;
@@ -3741,7 +3957,30 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           cameras: refreshCamerasFocusedOnObject(state.project.cameras, nextObject),
         });
       }),
-    setObjectAnimation: (id, animation) =>
+    setObjectAnimation: (id, animation) => {
+      const currentState = get();
+      const currentObject = currentState.project.objects.find((item) => item.id === id);
+      if (
+        !currentObject ||
+        isObjectTransformEffectivelyLocked(currentState.project.scene, currentState.project.objects, currentObject)
+      ) {
+        return;
+      }
+      if (currentState.undoBatchDepth === 0) {
+        const receipt = dispatchDirectorAuthoringActions(
+          [
+            {
+              action: "set_animation",
+              target_type: "object",
+              target_id: id,
+              animation: animation ? structuredClone(animation) : null,
+            },
+          ],
+          { idempotencyKey: `ui-object-animation:${id}` },
+        );
+        if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+        return;
+      }
       commitMutation((state) => {
         const object = state.project.objects.find((item) => item.id === id);
         if (!object || isObjectTransformEffectivelyLocked(state.project.scene, state.project.objects, object)) {
@@ -3753,7 +3992,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             ...(animation ? { animation } : { animation: undefined }),
           })),
         });
-      }),
+      });
+    },
     updateCrowdTransform: (crowdId, patch) =>
       commitMutation((state) => {
         const members = state.project.objects.filter((object) => object.crowdId === crowdId);
@@ -4030,28 +4270,30 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         ),
       ),
     addLight: (type) => {
-      let lightId = "";
-      commitMutation((state) => {
-        const lights = state.project.lights ?? [];
-        lightId = getNextSequentialId(
-          [
-            ...lights.map((light) => light.id),
-            ...state.project.assets.map((asset) => asset.id),
-            ...state.project.objects.map((object) => object.id),
-            ...state.project.cameras.map((camera) => camera.id),
-          ],
-          "light_",
-          lights.length + 1,
-        );
-        const light = createDirectorLight(lightId, type);
-        if (state.project.nativeScene && hasBlenderLightRepresentation(type)) {
-          light.nativeSource = { engine: "blender", objectId: lightId, provisioned: false };
-        }
-        return withProjectPatch(state, { lights: [...lights, light] });
+      // add_light stamps the Blender nativeSource exactly like the legacy
+      // mutator, so the compile step only picks the id and default light.
+      const compiled = compileDirectorAddLightAction(get().project, type);
+      const receipt = dispatchDirectorAuthoringActions([compiled.action], {
+        idempotencyKey: `ui-add-light:${compiled.lightId}`,
       });
-      return lightId;
+      if (!receipt.ok) {
+        notifyAuthoringFailure("更新失败", receipt.error);
+        return "";
+      }
+      return compiled.lightId;
     },
-    updateLight: (id, patch) =>
+    updateLight: (id, patch) => {
+      const currentState = get();
+      if (currentState.undoBatchDepth === 0) {
+        const light = (currentState.project.lights ?? []).find((item) => item.id === id);
+        if (!light) return;
+        const action = compileDirectorLightUpdateAction(light, patch);
+        if (action) {
+          const receipt = dispatchDirectorAuthoringActions([action], { idempotencyKey: `ui-light-update:${id}` });
+          if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+          return;
+        }
+      }
       commitMutation((state) => {
         const lights = state.project.lights ?? [];
         return withProjectPatch(state, {
@@ -4073,14 +4315,17 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             return next;
           }),
         });
-      }),
-    removeLight: (id) =>
-      commitMutation((state) => {
-        const lights = state.project.lights ?? [];
-        const target = lights.find((light) => light.id === id);
-        if (!target || target.locked) return state;
-        return withProjectPatch(state, { lights: lights.filter((light) => light.id !== id) });
-      }),
+      });
+    },
+    removeLight: (id) => {
+      const target = (get().project.lights ?? []).find((light) => light.id === id);
+      // Locked lights stay untouched without a toast, matching legacy UI.
+      if (!target || target.locked) return;
+      const receipt = dispatchDirectorAuthoringActions([{ action: "delete_lights", light_ids: [id] }], {
+        idempotencyKey: `ui-delete-light:${id}`,
+      });
+      if (!receipt.ok) notifyAuthoringFailure("删除失败", receipt.error);
+    },
     updateCharacterBodyType: (id, bodyType) =>
       commitMutation((state) => {
         const normalizedBodyType = normalizeBodyType(bodyType);
@@ -4352,73 +4597,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         return appendSelectedObject(state, nextObject);
       }),
     addCameraShot: (snapshot) => {
-      let nextCameraId = "";
-
-      commitMutation((state) => {
-        const cameraIndex = state.project.cameras.length + 1;
-        const cameraId = getNextSequentialId(
-          state.project.cameras.map((item) => item.id),
-          "cam_",
-          cameraIndex,
-        );
-        const objectId = getNextSequentialId(
-          state.project.objects.map((item) => item.id),
-          "cam_object_",
-          cameraIndex,
-        );
-        nextCameraId = cameraId;
-        const sourceCamera = state.project.cameras.find((camera) => camera.id === state.project.activeCameraId);
-        const sourceOptics = normalizeDirectorCameraOptics(sourceCamera ?? {});
-        const aspectRatio = DEFAULT_DIRECTOR_CAMERA_ASPECT_RATIO;
-        const sensorFormat = sourceCamera?.sensorFormat ?? DEFAULT_DIRECTOR_CAMERA_SENSOR_FORMAT;
-        const focalLengthMm = snapshot
-          ? getFocalLengthFromVerticalFov(snapshot.fov, aspectRatio, sensorFormat)
-          : (sourceCamera?.focalLengthMm ?? DEFAULT_DIRECTOR_CAMERA_FOCAL_LENGTH_MM);
-        const initialSnapshot = snapshot ?? {
-          ...DEFAULT_DIRECTOR_CAMERA_VIEW_SNAPSHOT,
-          position: [
-            DEFAULT_DIRECTOR_CAMERA_VIEW_SNAPSHOT.position[0] + (cameraIndex - 1) * 1.2,
-            DEFAULT_DIRECTOR_CAMERA_VIEW_SNAPSHOT.position[1],
-            DEFAULT_DIRECTOR_CAMERA_VIEW_SNAPSHOT.position[2],
-          ] as [number, number, number],
-        };
-        const transform = createTransform(getCameraRigPositionFromViewSnapshot(initialSnapshot));
-        const nextCamera: DirectorCameraShot = {
-          id: cameraId,
-          name: formatSceneItemName("机位", cameraIndex),
-          fov: snapshot?.fov ?? getVerticalFovFromFocalLength(focalLengthMm, aspectRatio, sensorFormat),
-          focalLengthMm,
-          sensorFormat,
-          ...sourceOptics,
-          aspectRatio,
-          handheldShake: sourceCamera?.handheldShake ?? DEFAULT_DIRECTOR_CAMERA_HANDHELD_SHAKE,
-          action: sourceCamera?.action ?? DEFAULT_DIRECTOR_CAMERA_ACTION,
-          transform,
-          targetMode: "manual",
-          target: initialSnapshot.target,
-          lastCaptureUrl: null,
-          captures: [],
-          ...(state.project.nativeScene
-            ? { nativeSource: { engine: "blender" as const, objectId: cameraId, provisioned: false as const } }
-            : {}),
-        };
-        const nextCameraObject: DirectorObject = {
-          id: objectId,
-          name: nextCamera.name,
-          kind: "camera",
-          visible: true,
-          locked: false,
-          linkedCameraId: cameraId,
-          transform,
-        };
-
-        return appendSelectedObject(state, nextCameraObject, {
-          cameras: [...state.project.cameras, nextCamera],
-          activeCameraId: cameraId,
-        });
+      // add_camera creates the linked rig object, activates the camera, and
+      // stamps the Blender nativeSource, matching the legacy mutator.
+      const compiled = compileDirectorAddCameraShotAction(get().project, snapshot);
+      const receipt = dispatchDirectorAuthoringActions([compiled.action], {
+        idempotencyKey: `ui-add-camera:${compiled.cameraId}`,
       });
-
-      return nextCameraId;
+      if (!receipt.ok) {
+        notifyAuthoringFailure("更新失败", receipt.error);
+        return "";
+      }
+      commitUiMutation((state) => ({
+        ...state,
+        ...selectedObjectsPatch([compiled.rigObjectId]),
+      }));
+      return compiled.cameraId;
     },
     deleteSelectedObject: () => {
       get().deleteObjects(getOrderedSelectedObjectIds(get() as DirectorRuntimeState));
@@ -4449,7 +4642,31 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     setCrowdCharacterIkEffector: (crowdId, effector, target) => setTargetCharacterIk({ crowdId }, effector, target),
     clearCharacterIkEffector: (id, effector) => clearTargetCharacterIk({ id }, effector),
     clearCrowdCharacterIkEffector: (crowdId, effector) => clearTargetCharacterIk({ crowdId }, effector),
-    setActiveCamera: (cameraId) =>
+    setActiveCamera: (cameraId) => {
+      const currentState = get();
+      const targetCamera = currentState.project.cameras.find((camera) => camera.id === cameraId);
+      if (targetCamera && currentState.project.activeCameraId !== cameraId && currentState.undoBatchDepth === 0) {
+        const receipt = dispatchDirectorAuthoringActions([{ action: "set_active_camera", camera_id: cameraId }], {
+          idempotencyKey: `ui-active-camera:${cameraId}`,
+        });
+        if (!receipt.ok) {
+          notifyAuthoringFailure("更新失败", receipt.error);
+          return;
+        }
+        // Selection and viewport aspect are UI-only concerns layered on top of
+        // the authored activeCameraId change.
+        commitUiMutation((state) => {
+          const selectedObjectId =
+            state.project.objects.find((item) => item.kind === "camera" && item.linkedCameraId === cameraId)?.id ??
+            null;
+          return {
+            ...state,
+            ...selectedObjectsPatch(selectedObjectId ? [selectedObjectId] : []),
+            viewportAspectRatio: targetCamera.aspectRatio ?? state.viewportAspectRatio,
+          };
+        });
+        return;
+      }
       commitUiMutation((state) => {
         const selectedCamera = state.project.cameras.find((camera) => camera.id === cameraId);
         const selectedObjectId =
@@ -4466,7 +4683,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             viewportAspectRatio: selectedCamera?.aspectRatio ?? state.viewportAspectRatio,
           },
         );
-      }),
+      });
+    },
     addCameraCaptures: (cameraId, dataUrls) =>
       commitMutation((state) => {
         if (dataUrls.length === 0) return state;
@@ -4492,7 +4710,20 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
         return withProjectPatch(state, { cameras });
       }),
-    updateCamera: (cameraId, patch) =>
+    updateCamera: (cameraId, patch) => {
+      const currentState = get();
+      // Slider/text-field undo batches keep the lightweight mutator; one-shot
+      // panel edits share update_camera, which also syncs the linked rig.
+      if (currentState.undoBatchDepth === 0) {
+        const action = compileDirectorCameraUpdateAction(currentState.project, cameraId, patch);
+        if (action) {
+          const receipt = dispatchDirectorAuthoringActions([action], {
+            idempotencyKey: `ui-camera-update:${cameraId}`,
+          });
+          if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+          return;
+        }
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           cameras: state.project.cameras.map((item) =>
@@ -4519,7 +4750,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               : item,
           ),
         }),
-      ),
+      );
+    },
     setObjectMeasuredLocalBounds: (objectId, bounds) =>
       commitMutation(
         (state) => {
@@ -4534,7 +4766,23 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         },
         { trackUndo: false },
       ),
-    setCameraAnimation: (cameraId, animation) =>
+    setCameraAnimation: (cameraId, animation) => {
+      const currentState = get();
+      if (currentState.undoBatchDepth === 0 && currentState.project.cameras.some((camera) => camera.id === cameraId)) {
+        const receipt = dispatchDirectorAuthoringActions(
+          [
+            {
+              action: "set_animation",
+              target_type: "camera",
+              target_id: cameraId,
+              animation: animation ? structuredClone(animation) : null,
+            },
+          ],
+          { idempotencyKey: `ui-camera-animation:${cameraId}` },
+        );
+        if (!receipt.ok) notifyAuthoringFailure("更新失败", receipt.error);
+        return;
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           cameras: state.project.cameras.map((camera) =>
@@ -4546,7 +4794,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               : camera,
           ),
         }),
-      ),
+      );
+    },
     copySelectedObjects: () => {
       const currentState = get() as DirectorRuntimeState;
       const clipboard = buildClipboardEntries(currentState);
