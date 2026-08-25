@@ -373,6 +373,7 @@ export async function handleDccRoute(
         formats: parsed.data.formats,
         cameraId: parsed.data.camera_id,
         frame: parsed.data.frame,
+        cleanFrame: parsed.data.clean_frame,
       });
       json(response, 200, { success: true, result });
       return true;

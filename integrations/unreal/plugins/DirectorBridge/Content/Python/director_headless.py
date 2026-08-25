@@ -18,6 +18,10 @@ Modes:
   relative to the exchange package baseline.
 - ``live-preview``  preview-only loopback camera feed into the editor
   viewport (sequence-numbered, token-gated); never a durable scene channel.
+- ``render``  one optional clean still (offscreen, no editor gizmos or
+  labels) through a Director-tagged CineCamera, writing a
+  ``director-unreal-clean-frame-v1`` receipt. Runs with ``-RenderOffscreen``
+  (never ``-nullrhi``); any problem writes a skipped receipt with a reason.
 
 All transforms cross the provider boundary in Director canonical space
 (right-handed, Y-up, metres); ``director_space`` owns the basis change.
@@ -44,13 +48,21 @@ import director_package as dpkg  # noqa: E402
 import director_sequencer as dsequencer  # noqa: E402
 import director_space as dspace  # noqa: E402
 
-CONNECTOR_VERSION = "0.2.0"
+CONNECTOR_VERSION = "0.3.0"
 PROVIDER = "unreal"
 DIRECTOR_TAG_PREFIX = "director_id:"
 CONTENT_ROOT = "/Game/Director"
 TRANSFORM_TOLERANCE = 1e-6
 PREVIEW_TOKEN_ENV = "DIRECTOR_UNREAL_PREVIEW_TOKEN"
-CONNECTOR_FEATURES = ["animation_bake", "sequencer_timebase", "skeletal_import", "materials", "live_preview_protocol"]
+RENDER_POLL_SECONDS = 300.0
+CONNECTOR_FEATURES = [
+    "animation_bake",
+    "sequencer_timebase",
+    "skeletal_import",
+    "materials",
+    "live_preview_protocol",
+    "clean_frame_render",
+]
 
 
 def _load_unreal():
@@ -404,6 +416,14 @@ def run_import(unreal, arguments) -> int:
         )
         return_dir = os.path.relpath(arguments.return_dir, os.path.dirname(arguments.report)).replace(os.sep, "/")
 
+    # Structured warn-and-omit echo: pose/rig channels the verified bake could
+    # not carry are reported as data, never silently flattened into prose.
+    omitted_animation_channels = [
+        {"directorId": entity["directorId"], "entityType": entity["entityType"], "channels": entity["omittedChannels"]}
+        for entity in (bake["entities"] if bake else [])
+        if entity.get("omittedChannels")
+    ]
+
     dpkg.write_report(
         arguments.report,
         provider=PROVIDER,
@@ -420,6 +440,7 @@ def run_import(unreal, arguments) -> int:
             "sequencer": sequencer_receipt,
             "importedSkeletalMeshCount": stats["importedSkeletalMeshCount"],
             "appliedMaterialCount": stats["appliedMaterialCount"],
+            "omittedAnimationChannels": omitted_animation_channels or None,
         },
     )
     return 0
@@ -499,6 +520,135 @@ def run_export(unreal, arguments) -> int:
         ),
         warnings=warnings,
     )
+    return 0
+
+
+def _find_render_camera(unreal, requested_director_id):
+    """Locate the Director-tagged CineCamera the clean frame renders through.
+
+    @returns ``(actor, director_id, error)``; with a requested id the match is
+        exact, otherwise the first tagged CineCamera wins.
+    """
+    actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    fallback = None
+    fallback_id = None
+    for actor in actor_subsystem.get_all_level_actors():
+        if not isinstance(actor, unreal.CineCameraActor):
+            continue
+        director_id = director_id_of_actor(actor)
+        if not director_id:
+            continue
+        if requested_director_id and director_id == requested_director_id:
+            return actor, director_id, None
+        if fallback is None:
+            fallback = actor
+            fallback_id = director_id
+    if requested_director_id:
+        return None, None, f"Camera {requested_director_id} was not found among director_id-tagged CineCameras."
+    if fallback is None:
+        return None, None, "The level contains no director_id-tagged CineCamera to render through."
+    return fallback, fallback_id, None
+
+
+def run_render(unreal, arguments) -> int:
+    """Render one clean still and write the ``director-unreal-clean-frame-v1`` receipt.
+
+    The frame is rendered through ``take_high_res_screenshot`` while the editor
+    runs with ``-RenderOffscreen``: no editor viewport widgets, gizmos, actor
+    labels, or helper overlays are ever composited into the image. The
+    screenshot task completes asynchronously, so this mode is driven by a
+    slate post-tick callback and quits the editor itself when the receipt is
+    written. Every failure path writes a skipped receipt with a reason; the
+    clean frame is optional by contract and never fails the handoff.
+    """
+    import time
+
+    warnings: list[str] = []
+
+    def skip(reason: str) -> int:
+        dpkg.write_clean_frame_receipt(arguments.report, skip_reason=reason, warnings=warnings)
+        return 1
+
+    try:
+        manifest = dpkg.load_exchange_package(arguments.package, PROVIDER)
+    except dpkg.DirectorPackageError as error:
+        return skip(f"Exchange package validation failed: {error}")
+    if not arguments.render_output:
+        return skip("--render-output is required for render mode.")
+
+    package_folder = safe_asset_name(manifest["packageId"][:8])
+    level_path = f"{CONTENT_ROOT}/Levels/Director_{package_folder}"
+    level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+    if not level_subsystem.load_level(level_path):
+        return skip(f"Level {level_path} was not found; run the import job before requesting a clean frame.")
+
+    camera_actor, camera_director_id, camera_error = _find_render_camera(unreal, arguments.render_camera)
+    if camera_error:
+        return skip(camera_error)
+
+    frame = arguments.render_frame if arguments.render_frame is not None else 0
+    if arguments.render_frame is not None:
+        # Scrub the authored Director sequence so the still represents the
+        # requested timeline frame; a missing sequence renders the static import.
+        sequence_asset_path = f"{CONTENT_ROOT}/Sequences/{package_folder}/DirectorShots"
+        try:
+            sequence = unreal.EditorAssetLibrary.load_asset(sequence_asset_path)
+            if sequence:
+                unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+                unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(int(arguments.render_frame))
+            else:
+                warnings.append(
+                    f"No Director sequence at {sequence_asset_path}; the clean frame shows the static import."
+                )
+        except Exception as error:  # noqa: BLE001 - scrubbing is best-effort for a still
+            warnings.append(f"Sequence scrubbing failed ({error}); the clean frame shows the static import.")
+
+    width = max(16, int(arguments.render_width))
+    height = max(16, int(arguments.render_height))
+    task = unreal.AutomationLibrary.take_high_res_screenshot(
+        width, height, arguments.render_output, camera=camera_actor
+    )
+    deadline = time.monotonic() + RENDER_POLL_SECONDS
+    state = {"handle": None}
+
+    def finish(reason_or_none):
+        if state["handle"] is not None:
+            unreal.unregister_slate_post_tick_callback(state["handle"])
+            state["handle"] = None
+        if reason_or_none:
+            dpkg.write_clean_frame_receipt(arguments.report, skip_reason=reason_or_none, warnings=warnings)
+        else:
+            dpkg.write_clean_frame_receipt(
+                arguments.report,
+                package_id=manifest["packageId"],
+                source_revision=manifest["sourceRevision"],
+                level_path=level_path,
+                camera_director_id=camera_director_id,
+                frame=int(frame),
+                width=width,
+                height=height,
+                image_path=os.path.relpath(arguments.render_output, os.path.dirname(arguments.report)).replace(
+                    os.sep, "/"
+                ),
+                image_sha256=dpkg.sha256_file(arguments.render_output),
+                host_version=host_version(unreal),
+                warnings=warnings,
+            )
+        unreal.SystemLibrary.quit_editor()
+
+    def on_tick(_delta_seconds):
+        try:
+            if task.is_task_done():
+                if os.path.isfile(arguments.render_output):
+                    finish(None)
+                else:
+                    finish("The screenshot task finished without producing an image file.")
+            elif time.monotonic() > deadline:
+                finish(f"The screenshot task did not finish within {int(RENDER_POLL_SECONDS)} seconds.")
+        except Exception as error:  # noqa: BLE001 - the receipt is the failure channel
+            finish(f"Clean-frame polling failed: {error}")
+
+    state["handle"] = unreal.register_slate_post_tick_callback(on_tick)
     return 0
 
 
@@ -587,11 +737,16 @@ def run_health(unreal) -> int:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Director Unreal connector headless entry point.")
-    parser.add_argument("--mode", required=True, choices=["health", "import", "export", "live-preview"])
+    parser.add_argument("--mode", required=True, choices=["health", "import", "export", "live-preview", "render"])
     parser.add_argument("--package", help="Director exchange package directory.")
     parser.add_argument("--report", help="Path of the report.json receipt to write.")
     parser.add_argument("--return-dir", dest="return_dir", help="Directory for the return package.")
     parser.add_argument("--animation", help="Gateway-written Sequencer bake sidecar (animation.json).")
+    parser.add_argument("--render-output", dest="render_output", help="Absolute PNG path for the clean frame.")
+    parser.add_argument("--render-camera", dest="render_camera", help="Director camera id to render through.")
+    parser.add_argument("--render-frame", dest="render_frame", type=int, help="Director timeline frame to scrub to.")
+    parser.add_argument("--render-width", dest="render_width", type=int, default=1920)
+    parser.add_argument("--render-height", dest="render_height", type=int, default=1080)
     parser.add_argument(
         "--animation-sha256",
         dest="animation_sha256",
@@ -624,8 +779,17 @@ def main(argv: list[str]) -> int:
         return run_live_preview(unreal, arguments)
     if not arguments.package or not arguments.report:
         if arguments.report:
-            dpkg.write_failure_report(arguments.report, "--package and --report are required.")
+            if arguments.mode == "render":
+                dpkg.write_clean_frame_receipt(arguments.report, skip_reason="--package and --report are required.")
+            else:
+                dpkg.write_failure_report(arguments.report, "--package and --report are required.")
         return 2
+    if arguments.mode == "render":
+        try:
+            return run_render(unreal, arguments)
+        except Exception as error:  # noqa: BLE001 - the skipped receipt is the failure channel
+            dpkg.write_clean_frame_receipt(arguments.report, skip_reason=f"Clean-frame render failed: {error}")
+            return 1
     try:
         if arguments.mode == "import":
             return run_import(unreal, arguments)

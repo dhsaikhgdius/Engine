@@ -116,9 +116,22 @@ async function connectorVersion(): Promise<string> {
 interface SendHarness {
   send: () => Promise<Awaited<ReturnType<ReturnType<typeof createDirectorDccEngineBridge>["send"]>>>;
   observedScriptArguments: () => string;
+  observedInvocations: () => string[][];
 }
 
-async function createSendHarness(reportExtras: Record<string, unknown> = {}): Promise<SendHarness> {
+interface SendHarnessOptions {
+  /** Project override for the send (defaults to the animated fixture). */
+  project?: DirectorProject;
+  /** Request the optional Unreal clean frame on the send. */
+  cleanFrame?: boolean;
+  /** Whether the fake render invocation writes a receipt and image (default true). */
+  renderWritesReceipt?: boolean;
+}
+
+async function createSendHarness(
+  reportExtras: Record<string, unknown> = {},
+  options: SendHarnessOptions = {},
+): Promise<SendHarness> {
   const setup = await temporaryUnrealSetup();
   const jobId = randomUUID();
   const packageDirectory = resolve(setup.dataDirectory, "dcc-jobs", "exchange", "unreal", jobId);
@@ -129,6 +142,37 @@ async function createSendHarness(reportExtras: Record<string, unknown> = {}): Pr
 
   const runProcess = vi.fn(async (_executable: string, args: string[]) => {
     observed.push(args);
+    const renderArgument = args.find((argument) => argument.startsWith("-ExecCmds=py "));
+    if (renderArgument) {
+      if (options.renderWritesReceipt !== false) {
+        const receiptPath = /--report "([^"]+)"/.exec(renderArgument)![1]!;
+        const imagePath = /--render-output "([^"]+)"/.exec(renderArgument)![1]!;
+        const imageBytes = Buffer.from("clean-frame-fixture-image", "utf8");
+        await writeFile(imagePath, imageBytes);
+        await writeFile(
+          receiptPath,
+          JSON.stringify({
+            contract: "director-unreal-clean-frame-v1",
+            provider: "unreal",
+            status: "rendered",
+            packageId: jobId,
+            sourceRevision: REVISION,
+            levelPath: "/Game/Director/Levels/Director_fixture",
+            cameraDirectorId: null,
+            frame: 0,
+            width: 1_920,
+            height: 1_080,
+            imagePath: "clean-frame.png",
+            imageSha256: createHash("sha256").update(imageBytes).digest("hex"),
+            method: "offscreen_high_res_screenshot",
+            hostVersion: "5.6.1-fixture",
+            warnings: [],
+          }),
+          "utf8",
+        );
+      }
+      return { stdout: "", stderr: "" };
+    }
     const scriptArgument = args.find((argument) => argument.startsWith("-ExecutePythonScript="))!;
     const reportPath = /--report "([^"]+)"/.exec(scriptArgument)![1]!;
     await mkdir(resolve(dirname(reportPath), "return"), { recursive: true });
@@ -165,8 +209,14 @@ async function createSendHarness(reportExtras: Record<string, unknown> = {}): Pr
   });
 
   return {
-    send: () => bridge.send(animatedProject(), { provider: "unreal", formats: ["usda"] }),
+    send: () =>
+      bridge.send(options.project ?? animatedProject(), {
+        provider: "unreal",
+        formats: ["usda"],
+        ...(options.cleanFrame !== undefined ? { cleanFrame: options.cleanFrame } : {}),
+      }),
     observedScriptArguments: () => observed[0]!.find((argument) => argument.startsWith("-ExecutePythonScript="))!,
+    observedInvocations: () => observed,
   };
 }
 
@@ -221,6 +271,126 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
       sequencer: { ...SEQUENCER_RECEIPT, displayRate: "23.976 fps" },
     });
     await expect(harness.send()).rejects.toMatchObject({ code: "engine_report_invalid" });
+  });
+});
+
+function riggedProject(): DirectorProject {
+  const project = animatedProject();
+  const [walker] = project.objects;
+  walker!.kind = "character";
+  walker!.characterRig = { rigType: "mannequin", posePresetId: null, controls: {} };
+  walker!.animation!.keyframes[1]!.poseValues = { "arm.L": 0.5 };
+  return project;
+}
+
+describe("Unreal engine bridge structured pose-channel omissions", () => {
+  it("reports omitted Control-Rig-style channels as data on the send result, from the Gateway's own bake", async () => {
+    const harness = await createSendHarness({}, { project: riggedProject() });
+    const result = await harness.send();
+    expect(result.omittedAnimationChannels).toEqual([
+      {
+        directorId: "hero-crate",
+        entityType: "object",
+        channels: expect.arrayContaining(["pose_values", "character_rig"]),
+      },
+    ]);
+    // The prose warning still exists, but the structured field is the contract.
+    expect(result.warnings.join("\n")).toMatch(/warn-and-omit/);
+  });
+
+  it("omits the structured field entirely when every channel was carried", async () => {
+    const harness = await createSendHarness();
+    const result = await harness.send();
+    expect(result.omittedAnimationChannels).toBeUndefined();
+  });
+
+  it("accepts the connector's structured omission echo on the report", async () => {
+    const harness = await createSendHarness({
+      omittedAnimationChannels: [{ directorId: "walker-1", entityType: "object", channels: ["pose_values"] }],
+    });
+    const result = await harness.send();
+    expect(result.report.omittedAnimationChannels).toEqual([
+      { directorId: "walker-1", entityType: "object", channels: ["pose_values"] },
+    ]);
+  });
+});
+
+describe("Unreal engine bridge clean-frame wiring", () => {
+  it("runs a second offscreen render invocation and attaches the hash-verified receipt", async () => {
+    const harness = await createSendHarness({}, { cleanFrame: true });
+    const result = await harness.send();
+
+    const invocations = harness.observedInvocations();
+    expect(invocations).toHaveLength(2);
+    const importArgs = invocations[0]!;
+    expect(importArgs).toContain("-nullrhi");
+    const renderArgs = invocations[1]!;
+    expect(renderArgs).toContain("-RenderOffscreen");
+    expect(renderArgs).not.toContain("-nullrhi");
+    expect(renderArgs.find((argument) => argument.startsWith("-ExecCmds=py "))).toContain("--mode render");
+
+    expect(result.cleanFrame).toMatchObject({ status: "rendered", imagePath: "clean-frame.png" });
+  });
+
+  it("keeps the handoff successful with a skipped receipt when the render produces nothing", async () => {
+    const harness = await createSendHarness({}, { cleanFrame: true, renderWritesReceipt: false });
+    const result = await harness.send();
+    expect(result.report.importedObjectCount).toBe(1);
+    expect(result.cleanFrame).toMatchObject({
+      status: "skipped",
+      skipReason: expect.stringMatching(/readable/i),
+    });
+    expect(result.warnings.join("\n")).toMatch(/Clean-frame render was skipped/);
+  });
+
+  it("runs no render invocation and attaches no receipt when clean_frame is not requested", async () => {
+    const harness = await createSendHarness();
+    const result = await harness.send();
+    expect(harness.observedInvocations()).toHaveLength(1);
+    expect(result.cleanFrame).toBeUndefined();
+  });
+});
+
+describe("Unreal executable probes (macOS/Linux/Windows layouts)", () => {
+  it("reads Build.version through the Engine/Binaries/<Platform> layout without booting the editor", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "director-unreal-linux-probe-"));
+    const executable = resolve(root, "Engine", "Binaries", "Linux", "UnrealEditor-Cmd");
+    await mkdir(dirname(executable), { recursive: true });
+    await writeFile(executable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const buildVersion = resolve(root, "Engine", "Build", "Build.version");
+    await mkdir(dirname(buildVersion), { recursive: true });
+    await writeFile(buildVersion, JSON.stringify({ MajorVersion: 5, MinorVersion: 6, PatchVersion: 1 }), "utf8");
+
+    const bridge = createDirectorDccEngineBridge({
+      workspaceRoot: repositoryRoot,
+      dataDirectory: resolve(root, "data"),
+      exchangePackager: { exportPackage: vi.fn() },
+      environment: { PATH: "", [DIRECTOR_ENGINE_BINARY_ENV.unreal]: executable },
+      // No probeHostVersion override: the default Build.version reader runs.
+      runProcess: vi.fn(async () => ({ stdout: "", stderr: "" })),
+      healthTtlMs: 0,
+    });
+    const health = await bridge.health("unreal");
+    expect(health.executable).toBe(executable);
+    expect(health.hostVersion).toBe("Unreal Engine 5.6.1");
+  });
+
+  it("discovers the Windows UnrealEditor-Cmd.exe command name on PATH", async () => {
+    const binDirectory = await mkdtemp(resolve(tmpdir(), "director-unreal-windows-probe-"));
+    const executable = resolve(binDirectory, "UnrealEditor-Cmd.exe");
+    await writeFile(executable, "fixture", { mode: 0o755 });
+
+    const bridge = createDirectorDccEngineBridge({
+      workspaceRoot: repositoryRoot,
+      dataDirectory: resolve(binDirectory, "data"),
+      exchangePackager: { exportPackage: vi.fn() },
+      environment: { PATH: binDirectory },
+      probeHostVersion: async () => "Unreal Engine 5.6.1",
+      runProcess: vi.fn(async () => ({ stdout: "", stderr: "" })),
+      healthTtlMs: 0,
+    });
+    const health = await bridge.health("unreal");
+    expect(health.executable).toBe(executable);
   });
 });
 
