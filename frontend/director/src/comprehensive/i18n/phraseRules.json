@@ -53,6 +53,8 @@
   { "pattern": "^忘记记忆 (.+)$", "replacement": "Forget memory $1" },
   { "pattern": "^排队中 · 前方 (\\d+) 项$", "replacement": "Queued · $1 ahead" },
   { "pattern": "^Session 状态：(.+)$", "handler": "sessionStatus" },
+  { "pattern": "^会话 (.+) · 活跃$", "replacement": "Session $1 · Active" },
+  { "pattern": "^会话 (.+) · 空闲$", "replacement": "Session $1 · Idle" },
   {
     "pattern": "^(正在|已|未能)(观察场景|读取目录|读取说明|读取能力|检查物体|保存快照|修改场景|添加物体|删除物体|修改物体|截取画面|导出镜头包|交付成片|选择物体|调整视口|控制播放|撤销|检查场景|对比修订|修正场景|追踪操作|提交生成|提交转录|生成 3D|重建采集|导出分镜|执行宏|更新记忆|写入补丁|替换项目|写入镜头|执行制作指令|执行画布操作|预览画布|调用工作台)$",
     "handler": "agentToolActivity"

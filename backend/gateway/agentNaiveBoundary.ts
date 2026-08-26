@@ -18,6 +18,18 @@ type WorkbenchGenerated3DPromotion = Omit<WorkbenchGenerated3DRequest, "command"
   command: Extract<WorkbenchGenerated3DRequest["command"], { action: "promote" }>;
 };
 type WorkbenchStoryboardMutation = Extract<DirectorWorkbenchOperation, { op: "storyboard_artifact" }>;
+type WorkbenchPlayerMutation = Extract<DirectorWorkbenchOperation, { op: "player" }>;
+type WorkbenchPilotWaypointMutation = Extract<DirectorWorkbenchOperation, { op: "pilot" }> & {
+  action: "record_waypoint";
+};
+/**
+ * Player Mode commands and the persistent Camera Pilot waypoint write mutate
+ * live project state (actor transforms, recorded takes, camera keyframes)
+ * through the session command bus. They carry no revision-guard fields, so
+ * they skip {@link prepareAgentMutation}, but they are still mutations for
+ * contract-staleness, possession-scope, and outcome-unknown handling.
+ */
+export type WorkbenchSessionMutation = WorkbenchPlayerMutation | WorkbenchPilotWaypointMutation;
 type WorkbenchDurableJobMutation =
   | (Omit<WorkbenchGenerationRequest, "command"> & {
       command: Extract<WorkbenchGenerationRequest["command"], { action: "submit" | "retry" }>;
@@ -294,20 +306,55 @@ function durableJobReceipt(
 }
 
 /**
+ * Type guard for Player/Pilot session mutations: every `player` action (they
+ * write actor transforms, toggle world interactions, and record movement
+ * takes through the live session) and the persistent `pilot.record_waypoint`
+ * camera-keyframe write. Transient pilot flight (start/stop/set_view) is not
+ * a mutation.
+ */
+export function isWorkbenchSessionMutation(
+  operation: DirectorWorkbenchOperation,
+): operation is WorkbenchSessionMutation {
+  return operation.op === "player" || (operation.op === "pilot" && operation.action === "record_waypoint");
+}
+
+/**
  * Type guard that narrows a workbench operation to mutations that change
  * project state (patch, author, production mutations, generated_3d promotion,
- * storyboard artifact, etc.).
+ * storyboard artifact, Player/Pilot session mutations, etc.). Session
+ * mutations carry no revision-guard fields; use
+ * {@link isWorkbenchSessionMutation} to route them around
+ * {@link prepareAgentMutation}.
  */
 export function isWorkbenchMutation(
   operation: DirectorWorkbenchOperation,
 ): operation is
-  WorkbenchMutation | WorkbenchProductionMutation | WorkbenchGenerated3DPromotion | WorkbenchStoryboardMutation {
+  | WorkbenchMutation
+  | WorkbenchProductionMutation
+  | WorkbenchGenerated3DPromotion
+  | WorkbenchStoryboardMutation
+  | WorkbenchSessionMutation {
   return (
     ["patch", "author", "run_macro", "correct", "replace_project", "undo"].includes(operation.op) ||
     (operation.op === "production" && operation.command.action !== "observe") ||
     (operation.op === "generated_3d" && operation.command.action === "promote") ||
-    operation.op === "storyboard_artifact"
+    operation.op === "storyboard_artifact" ||
+    isWorkbenchSessionMutation(operation)
   );
+}
+
+/**
+ * Type guard for the mutations that go through {@link prepareAgentMutation}
+ * and its revision-guard preflight: every workbench mutation except the
+ * Player/Pilot session mutations (which carry no revision-guard fields).
+ * Needed as an explicit guard because control-flow narrowing cannot subtract
+ * the pilot record_waypoint intersection type from the raw operation union.
+ */
+export function isWorkbenchRevisionGuardedMutation(
+  operation: DirectorWorkbenchOperation,
+): operation is
+  WorkbenchMutation | WorkbenchProductionMutation | WorkbenchGenerated3DPromotion | WorkbenchStoryboardMutation {
+  return isWorkbenchMutation(operation) && !isWorkbenchSessionMutation(operation);
 }
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "character-agent-possession",
-  "description": "Place a catalog character, bind an Agent to it, drive it with packaged motion and pose, and verify the echoed agent binding before unbinding.",
+  "description": "Place a catalog character, bind an Agent to it, drive it from the possessing session (including gateway target fill-in), verify the possession scope rejects out-of-scope mutations and Player/Pilot bypasses, then unbind.",
   "steps": [
     {
       "label": "catalog packaged character motions",
@@ -9,7 +9,7 @@
       "expect": { "success": true, "result_paths": ["result.items"] }
     },
     {
-      "label": "place catalog character and bind agent",
+      "label": "place characters and bind agent",
       "tool": "director_workbench",
       "input": {
         "op": "author",
@@ -23,6 +23,14 @@
             "transform": { "position": [2, 0, 2], "rotation": [0, 0, 0], "scale": [1, 1, 1] }
           },
           {
+            "action": "add_object",
+            "id": "eval-bystander-character",
+            "name": "Eval Bystander",
+            "kind": "character",
+            "placement_mode": "grounded",
+            "transform": { "position": [-2, 0, 2], "rotation": [0, 0, 0], "scale": [1, 1, 1] }
+          },
+          {
             "action": "bind_character_agent",
             "object_id": "eval-agent-character",
             "session_id": "dsh-eval-possess",
@@ -32,12 +40,24 @@
       },
       "expect": {
         "success": true,
-        "result_paths": ["result.project_revision", "result.created.object_ids.0"]
+        "result_paths": ["result.project_revision", "result.created.object_ids.0", "result.created.object_ids.1"]
       }
     },
     {
-      "label": "drive bound character with motion and pose",
+      "label": "binding the anonymous http session is rejected",
       "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          { "action": "bind_character_agent", "object_id": "eval-bystander-character", "session_id": "http-default" }
+        ]
+      },
+      "expect": { "success": false, "error_includes": "http-default" }
+    },
+    {
+      "label": "possessing session drives motion and pose",
+      "tool": "director_workbench",
+      "session_id": "dsh-eval-possess",
       "input": {
         "op": "author",
         "actions": [
@@ -56,6 +76,45 @@
         ]
       },
       "expect": { "success": true, "result_paths": ["result.project_revision"] }
+    },
+    {
+      "label": "gateway fills the omitted object target for the sole possessed character",
+      "tool": "director_workbench",
+      "session_id": "dsh-eval-possess",
+      "gateway_fills_target": true,
+      "input": {
+        "op": "author",
+        "actions": [{ "action": "set_character_motion", "clip_id": "walk", "loop": "repeat", "speed": 1 }]
+      },
+      "expect": { "success": true, "result_paths": ["result.updated.object_ids.0"] }
+    },
+    {
+      "label": "possessing session cannot mutate another character",
+      "tool": "director_workbench",
+      "session_id": "dsh-eval-possess",
+      "input": {
+        "op": "author",
+        "actions": [{ "action": "set_character_motion", "object_id": "eval-bystander-character", "clip_id": "walk" }]
+      },
+      "expect": {
+        "success": false,
+        "code": "possession_scope_violation",
+        "error_includes": "eval-bystander-character"
+      }
+    },
+    {
+      "label": "player enter must name the possessed actor",
+      "tool": "director_workbench",
+      "session_id": "dsh-eval-possess",
+      "input": { "op": "player", "action": "enter" },
+      "expect": { "success": false, "code": "possession_scope_violation", "error_includes": "actor_id" }
+    },
+    {
+      "label": "pilot waypoint recording is outside the possession scope",
+      "tool": "director_workbench",
+      "session_id": "dsh-eval-possess",
+      "input": { "op": "pilot", "action": "record_waypoint" },
+      "expect": { "success": false, "code": "possession_scope_violation", "error_includes": "record_waypoint" }
     },
     {
       "label": "inspect echoed agent binding and motion",

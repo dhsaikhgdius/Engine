@@ -26,6 +26,10 @@ type GoldenTask = {
   steps: Array<{
     label: string;
     tool: keyof typeof schemas;
+    /** Optional per-step agent session identity (e.g. the possessing session). */
+    session_id?: string;
+    /** The gateway possession preflight fills this input's omitted character target before validation. */
+    gateway_fills_target?: boolean;
     input: unknown;
     expect: { success: boolean };
   }>;
@@ -46,8 +50,14 @@ describe("Agent golden tasks", () => {
       expect(new Set(task.steps.map((step) => step.label)).size).toBe(task.steps.length);
       for (const step of task.steps) {
         expect(Object.hasOwn(schemas, step.tool), `${task.name}: unknown tool ${step.tool}`).toBe(true);
-        if (step.expect.success) {
-          expect(schemas[step.tool].safeParse(step.input).success, `${task.name}: invalid ${step.label}`).toBe(true);
+        if (!step.expect.success) continue;
+        const parses = schemas[step.tool].safeParse(step.input).success;
+        if (step.gateway_fills_target) {
+          // Deliberately incomplete input: the gateway fills the omitted
+          // character target from the possession preflight before validation.
+          expect(parses, `${task.name}: ${step.label} no longer needs gateway fill-in`).toBe(false);
+        } else {
+          expect(parses, `${task.name}: invalid ${step.label}`).toBe(true);
         }
       }
     }

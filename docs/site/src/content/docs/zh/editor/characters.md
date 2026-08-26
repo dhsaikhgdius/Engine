@@ -168,11 +168,18 @@ observe 的人物摘要会回显 `agent_binding`。
 
 possess 模式同时限制该 session 的写入范围：绑定了人物的 session 只能修改自己接管的人物；
 删除其他对象、修改别人的人物、`start_scene`、`replace_project` 等全局写入会被网关以可读错误
-拒绝（HTTP 403，代码 `possession_scope_violation`）。未绑定任何人物的普通导演 session 行为
-不变。所有人物 action 仍需显式 `object_id`。
+拒绝（HTTP 403，代码 `possession_scope_violation`）。玩家模式与相机 Pilot 也在同一范围内：
+`player` 的 `enter`/`set_actor` 必须显式命名被接管的 `actor_id`（其余 player 动作驱动这个受约束
+的实时角色），`pilot record_waypoint` 会写入不属于任何人物的相机关键帧，因而被拒绝；瞬时飞行
+（`start`/`stop`/`set_view`）不受影响。未绑定任何人物的普通导演 session 行为不变。
 
-「放置人物 → 绑定 Agent → 用 motion/pose 驱动 → 校验回显的 `agent_binding` → 解绑」这条完整
-链路由黄金评测任务 `tools/evals/tasks/08-character-agent-possession.json` 回归覆盖，通过
+显式 id 仍是规范用法。当 session 只接管一个人物时，人物类 author action 可省略对象目标，
+网关会在校验前补全该人物 id；接管多个角色的 session 必须显式命名目标。绑定匿名 HTTP 回退
+会话 id `http-default` 会被拒绝——所有未声明身份的 HTTP 调用方共享该 id，无法作为接管身份。
+
+「放置人物 → 绑定 Agent → 以占有会话驱动（含省略目标补全）→ 校验越权 author/`player`/`pilot`
+均被 `possession_scope_violation` 拒绝 → 解绑」这条完整链路由黄金评测任务
+`tools/evals/tasks/08-character-agent-possession.json` 回归覆盖，通过
 `npm run eval` 运行（见仓库中的 `tools/evals/README.zh-CN.md`）。
 
 ## CLI 快速检查

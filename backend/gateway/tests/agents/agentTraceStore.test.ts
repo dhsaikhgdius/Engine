@@ -57,6 +57,71 @@ describe("AgentTraceStore", () => {
     expect(event.error).toContain("[REDACTED]");
   });
 
+  it("redacts token-bearing capture references before storage", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const store = new AgentTraceStore({ dataDirectory });
+    const event = await store.record(
+      eventInput({ capture_ref: "http://127.0.0.1:8787/api/preview?preview_token=tok-secret-1" }),
+    );
+    expect(event.capture_ref).not.toContain("tok-secret-1");
+    expect(event.capture_ref).toContain("[REDACTED]");
+    await store.flush();
+    const eventsFile = await readFile(join(dataDirectory, "agent-traces", "events.jsonl"), "utf8");
+    expect(eventsFile).not.toContain("tok-secret-1");
+  });
+
+  it("delivers redacted records to subscribed observers and contains their failures", async () => {
+    const store = new AgentTraceStore();
+    const seen: string[] = [];
+    const unsubscribe = store.subscribe((record) => {
+      if (record.kind === "trace") seen.push(record.event.operation);
+      else seen.push(`usage:${record.sample.scope}`);
+    });
+    store.subscribe(() => {
+      throw new Error("observer bug");
+    });
+    const recorded = await store.record(
+      eventInput({ outcome: "error", status_code: 500, error: "token=super-secret failure" }),
+    );
+    expect(recorded).toBeTruthy();
+    await store.recordUsage({
+      scope: "film-run-1",
+      provider: "api",
+      model: "gpt-x",
+      input_tokens: 1,
+      output_tokens: 1,
+      total_tokens: 2,
+      duration_ms: 10,
+      retries: 0,
+      succeeded: true,
+    });
+    expect(seen).toEqual(["observe", "usage:film-run-1"]);
+
+    unsubscribe();
+    await store.record(eventInput({ operation: "after-unsubscribe" }));
+    expect(seen).toEqual(["observe", "usage:film-run-1"]);
+  });
+
+  it("lists compact per-session aggregates, newest session first", async () => {
+    const store = new AgentTraceStore();
+    await store.record(eventInput({ session_id: "session-a", started_at: "2026-08-25T10:00:00.000Z" }));
+    await store.record(
+      eventInput({
+        session_id: "session-a",
+        operation: "author",
+        outcome: "conflict",
+        status_code: 409,
+        started_at: "2026-08-25T10:00:01.000Z",
+      }),
+    );
+    await store.record(eventInput({ session_id: "session-b", started_at: "2026-08-25T10:00:05.000Z" }));
+    const sessions = await store.listSessionSummaries();
+    expect(sessions.map((session) => session.session_id)).toEqual(["session-b", "session-a"]);
+    expect(sessions[1]).toMatchObject({ call_count: 2, conflict_count: 1 });
+    expect(sessions.every((session) => !("chain" in session))).toBe(true);
+    expect(await store.listSessionSummaries(1)).toHaveLength(1);
+  });
+
   it("keeps the buffer bounded to the configured limit", async () => {
     const store = new AgentTraceStore({ limit: 3 });
     for (let index = 0; index < 5; index += 1) {

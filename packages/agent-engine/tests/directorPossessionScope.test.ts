@@ -226,6 +226,44 @@ describe("evaluateDirectorPossessionScope", () => {
     expect(cameraAnimation).toMatchObject({ allowed: false, error: expect.stringContaining('"set_animation"') });
   });
 
+  it("scopes player enter/set_actor to an explicitly named possessed actor", () => {
+    // Omitted actor_id would fall back to shared-tab state (nearest candidate
+    // or the user's selection), so possession requires the explicit id.
+    const enterOmitted = evaluate({ op: "player", action: "enter" }, ["hero"]);
+    expect(enterOmitted).toMatchObject({ allowed: false, error: expect.stringContaining("actor_id") });
+
+    const setActorOmitted = evaluate({ op: "player", action: "set_actor" }, ["hero"]);
+    expect(setActorOmitted).toMatchObject({ allowed: false, error: expect.stringContaining("actor_id") });
+
+    const enterOutside = evaluate({ op: "player", action: "enter", actor_id: "villain" }, ["hero"]);
+    expect(enterOutside).toMatchObject({ allowed: false, error: expect.stringContaining('"villain"') });
+
+    expect(evaluate({ op: "player", action: "enter", actor_id: "hero" }, ["hero"])).toEqual({ allowed: true });
+    expect(evaluate({ op: "player", action: "set_actor", actor_id: "hero" }, ["hero"])).toEqual({ allowed: true });
+  });
+
+  it("keeps the live-actor player verbs available to a possessed session", () => {
+    expect(evaluate({ op: "player", action: "exit" }, ["hero"])).toEqual({ allowed: true });
+    expect(evaluate({ op: "player", action: "teleport", position: [1, 0, 2] }, ["hero"])).toEqual({ allowed: true });
+    expect(evaluate({ op: "player", action: "walk_to", object_id: "villain" }, ["hero"])).toEqual({ allowed: true });
+    expect(evaluate({ op: "player", action: "record_start" }, ["hero"])).toEqual({ allowed: true });
+    expect(evaluate({ op: "player", action: "record_stop" }, ["hero"])).toEqual({ allowed: true });
+    // Unpossessed sessions keep the whole player surface, including enter
+    // without an explicit actor.
+    expect(evaluate({ op: "player", action: "enter" }, [])).toEqual({ allowed: true });
+  });
+
+  it("rejects pilot.record_waypoint under possession but keeps transient flight", () => {
+    const waypoint = evaluate({ op: "pilot", action: "record_waypoint" }, ["hero"]);
+    expect(waypoint).toMatchObject({ allowed: false, error: expect.stringContaining("pilot.record_waypoint") });
+    if (!waypoint.allowed) expect(waypoint.error).toContain("camera keyframes");
+
+    expect(evaluate({ op: "pilot", action: "start" }, ["hero"])).toEqual({ allowed: true });
+    expect(evaluate({ op: "pilot", action: "stop" }, ["hero"])).toEqual({ allowed: true });
+    expect(evaluate({ op: "pilot", action: "set_view", position: [0, 1.6, 4] }, ["hero"])).toEqual({ allowed: true });
+    expect(evaluate({ op: "pilot", action: "record_waypoint" }, [])).toEqual({ allowed: true });
+  });
+
   it("rejects non-author mutations with a readable, actionable error", () => {
     const undo = evaluate({ op: "undo" }, ["hero"]);
     expect(undo).toMatchObject({ allowed: false, error: expect.stringContaining('"undo"') });

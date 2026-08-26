@@ -11,7 +11,7 @@
 
 import { z } from "zod";
 import { isTerminalProductionJobStatus, type ProductionJobRecord } from "./productionJobProtocol";
-import type { FilmRun } from "./filmPipelineProtocol";
+import { filmRunProgress, type FilmRun } from "./filmPipelineProtocol";
 
 const nonEmptyText = (maximum: number) => z.string().trim().min(1).max(maximum);
 
@@ -141,6 +141,42 @@ export const agentTraceSessionSummarySchema = z.strictObject({
 });
 /** Reconstructed session tool-chain summary. */
 export type AgentTraceSessionSummary = z.infer<typeof agentTraceSessionSummarySchema>;
+
+/**
+ * Compact aggregate of one session: the session summary without the
+ * per-call chain, sized for listing many sessions cheaply.
+ */
+export const agentTraceSessionAggregateSchema = agentTraceSessionSummarySchema.omit({ chain: true });
+/** Compact per-session aggregate. */
+export type AgentTraceSessionAggregate = z.infer<typeof agentTraceSessionAggregateSchema>;
+
+/**
+ * Aggregates trace events into per-session summaries without chains,
+ * most-recent session first (ordered by each session's last event).
+ *
+ * @param events - Trace events (any order, any sessions).
+ * @param limit - Maximum number of sessions to return (default 50).
+ * @returns Compact aggregates, newest session first.
+ */
+export function summarizeAgentTraceSessions(
+  events: readonly AgentTraceEvent[],
+  limit = 50,
+): AgentTraceSessionAggregate[] {
+  const bySession = new Map<string, AgentTraceEvent[]>();
+  for (const event of events) {
+    const bucket = bySession.get(event.session_id);
+    if (bucket) bucket.push(event);
+    else bySession.set(event.session_id, [event]);
+  }
+  const aggregates: AgentTraceSessionAggregate[] = [];
+  for (const [sessionId, own] of bySession) {
+    const summary = summarizeAgentTraceSession(sessionId, own);
+    if (!summary) continue;
+    const { chain: _chain, ...aggregate } = summary;
+    aggregates.push(agentTraceSessionAggregateSchema.parse(aggregate));
+  }
+  return aggregates.sort((left, right) => right.ended_at.localeCompare(left.ended_at)).slice(0, limit);
+}
 
 /**
  * Reconstructs the tool-chain summary for one session from its trace events.
@@ -299,6 +335,41 @@ export const unifiedProgressSchema = z.strictObject({
 export type UnifiedProgress = z.infer<typeof unifiedProgressSchema>;
 
 /**
+ * Lightweight aggregate over unified progress entries: exhaustive
+ * (zero-filled) counts per lifecycle state and per work-item kind.
+ */
+export const unifiedProgressSummarySchema = z.strictObject({
+  entry_count: z.number().int().nonnegative(),
+  by_state: z.record(unifiedProgressStateSchema, z.number().int().nonnegative()),
+  by_kind: z.record(unifiedProgressKindSchema, z.number().int().nonnegative()),
+});
+/** Aggregated unified progress counts. */
+export type UnifiedProgressSummary = z.infer<typeof unifiedProgressSummarySchema>;
+
+/**
+ * Aggregates unified progress entries into exhaustive per-state and
+ * per-kind counts (every enum key present, zero-filled).
+ *
+ * @param entries - The unified progress entries to count.
+ * @returns The validated aggregate.
+ */
+export function summarizeUnifiedProgress(entries: readonly UnifiedProgress[]): UnifiedProgressSummary {
+  const byState = Object.fromEntries(unifiedProgressStateSchema.options.map((state) => [state, 0])) as Record<
+    UnifiedProgressState,
+    number
+  >;
+  const byKind = Object.fromEntries(unifiedProgressKindSchema.options.map((kind) => [kind, 0])) as Record<
+    UnifiedProgressKind,
+    number
+  >;
+  for (const entry of entries) {
+    byState[entry.state] += 1;
+    byKind[entry.kind] += 1;
+  }
+  return unifiedProgressSummarySchema.parse({ entry_count: entries.length, by_state: byState, by_kind: byKind });
+}
+
+/**
  * Adapts a durable production job (video, image, audio, 3D, media, DCC
  * export/import, episode packaging) into the unified progress shape.
  */
@@ -382,17 +453,6 @@ export function multiAgentRunToUnifiedProgress(run: MultiAgentRunProgressSource)
   });
 }
 
-const FILM_RUN_PHASE_ORDER = [
-  "develop-story",
-  "extract-characters",
-  "write-scenes",
-  "plan-scenes",
-  "await-approval",
-  "render",
-  "assemble",
-  "completed",
-] as const;
-
 /** Adapts a durable film pipeline run into the unified progress shape. */
 export function filmRunToUnifiedProgress(run: FilmRun): UnifiedProgress {
   const state: UnifiedProgressState =
@@ -407,16 +467,16 @@ export function filmRunToUnifiedProgress(run: FilmRun): UnifiedProgress {
             : run.status === "failed"
               ? "failed"
               : "cancelled";
-  const phaseIndex = FILM_RUN_PHASE_ORDER.indexOf(run.phase);
   return unifiedProgressSchema.parse({
     contract: UNIFIED_PROGRESS_CONTRACT,
     kind: "film_run",
     id: run.id,
     label: run.workflow,
     state,
-    // Phases advance sequentially; the fraction of completed phases is the
-    // only honest numeric signal the film run exposes.
-    progress: phaseIndex >= 0 ? phaseIndex / (FILM_RUN_PHASE_ORDER.length - 1) : null,
+    // Shared with the film run receipt (filmRunProgress): phases advance
+    // sequentially, so the fraction of completed phases is the only honest
+    // numeric signal the film run exposes.
+    progress: filmRunProgress(run),
     message: run.events.at(-1)?.message ?? null,
     source_status: run.status,
     created_at: run.createdAt,

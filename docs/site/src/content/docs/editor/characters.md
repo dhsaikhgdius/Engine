@@ -195,13 +195,24 @@ transforms, and `set_animation`. The observe character summary echoes `agent_bin
 Possess mode also scopes the session's writes: a session that possesses characters may only
 mutate those characters. Deleting other objects, editing someone else's character, `start_scene`,
 and `replace_project` are rejected by the gateway with a readable error (HTTP 403, code
-`possession_scope_violation`). Sessions that possess no character keep full stage-wide authoring.
-All character actions still require an explicit `object_id`.
+`possession_scope_violation`). Player Mode and Camera Pilot are scoped the same way:
+`player` `enter`/`set_actor` must name a possessed `actor_id` explicitly (the remaining player
+verbs then drive that constrained live actor), and `pilot record_waypoint` is rejected because
+it writes camera keyframes outside any character, while transient pilot flight
+(`start`/`stop`/`set_view`) stays available. Sessions that possess no character keep full
+stage-wide authoring.
 
-The complete loop — place a character, bind an Agent, drive it with motion/pose, verify the
-echoed `agent_binding`, then unbind — is covered by the golden eval task
-`tools/evals/tasks/08-character-agent-possession.json`, run through `npm run eval`
-(see `tools/evals/README.md` in the repository).
+Explicit ids remain canonical. When a session possesses exactly one character, character-scoped
+author actions may omit their object target and the gateway fills the possessed character id
+before validation; sessions possessing several characters must name the target explicitly.
+Binding the anonymous HTTP fallback session id `http-default` is rejected — every untargeted
+HTTP caller shares that id, so it is meaningless as a possession identity.
+
+The complete loop — place characters, bind an Agent, drive the possessed character from its own
+session (including the omitted-target fill-in), verify that out-of-scope author, `player`, and
+`pilot` writes are rejected with `possession_scope_violation`, then unbind — is covered by the
+golden eval task `tools/evals/tasks/08-character-agent-possession.json`, run through
+`npm run eval` (see `tools/evals/README.md` in the repository).
 
 ## Quick CLI check
 

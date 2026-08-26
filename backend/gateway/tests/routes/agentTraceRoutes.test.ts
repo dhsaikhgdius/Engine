@@ -132,6 +132,28 @@ describe("agent trace routes", () => {
     expect(body.code).toBe("invalid_trace_query");
   });
 
+  it("lists compact per-session aggregates via the sessions route", async () => {
+    const { dependencies, json } = await fixture();
+    expect(await handleAgentTraceRoute(request(), response(), url("/api/agent/traces/sessions"), dependencies)).toBe(
+      true,
+    );
+    const [, status, body] = json.mock.calls[0] as [
+      unknown,
+      number,
+      { sessions: { session_id: string; call_count: number; conflict_count: number }[] },
+    ];
+    expect(status).toBe(200);
+    expect(body.sessions).toHaveLength(1);
+    expect(body.sessions[0]).toMatchObject({ session_id: "mcp-session-1", call_count: 2, conflict_count: 1 });
+    expect("chain" in body.sessions[0]!).toBe(false);
+
+    json.mockClear();
+    await handleAgentTraceRoute(request(), response(), url("/api/agent/traces/sessions?limit=0"), dependencies);
+    const [, invalidStatus, invalidBody] = json.mock.calls[0] as [unknown, number, { code: string }];
+    expect(invalidStatus).toBe(400);
+    expect(invalidBody.code).toBe("invalid_trace_query");
+  });
+
   it("reconstructs the latest session tool chain via the summary route", async () => {
     const { dependencies, json } = await fixture();
     await handleAgentTraceRoute(request(), response(), url("/api/agent/traces/summary"), dependencies);
@@ -180,15 +202,27 @@ describe("agent trace routes", () => {
     const [, status, body] = json.mock.calls[0] as [
       unknown,
       number,
-      { entries: { kind: string; id: string; state: string; contract: string }[] },
+      {
+        entries: { kind: string; id: string; state: string; contract: string }[];
+        summary: { entry_count: number; by_state: Record<string, number>; by_kind: Record<string, number> };
+      },
     ];
     expect(status).toBe(200);
     expect(body.entries.map((entry) => entry.kind)).toEqual(["film_run", "multi_agent_run", "production_job"]);
     expect(body.entries.every((entry) => entry.contract === "director-progress-v1")).toBe(true);
+    expect(body.summary.entry_count).toBe(3);
+    expect(body.summary.by_state).toMatchObject({ running: 2, waiting: 1, failed: 0 });
+    expect(body.summary.by_kind).toEqual({ production_job: 1, multi_agent_run: 1, film_run: 1 });
 
     json.mockClear();
     await handleAgentTraceRoute(request(), response(), url("/api/agent/progress?kind=production_job"), dependencies);
-    const [, , filtered] = json.mock.calls[0] as [unknown, number, { entries: { id: string }[] }];
+    const [, , filtered] = json.mock.calls[0] as [
+      unknown,
+      number,
+      { entries: { id: string }[]; summary: { entry_count: number } },
+    ];
     expect(filtered.entries.map((entry) => entry.id)).toEqual(["job-1"]);
+    // The summary counts everything that matched the kind filter.
+    expect(filtered.summary.entry_count).toBe(1);
   });
 });

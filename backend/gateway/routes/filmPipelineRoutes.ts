@@ -1,5 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createFilmRunRequestSchema } from "../../../packages/protocol/src/filmPipelineProtocol";
+import {
+  createFilmRunRequestSchema,
+  type FilmPipelineAvailability,
+  type FilmPipelinePublicErrorCode,
+} from "../../../packages/protocol/src/filmPipelineProtocol";
+import { projectFilmRunReceipt } from "../../../packages/protocol/src/filmRunReceipt";
 import type { FilmPipelineOrchestrator } from "../film/filmPipelineOrchestrator";
 import type { FilmRunStore } from "../film/filmRunStore";
 
@@ -14,6 +19,11 @@ export type FilmPipelineRouteDependencies = {
   unconfiguredReason?: string;
 };
 
+/** Every non-2xx film route response carries one frozen public error code. */
+function errorBody(code: FilmPipelinePublicErrorCode, error: string, extra: Record<string, unknown> = {}) {
+  return { error, code, ...extra };
+}
+
 export async function handleFilmPipelineRoute(
   request: IncomingMessage,
   response: ServerResponse,
@@ -23,64 +33,72 @@ export async function handleFilmPipelineRoute(
   const { readBody, json, store, orchestrator } = dependencies;
   if (!url.pathname.startsWith("/api/film/runs")) return false;
 
+  // The unconfigured pipeline is an explicit reported state on the list
+  // surface, not a hidden 503 that only shows up on writes.
+  const pipeline: FilmPipelineAvailability = orchestrator
+    ? { configured: true, reason: null }
+    : { configured: false, reason: dependencies.unconfiguredReason ?? "Film pipeline providers 未配置" };
+  const unconfigured = () =>
+    json(response, 503, errorBody("film_pipeline_unconfigured", pipeline.reason ?? "Film pipeline providers 未配置"));
+
   if (request.method === "GET" && url.pathname === "/api/film/runs") {
-    json(response, 200, { runs: await store.list() });
+    json(response, 200, { runs: await store.list(), pipeline });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/film/runs") {
     if (!orchestrator) {
-      json(response, 503, {
-        error: dependencies.unconfiguredReason ?? "Film pipeline providers 未配置",
-        code: "film_pipeline_unconfigured",
-      });
+      unconfigured();
       return true;
     }
     const parsed = createFilmRunRequestSchema.safeParse(await readBody(request));
     if (!parsed.success) {
-      json(response, 400, { error: "Film run 参数无效", code: "invalid_request", issues: parsed.error.issues });
+      json(response, 400, errorBody("invalid_request", "Film run 参数无效", { issues: parsed.error.issues }));
       return true;
     }
     const run = await orchestrator.create(parsed.data);
-    json(response, 202, { run });
+    json(response, 202, { run, receipt: projectFilmRunReceipt(run) });
     return true;
   }
 
-  const match = url.pathname.match(/^\/api\/film\/runs\/([^/]+)(?:\/(resume|cancel|approve))?$/);
+  const match = url.pathname.match(/^\/api\/film\/runs\/([^/]+)(?:\/(resume|cancel|approve|receipt))?$/);
   if (!match) return false;
   let id: string;
   try {
     id = decodeURIComponent(match[1]);
   } catch {
-    json(response, 400, { error: "Film run id 编码无效", code: "invalid_run_id" });
+    json(response, 400, errorBody("invalid_run_id", "Film run id 编码无效"));
     return true;
   }
   const action = match[2];
   const run = await store.get(id);
   if (!run) {
-    json(response, 404, { error: "Film run 不存在", code: "run_not_found" });
+    json(response, 404, errorBody("run_not_found", "Film run 不存在"));
     return true;
   }
   if (request.method === "GET" && !action) {
-    json(response, 200, { run });
+    json(response, 200, { run, receipt: projectFilmRunReceipt(run) });
     return true;
   }
-  if (request.method === "POST" && action) {
-    if (!orchestrator) {
-      json(response, 503, {
-        error: dependencies.unconfiguredReason ?? "Film pipeline providers 未配置",
-        code: "film_pipeline_unconfigured",
-      });
-      return true;
-    }
+  // The normalized receipt every control surface shares (mirrors
+  // GET /api/production-jobs/:id/receipt).
+  if (request.method === "GET" && action === "receipt") {
+    json(response, 200, { receipt: projectFilmRunReceipt(run) });
+    return true;
+  }
+  if (request.method === "POST" && action && action !== "receipt") {
     if (action === "cancel") {
-      json(response, 200, { run: await orchestrator.cancel(id) });
+      // Cancel is a pure state transition; it stays available on an
+      // unconfigured gateway so stale runs remain controllable.
+      const cancelled = orchestrator ? await orchestrator.cancel(id) : await store.markCancelled(id);
+      json(response, 200, { run: cancelled, receipt: projectFilmRunReceipt(cancelled) });
       return true;
     }
-    if (action === "resume") {
-      json(response, 202, { run: await orchestrator.resume(id) });
+    if (!orchestrator) {
+      unconfigured();
       return true;
     }
-    json(response, 202, { run: await orchestrator.approve(id) });
+    const updated = action === "resume" ? await orchestrator.resume(id) : await orchestrator.approve(id);
+    json(response, 202, { run: updated, receipt: projectFilmRunReceipt(updated) });
     return true;
   }
   return false;

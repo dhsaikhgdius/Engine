@@ -41,6 +41,8 @@ import {
   isCreativeMutation,
   isWorkbenchDurableJobMutation,
   isWorkbenchMutation,
+  isWorkbenchRevisionGuardedMutation,
+  isWorkbenchSessionMutation,
   prepareAgentDurableJobMutation,
   prepareAgentMutation,
   recallAgentSessionTarget,
@@ -973,6 +975,46 @@ export async function handleStageRoute(
       }
       let workbenchOperation = operation;
       let agentBoundary: AgentBoundaryReceipt | undefined;
+      // Possession scope: a session bound to characters (mode=possess) may
+      // only mutate those characters. Resolves the binding set (probing the
+      // exact target when no preflight already observed characters) and writes
+      // the 403 rejection; returns true when a response was written.
+      const rejectsPossessionScope = async (candidate: DirectorWorkbenchOperation): Promise<boolean> => {
+        if (!possessionCharacters) {
+          let bindingProbe: WorkbenchRemote | null;
+          try {
+            bindingProbe = await requestWorkbenchCommand(
+              { op: "observe", fields: ["characters"] },
+              undefined,
+              targetToken,
+            );
+          } catch (error) {
+            if (writeBrowserCommandTimeout(response, respond, error, scene)) return true;
+            throw error;
+          }
+          if (!bindingProbe || bindingProbe.target.token !== targetToken) {
+            respond(response, 409, {
+              scene,
+              success: false,
+              code: bindingProbe ? "target_mismatch" : "target_unavailable",
+              error: "The exact Workbench target changed during the possession preflight. No mutation was sent.",
+            });
+            return true;
+          }
+          possessionCharacters = observedWorkbenchCharacters(bindingProbe.response.result) ?? [];
+        }
+        const possessedObjectIds = collectPossessedObjectIds(possessionCharacters, possessionIdentity);
+        if (!possessedObjectIds.length) return false;
+        const verdict = evaluateDirectorPossessionScope({ operation: candidate, sessionId, possessedObjectIds });
+        if (verdict.allowed) return false;
+        respond(response, 403, {
+          scene,
+          success: false,
+          code: "possession_scope_violation",
+          error: verdict.error,
+        });
+        return true;
+      };
       if (isWorkbenchDurableJobMutation(workbenchOperation)) {
         const prepared = prepareAgentDurableJobMutation({
           tool: "director_workbench",
@@ -980,7 +1022,12 @@ export async function handleStageRoute(
         });
         workbenchOperation = prepared.mutation.operation;
         agentBoundary = prepared.receipt;
-      } else if (isWorkbenchMutation(workbenchOperation)) {
+      } else if (isWorkbenchSessionMutation(workbenchOperation)) {
+        // Player Mode and pilot.record_waypoint mutate live project state but
+        // carry no revision-guard fields, so they skip prepareAgentMutation;
+        // the possession scope still applies before dispatch.
+        if (await rejectsPossessionScope(workbenchOperation)) return true;
+      } else if (isWorkbenchRevisionGuardedMutation(workbenchOperation)) {
         const prepared = prepareAgentMutation({ tool: "director_workbench", operation: workbenchOperation }, sessionId);
         let secured = prepared;
         if (prepared.needsObservation) {
@@ -1032,49 +1079,9 @@ export async function handleStageRoute(
           possessionCharacters ??= observedWorkbenchCharacters(observation.response.result);
           secured = applyObservedAgentGuard(prepared, sessionId, revision);
         }
-        // Possession scope: a session bound to characters (mode=possess) may
-        // only mutate those characters. Guard-carrying mutations that skipped
-        // the revision preflight still resolve the binding set before dispatch.
-        if (!possessionCharacters) {
-          let bindingProbe: WorkbenchRemote | null;
-          try {
-            bindingProbe = await requestWorkbenchCommand(
-              { op: "observe", fields: ["characters"] },
-              undefined,
-              targetToken,
-            );
-          } catch (error) {
-            if (writeBrowserCommandTimeout(response, respond, error, scene)) return true;
-            throw error;
-          }
-          if (!bindingProbe || bindingProbe.target.token !== targetToken) {
-            respond(response, 409, {
-              scene,
-              success: false,
-              code: bindingProbe ? "target_mismatch" : "target_unavailable",
-              error: "The exact Workbench target changed during the possession preflight. No mutation was sent.",
-            });
-            return true;
-          }
-          possessionCharacters = observedWorkbenchCharacters(bindingProbe.response.result) ?? [];
-        }
-        const possessedObjectIds = collectPossessedObjectIds(possessionCharacters, possessionIdentity);
-        if (possessedObjectIds.length) {
-          const verdict = evaluateDirectorPossessionScope({
-            operation: secured.mutation.operation as DirectorWorkbenchOperation,
-            sessionId,
-            possessedObjectIds,
-          });
-          if (!verdict.allowed) {
-            respond(response, 403, {
-              scene,
-              success: false,
-              code: "possession_scope_violation",
-              error: verdict.error,
-            });
-            return true;
-          }
-        }
+        // Guard-carrying mutations that skipped the revision preflight still
+        // resolve the binding set before dispatch.
+        if (await rejectsPossessionScope(secured.mutation.operation as DirectorWorkbenchOperation)) return true;
         workbenchOperation = secured.mutation.operation as typeof workbenchOperation;
         agentBoundary = secured.receipt;
       }

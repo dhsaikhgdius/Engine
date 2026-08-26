@@ -1,0 +1,388 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "name": "film-timeline-test-0001",
+  "global_start_time": {
+    "OTIO_SCHEMA": "RationalTime.1",
+    "value": 0,
+    "rate": 24
+  },
+  "metadata": {
+    "director": {
+      "contract": "director-film-timeline-otio-v2",
+      "runId": "film-timeline-test-0001",
+      "frameRate": {
+        "numerator": 24,
+        "denominator": 1
+      }
+    }
+  },
+  "tracks": {
+    "OTIO_SCHEMA": "Stack.1",
+    "name": "Film tracks",
+    "metadata": {},
+    "children": [
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "name": "V1",
+        "kind": "Video",
+        "metadata": {},
+        "children": [
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "name": "scene0_shot0",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 0,
+                "rate": 24
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 120,
+                "rate": 24
+              }
+            },
+            "media_reference": {
+              "OTIO_SCHEMA": "ExternalReference.1",
+              "name": "scene0_shot0",
+              "target_url": "scene_0/shots/0/video.mp4",
+              "available_range": {
+                "OTIO_SCHEMA": "TimeRange.1",
+                "start_time": {
+                  "OTIO_SCHEMA": "RationalTime.1",
+                  "value": 0,
+                  "rate": 24
+                },
+                "duration": {
+                  "OTIO_SCHEMA": "RationalTime.1",
+                  "value": 120,
+                  "rate": 24
+                }
+              },
+              "metadata": {
+                "director": {
+                  "kind": "video",
+                  "name": "scene0_shot0"
+                }
+              }
+            },
+            "markers": [
+              {
+                "OTIO_SCHEMA": "Marker.2",
+                "name": "scene0_shot0",
+                "color": "GREEN",
+                "marked_range": {
+                  "OTIO_SCHEMA": "TimeRange.1",
+                  "start_time": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "value": 0,
+                    "rate": 24
+                  },
+                  "duration": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "value": 0,
+                    "rate": 24
+                  }
+                },
+                "metadata": {
+                  "director": {
+                    "runId": "film-timeline-test-0001",
+                    "sceneId": 0,
+                    "shotId": 0
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "director": {
+                "sceneIdx": 0,
+                "shotIdx": 0,
+                "camIdx": 3,
+                "visualDesc": "Lighthouse at dusk",
+                "motionDesc": "Slow push in",
+                "audioDesc": "Waves and wind"
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "name": "scene0_shot1",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 12,
+                "rate": 24
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 120,
+                "rate": 24
+              }
+            },
+            "media_reference": {
+              "OTIO_SCHEMA": "ExternalReference.1",
+              "name": "scene0_shot1",
+              "target_url": "scene_0/shots/1/video.mp4",
+              "available_range": {
+                "OTIO_SCHEMA": "TimeRange.1",
+                "start_time": {
+                  "OTIO_SCHEMA": "RationalTime.1",
+                  "value": 12,
+                  "rate": 24
+                },
+                "duration": {
+                  "OTIO_SCHEMA": "RationalTime.1",
+                  "value": 120,
+                  "rate": 24
+                }
+              },
+              "metadata": {
+                "director": {
+                  "kind": "video",
+                  "name": "scene0_shot1"
+                }
+              }
+            },
+            "markers": [
+              {
+                "OTIO_SCHEMA": "Marker.2",
+                "name": "scene0_shot1",
+                "color": "GREEN",
+                "marked_range": {
+                  "OTIO_SCHEMA": "TimeRange.1",
+                  "start_time": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "value": 12,
+                    "rate": 24
+                  },
+                  "duration": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "value": 0,
+                    "rate": 24
+                  }
+                },
+                "metadata": {
+                  "director": {
+                    "runId": "film-timeline-test-0001",
+                    "sceneId": 0,
+                    "shotId": 1
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "director": {
+                "sceneIdx": 0,
+                "shotIdx": 1,
+                "camIdx": 4,
+                "visualDesc": "Keeper at the railing",
+                "motionDesc": "Handheld drift",
+                "audioDesc": "[Speaker] Keeper (calm): The light holds."
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "name": "scene1_shot0",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 0,
+                "rate": 24
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 96,
+                "rate": 24
+              }
+            },
+            "media_reference": {
+              "OTIO_SCHEMA": "ExternalReference.1",
+              "name": "scene1_shot0",
+              "target_url": "scene_1/shots/0/video.mp4",
+              "available_range": {
+                "OTIO_SCHEMA": "TimeRange.1",
+                "start_time": {
+                  "OTIO_SCHEMA": "RationalTime.1",
+                  "value": 0,
+                  "rate": 24
+                },
+                "duration": {
+                  "OTIO_SCHEMA": "RationalTime.1",
+                  "value": 96,
+                  "rate": 24
+                }
+              },
+              "metadata": {
+                "director": {
+                  "kind": "video",
+                  "name": "scene1_shot0"
+                }
+              }
+            },
+            "markers": [
+              {
+                "OTIO_SCHEMA": "Marker.2",
+                "name": "scene1_shot0",
+                "color": "GREEN",
+                "marked_range": {
+                  "OTIO_SCHEMA": "TimeRange.1",
+                  "start_time": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "value": 0,
+                    "rate": 24
+                  },
+                  "duration": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "value": 0,
+                    "rate": 24
+                  }
+                },
+                "metadata": {
+                  "director": {
+                    "runId": "film-timeline-test-0001",
+                    "sceneId": 1,
+                    "shotId": 0
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "director": {
+                "sceneIdx": 1,
+                "shotIdx": 0,
+                "camIdx": 0,
+                "visualDesc": "Morning over the sea",
+                "motionDesc": "Static hold",
+                "audioDesc": "Gulls"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "name": "A1",
+        "kind": "Audio",
+        "metadata": {},
+        "children": [
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "name": "scene0_shot0",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 0,
+                "rate": 24
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 120,
+                "rate": 24
+              }
+            },
+            "media_reference": {
+              "OTIO_SCHEMA": "ExternalReference.1",
+              "name": "scene0_shot0",
+              "target_url": "scene_0/shots/0/video.mp4",
+              "available_range": {
+                "OTIO_SCHEMA": "TimeRange.1",
+                "start_time": {
+                  "OTIO_SCHEMA": "RationalTime.1",
+                  "value": 0,
+                  "rate": 24
+                },
+                "duration": {
+                  "OTIO_SCHEMA": "RationalTime.1",
+                  "value": 120,
+                  "rate": 24
+                }
+              },
+              "metadata": {
+                "director": {
+                  "kind": "audio",
+                  "name": "scene0_shot0"
+                }
+              }
+            },
+            "metadata": {
+              "director": {
+                "sceneIdx": 0,
+                "shotIdx": 0
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "name": "scene0_shot1",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 6,
+                "rate": 24
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 120,
+                "rate": 24
+              }
+            },
+            "media_reference": {
+              "OTIO_SCHEMA": "ExternalReference.1",
+              "name": "scene0_shot1",
+              "target_url": "scene_0/shots/1/video_with_audio.mp4",
+              "available_range": {
+                "OTIO_SCHEMA": "TimeRange.1",
+                "start_time": {
+                  "OTIO_SCHEMA": "RationalTime.1",
+                  "value": 6,
+                  "rate": 24
+                },
+                "duration": {
+                  "OTIO_SCHEMA": "RationalTime.1",
+                  "value": 132,
+                  "rate": 24
+                }
+              },
+              "metadata": {
+                "director": {
+                  "kind": "audio",
+                  "name": "scene0_shot1"
+                }
+              }
+            },
+            "metadata": {
+              "director": {
+                "sceneIdx": 0,
+                "shotIdx": 1
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Gap.1",
+            "name": "Gap",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 0,
+                "rate": 24
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 96,
+                "rate": 24
+              }
+            },
+            "metadata": {}
+          }
+        ]
+      }
+    ]
+  }
+}

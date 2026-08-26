@@ -1,9 +1,17 @@
 import { z } from "zod";
-import { filmRunSchema, type FilmRun } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
+import {
+  filmPipelineAvailabilitySchema,
+  filmRunSchema,
+  type FilmRun,
+} from "../../../../../../packages/protocol/src/filmPipelineProtocol";
+import { filmRunReceiptSchema } from "../../../../../../packages/protocol/src/filmRunReceipt";
 import { directorControlPlaneFetch } from "../../editor/api/directorControlPlaneClient";
 
-const filmRunEnvelopeSchema = z.strictObject({ run: filmRunSchema });
-const filmRunListEnvelopeSchema = z.strictObject({ runs: z.array(filmRunSchema) });
+const filmRunEnvelopeSchema = z.strictObject({ run: filmRunSchema, receipt: filmRunReceiptSchema.optional() });
+const filmRunListEnvelopeSchema = z.strictObject({
+  runs: z.array(filmRunSchema),
+  pipeline: filmPipelineAvailabilitySchema.optional(),
+});
 
 /** A film production run monitored by the tray. */
 export type DirectorMonitoredProductionRun = { source: "film"; run: FilmRun };
