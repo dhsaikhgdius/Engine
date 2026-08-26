@@ -97,11 +97,12 @@ flowchart LR
 
 - [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/) covers every Stage
   `directorStore` mutation entry point with mutator, file, semantic action, and
-  `shared` / `ui-only` / `human-only-interactive` status (35 / 87 project mutators shared, ~40%).
+  `shared` / `ui-only` / `human-only-interactive` status (69 / 87 project mutators shared, ~79%).
 - Parity tests in `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` assert
   that store mutators and direct `applyDirectorAuthoringActions` produce the same
-  `getDirectorProjectRevision` for deletes, transforms, camera update/add/activate, character
-  motion set/clear, and light add/update/delete.
+  `getDirectorProjectRevision` for deletes, transforms, camera update/activate, character
+  motion set/clear, body type, uniform and crowd scale, crowd transforms/labels/colors,
+  ground drops, scene settings, asset removal, and light add/update/delete.
 - Feature Status carries an **Agent UI parity coverage** row linking the inventory.
 
 ### Remaining work
@@ -123,14 +124,17 @@ flowchart LR
 
 ## Milestone 1 — Shared action registry
 
-**Status: Partial** (verified 2026-08-25). Stage one-shot project mutators for objects, cameras,
-characters/motion/IK, lights, world, scene, storyboard, and entity animation now route through
-`dispatchDirectorAuthoringActions` (batches 1a–1c plus lights/world; see the
+**Status: Partial** (verified 2026-08-26). Stage one-shot project mutators for objects (including
+multi-select/batch edits, align/distribute, isolate, pivots, names, colors, materials, vehicle
+profiles, reference bindings, and composite grouping), cameras, characters/motion/IK, crowds,
+lights, world, scene (settings, annotations, measurements, layers), storyboard, entity animation,
+and asset removal now route through `dispatchDirectorAuthoringActions` (see the
 [parity inventory](/engineering/ui-agent-parity-inventory/) for the exact per-mutator status and
 legacy fallbacks). Discrete Canvas/Video mutators (1e/1f) now route through
-`dispatchCreativeWorkspaceOperations` over the shared creative contract. Timeline audio,
-annotations/measurements, layers, materials, asset flows, and Canvas/Video creation flows and
-continuous drag streams still patch state directly, so M1 is **not complete**.
+`dispatchCreativeWorkspaceOperations` over the shared creative contract. Timeline audio, object
+lists, panorama/capture/catalog writes, clipboard paste, the deliberately-local creation flows,
+and Canvas/Video creation flows and continuous drag streams still patch state directly, so M1 is
+**not complete**.
 
 **Goal:** UI and agents share one mutation path; eliminate dual writes.
 
@@ -151,7 +155,7 @@ continuous drag streams still patch state directly, so M1 is **not complete**.
 
 | Batch  | Scope                   | Typical actions                                        | Status                                            |
 | ------ | ----------------------- | ------------------------------------------------------ | ------------------------------------------------- |
-| **1a** | Object CRUD, transforms | `add_object`, `update_object`, `delete_objects`        | Shared for delete/one-shot transform/toggle; add flows and multi-select batches open |
+| **1a** | Object CRUD, transforms | `add_object`, `update_object`, `delete_objects`        | Shared for delete/one-shot and multi-select transforms/toggles/edits and geometry primitives; asset/preset/crowd add flows stay deliberately local |
 | **1b** | Cameras and shots       | `add_camera`, `update_camera`, `set_active_camera`     | Shared                                            |
 | **1c** | Characters and motion   | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | Shared                          |
 | **1d** | Timeline / coverage     | `add_coverage_shot`, `add_performance_take`, timeline audio | Storyboard + entity animation shared; timeline audio open |
@@ -423,9 +427,9 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 ## Success metrics
 
-| Metric                          | Today (2026-08-25)                                                        | After remaining M3         | After remaining M1 drag leftover |
+| Metric                          | Today (2026-08-26)                                                        | After remaining M3         | After remaining M1 drag leftover |
 | ------------------------------- | ------------------------------------------------------------------------- | -------------------------- | -------------------------------- |
-| Parity coverage (top mutations) | ~60% of top mutations; ~40% of all Stage project mutators (35/87, see the [parity inventory](/engineering/ui-agent-parity-inventory/)) | ≥85%                       | ≥95%     |
+| Parity coverage (top mutations) | all top edit mutations shared; ~79% of all Stage project mutators (69/87, see the [parity inventory](/engineering/ui-agent-parity-inventory/)) | ≥85%                       | ≥95%     |
 | Documented human-only classes   | 0 required (file picker stays an optional local-file import convenience; OBJ/STL export-only) | 0 required                 | 0        |
 | Consistent gateway policy       | Yes (MCP / local / hosted / raw HTTP+CLI; role-gated UI shipped)           | Yes, including full read-only mode | Yes      |
 | In-product workspace            | **Yes (SQL-backed instructions/skills/memory shipped 2026-08-25)**         | Yes                        | Yes      |

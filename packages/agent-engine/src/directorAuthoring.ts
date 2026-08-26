@@ -256,6 +256,8 @@ const scenePatchSchema = z
 const objectUpdateSchema = z
   .strictObject({
     name: name.optional(),
+    /** Display label shared by every member of the target's crowd; only valid on crowd characters. */
+    crowd_label: z.string().trim().min(1).max(240).nullable().optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
     layer: z.string().trim().min(1).max(80).nullable().optional(),
@@ -1864,6 +1866,11 @@ export function applyDirectorAuthoringActions(
         if (patch.character_source !== undefined && object.kind !== "character") {
           throw new Error("character_source is only valid for character objects.");
         }
+        if (patch.crowd_label !== undefined && (object.kind !== "character" || !object.crowdId)) {
+          throw new Error(
+            `crowd_label is only valid for crowd characters; object "${object.id}" is not a crowd member. Rename standalone objects with the name patch instead.`,
+          );
+        }
         const nextAssetId = patch.asset_id === undefined ? object.assetRefId : (patch.asset_id ?? undefined);
         const nextCharacterSource = object.kind === "character" ? ("asset" as const) : undefined;
         if (object.kind === "character" && patch.asset_id === null) {
@@ -1886,6 +1893,7 @@ export function applyDirectorAuthoringActions(
           if (patch.look_target_object_id === object.id) throw new Error("An object cannot look at itself.");
         }
         if (patch.name !== undefined) object.name = patch.name;
+        assignOptional(object, "crowdLabel", patch.crowd_label);
         if (patch.visible !== undefined) object.visible = patch.visible;
         if (patch.locked !== undefined) object.locked = patch.locked;
         assignOptional(object, "layer", patch.layer);
