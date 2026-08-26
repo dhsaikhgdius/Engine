@@ -91,8 +91,8 @@ import {
   parseLegacyCreativeProjectJson,
 } from "./creativeProjectBundle";
 import {
-  attachDirectorCreativeMediaProxy,
   getDirectorMediaPreviewSource,
+  importDirectorCreativeMediaProxyCandidate,
   persistDirectorMediaItem,
   relinkDirectorCreativeMedia,
   useDirectorMediaLibrary,
@@ -759,12 +759,14 @@ export function VideoEditorWorkspace() {
   const timelineZoom = useDirectorCreativeWorkspaceStore((state) => state.timelineZoom);
   const editSettings = useDirectorCreativeWorkspaceStore((state) => state.editSettings);
   // Clip add ("+" placement), split/remove/transition, discrete fade steps,
-  // track management, settings, import cataloging, and undo/redo dispatch
-  // through the shared agent contract (dispatchCreativeWorkspaceOperations).
-  // Only continuous interactions (drags, trims, fades, range sliders, live
-  // typing), remaining overwrite-adjacent nudges/duplicates, and media-less
-  // text/caption clips keep the direct store mutators. Explicit media drops
-  // share `edit.clip.add` with overwrite:true.
+  // track management, settings, import cataloging, undo/redo, and proxy attach
+  // dispatch through the shared agent contract
+  // (dispatchCreativeWorkspaceOperations). Only continuous interactions
+  // (drags, trims, fades, range sliders, live typing), remaining
+  // overwrite-adjacent nudges/duplicates, media-less text/caption clips, and
+  // file-picker media.relink (durable IO; see media.relink async path) keep
+  // direct helpers. Explicit media drops share `edit.clip.add` with
+  // overwrite:true.
   const addClip = useDirectorCreativeWorkspaceStore((state) => state.addClip);
   const updateClip = useDirectorCreativeWorkspaceStore((state) => state.updateClip);
   const moveClipToTrack = useDirectorCreativeWorkspaceStore((state) => state.moveClipToTrack);
@@ -1599,9 +1601,18 @@ export function VideoEditorWorkspace() {
     if (!target) return;
     setImportMessage(t("正在关联代理媒体…"));
     try {
-      const receipt = await attachDirectorCreativeMediaProxy(target.id, file);
+      const proxy = await importDirectorCreativeMediaProxyCandidate(target.id, file);
+      const receipt = dispatchCreativeWorkspaceOperations({
+        op: "media.proxy.attach",
+        original_media_id: target.id,
+        proxy_media_id: proxy.id,
+      });
+      if (!receipt.ok) {
+        setImportMessage(receipt.error || t("代理媒体关联失败"));
+        return;
+      }
       setImportMessage(
-        `${t("代理媒体已关联")} · ${receipt.proxyMediaId.slice(0, 28)}${receipt.waveformReady ? ` · ${t("波形已缓存")}` : ""}`,
+        `${t("代理媒体已关联")} · ${proxy.id.slice(0, 28)}${proxy.waveform ? ` · ${t("波形已缓存")}` : ""}`,
       );
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : t("代理媒体关联失败"));

@@ -169,6 +169,8 @@ Shared today:
   one atomic `execute_batch` (catalog + node add roll back together), and media review
   rating/tag upserts (`gallery.media.update`, with a direct-store fallback only when the
   contract does not know the media id).
+- Video Editor proxy file picks: import the candidate, then `media.proxy.attach` through
+  `dispatchCreativeWorkspaceOperations` (same linker Agents use on two cataloged ids).
 
 Still direct, with reasons:
 

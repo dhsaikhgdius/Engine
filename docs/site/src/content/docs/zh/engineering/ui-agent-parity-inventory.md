@@ -162,6 +162,8 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 - Canvas 到时间线的桥（`edit.clip.add` + `workspace.switch`）、Stage 截图导入为单个原子
   `execute_batch`（入册 + 节点添加一起回滚），以及媒体评审星级/标签写入
   （`gallery.media.update`，仅当契约不认识该 media id 时回退直接写 store）。
+- Video Editor 代理文件选择：先导入候选，再经 `dispatchCreativeWorkspaceOperations` 执行
+  `media.proxy.attach`（与 Agent 在两个已入册 id 上使用的同一 linker）。
 
 仍为直接写入，附原因：
 
