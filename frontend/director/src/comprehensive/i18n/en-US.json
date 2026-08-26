@@ -3635,5 +3635,7 @@
   "存储清扫计划请求失败": "Storage sweep plan request failed",
   "存储清扫执行失败": "Storage sweep failed",
   "电影管线进度": "Film pipeline progress",
-  "Film 规划 LLM": "Film planning LLM"
+  "Film 规划 LLM": "Film planning LLM",
+  "Film 图像生成": "Film image generation",
+  "Film 视频生成": "Film video generation"
 }

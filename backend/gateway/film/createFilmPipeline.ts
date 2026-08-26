@@ -25,7 +25,11 @@ export type FilmPipelineRuntime = {
 export type FilmPipelineIntegrations = {
   /** Dispatches one director_workbench operation to a connected browser Stage. */
   workbenchExecute?: (input: Record<string, unknown>) => Promise<unknown>;
-  /** Records film planning LLM completions into the shared agent usage meter. */
+  /**
+   * Records film planning LLM completions (`film-llm`) and render-phase hosted
+   * image/video HTTP calls (`film-image` / `film-video`) into the shared agent
+   * usage meter. Tokens stay 0 for image/video; duration includes poll wait.
+   */
   usageMeter?: AgentUsageMeter;
 };
 
@@ -77,6 +81,7 @@ export function createFilmPipeline(
       baseUrl: film.image.baseUrl!,
       apiKey: film.image.apiKey,
       model: film.image.model,
+      meter: integrations.usageMeter,
     }),
     videoGenerator: new HostedVideosApiGenerator({
       baseUrl: film.video.baseUrl!,
@@ -84,6 +89,7 @@ export function createFilmPipeline(
       model: film.video.model,
       timeoutMs: film.videoTimeoutMs,
       pollIntervalMs: film.videoPollMs,
+      meter: integrations.usageMeter,
     }),
     ffmpegPath: film.ffmpegPath,
     imageConcurrency: film.imageConcurrency,
