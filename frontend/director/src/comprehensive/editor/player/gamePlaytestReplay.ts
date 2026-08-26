@@ -224,8 +224,7 @@ export function createGamePlaytestTraceRecorder(options: {
       } else if (velocity[1] < 0) {
         fallElapsedS += options.dt;
       }
-      const fellThrough =
-        !supported && (tick.belowSupport === true || fallElapsedS > GAME_PLAYTEST_FALL_LIMIT_S);
+      const fellThrough = !supported && (tick.belowSupport === true || fallElapsedS > GAME_PLAYTEST_FALL_LIMIT_S);
 
       // A takeoff (grounded -> ascending) marks the recoverable jump arc that
       // keeps emitting the jump verb until the character lands again.
@@ -332,7 +331,8 @@ function lowestSupportY(
       const dx = position[0] - obstacle.position[0];
       const dz = position[2] - obstacle.position[2];
       contains =
-        Math.abs(cosine * dx - sine * dz) <= halfWidth + 0.001 && Math.abs(sine * dx + cosine * dz) <= halfDepth + 0.001;
+        Math.abs(cosine * dx - sine * dz) <= halfWidth + 0.001 &&
+        Math.abs(sine * dx + cosine * dz) <= halfDepth + 0.001;
     } else {
       contains =
         Math.hypot(position[0] - obstacle.position[0], position[2] - obstacle.position[2]) <= obstacle.radius + 0.001;
@@ -369,8 +369,7 @@ export function replayGamePlaytestScript(options: GamePlaytestReplayOptions): Ga
     projectRevision: options.projectRevision,
   });
 
-  let state =
-    options.initialState ?? createPlayerLocomotionState([0, 0, 0], 0, groundEnabled ? groundHeight : 0);
+  let state = options.initialState ?? createPlayerLocomotionState([0, 0, 0], 0, groundEnabled ? groundHeight : 0);
   let previousJumpHeld = state.jumpHeld;
 
   for (const step of script.steps) {

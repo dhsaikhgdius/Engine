@@ -69,7 +69,9 @@ describe("mapGamePlaytestInputToPlayerInput", () => {
 
   it("maps a seated tape onto the vehicle drive contract", () => {
     expect(
-      mapGamePlaytestInputToVehicleDriveInput(gamePlaytestInputSchema.parse({ forward: true, right: true, jump: true })),
+      mapGamePlaytestInputToVehicleDriveInput(
+        gamePlaytestInputSchema.parse({ forward: true, right: true, jump: true }),
+      ),
     ).toEqual({ forward: true, backward: false, left: false, right: true, handbrake: true });
     expect(
       mapGamePlaytestInputToVehicleDriveInput(

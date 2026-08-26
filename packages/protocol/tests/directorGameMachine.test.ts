@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { describeDirectorGameTarget } from "../src/directorGameDescribe";
 import { createDirectorGameState, evaluateGamePlaytest, executeDirectorGame } from "../src/directorGameMachine";
 import { directorGameOperationNames, directorGameOperationSchema } from "../src/directorGameProtocol";
-import { createGameSliceFromBrief, type GamePlaytestTrace, type GameSlice } from "../src/gameSliceProtocol";
+import {
+  createGameSliceFromBrief,
+  gamePlaytestTraceSchema,
+  type GamePlaytestTrace,
+  type GamePlaytestTraceInput,
+  type GameSlice,
+} from "../src/gameSliceProtocol";
 
 const NOW = "2026-08-26T03:00:00.000Z";
 
@@ -22,8 +28,10 @@ async function planExploration() {
   return { state, slice: (planned.result as { slice: GameSlice }).slice };
 }
 
-function groundedTrace(sliceId: string, overrides: Partial<GamePlaytestTrace> = {}): GamePlaytestTrace {
-  return {
+function groundedTrace(sliceId: string, overrides: Partial<GamePlaytestTraceInput> = {}): GamePlaytestTrace {
+  // Parse the wire shape so schema defaults (flying, camera_clip, stuck)
+  // fill in exactly like a trace arriving over the tool boundary.
+  return gamePlaytestTraceSchema.parse({
     contract: "director-game-playtest-trace-v1",
     slice_id: sliceId,
     dt: 1 / 30,
@@ -62,7 +70,7 @@ function groundedTrace(sliceId: string, overrides: Partial<GamePlaytestTrace> = 
       },
     ],
     ...overrides,
-  };
+  });
 }
 
 describe("director_game machine", () => {
