@@ -1,0 +1,89 @@
+{
+  "name": "game-slice-fps-full-loop",
+  "description": "Full fps loop with no inline trace: plan → bind → playtest (Gateway host-free runner scores move/look/jump/sprint/fire/reload) → evaluate → export_slice, which must refuse codegen and route to director_dcc. The playable proof is result.evaluation.notes.0, which only exists when every error-severity check passed.",
+  "steps": [
+    {
+      "label": "plan fps slice",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-fps-01",
+        "brief": {
+          "requirement": "Clear the range with aimed fire and a reload.",
+          "genre": "fps"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id", "result.slice.status"]
+      }
+    },
+    {
+      "label": "bind operator, target dummy, and spawn pad",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-fps-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "operator-1" },
+          { "role_id": "enemy-1", "object_id": "target-dummy-1" },
+          { "role_id": "spawn", "object_id": "spawn-pad-1" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.bind_complete", "result.suggested_playtest_script.steps"]
+      }
+    },
+    {
+      "label": "playtest fps acceptance tape without inline trace",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-fps-01",
+        "script": {
+          "steps": [
+            { "frames": 16, "input": { "forward": true }, "expect": { "verb": "move" } },
+            { "frames": 10, "input": { "look_right": true }, "expect": { "verb": "look" } },
+            { "frames": 8, "input": { "jump": true }, "expect": { "verb": "jump" } },
+            { "frames": 12, "input": { "forward": true, "sprint": true }, "expect": { "verb": "sprint" } },
+            { "frames": 6, "input": { "fire": true }, "expect": { "verb": "fire" } },
+            { "frames": 6, "input": { "fire": true }, "expect": { "verb": "reload" } }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.evaluation.playable",
+          "result.evaluation.notes.0",
+          "result.trace.contract",
+          "result.slice.status"
+        ]
+      }
+    },
+    {
+      "label": "evaluate stored playable receipt",
+      "tool": "director_game",
+      "input": { "op": "evaluate", "slice_id": "game-eval-fps-01" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.evaluation.playable", "result.evaluation.notes.0"]
+      }
+    },
+    {
+      "label": "export_slice routes to director_dcc",
+      "tool": "director_game",
+      "input": {
+        "op": "export_slice",
+        "slice_id": "game-eval-fps-01",
+        "provider": "unity"
+      },
+      "expect": {
+        "success": false,
+        "code": "game_export_via_dcc",
+        "error_includes": "director_dcc"
+      }
+    }
+  ]
+}
