@@ -652,6 +652,59 @@ describe("creative workspace UI/agent parity harness", () => {
     expect(track?.clips.some((clip) => clip.name === "Covered still")).toBe(false);
   });
 
+  it("edit.clip.add accepts virtual text: media ids without a Gallery asset", () => {
+    const runtime = context();
+    const executed = uiExecutor(runtime);
+    const added = executed({
+      op: "edit.clip.add",
+      track_id: "video-2",
+      media_id: "text:title-parity-1",
+      name: "标题文字",
+      start_sec: 1,
+      duration_sec: 3,
+      source_duration_sec: 60 * 60,
+      overwrite: true,
+    });
+    expect(added).toMatchObject({
+      track_id: "video-2",
+      overwrite: true,
+      virtual_text: true,
+      clip: { media_id: "text:title-parity-1", name: "标题文字", start_sec: 1, duration_sec: 3 },
+    });
+    const track = useDirectorCreativeWorkspaceStore.getState().editTracks.find((item) => item.id === "video-2");
+    expect(track?.clips.some((clip) => clip.mediaId === "text:title-parity-1")).toBe(true);
+
+    const rejected = dispatchCreativeWorkspaceOperations(
+      {
+        op: "edit.clip.add",
+        track_id: "audio-1",
+        media_id: "text:on-audio",
+        name: "坏标题",
+        start_sec: 0,
+        duration_sec: 1,
+        source_duration_sec: 60,
+      },
+      { context: runtime },
+    );
+    expect(rejected).toMatchObject({ ok: false, code: "conflict" });
+  });
+
+  it("UI and Agent agree on a virtual text title clip revision", () => {
+    const { uiRevision, agentRevision } = compareExecutors((execute) => {
+      execute({
+        op: "edit.clip.add",
+        track_id: "video-2",
+        media_id: "text:parity-title",
+        name: "标题文字",
+        start_sec: 2,
+        duration_sec: 3,
+        source_duration_sec: 60 * 60,
+        overwrite: true,
+      });
+    });
+    expect(uiRevision).toEqual(agentRevision);
+  });
+
   it("dispatches multi-operation arrays as one atomic batch that rolls back on failure", () => {
     const runtime = context();
     const before = observeCreativeWorkspaceAgentSnapshot(runtime);

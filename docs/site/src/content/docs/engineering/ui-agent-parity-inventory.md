@@ -179,6 +179,10 @@ Shared today:
   share `edit.clip.add` / `edit.clip.update` with `overwrite: true` (and optional `in_sec` /
   `opacity` / `volume` on add so duplicate-after keeps the full clip look). Both paths run the
   same `resolveDirectorTrackOverwrite` resolver via `commitClipPlacement`.
+- Media-less text/caption clips: `edit.clip.add` accepts virtual `text:` / `text:caption:…`
+  media ids without a Gallery asset (video tracks only). The Video Editor "标题文字" button and
+  caption/SRT import / transcription promote dispatch the same ops Agents use; caption display
+  names are capped at the shared 200-char clip name limit.
 
 Still direct, with reasons:
 
@@ -187,7 +191,6 @@ Still direct, with reasons:
   Stage slider/gizmo policy. Clip drag/trim still resolve overwrite locally via
   `commitClipPlacement` at pointer-up (discrete nudges/duplicate-after/explicit drops are
   shared above).
-- Media-less text/caption clips (`text:` ids), Canvas z-order raises, view state, and section
-  bookkeeping — no semantic operations yet.
+- Canvas z-order raises, view state, and section bookkeeping — no semantic operations yet.
 - Canvas pipeline result cataloging, legacy review-mirror migration, and bulk review clearing —
   multi-store or migration bookkeeping flows.

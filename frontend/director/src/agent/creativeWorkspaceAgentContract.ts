@@ -649,6 +649,11 @@ function expectedTrackKind(kind: CreativeMediaKind): "video" | "audio" {
   return kind === "audio" ? "audio" : "video";
 }
 
+/** Title and caption clips use virtual `text:` media ids with no Gallery asset. */
+function isVirtualTextMediaId(mediaId: string): boolean {
+  return mediaId.startsWith("text:");
+}
+
 function findMedia(context: CreativeWorkspaceAgentContext, mediaId: string): CreativeMediaAsset | null {
   return context.media.getState().assets.find((asset) => asset.id === mediaId) ?? null;
 }
@@ -1378,18 +1383,40 @@ export function executeCreativeWorkspaceAgentOperation(
       if (!track)
         return semanticFailure(operation.op, "not_found", `Edit track "${operation.track_id}" does not exist.`);
       if (track.locked) return semanticFailure(operation.op, "locked", `Edit track "${track.id}" is locked.`);
-      const media = findMedia(context, operation.media_id);
-      if (!media)
-        return semanticFailure(operation.op, "not_found", `Media asset "${operation.media_id}" does not exist.`);
-      const requiredTrackKind = expectedTrackKind(media.kind);
-      if (track.kind !== requiredTrackKind) {
-        return semanticFailure(
-          operation.op,
-          "conflict",
-          `${media.kind} media requires a ${requiredTrackKind} track, but "${track.id}" is ${track.kind}.`,
-        );
+      const virtualText = isVirtualTextMediaId(operation.media_id);
+      if (virtualText) {
+        if (operation.media_id === "text:" || operation.media_id === "text") {
+          return semanticFailure(
+            operation.op,
+            "invalid_input",
+            'Virtual text media_id must be "text:<id>" or "text:caption:…".',
+          );
+        }
+        if (track.kind !== "video") {
+          return semanticFailure(
+            operation.op,
+            "conflict",
+            `Virtual text/caption clips require a video track, but "${track.id}" is ${track.kind}.`,
+          );
+        }
       }
-      const sourceDurationSec = operation.source_duration_sec ?? media.durationSec ?? operation.duration_sec;
+      const media = virtualText ? null : findMedia(context, operation.media_id);
+      if (!virtualText && !media) {
+        return semanticFailure(operation.op, "not_found", `Media asset "${operation.media_id}" does not exist.`);
+      }
+      if (media) {
+        const requiredTrackKind = expectedTrackKind(media.kind);
+        if (track.kind !== requiredTrackKind) {
+          return semanticFailure(
+            operation.op,
+            "conflict",
+            `${media.kind} media requires a ${requiredTrackKind} track, but "${track.id}" is ${track.kind}.`,
+          );
+        }
+      }
+      const sourceDurationSec =
+        operation.source_duration_sec ??
+        (virtualText ? 60 * 60 : (media?.durationSec ?? operation.duration_sec));
       const playbackRate = operation.playback_rate ?? 1;
       if (sourceDurationSec < operation.duration_sec * playbackRate) {
         return semanticFailure(operation.op, "conflict", "Clip duration cannot exceed its source duration.");
@@ -1404,7 +1431,7 @@ export function executeCreativeWorkspaceAgentOperation(
       try {
         clip = state.addClip({
           trackId: track.id,
-          mediaId: media.id,
+          mediaId: operation.media_id,
           name: operation.name,
           startSec: operation.start_sec,
           durationSec: operation.duration_sec,
@@ -1443,7 +1470,12 @@ export function executeCreativeWorkspaceAgentOperation(
         operation.overwrite
           ? `Added clip "${projected.name}" to track "${track.name}" with overwrite placement.`
           : `Added clip "${projected.name}" to track "${track.name}".`,
-        { clip: projectEditClip(projected), track_id: track.id, overwrite: Boolean(operation.overwrite) },
+        {
+          clip: projectEditClip(projected),
+          track_id: track.id,
+          overwrite: Boolean(operation.overwrite),
+          ...(virtualText ? { virtual_text: true } : {}),
+        },
         context,
       );
     }
@@ -1453,20 +1485,38 @@ export function executeCreativeWorkspaceAgentOperation(
       if (owner.track.locked)
         return semanticFailure(operation.op, "locked", `Edit track "${owner.track.id}" is locked.`);
       if (operation.patch.media_id !== undefined) {
-        const media = findMedia(context, operation.patch.media_id);
-        if (!media) {
-          return semanticFailure(
-            operation.op,
-            "not_found",
-            `Media asset "${operation.patch.media_id}" does not exist.`,
-          );
-        }
-        if (expectedTrackKind(media.kind) !== owner.track.kind) {
-          return semanticFailure(
-            operation.op,
-            "conflict",
-            `${media.kind} media cannot be placed on ${owner.track.kind} track "${owner.track.id}".`,
-          );
+        const nextMediaId = operation.patch.media_id;
+        if (isVirtualTextMediaId(nextMediaId)) {
+          if (nextMediaId === "text:" || nextMediaId === "text") {
+            return semanticFailure(
+              operation.op,
+              "invalid_input",
+              'Virtual text media_id must be "text:<id>" or "text:caption:…".',
+            );
+          }
+          if (owner.track.kind !== "video") {
+            return semanticFailure(
+              operation.op,
+              "conflict",
+              `Virtual text/caption clips require a video track, but "${owner.track.id}" is ${owner.track.kind}.`,
+            );
+          }
+        } else {
+          const media = findMedia(context, nextMediaId);
+          if (!media) {
+            return semanticFailure(
+              operation.op,
+              "not_found",
+              `Media asset "${nextMediaId}" does not exist.`,
+            );
+          }
+          if (expectedTrackKind(media.kind) !== owner.track.kind) {
+            return semanticFailure(
+              operation.op,
+              "conflict",
+              `${media.kind} media cannot be placed on ${owner.track.kind} track "${owner.track.id}".`,
+            );
+          }
         }
       }
       const nextSourceDuration = operation.patch.source_duration_sec ?? owner.clip.sourceDurationSec;
