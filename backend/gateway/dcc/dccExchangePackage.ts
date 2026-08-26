@@ -22,7 +22,7 @@ import { createDirectorInterchangeManifest } from "@director/dcc-interchange";
 import { exportDirectorProjectToGlb } from "@director/dcc-interchange";
 import { exportDirectorProjectToUsda } from "@director/dcc-interchange";
 import { writeJsonAtomic } from "../atomicJsonFile";
-import { resolveDccModelAsset } from "./blenderBridge";
+import { resolveDccImageAsset, resolveDccModelAsset } from "./blenderBridge";
 import { prepareGltfForBlender } from "./gltfPrepare";
 
 /** Resource budgets that constrain a single DCC exchange package. */
@@ -342,6 +342,22 @@ function selectedProject(project: DirectorProject, cameraId?: string, frame?: nu
   return selected;
 }
 
+/**
+ * Unique texture image assets referenced by object PBR material texture
+ * slots. Only the Unreal package bundles these today: its connector imports
+ * them and binds material-instance texture parameters; other providers keep
+ * their existing package layout unchanged.
+ */
+function referencedTextureAssets(project: DirectorProject) {
+  const textureAssetIds = new Set<string>();
+  for (const object of project.objects) {
+    for (const assetId of Object.values(object.material?.textures ?? {})) {
+      if (assetId) textureAssetIds.add(assetId);
+    }
+  }
+  return project.assets.filter((asset) => asset.sourceType === "image" && textureAssetIds.has(asset.id));
+}
+
 function requestedFormats(descriptor: DirectorDccProviderDescriptor, input?: DirectorDccPortableExchangeFormat[]) {
   const supported = [
     ...new Set(
@@ -458,9 +474,12 @@ export function createDirectorDccExchangePackager(
         const modelAssets = portableProject.assets.filter(
           (asset) => asset.sourceType === "model" && referencedAssetIds.has(asset.id),
         );
-        if (modelAssets.length > budgets.maxAssets) {
+        // Unreal-only: material texture slots resolve to bundled hashed files
+        // so the connector can bind material-instance texture parameters.
+        const textureAssets = provider === "unreal" ? referencedTextureAssets(portableProject) : [];
+        if (modelAssets.length + textureAssets.length > budgets.maxAssets) {
           throw new DirectorDccExchangeBudgetError(
-            `DCC exchange contains ${modelAssets.length} model assets, exceeding the limit of ${budgets.maxAssets}.`,
+            `DCC exchange contains ${modelAssets.length + textureAssets.length} model and texture assets, exceeding the limit of ${budgets.maxAssets}.`,
           );
         }
         const jobId = randomUUID();
@@ -528,6 +547,30 @@ export function createDirectorDccExchangePackager(
               assertFileBudget(asset.fileName, sourceStat.size, budgets);
               await copyFile(resolved.sourcePath, destination);
             }
+            const fileStat = await stat(destination);
+            packageBytes = addPackageBytes(relativePath, fileStat.size, packageBytes, budgets);
+            assetRecords.push({
+              assetRefId: asset.id,
+              relativePath,
+              sha256: await sha256File(destination),
+              byteLength: fileStat.size,
+            });
+          }
+          for (const asset of textureAssets) {
+            const resolved = await resolveDccImageAsset(workspaceRoot, asset.url);
+            if (resolved.status !== "resolved" || !resolved.sourcePath) {
+              warnings.push(
+                `${asset.fileName}: texture ${resolved.message ?? `asset is ${resolved.status}`} Material texture slots referencing it will warn-and-omit in the host connector.`,
+              );
+              continue;
+            }
+            copiedIndex += 1;
+            const extension = extname(resolved.sourcePath).toLowerCase();
+            const relativePath = `assets/${String(copiedIndex).padStart(3, "0")}-${safeStem(asset.id)}${extension}`;
+            const destination = resolve(stagingDirectory, relativePath);
+            const sourceStat = await stat(resolved.sourcePath);
+            assertFileBudget(asset.fileName, sourceStat.size, budgets);
+            await copyFile(resolved.sourcePath, destination);
             const fileStat = await stat(destination);
             packageBytes = addPackageBytes(relativePath, fileStat.size, packageBytes, budgets);
             assetRecords.push({
