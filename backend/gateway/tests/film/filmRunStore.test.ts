@@ -89,25 +89,49 @@ describe("FilmRunStore", () => {
     expect(await store.artifactStoragePresence(queued)).toEqual({});
 
     const runDirectory = store.runDirectory("film-66666666-ffff");
-    await mkdir(runDirectory, { recursive: true });
+    await mkdir(join(runDirectory, "scene_0"), { recursive: true });
     const finalVideoPath = join(runDirectory, "final_video.mp4");
     await writeFile(finalVideoPath, "mp4-bytes");
+    const sceneVideoPath = join(runDirectory, "scene_0", "scene_video.mp4");
+    await writeFile(sceneVideoPath, "scene-bytes");
     const completed = await store.create(
       filmRunSchema.parse({
         ...baseRun("film-66666666-ffff"),
         status: "completed",
         phase: "completed",
+        scenes: [
+          { idx: 0, script: "Scene 0", clipCount: 2, videoPath: sceneVideoPath },
+          // Scene 1's claimed clip was never written; scene 2 claims nothing.
+          { idx: 1, script: "Scene 1", clipCount: 1, videoPath: join(runDirectory, "scene_1", "scene_video.mp4") },
+          { idx: 2, script: "Scene 2", clipCount: 0, videoPath: null },
+        ],
         finalVideoPath,
         timelinePath: join(runDirectory, "timeline.otio"),
       }),
     );
 
-    // The final video bytes exist; the claimed timeline was never written.
-    expect(await store.artifactStoragePresence(completed)).toEqual({ finalVideo: "present", timeline: "absent" });
+    // The final video and scene 0 bytes exist; the claimed timeline and
+    // scene 1 clip were never written; unclaimed scene 2 is not probed.
+    expect(await store.artifactStoragePresence(completed)).toEqual({
+      finalVideo: "present",
+      timeline: "absent",
+      sceneVideos: [
+        { sceneIdx: 0, presence: "present" },
+        { sceneIdx: 1, presence: "absent" },
+      ],
+    });
 
-    // Cleanup after the run finished ages the video bytes out too.
+    // Cleanup after the run finished ages the video and scene bytes out too.
     await rm(finalVideoPath);
-    expect(await store.artifactStoragePresence(completed)).toEqual({ finalVideo: "absent", timeline: "absent" });
+    await rm(sceneVideoPath);
+    expect(await store.artifactStoragePresence(completed)).toEqual({
+      finalVideo: "absent",
+      timeline: "absent",
+      sceneVideos: [
+        { sceneIdx: 0, presence: "absent" },
+        { sceneIdx: 1, presence: "absent" },
+      ],
+    });
   });
 
   it("reconciles queued/running restart survivors into interrupted-failed runs", async () => {

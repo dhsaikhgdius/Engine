@@ -8,6 +8,7 @@ import {
 } from "../../../packages/protocol/src/filmPipelineProtocol";
 import type {
   FilmRunArtifactStoragePresence,
+  FilmRunSceneVideoStoragePresence,
   ProjectFilmRunReceiptOptions,
 } from "../../../packages/protocol/src/filmRunReceipt";
 import { writeJsonAtomic } from "../atomicJsonFile";
@@ -139,13 +140,27 @@ export class FilmRunStore {
   async artifactStoragePresence(
     run: FilmRun,
   ): Promise<NonNullable<ProjectFilmRunReceiptOptions["artifactStoragePresence"]>> {
-    const [finalVideo, timeline] = await Promise.all([
+    const [finalVideo, timeline, sceneProbes] = await Promise.all([
       this.pathBytesPresent(run.finalVideoPath),
       this.pathBytesPresent(run.timelinePath),
+      // Scene videoPath claims back renderedSceneCount and the
+      // resume/assemble checkpoints, so their bytes are probed too.
+      Promise.all(
+        run.scenes.map(
+          async (scene): Promise<{ sceneIdx: number; presence: FilmRunArtifactStoragePresence | null }> => ({
+            sceneIdx: scene.idx,
+            presence: await this.pathBytesPresent(scene.videoPath),
+          }),
+        ),
+      ),
     ]);
+    const sceneVideos = sceneProbes.filter(
+      (probe): probe is FilmRunSceneVideoStoragePresence => probe.presence !== null,
+    );
     return {
       ...(finalVideo === null ? {} : { finalVideo }),
       ...(timeline === null ? {} : { timeline }),
+      ...(sceneVideos.length === 0 ? {} : { sceneVideos }),
     };
   }
 

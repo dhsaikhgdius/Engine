@@ -349,7 +349,8 @@ Stage-anchoring readiness as `{configured, reason}` each), answer failures with 
 (`film_pipeline_unconfigured`, `invalid_request`, `invalid_run_id`, `run_not_found`), and attach a
 normalized `director-film-run-receipt-v1` (phase receipts, stable error codes, artifact paths with
 live per-artifact `storagePresence` probed at read time — `present`/`absent`, null for unclaimed
-paths) to status, receipt, and action responses. The receipt's `artifacts.timelineExport` carries
+paths, plus one `sceneVideos[]` verdict per scene claiming a rendered scene video) to status,
+receipt, and action responses. The receipt's `artifacts.timelineExport` carries
 the durable typed OTIO export receipt stamped next to `timelinePath`: planned/exported shot counts
 plus per-shot `omittedShots[]` (code `clip_missing`), so a partial editorial handoff is a typed
 fact instead of a silent skip; it stays null for runs that predate typed export receipts. The
