@@ -138775,6 +138775,18 @@ var directorUnrealOmittedSkeletalSchema = external_exports.strictObject({
   code: directorUnrealOmittedSkeletalCodeSchema,
   reason: external_exports.string().trim().min(1).max(600)
 });
+var directorUnrealOmittedShotCodeSchema = external_exports.enum([
+  "shot_no_camera_binding",
+  "shot_camera_not_imported",
+  "shot_target_not_camera"
+]);
+var directorUnrealOmittedShotSchema = external_exports.strictObject({
+  shotId: external_exports.string().trim().min(1).max(200),
+  code: directorUnrealOmittedShotCodeSchema,
+  /** Bound camera id when known; null when the shot has no camera binding. */
+  cameraDirectorId: external_exports.string().trim().min(1).max(200).nullable(),
+  reason: external_exports.string().trim().min(1).max(600)
+});
 var directorDccEngineReportSchema = external_exports.strictObject({
   ok: external_exports.literal(true),
   contract: external_exports.literal(DIRECTOR_DCC_ENGINE_REPORT_CONTRACT),
@@ -138830,6 +138842,18 @@ var directorDccEngineReportSchema = external_exports.strictObject({
   omittedLightCount: external_exports.number().int().nonnegative().max(1e5).optional(),
   /** Unreal-only: Director lights the connector declined to spawn (warn-and-omit). */
   omittedLights: external_exports.array(directorUnrealOmittedLightSchema).max(1024).optional(),
+  /**
+   * Unreal-only: storyboard shot warn-and-omit count. Optional for
+   * connectors before 0.4.3, which dropped unmappable shots silently; when
+   * omittedShots is present, length must equal this count.
+   */
+  omittedShotCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Unreal-only: typed shot omit records (`shot_no_camera_binding`,
+   * `shot_camera_not_imported`, `shot_target_not_camera`). Optional for
+   * older connectors; when present, length must equal omittedShotCount.
+   */
+  omittedShots: external_exports.array(directorUnrealOmittedShotSchema).max(1024).optional(),
   /** Unreal-only: pose/rig channels the bake omitted, echoed from the verified sidecar. */
   omittedAnimationChannels: external_exports.array(directorUnrealOmittedAnimationChannelsSchema).max(2048).optional(),
   /** Unity connector details; only the unity provider may write this block. */
@@ -138893,6 +138917,21 @@ var directorDccEngineReportSchema = external_exports.strictObject({
         code: "custom",
         path: ["omittedLights"],
         message: "omittedLights length must equal omittedLightCount"
+      });
+    }
+  }
+  if (report.omittedShots !== void 0) {
+    if (report.omittedShotCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedShotCount"],
+        message: "omittedShotCount is required when omittedShots is present"
+      });
+    } else if (report.omittedShots.length !== report.omittedShotCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedShots"],
+        message: "omittedShots length must equal omittedShotCount"
       });
     }
   }
