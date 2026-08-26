@@ -148,7 +148,35 @@ interactive feel or conflate DCC/runtime projections with user authoring intents
 
 ## Canvas / Video
 
-Canvas and Video already expose typed Agent JSON operations through `director_creative`
-(`packages/protocol/src/creativeWorkspaceProtocol.ts`). Their UI stores still patch workspace
-snapshots directly and are **not** covered by this Stage inventory; migrating them onto the
-creative contract is roadmap M1 batches 1e/1f and remains open.
+Canvas and Video expose typed Agent JSON operations through `director_creative`
+(`packages/protocol/src/creativeWorkspaceProtocol.ts`). One-shot UI mutations now route through
+`dispatchCreativeWorkspaceOperations`
+(`frontend/director/src/agent/dispatchCreativeWorkspaceOperations.ts`), the same executor the
+Agent envelope uses, so both fill the snapshot-fingerprint guard and an idempotency key and
+produce the same revision (roadmap M1 batches 1e/1f). Parity is regression-tested in
+`frontend/director/tests/agent/dispatchCreativeWorkspaceOperations.test.ts`.
+
+Shared today:
+
+- Canvas node/edge/layout authoring (`canvas.node.*`, `canvas.edge.*`, `canvas.dag.layout`),
+  media import cataloging (`gallery.media.update`), and the undo/redo buttons
+  (`workspace.undo` / `workspace.redo`).
+- Video clip inspector edits, split, remove (including ripple), cross dissolve, discrete
+  keyboard fade steps, the "+" placement into the first free slot (`edit.clip.add`), track
+  management, settings, import cataloging, and undo/redo (buttons and shortcuts).
+- The Canvas-to-timeline bridge (`edit.clip.add` + `workspace.switch`), Stage capture import as
+  one atomic `execute_batch` (catalog + node add roll back together), and media review
+  rating/tag upserts (`gallery.media.update`, with a direct-store fallback only when the
+  contract does not know the media id).
+
+Still direct, with reasons:
+
+- Continuous interactions — node drags, clip drags/trims, fade drags, range sliders, live
+  typing — keep locally batched history (`beginHistoryBatch`/`endHistoryBatch`), matching the
+  Stage slider/gizmo policy.
+- Overwrite placement flows resolved by `commitClipPlacement` (explicit drops, frame nudges,
+  duplicate-after) — no semantic operation expresses overwrite-with-trim yet.
+- Media-less text/caption clips (`text:` ids), Canvas z-order raises, view state, and section
+  bookkeeping — no semantic operations yet.
+- Media relink reference rewrites, canvas pipeline result cataloging, legacy review-mirror
+  migration, and bulk review clearing — multi-store or migration bookkeeping flows.

@@ -12,6 +12,10 @@ description: Director 对专业 previs、相机、角色、媒体、Agent 和恢
 - 相机拥有 filmback、crop、lens、focus、DOF 和 clean capture；
 - Performance Take、Coverage Shot、精确帧和 revision guard 已进入核心模型；
 - Canvas/Video、MCP、HTTP、CLI 和 browser API 共享语义操作；
+- 一次性 Canvas/Video UI mutation 经 `dispatchCreativeWorkspaceOperations` 与 Agent 共用同一
+  dispatch 路径，自动填入 fingerprint guard 与幂等键，UI 与 Agent 编辑产出相同 revision 与回执；
+  连续拖拽/裁剪/滑杆交互保留本地历史批处理（覆盖范围见
+  [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/)）；
 - ShotIR、audit、PNG frame package 和 hash-bound evidence 已有基础实现。
 
 ## 后续关卡

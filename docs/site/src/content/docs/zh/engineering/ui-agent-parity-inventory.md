@@ -144,7 +144,30 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 
 ## Canvas / Video
 
-Canvas 与 Video 已通过 `director_creative`
-（`packages/protocol/src/creativeWorkspaceProtocol.ts`）暴露类型化 Agent JSON 操作。二者的 UI
-store 仍直接 patch workspace snapshot，**不在**本 Stage 清单范围内；把它们迁到 creative 契约是
-路线图 M1 的 1e/1f 批次，尚未完成。
+Canvas 与 Video 通过 `director_creative`
+（`packages/protocol/src/creativeWorkspaceProtocol.ts`）暴露类型化 Agent JSON 操作。一次性 UI
+mutation 现在经 `dispatchCreativeWorkspaceOperations`
+（`frontend/director/src/agent/dispatchCreativeWorkspaceOperations.ts`）走与 Agent envelope
+相同的执行器：两条路径都填入 snapshot fingerprint guard 与幂等键，并产出相同 revision
+（路线图 M1 的 1e/1f 批次）。对等性由
+`frontend/director/tests/agent/dispatchCreativeWorkspaceOperations.test.ts` 回归覆盖。
+
+当前已共享：
+
+- Canvas 节点/边/布局创作（`canvas.node.*`、`canvas.edge.*`、`canvas.dag.layout`）、素材导入
+  入册（`gallery.media.update`）以及撤销/重做按钮（`workspace.undo` / `workspace.redo`）。
+- Video 剪辑检查器编辑、分割、删除（含 ripple）、交叉溶解、键盘离散淡变步进、“+”按钮加入首个
+  空闲槽位（`edit.clip.add`）、轨道管理、设置、导入入册，以及撤销/重做（按钮与快捷键）。
+- Canvas 到时间线的桥（`edit.clip.add` + `workspace.switch`）、Stage 截图导入为单个原子
+  `execute_batch`（入册 + 节点添加一起回滚），以及媒体评审星级/标签写入
+  （`gallery.media.update`，仅当契约不认识该 media id 时回退直接写 store）。
+
+仍为直接写入，附原因：
+
+- 连续交互——节点拖拽、剪辑拖拽/裁剪、淡变拖拽、范围滑杆、实时输入——保留本地批处理历史
+  （`beginHistoryBatch`/`endHistoryBatch`），与 Stage 滑块/gizmo 策略一致。
+- 由 `commitClipPlacement` 解决的覆盖放置流（显式落点、逐帧微移、后接复制）——尚无语义操作
+  能表达“覆盖并裁剪”。
+- 无媒体的文字/字幕剪辑（`text:` id）、Canvas 置顶、视图状态与分区簿记——尚无语义操作。
+- 媒体重连引用改写、Canvas 流水线产物入册、旧评审镜像迁移与批量清除评审——多 store 或迁移
+  簿记流程。

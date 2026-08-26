@@ -121,9 +121,11 @@ flowchart LR
 场景（设置、标注、测量、图层）、Storyboard、实体动画与资产删除的单次项目 mutator 已经经
 `dispatchDirectorAuthoringActions` 执行（每个 mutator 的精确状态与旧路径回退见
 [对等清单](/zh/engineering/ui-agent-parity-inventory/)）。Canvas/Video 离散 mutator（1e/1f）现已经
-`dispatchCreativeWorkspaceOperations` 走共享 Creative 契约执行。Timeline 音频、object list、
-全景/capture/资产目录写入、剪贴板粘贴、有意保持本地的新建流程，以及 Canvas/Video 的创建流程与
-连续拖拽流仍直接 patch 状态，因此 M1 **尚未完成**。
+`dispatchCreativeWorkspaceOperations` 走共享 Creative 契约执行，覆盖导入入册、撤销/重做、“+”加
+剪辑、Canvas 到时间线桥、Stage 截图原子批量导入与媒体评审元数据。Timeline 音频、object list、
+全景/capture/资产目录写入、剪贴板粘贴、有意保持本地的新建流程，以及对等清单中记录为仍直接写入的
+Canvas/Video 流程（连续拖拽/裁剪流、经 `commitClipPlacement` 的覆盖放置、无媒体文字/字幕剪辑、
+重连引用改写）仍直接 patch 状态，因此 M1 **尚未完成**。
 
 **目标：** UI 与 Agent 共享同一 mutation 路径，消除「双轨写入」。
 
@@ -419,7 +421,7 @@ flowchart LR
 
 ## 下一步行动
 
-1. M1 剩余：Canvas/Video UI store（1e/1f）以及[对等清单](/zh/engineering/ui-agent-parity-inventory/)中仍为 ui-only 的 Stage 写入
+1. M1 剩余：Canvas/Video 仍直接写入的流程（覆盖放置、文字/字幕剪辑、重连引用改写）以及[对等清单](/zh/engineering/ui-agent-parity-inventory/)中仍为 ui-only 的 Stage 写入
 2. 完成剩余 M3：可选的完整只读 mode（原始 HTTP/CLI 策略、统一审计轨迹、确认边界与 role 限制 UI 已于 2026-08-25 交付）
 3. 落地时在同一变更中更新 [Feature Status](/zh/reference/feature-status/) 与[架构符合性评估](/zh/research/agent-native-architecture-assessment/)
 4. M7 遗留已落地：ADR 0004 完成 A2A spike 结论（runtime no-go；已提供 discovery-only card），cross-app 回执 recipe 已写入 Control surfaces
