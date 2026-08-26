@@ -218,14 +218,39 @@ export function AgentTracePanel({ onClose }: { onClose: () => void }) {
         <section aria-label={t("电影管线进度")} className="director-agent-trace-panel-film">
           <h3>{t("电影管线进度")}</h3>
           <ul className="director-agent-trace-panel-film-list">
-            {filmProgress.map((entry) => (
-              <li key={entry.id}>
-                <span className="director-agent-trace-panel-step-op">
-                  {entry.label} · {formatProgressPercent(entry.progress)} · {entry.source_status}
-                </span>
-                {entry.message ? <span className="director-agent-trace-panel-step-meta">{entry.message}</span> : null}
-              </li>
-            ))}
+            {filmProgress.map((entry) => {
+              const usageScopes = entry.usage
+                ? (["film-llm", "film-image", "film-video"] as const).filter(
+                    (scope) => entry.usage![scope].sample_count > 0,
+                  )
+                : [];
+              return (
+                <li key={entry.id}>
+                  <span className="director-agent-trace-panel-step-op">
+                    {entry.label} · {formatProgressPercent(entry.progress)} · {entry.source_status}
+                  </span>
+                  {entry.message ? <span className="director-agent-trace-panel-step-meta">{entry.message}</span> : null}
+                  {usageScopes.length > 0 ? (
+                    <ul aria-label={t("本运行用量")} className="director-agent-trace-panel-film-usage">
+                      {usageScopes.map((scope) => {
+                        const summary = entry.usage![scope];
+                        return (
+                          <li key={scope}>
+                            <span className="director-agent-trace-panel-step-op">{scopeLabel(scope, t)}</span>
+                            <span className="director-agent-trace-panel-step-meta">
+                              {scope === "film-llm"
+                                ? `${summary.total_tokens} tokens · ${formatTraceDuration(summary.total_duration_ms)}`
+                                : `${summary.sample_count} · ${formatTraceDuration(summary.total_duration_ms)}`}
+                              {summary.failure_count > 0 ? ` · ${t("失败")} ${summary.failure_count}` : ""}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}
