@@ -36,11 +36,16 @@ Gateway 也绝不解析它。
   - **Timeline**：在 `Assets/Director/Timelines/` 下生成一个 `TimelineAsset`，
     由单个 `PlayableDirector` 承载。分镜成为覆盖其相机的 `ActivationTrack`
     片段；Director 关键帧 / 轨迹动画通过 Director 缓动与轨迹求值器的 C# 移植
-    烘焙为 `AnimationTrack` 上的 `AnimationClip`。不支持的通道警告并省略；
-    `.unity` YAML 绝不成为交换格式。
+    烘焙为 `AnimationTrack` 上的 `AnimationClip`。缺少可用相机绑定的分镜以
+    结构化 `omittedShots[]`（`shotId` / `code` / `cameraDirectorId` /
+    `reason`；代码 `shot_no_camera_binding` / `shot_camera_not_imported` /
+    `shot_target_not_camera`，与 Godot 分镜映射器同一词汇）呈现，并附对应的
+    `mappedShotCount` / `omittedShotCount`（连接器 ≥0.3.3）。不支持的通道
+    警告并省略；`.unity` YAML 绝不成为交换格式。
   - 最后回写一个规范空间的返回包，并写出 `director-dcc-engine-report-v1`
     回执，其 `unity` 块报告渲染管线、glTF 导入器可用性、导入灯光数 /
-    烘焙片段数 / Avatar 数 / 材质回退数 / 已应用姿势角色数等计数，以及
+    烘焙片段数 / Avatar 数 / 材质回退数 / 已应用姿势角色数等计数、映射 /
+    省略分镜计数与结构化 `omittedShots`，以及
     结构化的 `omittedChannels` 列表（通道 ID、实体、原因），未知灯光类型另以结构化 `omittedLights[]`（`directorId` / `code` / `lightType` / `reason`）呈现，涵盖所有连接器
     无法烘焙的通道。
 - **导出**（`...DirectorBridgeCli.Export`）：重新打开 Director 场景，在提供方边界
@@ -125,6 +130,7 @@ Windows（`%PROGRAMFILES%\Unity\Hub\Editor`），优先选择最新的稳定版�
 Timeline 激活轨道、烘焙到 Timeline `AnimationClip` 的 Director 动画与语义
 姿势通道，以及上文所述的仅出站预览实时链接（令牌认证、序列号保序、断线
 安全——仅用于预览，绝不作为场景权威）。连接器无法烘焙的通道（动作块、非
-Mixamo 骨骼上的姿势通道）以结构化 `omittedChannels` 上报，绝不静默拍平。
+Mixamo 骨骼上的姿势通道）以结构化 `omittedChannels` 上报，缺少可用相机
+绑定的分镜以结构化 `omittedShots` 上报，绝不静默拍平。
 仍为规划中：生产级 USD 往返——Unity 的 USD 包仍为预发布，USDA 保持次要、
 实验性地位，GLB 仍是首选交换载荷。
