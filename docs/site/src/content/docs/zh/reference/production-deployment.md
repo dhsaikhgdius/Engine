@@ -46,10 +46,17 @@ curl -X POST "$GATEWAY_URL/api/collab/invites" \
 
 泄露的邀请用同一 master token 吊销：`POST /api/collab/invites/revoke` 携带 `{"token":"…"}`
 按 `jti` 吊销单个邀请，携带 `{"room":"project-a/*"}` 则设置截止点，拒绝该范围内不晚于吊销时刻
-铸造的所有邀请。日常运维方面：`GET /api/collab/rooms` 报告成员计数、快照年龄、隔离区计数与鉴权模式；
-`GET /api/collab/rooms/quarantine?room=…` 列出某房间被隔离的损坏更新；
-`POST /api/collab/rooms/close`（可选 `"archive": true`）会用 `room_closed` 错误踢出所有成员，
-并刷入——或归档——持久历史。本地信任模式下，被关闭的房间可以被任何本地客户端重新创建；
+铸造的所有邀请。吊销响应如实报告持久性：`persistence_enabled` 表示是否配置了持久吊销文件
+（`DIRECTOR_COLLAB_PERSISTENCE=1`），`persisted` 表示本次吊销是否已写入该文件。未启用持久化时，
+吊销只在当前进程内生效，随网关一起消失——若 `DIRECTOR_COLLAB_INVITE_SECRET` 稳定，被"吊销"的
+邀请在重启后会再次生效，因此 `persisted: false` 是需要处理的事项，不是脚注。日常运维方面：
+`GET /api/collab/rooms` 报告成员计数、快照年龄、隔离区计数、鉴权模式，以及吊销是否持久
+（`invite_revocations.durable`）；`GET /api/collab/rooms/quarantine?room=…` 列出某房间被隔离的
+损坏更新（条目在读取时会重新校验）；`POST /api/collab/rooms/close`（可选 `"archive": true`）
+会用 `room_closed` 错误踢出所有成员，并刷入——或归档——持久历史。归档结果是有类型的：
+`archived: true` 表示历史已被移走；`archived: false` 加 `archive_reason: "no_durable_history"`
+表示没有可移动的历史；真实的文件系统故障返回 `500 archive_failed`（携带 errno 名称），
+因为历史仍在原位。本地信任模式下，被关闭的房间可以被任何本地客户端重新创建；
 需要真正终止访问时，请把关闭与邀请吊销组合使用。
 
 ## 3. 配置托管 multi-agent run（可选）

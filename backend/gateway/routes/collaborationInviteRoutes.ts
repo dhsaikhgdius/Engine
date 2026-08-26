@@ -89,7 +89,11 @@ function rejectIfRateLimited(
  * - `GET /api/collab/auth` — report the room authorization mode.
  * - `POST /api/collab/invites` — mint a signed invite capability token.
  * - `POST /api/collab/invites/revoke` — revoke one invite by token, or every
- *   invite for a room scope that was minted before now.
+ *   invite for a room scope that was minted before now. Successful responses
+ *   carry `persistence_enabled` (a durable revocation file is configured) and
+ *   `persisted` (this revocation reached it), so callers never treat a
+ *   process-local revocation — which dies with the gateway process — as one
+ *   that survives a restart.
  *
  * @returns True if the route was handled, false otherwise.
  */
@@ -156,14 +160,27 @@ export async function handleCollaborationInviteRoute(
         response,
         200,
         outcome.revoked
-          ? { revoked: true, jti: outcome.jti, room: outcome.room, expires_at: outcome.expiresAt }
+          ? {
+              revoked: true,
+              jti: outcome.jti,
+              room: outcome.room,
+              expires_at: outcome.expiresAt,
+              persisted: outcome.persisted,
+              persistence_enabled: revocations.persistenceEnabled,
+            }
           : { revoked: false, reason: outcome.reason },
       );
       return true;
     }
     const scope = parsed.data.room!;
     const outcome = await revocations.revokeRoomScope(scope);
-    json(response, 200, { revoked: true, room: outcome.room, cutoff: outcome.cutoff });
+    json(response, 200, {
+      revoked: true,
+      room: outcome.room,
+      cutoff: outcome.cutoff,
+      persisted: outcome.persisted,
+      persistence_enabled: revocations.persistenceEnabled,
+    });
     return true;
   }
   return false;

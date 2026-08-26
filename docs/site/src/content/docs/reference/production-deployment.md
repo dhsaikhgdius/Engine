@@ -49,13 +49,22 @@ room id or a `prefix/*` capability. Hand the returned token to the browser via
 
 A leaked invite is revoked with the same master token: `POST /api/collab/invites/revoke` with
 `{"token":"…"}` kills that one invite (by its `jti`), and `{"room":"project-a/*"}` sets a cutoff
-denying every invite for that scope minted no later than the revocation instant. For day-2 operations,
-`GET /api/collab/rooms` reports member counts, snapshot age, quarantine counts, and the auth mode;
-`GET /api/collab/rooms/quarantine?room=…` lists a room's quarantined corrupt updates; and
-`POST /api/collab/rooms/close` (optionally with `"archive": true`) kicks every peer with a
-`room_closed` error and flushes — or archives — the durable history. In local trust mode a closed
-room can be recreated by any local client; combine close with invite revocation when access must
-actually end.
+denying every invite for that scope minted no later than the revocation instant. Revoke responses
+report durability honestly: `persistence_enabled` says whether a durable revocation file is
+configured (`DIRECTOR_COLLAB_PERSISTENCE=1`) and `persisted` says whether this revocation reached
+it. Without persistence a revocation is process-local and dies with the gateway — if
+`DIRECTOR_COLLAB_INVITE_SECRET` is stable, the "revoked" invite works again after a restart, so
+treat `persisted: false` as an action item, not a footnote. For day-2 operations,
+`GET /api/collab/rooms` reports member counts, snapshot age, quarantine counts, the auth mode, and
+whether revocations are durable (`invite_revocations.durable`);
+`GET /api/collab/rooms/quarantine?room=…` lists a room's quarantined corrupt updates (entries are
+re-validated on read); and `POST /api/collab/rooms/close` (optionally with `"archive": true`) kicks
+every peer with a `room_closed` error and flushes — or archives — the durable history. The archive
+outcome is typed: `archived: true` means the history was moved aside, `archived: false` with
+`archive_reason: "no_durable_history"` means there was nothing to move, and a real filesystem
+failure returns `500 archive_failed` (with the errno name) because the history is still in place.
+In local trust mode a closed room can be recreated by any local client; combine close with invite
+revocation when access must actually end.
 
 ## 3. Configure hosted multi-agent runs (optional)
 
@@ -91,6 +100,7 @@ curl -H "X-Director-Browser-Token: $DIRECTOR_GATEWAY_TOKEN" "$GATEWAY_URL/api/co
 An unauthenticated `collab.join` must now receive `collab.error` with code `unauthorized`.
 Confirm `collaboration.mode === "invite-required"` on `/health` when team auth is enabled; invite
 capability tokens and self-asserted awareness identity are not per-user accounts.
+
 ## Explicitly out of scope
 
 - Public internet exposure without your own reverse proxy, TLS, and network policy.
