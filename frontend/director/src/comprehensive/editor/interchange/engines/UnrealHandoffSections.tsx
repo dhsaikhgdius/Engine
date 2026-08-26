@@ -28,6 +28,12 @@ const UNREAL_OMITTED_SKELETAL_LABELS: Record<string, string> = {
   empty_actor: "空 Actor",
 };
 
+const UNREAL_OMITTED_SHOT_LABELS: Record<string, string> = {
+  shot_no_camera_binding: "镜头缺少相机绑定",
+  shot_camera_not_imported: "镜头相机未导入",
+  shot_target_not_camera: "镜头目标不是相机",
+};
+
 /** zh-CN source strings describing the Unreal send payload. */
 export const UNREAL_SEND_NOTES = [
   "以 USD 优先（附 GLB）发送场景、相机与稳定 ID",
@@ -36,7 +42,7 @@ export const UNREAL_SEND_NOTES = [
 
 /**
  * Unreal 发送回执:Sequencer 时基与轨道计数、洁净帧 rendered/skipped、
- * 结构化 omittedAnimationChannels(含 Control Rig 省略)。
+ * 结构化省略镜头,以及结构化 omittedAnimationChannels(含 Control Rig 省略)。
  */
 export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (source: string) => string) {
   const sequencer = result.report.sequencer;
@@ -46,6 +52,8 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
   const omittedMaterialCount = result.report.omittedMaterialCount ?? omittedMaterials.length;
   const omittedSkeletal = result.report.omittedSkeletal ?? [];
   const omittedSkeletalCount = result.report.omittedSkeletalCount ?? omittedSkeletal.length;
+  const omittedShots = result.report.omittedShots ?? [];
+  const omittedShotCount = result.report.omittedShotCount ?? omittedShots.length;
   const appliedMaterialCount = result.report.appliedMaterialCount;
   return (
     <div className="director-engine-handoff-receipt-extra">
@@ -96,6 +104,12 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
               <dd>{omittedSkeletalCount}</dd>
             </div>
           ) : null}
+          {omittedShotCount > 0 || omittedShots.length > 0 ? (
+            <div>
+              <dt>{t("省略镜头")}</dt>
+              <dd>{omittedShotCount}</dd>
+            </div>
+          ) : null}
         </dl>
       ) : (
         <p className="director-engine-handoff-empty">{t("本次运行未写入 Sequencer 回执（静态导入）")}</p>
@@ -117,6 +131,20 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
             </span>
           )}
         </div>
+      ) : null}
+      {omittedShots.length ? (
+        <ul aria-label={t("结构化省略镜头")} className="director-engine-handoff-list is-warning">
+          {omittedShots.slice(0, 6).map((entry) => (
+            <li key={`shot:${entry.code}:${entry.shotId}`}>
+              <code data-i18n-user-content>{entry.shotId}</code>
+              {` · ${t(UNREAL_OMITTED_SHOT_LABELS[entry.code] ?? entry.code)} · `}
+              <span data-i18n-user-content title={entry.reason}>
+                {entry.reason}
+              </span>
+            </li>
+          ))}
+          {omittedShots.length > 6 ? <li className="director-engine-handoff-more">+{omittedShots.length - 6}</li> : null}
+        </ul>
       ) : null}
       {omittedMaterials.length ? (
         <ul aria-label={t("结构化省略材质")} className="director-engine-handoff-list is-warning">

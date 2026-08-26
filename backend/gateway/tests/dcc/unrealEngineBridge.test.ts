@@ -330,6 +330,50 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
     await expect(harness.send()).rejects.toMatchObject({ code: "engine_report_invalid" });
   });
 
+  it("returns typed omittedShots records on the Unreal send report", async () => {
+    const harness = await createSendHarness({
+      omittedShotCount: 2,
+      omittedShots: [
+        {
+          shotId: "shot-orphan",
+          code: "shot_no_camera_binding",
+          cameraDirectorId: null,
+          reason:
+            "Shot shot-orphan has no camera binding; no camera cut section was added (warn-and-omit code: shot_no_camera_binding).",
+        },
+        {
+          shotId: "shot-ghost",
+          code: "shot_camera_not_imported",
+          cameraDirectorId: "cam-ghost",
+          reason:
+            "Shot shot-ghost references camera cam-ghost which was not imported; its cut was skipped (warn-and-omit code: shot_camera_not_imported).",
+        },
+      ],
+    });
+    const result = await harness.send();
+    expect(result.report.omittedShotCount).toBe(2);
+    expect(result.report.omittedShots).toEqual([
+      expect.objectContaining({ shotId: "shot-orphan", code: "shot_no_camera_binding", cameraDirectorId: null }),
+      expect.objectContaining({ shotId: "shot-ghost", code: "shot_camera_not_imported", cameraDirectorId: "cam-ghost" }),
+    ]);
+  });
+
+  it("fails the job when omittedShots length disagrees with omittedShotCount", async () => {
+    const harness = await createSendHarness({
+      omittedShotCount: 0,
+      omittedShots: [
+        {
+          shotId: "shot-orphan",
+          code: "shot_no_camera_binding",
+          cameraDirectorId: null,
+          reason:
+            "Shot shot-orphan has no camera binding; no camera cut section was added (warn-and-omit code: shot_no_camera_binding).",
+        },
+      ],
+    });
+    await expect(harness.send()).rejects.toMatchObject({ code: "engine_report_invalid" });
+  });
+
   it("fails the job when omittedLights length disagrees with omittedLightCount", async () => {
     const harness = await createSendHarness({
       omittedLightCount: 0,

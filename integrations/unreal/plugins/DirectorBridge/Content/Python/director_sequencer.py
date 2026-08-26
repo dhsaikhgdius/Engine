@@ -17,10 +17,15 @@ Authoring rules:
 - Storyboard shots become camera-cut sections; baked entities become
   per-frame-keyed transform tracks; baked camera optics become
   ``CurrentFocalLength`` float tracks on the CineCameraComponent.
+- Shots that cannot key a camera cut warn-and-omit with a structured code
+  (the same vocabulary as the Godot and Unity shot mappers) instead of being
+  dropped silently; ``classify_shots`` is pure Python so the Gateway test
+  suite verifies the classification host-free with ``python3``.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -42,6 +47,71 @@ TRANSFORM_CHANNEL_NAMES = (
     "Scale.Y",
     "Scale.Z",
 )
+
+# Structured warn-and-omit codes for storyboard shots that cannot produce a
+# camera cut, mirroring the Godot/Unity shot mapper vocabulary.
+# The shot has no camera binding in Director; there is nothing to cut to.
+OMIT_SHOT_NO_CAMERA = "shot_no_camera_binding"
+# The bound camera was not imported into the Unreal level.
+OMIT_SHOT_CAMERA_NOT_IMPORTED = "shot_camera_not_imported"
+# The bound director_id resolved to a spawned actor that is not a camera.
+OMIT_SHOT_TARGET_NOT_CAMERA = "shot_target_not_camera"
+
+
+def classify_shots(storyboard, spawned_ids, camera_ids, warnings: list) -> tuple:
+    """Split storyboard shots into mappable camera cuts and typed omissions.
+
+    Pure and host-free (membership checks only). Every unmappable shot
+    appends one typed record plus the matching free-text warning, so nothing
+    is dropped silently even when no LevelSequence ends up being authored.
+
+    @param storyboard: ``manifest["project"]["storyboard"]`` or None.
+    @param spawned_ids: Container of imported object director_ids.
+    @param camera_ids: Container of imported camera director_ids.
+    @param warnings: Warning sink shared with the import report.
+    @returns ``(mappable_shots, omitted_records)`` where each omitted record
+        follows ``directorUnrealOmittedShotSchema``
+        ({shotId, code, cameraDirectorId, reason}).
+    """
+    mappable: list = []
+    omitted: list = []
+
+    def omit(shot_id: str, camera_id, code: str, reason: str) -> None:
+        omitted.append({"shotId": shot_id, "code": code, "cameraDirectorId": camera_id, "reason": reason})
+        warnings.append(reason)
+
+    for shot in (storyboard or {}).get("shots", []):
+        shot_id = str(shot.get("id", "?"))
+        camera_id = shot.get("cameraId")
+        if camera_id is None:
+            omit(
+                shot_id,
+                None,
+                OMIT_SHOT_NO_CAMERA,
+                f"Shot {shot_id} has no camera binding; no camera cut section was added "
+                f"(warn-and-omit code: {OMIT_SHOT_NO_CAMERA}).",
+            )
+            continue
+        if camera_id in camera_ids:
+            mappable.append(shot)
+            continue
+        if camera_id in spawned_ids:
+            omit(
+                shot_id,
+                str(camera_id),
+                OMIT_SHOT_TARGET_NOT_CAMERA,
+                f"Shot {shot_id} is bound to {camera_id} which is not a camera; its cut was skipped "
+                f"(warn-and-omit code: {OMIT_SHOT_TARGET_NOT_CAMERA}).",
+            )
+            continue
+        omit(
+            shot_id,
+            str(camera_id),
+            OMIT_SHOT_CAMERA_NOT_IMPORTED,
+            f"Shot {shot_id} references camera {camera_id} which was not imported; its cut was skipped "
+            f"(warn-and-omit code: {OMIT_SHOT_CAMERA_NOT_IMPORTED}).",
+        )
+    return mappable, omitted
 
 
 def resolve_timebase(manifest: dict, bake) -> dict:
@@ -156,12 +226,15 @@ def _key_focal_length_track(unreal, sequence, camera_actor, focal_keys, filmback
     return _add_double_keys(unreal, channels[0], [(key["frame"], key["focalLengthMm"]) for key in focal_keys], warnings)
 
 
-def build_sequence(unreal, manifest: dict, bake, spawned: dict, cameras: dict, content_root: str, warnings: list):
+def build_sequence(unreal, manifest: dict, bake, shots: list, spawned: dict, cameras: dict, content_root: str, warnings: list):
     """Author the Director LevelSequence for one import job.
 
     @param unreal: The ``unreal`` module (host-only).
     @param manifest: The validated exchange package manifest.
     @param bake: The validated Sequencer bake, or None for a static import.
+    @param shots: Mappable storyboard shots from ``classify_shots`` (every
+        shot's cameraId is a key of ``cameras``); unmappable shots were
+        already reported as typed omissions by the caller.
     @param spawned: director_id -> spawned object actor.
     @param cameras: director_id -> spawned CineCameraActor.
     @param content_root: Content root such as ``/Game/Director``.
@@ -169,8 +242,6 @@ def build_sequence(unreal, manifest: dict, bake, spawned: dict, cameras: dict, c
     @returns A Sequencer receipt dict (see directorUnrealSequencerReceiptSchema),
         or None when there is nothing to author.
     """
-    storyboard = manifest["project"].get("storyboard")
-    shots = [shot for shot in (storyboard or {}).get("shots", []) if shot.get("cameraId") in cameras]
     baked_entities = list(bake["entities"]) if bake else []
     if not shots and not baked_entities:
         return None
@@ -271,3 +342,21 @@ def build_sequence(unreal, manifest: dict, bake, spawned: dict, cameras: dict, c
         "focalLengthTrackCount": focal_length_track_count,
         "bakedKeyCount": baked_key_count,
     }
+
+
+def _run_cli() -> int:
+    """JSON-in/JSON-out CLI used by the host-free Gateway tests."""
+    payload = json.loads(sys.stdin.read())
+    warnings: list = []
+    shots, omitted = classify_shots(
+        payload.get("storyboard"),
+        set(payload.get("spawnedIds") or []),
+        set(payload.get("cameraIds") or []),
+        warnings,
+    )
+    print(json.dumps({"ok": True, "result": {"shots": shots, "omitted": omitted, "warnings": warnings}}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_cli())

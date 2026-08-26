@@ -684,6 +684,59 @@ describe.skipIf(!pythonAvailable)(
       });
     });
 
+    describe("director_sequencer shot classification (typed warn-and-omit)", () => {
+      async function classifyShots(payload: Record<string, unknown>) {
+        const { output } = await runModule("director_sequencer", [], JSON.stringify(payload));
+        expect(output.ok).toBe(true);
+        return output.result as {
+          shots: Array<Record<string, unknown>>;
+          omitted: Array<Record<string, unknown>>;
+          warnings: string[];
+        };
+      }
+
+      it("keeps mappable shots and stamps the shared shot omit vocabulary for the rest", async () => {
+        const result = await classifyShots({
+          storyboard: {
+            shots: [
+              { id: "shot-hero", cameraId: "cam-a", frameStart: 0, frameEnd: 24 },
+              { id: "shot-orphan", cameraId: null, frameStart: 24, frameEnd: 48 },
+              { id: "shot-prop", cameraId: "prop-1", frameStart: 48, frameEnd: 72 },
+              { id: "shot-ghost", cameraId: "cam-ghost", frameStart: 72, frameEnd: 96 },
+            ],
+          },
+          spawnedIds: ["prop-1"],
+          cameraIds: ["cam-a"],
+        });
+        expect(result.shots).toEqual([expect.objectContaining({ id: "shot-hero", cameraId: "cam-a" })]);
+        expect(result.omitted).toEqual([
+          { shotId: "shot-orphan", code: "shot_no_camera_binding", cameraDirectorId: null, reason: expect.any(String) },
+          {
+            shotId: "shot-prop",
+            code: "shot_target_not_camera",
+            cameraDirectorId: "prop-1",
+            reason: expect.any(String),
+          },
+          {
+            shotId: "shot-ghost",
+            code: "shot_camera_not_imported",
+            cameraDirectorId: "cam-ghost",
+            reason: expect.any(String),
+          },
+        ]);
+        // Every typed record pairs with a free-text warning carrying the code.
+        expect(result.warnings).toHaveLength(3);
+        for (const record of result.omitted) {
+          expect(result.warnings.join("\n")).toContain(`warn-and-omit code: ${record.code as string}`);
+        }
+      });
+
+      it("returns empty classifications for missing storyboards instead of failing", async () => {
+        const result = await classifyShots({ storyboard: null, spawnedIds: [], cameraIds: [] });
+        expect(result).toEqual({ shots: [], omitted: [], warnings: [] });
+      });
+    });
+
     describe("director_gltf GLB inspection", () => {
       it("detects skinned GLB payloads from the JSON chunk alone", async () => {
         const directory = await mkdtemp(resolve(tmpdir(), "director-unreal-glb-"));
