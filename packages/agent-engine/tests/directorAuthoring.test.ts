@@ -2365,6 +2365,20 @@ describe("character agent binding authoring", () => {
       );
     }
 
+    // The anonymous HTTP fallback session is meaningless as a binding
+    // identity: every untargeted caller would share the possession.
+    const anonymousSession = directorAuthoringActionSchema.safeParse({
+      action: "bind_character_agent",
+      object_id: "char_default_a",
+      session_id: "http-default",
+    });
+    expect(anonymousSession.success).toBe(false);
+    if (!anonymousSession.success) {
+      const messages = anonymousSession.error.issues.map((issue) => issue.message).join(" ");
+      expect(messages).toContain('"http-default"');
+      expect(messages).toContain("dsh-<session>");
+    }
+
     const project = createDefaultDirectorProject();
     expect(() =>
       applyDirectorAuthoringActions(project, [
