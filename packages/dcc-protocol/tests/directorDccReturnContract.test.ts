@@ -118,6 +118,60 @@ describe("Director DCC return contract", () => {
     ).toBe(true);
   });
 
+  it("accepts typed omittedAdditions on import plans and rejects count mismatches and unknown codes", () => {
+    const revision = "director-project-revision:v1:sha256:" + "a".repeat(64);
+    const base = {
+      contract: "director-dcc-import-plan-v1",
+      ready: true,
+      packageId: "return-1",
+      packageDir: "job-1/return-package",
+      manifestHash: "b".repeat(64),
+      sourceRevision: revision,
+      targetRevision: revision,
+      operations: [
+        {
+          op: "skip",
+          directorId: "lamp-new",
+          reason: "New DCC object awaits the include_new_objects opt-in.",
+        },
+      ],
+      conflicts: [],
+      warnings: [],
+      omittedAdditionsCount: 1,
+      omittedAdditions: [
+        {
+          directorId: "lamp-new",
+          name: "Desk Lamp",
+          meshFile: "meshes/lamp-new.glb",
+          code: "opt_in_required",
+          reason: "New DCC object awaits the include_new_objects opt-in.",
+        },
+      ],
+    };
+    expect(directorDccImportPlanSchema.safeParse(base).success).toBe(true);
+    expect(directorDccImportPlanSchema.safeParse({ ...base, omittedAdditionsCount: undefined }).success).toBe(false);
+    expect(directorDccImportPlanSchema.safeParse({ ...base, omittedAdditionsCount: 2 }).success).toBe(false);
+    expect(
+      directorDccImportPlanSchema.safeParse({
+        ...base,
+        omittedAdditions: [{ ...base.omittedAdditions[0], code: "not_a_code" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccImportPlanSchema.safeParse({
+        ...base,
+        omittedAdditions: [{ ...base.omittedAdditions[0], meshFile: "../lamp-new.glb" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccImportPlanSchema.safeParse({
+        ...base,
+        omittedAdditions: undefined,
+        omittedAdditionsCount: undefined,
+      }).success,
+    ).toBe(true);
+  });
+
   it("requires a SHA-256 for object_addition meshes and keeps new-object import opt-in", () => {
     const base = {
       schemaVersion: 1,

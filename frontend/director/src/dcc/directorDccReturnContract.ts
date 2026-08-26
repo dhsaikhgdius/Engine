@@ -295,6 +295,27 @@ export const directorDccOmittedOpticsSchema = z.strictObject({
 /** A validated DCC return omitted-optics record. */
 export type DirectorDccOmittedOptics = z.infer<typeof directorDccOmittedOpticsSchema>;
 
+/**
+ * Typed record for an `object_addition` the return import plan leaves
+ * unimported. Free-text skip reasons stay for humans; agents should read this
+ * array to learn which new DCC objects await review (mirrors `omittedOptics`
+ * and engine send `omittedLights` / `omittedMaterials`).
+ *
+ * - `opt_in_required`: reviewable addition awaiting the `include_new_objects` opt-in.
+ * - `duplicate_director_id`: the fresh director_id collides with a live entity (also a conflict).
+ * - `skip_requested`: excluded through `skip_director_ids`.
+ */
+export const directorDccOmittedAdditionSchema = z.strictObject({
+  directorId: nonEmpty.max(200),
+  name: nonEmpty.max(240),
+  meshFile: safeRelativePath,
+  code: z.enum(["opt_in_required", "duplicate_director_id", "skip_requested"]),
+  reason: nonEmpty.max(1_000),
+});
+
+/** A validated DCC return omitted-addition record. */
+export type DirectorDccOmittedAddition = z.infer<typeof directorDccOmittedAdditionSchema>;
+
 const directorVec3Schema = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
 
 /** The Director-side light patch of an import plan (Director space and units). */
@@ -398,6 +419,20 @@ export const directorDccImportPlanSchema = z
      * must equal omittedOpticsCount.
      */
     omittedOptics: z.array(directorDccOmittedOpticsSchema).max(1_024).optional(),
+    /**
+     * Count of `object_addition` changes the plan leaves unimported. Optional
+     * for plans built before typed omittedAdditions; when omittedAdditions is
+     * present, length must equal this count.
+     */
+    omittedAdditionsCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Typed records for new DCC objects the plan does not import — awaiting
+     * the `include_new_objects` opt-in, colliding with a live stable ID, or
+     * excluded on request. Optional for older plans; when present, length
+     * must equal omittedAdditionsCount. The cap matches the manifest
+     * `changes` cap so a fully additive package still parses.
+     */
+    omittedAdditions: z.array(directorDccOmittedAdditionSchema).max(20_000).optional(),
   })
   .superRefine((plan, context) => {
     if (plan.ready && plan.conflicts.length > 0) {
@@ -415,6 +450,21 @@ export const directorDccImportPlanSchema = z
           code: "custom",
           path: ["omittedOptics"],
           message: "omittedOptics length must equal omittedOpticsCount",
+        });
+      }
+    }
+    if (plan.omittedAdditions !== undefined) {
+      if (plan.omittedAdditionsCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedAdditionsCount"],
+          message: "omittedAdditionsCount is required when omittedAdditions is present",
+        });
+      } else if (plan.omittedAdditions.length !== plan.omittedAdditionsCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedAdditions"],
+          message: "omittedAdditions length must equal omittedAdditionsCount",
         });
       }
     }
