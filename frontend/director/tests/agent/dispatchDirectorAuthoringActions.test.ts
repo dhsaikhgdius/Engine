@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyDirectorAuthoringActions, type DirectorAuthoringAction } from "@director/agent-engine/authoring";
+import { getDirectorAgentCatalogAsset } from "@director/agent-engine/asset-catalog";
 import {
   DEFAULT_DIRECTOR_CAMERA_SENSOR_FORMAT,
   getDirectorProjectRevision,
@@ -828,6 +829,49 @@ describe("Stage mutator parity with direct agent authoring", () => {
     const asset = project.assets.find((item) => item.id === assetId)!;
     const placed = project.objects.find((item) => item.assetRefId === assetId);
     expect(placed).toBeTruthy();
+    expect(placed?.nativeSource).toEqual({ engine: "blender", objectId: placed!.id, provisioned: false });
+
+    const agentRevision = getDirectorProjectRevision(
+      applyDirectorAuthoringActions(before, [
+        { action: "upsert_asset", asset: structuredClone(asset) },
+        {
+          action: "add_object",
+          id: placed!.id,
+          name: placed!.name,
+          kind: "prop",
+          asset_id: assetId,
+          transform: structuredClone(placed!.transform),
+        },
+      ]).project,
+    );
+    expect(storeRevision()).toBe(agentRevision);
+  });
+
+  it("addImportedAsset scene-placing Flick library prop reuses catalog identity", () => {
+    const before = structuredClone(useDirectorStore.getState().project);
+    const catalogAsset = getDirectorAgentCatalogAsset("flick:animals:cat.glb")!.asset;
+    const assetId = useDirectorStore.getState().addImportedAsset({
+      id: catalogAsset.id,
+      kind: "prop",
+      sourceType: "model",
+      name: catalogAsset.name ?? "Cat",
+      fileName: catalogAsset.fileName,
+      url: catalogAsset.url,
+      assetSource: "library",
+      realWorldSizeM: catalogAsset.realWorldSizeM,
+      sizeSource: "catalog",
+    });
+    expect(assetId).toBe("flick:animals:cat.glb");
+    const project = useDirectorStore.getState().project;
+    const asset = project.assets.find((item) => item.id === assetId)!;
+    const placed = project.objects.find((item) => item.assetRefId === assetId);
+    expect(asset).toMatchObject({
+      id: "flick:animals:cat.glb",
+      url: "/flick-stage-props/animals/cat.glb",
+      assetSource: "library",
+      realWorldSizeM: 0.6,
+      sizeSource: "catalog",
+    });
     expect(placed?.nativeSource).toEqual({ engine: "blender", objectId: placed!.id, provisioned: false });
 
     const agentRevision = getDirectorProjectRevision(

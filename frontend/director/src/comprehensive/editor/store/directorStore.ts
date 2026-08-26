@@ -138,6 +138,7 @@ import {
 
 import { createDefaultDirectorProject as createCanonicalDefaultDirectorProject } from "@director/agent-engine/default-project";
 import { isDirectorCharacterMotionId } from "@director/agent-engine/character-motions";
+import { getDirectorAgentCatalogAsset } from "@director/agent-engine/asset-catalog";
 import {
   DIRECTOR_DUPLICATE_POSITION_OFFSET_M,
   getDirectorDuplicateObjectId,
@@ -5838,6 +5839,22 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         if (claimsPackagedCharacter && !catalogItem) {
           throw new Error(`人物资产不是 Mixamo 目录中的真实条目：${input.id ?? input.url}`);
         }
+        if (catalogItem) return createMixamoCharacterAssetRef(catalogItem);
+
+        // Packaged Flick / Mixamo / director-character library drops must reuse the
+        // exact Agent catalog identity. upsert_asset rejects library/packaged URLs
+        // whose id is not getDirectorAgentCatalogAsset(id); synthesizing asset_N
+        // here would make the authoring path fail while the legacy writer still
+        // accepted sequential ids.
+        const agentCatalogItem = input.id ? getDirectorAgentCatalogAsset(input.id) : null;
+        if (agentCatalogItem) {
+          const catalogAsset = cloneJsonValue(agentCatalogItem.asset);
+          return {
+            ...catalogAsset,
+            name: input.name || catalogAsset.name,
+            ...(input.projectionMode !== undefined ? { projectionMode: input.projectionMode } : {}),
+          } satisfies DirectorAssetRef;
+        }
 
         const generatedAssetId = getNextSequentialId(
           state.project.assets.map((item) => item.id),
@@ -5850,30 +5867,31 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             ? DIRECTOR_IMPORTED_MODEL_TARGET_MAX_SIZE
             : undefined;
         const realWorldSizeM = input.realWorldSizeM ?? estimatedFallbackSizeM;
-        return catalogItem
-          ? createMixamoCharacterAssetRef(catalogItem)
-          : ({
-              id: input.assetSource === "generated" && input.id ? input.id : generatedAssetId,
-              kind: input.kind,
-              sourceType,
-              fileName: input.fileName,
-              name: input.name,
-              url: input.url,
-              assetSource: input.kind === "panorama" ? undefined : (input.assetSource ?? "local"),
-              modelNormalization: input.modelNormalization,
-              realWorldSizeM,
-              sizeSource:
-                realWorldSizeM === undefined
-                  ? undefined
-                  : input.realWorldSizeM === undefined
-                    ? "estimated"
-                    : (input.sizeSource ?? "catalog"),
-              thumbnailUrl: input.thumbnailUrl,
-              generation: input.generation,
-              projectionMode: input.projectionMode,
-              characterMetadata: input.kind === "character" ? input.characterMetadata : undefined,
-              splatSequence: input.splatSequence,
-            } satisfies DirectorAssetRef);
+        return {
+          id:
+            (input.assetSource === "generated" || input.assetSource === "library") && input.id
+              ? input.id
+              : generatedAssetId,
+          kind: input.kind,
+          sourceType,
+          fileName: input.fileName,
+          name: input.name,
+          url: input.url,
+          assetSource: input.kind === "panorama" ? undefined : (input.assetSource ?? "local"),
+          modelNormalization: input.modelNormalization,
+          realWorldSizeM,
+          sizeSource:
+            realWorldSizeM === undefined
+              ? undefined
+              : input.realWorldSizeM === undefined
+                ? "estimated"
+                : (input.sizeSource ?? "catalog"),
+          thumbnailUrl: input.thumbnailUrl,
+          generation: input.generation,
+          projectionMode: input.projectionMode,
+          characterMetadata: input.kind === "character" ? input.characterMetadata : undefined,
+          splatSequence: input.splatSequence,
+        } satisfies DirectorAssetRef;
       };
 
       if (canUseAuthoringPath()) {
@@ -5910,8 +5928,9 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
                 ...current,
                 ...selectedObjectsPatch([nextObject.id]),
               }));
+              return assetId;
             }
-            return assetId;
+            // Fall through to the legacy writer when authoring rejects the place.
           }
           // Character scene placement for an existing asset keeps the legacy writer
           // (empty pose controls vs add_object stand-preset expansion).
@@ -5929,16 +5948,18 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               ...current,
               ...selectedObjectsPatch([], null, "scene"),
             }));
+            return assetId;
           }
-          return assetId;
         } else if (input.addToScene === false || nextAsset.sourceType === "image") {
           const applied = dispatchUiAuthoring(
             [{ action: "upsert_asset", asset: cloneJsonValue(nextAsset) }],
             `ui-import-asset:${assetId}`,
             "导入失败",
           );
-          if (applied) persistLocalModelAsset(nextAsset);
-          return assetId;
+          if (applied) {
+            persistLocalModelAsset(nextAsset);
+            return assetId;
+          }
         } else if (nextAsset.kind !== "character") {
           // Non-character model imports that also place a scene object share
           // upsert_asset + add_object (nativeSource stamped when asset_id is
@@ -5966,10 +5987,11 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               ...current,
               ...selectedObjectsPatch([nextObject.id]),
             }));
+            return assetId;
           }
-          return assetId;
         }
         // Character model imports that also place a scene object keep the legacy writer.
+        // Authoring failures above also fall through here.
       }
 
       commitMutation((state) => {
