@@ -120234,6 +120234,22 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
     delete_group: external_exports.boolean().default(true),
     force: external_exports.boolean().optional()
   }),
+  strictAction("create_object_list", {
+    list_id: id3,
+    label: name3,
+    object_ids: objectIds
+  }),
+  strictAction("add_objects_to_object_list", {
+    list_id: id3,
+    object_ids: objectIds
+  }),
+  strictAction("remove_objects_from_object_lists", {
+    object_ids: objectIds
+  }),
+  strictAction("rename_object_list", {
+    list_id: id3,
+    label: name3
+  }),
   strictAction("add_annotation", { annotation: directorSceneAnnotationSchema }),
   strictAction("update_annotation", { annotation_id: id3, patch: annotationUpdateSchema }),
   strictAction("remove_annotations", { annotation_ids: external_exports.array(id3).min(1).max(512) }),
@@ -136628,6 +136644,13 @@ var directorDccOmittedOpticsSchema = external_exports.strictObject({
   field: external_exports.literal("sensorFormat").optional(),
   reason: nonEmpty3.max(600)
 });
+var directorDccOmittedAdditionSchema = external_exports.strictObject({
+  directorId: nonEmpty3.max(200),
+  name: nonEmpty3.max(240),
+  meshFile: safeRelativePath2,
+  code: external_exports.enum(["opt_in_required", "duplicate_director_id", "skip_requested"]),
+  reason: nonEmpty3.max(1e3)
+});
 var directorVec3Schema3 = external_exports.tuple([external_exports.number().finite(), external_exports.number().finite(), external_exports.number().finite()]);
 var directorDccImportPlanLightPatchSchema = external_exports.strictObject({
   color: hexColor.optional(),
@@ -136710,7 +136733,21 @@ var directorDccImportPlanSchema = external_exports.strictObject({
    * (`sensor_format` today). Optional for older plans; when present, length
    * must equal omittedOpticsCount.
    */
-  omittedOptics: external_exports.array(directorDccOmittedOpticsSchema).max(1024).optional()
+  omittedOptics: external_exports.array(directorDccOmittedOpticsSchema).max(1024).optional(),
+  /**
+   * Count of `object_addition` changes the plan leaves unimported. Optional
+   * for plans built before typed omittedAdditions; when omittedAdditions is
+   * present, length must equal this count.
+   */
+  omittedAdditionsCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed records for new DCC objects the plan does not import — awaiting
+   * the `include_new_objects` opt-in, colliding with a live stable ID, or
+   * excluded on request. Optional for older plans; when present, length
+   * must equal omittedAdditionsCount. The cap matches the manifest
+   * `changes` cap so a fully additive package still parses.
+   */
+  omittedAdditions: external_exports.array(directorDccOmittedAdditionSchema).max(2e4).optional()
 }).superRefine((plan, context) => {
   if (plan.ready && plan.conflicts.length > 0) {
     context.addIssue({ code: "custom", path: ["ready"], message: "ready plans cannot contain conflicts" });
@@ -136727,6 +136764,21 @@ var directorDccImportPlanSchema = external_exports.strictObject({
         code: "custom",
         path: ["omittedOptics"],
         message: "omittedOptics length must equal omittedOpticsCount"
+      });
+    }
+  }
+  if (plan.omittedAdditions !== void 0) {
+    if (plan.omittedAdditionsCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedAdditionsCount"],
+        message: "omittedAdditionsCount is required when omittedAdditions is present"
+      });
+    } else if (plan.omittedAdditions.length !== plan.omittedAdditionsCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedAdditions"],
+        message: "omittedAdditions length must equal omittedAdditionsCount"
       });
     }
   }

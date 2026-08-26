@@ -44,18 +44,18 @@ The process token authenticates the client to the gateway. It is separate from t
 
 ## Discovery
 
-| Method | Path                               | Result                                           |
-| ------ | ---------------------------------- | ------------------------------------------------ |
-| `GET`  | `/health`                          | Unauthenticated process health and browser count |
-| `GET`  | `/api/control-plane/capabilities`  | Redacted Agent and video configuration           |
-| `GET`  | `/api/control-plane/tool-manifest` | Machine-readable Director tool catalog           |
-| `GET`  | `/api/control-plane/a2a-agent-card` | Discovery-only A2A-style agent card             |
-| `GET`  | `/api/agent/providers`             | Local/API session-provider availability          |
-| `GET`  | `/api/agent/profiles`              | Public Profile metadata and model capabilities   |
-| `GET`  | `/api/video/providers`             | Live video-provider capability report            |
-| `GET`  | `/api/dcc/status`                  | Blender/DCC bridge status                        |
-| `GET`  | `/api/stage`                       | Legacy StageScene projection                     |
-| `GET`  | `/api/preview`                     | Latest captured preview; authenticated read      |
+| Method | Path                                | Result                                           |
+| ------ | ----------------------------------- | ------------------------------------------------ |
+| `GET`  | `/health`                           | Unauthenticated process health and browser count |
+| `GET`  | `/api/control-plane/capabilities`   | Redacted Agent and video configuration           |
+| `GET`  | `/api/control-plane/tool-manifest`  | Machine-readable Director tool catalog           |
+| `GET`  | `/api/control-plane/a2a-agent-card` | Discovery-only A2A-style agent card              |
+| `GET`  | `/api/agent/providers`              | Local/API session-provider availability          |
+| `GET`  | `/api/agent/profiles`               | Public Profile metadata and model capabilities   |
+| `GET`  | `/api/video/providers`              | Live video-provider capability report            |
+| `GET`  | `/api/dcc/status`                   | Blender/DCC bridge status                        |
+| `GET`  | `/api/stage`                        | Legacy StageScene projection                     |
+| `GET`  | `/api/preview`                      | Latest captured preview; authenticated read      |
 
 ```bash
 curl -fsS "$BASE/api/agent/profiles" \
@@ -331,16 +331,17 @@ whose analysis status is `degraded` and mode is `local`. See
 
 ## Other HTTP domains
 
-| Domain            | Routes                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------ |
-| Assistant planner | `POST /api/assistant/plan`, `POST /api/assistant/apply`                              |
-| Production jobs   | `POST /api/canvas-jobs`, `GET /api/canvas-jobs/{id}`, `GET .../{id}/artifact`        |
-| Production state  | `/te-man/director/productions/{id}` and nested `/scenes`; `/scenes/{id}/project`     |
-| Film pipeline     | `GET/POST /api/film/runs`, `GET /api/film/runs/{id}`, `GET .../{id}/receipt`, `POST .../{id}/resume\|cancel\|approve` |
-| DCC               | `GET /api/dcc/status` plus the versioned DCC job operations documented by the bridge |
-| Reconstruction    | `POST /api/reconstruction/reference-scene/analyze`                                   |
+| Domain            | Routes                                                                                                                                        |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Assistant planner | `POST /api/assistant/plan`, `POST /api/assistant/apply`                                                                                       |
+| Production jobs   | `POST /api/canvas-jobs`, `GET /api/canvas-jobs/{id}`, `GET .../{id}/artifact`                                                                 |
+| Production state  | `/te-man/director/productions/{id}` and nested `/scenes`; `/scenes/{id}/project`                                                              |
+| Film pipeline     | `GET/POST /api/film/runs`, `GET /api/film/runs/{id}`, `GET .../{id}/receipt`, `POST .../{id}/resume\|cancel\|approve`                         |
+| DCC               | `GET /api/dcc/status` plus the versioned DCC job operations documented by the bridge                                                          |
+| Reconstruction    | `POST /api/reconstruction/reference-scene/analyze`                                                                                            |
 | Observability     | `GET /api/agent/traces`, `GET /api/agent/traces/summary`, `GET /api/agent/traces/sessions`, `GET /api/agent/usage`, `GET /api/agent/progress` |
-| Legacy Stage      | `GET /api/stage`, `PUT /api/stage`                                                   |
+| Storage ops       | `GET /api/storage/health`, dry-run `POST /api/storage/gc/plan`, confirmed `POST /api/storage/gc/sweep`                                        |
+| Legacy Stage      | `GET /api/stage`, `PUT /api/stage`                                                                                                            |
 
 Film routes report the pipeline's configuration state explicitly on the list response (`pipeline:
 {configured, reason}`), answer failures with frozen public codes
@@ -356,6 +357,12 @@ compact per-session aggregates and `/progress` includes zero-filled state/kind c
 may self-identify their entry surface with the `x-director-trace-source: ui|mcp|http|cli` header;
 unknown or missing values are recorded as `http`. Trace receipts never contain prompts, tool
 payloads, or credentials — error text and capture references are redacted before storage.
+
+Storage health runs two live checks instead of assuming a healthy backend: a `capacity`
+measurement (`statfs` on the filesystem backend; typed `capacity_unsupported` /
+`capacity_probe_failed` omissions when not measurable) and a put→verify→delete `writeProbe`
+that reports the exact failed step. Sweeping is destructive: `POST /api/storage/gc/sweep` must
+echo the reviewed plan id as `confirm` and is idempotent on replay.
 
 Prefer structured tools over raw `PUT /api/stage`: Workbench operations participate in revision,
 idempotency, exact-target, quality, asset, audit, and evidence contracts.

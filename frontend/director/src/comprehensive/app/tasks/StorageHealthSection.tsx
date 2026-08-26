@@ -23,6 +23,13 @@ function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
+/** Typed write-probe failure codes mapped to the source-language row copy. */
+const WRITE_PROBE_FAILURE_TEXT = {
+  put_failed: "写入失败",
+  verify_failed: "回读校验失败",
+  delete_failed: "探针清理失败",
+} as const;
+
 /**
  * Renders the storage health rows plus the explicit plan → confirm sweep
  * flow. Planning is always a dry run; sweeping only ever consumes the exact
@@ -99,6 +106,32 @@ export function StorageHealthSection() {
             <span>{formatStorageBytes(health.usage.jobArtifacts.bytes)}</span>
             <span>{t("暂存输入")}</span>
             <span>{formatStorageBytes(health.usage.stagedMediaInputs.bytes)}</span>
+            {health.capacity ? (
+              <>
+                <span>{t("剩余空间")}</span>
+                {health.capacity.status === "measured" ? (
+                  <span>
+                    {`${formatStorageBytes(health.capacity.availableBytes)} / ${formatStorageBytes(health.capacity.totalBytes)}`}
+                  </span>
+                ) : (
+                  <span className="is-error" title={health.capacity.reason}>
+                    {t(health.capacity.code === "capacity_unsupported" ? "后端不支持容量测量" : "容量探测失败")}
+                  </span>
+                )}
+              </>
+            ) : null}
+            {health.writeProbe ? (
+              <>
+                <span>{t("写入探针")}</span>
+                {health.writeProbe.status === "ok" ? (
+                  <span>{`${t("可写")} · ${Math.round(health.writeProbe.latencyMs)} ms`}</span>
+                ) : (
+                  <span className="is-error" title={health.writeProbe.reason}>
+                    {t(WRITE_PROBE_FAILURE_TEXT[health.writeProbe.code])}
+                  </span>
+                )}
+              </>
+            ) : null}
             <span>{t("可清扫")}</span>
             <span>
               {health.sweepCandidates.count > 0

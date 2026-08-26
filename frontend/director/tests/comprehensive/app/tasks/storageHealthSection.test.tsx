@@ -43,6 +43,14 @@ function healthBody(overrides: Record<string, unknown> = {}) {
       jobs: { total: 3, nonTerminal: 1, byStatus: { succeeded: 2, running: 1 } },
       sweepCandidates: { count: 2, bytes: 2048, byReason: { unreachable: 1, retentionExpired: 1 } },
       recentSweeps: [],
+      capacity: {
+        status: "measured",
+        totalBytes: 100 * 1024 * 1024 * 1024,
+        freeBytes: 40 * 1024 * 1024 * 1024,
+        availableBytes: 38 * 1024 * 1024 * 1024,
+        usedRatio: 0.6,
+      },
+      writeProbe: { status: "ok", probedAt: "2026-08-25T12:00:00.000Z", latencyMs: 4 },
       ...overrides,
     },
   };
@@ -60,6 +68,37 @@ describe("storageHealthClient", () => {
     expect(mocks.fetch).toHaveBeenCalledWith("/api/storage/health", { signal: undefined });
     expect(health.backend).toBe("filesystem");
     expect(health.sweepCandidates).toMatchObject({ count: 2, bytes: 2048 });
+    expect(health.capacity).toMatchObject({ status: "measured", usedRatio: 0.6 });
+    expect(health.writeProbe).toMatchObject({ status: "ok", latencyMs: 4 });
+  });
+
+  it("accepts reports from older gateways without live-check stanzas", async () => {
+    mocks.fetch.mockResolvedValueOnce(jsonResponse(200, healthBody({ capacity: undefined, writeProbe: undefined })));
+    const health = await fetchStorageHealth();
+    expect(health.capacity).toBeUndefined();
+    expect(health.writeProbe).toBeUndefined();
+  });
+
+  it("parses typed capacity omissions and write-probe failures", async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(
+        200,
+        healthBody({
+          backend: "object-storage",
+          capacity: { status: "unavailable", code: "capacity_unsupported", reason: "no enumerable capacity" },
+          writeProbe: {
+            status: "failed",
+            probedAt: "2026-08-25T12:00:00.000Z",
+            latencyMs: 12,
+            code: "put_failed",
+            reason: "bucket is read-only",
+          },
+        }),
+      ),
+    );
+    const health = await fetchStorageHealth();
+    expect(health.capacity).toMatchObject({ status: "unavailable", code: "capacity_unsupported" });
+    expect(health.writeProbe).toMatchObject({ status: "failed", code: "put_failed", reason: "bucket is read-only" });
   });
 
   it("surfaces gateway error messages", async () => {
@@ -147,6 +186,11 @@ describe("StorageHealthSection", () => {
     expect(screen.getByText("3.0 MB")).toBeTruthy();
     expect(screen.getByText("2 个对象（2.0 KB）")).toBeTruthy();
     expect(screen.getByText("暂无清扫记录")).toBeTruthy();
+    // The live checks render as measured numbers, not assumed health.
+    expect(screen.getByText("剩余空间")).toBeTruthy();
+    expect(screen.getByText("38.0 GB / 100 GB")).toBeTruthy();
+    expect(screen.getByText("写入探针")).toBeTruthy();
+    expect(screen.getByText("可写 · 4 ms")).toBeTruthy();
 
     // Planning is a dry run: it reports candidates without deleting.
     await user.click(screen.getByRole("button", { name: "生成清扫计划（试运行）" }));
@@ -159,6 +203,43 @@ describe("StorageHealthSection", () => {
     // The section refreshed health after the sweep.
     const healthCalls = mocks.fetch.mock.calls.filter(([path]) => path === "/api/storage/health");
     expect(healthCalls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders typed capacity omissions and write-probe failures instead of hiding them", async () => {
+    mocks.fetch.mockImplementation(async (path) => {
+      if (path === "/api/storage/health") {
+        return jsonResponse(
+          200,
+          healthBody({
+            backend: "object-storage",
+            capacity: { status: "unavailable", code: "capacity_unsupported", reason: "no enumerable capacity" },
+            writeProbe: {
+              status: "failed",
+              probedAt: "2026-08-25T12:00:00.000Z",
+              latencyMs: 12,
+              code: "put_failed",
+              reason: "bucket is read-only",
+            },
+          }),
+        );
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+    render(<StorageHealthSection />);
+    expect(await screen.findByText("后端不支持容量测量")).toBeTruthy();
+    const failure = screen.getByText("写入失败");
+    expect(failure.getAttribute("title")).toBe("bucket is read-only");
+    expect(failure.className).toContain("is-error");
+  });
+
+  it("claims nothing about capacity or writability when an older gateway omits the live checks", async () => {
+    mocks.fetch.mockImplementation(async () =>
+      jsonResponse(200, healthBody({ capacity: undefined, writeProbe: undefined })),
+    );
+    render(<StorageHealthSection />);
+    await screen.findByText("产物占用");
+    expect(screen.queryByText("剩余空间")).toBeNull();
+    expect(screen.queryByText("写入探针")).toBeNull();
   });
 
   it("shows gateway refusals inline", async () => {
