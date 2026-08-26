@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import {
   access,
   chmod,
@@ -57,6 +59,7 @@ const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_PROCESS_OUTPUT = 256 * 1024;
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 const MAX_WORKBENCH_PROJECT_BYTES = 20 * 1024 * 1024;
+const MAX_PREVIEW_PACKAGE_CACHE_ENTRIES = 32;
 const MAX_APPLY_LEDGER_BYTES = MAX_WORKBENCH_PROJECT_BYTES + 4 * 1024 * 1024;
 const DIRECTOR_ENGINE_SCENE_APPLY_LEDGER_CONTRACT = "director-engine-scene-apply-ledger-v1" as const;
 
@@ -992,6 +995,18 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     await chmod(path, 0o600).catch(() => undefined);
   }
 
+  // Bounded LRU so a long-lived gateway cannot grow the preview cache without
+  // limit under sustained ingestion load; evicted entries simply re-validate.
+  function rememberPreviewPackage(validated: ValidatedDirectorEngineScenePackage): void {
+    previewPackageCache.delete(validated.packageDir);
+    previewPackageCache.set(validated.packageDir, validated);
+    while (previewPackageCache.size > MAX_PREVIEW_PACKAGE_CACHE_ENTRIES) {
+      const oldest = previewPackageCache.keys().next().value;
+      if (oldest === undefined) break;
+      previewPackageCache.delete(oldest);
+    }
+  }
+
   async function validatePackageReusingPreview(
     provider: DirectorEngineSceneProvider,
     packageDir: string,
@@ -1000,11 +1015,14 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     const cached = previewPackageCache.get(directory.relative);
     if (cached && cached.provider === provider) {
       const manifestHash = await sha256File(cached.manifestPath).catch(() => null);
-      if (manifestHash === cached.manifestHash) return cached;
+      if (manifestHash === cached.manifestHash) {
+        rememberPreviewPackage(cached);
+        return cached;
+      }
       previewPackageCache.delete(directory.relative);
     }
     const validated = await validatePackage(provider, directory.relative);
-    previewPackageCache.set(validated.packageDir, validated);
+    rememberPreviewPackage(validated);
     return validated;
   }
 
@@ -1045,25 +1063,42 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
           `Engine scene package entry has an unsafe path: ${entry.name.slice(0, 200)}.`,
         );
       }
-      const contents = await entry.async("nodebuffer");
-      extractedBytes += contents.byteLength;
-      if (extractedBytes > maximumExtractedBytes) {
-        throw new DirectorEngineSceneImportError(
-          "upload_too_large",
-          `Engine scene package expands beyond the ${maximumExtractedBytes} byte extraction budget.`,
-          413,
-        );
-      }
       const destination = resolve(outputDirectory, entry.name);
       if (!isInside(outputDirectory, destination)) {
         throw new DirectorEngineSceneImportError("path_escape", "Engine scene package entry escaped its root.", 403);
       }
       await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
-      const file = await open(destination, "wx", 0o600);
+      // Stream the inflation so a decompression bomb is rejected as soon as
+      // the cumulative budget is crossed, instead of first materializing an
+      // arbitrarily large decompressed entry in memory.
+      const budgetGuard = new Transform({
+        transform: (chunk: Buffer, _encoding, callback) => {
+          extractedBytes += chunk.byteLength;
+          if (extractedBytes > maximumExtractedBytes) {
+            callback(
+              new DirectorEngineSceneImportError(
+                "upload_too_large",
+                `Engine scene package expands beyond the ${maximumExtractedBytes} byte extraction budget.`,
+                413,
+              ),
+            );
+            return;
+          }
+          callback(null, chunk);
+        },
+      });
       try {
-        await file.writeFile(contents);
-      } finally {
-        await file.close();
+        await pipeline(
+          entry.nodeStream("nodebuffer"),
+          budgetGuard,
+          createWriteStream(destination, { flags: "wx", mode: 0o600 }),
+        );
+      } catch (error) {
+        if (error instanceof DirectorEngineSceneImportError) throw error;
+        throw new DirectorEngineSceneImportError(
+          "upload_invalid",
+          `Engine scene package entry could not be extracted: ${entry.name.slice(0, 200)}.`,
+        );
       }
     }
   }
@@ -1075,7 +1110,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     project: DirectorProject,
   ): Promise<EngineSceneImportUploadResult> {
     const validated = await validatePackage(provider, `${jobId}/package`);
-    previewPackageCache.set(validated.packageDir, validated);
+    rememberPreviewPackage(validated);
     const plan = buildPlan(validated, project);
     await persistPlan(plan);
     return { jobId, provider, packagePath: validated.packageDir, archiveSha256, manifest: validated.manifest, plan };
