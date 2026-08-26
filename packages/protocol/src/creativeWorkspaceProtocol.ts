@@ -1049,6 +1049,33 @@ export const creativeWorkspaceInterchangePlanSchema = z.strictObject({
 });
 
 /**
+ * Typed interchange import omissions (Fountain storyboard import and Creative
+ * OTIO/OTIOZ video import). Optional on older plans; when `omitted` is present,
+ * length must equal `omitted_count`.
+ */
+export const creativeWorkspaceInterchangeOmittedCodeSchema = z.enum([
+  // Fountain → storyboard
+  "character_dialogue",
+  "boneyard_note",
+  "section_heading",
+  "title_page_field",
+  "invalid_marker",
+  "transition",
+  // Creative OTIO / OTIOZ → Video Editor
+  "track_limit",
+  "invalid_source_range",
+  "unsupported_as_gap",
+  "clip_limit",
+  "offline_media",
+]);
+
+export const creativeWorkspaceInterchangeOmittedSchema = z.strictObject({
+  code: creativeWorkspaceInterchangeOmittedCodeSchema,
+  subject: z.string().trim().min(1).max(240),
+  reason: z.string().trim().min(1).max(600),
+});
+
+/**
  * An interchange import plan: summarizes a parsed payload ready for atomic commit.
  */
 export const creativeWorkspaceInterchangeImportPlanSchema = z
@@ -1072,25 +1099,8 @@ export const creativeWorkspaceInterchangeImportPlanSchema = z
       video_tracks: z.number().int().nonnegative().optional(),
     }),
     warnings: z.array(z.string().max(1_000)).max(50),
-    /**
-     * Typed Creative OTIO/OTIOZ omit count. Optional for older plans / non-video
-     * formats; when `omitted` is present, length must equal this count.
-     */
     omitted_count: z.number().int().nonnegative().max(50).optional(),
-    /**
-     * Typed Creative OTIO/OTIOZ omit records (`track_limit`, `invalid_source_range`,
-     * `unsupported_as_gap`, `clip_limit`, `offline_media`). Optional for older plans.
-     */
-    omitted: z
-      .array(
-        z.strictObject({
-          code: z.enum(["track_limit", "invalid_source_range", "unsupported_as_gap", "clip_limit", "offline_media"]),
-          subject: z.string().trim().min(1).max(240),
-          reason: z.string().trim().min(1).max(600),
-        }),
-      )
-      .max(50)
-      .optional(),
+    omitted: z.array(creativeWorkspaceInterchangeOmittedSchema).max(50).optional(),
   })
   .superRefine((plan, context) => {
     if (plan.omitted !== undefined) {
@@ -1157,19 +1167,8 @@ const creativeWorkspaceInterchangeImportReceiptSchema = z
     before_guard: creativeWorkspaceSemanticGuardSchema,
     after_guard: creativeWorkspaceSemanticGuardSchema,
     warnings: z.array(z.string().max(1_000)).max(50),
-    /** Typed Creative OTIO/OTIOZ omit count; optional for older receipts. */
     omitted_count: z.number().int().nonnegative().max(50).optional(),
-    /** Typed Creative OTIO/OTIOZ omit records; optional for older receipts. */
-    omitted: z
-      .array(
-        z.strictObject({
-          code: z.enum(["track_limit", "invalid_source_range", "unsupported_as_gap", "clip_limit", "offline_media"]),
-          subject: z.string().trim().min(1).max(240),
-          reason: z.string().trim().min(1).max(600),
-        }),
-      )
-      .max(50)
-      .optional(),
+    omitted: z.array(creativeWorkspaceInterchangeOmittedSchema).max(50).optional(),
   })
   .superRefine((receipt, context) => {
     if (receipt.omitted !== undefined) {

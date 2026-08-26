@@ -14,6 +14,31 @@ import { decodeUtf8Base64, encodeUtf8Base64 } from "./encoding";
 
 export const DIRECTOR_FOUNTAIN_CONTRACT = "director-fountain-v1" as const;
 
+/**
+ * Structured warn-and-omit codes for Fountain → storyboard import. Agents read
+ * these instead of scraping free-text `warnings[]`. Invalid frame ranges stay
+ * warnings only (the shot is still created after normalization).
+ */
+export const DIRECTOR_FOUNTAIN_OMITTED_CODES = [
+  "character_dialogue",
+  "boneyard_note",
+  "section_heading",
+  "title_page_field",
+  "invalid_marker",
+  "transition",
+] as const;
+
+/** One Fountain omit code. */
+export type DirectorFountainOmittedCode = (typeof DIRECTOR_FOUNTAIN_OMITTED_CODES)[number];
+
+/** One typed Fountain import omission. */
+export interface DirectorFountainOmitted {
+  code: DirectorFountainOmittedCode;
+  /** Character name, note text, title-page key, or other subject. */
+  subject: string;
+  reason: string;
+}
+
 /** Metadata embedded in Fountain boneyard comments for Director round-trip fidelity. */
 interface DirectorFountainShotMetadata {
   contract: typeof DIRECTOR_FOUNTAIN_CONTRACT;
@@ -38,8 +63,13 @@ export interface ImportDirectorFountainOptions {
 export interface DirectorFountainImportResult {
   /** The reconstructed storyboard. */
   storyboard: DirectorStoryboard;
-  /** Non-fatal diagnostic messages. */
+  /** Non-fatal diagnostic messages (kept for older UIs / free-text scrapers). */
   warnings: string[];
+  /**
+   * Typed omit records for Agent/UI honesty. Dialogue, notes, sections, and
+   * unsupported title-page fields are not carried as storyboard structure.
+   */
+  omitted: DirectorFountainOmitted[];
 }
 
 /** Extended import options that also accept a base project to merge into. */
@@ -59,6 +89,10 @@ function stableId(value: string) {
 
 function metadataMarker(metadata: DirectorFountainShotMetadata) {
   return `/* DIRECTOR_SHOT_V1 ${encodeUtf8Base64(JSON.stringify(metadata))} */`;
+}
+
+function looksLikeDirectorMarker(line: string) {
+  return /^\/\*\s*DIRECTOR_SHOT_V1\b/.test(line.trim());
 }
 
 function decodeMarker(line: string): DirectorFountainShotMetadata | null {
@@ -94,6 +128,23 @@ function cleanHeading(line: string) {
 function isSceneHeading(line: string) {
   const trimmed = line.trim();
   return trimmed.startsWith(".") || /^(?:INT\.?|EXT\.?|INT\.?\/EXT\.?|I\/E\.?)\s/i.test(trimmed);
+}
+
+function isTransition(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith(">")) return true;
+  return /\bTO:\s*$/i.test(trimmed) || /^(?:FADE|CUT|DISSOLVE|SMASH|WIPE)\b/i.test(trimmed);
+}
+
+function isCharacterCue(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed || isSceneHeading(trimmed) || isTransition(trimmed) || trimmed.startsWith("@")) return false;
+  if (/^\[\[.*\]\]$/.test(trimmed) || /^#{1,6}\s/.test(trimmed)) return false;
+  const withoutExtension = trimmed.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  if (!withoutExtension || withoutExtension.length > 48) return false;
+  // Fountain character cues are uppercase names (optionally with parenthetical extensions).
+  return withoutExtension === withoutExtension.toUpperCase() && /[A-Z]/.test(withoutExtension);
 }
 
 function escapeAction(value: string) {
@@ -150,24 +201,118 @@ export function importDirectorStoryboardFromFountain(
       ?.replace(/^Logline\s*:/i, "")
       .trim() || "";
   const warnings: string[] = [];
+  const omitted: DirectorFountainOmitted[] = [];
+  const pushOmit = (code: DirectorFountainOmittedCode, subject: string, reason: string) => {
+    omitted.push({ code, subject, reason });
+    warnings.push(reason);
+  };
+
+  // Title-page keys other than Title/Logline are not storyboard structure.
+  for (const line of lines) {
+    if (isSceneHeading(line) || looksLikeDirectorMarker(line)) break;
+    const match = line.match(/^([A-Za-z][A-Za-z0-9 /_-]*)\s*:\s*(.*)$/);
+    if (!match) continue;
+    const key = match[1]!.trim();
+    if (/^(Title|Logline)$/i.test(key)) continue;
+    pushOmit(
+      "title_page_field",
+      key,
+      `Fountain title-page field ${key} is not carried into the Director storyboard (warn-and-omit code: title_page_field).`,
+    );
+  }
+
   const shots: DirectorStoryboard["shots"] = [];
   let pendingMetadata: DirectorFountainShotMetadata | null = null;
   let cursor = 0;
 
   for (let index = 0; index < lines.length; index += 1) {
+    if (looksLikeDirectorMarker(lines[index]) && !decodeMarker(lines[index])) {
+      pushOmit(
+        "invalid_marker",
+        lines[index].trim().slice(0, 80) || "DIRECTOR_SHOT_V1",
+        `Fountain Director shot marker was malformed and ignored (warn-and-omit code: invalid_marker).`,
+      );
+      continue;
+    }
     const marker = decodeMarker(lines[index]);
     if (marker) {
       pendingMetadata = marker;
       continue;
     }
-    if (!isSceneHeading(lines[index])) continue;
+    const trimmedLine = lines[index].trim();
+    if (!isSceneHeading(lines[index])) {
+      if (/^#{1,6}\s/.test(trimmedLine)) {
+        pushOmit(
+          "section_heading",
+          trimmedLine.slice(0, 120),
+          `Fountain section ${trimmedLine.slice(0, 48)} was skipped; storyboard shots do not carry section headings (warn-and-omit code: section_heading).`,
+        );
+      } else if (isTransition(trimmedLine)) {
+        pushOmit(
+          "transition",
+          trimmedLine.slice(0, 120),
+          `Fountain transition ${trimmedLine.slice(0, 48)} was skipped; storyboard shots do not carry transitions (warn-and-omit code: transition).`,
+        );
+      }
+      continue;
+    }
     const heading = cleanHeading(lines[index]);
     const action: string[] = [];
     let next = index + 1;
     for (; next < lines.length; next += 1) {
-      if (decodeMarker(lines[next]) || isSceneHeading(lines[next])) break;
+      if (looksLikeDirectorMarker(lines[next]) || isSceneHeading(lines[next])) break;
       const trimmed = lines[next].trim();
-      if (!trimmed || /^\[\[.*\]\]$/.test(trimmed) || /^#{1,6}\s/.test(trimmed)) continue;
+      if (!trimmed) continue;
+      if (/^\[\[.*\]\]$/.test(trimmed)) {
+        pushOmit(
+          "boneyard_note",
+          trimmed.slice(0, 120),
+          `Fountain note ${trimmed.slice(0, 48)} was skipped; storyboard shots do not carry boneyard notes (warn-and-omit code: boneyard_note).`,
+        );
+        continue;
+      }
+      if (/^#{1,6}\s/.test(trimmed)) {
+        pushOmit(
+          "section_heading",
+          trimmed.slice(0, 120),
+          `Fountain section ${trimmed.slice(0, 48)} was skipped; storyboard shots do not carry section headings (warn-and-omit code: section_heading).`,
+        );
+        continue;
+      }
+      if (isTransition(trimmed)) {
+        pushOmit(
+          "transition",
+          trimmed.slice(0, 120),
+          `Fountain transition ${trimmed.slice(0, 48)} was skipped; storyboard shots do not carry transitions (warn-and-omit code: transition).`,
+        );
+        continue;
+      }
+      if (isCharacterCue(trimmed)) {
+        const character = trimmed.replace(/\s*\([^)]*\)\s*$/, "").trim();
+        const dialogue: string[] = [];
+        let probe = next + 1;
+        for (; probe < lines.length; probe += 1) {
+          const dialogueLine = lines[probe]!.trim();
+          if (!dialogueLine) break;
+          if (
+            looksLikeDirectorMarker(lines[probe]!) ||
+            isSceneHeading(lines[probe]!) ||
+            isCharacterCue(dialogueLine) ||
+            /^\[\[.*\]\]$/.test(dialogueLine) ||
+            /^#{1,6}\s/.test(dialogueLine)
+          ) {
+            break;
+          }
+          dialogue.push(dialogueLine);
+        }
+        pushOmit(
+          "character_dialogue",
+          character,
+          `Fountain dialogue for ${character} was omitted; Director storyboard shots carry action text only (warn-and-omit code: character_dialogue).`,
+        );
+        next = Math.max(next, probe - 1);
+        continue;
+      }
       action.push(trimmed);
     }
     const metadata = pendingMetadata;
@@ -194,7 +339,7 @@ export function importDirectorStoryboardFromFountain(
   }
 
   if (!shots.length) warnings.push("No Fountain scene headings were found; the storyboard is empty.");
-  return { storyboard: { version: 1, title, logline, shots }, warnings };
+  return { storyboard: { version: 1, title, logline, shots }, warnings, omitted };
 }
 
 /** Project-facing Fountain facade; the storyboard-only functions remain available for focused use. */
@@ -234,5 +379,5 @@ export function importDirectorProjectFromFountain(
     frameEnd: lastFrame,
     currentFrame: Math.max(timeline.frameStart, Math.min(lastFrame, timeline.currentFrame)),
   };
-  return { project, warnings: imported.warnings };
+  return { project, warnings: imported.warnings, omitted: imported.omitted };
 }

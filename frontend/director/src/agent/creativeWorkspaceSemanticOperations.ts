@@ -78,7 +78,12 @@ const defaultSemanticContext: CreativeWorkspaceSemanticContext = {
 
 const interchangePlans = new WeakMap<object, Map<string, InterchangePlanRecord>>();
 type PreparedImportPayload =
-  | { kind: "stage"; project: DirectorProject; warnings: string[] }
+  | {
+      kind: "stage";
+      project: DirectorProject;
+      warnings: string[];
+      omitted: Array<{ code: string; subject: string; reason: string }>;
+    }
   | {
       kind: "video";
       imported: {
@@ -550,18 +555,28 @@ async function parseInterchangeImport(
       format === "otio"
         ? interchange.importDirectorCreativeTimelineFromOtio(text(), { knownMediaIds })
         : await interchange.importDirectorCreativeTimelineFromOtioz(bytes, { knownMediaIds });
+    const videoOmitted = Array.isArray((imported as unknown as { omitted?: unknown }).omitted)
+      ? (imported as unknown as { omitted: Array<{ code: string; subject: string; reason: string }> }).omitted.slice(
+          0,
+          50,
+        )
+      : [];
     return {
       kind: "video",
       imported,
       warnings: imported.warnings,
-      omitted: Array.isArray(imported.omitted) ? imported.omitted.slice(0, 50) : [],
+      omitted: videoOmitted,
     };
   }
   if (format === "obj" || format === "stl") {
     throw new Error(`${format.toUpperCase()} import is not supported; only Stage mesh export is available`);
   }
   const baseProject = context.getStageProject();
-  let result: { project: DirectorProject; warnings: string[] };
+  let result: {
+    project: DirectorProject;
+    warnings: string[];
+    omitted?: Array<{ code: string; subject: string; reason: string }>;
+  };
   if (format === "otio") result = interchange.importDirectorProjectFromOtio(text(), { baseProject });
   else if (format === "otioz") result = await interchange.importDirectorProjectFromOtioz(bytes, { baseProject });
   else if (format === "fountain") result = interchange.importDirectorProjectFromFountain(text(), { baseProject });
@@ -570,7 +585,12 @@ async function parseInterchangeImport(
   else if (format === "usd") result = interchange.importDirectorProjectFromUsda(text(), { baseProject });
   else if (format === "usdz") result = await interchange.importDirectorProjectFromUsdz(bytes, { baseProject });
   else throw new Error(`${format} import is not supported`);
-  return { kind: "stage", project: result.project, warnings: result.warnings };
+  return {
+    kind: "stage",
+    project: result.project,
+    warnings: result.warnings,
+    omitted: Array.isArray(result.omitted) ? result.omitted.slice(0, 50) : [],
+  };
 }
 
 async function planInterchangeImport(
@@ -625,7 +645,7 @@ async function planInterchangeImport(
       guard,
       summary,
       warnings: payload.warnings.slice(0, 50),
-      ...(payload.kind === "video"
+      ...(payload.omitted.length
         ? {
             omitted_count: payload.omitted.length,
             omitted: payload.omitted.slice(0, 50) as InterchangeImportPlanRecord["omitted"],

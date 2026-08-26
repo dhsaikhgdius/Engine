@@ -22,6 +22,12 @@ const UNREAL_OMITTED_MATERIAL_LABELS: Record<string, string> = {
   apply_failed: "材质应用失败",
 };
 
+const UNREAL_OMITTED_SKELETAL_LABELS: Record<string, string> = {
+  skeleton_unavailable: "骨架不可用",
+  character_unskinned: "角色无蒙皮",
+  empty_actor: "空 Actor",
+};
+
 /** zh-CN source strings describing the Unreal send payload. */
 export const UNREAL_SEND_NOTES = [
   "以 USD 优先（附 GLB）发送场景、相机与稳定 ID",
@@ -38,6 +44,8 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
   const omitted = result.omittedAnimationChannels ?? result.report.omittedAnimationChannels ?? [];
   const omittedMaterials = result.report.omittedMaterials ?? [];
   const omittedMaterialCount = result.report.omittedMaterialCount ?? omittedMaterials.length;
+  const omittedSkeletal = result.report.omittedSkeletal ?? [];
+  const omittedSkeletalCount = result.report.omittedSkeletalCount ?? omittedSkeletal.length;
   const appliedMaterialCount = result.report.appliedMaterialCount;
   return (
     <div className="director-engine-handoff-receipt-extra">
@@ -82,6 +90,12 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
               <dd>{omittedMaterialCount}</dd>
             </div>
           ) : null}
+          {omittedSkeletalCount > 0 || omittedSkeletal.length > 0 ? (
+            <div>
+              <dt>{t("省略骨骼")}</dt>
+              <dd>{omittedSkeletalCount}</dd>
+            </div>
+          ) : null}
         </dl>
       ) : (
         <p className="director-engine-handoff-empty">{t("本次运行未写入 Sequencer 回执（静态导入）")}</p>
@@ -117,6 +131,22 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
           ))}
           {omittedMaterials.length > 6 ? (
             <li className="director-engine-handoff-more">+{omittedMaterials.length - 6}</li>
+          ) : null}
+        </ul>
+      ) : null}
+      {omittedSkeletal.length ? (
+        <ul aria-label={t("结构化省略骨骼")} className="director-engine-handoff-list is-warning">
+          {omittedSkeletal.slice(0, 6).map((entry) => (
+            <li key={`skeletal:${entry.code}:${entry.directorId}`}>
+              <code data-i18n-user-content>{entry.directorId}</code>
+              {` · ${t(UNREAL_OMITTED_SKELETAL_LABELS[entry.code] ?? entry.code)} · `}
+              <span data-i18n-user-content title={entry.reason}>
+                {entry.reason}
+              </span>
+            </li>
+          ))}
+          {omittedSkeletal.length > 6 ? (
+            <li className="director-engine-handoff-more">+{omittedSkeletal.length - 6}</li>
           ) : null}
         </ul>
       ) : null}
