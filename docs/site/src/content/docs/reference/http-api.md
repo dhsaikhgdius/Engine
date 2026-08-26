@@ -329,15 +329,24 @@ whose analysis status is `degraded` and mode is `local`. See
 | Assistant planner | `POST /api/assistant/plan`, `POST /api/assistant/apply`                              |
 | Production jobs   | `POST /api/canvas-jobs`, `GET /api/canvas-jobs/{id}`, `GET .../{id}/artifact`        |
 | Production state  | `/te-man/director/productions/{id}` and nested `/scenes`; `/scenes/{id}/project`     |
+| Film pipeline     | `GET/POST /api/film/runs`, `GET /api/film/runs/{id}`, `GET .../{id}/receipt`, `POST .../{id}/resume\|cancel\|approve` |
 | DCC               | `GET /api/dcc/status` plus the versioned DCC job operations documented by the bridge |
 | Reconstruction    | `POST /api/reconstruction/reference-scene/analyze`                                   |
-| Observability     | `GET /api/agent/traces`, `GET /api/agent/traces/summary`, `GET /api/agent/usage`, `GET /api/agent/progress` |
+| Observability     | `GET /api/agent/traces`, `GET /api/agent/traces/summary`, `GET /api/agent/traces/sessions`, `GET /api/agent/usage`, `GET /api/agent/progress` |
 | Legacy Stage      | `GET /api/stage`, `PUT /api/stage`                                                   |
 
+Film routes report the pipeline's configuration state explicitly on the list response (`pipeline:
+{configured, reason}`), answer failures with frozen public codes
+(`film_pipeline_unconfigured`, `invalid_request`, `invalid_run_id`, `run_not_found`), and attach a
+normalized `director-film-run-receipt-v1` (phase receipts, stable error codes, artifacts) to
+status, receipt, and action responses. Cancel stays available while providers are unconfigured.
+
 Observability routes return redacted execution receipts, model-usage aggregates, and one unified
-progress shape for production jobs, multi-agent runs, and film runs. Tool calls may self-identify
-their entry surface with the `x-director-trace-source: ui|mcp|http|cli` header; unknown or missing
-values are recorded as `http`. Trace receipts never contain prompts, tool payloads, or credentials.
+progress shape for production jobs, multi-agent runs, and film runs; `/traces/sessions` lists
+compact per-session aggregates and `/progress` includes zero-filled state/kind counts. Tool calls
+may self-identify their entry surface with the `x-director-trace-source: ui|mcp|http|cli` header;
+unknown or missing values are recorded as `http`. Trace receipts never contain prompts, tool
+payloads, or credentials — error text and capture references are redacted before storage.
 
 Prefer structured tools over raw `PUT /api/stage`: Workbench operations participate in revision,
 idempotency, exact-target, quality, asset, audit, and evidence contracts.

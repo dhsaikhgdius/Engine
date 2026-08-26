@@ -1,11 +1,13 @@
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
   agentTraceEventSchema,
   agentUsageSampleSchema,
   redactAgentTraceText,
   summarizeAgentTraceSession,
+  summarizeAgentTraceSessions,
   type AgentTraceEvent,
+  type AgentTraceSessionAggregate,
   type AgentTraceSessionSummary,
   type AgentTraceSource,
   type AgentUsageMeter,
@@ -15,6 +17,13 @@ import {
 
 /** Trace event input; the store assigns the id. */
 export type AgentTraceEventInput = Omit<AgentTraceEvent, "id">;
+
+/** One record delivered to an in-process observer, after redaction. */
+export type AgentTraceStoreRecord =
+  { kind: "trace"; event: AgentTraceEvent } | { kind: "usage"; sample: AgentUsageSample };
+
+/** In-process observer callback (optional eval hook). */
+export type AgentTraceStoreObserver = (record: AgentTraceStoreRecord) => void;
 
 /** Filters accepted by {@link AgentTraceStore.list}. */
 export type AgentTraceFilter = {
@@ -26,6 +35,20 @@ export type AgentTraceFilter = {
 
 const DEFAULT_LIMIT = 2_000;
 const DEFAULT_LIST_LIMIT = 200;
+
+/**
+ * Rewrites one JSONL file atomically (temp file + rename) so a crash during
+ * compaction can never leave a truncated trace history behind.
+ */
+async function writeJsonLinesAtomic(path: string, records: readonly unknown[]) {
+  await mkdir(dirname(path), { recursive: true });
+  const temporaryPath = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  await writeFile(temporaryPath, records.map((record) => JSON.stringify(record)).join("\n") + "\n", {
+    encoding: "utf8",
+    flag: "wx",
+  });
+  await rename(temporaryPath, path);
+}
 
 function parseJsonLines<T>(contents: string, parse: (value: unknown) => T | null, keep: number): T[] {
   const records: T[] = [];
@@ -63,6 +86,7 @@ export class AgentTraceStore {
   private sequence = 0;
   private loadPromise: Promise<void> | null = null;
   private appendTail: Promise<void> = Promise.resolve();
+  private readonly observers = new Set<AgentTraceStoreObserver>();
 
   constructor(options: { dataDirectory?: string; limit?: number; now?: () => Date } = {}) {
     this.limit = options.limit ?? DEFAULT_LIMIT;
@@ -98,11 +122,36 @@ export class AgentTraceStore {
   private async compact() {
     if (!this.eventsPath || !this.usagePath) return;
     try {
-      await mkdir(dirname(this.eventsPath), { recursive: true });
-      await writeFile(this.eventsPath, this.events.map((event) => JSON.stringify(event)).join("\n") + "\n");
-      await writeFile(this.usagePath, this.usage.map((sample) => JSON.stringify(sample)).join("\n") + "\n");
+      await writeJsonLinesAtomic(this.eventsPath, this.events);
+      await writeJsonLinesAtomic(this.usagePath, this.usage);
     } catch (error) {
       console.warn("Agent trace store compaction failed", error);
+    }
+  }
+
+  /**
+   * Registers an optional in-process observer — the eval hook. Observers
+   * receive every stored trace event and usage sample after redaction, so
+   * they can never see more than the durable receipt. Observer failures are
+   * contained and never affect recording.
+   *
+   * @param observer - The callback to invoke per stored record.
+   * @returns An unsubscribe function.
+   */
+  subscribe(observer: AgentTraceStoreObserver): () => void {
+    this.observers.add(observer);
+    return () => {
+      this.observers.delete(observer);
+    };
+  }
+
+  private notify(record: AgentTraceStoreRecord) {
+    for (const observer of this.observers) {
+      try {
+        observer(record);
+      } catch (error) {
+        console.warn("Agent trace observer failed", error);
+      }
     }
   }
 
@@ -119,7 +168,9 @@ export class AgentTraceStore {
   }
 
   /**
-   * Records one tool-call trace event. Error text is redacted before storage.
+   * Records one tool-call trace event. Error text and capture references are
+   * redacted before storage — capture URLs can carry signed tokens in their
+   * query string, and the receipt must never persist a credential.
    *
    * @param input - The trace event without an id.
    * @returns The stored event.
@@ -129,6 +180,7 @@ export class AgentTraceStore {
     const event = agentTraceEventSchema.parse({
       ...input,
       ...(input.error ? { error: redactAgentTraceText(input.error) } : {}),
+      ...(input.capture_ref ? { capture_ref: redactAgentTraceText(input.capture_ref, 2_000) } : {}),
       id: `trace-${++this.sequence}-${crypto.randomUUID()}`,
     });
     this.events.push(event);
@@ -146,6 +198,7 @@ export class AgentTraceStore {
     } else {
       this.appendLine(this.eventsPath, event);
     }
+    this.notify({ kind: "trace", event: structuredClone(event) });
     return event;
   }
 
@@ -189,6 +242,17 @@ export class AgentTraceStore {
   }
 
   /**
+   * Lists compact per-session aggregates (summary without the call chain),
+   * newest session first, computed over the bounded in-memory window.
+   *
+   * @param limit - Maximum number of sessions to return (default 50).
+   */
+  async listSessionSummaries(limit = 50): Promise<AgentTraceSessionAggregate[]> {
+    await this.ensureLoaded();
+    return summarizeAgentTraceSessions(this.events, limit);
+  }
+
+  /**
    * Records one model-usage sample.
    *
    * @param input - The sample without id and timestamp.
@@ -213,6 +277,7 @@ export class AgentTraceStore {
     } else {
       this.appendLine(this.usagePath, sample);
     }
+    this.notify({ kind: "usage", sample: structuredClone(sample) });
     return sample;
   }
 

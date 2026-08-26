@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createGameSliceFromBrief, type GameSlice } from "../../../../packages/protocol/src/gameSliceProtocol";
+import {
+  createGameSliceFromBrief,
+  gamePlaytestScriptSchema,
+  type GameSlice,
+} from "../../../../packages/protocol/src/gameSliceProtocol";
 import { createLiveStagePlaytestRunner } from "../../game/liveStagePlaytest";
 
 const NOW = "2026-08-26T04:30:00.000Z";
@@ -56,7 +60,7 @@ describe("liveStagePlaytest", () => {
       operation: {
         op: "playtest",
         slice_id: slice.id,
-        script: { steps: [{ frames: 1, input: { forward: true } }] },
+        script: gamePlaytestScriptSchema.parse({ steps: [{ frames: 1, input: { forward: true } }] }),
       },
     });
     expect(requestWorkbenchCommand).toHaveBeenCalledWith(
@@ -77,7 +81,7 @@ describe("liveStagePlaytest", () => {
       operation: {
         op: "playtest",
         slice_id: slice.id,
-        script: { steps: [{ frames: 12, input: { forward: true } }] },
+        script: gamePlaytestScriptSchema.parse({ steps: [{ frames: 12, input: { forward: true } }] }),
       },
     });
     expect(trace.samples.length).toBe(12);

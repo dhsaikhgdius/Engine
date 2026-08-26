@@ -30,6 +30,7 @@ export * from "./directorGameMachine";
 export * from "./filmPipelineProtocol";
 export * from "./filmProductionProtocol";
 export * from "./filmRoles";
+export * from "./filmRunReceipt";
 export * from "./filmTimelineOtio";
 export * from "./generated3dProtocol";
 export * from "./mediaTranscriptionProtocol";

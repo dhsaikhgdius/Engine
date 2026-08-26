@@ -314,14 +314,22 @@ analysis status 为 `degraded`、mode 为 `local` 的计划。完整信任边界
 | Assistant planner | `POST /api/assistant/plan`、`POST /api/assistant/apply`                       |
 | Production job    | `POST /api/canvas-jobs`、`GET /api/canvas-jobs/{id}`、`GET .../{id}/artifact` |
 | Production state  | `/te-man/director/productions/{id}` 及其 `/scenes`；`/scenes/{id}/project`    |
+| Film 管线         | `GET/POST /api/film/runs`、`GET /api/film/runs/{id}`、`GET .../{id}/receipt`、`POST .../{id}/resume\|cancel\|approve` |
 | DCC               | `GET /api/dcc/status`，以及 bridge 文档中记录的版本化 DCC job 操作            |
 | 参考图重建        | `POST /api/reconstruction/reference-scene/analyze`                            |
-| 可观测性          | `GET /api/agent/traces`、`GET /api/agent/traces/summary`、`GET /api/agent/usage`、`GET /api/agent/progress` |
+| 可观测性          | `GET /api/agent/traces`、`GET /api/agent/traces/summary`、`GET /api/agent/traces/sessions`、`GET /api/agent/usage`、`GET /api/agent/progress` |
 | 旧版 Stage        | `GET /api/stage`、`PUT /api/stage`                                            |
 
+Film 路由在列表响应上显式上报管线配置状态（`pipeline: {configured, reason}`），失败响应携带冻结的
+public code（`film_pipeline_unconfigured`、`invalid_request`、`invalid_run_id`、`run_not_found`），
+并在 status、receipt 与动作响应上附带归一化的 `director-film-run-receipt-v1`（阶段收据、稳定错误
+码、产物路径）。provider 未配置时 cancel 仍然可用。
+
 可观测性路由返回经 redaction 的执行回执、模型用量聚合，以及生产任务、multi-agent run 与 film run
-共用的统一 progress。工具调用可通过 `x-director-trace-source: ui|mcp|http|cli` 头自报入口来源；
-未知或缺失的值记录为 `http`。轨迹回执从不包含提示词、工具载荷或密钥。
+共用的统一 progress；`/traces/sessions` 列出紧凑的逐 session 聚合，`/progress` 附带按 state/kind
+零填充的计数。工具调用可通过 `x-director-trace-source: ui|mcp|http|cli` 头自报入口来源；
+未知或缺失的值记录为 `http`。轨迹回执从不包含提示词、工具载荷或密钥——错误文本与 capture 引用
+都在落盘前 redaction。
 
 优先使用结构化工具而不是直接 `PUT /api/stage`：Workbench 操作会参与 revision、idempotency、精确
 target、quality、asset、audit 和 evidence contract。

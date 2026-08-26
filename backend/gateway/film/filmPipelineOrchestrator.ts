@@ -1,7 +1,10 @@
 import { join } from "node:path";
 import {
+  classifyFilmRunError,
+  closeFilmRunPhaseReceipts,
   createFilmRunRequestSchema,
   filmRunSchema,
+  openFilmRunPhaseReceipt,
   type CreateFilmRunRequestInput,
   type FilmRun,
   type FilmRunPhase,
@@ -81,8 +84,21 @@ function mergeStageReferences(manual: readonly StageReference[], auto: readonly 
 export class FilmPipelineOrchestrator {
   private readonly controllers = new Map<string, AbortController>();
   private readonly executions = new Map<string, Promise<void>>();
+  /**
+   * Startup reconciliation: runs left queued/running by a previous process
+   * are marked interrupted-failed before any execution starts here, so every
+   * public entry point awaits this first.
+   */
+  private readonly ready: Promise<void>;
 
-  constructor(private readonly options: FilmPipelineOrchestratorOptions) {}
+  constructor(private readonly options: FilmPipelineOrchestratorOptions) {
+    this.ready = options.store.reconcileInterrupted().then(
+      () => undefined,
+      (error: unknown) => {
+        console.warn("Film run startup reconciliation failed", error);
+      },
+    );
+  }
 
   /**
    * Creates a new film run from the given request, persists it, and starts
@@ -92,6 +108,7 @@ export class FilmPipelineOrchestrator {
    * @returns The newly created (and queued) film run.
    */
   async create(request: CreateFilmRunRequestInput) {
+    await this.ready;
     const parsed = createFilmRunRequestSchema.parse(request);
     const now = new Date().toISOString();
     const run = filmRunSchema.parse({
@@ -128,6 +145,7 @@ export class FilmPipelineOrchestrator {
    * @throws When the run does not exist.
    */
   async resume(id: string) {
+    await this.ready;
     let run = await this.options.store.get(id);
     if (!run) throw new Error(`Film run ${id} 不存在`);
     const activeExecution = this.executions.get(id);
@@ -143,6 +161,7 @@ export class FilmPipelineOrchestrator {
       ...current,
       status: "queued",
       error: null,
+      errorCode: null,
     }));
     if (!this.controllers.has(id)) this.start(id);
     return (await this.options.store.get(id)) ?? queued;
@@ -156,13 +175,19 @@ export class FilmPipelineOrchestrator {
    * @throws When the run does not exist.
    */
   async approve(id: string) {
+    await this.ready;
     const run = await this.options.store.get(id);
     if (!run) throw new Error(`Film run ${id} 不存在`);
     if (run.status !== "waiting_approval") return run;
-    await this.options.store.update(id, (current) => ({
-      ...current,
-      approvedAt: new Date().toISOString(),
-    }));
+    // Atomic gate: the approval only applies if the run is still waiting when
+    // the serialized update executes, so a concurrent cancel is never
+    // resurrected into a render.
+    const approved = await this.options.store.update(id, (current) =>
+      current.status === "waiting_approval"
+        ? { ...current, approvedAt: current.approvedAt ?? new Date().toISOString() }
+        : current,
+    );
+    if (approved.status !== "waiting_approval" || !approved.approvedAt) return approved;
     return this.resume(id);
   }
 
@@ -173,12 +198,10 @@ export class FilmPipelineOrchestrator {
    * @returns The run after cancellation.
    */
   async cancel(id: string) {
+    await this.ready;
     const execution = this.executions.get(id);
     this.controllers.get(id)?.abort(new DOMException("Film run cancelled", "AbortError"));
-    const cancelled = await this.options.store.update(id, (run) => ({
-      ...run,
-      status: run.status === "completed" ? run.status : "cancelled",
-    }));
+    const cancelled = await this.options.store.markCancelled(id);
     if (execution) await execution.catch(() => undefined);
     return (await this.options.store.get(id)) ?? cancelled;
   }
@@ -209,12 +232,19 @@ export class FilmPipelineOrchestrator {
   }
 
   private async setPhase(id: string, phase: FilmRunPhase) {
-    await this.options.store.update(id, (run) => ({ ...run, phase }));
+    await this.options.store.update(id, (run) => ({
+      ...run,
+      phase,
+      phaseReceipts: openFilmRunPhaseReceipt(run.phaseReceipts, phase, new Date().toISOString()),
+    }));
   }
 
   private async execute(id: string, signal: AbortSignal) {
     try {
-      await this.options.store.update(id, (run) => ({ ...run, status: "running", error: null }));
+      // A cancel that lands between scheduling and this first write must not
+      // resurrect the run to running.
+      signal.throwIfAborted();
+      await this.options.store.update(id, (run) => ({ ...run, status: "running", error: null, errorCode: null }));
       let run = (await this.options.store.get(id))!;
       const runDirectory = this.options.store.runDirectory(id);
       const input = run.input;
@@ -288,6 +318,7 @@ export class FilmPipelineOrchestrator {
           ...current,
           status: "waiting_approval",
           phase: "await-approval",
+          phaseReceipts: openFilmRunPhaseReceipt(current.phaseReceipts, "await-approval", new Date().toISOString()),
         }));
         await this.recordEvent(id, "await-approval", "Planning complete; waiting for approval before rendering");
         return;
@@ -411,6 +442,7 @@ export class FilmPipelineOrchestrator {
         ...current,
         status: "completed",
         phase: "completed",
+        phaseReceipts: closeFilmRunPhaseReceipts(current.phaseReceipts, new Date().toISOString()),
       }));
     } catch (error) {
       const cancelled = signal.aborted;
@@ -420,6 +452,8 @@ export class FilmPipelineOrchestrator {
           ...run,
           status: cancelled ? "cancelled" : "failed",
           error: cancelled ? null : message.slice(0, 4_000),
+          errorCode: cancelled ? null : classifyFilmRunError(error),
+          phaseReceipts: closeFilmRunPhaseReceipts(run.phaseReceipts, new Date().toISOString()),
         }))
         .catch(() => undefined);
       if (!cancelled) await this.recordEvent(id, "error", message.slice(0, 2_000));

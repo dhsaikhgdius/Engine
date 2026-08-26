@@ -6,6 +6,7 @@ import {
   multiAgentRunToUnifiedProgress,
   productionJobToUnifiedProgress,
   summarizeAgentUsage,
+  summarizeUnifiedProgress,
   unifiedProgressKindSchema,
   type MultiAgentRunProgressSource,
   type UnifiedProgress,
@@ -49,6 +50,10 @@ const progressQuerySchema = z.object({
   limit: limitSchema.optional(),
 });
 
+const sessionsQuerySchema = z.object({
+  limit: limitSchema.optional(),
+});
+
 function queryObject(url: URL) {
   return Object.fromEntries(url.searchParams.entries());
 }
@@ -60,9 +65,12 @@ function queryObject(url: URL) {
  * - `GET /api/agent/traces` — recent tool-call trace events, newest first.
  * - `GET /api/agent/traces/summary` — reconstructed tool-chain summary for one
  *   session (`session_id` query) or the most recent session.
+ * - `GET /api/agent/traces/sessions` — compact per-session aggregates
+ *   (summary without the call chain), newest session first.
  * - `GET /api/agent/usage` — model usage samples plus a token/latency/retry aggregate.
  * - `GET /api/agent/progress` — unified progress for production jobs,
- *   multi-agent runs, and film runs, newest first.
+ *   multi-agent runs, and film runs, newest first, plus zero-filled
+ *   state/kind counts over everything that matched the filter.
  *
  * @param request - The incoming HTTP request.
  * @param response - The outgoing HTTP response.
@@ -92,6 +100,16 @@ export async function handleAgentTraceRoute(
       limit: query.data.limit,
     });
     json(response, 200, { events });
+    return true;
+  }
+
+  if (url.pathname === "/api/agent/traces/sessions") {
+    const query = sessionsQuerySchema.safeParse(queryObject(url));
+    if (!query.success) {
+      json(response, 400, { error: "Trace 查询参数无效", code: "invalid_trace_query" });
+      return true;
+    }
+    json(response, 200, { sessions: await store.listSessionSummaries(query.data.limit) });
     return true;
   }
 
@@ -128,15 +146,19 @@ export async function handleAgentTraceRoute(
       return true;
     }
     const [jobs, runs, filmRuns] = await Promise.all([listProductionJobs(), listMultiAgentRuns(), listFilmRuns()]);
-    const entries: UnifiedProgress[] = [
+    const matched: UnifiedProgress[] = [
       ...jobs.map(productionJobToUnifiedProgress),
       ...runs.map(multiAgentRunToUnifiedProgress),
       ...filmRuns.map(filmRunToUnifiedProgress),
     ]
       .filter((entry) => !query.data.kind || entry.kind === query.data.kind)
-      .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
-      .slice(0, query.data.limit ?? 100);
-    json(response, 200, { entries });
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+    // The summary counts everything that matched the filter; entries stay
+    // capped so the payload remains lightweight.
+    json(response, 200, {
+      entries: matched.slice(0, query.data.limit ?? 100),
+      summary: summarizeUnifiedProgress(matched),
+    });
     return true;
   }
 
