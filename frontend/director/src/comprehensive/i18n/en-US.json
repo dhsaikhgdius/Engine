@@ -3639,5 +3639,7 @@
   "电影管线进度": "Film pipeline progress",
   "Film 规划 LLM": "Film planning LLM",
   "Film 图像生成": "Film image generation",
-  "Film 视频生成": "Film video generation"
+  "Film 视频生成": "Film video generation",
+  "添加分区失败": "Failed to add section",
+  "分区分配失败": "Failed to assign section"
 }

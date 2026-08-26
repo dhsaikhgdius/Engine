@@ -465,6 +465,41 @@ describe("creative workspace agent operation contract", () => {
       executeCreativeWorkspaceAgentOperation({ op: "canvas.node.bring_to_front", node_id: "missing-node" }, runtime),
       "not_found",
     );
+
+    const sectionAdded = expectSuccess(
+      executeCreativeWorkspaceAgentOperation(
+        { op: "canvas.section.add", title: "角色区", kind: "character", x: 40, y: 40 },
+        runtime,
+      ),
+    );
+    const sectionId = (sectionAdded.result.section as { id: string }).id;
+    expect(sectionAdded.snapshot.counts.board_sections).toBe(1);
+    expect(sectionAdded.snapshot.board.sections).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: sectionId, title: "角色区", kind: "character" })]),
+    );
+    const assigned = expectSuccess(
+      executeCreativeWorkspaceAgentOperation(
+        { op: "canvas.node.assign_section", node_id: noteId, section_id: sectionId },
+        runtime,
+      ),
+    );
+    expect(assigned.result).toMatchObject({ section_id: sectionId, unchanged: false });
+    expect(assigned.snapshot.board.nodes.find((node) => node.id === noteId)).toMatchObject({
+      section_id: sectionId,
+    });
+    expectSuccess(
+      executeCreativeWorkspaceAgentOperation(
+        { op: "canvas.section.update", section_id: sectionId, patch: { title: "人物区", collapsed: true } },
+        runtime,
+      ),
+    );
+    const removedSection = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "canvas.section.remove", section_id: sectionId }, runtime),
+    );
+    expect(removedSection.result).toEqual({ removed_id: sectionId });
+    expect(removedSection.snapshot.board.nodes.find((node) => node.id === noteId)).toMatchObject({
+      section_id: null,
+    });
     const removed = expectSuccess(
       executeCreativeWorkspaceAgentOperation({ op: "canvas.node.remove", node_id: imageId }, runtime),
     );
@@ -1256,6 +1291,8 @@ describe("creative workspace agent operation contract", () => {
           "gallery.preferences.update",
           "canvas.production.configure",
           "canvas.node.bring_to_front",
+          "canvas.section.add",
+          "canvas.node.assign_section",
         ]),
         batch: {
           atomic: true,
@@ -1267,7 +1304,14 @@ describe("creative workspace agent operation contract", () => {
           layout_operation: "canvas.dag.layout",
           layout_directions: ["horizontal", "vertical"],
           bring_to_front_operation: "canvas.node.bring_to_front",
+          section_operations: [
+            "canvas.section.add",
+            "canvas.section.update",
+            "canvas.section.remove",
+            "canvas.node.assign_section",
+          ],
         },
+        limits: expect.objectContaining({ board_sections: 32 }),
         editorial: {
           timebase: {
             source_of_truth: "edit.settings.timebase",

@@ -20,7 +20,8 @@
     "clips_per_track": 400,
     "batch_steps": 32,
     "gallery_media": 5000,
-    "gallery_folders": 200
+    "gallery_folders": 200,
+    "board_sections": 32
   },
   "concurrency": {
     "guard": "snapshot_fingerprint",
@@ -38,7 +39,14 @@
     "layout_contract": "Deterministic topological layers preserve node dimensions, use bounded gaps, own one atomic undo snapshot, and refuse invalid graphs.",
     "bring_to_front_operation": "canvas.node.bring_to_front",
     "z_order_contract": "Board paint order is the boardNodes array; canvas.node.bring_to_front moves a node to the array tail (idempotent when already front) and owns one atomic undo snapshot.",
-    "execution_boundary": "Canvas executes supported image, video, and audio nodes through durable provider jobs; note/frame nodes pass context, media-backed nodes are cached, and unsupported arbitrary code is never evaluated."
+    "execution_boundary": "Canvas executes supported image, video, and audio nodes through durable provider jobs; note/frame nodes pass context, media-backed nodes are cached, and unsupported arbitrary code is never evaluated.",
+    "section_operations": [
+      "canvas.section.add",
+      "canvas.section.update",
+      "canvas.section.remove",
+      "canvas.node.assign_section"
+    ],
+    "section_contract": "Board sections are observeable lanes; add/update/remove own one atomic undo snapshot; assign_section sets or clears node.section_id (null clears); removing a section orphans member nodes."
   },
   "preview": {
     "workspaces": ["auto", "canvas", "video"],

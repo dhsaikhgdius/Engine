@@ -41078,6 +41078,7 @@ var creativeWorkspacePipelineRequestSchema = strictOperation("pipeline", {
 function hasDefinedProperty(value) {
   return Object.values(value).some((entry) => entry !== void 0);
 }
+var creativeWorkspaceBoardSectionKindSchema = external_exports.enum(["character", "scene", "generation", "final", "custom"]);
 var canvasNodePatchFields = {
   kind: creativeWorkspaceNodeKindSchema.optional(),
   title: nameSchema.optional(),
@@ -41156,6 +41157,38 @@ var canvasNodeUpdateSchema = strictOperation("canvas.node.update", {
 var canvasNodeRemoveSchema = strictOperation("canvas.node.remove", { node_id: creativeWorkspaceIdSchema });
 var canvasNodeBringToFrontSchema = strictOperation("canvas.node.bring_to_front", {
   node_id: creativeWorkspaceIdSchema
+});
+var canvasNodeAssignSectionSchema = strictOperation("canvas.node.assign_section", {
+  node_id: creativeWorkspaceIdSchema,
+  section_id: creativeWorkspaceIdSchema.nullable()
+});
+var canvasSectionAddSchema = strictOperation("canvas.section.add", {
+  kind: creativeWorkspaceBoardSectionKindSchema.optional(),
+  title: nameSchema.optional(),
+  x: coordinateSchema.optional(),
+  y: coordinateSchema.optional(),
+  width: boundedNumber(240, 2400).optional(),
+  height: boundedNumber(180, 1600).optional(),
+  accent: external_exports.string().trim().min(1).max(80).optional(),
+  collapsed: external_exports.boolean().optional()
+});
+var canvasSectionPatchFields = {
+  kind: creativeWorkspaceBoardSectionKindSchema.optional(),
+  title: nameSchema.optional(),
+  x: coordinateSchema.optional(),
+  y: coordinateSchema.optional(),
+  width: boundedNumber(240, 2400).optional(),
+  height: boundedNumber(180, 1600).optional(),
+  accent: external_exports.string().trim().min(1).max(80).optional(),
+  collapsed: external_exports.boolean().optional()
+};
+var creativeWorkspaceCanvasSectionPatchSchema = external_exports.strictObject(canvasSectionPatchFields).refine(hasDefinedProperty, "patch must contain at least one field");
+var canvasSectionUpdateSchema = strictOperation("canvas.section.update", {
+  section_id: creativeWorkspaceIdSchema,
+  patch: creativeWorkspaceCanvasSectionPatchSchema
+});
+var canvasSectionRemoveSchema = strictOperation("canvas.section.remove", {
+  section_id: creativeWorkspaceIdSchema
 });
 var canvasEdgeAddSchema = strictOperation("canvas.edge.add", {
   source_node_id: creativeWorkspaceIdSchema,
@@ -41395,6 +41428,10 @@ var creativeWorkspaceAgentOperationSchema = external_exports.discriminatedUnion(
   canvasNodeUpdateSchema,
   canvasNodeRemoveSchema,
   canvasNodeBringToFrontSchema,
+  canvasNodeAssignSectionSchema,
+  canvasSectionAddSchema,
+  canvasSectionUpdateSchema,
+  canvasSectionRemoveSchema,
   canvasEdgeAddSchema,
   canvasEdgeRemoveSchema,
   canvasDagLayoutSchema,
@@ -121530,6 +121567,7 @@ var projectedBoardNodeSchema = external_exports.strictObject({
   title: external_exports.string(),
   body: external_exports.string(),
   media_id: external_exports.string().nullable(),
+  section_id: external_exports.string().nullable(),
   x: creativeWorkspaceFiniteNumberSchema,
   y: creativeWorkspaceFiniteNumberSchema,
   width: creativeWorkspaceFiniteNumberSchema.positive(),
@@ -121543,6 +121581,17 @@ var projectedBoardNodeSchema = external_exports.strictObject({
     config: projectedCanvasProductionConfigSchema.nullable(),
     outputs: external_exports.array(projectedCanvasProductionOutputSchema).max(32)
   })
+});
+var projectedBoardSectionSchema = external_exports.strictObject({
+  id: creativeWorkspaceIdSchema,
+  kind: external_exports.enum(["character", "scene", "generation", "final", "custom"]),
+  title: external_exports.string(),
+  collapsed: external_exports.boolean(),
+  x: creativeWorkspaceFiniteNumberSchema,
+  y: creativeWorkspaceFiniteNumberSchema,
+  width: creativeWorkspaceFiniteNumberSchema.positive(),
+  height: creativeWorkspaceFiniteNumberSchema.positive(),
+  accent: external_exports.string()
 });
 var projectedBoardEdgeSchema = external_exports.strictObject({
   id: creativeWorkspaceIdSchema,
@@ -121644,6 +121693,7 @@ var creativeWorkspaceAgentSnapshotSchema = external_exports.strictObject({
   board: external_exports.strictObject({
     nodes: external_exports.array(projectedBoardNodeSchema).max(240),
     edges: external_exports.array(projectedBoardEdgeSchema).max(2e3),
+    sections: external_exports.array(projectedBoardSectionSchema).max(32),
     dag: projectedCanvasDagSchema,
     pipeline_runs: external_exports.array(creativeWorkspacePipelineRunSchema).max(40),
     viewport: external_exports.strictObject({ x: creativeWorkspaceFiniteNumberSchema, y: creativeWorkspaceFiniteNumberSchema, zoom: creativeWorkspaceFiniteNumberSchema.positive() })
@@ -121690,6 +121740,7 @@ var creativeWorkspaceAgentSnapshotSchema = external_exports.strictObject({
   counts: external_exports.strictObject({
     board_nodes: external_exports.number().int().nonnegative(),
     board_edges: external_exports.number().int().nonnegative(),
+    board_sections: external_exports.number().int().nonnegative(),
     pipeline_runs: external_exports.number().int().nonnegative(),
     tracks: external_exports.number().int().nonnegative(),
     clips: external_exports.number().int().nonnegative(),
@@ -121738,6 +121789,7 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
   limits: external_exports.strictObject({
     board_nodes: external_exports.number().int().positive(),
     board_edges: external_exports.number().int().positive(),
+    board_sections: external_exports.number().int().positive(),
     tracks: external_exports.number().int().positive(),
     clips_per_track: external_exports.number().int().positive(),
     batch_steps: external_exports.number().int().positive(),
@@ -121768,6 +121820,13 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
     layout_contract: external_exports.string(),
     bring_to_front_operation: external_exports.literal("canvas.node.bring_to_front"),
     z_order_contract: external_exports.string(),
+    section_operations: external_exports.tuple([
+      external_exports.literal("canvas.section.add"),
+      external_exports.literal("canvas.section.update"),
+      external_exports.literal("canvas.section.remove"),
+      external_exports.literal("canvas.node.assign_section")
+    ]),
+    section_contract: external_exports.string(),
     execution_boundary: external_exports.string()
   }),
   preview: external_exports.strictObject({

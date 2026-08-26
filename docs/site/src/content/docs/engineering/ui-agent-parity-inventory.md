@@ -159,10 +159,11 @@ produce the same revision (roadmap M1 batches 1e/1f). Parity is regression-teste
 
 Shared today:
 
-- Canvas node/edge/layout/z-order authoring (`canvas.node.*` including
-  `canvas.node.bring_to_front`, `canvas.edge.*`, `canvas.dag.layout`),
-  media import cataloging (`gallery.media.update`), and the undo/redo buttons
-  (`workspace.undo` / `workspace.redo`).
+- Canvas node/edge/layout/z-order/section authoring (`canvas.node.*` including
+  `canvas.node.bring_to_front` / `canvas.node.assign_section`, `canvas.section.*`,
+  `canvas.edge.*`, `canvas.dag.layout`), media import cataloging (`gallery.media.update`),
+  and the undo/redo buttons (`workspace.undo` / `workspace.redo`). Observe exposes
+  `board.sections` and `node.section_id`.
 - Video clip inspector edits, split, remove (including ripple), cross dissolve, discrete
   keyboard fade steps, the "+" placement into the first free slot (`edit.clip.add`), track
   management, settings, import cataloging, and undo/redo (buttons and shortcuts).
@@ -191,7 +192,6 @@ Still direct, with reasons:
   Stage slider/gizmo policy. Clip drag/trim still resolve overwrite locally via
   `commitClipPlacement` at pointer-up (discrete nudges/duplicate-after/explicit drops are
   shared above).
-- Canvas bring-to-front is shared; view state and section bookkeeping — no semantic
-  operations yet.
+- Canvas view state — no semantic operations yet (bring-to-front and section add/assign/update/remove are shared).
 - Canvas pipeline result cataloging, legacy review-mirror migration, and bulk review clearing —
   multi-store or migration bookkeeping flows.
