@@ -143,6 +143,7 @@ import {
   compileDirectorDeleteObjectActions,
   dispatchDirectorAuthoringActions,
 } from "../../../agent/dispatchDirectorAuthoringActions";
+import { compileDirectorSceneUpdateAction } from "../../../agent/compileDirectorUiAuthoringActions";
 
 /** Input shape for importing an asset into the Director catalog. */
 export interface ImportedAssetInput {
@@ -2736,6 +2737,44 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         : item.kind === "character" && item.crowdId === target.crowdId,
     );
 
+  /**
+   * Compile a crowd-anchor transform patch into per-member update_object
+   * patches carrying the exact transforms the local writer would store.
+   * Returns null when the crowd is empty, a member still needs the UI
+   * focused-camera refresh, or a grounded drop targets a provisioned native
+   * Blender member (placement_mode patches are rejected there).
+   */
+  const compileCrowdTransformActions = (
+    crowdId: string,
+    patch: Partial<DirectorTransform>,
+    options: { grounded?: boolean } = {},
+  ): DirectorAuthoringAction[] | null => {
+    const currentState = get();
+    const result = applyCrowdTransformPatch(currentState.project.objects, crowdId, patch);
+    if (!result.changedObjectIds.length) return null;
+    const changed = new Set(result.changedObjectIds);
+    const hasObjectFocusedCamera = currentState.project.cameras.some(
+      (camera) => camera.targetMode === "object" && camera.targetObjectId && changed.has(camera.targetObjectId),
+    );
+    if (hasObjectFocusedCamera) return null;
+    const members = result.objects.filter((item) => changed.has(item.id));
+    if (
+      options.grounded &&
+      members.some((item) => item.nativeSource?.engine === "blender" && item.nativeSource.provisioned !== false)
+    ) {
+      return null;
+    }
+    return members.map((item) => ({
+      action: "update_object" as const,
+      object_id: item.id,
+      patch: {
+        transform: structuredClone(item.transform),
+        ...(options.grounded ? { placement_mode: "grounded" as const } : {}),
+      },
+      force: true,
+    }));
+  };
+
   const toggleObjectFlag = (id: string, field: "visible" | "locked") => {
     const object = get().project.objects.find((item) => item.id === id);
     if (!object) return;
@@ -3348,12 +3387,22 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         selectedObjectIds: [],
         selectedCrowdId: null,
       })),
-    updateScene: (patch) =>
+    updateScene: (patch) => {
+      if (canUseAuthoringPath()) {
+        // Patches with keys set_scene cannot express (or non-nullable keys set
+        // to undefined) compile to null and keep the local merge.
+        const action = compileDirectorSceneUpdateAction(patch);
+        if (action) {
+          dispatchUiAuthoring([action], "ui-scene-update");
+          return;
+        }
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           scene: { ...state.project.scene, ...patch },
         }),
-      ),
+      );
+    },
     updateWorldSettings: (patch) => {
       if (canUseAuthoringPath()) {
         const wind = {
@@ -3711,7 +3760,50 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           panoramaAssetId: null,
         });
       }),
-    removeImportedAsset: (assetId) =>
+    removeImportedAsset: (assetId) => {
+      const currentState = get();
+      const currentAsset = currentState.project.assets.find((item) => item.id === assetId);
+      if (!currentAsset || currentAsset.sourceType !== "model") return;
+      if (canUseAuthoringPath()) {
+        const removedObjectIds = new Set(
+          currentState.project.objects.filter((item) => item.assetRefId === assetId).map((item) => item.id),
+        );
+        // remove_assets cascade also deletes children of removed objects,
+        // clears look targets, camera follow/path bindings, and material
+        // texture references; the local writer leaves those untouched, so any
+        // such reference keeps the whole call on the legacy path.
+        const divergesFromLocalWriter =
+          currentState.project.objects.some(
+            (item) =>
+              !removedObjectIds.has(item.id) &&
+              ((item.parentObjectId && removedObjectIds.has(item.parentObjectId)) ||
+                (item.lookTargetObjectId && removedObjectIds.has(item.lookTargetObjectId)) ||
+                Object.values(item.material?.textures ?? {}).some((textureAssetId) => textureAssetId === assetId)),
+          ) ||
+          currentState.project.cameras.some(
+            (camera) =>
+              (camera.action?.mode === "follow" &&
+                camera.action.follow?.targetObjectId &&
+                removedObjectIds.has(camera.action.follow.targetObjectId)) ||
+              (camera.action?.mode === "path" &&
+                camera.action.path?.targetObjectId &&
+                removedObjectIds.has(camera.action.path.targetObjectId)),
+          );
+        if (!divergesFromLocalWriter) {
+          removePersistedLocalModelAsset(assetId);
+          const applied = dispatchUiAuthoring(
+            [{ action: "remove_assets", asset_ids: [assetId], cascade: true }],
+            `ui-asset-remove:${assetId}`,
+            "删除失败",
+          );
+          if (applied) {
+            // Crowd deselection is UI-only state; the shared applyAuthoredProject
+            // landing point already prunes removed object ids from the selection.
+            commitUiMutation((state) => (state.selectedCrowdId ? { ...state, selectedCrowdId: null } : state));
+          }
+          return;
+        }
+      }
       commitMutation((state) => {
         const targetAsset = state.project.assets.find((item) => item.id === assetId);
         if (!targetAsset || targetAsset.sourceType !== "model") return state;
@@ -3760,7 +3852,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             },
           }),
         };
-      }),
+      });
+    },
     updateObjectTransform: (id, patch) => {
       const currentState = get();
       const currentObject = currentState.project.objects.find((item) => item.id === id);
@@ -4703,7 +4796,53 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       });
       return changed;
     },
-    dropObjectToGround: (id) =>
+    dropObjectToGround: (id) => {
+      const currentState = get();
+      const currentObject = currentState.project.objects.find((item) => item.id === id);
+      if (
+        !currentObject ||
+        currentObject.kind === "camera" ||
+        isObjectTransformEffectivelyLocked(currentState.project.scene, currentState.project.objects, currentObject)
+      ) {
+        return;
+      }
+      // Composite parents propagate the drop to children, object-focused
+      // cameras need the UI refresh helper, and provisioned native Blender
+      // objects reject placement_mode patches; those keep the local mutator.
+      const hasObjectFocusedCamera = currentState.project.cameras.some(
+        (camera) => camera.targetMode === "object" && camera.targetObjectId === id,
+      );
+      const isProvisionedNative =
+        currentObject.nativeSource?.engine === "blender" && currentObject.nativeSource.provisioned !== false;
+      if (
+        canUseAuthoringPath() &&
+        !currentObject.isCompositeParent &&
+        !hasObjectFocusedCamera &&
+        !isProvisionedNative
+      ) {
+        dispatchUiAuthoring(
+          [
+            {
+              action: "update_object",
+              object_id: id,
+              patch: {
+                transform: {
+                  position: [
+                    currentObject.transform.position[0],
+                    currentState.project.scene.groundHeight,
+                    currentObject.transform.position[2],
+                  ],
+                },
+                placement_mode: "grounded",
+              },
+              force: true,
+            },
+          ],
+          `ui-drop:${id}`,
+          "变换失败",
+        );
+        return;
+      }
       commitMutation((state) => {
         const currentObject = state.project.objects.find((item) => item.id === id);
         if (
@@ -4742,7 +4881,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           objects: updateObjectById(state.project.objects, id, () => nextObject),
           cameras: refreshCamerasFocusedOnObject(state.project.cameras, nextObject),
         });
-      }),
+      });
+    },
     setObjectAnimation: (id, animation) => {
       const currentState = get();
       const currentObject = currentState.project.objects.find((item) => item.id === id);
@@ -4782,14 +4922,50 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         });
       });
     },
-    updateCrowdTransform: (crowdId, patch) =>
+    updateCrowdTransform: (crowdId, patch) => {
+      const currentState = get();
+      const currentMembers = currentState.project.objects.filter((object) => object.crowdId === crowdId);
+      if (currentMembers.some((object) => isDirectorObjectEffectivelyLocked(currentState.project.scene, object))) {
+        return;
+      }
+      if (canUseAuthoringPath()) {
+        const actions = compileCrowdTransformActions(crowdId, patch);
+        if (actions) {
+          dispatchUiAuthoring(actions, `ui-crowd-transform:${crowdId}`, "变换失败");
+          return;
+        }
+      }
       commitMutation((state) => {
         const members = state.project.objects.filter((object) => object.crowdId === crowdId);
         if (members.some((object) => isDirectorObjectEffectivelyLocked(state.project.scene, object))) return state;
         const nextTransformState = applyCrowdTransformPatch(state.project.objects, crowdId, patch);
         return applyObjectTransformMutation(state, nextTransformState);
-      }),
-    dropCrowdToGround: (crowdId) =>
+      });
+    },
+    dropCrowdToGround: (crowdId) => {
+      const currentState = get();
+      const currentMembers = currentState.project.objects.filter((object) => object.crowdId === crowdId);
+      if (currentMembers.some((object) => isDirectorObjectEffectivelyLocked(currentState.project.scene, object))) {
+        return;
+      }
+      const currentAnchor = getCrowdAnchorTransform(currentState.project.objects, crowdId);
+      if (canUseAuthoringPath() && currentAnchor) {
+        const actions = compileCrowdTransformActions(
+          crowdId,
+          {
+            position: [
+              currentAnchor.position[0],
+              currentState.project.scene.groundHeight,
+              currentAnchor.position[2],
+            ],
+          },
+          { grounded: true },
+        );
+        if (actions) {
+          dispatchUiAuthoring(actions, `ui-crowd-drop:${crowdId}`, "变换失败");
+          return;
+        }
+      }
       commitMutation((state) => {
         const members = state.project.objects.filter((object) => object.crowdId === crowdId);
         if (members.some((object) => isDirectorObjectEffectivelyLocked(state.project.scene, object))) return state;
@@ -4802,7 +4978,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         return applyObjectTransformMutation(state, nextTransformState, (objects, changedIdSet) =>
           objects.map((item) => (changedIdSet.has(item.id) ? { ...item, placementMode: "grounded" as const } : item)),
         );
-      }),
+      });
+    },
     updateObjectName: (id, name) => {
       const currentState = get();
       const currentObject = currentState.project.objects.find((item) => item.id === id);
@@ -4878,12 +5055,29 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         });
       });
     },
-    updateCrowdLabel: (crowdId, label) =>
+    updateCrowdLabel: (crowdId, label) => {
+      const members = resolveTargetCharacters({ crowdId });
+      // The wire contract trims crowd_label and rejects empty labels, so
+      // mid-typing whitespace drafts keep the local writer verbatim.
+      const wireExpressible = label === label.trim() && label.length > 0 && label.length <= 240;
+      if (canUseAuthoringPath() && members.length && wireExpressible) {
+        dispatchUiAuthoring(
+          members.map((item) => ({
+            action: "update_object" as const,
+            object_id: item.id,
+            patch: { crowd_label: label },
+            force: true,
+          })),
+          `ui-crowd-label:${crowdId}`,
+        );
+        return;
+      }
       commitMutation((state) =>
         mapProjectObjects(state, (item) =>
           item.kind === "character" && item.crowdId === crowdId ? { ...item, crowdLabel: label } : item,
         ),
-      ),
+      );
+    },
     createCompositeObject: (ids, label = "组合对象") => {
       const normalizedLabel = label.trim() || "组合对象";
       const currentState = get();
@@ -5342,12 +5536,31 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         });
       });
     },
-    updateCrowdColor: (crowdId, color) =>
+    updateCrowdColor: (crowdId, color) => {
+      const members = resolveTargetCharacters({ crowdId });
+      // update_object rejects color patches on provisioned native Blender
+      // objects; a crowd containing one keeps the local mutator wholesale.
+      const hasProvisionedNativeMember = members.some(
+        (item) => item.nativeSource?.engine === "blender" && item.nativeSource.provisioned !== false,
+      );
+      if (canUseAuthoringPath() && members.length && !hasProvisionedNativeMember) {
+        dispatchUiAuthoring(
+          members.map((item) => ({
+            action: "update_object" as const,
+            object_id: item.id,
+            patch: { color },
+            force: true,
+          })),
+          `ui-crowd-color:${crowdId}`,
+        );
+        return;
+      }
       commitMutation((state) =>
         mapProjectObjects(state, (item) =>
           item.kind === "character" && item.crowdId === crowdId ? { ...item, color } : item,
         ),
-      ),
+      );
+    },
     addLight: (type) => {
       const currentState = get();
       const currentLights = currentState.project.lights ?? [];
@@ -5434,7 +5647,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         return withProjectPatch(state, { lights: lights.filter((item) => item.id !== id) });
       });
     },
-    updateCharacterBodyType: (id, bodyType) =>
+    updateCharacterBodyType: (id, bodyType) => {
+      const currentState = get();
+      const targetObject = currentState.project.objects.find((item) => item.id === id);
+      // Body type changes move the character's focus height, so object-focused
+      // cameras still need the UI refresh helper and keep the local mutator.
+      const hasObjectFocusedCamera = currentState.project.cameras.some(
+        (camera) => camera.targetMode === "object" && camera.targetObjectId === id,
+      );
+      if (canUseAuthoringPath() && targetObject?.kind === "character" && !hasObjectFocusedCamera) {
+        dispatchUiAuthoring(
+          [{ action: "update_object", object_id: id, patch: { body_type: normalizeBodyType(bodyType) }, force: true }],
+          `ui-body-type:${id}`,
+        );
+        return;
+      }
       commitMutation((state) => {
         const normalizedBodyType = normalizeBodyType(bodyType);
         const currentObject = state.project.objects.find((item) => item.id === id);
@@ -5454,8 +5681,38 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             ? refreshCamerasFocusedOnObject(state.project.cameras, nextObject)
             : state.project.cameras,
         });
-      }),
-    updateUniformScale: (id, scale) =>
+      });
+    },
+    updateUniformScale: (id, scale) => {
+      const currentState = get();
+      const targetObject = currentState.project.objects.find((item) => item.id === id);
+      // Composite parents propagate scale to children, camera rigs reject
+      // update_object, and object-focused cameras still need the UI refresh
+      // helper; those keep the local mutator.
+      const hasObjectFocusedCamera = currentState.project.cameras.some(
+        (camera) => camera.targetMode === "object" && camera.targetObjectId === id,
+      );
+      if (
+        canUseAuthoringPath() &&
+        targetObject &&
+        targetObject.kind !== "camera" &&
+        !targetObject.isCompositeParent &&
+        !hasObjectFocusedCamera
+      ) {
+        dispatchUiAuthoring(
+          [
+            {
+              action: "update_object",
+              object_id: id,
+              patch: { transform: { scale: [scale, scale, scale] } },
+              force: true,
+            },
+          ],
+          `ui-uniform-scale:${id}`,
+          "变换失败",
+        );
+        return;
+      }
       commitMutation((state) => {
         const currentObject = state.project.objects.find((item) => item.id === id);
         if (currentObject?.isCompositeParent) {
@@ -5483,14 +5740,23 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             ? refreshCamerasFocusedOnObject(state.project.cameras, nextObject)
             : state.project.cameras,
         });
-      }),
-    updateCrowdUniformScale: (crowdId, scale) =>
+      });
+    },
+    updateCrowdUniformScale: (crowdId, scale) => {
+      if (canUseAuthoringPath()) {
+        const actions = compileCrowdTransformActions(crowdId, { scale: [scale, scale, scale] });
+        if (actions) {
+          dispatchUiAuthoring(actions, `ui-crowd-scale:${crowdId}`, "变换失败");
+          return;
+        }
+      }
       commitMutation((state) => {
         const nextTransformState = applyCrowdTransformPatch(state.project.objects, crowdId, {
           scale: [scale, scale, scale],
         });
         return applyObjectTransformMutation(state, nextTransformState);
-      }),
+      });
+    },
     addImportedAsset: (input) => {
       let assetId = "";
 
