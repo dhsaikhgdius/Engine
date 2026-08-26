@@ -169,6 +169,9 @@ Shared today:
   one atomic `execute_batch` (catalog + node add roll back together), and media review
   rating/tag upserts (`gallery.media.update`, with a direct-store fallback only when the
   contract does not know the media id).
+- Offline media recovery from Canvas/Video file pickers through
+  `dispatchCreativeWorkspaceMediaRelink` → `executeCreativeWorkspaceMediaRelinkFile` (same body
+  Agents reach after resolving a `media.relink` wire source to a `File`).
 
 Still direct, with reasons:
 
@@ -180,5 +183,5 @@ Still direct, with reasons:
   `overwrite: true` (same `resolveDirectorTrackOverwrite` resolver).
 - Media-less text/caption clips (`text:` ids), Canvas z-order raises, view state, and section
   bookkeeping — no semantic operations yet.
-- Media relink reference rewrites, canvas pipeline result cataloging, legacy review-mirror
-  migration, and bulk review clearing — multi-store or migration bookkeeping flows.
+- Canvas pipeline result cataloging, legacy review-mirror migration, and bulk review clearing —
+  multi-store or migration bookkeeping flows.
