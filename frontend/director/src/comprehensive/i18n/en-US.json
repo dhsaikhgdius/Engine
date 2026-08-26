@@ -3680,5 +3680,6 @@
   "glTF 导入省略": "glTF import omissions",
   "嵌入工程清单无效": "Embedded project manifest invalid",
   "重复稳定 ID 已忽略": "Duplicate stable ID ignored",
-  "无 Director 元数据": "No Director metadata"
+  "无 Director 元数据": "No Director metadata",
+  "USD 导入省略": "USD import omissions"
 }
