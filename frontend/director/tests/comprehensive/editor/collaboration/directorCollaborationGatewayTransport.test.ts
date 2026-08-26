@@ -102,17 +102,82 @@ describe("GatewayWebSocketDirectorTransport", () => {
     expect(socket.closeCode).toBe(1000);
   });
 
-  it("stops writing after an operator closes the room", async () => {
+  it("stops reconnecting after unauthorized and does not re-open a socket", async () => {
+    const timers: Array<{ callback: () => void }> = [];
+    const transport = new GatewayWebSocketDirectorTransport("scene/shot-1", 42, {
+      gatewayUrl: "https://director.example/gateway/",
+      getBrowserToken: async () => "secret browser token",
+      createWebSocket: (url) => new TestWebSocket(url) as unknown as WebSocket,
+      reconnect: true,
+      setReconnectTimer: (callback) => {
+        timers.push({ callback });
+        return timers.length as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearReconnectTimer: () => undefined,
+    });
+    await waitFor(() => expect(TestWebSocket.instances).toHaveLength(1));
+    const socket = TestWebSocket.instances[0]!;
+    socket.open();
+    expect(JSON.parse(socket.sent[0]!)).toMatchObject({ type: "collab.join" });
+
+    socket.receive({
+      type: "collab.error",
+      room: "scene/shot-1",
+      code: "unauthorized",
+      message: "Invite required.",
+    });
+    expect(socket.closeCode).toBe(4000);
+    for (const timer of [...timers]) timer.callback();
+    expect(TestWebSocket.instances).toHaveLength(1);
+
+    transport.close();
+  });
+
+  it("honors viewer role: document updates are suppressed while awareness still sends", async () => {
     const transport = new GatewayWebSocketDirectorTransport("scene/shot-1", 42, {
       gatewayUrl: "https://director.example/gateway/",
       getBrowserToken: async () => "secret browser token",
       createWebSocket: (url) => new TestWebSocket(url) as unknown as WebSocket,
       reconnect: false,
+      inviteToken: "viewer-invite",
     });
     await waitFor(() => expect(TestWebSocket.instances).toHaveLength(1));
     const socket = TestWebSocket.instances[0]!;
     socket.open();
-    socket.receive({ type: "collab.ready", room: "scene/shot-1" });
+    expect(JSON.parse(socket.sent[0]!)).toMatchObject({
+      type: "collab.join",
+      invite_token: "viewer-invite",
+    });
+    socket.receive({ type: "collab.ready", room: "scene/shot-1", role: "viewer" });
+    expect(transport.grantedRole).toBe("viewer");
+    expect(transport.canWriteDocuments).toBe(false);
+
+    const sentBefore = socket.sent.length;
+    transport.send({ type: "document-update", payload: new Uint8Array([9, 9]) });
+    expect(socket.sent).toHaveLength(sentBefore);
+    transport.send({ type: "awareness-update", payload: new Uint8Array([1]) });
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ type: "collab.awareness-update" });
+
+    transport.close();
+  });
+
+  it("stops reconnecting after an operator closes the room", async () => {
+    const timers: Array<{ callback: () => void }> = [];
+    const transport = new GatewayWebSocketDirectorTransport("scene/shot-1", 42, {
+      gatewayUrl: "https://director.example/gateway/",
+      getBrowserToken: async () => "secret browser token",
+      createWebSocket: (url) => new TestWebSocket(url) as unknown as WebSocket,
+      reconnect: true,
+      setReconnectTimer: (callback) => {
+        timers.push({ callback });
+        return timers.length as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearReconnectTimer: () => undefined,
+    });
+    await waitFor(() => expect(TestWebSocket.instances).toHaveLength(1));
+    const socket = TestWebSocket.instances[0]!;
+    socket.open();
+    socket.receive({ type: "collab.ready", room: "scene/shot-1", role: "editor" });
     transport.send({ type: "document-update", payload: new Uint8Array([1]) });
     const sentBeforeClose = socket.sent.length;
 
@@ -124,6 +189,8 @@ describe("GatewayWebSocketDirectorTransport", () => {
     });
     transport.send({ type: "document-update", payload: new Uint8Array([2]) });
     expect(socket.sent).toHaveLength(sentBeforeClose);
+    for (const timer of [...timers]) timer.callback();
+    expect(TestWebSocket.instances).toHaveLength(1);
 
     transport.close();
   });

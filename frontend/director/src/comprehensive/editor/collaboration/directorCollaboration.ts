@@ -117,6 +117,11 @@ export interface DirectorCollaborationTransport {
   send(message: DirectorCollaborationWireMessage): void;
   subscribe(listener: (message: DirectorCollaborationWireMessage) => void): () => void;
   close?(): void;
+  /**
+   * When false, document-update sends are skipped (viewer capability). Absent
+   * or true means document writes are allowed (BroadcastChannel and editors).
+   */
+  readonly canWriteDocuments?: boolean;
 }
 
 /** Options for creating a collaboration session, with injectable Y.Doc, Awareness, and ID generator. */
@@ -1079,6 +1084,7 @@ export class DirectorCollaborationSession {
     const remoteOrigin = transport;
     this.remoteTransportOrigins.add(remoteOrigin);
     const onDocumentUpdate = (update: Uint8Array, origin: unknown) => {
+      if (transport.canWriteDocuments === false) return;
       if (!this.remoteTransportOrigins.has(origin as DirectorCollaborationTransport)) {
         transport.send({ type: "document-update", payload: update });
       }
@@ -1098,7 +1104,9 @@ export class DirectorCollaborationSession {
           Y.applyUpdate(this.doc, payload, remoteOrigin);
         } else if (message.type === "awareness-update") applyAwarenessUpdate(this.awareness, payload, remoteOrigin);
         else if (message.type === "sync-request") {
-          transport.send({ type: "document-update", payload: Y.encodeStateAsUpdate(this.doc, payload) });
+          if (transport.canWriteDocuments !== false) {
+            transport.send({ type: "document-update", payload: Y.encodeStateAsUpdate(this.doc, payload) });
+          }
           if (this.awareness.getLocalState()) {
             transport.send({
               type: "awareness-update",
@@ -1114,7 +1122,9 @@ export class DirectorCollaborationSession {
     this.doc.on("update", onDocumentUpdate);
     this.awareness.on("update", onAwarenessUpdate);
     transport.send({ type: "sync-request", payload: Y.encodeStateVector(this.doc) });
-    transport.send({ type: "document-update", payload: Y.encodeStateAsUpdate(this.doc) });
+    if (transport.canWriteDocuments !== false) {
+      transport.send({ type: "document-update", payload: Y.encodeStateAsUpdate(this.doc) });
+    }
     const localState = this.awareness.getLocalState();
     if (localState) {
       transport.send({ type: "awareness-update", payload: encodeAwarenessUpdate(this.awareness, [this.doc.clientID]) });
