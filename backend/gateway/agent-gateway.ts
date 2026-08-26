@@ -2198,6 +2198,7 @@ const server = createServer(async (request, response) => {
         snapshotStore: collaborationSnapshotStore,
         revocations: collaborationRuntime.revocations,
         emptyRoomTtlSeconds: collaborationRuntime.emptyRoomTtlSeconds,
+        inviteRateLimitPerMinute: collaborationRuntime.inviteRateLimitPerMinute,
       })
     )
       return;
