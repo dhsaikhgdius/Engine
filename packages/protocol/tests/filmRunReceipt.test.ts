@@ -292,26 +292,49 @@ describe("filmRunReceipt", () => {
     expect(projectFilmRunReceipt(completed).artifacts.storagePresence).toBeUndefined();
 
     const live = projectFilmRunReceipt(completed, {
-      artifactStoragePresence: { finalVideo: "present", timeline: "absent" },
+      artifactStoragePresence: {
+        finalVideo: "present",
+        timeline: "absent",
+        sceneVideos: [{ sceneIdx: 0, presence: "present" }],
+      },
     });
-    expect(live.artifacts.storagePresence).toEqual({ finalVideo: "present", timeline: "absent" });
+    expect(live.artifacts.storagePresence).toEqual({
+      finalVideo: "present",
+      timeline: "absent",
+      sceneVideos: [{ sceneIdx: 0, presence: "present" }],
+    });
 
-    // Missing probe keys degrade to absent instead of silently over-claiming.
+    // Missing probe keys degrade to absent instead of silently over-claiming;
+    // that covers claimed scene videos with no verdict too.
     const partial = projectFilmRunReceipt(completed, { artifactStoragePresence: { finalVideo: "present" } });
-    expect(partial.artifacts.storagePresence).toEqual({ finalVideo: "present", timeline: "absent" });
+    expect(partial.artifacts.storagePresence).toEqual({
+      finalVideo: "present",
+      timeline: "absent",
+      sceneVideos: [{ sceneIdx: 0, presence: "absent" }],
+    });
 
-    // Unclaimed (null-path) artifacts normalize to null presence.
+    // Unclaimed (null-path) artifacts normalize to null presence, and only
+    // scenes that claim a rendered video get a verdict (scene 1 has none).
     const unclaimed = projectFilmRunReceipt(makeRun(), { artifactStoragePresence: {} });
-    expect(unclaimed.artifacts.storagePresence).toEqual({ finalVideo: null, timeline: null });
+    expect(unclaimed.artifacts.storagePresence).toEqual({
+      finalVideo: null,
+      timeline: null,
+      sceneVideos: [{ sceneIdx: 0, presence: "absent" }],
+    });
+
+    // Runs with no scene claims stamp an empty verdict list, never invented entries.
+    const sceneless = projectFilmRunReceipt(makeRun({ scenes: [] }), { artifactStoragePresence: {} });
+    expect(sceneless.artifacts.storagePresence).toEqual({ finalVideo: null, timeline: null, sceneVideos: [] });
   });
 
   it("rejects storagePresence verdicts that disagree with the path claims", () => {
     const receipt = projectFilmRunReceipt(makeRun(), { artifactStoragePresence: {} });
+    const sceneVideos = [{ sceneIdx: 0, presence: "absent" as const }];
     // A probe verdict on an unclaimed path is a contradiction.
     expect(
       filmRunReceiptSchema.safeParse({
         ...receipt,
-        artifacts: { ...receipt.artifacts, storagePresence: { finalVideo: "present", timeline: null } },
+        artifacts: { ...receipt.artifacts, storagePresence: { finalVideo: "present", timeline: null, sceneVideos } },
       }).success,
     ).toBe(false);
     // A claimed path must carry a probe verdict when the stanza is present.
@@ -321,7 +344,45 @@ describe("filmRunReceipt", () => {
         artifacts: {
           finalVideoPath: "/runs/final_video.mp4",
           timelinePath: null,
-          storagePresence: { finalVideo: null, timeline: null },
+          timelineExport: null,
+          storagePresence: { finalVideo: null, timeline: null, sceneVideos },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects sceneVideos verdicts that disagree with the rendered-scene claims", () => {
+    const receipt = projectFilmRunReceipt(makeRun(), { artifactStoragePresence: {} });
+    // One verdict per rendered scene: an empty list under-reports renderedSceneCount = 1.
+    expect(
+      filmRunReceiptSchema.safeParse({
+        ...receipt,
+        artifacts: { ...receipt.artifacts, storagePresence: { finalVideo: null, timeline: null, sceneVideos: [] } },
+      }).success,
+    ).toBe(false);
+    // Duplicate sceneIdx entries are a contradiction even when the count matches.
+    const duplicated = projectFilmRunReceipt(
+      makeRun({
+        scenes: [
+          { idx: 0, script: "Scene 0", clipCount: 3, videoPath: "scene_0/scene_video.mp4" },
+          { idx: 1, script: "Scene 1", clipCount: 2, videoPath: "scene_1/scene_video.mp4" },
+        ],
+      }),
+      { artifactStoragePresence: {} },
+    );
+    expect(
+      filmRunReceiptSchema.safeParse({
+        ...duplicated,
+        artifacts: {
+          ...duplicated.artifacts,
+          storagePresence: {
+            finalVideo: null,
+            timeline: null,
+            sceneVideos: [
+              { sceneIdx: 0, presence: "present" },
+              { sceneIdx: 0, presence: "absent" },
+            ],
+          },
         },
       }).success,
     ).toBe(false);

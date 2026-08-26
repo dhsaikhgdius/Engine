@@ -118,20 +118,27 @@ describe("film pipeline routes", () => {
     const queued = context.writes[0].body as {
       receipt: { artifacts: { storagePresence: { finalVideo: null; timeline: null } } };
     };
-    expect(queued.receipt.artifacts.storagePresence).toEqual({ finalVideo: null, timeline: null });
+    expect(queued.receipt.artifacts.storagePresence).toEqual({ finalVideo: null, timeline: null, sceneVideos: [] });
 
-    // Claimed paths are probed at read time: the final video bytes exist,
-    // the claimed timeline file was deleted after the run finished.
+    // Claimed paths are probed at read time: the final video and scene 0
+    // bytes exist, the claimed timeline file was deleted after the run
+    // finished, and scene 1's claimed clip was never written.
     const runDirectory = context.store.runDirectory("film-bbbbbbbb-2222");
-    await mkdir(runDirectory, { recursive: true });
+    await mkdir(join(runDirectory, "scene_0"), { recursive: true });
     const finalVideoPath = join(runDirectory, "final_video.mp4");
     await writeFile(finalVideoPath, "mp4-bytes");
+    const sceneVideoPath = join(runDirectory, "scene_0", "scene_video.mp4");
+    await writeFile(sceneVideoPath, "scene-bytes");
     const completed = run("film-bbbbbbbb-2222");
     await context.store.create(
       filmRunSchema.parse({
         ...completed,
         status: "completed",
         phase: "completed",
+        scenes: [
+          { idx: 0, script: "Scene 0", clipCount: 2, videoPath: sceneVideoPath },
+          { idx: 1, script: "Scene 1", clipCount: 1, videoPath: join(runDirectory, "scene_1", "scene_video.mp4") },
+        ],
         finalVideoPath,
         timelinePath: join(runDirectory, "timeline.otio"),
       }),
@@ -146,10 +153,18 @@ describe("film pipeline routes", () => {
       receipt: { artifacts: { finalVideoPath: string; storagePresence: { finalVideo: string; timeline: string } } };
     };
     expect(status.receipt.artifacts.finalVideoPath).toBe(finalVideoPath);
-    expect(status.receipt.artifacts.storagePresence).toEqual({ finalVideo: "present", timeline: "absent" });
+    expect(status.receipt.artifacts.storagePresence).toEqual({
+      finalVideo: "present",
+      timeline: "absent",
+      sceneVideos: [
+        { sceneIdx: 0, presence: "present" },
+        { sceneIdx: 1, presence: "absent" },
+      ],
+    });
 
     // Later cleanup ages the video bytes out; the next read reports it honestly.
     await rm(finalVideoPath);
+    await rm(sceneVideoPath);
     await handleFilmPipelineRoute(
       request("GET"),
       context.response,
@@ -159,7 +174,14 @@ describe("film pipeline routes", () => {
     const stale = context.writes[2].body as {
       receipt: { artifacts: { storagePresence: { finalVideo: string; timeline: string } } };
     };
-    expect(stale.receipt.artifacts.storagePresence).toEqual({ finalVideo: "absent", timeline: "absent" });
+    expect(stale.receipt.artifacts.storagePresence).toEqual({
+      finalVideo: "absent",
+      timeline: "absent",
+      sceneVideos: [
+        { sceneIdx: 0, presence: "absent" },
+        { sceneIdx: 1, presence: "absent" },
+      ],
+    });
   });
 
   it("serves the durable typed timeline export receipt on receipt responses", async () => {

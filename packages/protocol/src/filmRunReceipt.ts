@@ -48,14 +48,30 @@ export const filmRunArtifactStoragePresenceSchema = z.enum(["present", "absent"]
 /** Live artifact byte presence on a film run receipt. */
 export type FilmRunArtifactStoragePresence = z.infer<typeof filmRunArtifactStoragePresenceSchema>;
 
+/** Matches `filmRunSchema`'s scenes bound so probing every claimed scene video stays cheap. */
+const FILM_RUN_SCENE_VIDEO_PRESENCE_LIMIT = 64;
+
+/** Live byte presence for one scene's claimed rendered scene video. */
+export const filmRunSceneVideoStoragePresenceSchema = z.strictObject({
+  sceneIdx: z.number().int().min(0).max(4_096),
+  presence: filmRunArtifactStoragePresenceSchema,
+});
+
+/** One per-scene rendered-video byte presence verdict. */
+export type FilmRunSceneVideoStoragePresence = z.infer<typeof filmRunSceneVideoStoragePresenceSchema>;
+
 /**
  * Per-artifact live byte presence: `null` for artifacts the run never
  * claimed (path is null); `present`/`absent` for claimed paths that were
- * probed at read time.
+ * probed at read time. `sceneVideos` carries one verdict per scene with a
+ * claimed rendered video — the same claims behind `renderedSceneCount` and
+ * the resume/assemble checkpoints — so a wiped scene clip is a typed fact
+ * on the receipt instead of a surprise mid-resume.
  */
 export const filmRunArtifactsStoragePresenceSchema = z.strictObject({
   finalVideo: filmRunArtifactStoragePresenceSchema.nullable(),
   timeline: filmRunArtifactStoragePresenceSchema.nullable(),
+  sceneVideos: z.array(filmRunSceneVideoStoragePresenceSchema).max(FILM_RUN_SCENE_VIDEO_PRESENCE_LIMIT),
 });
 
 /** Options for {@link projectFilmRunReceipt}. */
@@ -69,6 +85,8 @@ export type ProjectFilmRunReceiptOptions = {
   artifactStoragePresence?: {
     finalVideo?: FilmRunArtifactStoragePresence;
     timeline?: FilmRunArtifactStoragePresence;
+    /** Probe verdicts for scenes with a claimed videoPath; scenes missing a verdict become `absent`. */
+    sceneVideos?: readonly FilmRunSceneVideoStoragePresence[];
   };
 };
 
@@ -175,11 +193,42 @@ export const filmRunReceiptSchema = z
           message: "storagePresence.timeline must be null exactly when timelinePath is null",
         });
       }
+      // Scene verdicts classify claimed rendered videos only: exactly one
+      // verdict per scene counted by renderedSceneCount, no duplicates.
+      if (presence.sceneVideos.length !== receipt.renderedSceneCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["artifacts", "storagePresence", "sceneVideos"],
+          message: "storagePresence.sceneVideos must carry one verdict per rendered scene (renderedSceneCount)",
+        });
+      }
+      if (new Set(presence.sceneVideos.map((video) => video.sceneIdx)).size !== presence.sceneVideos.length) {
+        context.addIssue({
+          code: "custom",
+          path: ["artifacts", "storagePresence", "sceneVideos"],
+          message: "storagePresence.sceneVideos must not repeat a sceneIdx",
+        });
+      }
     }
   });
 
 /** Normalized receipt of one durable film run. */
 export type FilmRunReceipt = z.infer<typeof filmRunReceiptSchema>;
+
+/**
+ * One verdict per scene with a claimed rendered video, in scene order.
+ * Claimed scenes missing a probe verdict degrade to `absent`, matching the
+ * final-video/timeline discipline of never over-claiming bytes.
+ */
+function projectSceneVideoStoragePresence(
+  scenes: FilmRun["scenes"],
+  probes: readonly FilmRunSceneVideoStoragePresence[] = [],
+): FilmRunSceneVideoStoragePresence[] {
+  const verdictBySceneIdx = new Map(probes.map((probe) => [probe.sceneIdx, probe.presence]));
+  return scenes
+    .filter((scene) => scene.videoPath !== null)
+    .map((scene) => ({ sceneIdx: scene.idx, presence: verdictBySceneIdx.get(scene.idx) ?? "absent" }));
+}
 
 /**
  * Projects the normalized receipt from a durable film run document. The
@@ -188,8 +237,9 @@ export type FilmRunReceipt = z.infer<typeof filmRunReceiptSchema>;
  * the unified progress adapter uses.
  *
  * Pass {@link ProjectFilmRunReceiptOptions.artifactStoragePresence} from
- * Gateway live reads so agents see whether the claimed final-video/timeline
- * bytes still exist instead of trusting the stored paths.
+ * Gateway live reads so agents see whether the claimed final-video, timeline,
+ * and per-scene rendered-video bytes still exist instead of trusting the
+ * stored paths.
  *
  * @param run - The durable film run document.
  * @param options - Optional live byte-presence probe results.
@@ -223,6 +273,7 @@ export function projectFilmRunReceipt(run: FilmRun, options: ProjectFilmRunRecei
             storagePresence: {
               finalVideo: run.finalVideoPath === null ? null : (options.artifactStoragePresence.finalVideo ?? "absent"),
               timeline: run.timelinePath === null ? null : (options.artifactStoragePresence.timeline ?? "absent"),
+              sceneVideos: projectSceneVideoStoragePresence(run.scenes, options.artifactStoragePresence.sceneVideos),
             },
           }
         : {}),
