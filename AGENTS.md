@@ -65,6 +65,8 @@ generation and transcription jobs), read and follow
 `[.claude/skills/director-workbench/SKILL.md](.claude/skills/director-workbench/SKILL.md)`.
 The MCP server exposes `director_workbench` (Stage, generation, jobs), `director_creative`
 (Canvas, Video, Gallery, interchange, collaboration), and `director_dcc` (Blender/DCC handoff).
+`director_game` is the experimental game-slice tool: a typed slice playtested on the live Stage
+player, exporting through `director_dcc` — not a second film pipeline.
 Follow the invariant loop: capabilities/catalog → observe the exact target → one atomic intent →
 observe/diff → audit → preview or deliver. Never automate the UI by screen coordinates when a
 semantic operation exists.

@@ -16,7 +16,7 @@ describe("director tool manifest", () => {
   });
 
   it("lists typed tools on both surfaces with POST /api/tools bindings", () => {
-    for (const name of ["director_workbench", "director_creative", "stage_video", "blender_native", "director_dcc"]) {
+    for (const name of ["director_workbench", "director_creative", "stage_video", "blender_native", "director_dcc", "director_game"]) {
       expect(byName.get(name)).toMatchObject({
         surface: "both",
         http: { method: "POST", path: `/api/tools/${name}` },
@@ -29,6 +29,9 @@ describe("director tool manifest", () => {
       expect.arrayContaining(["interchange", "collaboration", "execute", "execute_batch"]),
     );
     expect(byName.get("blender_native")?.operations).toContain("apply");
+    expect(byName.get("director_game")?.operations).toEqual(
+      expect.arrayContaining(["plan", "bind", "playtest", "evaluate", "export_slice"]),
+    );
   });
 
   it("marks stage_* commands as legacy HTTP-only compatibility routes", () => {

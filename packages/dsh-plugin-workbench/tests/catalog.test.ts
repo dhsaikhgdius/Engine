@@ -15,12 +15,13 @@ function pluginTool(name: (typeof DIRECTOR_WORKBENCH_PLUGIN_TOOLS)[number]["name
 }
 
 describe("Director DSH workbench plugin catalog", () => {
-  it("owns only Stage, Canvas/Video, generation, and Blender tools", () => {
+  it("owns Stage, Canvas/Video, generation, Blender, and game-slice tools", () => {
     expect(DIRECTOR_WORKBENCH_PLUGIN_TOOLS.map((tool) => tool.name)).toEqual([
       "director_creative",
       "director_workbench",
       "stage_video",
       "blender_native",
+      "director_game",
     ]);
     expect(isDirectorWorkbenchPluginTool("read")).toBe(false);
     expect(isDirectorWorkbenchPluginTool("director_workbench")).toBe(true);
@@ -308,5 +309,25 @@ describe("Director DSH workbench plugin catalog", () => {
     expect(schema.properties?.entity).toBeDefined();
     expect(schema.properties?.since_revision).toBeDefined();
     expect(schema.properties?.evidence).toBeDefined();
+  });
+
+  it("routes director_game through a compact envelope and keeps the description short", () => {
+    const game = pluginTool("director_game");
+    expect(game.description).toContain("capabilities");
+    expect(game.description).toContain("describe");
+    expect(game.description).toContain("director_dcc");
+    expect(game.description.length).toBeLessThan(1200);
+    const schema = game.dshParameters as { properties?: { op?: { enum?: unknown[] }; slice_id?: unknown } };
+    expect(schema.properties?.op?.enum).toEqual(
+      expect.arrayContaining(["capabilities", "describe", "plan", "bind", "playtest", "evaluate", "export_slice"]),
+    );
+    expect(schema.properties?.slice_id).toBeDefined();
+    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.director_game.safeParse({ op: "capabilities" }).success).toBe(true);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.director_game.safeParse({
+        op: "plan",
+        brief: { requirement: "walk to a stele", genre: "exploration" },
+      }).success,
+    ).toBe(true);
   });
 });

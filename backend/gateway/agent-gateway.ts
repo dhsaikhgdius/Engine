@@ -121,6 +121,8 @@ import { HostedProductionAgentRunner } from "./multiAgent/hostedProductionAgentR
 import { handleMultiAgentRunRoute } from "./routes/multiAgentRunRoutes";
 import { createFilmPipeline } from "./film/createFilmPipeline";
 import { handleFilmPipelineRoute } from "./routes/filmPipelineRoutes";
+import { createDirectorGame } from "./game/createDirectorGame";
+import { handleGameRoute } from "./routes/gameRoutes";
 import { createVideoGenerationService } from "./video/createVideoGenerationService";
 import { handleControlPlaneRoute } from "./routes/controlPlaneRoutes";
 import { handleProductionJobRoute } from "./routes/productionJobRoutes";
@@ -355,6 +357,10 @@ const productionRunOrchestrator = new ProductionRunOrchestrator(
   multiAgentRunStore,
   controlPlaneConfig.agents.roleProfiles,
 );
+// Host-free director_game runtime: the shared reducer plus the durable slice
+// store. The live-Stage playtest tape driver is intentionally not wired yet,
+// so playtest without an explicit trace returns game_playtest_needs_stage.
+const directorGame = createDirectorGame(dataDirectory);
 const filmPipeline = createFilmPipeline(controlPlaneConfig, dataDirectory, {
   workbenchExecute: async (input) => {
     const parsed = parseDirectorWorkbenchInput(input);
@@ -2183,6 +2189,15 @@ const server = createServer(async (request, response) => {
         store: filmPipeline.store,
         orchestrator: filmPipeline.orchestrator,
         unconfiguredReason: filmPipeline.unconfiguredReason,
+      })
+    )
+      return;
+    if (
+      await handleGameRoute(request, response, url, {
+        readBody: body,
+        json,
+        execute: directorGame.execute,
+        governance: toolGovernance,
       })
     )
       return;

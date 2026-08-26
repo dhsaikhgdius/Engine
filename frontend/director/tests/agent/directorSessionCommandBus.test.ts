@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  directorPlayerScriptTimeoutMs,
   dispatchDirectorSessionCommand,
   publishDirectorSessionCommandResult,
   subscribeDirectorSessionCommands,
@@ -47,6 +48,42 @@ describe("directorSessionCommandBus", () => {
         ok: true,
         result: { entered: true },
       });
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("delivers a play_script tape command and sizes its dispatch timeout from the tape", async () => {
+    const script = {
+      dt: 1 / 30,
+      steps: [{ frames: 60, input: { forward: true } }],
+    };
+    const seen: DirectorSessionCommand[] = [];
+    const unsubscribe = subscribeDirectorSessionCommands((command) => {
+      seen.push(command);
+      publishDirectorSessionCommandResult({
+        requestId: command.requestId,
+        ok: true,
+        result: { sample_count: 60 },
+      });
+    });
+
+    try {
+      const result = await dispatchDirectorSessionCommand(
+        {
+          surface: "player",
+          command: { type: "play_script", script, actor_id: "char_default_a", slice_id: "game-live-playtest" },
+        },
+        directorPlayerScriptTimeoutMs(script),
+      );
+
+      expect(seen[0]).toMatchObject({
+        surface: "player",
+        command: { type: "play_script", actor_id: "char_default_a", slice_id: "game-live-playtest" },
+      });
+      expect(result).toMatchObject({ ok: true, result: { sample_count: 60 } });
+      // 60 frames at 1/30 s = 2 s simulated; tripled plus entry grace.
+      expect(directorPlayerScriptTimeoutMs(script)).toBe(14_000);
     } finally {
       unsubscribe();
     }
