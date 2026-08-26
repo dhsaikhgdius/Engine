@@ -138061,6 +138061,18 @@ var directorGodotOmittedMaterialSchema = external_exports.strictObject({
   code: directorGodotOmittedMaterialCodeSchema,
   reason: external_exports.string().trim().min(1).max(600)
 });
+var directorGodotOmittedShotCodeSchema = external_exports.enum([
+  "shot_no_camera_binding",
+  "shot_camera_not_imported",
+  "shot_target_not_camera"
+]);
+var directorGodotOmittedShotSchema = external_exports.strictObject({
+  shotId: external_exports.string().trim().min(1).max(200),
+  code: directorGodotOmittedShotCodeSchema,
+  /** Bound camera id when known; null when the shot has no camera binding. */
+  cameraDirectorId: external_exports.string().trim().min(1).max(200).nullable(),
+  reason: external_exports.string().trim().min(1).max(600)
+});
 var directorGodotImportReceiptSchema = external_exports.strictObject({
   /** `res://` path of the AnimationPlayer's owning scene, when animation was keyed. */
   animationPlayerPath: external_exports.string().trim().min(1).max(1024).nullable(),
@@ -138078,6 +138090,16 @@ var directorGodotImportReceiptSchema = external_exports.strictObject({
   shotCutTrackCount: external_exports.number().int().nonnegative().max(1e5),
   /** Storyboard shots that produced a camera-cut key (unmappable shots warn-and-omit). */
   mappedShotCount: external_exports.number().int().nonnegative().max(1e5),
+  /**
+   * Unmappable storyboard shot count. Always present on connector ≥0.3.2;
+   * older receipts omit the field and Agents fall back to free-text warnings.
+   */
+  omittedShotCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed shot omit records. Optional for older connectors; when present,
+   * length must equal omittedShotCount.
+   */
+  omittedShots: external_exports.array(directorGodotOmittedShotSchema).max(1024).optional(),
   /** glTF payload animations preserved from GLB assets (AnimationPlayer count). */
   payloadAnimationPlayerCount: external_exports.number().int().nonnegative().max(1e5),
   /** Skinned payloads whose Skeleton3D was found, tagged, and left in bind pose. */
@@ -138129,6 +138151,21 @@ var directorGodotImportReceiptSchema = external_exports.strictObject({
         code: "custom",
         path: ["omittedMaterials"],
         message: "omittedMaterials length must equal omittedMaterialCount"
+      });
+    }
+  }
+  if (receipt.omittedShots !== void 0) {
+    if (receipt.omittedShotCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedShotCount"],
+        message: "omittedShotCount is required when omittedShots is present"
+      });
+    } else if (receipt.omittedShots.length !== receipt.omittedShotCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedShots"],
+        message: "omittedShots length must equal omittedShotCount"
       });
     }
   }
@@ -139093,15 +139130,18 @@ var unifiedProgressSchema = external_exports.strictObject({
   created_at: external_exports.string(),
   updated_at: external_exports.string(),
   /**
-   * Durable per-scope film-run usage (`film-llm` / `film-image` / `film-video`).
-   * Only film_run entries may carry this; omitted when the run has no metered
-   * samples yet so Agents/UI do not invent a second meter. Shape matches
-   * `filmRunUsageSchema` without importing it (that module imports this file).
+   * Durable per-scope film-run usage (`film-llm` / `film-image` /
+   * `film-video` / `film-tts`). Only film_run entries may carry this;
+   * omitted when the run has no metered samples yet so Agents/UI do not
+   * invent a second meter. Shape matches `filmRunUsageSchema` without
+   * importing it (that module imports this file); `film-tts` defaults to
+   * zeros for entries projected before speech metering existed.
    */
   usage: external_exports.strictObject({
     "film-llm": agentUsageSummarySchema,
     "film-image": agentUsageSummarySchema,
-    "film-video": agentUsageSummarySchema
+    "film-video": agentUsageSummarySchema,
+    "film-tts": agentUsageSummarySchema.default(() => ({ ...EMPTY_AGENT_USAGE_SUMMARY }))
   }).optional()
 }).superRefine((entry, context) => {
   if (entry.usage !== void 0 && entry.kind !== "film_run") {
@@ -139119,16 +139159,19 @@ var unifiedProgressSummarySchema = external_exports.strictObject({
 });
 
 // packages/protocol/src/filmRunUsage.ts
+var lazyUsageSummarySchema = external_exports.lazy(() => agentUsageSummarySchema);
 var filmRunUsageSchema = external_exports.strictObject({
-  "film-llm": agentUsageSummarySchema,
-  "film-image": agentUsageSummarySchema,
-  "film-video": agentUsageSummarySchema
+  "film-llm": lazyUsageSummarySchema,
+  "film-image": lazyUsageSummarySchema,
+  "film-video": lazyUsageSummarySchema,
+  "film-tts": lazyUsageSummarySchema.default(() => ({ ...EMPTY_AGENT_USAGE_SUMMARY }))
 });
 function emptyFilmRunUsage() {
   return {
     "film-llm": { ...EMPTY_AGENT_USAGE_SUMMARY },
     "film-image": { ...EMPTY_AGENT_USAGE_SUMMARY },
-    "film-video": { ...EMPTY_AGENT_USAGE_SUMMARY }
+    "film-video": { ...EMPTY_AGENT_USAGE_SUMMARY },
+    "film-tts": { ...EMPTY_AGENT_USAGE_SUMMARY }
   };
 }
 

@@ -224,6 +224,18 @@ describe("usage aggregation", () => {
       failure_count: 1,
     });
     expect(usage["film-llm"].sample_count).toBe(0);
+    const withSpeech = accumulateFilmRunUsage(usage, {
+      scope: "film-tts",
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      duration_ms: 750,
+      retries: 0,
+      succeeded: true,
+    });
+    expect(withSpeech["film-tts"].sample_count).toBe(1);
+    expect(withSpeech["film-tts"].total_duration_ms).toBe(750);
+    expect(withSpeech["film-video"].sample_count).toBe(1);
   });
 });
 
@@ -330,6 +342,7 @@ describe("unified progress adapters", () => {
         "film-llm": { ...empty, sample_count: 2, total_tokens: 120, total_duration_ms: 800 },
         "film-image": empty,
         "film-video": { ...empty, sample_count: 1, total_duration_ms: 12_000 },
+        "film-tts": empty,
       },
     } as unknown as FilmRun;
     const progress = filmRunToUnifiedProgress(run);
@@ -338,9 +351,22 @@ describe("unified progress adapters", () => {
     expect(
       filmRunToUnifiedProgress({
         ...run,
-        usage: { "film-llm": empty, "film-image": empty, "film-video": empty },
+        usage: { "film-llm": empty, "film-image": empty, "film-video": empty, "film-tts": empty },
       } as unknown as FilmRun).usage,
     ).toBeUndefined();
+    // A run whose only metered cost is dialogue speech synthesis still
+    // surfaces its usage rollup on unified progress.
+    const speechOnly = filmRunToUnifiedProgress({
+      ...run,
+      usage: {
+        "film-llm": empty,
+        "film-image": empty,
+        "film-video": empty,
+        "film-tts": { ...empty, sample_count: 4, total_duration_ms: 3_200, retries: 2 },
+      },
+    } as unknown as FilmRun);
+    expect(speechOnly.usage?.["film-tts"].sample_count).toBe(4);
+    expect(speechOnly.usage?.["film-tts"].retries).toBe(2);
   });
 
   it("shares intra-phase film progress with the receipt helper during render", () => {

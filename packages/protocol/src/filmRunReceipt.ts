@@ -110,9 +110,10 @@ export const filmRunReceiptSchema = z
     }),
     /**
      * Durable per-scope model/media usage for this run (`film-llm` /
-     * `film-image` / `film-video`). Always present — zeros when nothing has
-     * been metered yet — so Agent/HTTP/UI share one honesty surface with the
-     * Trace panel scopes without joining the global usage window.
+     * `film-image` / `film-video` / `film-tts`). Always present — zeros when
+     * nothing has been metered yet — so Agent/HTTP/UI share one honesty
+     * surface with the Trace panel scopes without joining the global usage
+     * window.
      */
     usage: filmRunUsageSchema,
   })

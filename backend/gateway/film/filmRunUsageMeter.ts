@@ -4,9 +4,10 @@ import { accumulateFilmRunUsage, isFilmRunUsageScope } from "../../../packages/p
 import type { FilmRunStore } from "./filmRunStore";
 
 /**
- * Async context that attributes film-llm / film-image / film-video meter
- * samples to the durable film run currently executing on this async chain.
- * Concurrent runs stay isolated without a process-global "current run" slot.
+ * Async context that attributes film-llm / film-image / film-video / film-tts
+ * meter samples to the durable film run currently executing on this async
+ * chain. Concurrent runs stay isolated without a process-global "current run"
+ * slot.
  */
 export const filmRunUsageContext = new AsyncLocalStorage<string>();
 

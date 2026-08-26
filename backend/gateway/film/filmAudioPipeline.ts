@@ -1,5 +1,6 @@
 import { access, mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { AgentUsageMeter } from "../../../packages/protocol/src/agentObservabilityProtocol";
 import type { FilmCharacter, ShotSpec } from "../../../packages/protocol/src/filmPipelineProtocol";
 import {
   ModelDriverHttpError,
@@ -18,6 +19,9 @@ import { runFfmpeg } from "./filmFfmpeg";
  * ambient sound into the clip already. Dubbing is strictly an enhancement:
  * any TTS or ffmpeg failure falls back to the original clip instead of
  * poisoning the render, so scene assembly always has a playable input.
+ * Hosted speech calls are metered as `film-tts` (tokens stay 0; wall-clock
+ * includes retry backoff) so dubbing cost lands on the run's usage rollup
+ * even when the mix later falls back to the original clip.
  */
 
 // ---------------------------------------------------------------------------
@@ -142,17 +146,54 @@ export class OpenAiSpeechProvider implements FilmSpeechGenerator {
   private readonly apiKey: string | undefined;
   private readonly model: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly meter: AgentUsageMeter | undefined;
 
-  constructor(config: { baseUrl: string; apiKey?: string; model: string; fetchImpl?: typeof fetch }) {
+  constructor(config: {
+    baseUrl: string;
+    apiKey?: string;
+    model: string;
+    fetchImpl?: typeof fetch;
+    /** Optional shared agent usage meter (speech → `film-tts`). */
+    meter?: AgentUsageMeter;
+  }) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.fetchImpl = config.fetchImpl ?? fetch;
+    this.meter = config.meter;
     this.id = `speech-api:${config.model}`;
   }
 
   async synthesizeSpeech(request: SpeechRequest): Promise<Buffer> {
     request.signal?.throwIfAborted();
+    const startedAtMs = Date.now();
+    const tally = { retries: 0 };
+    try {
+      const audio = await this.performSpeechRequest(request, tally);
+      this.meterSpeechCall(startedAtMs, tally.retries, true);
+      return audio;
+    } catch (error) {
+      this.meterSpeechCall(startedAtMs, tally.retries, false);
+      throw error;
+    }
+  }
+
+  /** One `film-tts` sample per synthesis call; wall-clock includes retry backoff, tokens stay 0. */
+  private meterSpeechCall(startedAtMs: number, retries: number, succeeded: boolean) {
+    this.meter?.({
+      scope: "film-tts",
+      provider: this.id,
+      model: this.model,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      duration_ms: Math.max(0, Date.now() - startedAtMs),
+      retries: Math.max(0, retries),
+      succeeded,
+    });
+  }
+
+  private async performSpeechRequest(request: SpeechRequest, tally: { retries: number }): Promise<Buffer> {
     const payload: Record<string, unknown> = {
       model: this.model,
       input: request.text,
@@ -177,6 +218,7 @@ export class OpenAiSpeechProvider implements FilmSpeechGenerator {
       } catch (error) {
         if (request.signal?.aborted) throw request.signal.reason ?? error;
         if (attempt < MAX_SPEECH_RETRIES) {
+          tally.retries += 1;
           await wait(Math.min(8_000, 250 * 2 ** attempt), request.signal);
           continue;
         }
@@ -192,6 +234,7 @@ export class OpenAiSpeechProvider implements FilmSpeechGenerator {
 
       const retryable = response.status === 429 || response.status >= 500;
       if (retryable && attempt < MAX_SPEECH_RETRIES) {
+        tally.retries += 1;
         await wait(speechRetryDelayMs(response, attempt), request.signal);
         continue;
       }

@@ -27,9 +27,10 @@ export type FilmPipelineIntegrations = {
   /** Dispatches one director_workbench operation to a connected browser Stage. */
   workbenchExecute?: (input: Record<string, unknown>) => Promise<unknown>;
   /**
-   * Records film planning LLM completions (`film-llm`) and render-phase hosted
-   * image/video HTTP calls (`film-image` / `film-video`) into the shared agent
-   * usage meter. Tokens stay 0 for image/video; duration includes poll wait.
+   * Records film planning LLM completions (`film-llm`), render-phase hosted
+   * image/video HTTP calls (`film-image` / `film-video`), and dialogue speech
+   * synthesis calls (`film-tts`) into the shared agent usage meter. Tokens
+   * stay 0 for image/video/speech; duration includes poll or retry wait.
    */
   usageMeter?: AgentUsageMeter;
 };
@@ -70,8 +71,8 @@ export function createFilmPipeline(
     baseUrl: film.llm.baseUrl!,
     apiKey: film.llm.apiKey ?? "",
   });
-  // Attribute film-llm / film-image / film-video samples both to the shared
-  // Trace meter and to the active run's durable usage rollup (via ALS).
+  // Attribute film-llm / film-image / film-video / film-tts samples both to
+  // the shared Trace meter and to the active run's durable usage rollup (via ALS).
   const usageMeter = createFilmRunAttributingMeter(store, integrations.usageMeter);
   const planningAgents = new FilmPlanningAgents(
     new FilmStructuredCaller(driver, film.llm.model!, undefined, {
@@ -117,6 +118,7 @@ export function createFilmPipeline(
         baseUrl: film.tts.baseUrl,
         apiKey: film.tts.apiKey,
         model: film.tts.model,
+        meter: usageMeter,
       }),
       ffmpegPath: film.ffmpegPath,
     });

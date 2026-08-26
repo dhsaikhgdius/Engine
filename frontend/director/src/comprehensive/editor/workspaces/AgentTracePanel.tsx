@@ -50,9 +50,9 @@ export type AgentTracePanelData = {
 
 /**
  * Groups usage samples by scope and summarizes each bucket. Film pipeline
- * scopes sort first (`film-llm`, then `film-image`, then `film-video`), then
- * remaining scopes alphabetically, so render-phase metering is never buried
- * under production-session totals.
+ * scopes sort first (`film-llm`, then `film-image`, `film-video`, `film-tts`),
+ * then remaining scopes alphabetically, so render-phase metering is never
+ * buried under production-session totals.
  */
 export function groupUsageByScope(samples: readonly AgentUsageSample[]): AgentTraceUsageScopeRow[] {
   const byScope = new Map<string, AgentUsageSample[]>();
@@ -65,6 +65,7 @@ export function groupUsageByScope(samples: readonly AgentUsageSample[]): AgentTr
     if (scope === "film-llm") return 0;
     if (scope === "film-image") return 1;
     if (scope === "film-video") return 2;
+    if (scope === "film-tts") return 3;
     return 100;
   };
   return [...byScope.entries()]
@@ -133,6 +134,7 @@ function scopeLabel(scope: string, t: (key: string) => string): string {
   if (scope === "film-llm") return t("Film 规划 LLM");
   if (scope === "film-image") return t("Film 图像生成");
   if (scope === "film-video") return t("Film 视频生成");
+  if (scope === "film-tts") return t("Film 语音合成");
   return scope;
 }
 
@@ -220,7 +222,7 @@ export function AgentTracePanel({ onClose }: { onClose: () => void }) {
           <ul className="director-agent-trace-panel-film-list">
             {filmProgress.map((entry) => {
               const usageScopes = entry.usage
-                ? (["film-llm", "film-image", "film-video"] as const).filter(
+                ? (["film-llm", "film-image", "film-video", "film-tts"] as const).filter(
                     (scope) => entry.usage![scope].sample_count > 0,
                   )
                 : [];
@@ -265,7 +267,11 @@ export function AgentTracePanel({ onClose }: { onClose: () => void }) {
           </p>
           {usageScopes.length > 1 ||
           usageScopes.some(
-            (row) => row.scope === "film-llm" || row.scope === "film-image" || row.scope === "film-video",
+            (row) =>
+              row.scope === "film-llm" ||
+              row.scope === "film-image" ||
+              row.scope === "film-video" ||
+              row.scope === "film-tts",
           ) ? (
             <ul className="director-agent-trace-panel-usage-scopes">
               {usageScopes.map((row) => (
