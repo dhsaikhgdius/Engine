@@ -239,6 +239,7 @@ Rain hits the pavement.
       transform: { position: [1, 2, 3] },
     });
     expect(external.project.cameras[0]).toMatchObject({ id: "fixture-camera-001", aspectRatio: "16:9" });
+    expect(external.omitted ?? []).toEqual([]);
     expectCameraDirection(
       external.project.cameras[0]!.transform.position,
       external.project.cameras[0]!.target,
@@ -268,10 +269,88 @@ Rain hits the pavement.
       transform: { position: [1, 2, -3], scale: [1, 1.5, 1] },
     });
     expect(imported.project.cameras[0]?.id).toBe("camera-main-001");
+    expect(imported.omitted ?? []).toEqual([]);
     expectCameraDirection(
       imported.project.cameras[0]!.transform.position,
       imported.project.cameras[0]!.target,
       new Quaternion().fromArray(cameraNode!.rotation!),
+    );
+  });
+
+  it("stamps typed glTF omitted records for duplicate IDs, empty scenes, and invalid manifests", async () => {
+    const empty = await importDirectorProjectFromGltf(
+      JSON.stringify({
+        asset: { version: "2.0" },
+        scenes: [{ nodes: [] }],
+        scene: 0,
+        nodes: [],
+      }),
+    );
+    expect(empty.project.objects).toEqual([]);
+    expect(empty.omitted).toEqual([expect.objectContaining({ code: "empty_project_no_metadata", subject: "scene" })]);
+    expect(empty.warnings.some((warning) => warning.includes("empty_project_no_metadata"))).toBe(true);
+
+    const duplicate = await importDirectorProjectFromGltf(
+      JSON.stringify({
+        asset: { version: "2.0" },
+        scenes: [{ nodes: [0, 1] }],
+        scene: 0,
+        nodes: [
+          {
+            name: "Marker A",
+            translation: [1, 0, 0],
+            extras: {
+              director: {
+                adapter: "director-gltf-v1",
+                contract: DIRECTOR_INTERCHANGE_CONTRACT,
+                stableId: "dup-object-001",
+                entityType: "object",
+                kind: "prop",
+              },
+            },
+          },
+          {
+            name: "Marker B",
+            translation: [2, 0, 0],
+            extras: {
+              director: {
+                adapter: "director-gltf-v1",
+                contract: DIRECTOR_INTERCHANGE_CONTRACT,
+                stableId: "dup-object-001",
+                entityType: "object",
+                kind: "prop",
+              },
+            },
+          },
+        ],
+      }),
+    );
+    expect(duplicate.project.objects.map((object) => object.id)).toEqual(["dup-object-001"]);
+    expect(duplicate.omitted).toEqual([
+      expect.objectContaining({ code: "duplicate_stable_id", subject: "dup-object-001" }),
+    ]);
+
+    const invalidManifest = await importDirectorProjectFromGltf(
+      JSON.stringify({
+        asset: { version: "2.0" },
+        extras: {
+          director: {
+            adapter: "director-gltf-v1",
+            contract: DIRECTOR_INTERCHANGE_CONTRACT,
+            coordinateSystem: DIRECTOR_INTERCHANGE_COORDINATE_SYSTEM,
+            manifest: { contract: "not-a-manifest", version: 1 },
+          },
+        },
+        scenes: [{ nodes: [] }],
+        scene: 0,
+        nodes: [],
+      }),
+    );
+    expect(invalidManifest.omitted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "embedded_manifest_invalid", subject: "extras.director.manifest" }),
+        expect.objectContaining({ code: "empty_project_no_metadata" }),
+      ]),
     );
   });
 

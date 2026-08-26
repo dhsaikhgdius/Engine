@@ -86,12 +86,7 @@ type PreparedImportPayload =
     }
   | {
       kind: "video";
-      imported: {
-        editTracks: unknown;
-        editSettings: unknown;
-        warnings: string[];
-        omitted?: Array<{ code: string; subject: string; reason: string }>;
-      };
+      imported: { editTracks: unknown; editSettings: unknown; warnings: string[]; omitted?: unknown };
       warnings: string[];
       omitted: Array<{ code: string; subject: string; reason: string }>;
     };
