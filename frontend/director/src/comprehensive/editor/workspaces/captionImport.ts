@@ -219,9 +219,7 @@ export function insertDirectorCaptionCuesIntoTimeline(
     if (!trackId) return { inserted: 0, trackId: null };
     clipOperations = compiled.operations
       .filter((operation) => operation.op === "edit.clip.add")
-      .map((operation) =>
-        operation.op === "edit.clip.add" ? { ...operation, track_id: trackId! } : operation,
-      );
+      .map((operation) => (operation.op === "edit.clip.add" ? { ...operation, track_id: trackId! } : operation));
   }
 
   const receipt = dispatchCreativeWorkspaceOperations(clipOperations);

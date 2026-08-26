@@ -1415,8 +1415,7 @@ export function executeCreativeWorkspaceAgentOperation(
         }
       }
       const sourceDurationSec =
-        operation.source_duration_sec ??
-        (virtualText ? 60 * 60 : (media?.durationSec ?? operation.duration_sec));
+        operation.source_duration_sec ?? (virtualText ? 60 * 60 : (media?.durationSec ?? operation.duration_sec));
       const playbackRate = operation.playback_rate ?? 1;
       if (sourceDurationSec < operation.duration_sec * playbackRate) {
         return semanticFailure(operation.op, "conflict", "Clip duration cannot exceed its source duration.");
@@ -1504,11 +1503,7 @@ export function executeCreativeWorkspaceAgentOperation(
         } else {
           const media = findMedia(context, nextMediaId);
           if (!media) {
-            return semanticFailure(
-              operation.op,
-              "not_found",
-              `Media asset "${nextMediaId}" does not exist.`,
-            );
+            return semanticFailure(operation.op, "not_found", `Media asset "${nextMediaId}" does not exist.`);
           }
           if (expectedTrackKind(media.kind) !== owner.track.kind) {
             return semanticFailure(
