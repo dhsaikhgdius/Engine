@@ -2185,6 +2185,11 @@ export function applyDirectorAuthoringActions(
           ...(item.color ? { color: item.color } : {}),
           ...(item.material ? { material: structuredClone(item.material) } : {}),
           ...(resolvedAssetId ? { assetRefId: resolvedAssetId } : {}),
+          // Match Stage createSceneObjectFromAsset: imported meshes are Blender-
+          // provisionable shells until live native sync stamps provisioned.
+          ...(resolvedAssetId
+            ? { nativeSource: { engine: "blender" as const, objectId: item.id, provisioned: false as const } }
+            : {}),
           ...(item.geometry_type ? { geometryType: item.geometry_type } : {}),
           ...(item.placement_mode ? { placementMode: item.placement_mode } : {}),
           ...(item.parent_id ? { parentObjectId: item.parent_id } : {}),
