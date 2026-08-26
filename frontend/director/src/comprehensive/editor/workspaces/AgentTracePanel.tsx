@@ -1,8 +1,9 @@
 /**
  * Agent 轨迹面板：回放最近一次 Agent 会话的工具链、修订变化与模型用量。
  *
- * 数据来自 gateway 的 `/api/agent/traces/summary` 与 `/api/agent/usage`，
- * 面板只展示执行回执（操作名、结果、耗时、修订），从不展示提示词或密钥。
+ * 数据来自 gateway 的 `/api/agent/traces/summary`、`/api/agent/usage` 与
+ * `/api/agent/progress?kind=film_run`。面板只展示执行回执与聚合用量
+ * （操作名、结果、耗时、修订、按 scope 的 token），从不展示提示词或密钥。
  *
  * @module agent-trace-panel
  */
@@ -11,34 +12,82 @@ import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import {
   agentTraceSessionSummarySchema,
+  agentUsageSampleSchema,
   agentUsageSummarySchema,
+  summarizeAgentUsage,
+  unifiedProgressSchema,
   type AgentTraceSessionSummary,
+  type AgentUsageSample,
   type AgentUsageSummary,
+  type UnifiedProgress,
 } from "../../../../../../packages/protocol/src/agentObservabilityProtocol";
 import { directorControlPlaneFetch } from "../api/directorControlPlaneClient";
 import { useLanguage } from "../../i18n/language";
 import "./AgentTracePanel.css";
 
 const summaryResponseSchema = z.object({ summary: agentTraceSessionSummarySchema });
-const usageResponseSchema = z.object({ summary: agentUsageSummarySchema });
+const usageResponseSchema = z.object({
+  summary: agentUsageSummarySchema,
+  samples: z.array(agentUsageSampleSchema).max(500).default([]),
+});
+const progressResponseSchema = z.object({
+  entries: z.array(unifiedProgressSchema).max(200),
+});
 
-/** 面板一次加载的数据：最近会话轨迹（可能为空）与模型用量聚合。 */
+/** One usage aggregate keyed by meter scope (session id, `film-llm`, …). */
+export type AgentTraceUsageScopeRow = {
+  scope: string;
+  summary: AgentUsageSummary;
+};
+
+/** 面板一次加载的数据：最近会话轨迹、模型用量聚合，以及 Film 统一进度。 */
 export type AgentTracePanelData = {
   summary: AgentTraceSessionSummary | null;
   usage: AgentUsageSummary | null;
+  usageScopes: AgentTraceUsageScopeRow[];
+  filmProgress: UnifiedProgress[];
 };
 
 /**
- * Loads the latest session trace summary and the usage aggregate from the
- * gateway observability API. A 404 from the summary endpoint means no traced
- * session exists yet and resolves to a null summary rather than an error.
+ * Groups usage samples by scope and summarizes each bucket. Scopes are sorted
+ * with `film-llm` first when present, then alphabetically, so Film planning
+ * metering is never buried under production-session totals.
+ */
+export function groupUsageByScope(samples: readonly AgentUsageSample[]): AgentTraceUsageScopeRow[] {
+  const byScope = new Map<string, AgentUsageSample[]>();
+  for (const sample of samples) {
+    const bucket = byScope.get(sample.scope) ?? [];
+    bucket.push(sample);
+    byScope.set(sample.scope, bucket);
+  }
+  return [...byScope.entries()]
+    .map(([scope, scoped]) => ({ scope, summary: summarizeAgentUsage(scoped) }))
+    .sort((left, right) => {
+      if (left.scope === "film-llm") return -1;
+      if (right.scope === "film-llm") return 1;
+      return left.scope.localeCompare(right.scope);
+    });
+}
+
+/** Formats a unified progress fraction as a percent label, or an em dash when unknown. */
+export function formatProgressPercent(progress: number | null): string {
+  if (progress === null || !Number.isFinite(progress)) return "—";
+  return `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%`;
+}
+
+/**
+ * Loads the latest session trace summary, usage aggregate (with per-scope
+ * breakdown), and film-run unified progress from the gateway observability API.
+ * A 404 from the summary endpoint means no traced session exists yet and
+ * resolves to a null summary rather than an error.
  */
 export async function loadAgentTracePanelData(
   fetcher: (path: string) => Promise<Response> = directorControlPlaneFetch,
 ): Promise<AgentTracePanelData> {
-  const [summaryResponse, usageResponse] = await Promise.all([
+  const [summaryResponse, usageResponse, progressResponse] = await Promise.all([
     fetcher("/api/agent/traces/summary"),
     fetcher("/api/agent/usage?limit=200"),
+    fetcher("/api/agent/progress?kind=film_run&limit=20"),
   ]);
   let summary: AgentTraceSessionSummary | null = null;
   if (summaryResponse.ok) {
@@ -47,10 +96,19 @@ export async function loadAgentTracePanelData(
     throw new Error(`Agent trace summary request failed (HTTP ${summaryResponse.status})`);
   }
   let usage: AgentUsageSummary | null = null;
+  let usageScopes: AgentTraceUsageScopeRow[] = [];
   if (usageResponse.ok) {
-    usage = usageResponseSchema.parse(await usageResponse.json()).summary;
+    const body = usageResponseSchema.parse(await usageResponse.json());
+    usage = body.summary;
+    usageScopes = groupUsageByScope(body.samples);
   }
-  return { summary, usage };
+  let filmProgress: UnifiedProgress[] = [];
+  if (progressResponse.ok) {
+    filmProgress = progressResponseSchema.parse(await progressResponse.json()).entries;
+  } else if (progressResponse.status !== 404) {
+    throw new Error(`Agent progress request failed (HTTP ${progressResponse.status})`);
+  }
+  return { summary, usage, usageScopes, filmProgress };
 }
 
 /** 简洁的耗时展示：毫秒 → `x ms` / `x.x s`。 */
@@ -62,6 +120,11 @@ export function formatTraceDuration(durationMs: number): string {
 function formatClock(iso: string) {
   const time = new Date(iso);
   return Number.isNaN(time.getTime()) ? iso : time.toLocaleTimeString();
+}
+
+function scopeLabel(scope: string, t: (key: string) => string): string {
+  if (scope === "film-llm") return t("Film 规划 LLM");
+  return scope;
 }
 
 /** Agent 轨迹面板组件。 */
@@ -89,6 +152,8 @@ export function AgentTracePanel({ onClose }: { onClose: () => void }) {
 
   const summary = data?.summary ?? null;
   const usage = data?.usage ?? null;
+  const usageScopes = data?.usageScopes ?? [];
+  const filmProgress = data?.filmProgress ?? [];
 
   return (
     <aside aria-label={t("Agent 轨迹")} className="director-agent-trace-panel">
@@ -105,7 +170,7 @@ export function AgentTracePanel({ onClose }: { onClose: () => void }) {
       </header>
 
       {failed ? <p className="director-agent-trace-panel-empty">{t("轨迹服务暂时不可用")}</p> : null}
-      {!failed && !loading && !summary ? (
+      {!failed && !loading && !summary && filmProgress.length === 0 && !(usage && usage.sample_count > 0) ? (
         <p className="director-agent-trace-panel-empty">{t("还没有可回放的 Agent 会话")}</p>
       ) : null}
 
@@ -140,6 +205,22 @@ export function AgentTracePanel({ onClose }: { onClose: () => void }) {
         </section>
       ) : null}
 
+      {filmProgress.length > 0 ? (
+        <section aria-label={t("电影管线进度")} className="director-agent-trace-panel-film">
+          <h3>{t("电影管线进度")}</h3>
+          <ul className="director-agent-trace-panel-film-list">
+            {filmProgress.map((entry) => (
+              <li key={entry.id}>
+                <span className="director-agent-trace-panel-step-op">
+                  {entry.label} · {formatProgressPercent(entry.progress)} · {entry.source_status}
+                </span>
+                {entry.message ? <span className="director-agent-trace-panel-step-meta">{entry.message}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {usage && usage.sample_count > 0 ? (
         <section aria-label={t("模型用量")} className="director-agent-trace-panel-usage">
           <h3>{t("模型用量")}</h3>
@@ -148,6 +229,19 @@ export function AgentTracePanel({ onClose }: { onClose: () => void }) {
             {formatTraceDuration(usage.total_duration_ms)} · {t("重试")} {usage.retries} · {t("失败")}{" "}
             {usage.failure_count}
           </p>
+          {usageScopes.length > 1 || usageScopes.some((row) => row.scope === "film-llm") ? (
+            <ul className="director-agent-trace-panel-usage-scopes">
+              {usageScopes.map((row) => (
+                <li key={row.scope}>
+                  <span className="director-agent-trace-panel-step-op">{scopeLabel(row.scope, t)}</span>
+                  <span className="director-agent-trace-panel-step-meta">
+                    {row.summary.total_tokens} tokens · {formatTraceDuration(row.summary.total_duration_ms)}
+                    {row.summary.failure_count > 0 ? ` · ${t("失败")} ${row.summary.failure_count}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </section>
       ) : null}
     </aside>
