@@ -224,6 +224,21 @@
   text-overflow: ellipsis;
 }
 
+.task-tray-item-usage {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.task-tray-item-usage > li {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .task-tray-item-error {
   margin: 0;
   color: rgb(var(--director-danger-rgb, 230 96 96));
