@@ -331,10 +331,9 @@ describe("evaluateDirectorPossessionScope", () => {
   it("rejects reconstruction.apply under possession while keeping the other reconstruction commands", () => {
     // apply appends or replaces scene objects stage-wide, exactly like
     // replace_project; a possessed session must not rewrite the stage with it.
-    const apply = evaluate(
-      { op: "reconstruction", command: { action: "apply", job_id: "recon-1", mode: "replace" } },
-      ["hero"],
-    );
+    const apply = evaluate({ op: "reconstruction", command: { action: "apply", job_id: "recon-1", mode: "replace" } }, [
+      "hero",
+    ]);
     expect(apply).toMatchObject({
       allowed: false,
       error: expect.stringContaining('"reconstruction.apply"'),

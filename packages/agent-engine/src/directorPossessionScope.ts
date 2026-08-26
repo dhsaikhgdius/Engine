@@ -170,8 +170,7 @@ export type DirectorPossessionScopeRejection = {
 
 /** Verdict returned by {@link evaluateDirectorPossessionScope}. */
 export type DirectorPossessionScopeVerdict =
-  | { allowed: true }
-  | { allowed: false; error: string; rejection: DirectorPossessionScopeRejection };
+  { allowed: true } | { allowed: false; error: string; rejection: DirectorPossessionScopeRejection };
 
 function possessionScopeError(
   sessionId: string,
