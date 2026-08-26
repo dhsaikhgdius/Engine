@@ -139166,15 +139166,18 @@ var unifiedProgressSchema = external_exports.strictObject({
   created_at: external_exports.string(),
   updated_at: external_exports.string(),
   /**
-   * Durable per-scope film-run usage (`film-llm` / `film-image` / `film-video`).
-   * Only film_run entries may carry this; omitted when the run has no metered
-   * samples yet so Agents/UI do not invent a second meter. Shape matches
-   * `filmRunUsageSchema` without importing it (that module imports this file).
+   * Durable per-scope film-run usage (`film-llm` / `film-image` /
+   * `film-video` / `film-tts`). Only film_run entries may carry this;
+   * omitted when the run has no metered samples yet so Agents/UI do not
+   * invent a second meter. Shape matches `filmRunUsageSchema` without
+   * importing it (that module imports this file); `film-tts` defaults to
+   * zeros for entries projected before speech metering existed.
    */
   usage: external_exports.strictObject({
     "film-llm": agentUsageSummarySchema,
     "film-image": agentUsageSummarySchema,
-    "film-video": agentUsageSummarySchema
+    "film-video": agentUsageSummarySchema,
+    "film-tts": agentUsageSummarySchema.default(() => ({ ...EMPTY_AGENT_USAGE_SUMMARY }))
   }).optional()
 }).superRefine((entry, context) => {
   if (entry.usage !== void 0 && entry.kind !== "film_run") {
@@ -139196,13 +139199,15 @@ var lazyUsageSummarySchema = external_exports.lazy(() => agentUsageSummarySchema
 var filmRunUsageSchema = external_exports.strictObject({
   "film-llm": lazyUsageSummarySchema,
   "film-image": lazyUsageSummarySchema,
-  "film-video": lazyUsageSummarySchema
+  "film-video": lazyUsageSummarySchema,
+  "film-tts": lazyUsageSummarySchema.default(() => ({ ...EMPTY_AGENT_USAGE_SUMMARY }))
 });
 function emptyFilmRunUsage() {
   return {
     "film-llm": { ...EMPTY_AGENT_USAGE_SUMMARY },
     "film-image": { ...EMPTY_AGENT_USAGE_SUMMARY },
-    "film-video": { ...EMPTY_AGENT_USAGE_SUMMARY }
+    "film-video": { ...EMPTY_AGENT_USAGE_SUMMARY },
+    "film-tts": { ...EMPTY_AGENT_USAGE_SUMMARY }
   };
 }
 

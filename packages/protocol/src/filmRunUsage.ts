@@ -8,12 +8,14 @@ import {
 } from "./agentObservabilityProtocol";
 
 /** Film pipeline meter scopes that roll up onto a durable film run receipt. */
-export const FILM_RUN_USAGE_SCOPES = ["film-llm", "film-image", "film-video"] as const;
+export const FILM_RUN_USAGE_SCOPES = ["film-llm", "film-image", "film-video", "film-tts"] as const;
 /** One film-pipeline meter scope. */
 export type FilmRunUsageScope = (typeof FILM_RUN_USAGE_SCOPES)[number];
 
 /**
  * Per-scope usage rollup stamped on a durable film run and its receipt.
+ * `film-tts` defaults to zeros so run documents persisted before speech
+ * metering existed still parse.
  *
  * Every shape value defers touching `agentUsageSummarySchema` behind
  * `z.lazy`: this module participates in an import cycle with
@@ -27,6 +29,7 @@ export const filmRunUsageSchema = z.strictObject({
   "film-llm": lazyUsageSummarySchema,
   "film-image": lazyUsageSummarySchema,
   "film-video": lazyUsageSummarySchema,
+  "film-tts": lazyUsageSummarySchema.default(() => ({ ...EMPTY_AGENT_USAGE_SUMMARY })),
 });
 /** Per-scope film run usage rollup. */
 export type FilmRunUsage = z.infer<typeof filmRunUsageSchema>;
@@ -37,6 +40,7 @@ export function emptyFilmRunUsage(): FilmRunUsage {
     "film-llm": { ...EMPTY_AGENT_USAGE_SUMMARY },
     "film-image": { ...EMPTY_AGENT_USAGE_SUMMARY },
     "film-video": { ...EMPTY_AGENT_USAGE_SUMMARY },
+    "film-tts": { ...EMPTY_AGENT_USAGE_SUMMARY },
   };
 }
 

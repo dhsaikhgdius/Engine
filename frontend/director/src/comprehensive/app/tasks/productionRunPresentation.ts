@@ -12,6 +12,7 @@ const FILM_RUN_USAGE_SCOPE_LABELS: Record<FilmRunUsageScope, string> = {
   "film-llm": "规划 LLM",
   "film-image": "图像生成",
   "film-video": "视频生成",
+  "film-tts": "语音合成",
 };
 
 /** One non-empty per-scope usage line for the task tray. */
@@ -198,8 +199,8 @@ export function productionRunUsageLines(entry: DirectorMonitoredProductionRun): 
 
 /**
  * Formats one durable film-run usage line for the task tray.
- * LLM scopes emphasize tokens; image/video emphasize sample count and wall-clock
- * (tokens stay 0 for media HTTP meters).
+ * LLM scopes emphasize tokens; image/video/speech emphasize sample count and
+ * wall-clock (tokens stay 0 for media and speech HTTP meters).
  *
  * @param line - A non-empty usage line from {@link productionRunUsageLines}.
  * @param translate - Optional zh→locale mapper for the scope label.
