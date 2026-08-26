@@ -14,6 +14,7 @@ import {
   collaborationInviteRateLimitKeyFromAuthorization,
   type CollaborationInviteRateLimiter,
 } from "../collaboration/collaborationInviteRateLimit";
+import type { DirectorCollaborationWebSocketHub } from "../collaborationWebSocketHub";
 import { applyCollaborationResponseHardening } from "./collaborationRoomRoutes";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
@@ -51,6 +52,8 @@ export type CollaborationInviteRouteDependencies = {
   inviteSecret: string;
   /** Registry consulted on join to deny revoked invites. */
   revocations: CollaborationInviteRevocationRegistry;
+  /** The live room hub; a revocation ejects joined peers holding the revoked invite. */
+  hub: Pick<DirectorCollaborationWebSocketHub, "enforceInviteRevocations">;
   /**
    * Optional sliding-window limiter for mint/revoke. When omitted or disabled,
    * local trust mode stays unbounded.
@@ -93,7 +96,11 @@ function rejectIfRateLimited(
  *   carry `persistence_enabled` (a durable revocation file is configured) and
  *   `persisted` (this revocation reached it), so callers never treat a
  *   process-local revocation — which dies with the gateway process — as one
- *   that survives a restart.
+ *   that survives a restart. A revocation also ends live sessions: peers
+ *   already joined with the revoked invite are ejected with a permanent
+ *   `unauthorized` error, and the response reports `disconnected_peers` and
+ *   `disconnected_rooms` so a revoke is never mistaken for ending access it
+ *   left running.
  *
  * @returns True if the route was handled, false otherwise.
  */
@@ -103,7 +110,7 @@ export async function handleCollaborationInviteRoute(
   url: URL,
   dependencies: CollaborationInviteRouteDependencies,
 ) {
-  const { readBody, json, authorizer, inviteSecret, revocations, rateLimiter } = dependencies;
+  const { readBody, json, authorizer, inviteSecret, revocations, hub, rateLimiter } = dependencies;
   if (request.method === "GET" && url.pathname === "/api/collab/auth") {
     applyCollaborationResponseHardening(response);
     json(response, 200, { mode: authorizer.mode });
@@ -156,30 +163,34 @@ export async function handleCollaborationInviteRoute(
         });
         return true;
       }
-      json(
-        response,
-        200,
-        outcome.revoked
-          ? {
-              revoked: true,
-              jti: outcome.jti,
-              room: outcome.room,
-              expires_at: outcome.expiresAt,
-              persisted: outcome.persisted,
-              persistence_enabled: revocations.persistenceEnabled,
-            }
-          : { revoked: false, reason: outcome.reason },
-      );
+      if (!outcome.revoked) {
+        json(response, 200, { revoked: false, reason: outcome.reason });
+        return true;
+      }
+      const enforcement = hub.enforceInviteRevocations(revocations);
+      json(response, 200, {
+        revoked: true,
+        jti: outcome.jti,
+        room: outcome.room,
+        expires_at: outcome.expiresAt,
+        persisted: outcome.persisted,
+        persistence_enabled: revocations.persistenceEnabled,
+        disconnected_peers: enforcement.disconnectedPeers,
+        disconnected_rooms: enforcement.rooms,
+      });
       return true;
     }
     const scope = parsed.data.room!;
     const outcome = await revocations.revokeRoomScope(scope);
+    const enforcement = hub.enforceInviteRevocations(revocations);
     json(response, 200, {
       revoked: true,
       room: outcome.room,
       cutoff: outcome.cutoff,
       persisted: outcome.persisted,
       persistence_enabled: revocations.persistenceEnabled,
+      disconnected_peers: enforcement.disconnectedPeers,
+      disconnected_rooms: enforcement.rooms,
     });
     return true;
   }

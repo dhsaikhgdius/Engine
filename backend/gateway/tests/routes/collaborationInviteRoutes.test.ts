@@ -5,8 +5,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { WebSocket } from "ws";
 import { CollaborationInviteRateLimiter } from "../../collaboration/collaborationInviteRateLimit";
 import { CollaborationInviteRevocationRegistry } from "../../collaboration/collaborationInviteRevocationRegistry";
+import { DirectorCollaborationWebSocketHub } from "../../collaborationWebSocketHub";
 import {
   createCollaborationRoomAuthorizer,
   mintCollaborationInviteToken,
@@ -20,6 +22,19 @@ import {
 const SECRET = "invite-routes-test-secret";
 
 type FakeResponse = ServerResponse & { headers: Map<string, string> };
+
+type FakeSocket = WebSocket & { sent: string[] };
+
+function peerSocket(): FakeSocket {
+  const sent: string[] = [];
+  return {
+    readyState: 1,
+    sent,
+    send(value: string) {
+      sent.push(value);
+    },
+  } as unknown as FakeSocket;
+}
 
 function request(method: string, headers: Record<string, string> = {}) {
   return { method, headers } as IncomingMessage;
@@ -42,15 +57,18 @@ function response(): FakeResponse {
 function dependencies(overrides: Partial<CollaborationInviteRouteDependencies> = {}) {
   const json = vi.fn();
   const revocations = new CollaborationInviteRevocationRegistry();
+  const authorizer = createCollaborationRoomAuthorizer({ secret: SECRET, mode: "required", revocations });
+  const hub = new DirectorCollaborationWebSocketHub({ authorizer });
   const deps: CollaborationInviteRouteDependencies = {
     readBody: vi.fn().mockResolvedValue({}),
     json,
-    authorizer: createCollaborationRoomAuthorizer({ secret: SECRET, mode: "required", revocations }),
+    authorizer,
     inviteSecret: SECRET,
     revocations,
+    hub,
     ...overrides,
   };
-  return { deps, json, revocations };
+  return { deps, json, revocations, hub };
 }
 
 function lastJsonCall(json: ReturnType<typeof vi.fn>) {
@@ -88,10 +106,9 @@ describe("handleCollaborationInviteRoute", () => {
     expect(status).toBe(201);
     const invite = body.invite as Record<string, string>;
     expect(invite.jti).toMatch(/^dci-/);
-    expect(verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha" })).toEqual({
-      ok: true,
-      role: "viewer",
-    });
+    expect(
+      verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha" }),
+    ).toMatchObject({ ok: true, role: "viewer" });
   });
 
   it("revokes one invite by token so later joins are denied, without overclaiming durability", async () => {
@@ -106,10 +123,19 @@ describe("handleCollaborationInviteRoute", () => {
       deps,
     );
     // The default registry is process-local, so the response must say the
-    // revocation is neither persisted nor backed by a durable file.
+    // revocation is neither persisted nor backed by a durable file. With no
+    // live peer holding the invite, the eject report is honestly zero.
     expect(lastJsonCall(json)).toMatchObject({
       status: 200,
-      body: { revoked: true, jti: invite.jti, room: "scene-alpha", persisted: false, persistence_enabled: false },
+      body: {
+        revoked: true,
+        jti: invite.jti,
+        room: "scene-alpha",
+        persisted: false,
+        persistence_enabled: false,
+        disconnected_peers: 0,
+        disconnected_rooms: [],
+      },
     });
     expect(
       verifyCollaborationInviteToken({
@@ -144,6 +170,84 @@ describe("handleCollaborationInviteRoute", () => {
         revocations,
       }),
     ).toEqual({ ok: false, reason: "revoked" });
+  });
+
+  it("ejects live peers holding a token-revoked invite and reports the disconnect honestly", async () => {
+    const revokedInvite = mintCollaborationInviteToken({ secret: SECRET, room: "scene-alpha", role: "editor" });
+    const survivingInvite = mintCollaborationInviteToken({ secret: SECRET, room: "scene-alpha", role: "editor" });
+    const { deps, json, hub } = dependencies({ readBody: vi.fn().mockResolvedValue({ token: revokedInvite.token }) });
+    const revokedPeer = peerSocket();
+    const survivor = peerSocket();
+    hub.handle(revokedPeer, {
+      type: "collab.join",
+      room: "scene-alpha",
+      awareness_client_id: 61,
+      invite_token: revokedInvite.token,
+    });
+    hub.handle(survivor, {
+      type: "collab.join",
+      room: "scene-alpha",
+      awareness_client_id: 62,
+      invite_token: survivingInvite.token,
+    });
+    revokedPeer.sent.length = 0;
+
+    await handleCollaborationInviteRoute(
+      request("POST"),
+      response(),
+      new URL("http://gateway.local/api/collab/invites/revoke"),
+      deps,
+    );
+    expect(lastJsonCall(json)).toMatchObject({
+      status: 200,
+      body: { revoked: true, jti: revokedInvite.jti, disconnected_peers: 1, disconnected_rooms: ["scene-alpha"] },
+    });
+    expect(JSON.parse(revokedPeer.sent.at(-1)!)).toMatchObject({
+      type: "collab.error",
+      code: "unauthorized",
+      room: "scene-alpha",
+      message: "The collaboration invite token has been revoked.",
+    });
+    expect(hub.peerCount("scene-alpha")).toBe(1);
+    hub.destroy();
+  });
+
+  it("ejects joined peers across every room a scope revocation covers", async () => {
+    const invite = mintCollaborationInviteToken({ secret: SECRET, room: "project-a/*", role: "editor" });
+    const { deps, json, hub } = dependencies({ readBody: vi.fn().mockResolvedValue({ room: "project-a/*" }) });
+    const sceneOne = peerSocket();
+    const sceneTwo = peerSocket();
+    hub.handle(sceneOne, {
+      type: "collab.join",
+      room: "project-a/scene-1",
+      awareness_client_id: 63,
+      invite_token: invite.token,
+    });
+    hub.handle(sceneTwo, {
+      type: "collab.join",
+      room: "project-a/scene-2",
+      awareness_client_id: 64,
+      invite_token: invite.token,
+    });
+
+    await handleCollaborationInviteRoute(
+      request("POST"),
+      response(),
+      new URL("http://gateway.local/api/collab/invites/revoke"),
+      deps,
+    );
+    expect(lastJsonCall(json)).toMatchObject({
+      status: 200,
+      body: {
+        revoked: true,
+        room: "project-a/*",
+        disconnected_peers: 2,
+        disconnected_rooms: ["project-a/scene-1", "project-a/scene-2"],
+      },
+    });
+    expect(hub.peerCount("project-a/scene-1")).toBe(0);
+    expect(hub.peerCount("project-a/scene-2")).toBe(0);
+    hub.destroy();
   });
 
   it("reports persisted: true when the revocation reached a durable registry file", async () => {

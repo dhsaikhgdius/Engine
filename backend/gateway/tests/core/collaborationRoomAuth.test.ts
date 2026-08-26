@@ -16,9 +16,20 @@ describe("collaboration invite tokens", () => {
   it("mints and verifies a room-scoped editor invite", () => {
     const invite = mintCollaborationInviteToken({ secret: SECRET, room: "scene-alpha", role: "editor" });
     expect(invite.token.startsWith("dcr1.")).toBe(true);
-    expect(verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha" })).toEqual({
+    expect(
+      verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha" }),
+    ).toMatchObject({ ok: true, role: "editor" });
+  });
+
+  it("returns the verified invite's revocation subject so live memberships can be re-checked later", () => {
+    const invite = mintCollaborationInviteToken({ secret: SECRET, room: "project-a/*", role: "editor" });
+    const payload = decodeCollaborationInvitePayload(invite.token)!;
+    expect(
+      verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "project-a/scene-1" }),
+    ).toEqual({
       ok: true,
       role: "editor",
+      subject: { room: "project-a/*", exp: payload.exp, jti: invite.jti, iat: payload.iat },
     });
   });
 
@@ -78,7 +89,7 @@ describe("collaboration invite tokens", () => {
     });
     expect(
       verifyCollaborationInviteToken({ secret: SECRET, token: prefixInvite.token, roomId: "project-a/scene-1", now }),
-    ).toEqual({ ok: true, role: "viewer" });
+    ).toMatchObject({ ok: true, role: "viewer" });
     expect(
       verifyCollaborationInviteToken({ secret: SECRET, token: prefixInvite.token, roomId: "project-b/scene-1", now }),
     ).toEqual({ ok: false, reason: "room_mismatch" });
@@ -105,7 +116,7 @@ describe("collaboration invite revocation", () => {
     const verify = (token: string) =>
       verifyCollaborationInviteToken({ secret: SECRET, token, roomId: "scene-alpha", revocations: registry });
     expect(verify(revokedInvite.token)).toEqual({ ok: false, reason: "revoked" });
-    expect(verify(survivingInvite.token)).toEqual({ ok: true, role: "editor" });
+    expect(verify(survivingInvite.token)).toMatchObject({ ok: true, role: "editor" });
   });
 
   it("revokes every older invite for a room scope while invites minted afterwards stay valid", async () => {
@@ -123,7 +134,7 @@ describe("collaboration invite revocation", () => {
       verifyCollaborationInviteToken({ secret: SECRET, token, roomId, now, revocations: registry });
     expect(verify(oldExact.token, "project-a/scene-1")).toEqual({ ok: false, reason: "revoked" });
     expect(verify(oldPrefix.token, "project-a/scene-2")).toEqual({ ok: false, reason: "revoked" });
-    expect(verify(fresh.token, "project-a/scene-1")).toEqual({ ok: true, role: "editor" });
+    expect(verify(fresh.token, "project-a/scene-1")).toMatchObject({ ok: true, role: "editor" });
     // A different project's rooms are untouched by the cutoff.
     const otherProject = mintCollaborationInviteToken({
       secret: SECRET,
@@ -131,7 +142,7 @@ describe("collaboration invite revocation", () => {
       role: "editor",
       now: () => 5_000_000,
     });
-    expect(verify(otherProject.token, "project-b/scene-1")).toEqual({ ok: true, role: "editor" });
+    expect(verify(otherProject.token, "project-b/scene-1")).toMatchObject({ ok: true, role: "editor" });
   });
 
   it("reports non-revocable and already-expired tokens with structured outcomes", async () => {
@@ -169,7 +180,7 @@ describe("collaboration invite revocation", () => {
 });
 
 describe("createCollaborationRoomAuthorizer", () => {
-  it("defaults to local trust mode that admits every socket as an editor", () => {
+  it("defaults to local trust mode that admits every socket as an editor without an invite subject", () => {
     const authorizer = createCollaborationRoomAuthorizer({ secret: SECRET, mode: undefined });
     expect(authorizer.mode).toBe("local-trust");
     expect(authorizer.authorize("any-room", undefined)).toEqual({ ok: true, role: "editor" });
@@ -180,7 +191,11 @@ describe("createCollaborationRoomAuthorizer", () => {
     expect(authorizer.mode).toBe("invite-required");
     expect(authorizer.authorize("scene-alpha", undefined)).toEqual({ ok: false, reason: "missing_token" });
     const invite = mintCollaborationInviteToken({ secret: SECRET, room: "scene-alpha", role: "viewer" });
-    expect(authorizer.authorize("scene-alpha", invite.token)).toEqual({ ok: true, role: "viewer" });
+    expect(authorizer.authorize("scene-alpha", invite.token)).toMatchObject({
+      ok: true,
+      role: "viewer",
+      subject: { room: "scene-alpha", jti: invite.jti },
+    });
   });
 
   it("parses the documented mode values", () => {
