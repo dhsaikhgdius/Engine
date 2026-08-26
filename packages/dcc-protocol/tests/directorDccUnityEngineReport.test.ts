@@ -26,6 +26,16 @@ const UNITY_DETAILS = {
       reason: 'Light light-weird: unknown light type "portal"; omitted (warn-and-omit code: light_type_unknown).',
     },
   ],
+  omittedMaterialCount: 1,
+  omittedMaterials: [
+    {
+      directorId: "prop-hdrp",
+      code: "pipeline_unsupported" as const,
+      renderPipeline: "hdrp" as const,
+      reason:
+        "Object prop-hdrp: Director PBR fallback supports URP and Built-in; the active hdrp pipeline uses an unsupported material graph, so the override was omitted (warn-and-omit code: pipeline_unsupported). GLB payload materials still import through the glTF importer.",
+    },
+  ],
   omittedChannels: [
     {
       directorId: "hero-1",
@@ -96,12 +106,15 @@ describe("Director Unity engine report details", () => {
       omittedChannels: _channels,
       omittedLightCount: _omitCount,
       omittedLights: _omitLights,
+      omittedMaterialCount: _omitMatCount,
+      omittedMaterials: _omitMats,
       ...legacyDetails
     } = UNITY_DETAILS;
     const parsed = directorDccUnityEngineReportDetailsSchema.parse(legacyDetails);
     expect(parsed.posedCharacterCount).toBeUndefined();
     expect(parsed.omittedChannels).toBeUndefined();
     expect(parsed.omittedLights).toBeUndefined();
+    expect(parsed.omittedMaterials).toBeUndefined();
   });
 
   it("rejects omittedLights whose length disagrees with omittedLightCount", () => {
@@ -115,6 +128,21 @@ describe("Director Unity engine report details", () => {
       directorDccUnityEngineReportDetailsSchema.safeParse({
         ...UNITY_DETAILS,
         omittedLightCount: undefined,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects omittedMaterials whose length disagrees with omittedMaterialCount", () => {
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedMaterialCount: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedMaterialCount: undefined,
       }).success,
     ).toBe(false);
   });

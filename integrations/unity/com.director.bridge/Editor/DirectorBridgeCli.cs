@@ -135,6 +135,8 @@ namespace Director.Bridge.Editor
                     ["genericAvatarCount"] = counters.GenericAvatarCount,
                     ["materialFallbackCount"] = counters.MaterialFallbackCount,
                     ["appliedTextureCount"] = counters.AppliedTextureCount,
+                    ["omittedMaterialCount"] = counters.OmittedMaterials.Count,
+                    ["omittedMaterials"] = counters.OmittedMaterials,
                     ["posedCharacterCount"] = posedCharacterIds.Count,
                     ["omittedChannels"] = omissions,
                 };
@@ -242,6 +244,7 @@ namespace Director.Bridge.Editor
             public int GenericAvatarCount;
             public int MaterialFallbackCount;
             public int AppliedTextureCount;
+            public JArray OmittedMaterials = new JArray();
         }
 
         private static Dictionary<string, GameObject> BuildSceneEntities(
@@ -452,10 +455,15 @@ namespace Director.Bridge.Editor
             {
                 return;
             }
-            Material material = DirectorMaterialImport.CreateFallbackMaterial(
+            DirectorMaterialImport.MaterialImportResult materialResult = DirectorMaterialImport.CreateFallbackMaterial(
                 materialJson, (string)entity["id"], renderPipeline,
                 $"Assets/Director/Packages/{shortId}/Materials", resolveTexture, warnings,
                 out int appliedTextures);
+            if (materialResult.OmittedMaterial != null)
+            {
+                counters.OmittedMaterials.Add(materialResult.OmittedMaterial);
+            }
+            Material material = materialResult.Material;
             if (material == null)
             {
                 return;

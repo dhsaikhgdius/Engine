@@ -101,6 +101,21 @@ export const directorUnityOmittedLightSchema = z.strictObject({
 export type DirectorUnityOmittedLight = z.infer<typeof directorUnityOmittedLightSchema>;
 
 /**
+ * Typed warn-and-omit record for a Director PBR material override Unity
+ * declined to create as a fallback Material. Partial feature/texture warnings
+ * stay free-text; only whole-fallback failures are typed here.
+ */
+export const directorUnityOmittedMaterialSchema = z.strictObject({
+  directorId: z.string().trim().min(1).max(200),
+  code: z.enum(["pipeline_unsupported", "shader_missing"]),
+  renderPipeline: z.enum(["built-in", "urp", "hdrp", "custom"]),
+  reason: z.string().trim().min(1).max(600),
+});
+
+/** A validated Unity omitted-material record. */
+export type DirectorUnityOmittedMaterial = z.infer<typeof directorUnityOmittedMaterialSchema>;
+
+/**
  * Unity-specific details block the `com.director.bridge` connector appends to
  * its run report. Every field is an observed fact about the finished import —
  * not a capability claim — so the Gateway and Agents can audit what the
@@ -142,6 +157,17 @@ export const directorDccUnityEngineReportDetailsSchema = z
      */
     appliedTextureCount: z.number().int().nonnegative().optional(),
     /**
+     * Count of Director PBR overrides the connector declined to materialize.
+     * Optional: connector builds before typed omittedMaterials omit this field.
+     */
+    omittedMaterialCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Typed warn-and-omit records for whole-fallback material failures
+     * (`pipeline_unsupported`, `shader_missing`). Optional for older
+     * connectors; when present, length must equal omittedMaterialCount.
+     */
+    omittedMaterials: z.array(directorUnityOmittedMaterialSchema).max(1_024).optional(),
+    /**
      * Characters posed from Director semantic pose controls (static controls
      * applied to the imported skeleton, keyframed controls baked to clips).
      * Optional: connector 0.2.x reports predate pose baking.
@@ -155,21 +181,35 @@ export const directorDccUnityEngineReportDetailsSchema = z
     omittedChannels: z.array(directorDccUnityOmittedChannelSchema).max(4_096).optional(),
   })
   .superRefine((receipt, context) => {
-    if (receipt.omittedLights === undefined) return;
-    if (receipt.omittedLightCount === undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["omittedLightCount"],
-        message: "omittedLightCount is required when omittedLights is present",
-      });
-      return;
+    if (receipt.omittedLights !== undefined) {
+      if (receipt.omittedLightCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedLightCount"],
+          message: "omittedLightCount is required when omittedLights is present",
+        });
+      } else if (receipt.omittedLights.length !== receipt.omittedLightCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedLights"],
+          message: "omittedLights length must equal omittedLightCount",
+        });
+      }
     }
-    if (receipt.omittedLights.length !== receipt.omittedLightCount) {
-      context.addIssue({
-        code: "custom",
-        path: ["omittedLights"],
-        message: "omittedLights length must equal omittedLightCount",
-      });
+    if (receipt.omittedMaterials !== undefined) {
+      if (receipt.omittedMaterialCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedMaterialCount"],
+          message: "omittedMaterialCount is required when omittedMaterials is present",
+        });
+      } else if (receipt.omittedMaterials.length !== receipt.omittedMaterialCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedMaterials"],
+          message: "omittedMaterials length must equal omittedMaterialCount",
+        });
+      }
     }
   });
 
