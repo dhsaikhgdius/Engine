@@ -846,6 +846,189 @@ describe("stage routes", () => {
     );
   });
 
+  it("scopes player and pilot session mutations to the possession binding", async () => {
+    const possessedCharacters = [
+      {
+        id: "hero",
+        kind: "character",
+        agent_binding: { session_id: "dsh-possessed", profile_id: null, role_id: null, mode: "possess" },
+      },
+      { id: "villain", kind: "character" },
+    ];
+    const bindingProbe = {
+      client: {},
+      target: TARGET,
+      response: { success: true, result: { characters: possessedCharacters } },
+    };
+
+    // player.enter without an explicit actor_id would fall back to shared-tab
+    // state, so the possessed session is rejected before any dispatch.
+    const enterOmitted = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "player", action: "enter" },
+    });
+    enterOmitted.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(bindingProbe);
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      enterOmitted.dependencies,
+    );
+    expect(enterOmitted.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(enterOmitted.dependencies.requestWorkbenchCommand).toHaveBeenCalledWith(
+      { op: "observe", fields: ["characters"] },
+      undefined,
+      TARGET.token,
+    );
+    expect(enterOmitted.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({
+        success: false,
+        code: "possession_scope_violation",
+        error: expect.stringContaining("actor_id"),
+      }),
+    );
+
+    // player.enter naming another session's character is rejected the same way.
+    const enterOutside = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "player", action: "enter", actor_id: "villain" },
+    });
+    enterOutside.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(bindingProbe);
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      enterOutside.dependencies,
+    );
+    expect(enterOutside.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(enterOutside.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({
+        success: false,
+        code: "possession_scope_violation",
+        error: expect.stringContaining('"villain"'),
+      }),
+    );
+
+    // pilot.record_waypoint writes camera keyframes outside any character.
+    const waypoint = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "pilot", action: "record_waypoint" },
+    });
+    waypoint.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(bindingProbe);
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      waypoint.dependencies,
+    );
+    expect(waypoint.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(waypoint.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({
+        success: false,
+        code: "possession_scope_violation",
+        error: expect.stringContaining("pilot.record_waypoint"),
+      }),
+    );
+
+    // Naming the possessed actor dispatches the session command verbatim:
+    // no idempotency key or revision guard is injected into player/pilot ops.
+    const enterPossessed = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "player", action: "enter", actor_id: "hero" },
+    });
+    enterPossessed.dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce(bindingProbe)
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { surface: "player", action: "enter", player_mode: true } },
+      });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      enterPossessed.dependencies,
+    );
+    expect(enterPossessed.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(enterPossessed.dependencies.requestWorkbenchCommand).mock.calls[1]?.[0]).toEqual({
+      op: "player",
+      action: "enter",
+      actor_id: "hero",
+    });
+    expect(enterPossessed.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      200,
+      expect.objectContaining({ success: true }),
+    );
+
+    // An unpossessed session keeps the whole player surface.
+    const unpossessed = createDependencies({
+      session_id: "dsh-free-director",
+      target_token: TARGET.token,
+      input: { op: "player", action: "enter" },
+    });
+    unpossessed.dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce(bindingProbe)
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { surface: "player", action: "enter", player_mode: true } },
+      });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      unpossessed.dependencies,
+    );
+    expect(unpossessed.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    expect(unpossessed.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      200,
+      expect.objectContaining({ success: true }),
+    );
+
+    // Transient pilot flight is not a mutation: no possession probe at all.
+    const transientFlight = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "pilot", action: "set_view", position: [0, 1.6, 4] },
+    });
+    transientFlight.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue({
+      client: {},
+      target: TARGET,
+      response: { success: true, result: { surface: "pilot", action: "set_view" } },
+    });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      transientFlight.dependencies,
+    );
+    expect(transientFlight.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(transientFlight.dependencies.requestWorkbenchCommand).mock.calls[0]?.[0]).toEqual({
+      op: "pilot",
+      action: "set_view",
+      position: [0, 1.6, 4],
+    });
+    expect(transientFlight.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      200,
+      expect.objectContaining({ success: true }),
+    );
+  });
+
   it("fills the omitted object target when the session possesses exactly one character", async () => {
     const { dependencies, json } = createDependencies({
       session_id: "dsh-possessed",

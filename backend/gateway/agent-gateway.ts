@@ -45,7 +45,7 @@ import {
   applyObservedAgentGuard,
   isCreativeMutation,
   isWorkbenchDurableJobMutation,
-  isWorkbenchMutation,
+  isWorkbenchRevisionGuardedMutation,
   listAgentSessionTargets,
   prepareAgentDurableJobMutation,
   prepareAgentMutation,
@@ -1708,7 +1708,9 @@ async function handleAssistantApplyRequest(payload: AssistantApplyRequest, respo
         const prepared = prepareAgentDurableJobMutation({ tool: "director_workbench", operation: workbenchOperation });
         workbenchOperation = prepared.mutation.operation;
         agentBoundary = prepared.receipt;
-      } else if (isWorkbenchMutation(workbenchOperation)) {
+      } else if (isWorkbenchRevisionGuardedMutation(workbenchOperation)) {
+        // Player/Pilot session mutations carry no revision-guard fields and
+        // pass through to the browser command unprepared.
         const isProduction = workbenchOperation.op === "production";
         const secured = await securePlannedAgentMutation({
           response,
