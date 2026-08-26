@@ -92,6 +92,13 @@ import {
 import { getMannequinPosePreset, resolveCharacterPoseControls } from "@director/project-schema";
 import { getDirectorCharacterMotion, isDirectorCharacterMotionId } from "./characterMotionCatalog";
 import {
+  formatDirectorCameraCaptureId,
+  formatDirectorCameraCaptureName,
+  isValidDirectorCaptureDataUrl,
+  MAX_DIRECTOR_CAMERA_CAPTURES_PER_ACTION,
+  MAX_DIRECTOR_CAPTURE_DATA_URL_CHARS,
+} from "./directorCameraCaptures";
+import {
   createDefaultDirectorProduction,
   getDirectorProductionIssues,
   reconcileDirectorProduction,
@@ -821,6 +828,32 @@ export const directorAuthoringActionSchema = z
       activate: z.boolean().optional(),
     }),
     strictAction("update_camera", { camera_id: id, patch: cameraUpdateSchema }),
+    /**
+     * Append Stage camera capture evidence (PNG/JPEG/WebP data URLs) onto a
+     * camera shot — same bookkeeping the Camera panel / viewport capture
+     * toolbar use. Omitted camera_id resolves to the active camera, then the
+     * first camera. Payload limits match gateway Stage capture validation.
+     */
+    strictAction("add_camera_captures", {
+      camera_id: id.optional(),
+      captures: z
+        .array(
+          z.strictObject({
+            id: id.optional(),
+            name: name.optional(),
+            data_url: z
+              .string()
+              .trim()
+              .min(22)
+              .max(MAX_DIRECTOR_CAPTURE_DATA_URL_CHARS)
+              .refine(isValidDirectorCaptureDataUrl, {
+                message: "data_url must be data:image/png|jpeg|webp;base64,... with decoded size ≤ 12 MiB",
+              }),
+          }),
+        )
+        .min(1)
+        .max(MAX_DIRECTOR_CAMERA_CAPTURES_PER_ACTION),
+    }),
     strictAction("delete_cameras", { camera_ids: z.array(id).min(1).max(64) }),
     strictAction("set_animation", {
       target_type: directorAnimationEntityTypeSchema,
@@ -2890,6 +2923,33 @@ export function applyDirectorAuthoringActions(
         );
         addUnique(result.updated.camera_ids, camera.id);
         if (rig) addUnique(result.updated.object_ids, rig.id);
+        break;
+      }
+      case "add_camera_captures": {
+        const cameraId = item.camera_id ?? project.activeCameraId ?? project.cameras[0]?.id ?? null;
+        if (!cameraId) {
+          throw new Error("No camera is available to receive capture evidence.");
+        }
+        const camera = requireCamera(project, cameraId);
+        const existingCaptures = camera.captures ?? [];
+        const existingIds = new Set(existingCaptures.map((capture) => capture.id));
+        const nextCaptures = item.captures.map((capture, indexOffset) => {
+          const captureIndex = existingCaptures.length + indexOffset + 1;
+          const captureId = capture.id ?? formatDirectorCameraCaptureId(camera.id, captureIndex);
+          if (existingIds.has(captureId)) {
+            throw new Error(`Camera capture "${captureId}" already exists on "${camera.id}".`);
+          }
+          existingIds.add(captureId);
+          return {
+            id: captureId,
+            index: captureIndex,
+            name: capture.name ?? formatDirectorCameraCaptureName(camera.name, captureIndex),
+            dataUrl: capture.data_url,
+          };
+        });
+        camera.captures = [...existingCaptures, ...nextCaptures];
+        camera.lastCaptureUrl = nextCaptures[nextCaptures.length - 1]?.dataUrl ?? camera.lastCaptureUrl ?? null;
+        addUnique(result.updated.camera_ids, camera.id);
         break;
       }
       case "delete_cameras": {

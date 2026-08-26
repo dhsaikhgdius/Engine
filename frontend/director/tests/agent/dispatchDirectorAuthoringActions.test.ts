@@ -189,6 +189,32 @@ describe("dispatchDirectorAuthoringActions", () => {
     expect(updated?.aspectRatio).toBe("2.39:1");
   });
 
+  it("routes addCameraCaptures through shared add_camera_captures with revision parity", () => {
+    const cameraId = useDirectorStore.getState().project.activeCameraId;
+    if (!cameraId) throw new Error("default project has no active camera");
+    const before = structuredClone(useDirectorStore.getState().project);
+    const dataUrl = "data:image/png;base64,paritycapture";
+
+    const agentApplied = applyDirectorAuthoringActions(before, [
+      {
+        action: "add_camera_captures",
+        camera_id: cameraId,
+        captures: [{ data_url: dataUrl }],
+      },
+    ]);
+    const agentRevision = getDirectorProjectRevision(agentApplied.project);
+
+    useDirectorStore.getState().addCameraCaptures(cameraId, [dataUrl]);
+    expect(getDirectorProjectRevision(useDirectorStore.getState().project)).toBe(agentRevision);
+    const camera = useDirectorStore.getState().project.cameras.find((item) => item.id === cameraId);
+    expect(camera?.captures?.at(-1)).toMatchObject({
+      id: `${cameraId}-capture-01`,
+      index: 1,
+      dataUrl,
+    });
+    expect(camera?.lastCaptureUrl).toBe(dataUrl);
+  });
+
   it("matches update_object pose_preset_id revision when store.applyPosePreset poses a character", () => {
     const characterId = "char_default_a";
     const before = structuredClone(useDirectorStore.getState().project);

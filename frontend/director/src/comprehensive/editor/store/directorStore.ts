@@ -6240,10 +6240,27 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         );
       });
     },
-    addCameraCaptures: (cameraId, dataUrls) =>
+    addCameraCaptures: (cameraId, dataUrls) => {
+      const urls = dataUrls.filter((url) => typeof url === "string" && url.startsWith("data:image/"));
+      if (urls.length === 0) return;
+      if (canUseAuthoringPath()) {
+        const state = get() as DirectorRuntimeState;
+        const targetCameraId = cameraId ?? state.project.activeCameraId ?? state.project.cameras[0]?.id ?? null;
+        if (!targetCameraId) return;
+        dispatchUiAuthoring(
+          [
+            {
+              action: "add_camera_captures",
+              camera_id: targetCameraId,
+              captures: urls.map((data_url) => ({ data_url })),
+            },
+          ],
+          `ui-camera-captures:${targetCameraId}:${urls.length}`,
+          "机位截图写入失败",
+        );
+        return;
+      }
       commitMutation((state) => {
-        if (dataUrls.length === 0) return state;
-
         const targetCameraId = cameraId ?? state.project.activeCameraId ?? state.project.cameras[0]?.id ?? null;
         if (!targetCameraId) return state;
 
@@ -6252,7 +6269,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           if (camera.id !== targetCameraId) return camera;
 
           updated = true;
-          const nextCaptures = buildCameraCaptures(camera, dataUrls);
+          const nextCaptures = buildCameraCaptures(camera, urls);
 
           return {
             ...camera,
@@ -6264,7 +6281,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         if (!updated) return state;
 
         return withProjectPatch(state, { cameras });
-      }),
+      });
+    },
     updateCamera: (cameraId, patch) => {
       const currentState = get() as DirectorRuntimeState;
       const camera = currentState.project.cameras.find((item) => item.id === cameraId);

@@ -9,6 +9,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./authoring": "./src/directorAuthoring.ts",
+    "./camera-captures": "./src/directorCameraCaptures.ts",
     "./contract": "./src/directorWorkbenchContract.ts",
     "./command-engine": "./src/commandEngine.ts",
     "./feedback": "./src/stageFeedback.ts",

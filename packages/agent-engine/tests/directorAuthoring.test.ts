@@ -2691,3 +2691,80 @@ describe("timeline audio authoring", () => {
     ).toThrow(/missing/);
   });
 });
+
+describe("camera capture evidence authoring", () => {
+  it("appends captures onto the active camera with Stage-matching ids and names", () => {
+    const project = createDefaultDirectorProject();
+    const cameraId = project.activeCameraId ?? project.cameras[0]!.id;
+    const cameraName = project.cameras.find((camera) => camera.id === cameraId)!.name;
+    const first = applyDirectorAuthoringActions(project, [
+      {
+        action: "add_camera_captures",
+        captures: [{ data_url: "data:image/png;base64,one" }],
+      },
+    ]);
+    expect(first.updated.camera_ids).toEqual([cameraId]);
+    expect(first.project.cameras.find((camera) => camera.id === cameraId)?.captures).toEqual([
+      {
+        id: `${cameraId}-capture-01`,
+        index: 1,
+        name: `${cameraName}-截图01`,
+        dataUrl: "data:image/png;base64,one",
+      },
+    ]);
+
+    const second = applyDirectorAuthoringActions(first.project, [
+      {
+        action: "add_camera_captures",
+        camera_id: cameraId,
+        captures: [
+          { data_url: "data:image/jpeg;base64,two" },
+          { id: "custom-capture", name: "自定义", data_url: "data:image/png;base64,three" },
+        ],
+      },
+    ]);
+    const captures = second.project.cameras.find((camera) => camera.id === cameraId)?.captures;
+    expect(captures).toHaveLength(3);
+    expect(captures?.[1]).toMatchObject({
+      id: `${cameraId}-capture-02`,
+      index: 2,
+      dataUrl: "data:image/jpeg;base64,two",
+    });
+    expect(captures?.[2]).toEqual({
+      id: "custom-capture",
+      index: 3,
+      name: "自定义",
+      dataUrl: "data:image/png;base64,three",
+    });
+    expect(second.project.cameras.find((camera) => camera.id === cameraId)?.lastCaptureUrl).toBe(
+      "data:image/png;base64,three",
+    );
+  });
+
+  it("rejects duplicate capture ids and non-image data URLs", () => {
+    const project = createDefaultDirectorProject();
+    const cameraId = project.cameras[0]!.id;
+    const seeded = applyDirectorAuthoringActions(project, [
+      {
+        action: "add_camera_captures",
+        camera_id: cameraId,
+        captures: [{ id: "dup", data_url: "data:image/png;base64,a" }],
+      },
+    ]);
+    expect(() =>
+      applyDirectorAuthoringActions(seeded.project, [
+        {
+          action: "add_camera_captures",
+          camera_id: cameraId,
+          captures: [{ id: "dup", data_url: "data:image/png;base64,b" }],
+        },
+      ]),
+    ).toThrow(/already exists/);
+    expect(
+      directorAuthoringActionSchema.safeParse({
+        action: "add_camera_captures",
+        captures: [{ data_url: "https://example.com/a.png" }],
+      }).success,
+    ).toBe(false);
+  });
+});

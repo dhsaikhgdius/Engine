@@ -3086,6 +3086,7 @@
   "已就绪": "Ready",
   "暂无渲染视频": "No rendered videos yet",
   "机位截图失败": "Camera capture failed",
+  "机位截图写入失败": "Failed to write camera capture",
   "正在上传到 ComfyUI input…": "Uploading to ComfyUI input…",
   "正在导出控制包…": "Exporting control package…",
   "正在渲染 clean、白模、深度、法线、对象 ID 与遮罩…": "Rendering clean, clay, depth, normals, object IDs, and masks…",

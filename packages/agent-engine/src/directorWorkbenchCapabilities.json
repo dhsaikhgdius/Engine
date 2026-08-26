@@ -86,6 +86,7 @@
     "delete_lights",
     "add_camera",
     "update_camera",
+    "add_camera_captures",
     "delete_cameras",
     "set_animation",
     "apply_animation_recipe",
