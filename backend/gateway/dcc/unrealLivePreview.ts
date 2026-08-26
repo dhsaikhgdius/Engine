@@ -4,26 +4,30 @@ import {
   DIRECTOR_UNREAL_LIVE_PREVIEW_MAX_LINE_BYTES,
   DIRECTOR_UNREAL_LIVE_PREVIEW_PROTOCOL,
   DIRECTOR_UNREAL_LIVE_PREVIEW_SESSION_CONTRACT,
+  directorUnrealLivePreviewCommandResultMessageSchema,
+  directorUnrealLivePreviewEditorCommandSchema,
   directorUnrealLivePreviewFrameInputSchema,
   directorUnrealLivePreviewSessionSummarySchema,
+  type DirectorEngineSessionAuthority,
+  type DirectorEngineSessionCommandResult,
   type DirectorUnrealLivePreviewClientMessage,
   type DirectorUnrealLivePreviewDisconnectReason,
+  type DirectorUnrealLivePreviewEditorCommand,
   type DirectorUnrealLivePreviewSessionSummary,
 } from "@director/dcc-protocol";
 
 /**
  * Gateway side of the `director-unreal-live-preview-v1` loopback protocol.
  *
- * This transport is strictly non-authoritative and one-way:
+ * Camera frames remain preview-only. An explicitly opted-in workshop session
+ * may also carry Editor Python or an engine-owned review snapshot:
  *
  * - The session only *sends* preview camera frames to the Unreal connector's
  *   loopback listener (`director_headless.py --mode live-preview`); the
  *   connector applies them to the editor viewport and never to scene assets.
- * - Inbound socket bytes are counted and discarded, never parsed, so nothing
- *   received on this channel can reach the Director project or the authoring
- *   dispatch path. This module must never import project mutators, the
- *   authoring transport, or the return importers; a source-level test
- *   (`unrealLivePreview.test.ts`) enforces that invariant.
+ * - Inbound bytes are ignored unless they validate as a result for a command
+ *   this session actually sent. This transport still has no project mutator;
+ *   applying a review snapshot is a separate revision-guarded route.
  * - Duplicate or reordered caller frames are dropped before the socket, and a
  *   silent session is reported stale, mirroring the connector-side session
  *   semantics tested in `unrealConnectorModules.test.ts`.
@@ -37,6 +41,10 @@ export interface DirectorUnrealLivePreviewOptions {
   port: number;
   /** Shared token (the connector reads DIRECTOR_UNREAL_PREVIEW_TOKEN). */
   token: string;
+  /** Explicit local grant for Editor Python commands. */
+  allowCode?: boolean;
+  /** Engine authority enables scene snapshots for Director's review view. */
+  authority?: DirectorEngineSessionAuthority;
   /** Silence window after which the session is considered disconnected. */
   staleTimeoutMs?: number;
   /** Connect timeout in milliseconds. */
@@ -47,6 +55,10 @@ export interface DirectorUnrealLivePreviewOptions {
 
 /** Result of submitting one preview frame to the session. */
 export type DirectorUnrealLivePreviewSendResult = { sent: true; seq: number } | { sent: false; reason: string };
+
+/** Result of submitting one workshop command to Unreal. */
+export type DirectorUnrealLivePreviewCommandSendResult =
+  { sent: true; commandId: string } | { sent: false; reason: string };
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 3_000;
 
@@ -59,11 +71,18 @@ export class DirectorUnrealLivePreviewSession {
   private readonly socket: Socket;
   private readonly staleTimeoutMs: number;
   private readonly now: () => number;
+  private readonly allowCode: boolean;
+  private readonly authority: DirectorEngineSessionAuthority;
   private lastSequence: number | null = null;
   private lastActivityMs: number;
   private forwardedFrameCount = 0;
   private droppedFrameCount = 0;
   private ignoredInboundByteCount = 0;
+  private inboundBuffer = "";
+  private readonly commandResults = new Map<
+    string,
+    { command: "execute_code" | "sync_scene"; result: DirectorEngineSessionCommandResult | null }
+  >();
   private closedByClient = false;
   private disconnect: { reason: DirectorUnrealLivePreviewDisconnectReason; detail: string | null } | null = null;
 
@@ -74,11 +93,30 @@ export class DirectorUnrealLivePreviewSession {
       options.staleTimeoutMs ?? DIRECTOR_UNREAL_LIVE_PREVIEW_DEFAULT_STALE_TIMEOUT_MS,
     );
     this.now = options.now ?? Date.now;
+    this.allowCode = options.allowCode ?? false;
+    this.authority = options.authority ?? "director";
     this.lastActivityMs = this.now();
-    // The preview channel is one-way: inbound bytes are counted and dropped,
-    // never parsed, so they can never become project mutations.
     socket.on("data", (chunk: Buffer) => {
       this.ignoredInboundByteCount += chunk.length;
+      this.inboundBuffer += chunk.toString("utf8");
+      let newlineIndex = this.inboundBuffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = this.inboundBuffer.slice(0, newlineIndex);
+        this.inboundBuffer = this.inboundBuffer.slice(newlineIndex + 1);
+        newlineIndex = this.inboundBuffer.indexOf("\n");
+        let message: unknown;
+        try {
+          message = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const parsed = directorUnrealLivePreviewCommandResultMessageSchema.safeParse(message);
+        if (!parsed.success) continue;
+        const pending = this.commandResults.get(parsed.data.result.commandId);
+        if (!pending || pending.command !== parsed.data.result.command) continue;
+        pending.result = parsed.data.result;
+        this.lastActivityMs = this.now();
+      }
     });
     socket.on("error", (error: Error) => {
       this.disconnect ??= { reason: "socket_error", detail: error.message };
@@ -168,6 +206,33 @@ export class DirectorUnrealLivePreviewSession {
     return { sent: true, seq: frame.seq };
   }
 
+  /** Send one opt-in Unreal workshop command over the existing hot editor connection. */
+  sendCommand(input: unknown): DirectorUnrealLivePreviewCommandSendResult {
+    if (this.disconnect) {
+      return { sent: false, reason: `session is ${this.disconnect.reason.replaceAll("_", " ")}` };
+    }
+    const parsed = directorUnrealLivePreviewEditorCommandSchema.safeParse(input);
+    if (!parsed.success) {
+      return { sent: false, reason: `malformed editor command: ${parsed.error.issues[0]?.message ?? "invalid"}` };
+    }
+    if (parsed.data.command === "execute_code" && !this.allowCode) {
+      return { sent: false, reason: "Editor Python is disabled for this session" };
+    }
+    if (parsed.data.command === "sync_scene" && this.authority !== "engine") {
+      return { sent: false, reason: "engine authority is required for scene sync" };
+    }
+    const written = this.writeMessage(parsed.data);
+    if (!written.sent) return written;
+    this.commandResults.set(parsed.data.commandId, { command: parsed.data.command, result: null });
+    this.lastActivityMs = this.now();
+    return { sent: true, commandId: parsed.data.commandId };
+  }
+
+  /** Read a validated result for a command this session sent. */
+  commandResult(commandId: string): DirectorEngineSessionCommandResult | null | undefined {
+    return this.commandResults.get(commandId)?.result;
+  }
+
   /** Send the orderly `bye` and close the socket. */
   async close(): Promise<void> {
     if (this.disconnect) return;
@@ -194,7 +259,9 @@ export class DirectorUnrealLivePreviewSession {
     });
   }
 
-  private writeMessage(message: DirectorUnrealLivePreviewClientMessage): DirectorUnrealLivePreviewSendResult {
+  private writeMessage(
+    message: DirectorUnrealLivePreviewClientMessage,
+  ): { sent: true } | { sent: false; reason: string } {
     const line = `${JSON.stringify(message)}\n`;
     if (Buffer.byteLength(line, "utf8") > DIRECTOR_UNREAL_LIVE_PREVIEW_MAX_LINE_BYTES) {
       return { sent: false, reason: "message exceeds the line budget" };
@@ -203,6 +270,6 @@ export class DirectorUnrealLivePreviewSession {
       return { sent: false, reason: "socket is not writable" };
     }
     this.socket.write(line);
-    return { sent: true, seq: message.type === "camera_frame" ? message.seq : -1 };
+    return { sent: true };
   }
 }

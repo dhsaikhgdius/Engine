@@ -27,6 +27,7 @@ export type {
   DirectorCoverageSequence,
   DirectorCoverageShot,
   DirectorEntityAnimation,
+  DirectorEngineWorkspace,
   DirectorFogSettings,
   DirectorLight,
   DirectorLightType,

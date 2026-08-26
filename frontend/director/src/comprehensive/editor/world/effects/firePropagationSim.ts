@@ -8,6 +8,7 @@ import { hashCombine, worldStreamId } from "../worldRandom";
 import { writeWorldWindVector } from "../worldWind";
 import { evaluateWorldClimate } from "../worldClimate";
 import { computeClimateSurfaceWetness } from "../surface/worldSurfaceResponse";
+import { buildWaterSpatialIndex } from "../worldWaterSpatial";
 
 /**
  * Minimal deterministic fire-spread cellular automaton (no three.js).
@@ -107,15 +108,35 @@ export interface FireWaterRect {
   rotationDegrees: number;
 }
 
-/** Extracts blocking rectangles from authored water bodies (surface rects). */
+/**
+ * Extracts blocking rectangles from authored water geometry. Basins retain
+ * their authored rectangle; rivers become short overlapping corridor pieces
+ * derived from the same sampled ribbon that is rendered in the viewport.
+ */
 export function toFireWaterRects(waterBodies: ReadonlyArray<DirectorWorldWaterBody>): FireWaterRect[] {
-  return waterBodies.map((body) => ({
-    centerX: body.surface.center[0],
-    centerZ: body.surface.center[2],
-    sizeX: body.surface.sizeX,
-    sizeZ: body.surface.sizeZ,
-    rotationDegrees: body.surface.rotationDegrees,
+  const water = buildWaterSpatialIndex(waterBodies);
+  const rectangles: FireWaterRect[] = water.basins.map((basin) => ({
+    centerX: basin.centerX,
+    centerZ: basin.centerZ,
+    sizeX: basin.halfSizeX * 2,
+    sizeZ: basin.halfSizeZ * 2,
+    rotationDegrees: basin.rotationDegrees,
   }));
+  for (const segment of water.riverSegments) {
+    const dx = segment.endX - segment.startX;
+    const dz = segment.endZ - segment.startZ;
+    const length = Math.hypot(dx, dz);
+    const halfWidth = Math.max(segment.halfWidthStartM, segment.halfWidthEndM);
+    rectangles.push({
+      centerX: (segment.startX + segment.endX) * 0.5,
+      centerZ: (segment.startZ + segment.endZ) * 0.5,
+      // Extend along the tangent so adjacent pieces overlap through bends.
+      sizeX: length + halfWidth * 2,
+      sizeZ: halfWidth * 2,
+      rotationDegrees: (Math.atan2(dz, dx) * 180) / Math.PI,
+    });
+  }
+  return rectangles;
 }
 
 /** One burning cell exposed to the view layer. */

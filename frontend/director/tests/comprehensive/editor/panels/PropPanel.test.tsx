@@ -51,18 +51,25 @@ beforeEach(() => {
   });
 });
 
-it("renders the prop inspector fields for imported models", () => {
+it("keeps direct placement primary and precise transforms folded", async () => {
+  const user = userEvent.setup();
   const { container } = render(<PropPanel />);
 
   expect(screen.getByText("模型")).toBeInTheDocument();
   expect(screen.getByLabelText("模型右侧属性面板")).toHaveClass("right-inspector", "prop-inspector");
   expect(container.querySelector(".right-inspector-tabs")).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "变换" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "精确变换" })).toHaveAttribute("aria-expanded", "false");
   expect(screen.getByRole("button", { name: "材质" })).toHaveAttribute("aria-expanded", "false");
   expect(screen.getByRole("button", { name: "贴图" })).toHaveAttribute("aria-expanded", "false");
   expect(screen.queryByRole("heading", { name: "基本信息" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "外观" })).not.toBeInTheDocument();
   expect(screen.getByLabelText("模型名称")).toBeInTheDocument();
+  expect(screen.getByLabelText("视口直接摆放提示")).toHaveTextContent("在视口直接摆放");
+  expect(screen.getByRole("button", { name: "贴地放置" })).toBeInTheDocument();
+  expect(screen.queryByLabelText("模型位置 X")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "精确变换" }));
+
   expect(screen.getByLabelText("模型位置 X")).toBeInTheDocument();
   expect(screen.getByLabelText("模型旋转 X")).toBeInTheDocument();
   expect(screen.getByLabelText("模型缩放 X")).toBeInTheDocument();
@@ -71,7 +78,6 @@ it("renders the prop inspector fields for imported models", () => {
   expect(screen.getByLabelText("模型位置 Z 拖动调整")).toHaveAttribute("data-axis", "Z");
   expect(screen.getByLabelText("模型统一缩放")).toBeInTheDocument();
   expect(screen.queryByLabelText("模型颜色 HEX")).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "贴地放置" })).toBeInTheDocument();
   expect(screen.queryByLabelText("基础色贴图资产")).not.toBeInTheDocument();
 });
 
@@ -105,7 +111,8 @@ it("attaches and tunes a drivable vehicle profile from the prop inspector", asyn
   ).toBeUndefined();
 });
 
-it("does not expose duplicate Director material state for native models", () => {
+it("does not expose duplicate Director material state for native models", async () => {
+  const user = userEvent.setup();
   const state = useDirectorStore.getState();
   useDirectorStore.setState({
     project: {
@@ -124,6 +131,7 @@ it("does not expose duplicate Director material state for native models", () => 
   const { container } = render(<PropPanel />);
 
   expect(container.querySelector(".right-inspector-tabs")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "精确变换" }));
   expect(screen.getByLabelText("模型统一缩放")).toBeInTheDocument();
   expect(screen.queryByLabelText("模型颜色 HEX")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "材质" })).not.toBeInTheDocument();
@@ -160,6 +168,7 @@ it("updates the selected prop name, uniform scale, and color", async () => {
 
   await user.clear(screen.getByLabelText("模型名称"));
   await user.type(screen.getByLabelText("模型名称"), "近景 ATM");
+  await user.click(screen.getByRole("button", { name: "精确变换" }));
   await user.clear(screen.getByLabelText("模型统一缩放"));
   await user.type(screen.getByLabelText("模型统一缩放"), "1.4");
   await user.click(screen.getByRole("button", { name: "材质" }));

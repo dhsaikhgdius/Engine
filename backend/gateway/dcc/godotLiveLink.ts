@@ -9,6 +9,13 @@ import {
   directorGodotLiveLinkHelloSchema,
   directorGodotLiveLinkPreviewSchema,
   directorGodotLiveLinkSessionSchema,
+  directorEngineSessionCommandPayloadSchema,
+  directorEngineSessionCommandResultSchema,
+  type DirectorEngineSessionAuthority,
+  type DirectorEngineSessionCommandName,
+  type DirectorEngineSessionCommandPayload,
+  type DirectorEngineSessionCommandResult,
+  type DirectorEngineSessionSceneSnapshot,
   type DirectorGodotLiveLinkByeResult,
   type DirectorGodotLiveLinkEntity,
   type DirectorGodotLiveLinkErrorCode,
@@ -54,6 +61,37 @@ interface LiveLinkSessionState {
   lastSequence: number;
   frameCount: number;
   entities: Map<string, DirectorGodotLiveLinkEntity & { atSequence: number }>;
+  workshop: {
+    label: string | null;
+    authority: DirectorEngineSessionAuthority;
+    allowCode: boolean;
+  } | null;
+  commands: Map<string, GodotCommandRecord>;
+}
+
+interface GodotCommandRecord {
+  commandId: string;
+  command: DirectorEngineSessionCommandName;
+  requestedAtMs: number;
+  completedAtMs: number | null;
+  delivered: boolean;
+  payload: DirectorEngineSessionCommandPayload | null;
+  result: DirectorEngineSessionCommandResult | null;
+}
+
+/** Director-side status for a persistent Godot editor command. */
+export interface GodotEngineSessionCommandStatus {
+  provider: "godot";
+  sessionId: string;
+  commandId: string;
+  command: DirectorEngineSessionCommandName;
+  status: "pending" | "completed" | "failed";
+  requestedAt: string;
+  completedAt: string | null;
+  capture?: { mimeType: "image/png"; dataBase64: string; width: number; height: number };
+  output?: string;
+  snapshot?: DirectorEngineSessionSceneSnapshot;
+  error?: string;
 }
 
 /**
@@ -73,6 +111,28 @@ export interface GodotLiveLinkHub {
   bye(input: unknown): DirectorGodotLiveLinkByeResult;
   /** Current in-memory preview snapshot; sweeps idle sessions first. */
   preview(): DirectorGodotLiveLinkPreview;
+  /** Adopts the most recently active editor preview as an opt-in workshop session. */
+  startEngineSession(options?: { label?: string; allowCode?: boolean; authority?: DirectorEngineSessionAuthority }): {
+    provider: "godot";
+    sessionId: string;
+    authority: DirectorEngineSessionAuthority;
+    allowCode: boolean;
+    scenePath: string | null;
+  };
+  /** Stops workshop commands while leaving the human's preview toggle alone. */
+  stopEngineSession(sessionId: string): boolean;
+  /** Queues a hot editor command, or snapshots the current engine-owned preview. */
+  requestCommand(
+    sessionId: string,
+    command:
+      | { command: "capture_frame"; camera?: string; width?: number; height?: number }
+      | { command: "execute_code"; code: string }
+      | { command: "sync_scene" },
+  ): GodotEngineSessionCommandStatus;
+  /** Accepts one connector command result through the authenticated outbound route. */
+  completeCommand(sessionId: string, input: unknown): GodotEngineSessionCommandStatus;
+  /** Reads a command status for Director and agents. */
+  commandStatus(sessionId: string, commandId: string): GodotEngineSessionCommandStatus;
 }
 
 /** Options for creating the live-link hub. */
@@ -130,6 +190,8 @@ export function createGodotLiveLinkHub(options: CreateGodotLiveLinkHubOptions = 
       lastSequence: 0,
       frameCount: 0,
       entities: new Map(),
+      workshop: null,
+      commands: new Map(),
     };
     sessions.set(session.sessionId, session);
     return directorGodotLiveLinkSessionSchema.parse({
@@ -185,11 +247,18 @@ export function createGodotLiveLinkHub(options: CreateGodotLiveLinkHubOptions = 
     session.lastSequence = message.sequence;
     session.lastSeenAtMs = atMs;
     session.frameCount += 1;
+    const commands = [...session.commands.values()]
+      .filter((command) => command.result === null && !command.delivered && command.payload)
+      .slice(0, 1);
+    commands.forEach((command) => {
+      command.delivered = true;
+    });
     return directorGodotLiveLinkFrameAckSchema.parse({
       contract: DIRECTOR_GODOT_LIVE_LINK_CONTRACT,
       sessionId: session.sessionId,
       sequence: message.sequence,
       accepted: true,
+      ...(commands.length ? { commands: commands.map((command) => command.payload) } : {}),
     });
   }
 
@@ -225,5 +294,199 @@ export function createGodotLiveLinkHub(options: CreateGodotLiveLinkHubOptions = 
     });
   }
 
-  return { hello, frame, bye, preview };
+  function requireWorkshop(sessionId: string): LiveLinkSessionState {
+    sweepIdleSessions();
+    const session = sessions.get(sessionId);
+    if (!session || !session.workshop) {
+      throw new DirectorGodotLiveLinkError(
+        "engine_session_unavailable",
+        `Godot engine session ${sessionId} is not active; enable Director live preview and start_engine_session again.`,
+        404,
+      );
+    }
+    return session;
+  }
+
+  function readCommandStatus(session: LiveLinkSessionState, commandId: string): GodotEngineSessionCommandStatus {
+    const command = session.commands.get(commandId);
+    if (!command) {
+      throw new DirectorGodotLiveLinkError(
+        "engine_session_command_unknown",
+        `Unknown Godot engine session command: ${commandId}.`,
+        404,
+      );
+    }
+    const result = command.result;
+    return {
+      provider: "godot",
+      sessionId: session.sessionId,
+      commandId: command.commandId,
+      command: command.command,
+      status: result?.status ?? "pending",
+      requestedAt: new Date(command.requestedAtMs).toISOString(),
+      completedAt: command.completedAtMs === null ? null : new Date(command.completedAtMs).toISOString(),
+      ...(result?.status === "completed" && result.command === "capture_frame"
+        ? {
+            capture: {
+              mimeType: result.mimeType,
+              dataBase64: result.imageBase64,
+              width: result.width,
+              height: result.height,
+            },
+          }
+        : {}),
+      ...(result?.status === "completed" && result.command === "execute_code" ? { output: result.output } : {}),
+      ...(result?.status === "completed" && result.command === "sync_scene" ? { snapshot: result.snapshot } : {}),
+      ...(result?.status === "failed" ? { error: result.error } : {}),
+    };
+  }
+
+  function startEngineSession(
+    options: { label?: string; allowCode?: boolean; authority?: DirectorEngineSessionAuthority } = {},
+  ) {
+    sweepIdleSessions();
+    const session = [...sessions.values()].sort((left, right) => right.lastSeenAtMs - left.lastSeenAtMs)[0];
+    if (!session) {
+      throw new DirectorGodotLiveLinkError(
+        "engine_session_unavailable",
+        "No Godot editor is streaming Director live preview. Enable the Director Bridge live preview toggle first.",
+        409,
+      );
+    }
+    session.workshop = {
+      label: options.label?.trim() || null,
+      authority: options.authority ?? "director",
+      allowCode: options.allowCode ?? false,
+    };
+    return {
+      provider: "godot" as const,
+      sessionId: session.sessionId,
+      authority: session.workshop.authority,
+      allowCode: session.workshop.allowCode,
+      scenePath: session.scenePath,
+    };
+  }
+
+  function stopEngineSession(sessionId: string): boolean {
+    const session = sessions.get(sessionId);
+    if (!session?.workshop) return false;
+    session.workshop = null;
+    session.commands.clear();
+    return true;
+  }
+
+  function requestCommand(
+    sessionId: string,
+    commandInput:
+      | { command: "capture_frame"; camera?: string; width?: number; height?: number }
+      | { command: "execute_code"; code: string }
+      | { command: "sync_scene" },
+  ): GodotEngineSessionCommandStatus {
+    const session = requireWorkshop(sessionId);
+    const commandId = randomUUID();
+    const requestedAtMs = now();
+    let payload: DirectorEngineSessionCommandPayload | null = null;
+    let result: DirectorEngineSessionCommandResult | null = null;
+    if (commandInput.command === "capture_frame") {
+      payload = directorEngineSessionCommandPayloadSchema.parse({
+        kind: "editor_command",
+        commandId,
+        command: "capture_frame",
+        ...(commandInput.camera ? { camera: commandInput.camera } : {}),
+        width: commandInput.width ?? 960,
+        height: commandInput.height ?? 540,
+      });
+    } else if (commandInput.command === "execute_code") {
+      if (!session.workshop?.allowCode) {
+        throw new DirectorGodotLiveLinkError(
+          "engine_session_code_not_allowed",
+          "This Godot session was not started with allow_code: true.",
+          403,
+        );
+      }
+      payload = directorEngineSessionCommandPayloadSchema.parse({
+        kind: "editor_command",
+        commandId,
+        command: "execute_code",
+        language: "gdscript",
+        code: commandInput.code,
+      });
+    } else {
+      if (session.workshop?.authority !== "engine") {
+        throw new DirectorGodotLiveLinkError(
+          "engine_session_not_authoritative",
+          "sync_scene requires a session started with authority: engine.",
+          409,
+        );
+      }
+      result = directorEngineSessionCommandResultSchema.parse({
+        commandId,
+        command: "sync_scene",
+        status: "completed",
+        snapshot: {
+          provider: "godot",
+          scenePath: session.scenePath,
+          capturedAt: new Date(requestedAtMs).toISOString(),
+          entities: [...session.entities.values()].map((entity) => ({
+            directorId: entity.directorId,
+            name: entity.directorId,
+            entityType: entity.entityType,
+            transform: entity.transform,
+            ...(entity.fovDeg !== undefined ? { fovDegrees: entity.fovDeg } : {}),
+          })),
+        },
+      });
+    }
+    session.commands.set(commandId, {
+      commandId,
+      command: commandInput.command,
+      requestedAtMs,
+      completedAtMs: result ? requestedAtMs : null,
+      delivered: false,
+      payload,
+      result,
+    });
+    return readCommandStatus(session, commandId);
+  }
+
+  function completeCommand(sessionId: string, input: unknown): GodotEngineSessionCommandStatus {
+    const session = requireWorkshop(sessionId);
+    const result = directorEngineSessionCommandResultSchema.parse(input);
+    const command = session.commands.get(result.commandId);
+    if (!command) {
+      throw new DirectorGodotLiveLinkError(
+        "engine_session_command_unknown",
+        `Unknown Godot engine session command: ${result.commandId}.`,
+        404,
+      );
+    }
+    if (command.command !== result.command) {
+      throw new DirectorGodotLiveLinkError(
+        "engine_session_command_mismatch",
+        `Godot command ${result.commandId} expected ${command.command}, not ${result.command}.`,
+        409,
+      );
+    }
+    if (!command.result) {
+      command.result = result;
+      command.completedAtMs = now();
+    }
+    return readCommandStatus(session, command.commandId);
+  }
+
+  function commandStatus(sessionId: string, commandId: string): GodotEngineSessionCommandStatus {
+    return readCommandStatus(requireWorkshop(sessionId), commandId);
+  }
+
+  return {
+    hello,
+    frame,
+    bye,
+    preview,
+    startEngineSession,
+    stopEngineSession,
+    requestCommand,
+    completeCommand,
+    commandStatus,
+  };
 }

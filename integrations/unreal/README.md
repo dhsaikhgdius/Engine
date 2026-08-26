@@ -24,9 +24,9 @@ Engine EULA.
   same look-at rotation the glTF/OpenUSD exporters produce.
 - **Health** (`--mode health`): prints a JSON line with the engine and connector
   version plus the connector feature list.
-- **Live preview** (`--mode live-preview`): optional preview-only loopback camera
-  feed into the editor viewport. See "Live preview" below; it is never the durable
-  scene channel.
+- **Hot editor session** (`--mode live-preview`): token-gated loopback camera
+  preview plus opt-in Editor Python and engine-owned review snapshots. It is
+  never the film delivery channel.
 - **Clean-frame render** (`--mode render`): optional best-effort still render of
   an imported level through a Director-tagged CineCamera, without gizmos, labels,
   or selection outlines. Always writes a `director-unreal-clean-frame-v1` receipt
@@ -157,22 +157,24 @@ schema-validates and cross-checks against the exchange package id and source
 revision. A missing `--animation` argument means a static import; a present but
 invalid sidecar is a hard failure.
 
-## Live preview (`live_link`, preview-only and never authoritative)
+## Hot editor session (`live_link`)
 
 `--mode live-preview` binds `127.0.0.1` only, requires a shared token from the
 `DIRECTOR_UNREAL_PREVIEW_TOKEN` environment variable, and applies
 sequence-numbered `camera_frame` messages to the editor viewport. Reordered or
 duplicated frames are dropped; a silent peer disconnects the session. The
 Gateway side is `backend/gateway/dcc/unrealLivePreview.ts`
-(`director-unreal-live-preview-v1` contract): it validates every outbound frame,
-drops stale sequence numbers, and counts-but-never-parses inbound bytes, so a
-live frame can never become a project mutation. Both ends carry
+(`director-unreal-live-preview-v1` contract): camera frames remain preview-only.
+Starting the listener with `--preview-allow-code` and the Gateway session with
+`allow_code:true` enables Editor Python; `authority:"engine"` enables stable-ID
+review snapshots. Inbound messages are accepted only when they validate as a
+result for a command the Gateway sent. Both ends carry
 disconnect/reorder/duplicate tests
 (`backend/gateway/tests/dcc/unrealLivePreview.test.ts` for the transport,
 `backend/gateway/tests/dcc/unrealConnectorModules.test.ts` for the host-free
-connector session), which is why the `live_link` capability is `native` — as a
-preview channel only. The durable scene channel is always the hash-verified
-exchange/return package, and Remote Control is never the security boundary.
+connector session), which is why `live_link`, `hot_session`, `execute_code`,
+and `engine_authority` are native connector capabilities. Film delivery keeps
+the reviewed exchange/return path; native gameplay state remains in Unreal.
 
 ## Clean-frame render receipt
 

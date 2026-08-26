@@ -173,6 +173,49 @@ describe("Director DCC scene contract", () => {
     expect(directorDccOperationSchema.safeParse({ op: "send_to_engine", provider: "maya" }).success).toBe(false);
     expect(directorDccOperationSchema.safeParse({ op: "send_to_engine", provider: "blender" }).success).toBe(false);
 
+    expect(directorDccOperationSchema.parse({ op: "start_engine_session", provider: "unity" })).toEqual({
+      op: "start_engine_session",
+      provider: "unity",
+      allow_code: false,
+      authority: "director",
+    });
+    expect(
+      directorDccOperationSchema.parse({
+        op: "engine_session_command",
+        provider: "unity",
+        session_id: "session-1",
+        command: "capture_frame",
+        width: 960,
+        height: 540,
+      }),
+    ).toMatchObject({ op: "engine_session_command", command: "capture_frame" });
+    expect(
+      directorDccOperationSchema.parse({
+        op: "start_engine_session",
+        provider: "godot",
+        allow_code: true,
+        authority: "engine",
+      }),
+    ).toMatchObject({ provider: "godot", allow_code: true, authority: "engine" });
+    expect(
+      directorDccOperationSchema.parse({
+        op: "engine_session_command",
+        provider: "godot",
+        session_id: "session-1",
+        command: "execute_code",
+        code: "return 7",
+      }),
+    ).toMatchObject({ provider: "godot", command: "execute_code" });
+    expect(
+      directorDccOperationSchema.parse({
+        op: "start_engine_session",
+        provider: "unreal",
+        port: 42_813,
+        allow_code: true,
+        authority: "engine",
+      }),
+    ).toMatchObject({ provider: "unreal", port: 42_813, allow_code: true, authority: "engine" });
+
     expect(
       directorDccOperationSchema.parse({ op: "receive_from_engine", provider: "unity", package_dir: "job-1/return" }),
     ).toEqual({

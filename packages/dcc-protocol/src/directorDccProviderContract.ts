@@ -34,6 +34,10 @@ export const directorDccCapabilityIdSchema = z.enum([
   "roundtrip",
   "headless",
   "live_link",
+  "capture",
+  "hot_session",
+  "execute_code",
+  "engine_authority",
 ]);
 
 export type DirectorDccCapabilityId = z.infer<typeof directorDccCapabilityIdSchema>;
@@ -366,13 +370,11 @@ const UNREAL_PROVIDER_DESCRIPTOR: DirectorDccProviderDescriptor = directorDccPro
     { id: "stable_ids", level: "native", layer: "director-manifest" },
     { id: "roundtrip", level: "native", layer: "connector" },
     { id: "headless", level: "native", layer: "connector" },
-    // Preview-only live link: the Gateway loopback transport
-    // (backend/gateway/dcc/unrealLivePreview.ts) and the connector session
-    // (director_livelink.py) both carry tested disconnect/reorder/duplicate
-    // semantics, and neither side can turn a live frame into a project
-    // mutation. The durable scene channel remains the hash-verified
-    // exchange/return package.
     { id: "live_link", level: "native", layer: "connector" },
+    { id: "capture", level: "native", layer: "connector" },
+    { id: "hot_session", level: "native", layer: "connector" },
+    { id: "execute_code", level: "native", layer: "connector" },
+    { id: "engine_authority", level: "native", layer: "connector" },
   ],
   connectorDirectory: "integrations/unreal",
 });
@@ -387,7 +389,7 @@ const UNREAL_PROVIDER_DESCRIPTOR: DirectorDccProviderDescriptor = directorDccPro
  * Live link is a preview-only, outbound-only polling transport: the Editor
  * client long-polls the gateway with a scoped bearer token and sequence
  * numbers, and the gateway hub is covered by disconnect-safety tests. It is
- * never authoritative and exposes no remote-execute surface.
+ * can be adopted as an opt-in engine-authoritative workshop with C# execution.
  */
 function unityEngineProvider(): DirectorDccProviderDescriptor {
   const exchangeFormats: Array<Exclude<DirectorDccExchangeFormat, "blend">> = ["glb", "usda"];
@@ -421,9 +423,13 @@ function unityEngineProvider(): DirectorDccProviderDescriptor {
       { id: "headless", level: "native", layer: "connector" },
       // Preview-only live link: the DirectorLiveLink Editor window long-polls
       // the gateway hub (scoped bearer token, monotonic sequence numbers,
-      // snapshot resync) and never writes back. Disconnect safety is pinned by
-      // the gateway unityLiveLink tests; there is no remote-execute endpoint.
+      // snapshot resync). An explicitly granted workshop session can return
+      // command receipts and engine-owned review snapshots.
       { id: "live_link", level: "native", layer: "connector" },
+      { id: "capture", level: "native", layer: "connector" },
+      { id: "hot_session", level: "native", layer: "connector" },
+      { id: "execute_code", level: "native", layer: "connector" },
+      { id: "engine_authority", level: "native", layer: "connector" },
     ],
     connectorDirectory: "integrations/unity",
   });
@@ -475,6 +481,10 @@ const GODOT_PROVIDER_DESCRIPTOR: DirectorDccProviderDescriptor = directorDccProv
     // backend/gateway/tests/dcc/godotLiveLink.test.ts. Durable changes still
     // travel only through the reviewed return-package path.
     { id: "live_link", level: "native", layer: "connector" },
+    { id: "capture", level: "native", layer: "connector" },
+    { id: "hot_session", level: "native", layer: "connector" },
+    { id: "execute_code", level: "native", layer: "connector" },
+    { id: "engine_authority", level: "native", layer: "connector" },
   ],
   connectorDirectory: "integrations/godot",
 });
@@ -505,6 +515,9 @@ export const DIRECTOR_DCC_PROVIDERS: readonly DirectorDccProviderDescriptor[] = 
       // authoritative: committed Director state only changes through the
       // revision-guarded live command batches or the reviewed return import.
       { id: "live_link", level: "native", layer: "connector" },
+      { id: "capture", level: "native", layer: "connector" },
+      { id: "hot_session", level: "native", layer: "connector" },
+      { id: "execute_code", level: "native", layer: "connector" },
     ],
     connectorDirectory: "integrations/blender",
   }),

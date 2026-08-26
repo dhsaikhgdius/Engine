@@ -35,15 +35,22 @@ const AssetCard = memo(function AssetCard({
   onAdd: (item: ModelLibraryItem) => void;
   onPreview: (item: ModelLibraryItem) => void;
 }) {
+  const [dragging, setDragging] = useState(false);
+
   return (
     <div aria-posinset={itemIndex + 1} aria-setsize={itemCount} className="model-library-card-wrap" role="listitem">
       <button
         aria-label={`预览模型 ${item.name}`}
-        className="model-library-card"
+        className={`model-library-card${dragging ? " is-dragging" : ""}`}
         draggable
+        title="拖到场景放置；单击预览"
         type="button"
         onClick={() => onPreview(item)}
-        onDragStart={(event) => setModelLibraryDragData(event, item)}
+        onDragEnd={() => setDragging(false)}
+        onDragStart={(event) => {
+          setDragging(true);
+          setModelLibraryDragData(event, item);
+        }}
       >
         <ModelLibraryThumb item={item} name={item.name} showPreviewCue thumbnailUrl={item.thumbnailUrl} />
         <span className="model-library-name" data-i18n-user-content>

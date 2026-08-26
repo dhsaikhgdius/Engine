@@ -27,7 +27,7 @@ Usage:
 Preferred tools:
   director_workbench   3D Stage, generation, jobs
   director_creative    Canvas, Video Editor, Gallery
-  director_dcc         Blender / DCC handoff
+  director_dcc         Blender / Unreal / Unity / Godot handoff
   director_game        Typed game slice, Stage playtest
   stage_video          image-to-video jobs
 
@@ -52,7 +52,7 @@ Examples:
   npm run --silent stage -- director_workbench '{"op":"capabilities"}'
   npm run --silent stage -- director_workbench '{"op":"describe","target":"author.add_object"}'
   npm run --silent stage -- director_creative '{"op":"observe"}'
-  npm run --silent stage -- director_dcc '{"op":"status"}'
+  npm run --silent stage -- director_dcc '{"op":"discover"}'
   npm run --silent stage -- director_game '{"op":"capabilities"}'
 
 Env: STAGE_GATEWAY_URL, STAGE_AGENT_SESSION, DIRECTOR_TARGET_TOKEN,

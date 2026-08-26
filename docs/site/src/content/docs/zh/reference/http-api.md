@@ -301,6 +301,125 @@ curl -fsS -X POST "$BASE/api/tools/director_dcc" \
 `include_new_objects` 选择加入；未选择加入时，引擎 `object_addition` 条目保持为可审阅的 skip。Apply
 受 revision 保护且幂等；冲突返回 `409` 以及只读计划。
 
+### 引擎场景导入（Unreal / Unity / Godot）
+
+把已有引擎场景作为 `director-engine-scene-v1` 包带进 Director。可以对本地工程无头运行已安装的
+引擎，也可以把引擎内导出器写出的 `.zip` 上传到
+`POST /api/dcc/engine-scene/uploads?provider=unreal|unity|godot&filename=scene.zip`
+（`Content-Type: application/zip`，完全不依赖引擎安装）：
+
+```bash
+curl -sS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"extract_engine_scene","provider":"godot","project_dir":"GodotProject","scene":"res://scenes/main.tscn"}}' | jq
+```
+
+两条路径都返回已校验的包和初始计划。预览与应用走同一套 revision 保护纪律
+（`preview_engine_scene_import` 可带 `selection`，随后 `apply_engine_scene_import` 带
+`plan_id`、`expected_revision` 与 `idempotency_key`）。
+
+### Unreal 实时预览（网关 → 编辑器回环）
+
+相机推送通道，把 Director 相机帧送进 Unreal 编辑器视口。先在引擎环境启动连接器监听
+（`director_headless.py --mode live-preview`，读取 `DIRECTOR_UNREAL_PREVIEW_TOKEN`），在网关
+设置同一令牌，然后对其打印的回环端口开启会话。相机帧仍只用于预览；网关只读取与自己已发送命令
+匹配且通过 schema 校验的回执。把引擎权威快照投影到 Director 仍是另一条带 revision 保护的操作。
+
+```bash
+SESSION="$(curl -fsS -X POST "$BASE/api/dcc/unreal/live-preview/sessions" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"port":42813}' | jq -r '.result.session.sessionId')"
+
+curl -fsS -X POST "$BASE/api/dcc/unreal/live-preview/sessions/$SESSION/frames" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"seq":1,"transform":{"location":[0,1.7,5],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]},"focalLengthMm":35}' | jq
+
+curl -fsS -X DELETE "$BASE/api/dcc/unreal/live-preview/sessions/$SESSION" \
+  -H "X-Director-Browser-Token: $TOKEN" | jq
+```
+
+`GET /api/dcc/unreal/live-preview/sessions` 列出会话；重复或乱序的序号作为结构化
+`sent: false` 结果丢弃，不是 HTTP 错误。工作台「DCC / 引擎交接」坞的 Unreal 页提供同样的
+推送控制。
+
+### 独立引擎截图
+
+`render_engine_frame` 是三引擎共同的视觉验收原语，不需要再次 `send_to_engine`。Unreal 选择先前的
+send job，Unity/Godot 渲染配置工程中的场景：
+
+```bash
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"render_engine_frame","provider":"godot","scene":"res://scenes/main.tscn","width":1280,"height":720}}' | jq
+```
+
+### 引擎编辑器启动与项目运行
+
+与社区 godot-mcp / unity-mcp 工具同精神的本地可信引擎进程操作，收进 `director_dcc`：
+网关只会用固定参数向量、对配置好的 `DIRECTOR_*_PROJECT` 启动已发现的引擎可执行文件——
+这些进程操作绝不执行请求提供的脚本，运行输出也是有界尾部。显式授权的编辑器代码属于下文独立的
+引擎会话命令。
+
+```bash
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"launch_engine_editor","provider":"godot"}}' | jq
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"run_engine_project","provider":"godot","scene":"res://scenes/main.tscn","headless":true}}' | jq
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"engine_run_status","provider":"godot"}}' | jq '.result.state, .result.output'
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"stop_engine_project","provider":"godot"}}' | jq
+```
+
+`launch_engine_editor` 三引擎可用（Unreal 的控制台二进制会映射到其 GUI 兄弟）。项目运行
+目前仅 Godot：Unity 播放模式与 Unreal `-game` 运行需要 Director 尚未声明的引擎侧支持，
+因此返回 `501 engine_run_unsupported` 及 recovery 步骤。运行已存在时返回
+`409 engine_run_active`；停止时 SIGTERM 两秒后升级为 SIGKILL。
+
+### Opt-in 引擎常驻工作台
+
+`start_engine_session` 接入已经打开的 Unity 或 Godot 编辑器：Unity 使用 **Director / Live Link
+Preview** 返回的 grant，Godot 接入当前活跃的出站 live-preview 会话。Unreal 接入令牌保护的监听器，
+因此还必须传入其打印的 `port`。`allow_code` 与引擎权威都默认关闭，必须显式开启：
+
+```bash
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"start_engine_session","provider":"unity","label":"Gameplay lookdev","allow_code":true,"authority":"engine"}}' | jq
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"engine_session_command","provider":"unity","session_id":"SESSION_ID","command":"execute_code","code":"var room = new GameObject(\"GameplayRoom\"); return room.name;"}}' | jq
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"engine_session_command_status","provider":"unity","session_id":"SESSION_ID","command_id":"COMMAND_ID"}}' | jq
+```
+
+Unity 与 Godot 还支持热 `capture_frame`；Unreal 的干净像素走 `render_engine_frame`。三引擎在
+`authority:"engine"` 会话中都支持 `sync_scene`；状态完成后，再用 command id、当前
+`expected_revision` 与 `idempotency_key` 调用 `sync_engine_session_to_director`。只有匹配稳定 ID 的
+变换与相机审阅数据进入 Director；脚本、Prefab/场景结构、碰撞、导航、灯光烘焙与 UI 仍由引擎工程
+权威保存。`stop_engine_session` 关闭作用域 grant。
+
 ## 分析参考图片
 
 `POST /api/reconstruction/reference-scene/analyze` 接收版本化

@@ -12,6 +12,18 @@ beforeEach(() => {
   });
 });
 
+function expandSceneTransform() {
+  fireEvent.click(screen.getByRole("button", { name: "变换" }));
+}
+
+function expandPanoramaPrecision() {
+  fireEvent.click(screen.getByRole("button", { name: "全景精调" }));
+}
+
+function expandGroundPrecision() {
+  fireEvent.click(screen.getByRole("button", { name: "地面高度精调" }));
+}
+
 it("uses the provided right inspector layout for scene properties", () => {
   const { container } = render(<ScenePanel />);
 
@@ -20,20 +32,26 @@ it("uses the provided right inspector layout for scene properties", () => {
   expect(container.querySelector(".right-inspector-content")).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "变换" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "显示与吸附" })).toBeInTheDocument();
+  expandSceneTransform();
   expect(screen.getByLabelText("场景平移 X").closest(".inspector-axis-input")).toBeInTheDocument();
 });
 
-it("keeps everyday scene controls open and folds atmosphere, clipping, and lights", () => {
+it("keeps semantic scene controls open and folds numeric calibration", () => {
   render(<ScenePanel />);
 
-  expect(screen.getByRole("button", { name: "变换" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "变换" })).toHaveAttribute("aria-expanded", "false");
   expect(screen.getByRole("button", { name: "背景与全景" })).toHaveAttribute("aria-expanded", "true");
   expect(screen.getByRole("button", { name: "显示与吸附" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "全景精调" })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByRole("button", { name: "地面高度精调" })).toHaveAttribute("aria-expanded", "false");
   expect(screen.getByRole("button", { name: "氛围" })).toHaveAttribute("aria-expanded", "false");
   expect(screen.getByRole("button", { name: "剖切平面" })).toHaveAttribute("aria-expanded", "false");
   expect(screen.getByRole("button", { name: "灯光" })).toHaveAttribute("aria-expanded", "false");
   expect(screen.queryByLabelText("启用环境照明")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "添加灯光" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("场景缩放")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("全景球半径")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("地面高度")).not.toBeInTheDocument();
 });
 
 it("keeps scene switches as individual rows and only toggles from the checkbox", async () => {
@@ -61,6 +79,9 @@ it("updates scene transform, panorama, and ground controls", async () => {
   const user = userEvent.setup();
   render(<ScenePanel />);
 
+  expandSceneTransform();
+  expandPanoramaPrecision();
+  expandGroundPrecision();
   await user.clear(screen.getByLabelText("场景缩放"));
   await user.type(screen.getByLabelText("场景缩放"), "1.3");
   await user.clear(screen.getByLabelText("场景平移 Y"));
@@ -202,6 +223,7 @@ it("updates panorama radius from both slider and numeric input", async () => {
   const user = userEvent.setup();
   render(<ScenePanel />);
 
+  expandPanoramaPrecision();
   await user.clear(screen.getByLabelText("全景球半径"));
   await user.type(screen.getByLabelText("全景球半径"), "150");
 
@@ -218,6 +240,8 @@ it("updates panorama yaw and ground height from both sliders and numeric inputs"
   const user = userEvent.setup();
   render(<ScenePanel />);
 
+  expandPanoramaPrecision();
+  expandGroundPrecision();
   await user.clear(screen.getByLabelText("全景球水平旋转"));
   await user.type(screen.getByLabelText("全景球水平旋转"), "45");
 
@@ -245,6 +269,8 @@ it("hides ground height controls when ground is disabled", async () => {
   const user = userEvent.setup();
   render(<ScenePanel />);
 
+  expect(screen.queryByLabelText("地面高度")).not.toBeInTheDocument();
+  expandGroundPrecision();
   expect(screen.getByLabelText("地面高度")).toBeInTheDocument();
 
   await user.click(screen.getByLabelText("地面"));
@@ -256,6 +282,7 @@ it("updates scene scale from both slider and numeric input", async () => {
   const user = userEvent.setup();
   render(<ScenePanel />);
 
+  expandSceneTransform();
   expect(screen.getByLabelText("场景缩放滑杆")).toHaveValue("1");
 
   await user.clear(screen.getByLabelText("场景缩放"));
@@ -272,6 +299,7 @@ it("updates scene scale from both slider and numeric input", async () => {
 
 it("keeps the axis drag affordance visible while dragging values", () => {
   render(<ScenePanel />);
+  expandSceneTransform();
 
   const xDragHandle = screen.getByLabelText("场景平移 X 拖动调整");
   const axisInput = xDragHandle.closest(".inspector-axis-input");
@@ -296,6 +324,7 @@ it("keeps the axis drag affordance visible while dragging values", () => {
 
 it("keeps the XYZ drag handle width stable while dragging", () => {
   render(<ScenePanel />);
+  expandSceneTransform();
 
   const xDragHandle = screen.getByLabelText("场景平移 X 拖动调整");
   const widthBeforeDrag = getComputedStyle(xDragHandle).width;
@@ -310,6 +339,7 @@ it("keeps the XYZ drag handle width stable while dragging", () => {
 
 it("keeps the XYZ drag handle visuals stable while dragging", () => {
   render(<ScenePanel />);
+  expandSceneTransform();
 
   const xDragHandle = screen.getByLabelText("场景平移 X 拖动调整");
   const backgroundBeforeDrag = getComputedStyle(xDragHandle).backgroundColor;
@@ -328,6 +358,7 @@ it("keeps the XYZ drag handle visuals stable while dragging", () => {
 
 it("keeps the XYZ drag handle focused instead of moving focus into the number input", () => {
   render(<ScenePanel />);
+  expandSceneTransform();
 
   const xDragHandle = screen.getByLabelText("场景平移 X 拖动调整");
   const xInput = screen.getByLabelText("场景平移 X");
@@ -342,6 +373,7 @@ it("keeps the XYZ drag handle focused instead of moving focus into the number in
 
 it("renders the XYZ drag handle inside a responsive themed axis input shell", () => {
   render(<ScenePanel />);
+  expandSceneTransform();
 
   const xDragHandle = screen.getByLabelText("场景平移 X 拖动调整");
   const axisInput = xDragHandle.closest(".inspector-axis-input");

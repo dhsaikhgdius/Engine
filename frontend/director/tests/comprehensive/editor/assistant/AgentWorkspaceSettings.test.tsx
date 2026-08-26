@@ -60,8 +60,9 @@ describe("AgentWorkspaceSettings", () => {
   it("loads the workspace, shows documents, skills, memory, and the red-line note", async () => {
     await openPanel();
     expect(await screen.findByDisplayValue("团队级指令")).toBeInTheDocument();
-    expect(screen.getByText(/director-workbench/)).toBeInTheDocument();
-    expect(screen.getByText(/pref/)).toBeInTheDocument();
+    expect(screen.getByText("director-workbench")).toBeInTheDocument();
+    expect(screen.getByText(".dsh/skills/director-workbench")).toBeInTheDocument();
+    expect(screen.getByText("pref")).toBeInTheDocument();
     expect(screen.getByText(/永远不会自动注入为指令/)).toBeInTheDocument();
     // Version history is offered for restore.
     expect(screen.getByLabelText("版本历史")).toBeInTheDocument();
@@ -102,11 +103,35 @@ describe("AgentWorkspaceSettings", () => {
     expect(await screen.findByDisplayValue("旧内容")).toBeInTheDocument();
   });
 
-  it("surfaces gateway errors inline", async () => {
+  it("surfaces gateway errors inline and offers a retry", async () => {
     clientMocks.fetchAgentWorkspace.mockRejectedValue(new Error("网关不可用"));
     clientMocks.listAgentWorkspaceDocumentVersions.mockResolvedValue([]);
     render(<AgentWorkspaceSettings />);
     fireEvent.click(screen.getByRole("button", { name: "Agent 工作区设置" }));
     expect(await screen.findByText("网关不可用")).toBeInTheDocument();
+    expect(screen.getByText("Agent 工作区加载失败")).toBeInTheDocument();
+
+    clientMocks.fetchAgentWorkspace.mockResolvedValue(snapshot);
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(await screen.findByDisplayValue("团队级指令")).toBeInTheDocument();
+    expect(screen.queryByText("网关不可用")).not.toBeInTheDocument();
+  });
+
+  it("names the likely cause when the gateway is unreachable", async () => {
+    clientMocks.fetchAgentWorkspace.mockRejectedValue(new Error("Failed to fetch"));
+    clientMocks.listAgentWorkspaceDocumentVersions.mockResolvedValue([]);
+    render(<AgentWorkspaceSettings />);
+    fireEvent.click(screen.getByRole("button", { name: "Agent 工作区设置" }));
+    expect(await screen.findByText("无法连接 Director 网关，请确认它已在本地启动。")).toBeInTheDocument();
+  });
+
+  it("shows empty states instead of blank sections", async () => {
+    clientMocks.fetchAgentWorkspace.mockResolvedValue({ documents: [], skill_refs: [], memory: [] });
+    clientMocks.listAgentWorkspaceDocumentVersions.mockResolvedValue([]);
+    render(<AgentWorkspaceSettings />);
+    fireEvent.click(screen.getByRole("button", { name: "Agent 工作区设置" }));
+    expect(await screen.findByText("还没有技能引用")).toBeInTheDocument();
+    expect(screen.getByText("还没有记忆条目")).toBeInTheDocument();
+    expect(screen.getByText("尚未保存")).toBeInTheDocument();
   });
 });

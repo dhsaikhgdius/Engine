@@ -12,6 +12,19 @@ export const DIRECTOR_PIPELINE_AWAIT_TIMEOUT_MS = 15 * 60_000;
 /** Creative pipeline cancel. */
 export const DIRECTOR_PIPELINE_CANCEL_TIMEOUT_MS = 120_000;
 
+/**
+ * DCC host jobs that spawn Blender or an engine editor headlessly
+ * (`export_blend`, `send_to_engine`, `extract_engine_scene`). The gateway
+ * gives the host process up to 15 minutes; keep one minute of margin.
+ */
+export const DIRECTOR_DCC_HOST_JOB_TIMEOUT_MS = 16 * 60_000;
+
+/** DCC host job ops that spawn Blender or an engine editor. */
+const DCC_HOST_JOB_OPS = new Set(["export_blend", "send_to_engine", "extract_engine_scene", "render_engine_frame"]);
+
+/** DCC ops that only read the provider registry. */
+const PARALLEL_DCC_OPS = new Set(["discover", "status", "engine_session_command_status"]);
+
 /** Workbench ops that only read project or catalog state. */
 const PARALLEL_WORKBENCH_OPS = new Set([
   "capabilities",
@@ -66,6 +79,9 @@ export function dynamicToolTimeoutMs(tool: string, input: unknown): number {
     if (request?.action === "start" && request.await_completion === true) return DIRECTOR_PIPELINE_AWAIT_TIMEOUT_MS;
     if (request?.action === "cancel") return DIRECTOR_PIPELINE_CANCEL_TIMEOUT_MS;
   }
+  if (tool === "director_dcc" && typeof values?.op === "string" && DCC_HOST_JOB_OPS.has(values.op)) {
+    return DIRECTOR_DCC_HOST_JOB_TIMEOUT_MS;
+  }
   return DIRECTOR_TOOL_TIMEOUT_MS;
 }
 
@@ -86,6 +102,7 @@ export function directorAgentToolExecutionMode(tool: string, input: unknown): "p
   }
   if (tool === "director_creative" && typeof op === "string" && PARALLEL_CREATIVE_OPS.has(op)) return "parallel";
   if (tool === "blender_native" && typeof op === "string" && PARALLEL_BLENDER_OPS.has(op)) return "parallel";
+  if (tool === "director_dcc" && typeof op === "string" && PARALLEL_DCC_OPS.has(op)) return "parallel";
   if (tool === "stage_video" && (op === "capabilities" || op === "status" || op === "get")) return "parallel";
   if (
     tool === "director_game" &&

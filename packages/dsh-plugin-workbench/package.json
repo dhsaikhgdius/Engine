@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@director/agent-engine": "*",
+    "@director/dcc-protocol": "*",
     "@director/protocol": "*",
     "zod": "^4.4.3"
   }

@@ -201,6 +201,44 @@ textarea:focus-visible,
     0 1px 2px rgb(var(--director-shadow-rgb) / 0.12);
 }
 
+.top-bar-settings-fold {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-width: 0;
+  opacity: 1;
+  transition:
+    grid-template-columns 200ms var(--director-ease),
+    opacity 160ms var(--director-ease);
+}
+
+.top-bar-settings-cluster.is-collapsed .top-bar-settings-fold {
+  grid-template-columns: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.top-bar-settings-fold-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.top-bar-settings-collapse {
+  flex-shrink: 0;
+  min-width: 28px;
+  padding-inline: 7px;
+}
+
+.top-bar-settings-collapse-icon {
+  transition: transform 200ms var(--director-ease);
+}
+
+.top-bar-settings-cluster.is-collapsed .top-bar-settings-collapse-icon {
+  transform: rotate(180deg);
+}
+
 .top-bar-settings-trigger {
   display: inline-flex;
   align-items: center;
@@ -594,6 +632,20 @@ textarea:focus-visible,
   border-color: rgb(var(--accent-rgb) / 0.42);
   color: rgb(var(--text-rgb));
   background: rgb(var(--accent-rgb) / 0.08);
+}
+
+.object-tree-panel > .object-tree-scene-settings {
+  justify-content: flex-start;
+  min-height: 34px;
+  padding: 0 10px;
+  border-color: rgb(var(--border-rgb) / 0.13);
+  font-size: 10.5px;
+}
+
+.object-tree-panel > .object-tree-scene-settings.is-active {
+  border-color: rgb(var(--accent-rgb) / 0.42);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--accent-rgb) / 0.09);
 }
 
 .object-tree-panel > p,

@@ -19,10 +19,7 @@ import {
   sameDirectorAgentTarget,
   type DirectorAgentTargetWire,
 } from "../../packages/protocol/src/agentGatewayProtocol";
-import {
-  createMcpToolResponse,
-  mcpToolStructuredOutputSchema,
-} from "./mcpToolResponse";
+import { createMcpToolResponse, mcpToolStructuredOutputSchema } from "./mcpToolResponse";
 import { directorDccOperationSchema } from "@director/dcc-protocol";
 import { directorGameOperationSchema } from "../../packages/protocol/src/directorGameProtocol";
 import { blenderNativeToolRequestSchema } from "../../packages/protocol/src/blenderLiveProtocol";
@@ -419,7 +416,8 @@ registerVisibleTool("blender_native", () => {
         const modelPayload = projectOversizedDirectorAgentToolEnvelope(
           "blender_native",
           stripEncodedMediaPayloads(payload) as Record<string, unknown>,
-        );        const content: Array<
+        );
+        const content: Array<
           | { type: "text"; text: string }
           | {
               type: "image";
@@ -427,7 +425,8 @@ registerVisibleTool("blender_native", () => {
               mimeType: string;
               annotations: { audience: ["assistant"]; priority: number };
             }
-        > = [{ type: "text", text: JSON.stringify(modelPayload) }];        if (imageData && mimeType) {
+        > = [{ type: "text", text: JSON.stringify(modelPayload) }];
+        if (imageData && mimeType) {
           content.push({
             type: "image",
             data: imageData,
@@ -437,7 +436,8 @@ registerVisibleTool("blender_native", () => {
         }
         return {
           content,
-          structuredContent: modelPayload,          isError: !response.ok || payload.success === false,
+          structuredContent: modelPayload,
+          isError: !response.ok || payload.success === false,
         };
       } catch (error) {
         return {
@@ -666,7 +666,7 @@ registerVisibleTool("director_dcc", () => {
     {
       title: "Director DCC Bridge",
       description:
-        "Discover and operate Director DCC providers. Call discover first: it reports nativeReady/exchangeReady, supported formats, and capability maturity for Blender, Maya, Unreal, Houdini, Cinema 4D, Unity, 3ds Max, Godot, and registered third-party providers. export_exchange_package creates a canonical metre/Y-up/stable-ID USD/GLB package without overstating native readiness. send_to_engine runs the Director-authored Unreal/Unity/Godot connector headlessly against the configured engine project (only when nativeReady; otherwise it returns structured diagnostics with recovery steps). receive_from_engine previews an engine return package as a revision-guarded import plan; apply_import_plan applies it with provider set to the engine. Blender additionally retains its revision-guarded export, raw-scene preview/apply, and stable-ID return workflow.",
+        "Discover and operate Director DCC providers. render_engine_frame independently captures Unreal, Unity, or Godot. start_engine_session reuses open editors for opt-in C#, GDScript, or Editor Python and engine-owned sync_scene; Unity and Godot also serve hot capture_frame. sync_engine_session_to_director updates Director's stable-id review projection while engine-native game state stays authoritative. Film delivery retains the reviewed send/receive and import-plan paths. Blender retains its revision-guarded native scene workflow.",
       inputSchema: wireSchemas.director_dcc,
       outputSchema: directorDccOutputSchema,
       annotations: {
@@ -688,16 +688,44 @@ registerVisibleTool("director_dcc", () => {
         });
         const payload = (await response.json()) as unknown;
         const parsedPayload = z
-          .looseObject({ success: z.boolean(), result: z.unknown().optional(), error: z.string().optional() })
+          .looseObject({
+            success: z.boolean(),
+            result: z.unknown().optional(),
+            error: z.string().optional(),
+            capture: z
+              .looseObject({ mimeType: z.string(), dataBase64: z.string().optional(), data: z.string().optional() })
+              .optional(),
+          })
           .safeParse(payload);
         if (!parsedPayload.success) throw new Error("Gateway returned malformed DCC JSON.");
         const structuredContent = {
           ok: parsedPayload.data.success,
-          result: parsedPayload.data.result ?? null,
+          result: stripEncodedMediaPayloads(parsedPayload.data.result ?? null),
           error: parsedPayload.data.error ?? null,
         };
+        // An engine frame or hot-session capture travels once, as the image block below;
+        // base64 payloads never ride the text/structured views.
+        const frameData = parsedPayload.data.capture?.dataBase64 ?? parsedPayload.data.capture?.data ?? null;
+        const frameMimeType = parsedPayload.data.capture?.mimeType ?? null;
+        const content: Array<
+          | { type: "text"; text: string }
+          | {
+              type: "image";
+              data: string;
+              mimeType: string;
+              annotations: { audience: ["assistant"]; priority: number };
+            }
+        > = [{ type: "text" as const, text: JSON.stringify(structuredContent, null, 2) }];
+        if (frameData && frameMimeType) {
+          content.push({
+            type: "image",
+            data: frameData,
+            mimeType: frameMimeType,
+            annotations: { audience: ["assistant"], priority: 1 },
+          });
+        }
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(structuredContent, null, 2) }],
+          content,
           structuredContent,
           isError: !structuredContent.ok,
         };

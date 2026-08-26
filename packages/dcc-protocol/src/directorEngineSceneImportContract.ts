@@ -6,14 +6,14 @@ import { directorCameraAspectRatioSchema } from "@director/protocol/directorCame
 import { strictOperation } from "@director/protocol/strictProtocolVariant";
 import { directorDccVec3Schema } from "./directorDccSharedContract";
 
-/** Contract identifier for the game-engine scene export manifest (Unreal / Unity). */
+/** Contract identifier for the game-engine scene export manifest (Unreal / Unity / Godot). */
 export const DIRECTOR_ENGINE_SCENE_CONTRACT = "director-engine-scene-v1" as const;
 
 /** Contract identifier for the game-engine scene import plan. */
 export const DIRECTOR_ENGINE_SCENE_IMPORT_PLAN_CONTRACT = "director-engine-scene-import-plan-v1" as const;
 
 /** Engine providers that can produce a director-engine-scene-v1 package. */
-export const directorEngineSceneProviderSchema = z.enum(["unreal", "unity"]);
+export const directorEngineSceneProviderSchema = z.enum(["unreal", "unity", "godot"]);
 
 /** An engine provider id that can produce an engine scene package. */
 export type DirectorEngineSceneProvider = z.infer<typeof directorEngineSceneProviderSchema>;
@@ -54,18 +54,31 @@ export const DIRECTOR_ENGINE_COORDINATE_SYSTEMS = Object.freeze({
     unit: "meter",
     linearMap: "(x,y,z)->(-x,y,z)",
   },
+  // Godot 4 already authors in Director's convention; the exporter still
+  // declares the identity map so packages stay auditable.
+  godot: {
+    source: "right-handed-y-up-negative-z-forward-meter",
+    destination: "right-handed-y-up-negative-z-forward",
+    unit: "meter",
+    linearMap: "(x,y,z)->(x,y,z)",
+  },
 } as const) satisfies Record<
   DirectorEngineSceneProvider,
   { source: string; destination: string; unit: string; linearMap: string }
 >;
 
 const engineCoordinateSystemSchema = z.strictObject({
-  source: z.enum([DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.source, DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.source]),
+  source: z.enum([
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.source,
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.source,
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.godot.source,
+  ]),
   destination: z.literal("right-handed-y-up-negative-z-forward"),
   unit: z.literal("meter"),
   linearMap: z.enum([
     DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.linearMap,
     DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.linearMap,
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.godot.linearMap,
   ]),
 });
 
@@ -162,9 +175,9 @@ const engineLightSchema = z
   });
 
 /**
- * The manifest for a game-engine scene export (Unreal Engine or Unity),
- * describing the source project, timeline, hierarchy snapshot, cameras,
- * lights, animation clips, and a GLB bundle for renderable geometry.
+ * The manifest for a game-engine scene export (Unreal Engine, Unity, or
+ * Godot), describing the source project, timeline, hierarchy snapshot,
+ * cameras, lights, animation clips, and a GLB bundle for renderable geometry.
  *
  * Unlike the Blender manifest, every transform is already expressed in
  * Director's convention: the engine-side exporter owns the coordinate

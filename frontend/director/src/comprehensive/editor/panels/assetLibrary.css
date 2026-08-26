@@ -149,7 +149,7 @@
 .asset-library-browser {
   display: grid;
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .asset-library-tabs {
@@ -201,6 +201,30 @@
   width: 16px;
   height: 2px;
   background: rgb(var(--accent-rgb));
+}
+
+.asset-library-placement-hint {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 var(--asset-gutter);
+  border-bottom: 1px solid rgb(var(--border-rgb) / 0.06);
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.asset-library-placement-hint svg {
+  flex: 0 0 auto;
+  color: rgb(var(--accent-rgb));
+}
+
+.asset-library-placement-hint small {
+  margin-left: auto;
+  color: rgb(var(--text-dim-rgb));
+  font-size: 10px;
+  font-weight: 550;
 }
 
 .asset-library-grid {
@@ -275,6 +299,17 @@
   line-height: 14px;
   text-align: left;
   transform: none;
+  cursor: grab;
+  transition: opacity 120ms ease;
+}
+
+.asset-library-grid .model-library-card.is-dragging {
+  opacity: 0.46;
+  cursor: grabbing;
+}
+
+.asset-library-grid .model-library-card.is-dragging .model-library-thumb {
+  border-color: rgb(var(--accent-rgb) / 0.72);
 }
 
 .asset-library-grid .model-library-card:hover,

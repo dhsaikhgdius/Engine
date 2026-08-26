@@ -351,7 +351,9 @@ export function registerDirectorWorkbenchPlugin(
           tool.name,
           tool.name === "director_creative"
             ? { op: "pipeline", request: { action: "start", await_completion: true } }
-            : { op: "observe" },
+            : tool.name === "director_dcc"
+              ? { op: "send_to_engine" }
+              : { op: "observe" },
         ),
         isConcurrencySafe: (callArgs) => directorToolIsConcurrencySafe(tool.name, callArgs),
         presentCall: (callArgs) => presentDirectorCall(tool.name, callArgs),

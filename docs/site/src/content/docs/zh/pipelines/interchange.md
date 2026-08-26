@@ -75,27 +75,31 @@ skin、morph、材质与内嵌 GLB 动画 clip 可以留在资产内部，但 Di
 Blender 原生文件解析器提供 OS/container sandbox。私有 job 路径、大小限制和进程超时只是
 约束措施，不是 sandbox。不可信 `.blend` 应先在容器或虚拟机中处理，再交给 Director。
 
-## 游戏引擎场景（Unreal / Unity）
+## 游戏引擎场景（Unreal / Unity / Godot）
 
-Unreal Engine 5 与 Unity 场景走与 `.blend` 相同的 preview/apply 纪律，但包格式不同：
-引擎内导出器（`integrations/unreal/interchange/director_scene_export.py`、
-`integrations/unity/interchange/DirectorSceneExport.cs`）自己负责坐标转换，写出
+Unreal Engine 5、Unity 与 Godot 4 场景走与 `.blend` 相同的 preview/apply 纪律，但包格式
+不同：引擎内导出器（`integrations/unreal/interchange/director_scene_export.py`、
+`integrations/unity/interchange/DirectorSceneExport.cs`、
+`integrations/godot/interchange/director_scene_export.gd`）自己负责坐标转换，写出
 `director-engine-scene-v1` 包，其中所有变换已是 Director 的右手 Y-up 米制约定。
 manifest 声明实际应用的线性映射（Unreal `(x,y,z)->(y,z,-x)*0.01`、Unity
-`(x,y,z)->(-x,y,z)`）、层级快照、相机、灯光、动画剪辑清单、警告与每个文件的 SHA-256。
+`(x,y,z)->(-x,y,z)`、Godot 因原生基底本就一致而声明恒等映射 `(x,y,z)->(x,y,z)`）、
+层级快照、相机、灯光、动画剪辑清单、警告与每个文件的 SHA-256。
 
 两条摄取路径产出同一种包。`director_dcc extract_engine_scene` 对本地工程 headless 运行
 已安装的引擎（Unreal 走 `UnrealEditor-Cmd -run=pythonscript`，Unity 走
-`-batchmode -executeMethod`；Unity 额外需要已激活的许可证）。把引擎内导出的 `.zip` 上传到
-`POST /api/dcc/engine-scene/uploads?provider=unreal|unity` 则完全不依赖引擎安装，是云环境
-可 headless 验证的路径。
+`-batchmode -executeMethod`，Godot 走 `--headless --script`；Unity 额外需要已激活的
+许可证；Unity 与 Godot 的导出器会先经哈希比对复制进工程）。把引擎内导出的 `.zip` 上传到
+`POST /api/dcc/engine-scene/uploads?provider=unreal|unity|godot` 则完全不依赖引擎安装，
+是云环境可 headless 验证的路径。
 
 `preview_engine_scene_import` 生成服务端持久化的 `director-engine-scene-import-plan-v1`；
 `apply_engine_scene_import` 重新校验哈希、把 GLB 复制进内容寻址存储，并用 `plan_id`、
 `expected_revision` 与仅限重试的 `idempotency_key` 执行一次原子 authoring 变更。几何保持
 `modelNormalization: "preserve"`。可渲染几何依赖引擎侧 glTF 导出器（Unreal 的 glTF
-Exporter 插件、Unity 的 `com.unity.cloud.gltfast`）；缺失时包仍可导入相机、灯光与层级，
-并把几何缺口记录在案。回程 roundtrip 是声明为 `planned` 的能力，当前不可用。
+Exporter 插件、Unity 的 `com.unity.cloud.gltfast`；Godot 用内建 GLTFDocument，无需额外
+插件）；缺失时包仍可导入相机、灯光与层级，并把几何缺口记录在案。回程 roundtrip 是声明为
+`planned` 的能力，当前不可用。
 
 上传、抽取、预览、应用返回的每个计划都会在类型化的 `result.plan.omitted[]`（与 `omittedCount`
 配对，镜像 `.blend` 导入计划）中声明被放弃的内容：`unsupported_object`（导出器跳过的元素，附

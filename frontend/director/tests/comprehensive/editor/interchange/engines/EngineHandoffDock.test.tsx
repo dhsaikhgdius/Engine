@@ -19,8 +19,13 @@ const handoffClient = vi.hoisted(() => ({
   createUnitySession: vi.fn(),
   closeUnitySession: vi.fn(),
   godotPreview: vi.fn(),
+  openUnrealPreview: vi.fn(),
+  sendUnrealPreviewFrame: vi.fn(),
+  closeUnrealPreview: vi.fn(),
 }));
 const returnClient = vi.hoisted(() => ({ preview: vi.fn(), apply: vi.fn() }));
+const runClient = vi.hoisted(() => ({ launch: vi.fn(), run: vi.fn(), status: vi.fn(), stop: vi.fn() }));
+const sceneClient = vi.hoisted(() => ({ upload: vi.fn(), preview: vi.fn(), apply: vi.fn() }));
 
 vi.mock("../../../../../src/comprehensive/editor/api/dccProviderClient", () => {
   class DirectorDccProviderClientError extends Error {
@@ -38,6 +43,9 @@ vi.mock("../../../../../src/comprehensive/editor/api/dccEngineHandoffClient", ()
   createDirectorUnityLiveLinkSession: handoffClient.createUnitySession,
   closeDirectorUnityLiveLinkSession: handoffClient.closeUnitySession,
   fetchDirectorGodotLiveLinkPreview: handoffClient.godotPreview,
+  openDirectorUnrealLivePreviewSession: handoffClient.openUnrealPreview,
+  sendDirectorUnrealLivePreviewFrame: handoffClient.sendUnrealPreviewFrame,
+  closeDirectorUnrealLivePreviewSession: handoffClient.closeUnrealPreview,
 }));
 vi.mock("../../../../../src/comprehensive/editor/api/dccReturnClient", () => {
   class DirectorDccReturnClientError extends Error {
@@ -56,6 +64,27 @@ vi.mock("../../../../../src/comprehensive/editor/api/dccReturnClient", () => {
     previewDirectorDccReturnPackage: returnClient.preview,
     applyDirectorDccImportPlan: returnClient.apply,
     DirectorDccReturnClientError,
+  };
+});
+vi.mock("../../../../../src/comprehensive/editor/api/dccEngineRunClient", () => {
+  class DirectorDccEngineRunClientError extends Error {
+    recovery: string[] = [];
+  }
+  return {
+    launchDirectorEngineEditor: runClient.launch,
+    runDirectorEngineProject: runClient.run,
+    fetchDirectorEngineRunStatus: runClient.status,
+    stopDirectorEngineProject: runClient.stop,
+    DirectorDccEngineRunClientError,
+  };
+});
+vi.mock("../../../../../src/comprehensive/editor/api/dccEngineSceneClient", () => {
+  class DirectorEngineSceneClientError extends Error {}
+  return {
+    uploadDirectorEngineScenePackage: sceneClient.upload,
+    previewDirectorEngineSceneImport: sceneClient.preview,
+    applyDirectorEngineSceneImport: sceneClient.apply,
+    DirectorEngineSceneClientError,
   };
 });
 vi.mock("../../../../../src/comprehensive/editor/interchange/BlenderLivePanel", () => ({
@@ -591,15 +620,220 @@ it("previews an engine return as a dry run and guards apply behind an explicit r
   expect(within(panel).getByRole("button", { name: "已应用到当前场景" })).toBeDisabled();
 });
 
-it("presents the Unreal live link as unobservable preview-only copy without a fake connected state", async () => {
+it("presents the Unreal live preview as disconnected preview-only copy without a fake connected state", async () => {
   renderDock();
   await openTab("Unreal");
 
   const panel = screen.getByRole("tabpanel");
-  await within(panel).findByText("浏览器不可观测（网关 → 编辑器回环推送）");
+  await within(panel).findByText(/未连接；在引擎侧运行 director_headless.py --mode live-preview/);
+  expect(within(panel).getByRole("textbox", { name: "Unreal 实时预览端口" })).toBeInTheDocument();
+  expect(within(panel).getByRole("button", { name: "推送活动相机" })).toBeDisabled();
   expect(within(panel).getAllByText(/绝不写入工程/).length).toBeGreaterThan(0);
   expect(within(panel).getByText(/Remote Control 不是安全边界/)).toBeInTheDocument();
-  expect(within(panel).queryByText("已连接")).not.toBeInTheDocument();
+  expect(within(panel).queryByText(/已连接/)).not.toBeInTheDocument();
+});
+
+it("runs the Godot project with bounded output and stops it from the same section", async () => {
+  const runningStatus = {
+    contract: "director-dcc-engine-run-v1",
+    provider: "godot",
+    runId: "godot-run-1",
+    executable: "/opt/godot",
+    projectPath: "/proj",
+    scene: null,
+    headless: false,
+    pid: 4242,
+    state: "running" as const,
+    exitCode: null,
+    startedAtMs: 1_000,
+    endedAtMs: null,
+    output: "[fixture] engine running\n",
+    outputTruncated: false,
+  };
+  runClient.run.mockResolvedValue(runningStatus);
+  runClient.status.mockResolvedValue(runningStatus);
+  runClient.stop.mockResolvedValue({ ...runningStatus, state: "stopped" as const, endedAtMs: 2_000, exitCode: null });
+  renderDock();
+  const user = await openTab("Godot");
+  const panel = screen.getByRole("tabpanel");
+
+  await user.click(within(panel).getByRole("button", { name: "运行项目" }));
+  expect(runClient.run).toHaveBeenCalledWith("godot", { headless: false });
+  await within(panel).findByText("运行中");
+  expect(within(panel).getByLabelText("运行输出")).toHaveTextContent("[fixture] engine running");
+
+  await user.click(within(panel).getByRole("button", { name: /停止运行/ }));
+  await waitFor(() => expect(runClient.stop).toHaveBeenCalledWith("godot"));
+  await within(panel).findByText("已停止");
+});
+
+it("keeps project runs honest on Unity and offers the editor launch instead", async () => {
+  runClient.launch.mockResolvedValue({
+    contract: "director-dcc-engine-editor-launch-v1",
+    provider: "unity",
+    executable: "/opt/unity",
+    projectPath: "/proj",
+    pid: 777,
+    launchedAtMs: 1_000,
+    warnings: [],
+  });
+  renderDock();
+  const user = await openTab("Unity");
+  const panel = screen.getByRole("tabpanel");
+
+  expect(within(panel).queryByRole("button", { name: "运行项目" })).not.toBeInTheDocument();
+  expect(within(panel).getByText(/项目运行暂不支持该引擎/)).toBeInTheDocument();
+  await user.click(within(panel).getByRole("button", { name: /在引擎编辑器中打开/ }));
+  await waitFor(() => expect(runClient.launch).toHaveBeenCalledWith("unity"));
+  expect(await within(panel).findByText(/编辑器已启动 · PID 777/)).toBeInTheDocument();
+});
+
+it("imports an uploaded Godot scene package after review with a rebuilt selection plan", async () => {
+  const manifest = {
+    schemaVersion: 1,
+    contract: "director-engine-scene-v1",
+    packageId: "godot-scene-a",
+    provider: "godot",
+    exportedAt: "2026-08-26T00:00:00Z",
+    engineVersion: "Godot 4.7.2",
+    exporter: { name: "director-godot-scene-export", version: "1.0.0" },
+    source: { projectName: "Fixture", sceneName: "main" },
+    coordinateSystem: {
+      source: "right-handed-y-up-negative-z-forward-meter",
+      destination: "right-handed-y-up-negative-z-forward",
+      unit: "meter",
+      linearMap: "(x,y,z)->(x,y,z)",
+    },
+    timeline: { frameStart: 0, frameEnd: 0, currentFrame: 0, fps: 30 },
+    scene: {
+      name: "main",
+      bundleFile: "assets/scene.glb",
+      nodeCount: 6,
+      meshCount: 1,
+      skinnedMeshCount: 0,
+      materialCount: 0,
+      animationClipCount: 0,
+    },
+    nodes: [],
+    cameras: [
+      {
+        sourceId: "MainCamera",
+        name: "MainCamera",
+        position: [0, 1.7, 5],
+        lookTarget: [0, 1.7, -5],
+        verticalFovDegrees: 40,
+        nearClipM: 0.05,
+        farClipM: 4000,
+        renderAspectRatio: 16 / 9,
+      },
+    ],
+    lights: [
+      {
+        sourceId: "Sun",
+        name: "Sun",
+        type: "directional",
+        color: "#ffffff",
+        intensity: 1,
+        position: [0, 10, 0],
+        target: [0, 0, 0],
+        castShadow: true,
+      },
+    ],
+    animationClips: [],
+    unsupported: [],
+    warnings: ["fixture warning"],
+    fileHashes: { "assets/scene.glb": hash },
+  };
+  const plan = {
+    contract: "director-engine-scene-import-plan-v1",
+    planId: "godot-job/plans/default.json",
+    ready: true,
+    provider: "godot",
+    packageId: "godot-scene-a",
+    packageDir: "godot-job/package",
+    manifestHash: hash,
+    targetRevision: revision,
+    selection: { includeScene: true, cameraSourceIds: ["MainCamera"], lightSourceIds: ["Sun"] },
+    operations: [{ op: "create_scene_asset" }, { op: "create_scene_object" }, { op: "create_camera" }],
+    conflicts: [],
+    warnings: [],
+  };
+  sceneClient.upload.mockResolvedValue({
+    jobId: "godot-job",
+    provider: "godot",
+    packagePath: "godot-job/package",
+    manifest,
+    plan,
+  });
+  sceneClient.preview.mockResolvedValue({ ...plan, operations: plan.operations.slice(0, 2) });
+  sceneClient.apply.mockResolvedValue({ plan, copiedAssets: [{ assetId: "engine-scene-asset", url: "/x.glb" }] });
+  renderDock();
+  const user = await openTab("Godot");
+  const panel = screen.getByRole("tabpanel");
+
+  await user.upload(
+    within(panel).getByLabelText("选择引擎场景包"),
+    new File(["zip-bytes"], "director-engine-scene.zip", { type: "application/zip" }),
+  );
+  expect(sceneClient.upload).toHaveBeenCalledWith("godot", expect.any(File));
+  await within(panel).findByText("包已校验");
+  expect(within(panel).getByText(/Fixture · main · Godot 4.7.2/)).toBeInTheDocument();
+
+  await user.click(within(panel).getByRole("button", { name: "按所选重建计划" }));
+  await waitFor(() =>
+    expect(sceneClient.preview).toHaveBeenCalledWith("godot", "godot-job/package", {
+      includeScene: true,
+      cameraSourceIds: ["MainCamera"],
+      lightSourceIds: ["Sun"],
+    }),
+  );
+
+  const importButton = within(panel).getByRole("button", { name: "导入引擎场景" });
+  expect(importButton).toBeDisabled();
+  await user.click(within(panel).getByRole("checkbox", { name: /我已审阅上方计划/ }));
+  expect(importButton).toBeEnabled();
+  await user.click(importButton);
+  await waitFor(() => expect(sceneClient.apply).toHaveBeenCalledTimes(1));
+  expect(within(panel).getByRole("button", { name: "已导入当前场景" })).toBeDisabled();
+});
+
+it("opens an Unreal live preview session against the entered port and closes it with bye", async () => {
+  const sessionStatus = (forwarded: number, closed = false) => ({
+    contract: "director-unreal-live-preview-status-v1" as const,
+    sessionId: "preview-1",
+    port: 42_813,
+    openedAtMs: 1_000,
+    summary: {
+      contract: "director-unreal-live-preview-session-v1" as const,
+      provider: "unreal" as const,
+      protocol: "director-unreal-live-preview-v1" as const,
+      forwardedFrameCount: forwarded,
+      droppedFrameCount: 0,
+      ignoredInboundByteCount: 0,
+      closed,
+      disconnectReason: closed ? ("client_close" as const) : null,
+      disconnectDetail: null,
+    },
+  });
+  handoffClient.openUnrealPreview.mockResolvedValue(sessionStatus(0));
+  handoffClient.sendUnrealPreviewFrame.mockResolvedValue({
+    send: { sent: true, seq: 1 },
+    session: sessionStatus(1),
+  });
+  handoffClient.closeUnrealPreview.mockResolvedValue(sessionStatus(1, true));
+  renderDock();
+  const user = await openTab("Unreal");
+
+  const panel = screen.getByRole("tabpanel");
+  await user.type(within(panel).getByRole("textbox", { name: "Unreal 实时预览端口" }), "42813");
+  await user.click(within(panel).getByRole("button", { name: "推送活动相机" }));
+
+  expect(handoffClient.openUnrealPreview).toHaveBeenCalledWith(42_813);
+  await within(panel).findByText(/已连接（网关 → 编辑器回环推送）/);
+
+  await user.click(within(panel).getByRole("button", { name: "停止推送" }));
+  await waitFor(() => expect(handoffClient.closeUnrealPreview).toHaveBeenCalledWith("preview-1"));
+  expect(await within(panel).findByRole("button", { name: "推送活动相机" })).toBeInTheDocument();
 });
 
 it("shows how to start the Godot live link instead of fabricating a session", async () => {

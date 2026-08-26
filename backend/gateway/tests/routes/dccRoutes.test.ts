@@ -957,3 +957,265 @@ describe("DCC engine handoff routes", () => {
     });
   });
 });
+
+describe("Engine run routes (launch editor / run project)", () => {
+  const blenderStub = { status: vi.fn(), exportBlend: vi.fn() };
+
+  it("returns 503 when the engine run manager is not configured", async () => {
+    const json = vi.fn();
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      readBody: vi.fn().mockResolvedValue({ input: { op: "launch_engine_editor", provider: "godot" } }),
+      json,
+      getProject: vi.fn(),
+      blender: blenderStub,
+    });
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      503,
+      expect.objectContaining({ success: false, code: "engine_run_unavailable" }),
+    );
+  });
+
+  it("dispatches launch/run/status/stop through the manager without loading the project", async () => {
+    const json = vi.fn();
+    const getProject = vi.fn();
+    const runStatus = {
+      contract: "director-dcc-engine-run-v1",
+      provider: "godot",
+      runId: "godot-run-1",
+      executable: "/opt/godot",
+      projectPath: "/proj",
+      scene: "res://scenes/main.tscn",
+      headless: true,
+      pid: 4242,
+      state: "running",
+      exitCode: null,
+      startedAtMs: 1_000,
+      endedAtMs: null,
+      output: "[fixture] engine running\n",
+      outputTruncated: false,
+    };
+    const engineRun = {
+      launchEditor: vi.fn().mockResolvedValue({ contract: "director-dcc-engine-editor-launch-v1" }),
+      runProject: vi.fn().mockResolvedValue(runStatus),
+      runStatus: vi.fn().mockReturnValue(runStatus),
+      stopRun: vi.fn().mockResolvedValue({ ...runStatus, state: "stopped", endedAtMs: 2_000 }),
+    };
+    const dependencies = { readBody: vi.fn(), json, getProject, blender: blenderStub, engineRun };
+
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      ...dependencies,
+      readBody: vi.fn().mockResolvedValue({ input: { op: "launch_engine_editor", provider: "unreal" } }),
+    });
+    expect(engineRun.launchEditor).toHaveBeenCalledWith("unreal");
+
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      ...dependencies,
+      readBody: vi.fn().mockResolvedValue({
+        input: { op: "run_engine_project", provider: "godot", scene: "res://scenes/main.tscn", headless: true },
+      }),
+    });
+    expect(engineRun.runProject).toHaveBeenCalledWith("godot", { scene: "res://scenes/main.tscn", headless: true });
+
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      ...dependencies,
+      readBody: vi.fn().mockResolvedValue({ input: { op: "engine_run_status", provider: "godot" } }),
+    });
+    expect(engineRun.runStatus).toHaveBeenCalledWith("godot");
+
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      ...dependencies,
+      readBody: vi.fn().mockResolvedValue({ input: { op: "stop_engine_project", provider: "godot" } }),
+    });
+    expect(engineRun.stopRun).toHaveBeenCalledWith("godot");
+    expect(json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      200,
+      expect.objectContaining({ success: true, result: expect.objectContaining({ state: "stopped" }) }),
+    );
+    expect(getProject).not.toHaveBeenCalled();
+  });
+
+  it("maps structured engine run errors with their recovery steps", async () => {
+    const json = vi.fn();
+    const { DirectorDccEngineRunError } = await import("../../dcc/engineRun");
+    const engineRun = {
+      launchEditor: vi.fn(),
+      runProject: vi
+        .fn()
+        .mockRejectedValue(
+          new DirectorDccEngineRunError("engine_run_not_ready", "Godot was not found.", 503, [
+            "Set DIRECTOR_GODOT_BIN to the godot / godot4 binary (Godot 4.x).",
+          ]),
+        ),
+      runStatus: vi.fn(),
+      stopRun: vi.fn(),
+    };
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      readBody: vi.fn().mockResolvedValue({ input: { op: "run_engine_project", provider: "godot" } }),
+      json,
+      getProject: vi.fn(),
+      blender: blenderStub,
+      engineRun,
+    });
+    expect(json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      503,
+      expect.objectContaining({
+        success: false,
+        code: "engine_run_not_ready",
+        recovery: expect.arrayContaining([expect.stringContaining("DIRECTOR_GODOT_BIN")]),
+      }),
+    );
+  });
+});
+
+describe("Unreal live preview routes", () => {
+  const blenderStub = { status: vi.fn(), exportBlend: vi.fn() };
+  const sessionsUrl = "http://test/api/dcc/unreal/live-preview/sessions";
+
+  function sessionStatus(sessionId = "preview-1") {
+    return {
+      contract: "director-unreal-live-preview-status-v1" as const,
+      sessionId,
+      port: 42_813,
+      allowCode: false,
+      authority: "director" as const,
+      openedAtMs: 1_000,
+      summary: {
+        contract: "director-unreal-live-preview-session-v1" as const,
+        provider: "unreal" as const,
+        protocol: "director-unreal-live-preview-v1" as const,
+        forwardedFrameCount: 1,
+        droppedFrameCount: 0,
+        ignoredInboundByteCount: 0,
+        closed: false,
+        disconnectReason: null,
+        disconnectDetail: null,
+      },
+    };
+  }
+
+  it("returns 503 when the live preview hub is not configured", async () => {
+    const json = vi.fn();
+    expect(
+      await handleDccRoute(request("POST"), response(), new URL(sessionsUrl), {
+        readBody: vi.fn().mockResolvedValue({ port: 42_813 }),
+        json,
+        getProject: vi.fn(),
+        blender: blenderStub,
+      }),
+    ).toBe(true);
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      503,
+      expect.objectContaining({ success: false, code: "live_preview_unavailable" }),
+    );
+  });
+
+  it("routes the session lifecycle through the hub without touching the project", async () => {
+    const json = vi.fn();
+    const getProject = vi.fn();
+    const status = sessionStatus();
+    const hub = {
+      open: vi.fn().mockResolvedValue(status),
+      frame: vi.fn().mockReturnValue({ send: { sent: true, seq: 2 }, session: status }),
+      requestCommand: vi.fn(),
+      commandStatus: vi.fn(),
+      status: vi.fn().mockReturnValue([status]),
+      read: vi.fn().mockReturnValue(status),
+      close: vi.fn().mockResolvedValue(status),
+    };
+
+    await handleDccRoute(request("POST"), response(), new URL(sessionsUrl), {
+      readBody: vi.fn().mockResolvedValue({ port: 42_813 }),
+      json,
+      getProject,
+      blender: blenderStub,
+      unrealLivePreview: hub,
+    });
+    expect(hub.open).toHaveBeenCalledWith({ port: 42_813 });
+    expect(json).toHaveBeenLastCalledWith(expect.anything(), 200, { success: true, result: { session: status } });
+
+    await handleDccRoute(request("GET"), response(), new URL(sessionsUrl), {
+      readBody: vi.fn(),
+      json,
+      getProject,
+      blender: blenderStub,
+      unrealLivePreview: hub,
+    });
+    expect(json).toHaveBeenLastCalledWith(expect.anything(), 200, { success: true, result: { sessions: [status] } });
+
+    const frameBody = {
+      seq: 2,
+      transform: { location: [0, 0, 0], rotationQuaternion: [0, 0, 0, 1], scale: [1, 1, 1] },
+    };
+    await handleDccRoute(request("POST"), response(), new URL(`${sessionsUrl}/preview-1/frames`), {
+      readBody: vi.fn().mockResolvedValue(frameBody),
+      json,
+      getProject,
+      blender: blenderStub,
+      unrealLivePreview: hub,
+    });
+    expect(hub.frame).toHaveBeenCalledWith("preview-1", frameBody);
+    expect(json).toHaveBeenLastCalledWith(expect.anything(), 200, {
+      success: true,
+      result: { send: { sent: true, seq: 2 }, session: status },
+    });
+
+    await handleDccRoute(request("DELETE"), response(), new URL(`${sessionsUrl}/preview-1`), {
+      readBody: vi.fn(),
+      json,
+      getProject,
+      blender: blenderStub,
+      unrealLivePreview: hub,
+    });
+    expect(hub.close).toHaveBeenCalledWith("preview-1");
+    expect(json).toHaveBeenLastCalledWith(expect.anything(), 200, { success: true, result: { session: status } });
+    expect(getProject).not.toHaveBeenCalled();
+  });
+
+  it("maps structured hub errors onto their HTTP status and code", async () => {
+    const json = vi.fn();
+    const { DirectorUnrealLivePreviewHubError } = await import("../../dcc/unrealLivePreviewHub");
+    const hub = {
+      open: vi
+        .fn()
+        .mockRejectedValue(
+          new DirectorUnrealLivePreviewHubError("live_preview_token_missing", "Set the token first.", 503),
+        ),
+      frame: vi.fn(() => {
+        throw new DirectorUnrealLivePreviewHubError("live_preview_session_unknown", "Unknown session.", 404);
+      }),
+      requestCommand: vi.fn(),
+      commandStatus: vi.fn(),
+      status: vi.fn().mockReturnValue([]),
+      read: vi.fn(),
+      close: vi.fn(),
+    };
+    await handleDccRoute(request("POST"), response(), new URL(sessionsUrl), {
+      readBody: vi.fn().mockResolvedValue({ port: 42_813 }),
+      json,
+      getProject: vi.fn(),
+      blender: blenderStub,
+      unrealLivePreview: hub,
+    });
+    expect(json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      503,
+      expect.objectContaining({ success: false, code: "live_preview_token_missing" }),
+    );
+    await handleDccRoute(request("POST"), response(), new URL(`${sessionsUrl}/missing/frames`), {
+      readBody: vi.fn().mockResolvedValue({ seq: 1 }),
+      json,
+      getProject: vi.fn(),
+      blender: blenderStub,
+      unrealLivePreview: hub,
+    });
+    expect(json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      404,
+      expect.objectContaining({ success: false, code: "live_preview_session_unknown" }),
+    );
+  });
+});

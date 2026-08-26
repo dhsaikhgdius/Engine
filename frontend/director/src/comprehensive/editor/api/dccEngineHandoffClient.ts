@@ -11,6 +11,12 @@ import {
   type DirectorUnityLiveLinkSessionGrant,
   type DirectorUnityLiveLinkSessionStatus,
 } from "../../../dcc/directorUnityLiveLinkContract";
+import {
+  directorUnrealLivePreviewFrameInputSchema,
+  directorUnrealLivePreviewSessionStatusSchema,
+  type DirectorUnrealLivePreviewFrameInput,
+  type DirectorUnrealLivePreviewSessionStatus,
+} from "../../../dcc/directorUnrealLivePreviewContract";
 import { directorControlPlaneFetch } from "./directorControlPlaneClient";
 
 const engineHealthResponseSchema = z.strictObject({
@@ -37,6 +43,27 @@ const godotPreviewResponseSchema = z.strictObject({
   success: z.literal(true),
   result: directorGodotLiveLinkPreviewSchema,
 });
+
+const unrealPreviewSessionResponseSchema = z.strictObject({
+  success: z.literal(true),
+  result: z.strictObject({ session: directorUnrealLivePreviewSessionStatusSchema }),
+});
+
+const unrealPreviewSendResultSchema = z.union([
+  z.strictObject({ sent: z.literal(true), seq: z.number().int().nonnegative() }),
+  z.strictObject({ sent: z.literal(false), reason: z.string() }),
+]);
+
+const unrealPreviewFrameResponseSchema = z.strictObject({
+  success: z.literal(true),
+  result: z.strictObject({
+    send: unrealPreviewSendResultSchema,
+    session: directorUnrealLivePreviewSessionStatusSchema,
+  }),
+});
+
+/** Result of forwarding one Unreal live preview frame through the gateway. */
+export type DirectorUnrealLivePreviewSendOutcome = z.infer<typeof unrealPreviewFrameResponseSchema>["result"];
 
 const gatewayErrorSchema = z.looseObject({
   code: z.string().trim().min(1).optional(),
@@ -167,4 +194,73 @@ export async function fetchDirectorGodotLiveLinkPreview(
   const parsed = godotPreviewResponseSchema.safeParse(body);
   if (parsed.success && response.ok) return parsed.data.result;
   return throwGatewayError(response, body, "Godot live-link preview read failed");
+}
+
+/**
+ * Opens a Gateway → Unreal editor live preview session against the loopback
+ * port `director_headless.py --mode live-preview` printed. The shared token
+ * never crosses this surface: the gateway reads it from its own environment.
+ *
+ * @param port - The connector's 127.0.0.1 listener port.
+ * @returns The validated session record (preview-only counters, no token).
+ */
+export async function openDirectorUnrealLivePreviewSession(
+  port: number,
+): Promise<DirectorUnrealLivePreviewSessionStatus> {
+  const response = await directorControlPlaneFetch("/api/dcc/unreal/live-preview/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ port }),
+  });
+  const body = await responseJson(response);
+  const parsed = unrealPreviewSessionResponseSchema.safeParse(body);
+  if (parsed.success && response.ok) return parsed.data.result.session;
+  return throwGatewayError(response, body, "Unreal live preview session open failed");
+}
+
+/**
+ * Forwards one sequence-numbered Director camera frame into the Unreal editor
+ * viewport. Drops (stale sequence, malformed body) come back as a structured
+ * `sent: false` result rather than an HTTP error; the frame can never become
+ * a project mutation on either side.
+ *
+ * @param sessionId - The open preview session.
+ * @param frame - The frame `{ seq, transform, focalLengthMm? }`.
+ * @returns The send outcome plus the refreshed session record.
+ */
+export async function sendDirectorUnrealLivePreviewFrame(
+  sessionId: string,
+  frame: DirectorUnrealLivePreviewFrameInput,
+): Promise<DirectorUnrealLivePreviewSendOutcome> {
+  const response = await directorControlPlaneFetch(
+    `/api/dcc/unreal/live-preview/sessions/${encodeURIComponent(sessionId)}/frames`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(directorUnrealLivePreviewFrameInputSchema.parse(frame)),
+    },
+  );
+  const body = await responseJson(response);
+  const parsed = unrealPreviewFrameResponseSchema.safeParse(body);
+  if (parsed.success && response.ok) return parsed.data.result;
+  return throwGatewayError(response, body, "Unreal live preview frame send failed");
+}
+
+/**
+ * Closes one Unreal live preview session with the orderly `bye`.
+ *
+ * @param sessionId - The session to close.
+ * @returns The final session record with its disconnect reason.
+ */
+export async function closeDirectorUnrealLivePreviewSession(
+  sessionId: string,
+): Promise<DirectorUnrealLivePreviewSessionStatus> {
+  const response = await directorControlPlaneFetch(
+    `/api/dcc/unreal/live-preview/sessions/${encodeURIComponent(sessionId)}`,
+    { method: "DELETE" },
+  );
+  const body = await responseJson(response);
+  const parsed = unrealPreviewSessionResponseSchema.safeParse(body);
+  if (parsed.success && response.ok) return parsed.data.result.session;
+  return throwGatewayError(response, body, "Unreal live preview session close failed");
 }

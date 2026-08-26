@@ -20,15 +20,19 @@ import {
   type TwoBoneIkInput,
   type TwoBoneIkRuntime,
 } from "../mannequin/characterIk";
-import { degreesToRadians } from "../mannequin/mannequinPose";
-import { clampCharacterPoseControlValue } from "../../schema/poseSchema";
 import { canonicalizeHumanoidBoneName } from "../../loaders/humanoidRig";
-import mixamoBoneRoleAliases from "./mixamoBoneRoleAliases.json";
+import { getMixamoPoseBoneRotations, MIXAMO_BONE_ROLE_ALIASES, type MixamoBoneRole } from "./mixamoPoseAxes";
 import { getBoundsInParentLocal } from "../objectBounds";
 
-export const MIXAMO_BONE_ROLE_ALIASES = mixamoBoneRoleAliases;
+export {
+  getMixamoPoseBoneRotations,
+  getMixamoPoseControlsFromBoneRotation,
+  MIXAMO_BONE_ROLE_ALIASES,
+  MIXAMO_POSE_AXIS_BINDINGS,
+  MIXAMO_POSE_BONE_ROLES,
+} from "./mixamoPoseAxes";
+export type { MixamoBoneRole, MixamoBoneRotationMap } from "./mixamoPoseAxes";
 
-export type MixamoBoneRole = keyof typeof MIXAMO_BONE_ROLE_ALIASES;
 export type MixamoResolvedBones = Partial<Record<MixamoBoneRole, Bone>>;
 
 const MIXAMO_IK_CHAINS: Record<
@@ -102,7 +106,6 @@ export const DEFAULT_DIRECTOR_CHARACTER_HEIGHT_M = 1.78;
 /** Skip rescale when the measured height is already within this relative tolerance. */
 export const MIXAMO_CHARACTER_HEIGHT_TOLERANCE = 0.02;
 
-type MixamoBoneRotationMap = Partial<Record<MixamoBoneRole, [number, number, number]>>;
 const rotationEulerScratch = new Euler();
 const rotationQuaternionScratch = new Quaternion();
 
@@ -214,93 +217,6 @@ export function captureMixamoRestPoseAndBones(root: Object3D): { restPose: Mixam
   });
 
   return { restPose, bones };
-}
-
-function radians(control: string, value: number, bodyType?: CharacterBodyType) {
-  return degreesToRadians(clampCharacterPoseControlValue(control, value, bodyType));
-}
-
-/**
- * Maps Director's semantic controls onto a standard Mixamo T-pose.
- *
- * Mixamo's upper-arm local Y axis follows the arm, local X points along the
- * character's front/back axis, and local Z points down. Consequently the
- * neutral arm lowering belongs on local X rather than local Z. The leg chains
- * use the opposite bend/spread signs from the procedural mannequin. Keeping
- * these conventions here makes the editor controls portable without baking
- * asset-specific rotations into stored projects.
- */
-export function getMixamoPoseBoneRotations(
-  controls: Record<string, number>,
-  bodyType?: CharacterBodyType,
-  animated = false,
-): MixamoBoneRotationMap {
-  // Mixamo character assets are authored in a T-pose, while Director's static
-  // neutral pose lowers both arms. A sampled Mixamo clip already contains its
-  // own shoulder stance, so applying this correction again would rotate X Bot
-  // and other Mixamo arms roughly seventy extra degrees on every frame.
-  const neutralShoulder = animated ? 0 : degreesToRadians(70);
-  return {
-    body: [
-      radians("body.pitch", controls["body.pitch"] ?? 0, bodyType),
-      radians("body.yaw", controls["body.yaw"] ?? 0, bodyType),
-      radians("body.roll", controls["body.roll"] ?? 0, bodyType),
-    ],
-    torso: [
-      radians("torso.pitch", controls["torso.pitch"] ?? 0, bodyType),
-      radians("torso.yaw", controls["torso.yaw"] ?? 0, bodyType),
-      radians("torso.roll", controls["torso.roll"] ?? 0, bodyType),
-    ],
-    head: [
-      radians("head.pitch", controls["head.pitch"] ?? 0, bodyType),
-      radians("head.yaw", controls["head.yaw"] ?? 0, bodyType),
-      radians("head.roll", controls["head.roll"] ?? 0, bodyType),
-    ],
-    leftShoulder: [
-      neutralShoulder + radians("leftShoulder.spread", controls["leftShoulder.spread"] ?? 0, bodyType),
-      radians("leftShoulder.twist", controls["leftShoulder.twist"] ?? 0, bodyType),
-      radians("leftShoulder.pitch", controls["leftShoulder.pitch"] ?? 0, bodyType),
-    ],
-    rightShoulder: [
-      neutralShoulder - radians("rightShoulder.spread", controls["rightShoulder.spread"] ?? 0, bodyType),
-      radians("rightShoulder.twist", controls["rightShoulder.twist"] ?? 0, bodyType),
-      -radians("rightShoulder.pitch", controls["rightShoulder.pitch"] ?? 0, bodyType),
-    ],
-    leftElbow: [0, 0, radians("leftElbow.bend", controls["leftElbow.bend"] ?? 0, bodyType)],
-    rightElbow: [0, 0, -radians("rightElbow.bend", controls["rightElbow.bend"] ?? 0, bodyType)],
-    leftHand: [
-      radians("leftHand.pitch", controls["leftHand.pitch"] ?? 0, bodyType),
-      radians("leftHand.twist", controls["leftHand.twist"] ?? 0, bodyType),
-      radians("leftHand.roll", controls["leftHand.roll"] ?? 0, bodyType),
-    ],
-    rightHand: [
-      radians("rightHand.pitch", controls["rightHand.pitch"] ?? 0, bodyType),
-      radians("rightHand.twist", controls["rightHand.twist"] ?? 0, bodyType),
-      radians("rightHand.roll", controls["rightHand.roll"] ?? 0, bodyType),
-    ],
-    leftHip: [
-      radians("leftHip.pitch", controls["leftHip.pitch"] ?? 0, bodyType),
-      radians("leftHip.twist", controls["leftHip.twist"] ?? 0, bodyType),
-      -radians("leftHip.spread", controls["leftHip.spread"] ?? 0, bodyType),
-    ],
-    rightHip: [
-      radians("rightHip.pitch", controls["rightHip.pitch"] ?? 0, bodyType),
-      radians("rightHip.twist", controls["rightHip.twist"] ?? 0, bodyType),
-      -radians("rightHip.spread", controls["rightHip.spread"] ?? 0, bodyType),
-    ],
-    leftKnee: [-radians("leftKnee.bend", controls["leftKnee.bend"] ?? 0, bodyType), 0, 0],
-    rightKnee: [-radians("rightKnee.bend", controls["rightKnee.bend"] ?? 0, bodyType), 0, 0],
-    leftFoot: [
-      radians("leftFoot.pitch", controls["leftFoot.pitch"] ?? 0, bodyType),
-      radians("leftFoot.twist", controls["leftFoot.twist"] ?? 0, bodyType),
-      radians("leftFoot.roll", controls["leftFoot.roll"] ?? 0, bodyType),
-    ],
-    rightFoot: [
-      radians("rightFoot.pitch", controls["rightFoot.pitch"] ?? 0, bodyType),
-      radians("rightFoot.twist", controls["rightFoot.twist"] ?? 0, bodyType),
-      radians("rightFoot.roll", controls["rightFoot.roll"] ?? 0, bodyType),
-    ],
-  };
 }
 
 function applyRotationOffset(object: Object3D, rotation: [number, number, number]) {
@@ -484,6 +400,40 @@ export function getMixamoCharacterIkRuntime(root: Object3D) {
   const runtime = createMixamoCharacterIkRuntime();
   mixamoCharacterIkRuntimeByRoot.set(root, runtime);
   return runtime;
+}
+
+/**
+ * Handedness factor between Director-local IK goals and this skeleton.
+ *
+ * Viewport IK dragging reads a world point and must store it the way
+ * {@link applyMixamoCharacterIk} will read it back, so the mirror decision has
+ * to come from the same chain-side resolution rather than a second guess.
+ *
+ * @param root - The Mixamo asset root whose skeleton owns the chain.
+ * @param bones - Semantic bones resolved from that root.
+ * @param effector - The IK chain being edited.
+ * @returns 1 when Director-local X already matches the skeleton, -1 otherwise.
+ */
+export function resolveMixamoIkMirrorX(
+  root: Object3D,
+  bones: MixamoResolvedBones,
+  effector: DirectorCharacterIkEffector,
+) {
+  const chain = MIXAMO_IK_CHAINS[effector];
+  const upper = bones[chain.upper];
+  const lower = bones[chain.lower];
+  const end = bones[chain.end];
+  if (!upper || !lower || !end) return 1;
+
+  root.updateMatrixWorld(true);
+  const runtime = getMixamoCharacterIkRuntime(root);
+  const chainRuntime = runtime.chains[effector];
+  const chainRoot = getRootLocalPositionInto(root, upper, chainRuntime.chainRoot);
+  const chainMiddle = getRootLocalPositionInto(root, lower, chainRuntime.chainMiddle);
+  const chainEnd = getRootLocalPositionInto(root, end, chainRuntime.chainEnd);
+  const chainLength = chainRoot.distanceTo(chainMiddle) + chainMiddle.distanceTo(chainEnd);
+  const side = resolveMixamoChainSide(upper, chainRoot.x, chainLength, chainRuntime.side);
+  return getDirectorIkMirrorX(effector, side);
 }
 
 /** Apply portable hand/foot goals to the real Mixamo deform skeleton. */

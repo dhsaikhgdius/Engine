@@ -23,6 +23,7 @@ it("defines unified top bar settings cluster controls", () => {
   expect(css).toContain(".top-bar-settings-cluster");
   expect(css).toContain(".top-bar-settings-trigger");
   expect(css).toContain(".language-switcher");
+  expect(css).toContain(".top-bar-settings-cluster.is-collapsed .top-bar-settings-fold");
 });
 
 it("keeps the live camera PiP overlay transparent so the WebGL inset is visible", () => {

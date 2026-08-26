@@ -48,6 +48,49 @@
   padding: 8px 0 12px;
 }
 
+.right-sidebar .prop-inspector .prop-direct-placement {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin: 0 0 8px;
+  padding: 10px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.16);
+  border-radius: 9px;
+  color: rgb(var(--text-muted-rgb));
+  background: rgb(var(--accent-rgb) / 0.055);
+}
+
+.right-sidebar .prop-inspector .prop-direct-placement > svg {
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border-radius: 7px;
+  color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb) / 0.1);
+}
+
+.right-sidebar .prop-inspector .prop-direct-placement > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.right-sidebar .prop-inspector .prop-direct-placement strong {
+  color: rgb(var(--text-rgb));
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.right-sidebar .prop-inspector .prop-direct-placement span {
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.right-sidebar .prop-inspector .right-inspector-content > .inspector-ground-button {
+  margin-bottom: 8px;
+}
+
 .right-sidebar .prop-inspector .right-inspector-content > .inspector-section {
   display: grid;
   gap: 10px;

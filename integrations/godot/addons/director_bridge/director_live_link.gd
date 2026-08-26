@@ -3,12 +3,10 @@
 ## Builds director-godot-live-link-v1 messages: ephemeral, sequence-numbered
 ## preview frames of director_id-tagged nodes that the editor plugin pushes to
 ## the Director Gateway's token-guarded live-link routes. The transport is
-## strictly outbound to Director — Godot never opens a listening port and
-## never exposes a scripting endpoint — and preview frames are never
-## authoritative: durable changes still travel through the reviewed
-## director-dcc-return-v1 package path, and a dropped connection simply lets
-## the Gateway's idle timeout sweep the session without touching the last
-## committed Director revision.
+## strictly outbound to Director — Godot never opens a listening port. An
+## explicitly adopted workshop session can receive GDScript commands and
+## return an engine-owned stable-ID review snapshot. A dropped connection
+## simply lets the Gateway's idle timeout sweep the session.
 ##
 ## Payload construction lives here without any editor or transport
 ## dependencies; director_bridge.gd owns the HTTPRequest plumbing.
@@ -24,6 +22,7 @@ const LIVE_LINK_CONTRACT := "director-godot-live-link-v1"
 const HELLO_PATH := "/api/dcc/live-link/godot/hello"
 const FRAME_PATH := "/api/dcc/live-link/godot/frame"
 const BYE_PATH := "/api/dcc/live-link/godot/bye"
+const COMMAND_RESULT_PATH := "/api/dcc/live-link/godot/command-result"
 const DEFAULT_GATEWAY_URL := "http://127.0.0.1:8787"
 const MAX_ENTITIES_PER_FRAME := 512
 
@@ -89,7 +88,7 @@ func frame_payload(root: Node) -> Dictionary:
 		if not (node is Node3D) or not node.has_meta("director_id"):
 			continue
 		var entity_type := str(node.get_meta("director_entity_type", "object"))
-		if entity_type != "object" and entity_type != "camera":
+		if entity_type != "object" and entity_type != "camera" and entity_type != "light":
 			continue
 		var entity := {
 			"directorId": str(node.get_meta("director_id")),

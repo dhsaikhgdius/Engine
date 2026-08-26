@@ -9,8 +9,9 @@ tools, and prompt assembly come from the
 
 This package is the Director-specific Cordis plugin: Stage (`director_workbench`),
 Canvas / Video Editor (`director_creative`), video generation (`stage_video`),
-and native Blender (`blender_native`). Each tool POSTs to the running Gateway
-`/api/tools/:name` surface.
+native Blender (`blender_native`), game slices (`director_game`), and DCC /
+engine handoff (`director_dcc`: Blender files, Unreal, Unity, Godot). Each tool
+POSTs to the running Gateway `/api/tools/:name` surface.
 
 The plugin also exposes `director_model_routes`, backed by DSH's own live LLM
 registry. Subagents and workflows inherit the current route by default; when a

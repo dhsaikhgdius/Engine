@@ -98,6 +98,49 @@ describe("Godot live-link hub ordering and preview state", () => {
     expect(entities.find(({ directorId }) => directorId === "cam-main")).toMatchObject({ atSequence: 5, fovDeg: 45 });
   });
 
+  it("adopts the open editor as an engine-owned workshop and delivers GDScript commands", () => {
+    const { hub } = hubWithClock();
+    const previewSession = hub.hello(hello());
+    hub.frame(frame(previewSession.sessionId, 1));
+
+    const session = hub.startEngineSession({ allowCode: true, authority: "engine" });
+    expect(session).toMatchObject({ provider: "godot", sessionId: previewSession.sessionId, authority: "engine" });
+
+    const sync = hub.requestCommand(session.sessionId, { command: "sync_scene" });
+    expect(sync).toMatchObject({ status: "completed", snapshot: { provider: "godot" } });
+    expect(sync.snapshot?.entities[0]).toMatchObject({ directorId: "obj-box", entityType: "object" });
+
+    const execute = hub.requestCommand(session.sessionId, { command: "execute_code", code: "return 7" });
+    const acknowledgement = hub.frame(frame(session.sessionId, 2));
+    expect(acknowledgement.commands).toEqual([
+      expect.objectContaining({ commandId: execute.commandId, command: "execute_code", language: "gdscript" }),
+    ]);
+    expect(
+      hub.completeCommand(session.sessionId, {
+        commandId: execute.commandId,
+        command: "execute_code",
+        status: "completed",
+        output: "7",
+      }),
+    ).toMatchObject({ status: "completed", output: "7" });
+  });
+
+  it("requires explicit grants for Godot code and scene sync", () => {
+    const { hub } = hubWithClock();
+    hub.hello(hello());
+    const session = hub.startEngineSession();
+    expectLiveLinkError(
+      () => hub.requestCommand(session.sessionId, { command: "execute_code", code: "return 1" }),
+      "engine_session_code_not_allowed",
+      403,
+    );
+    expectLiveLinkError(
+      () => hub.requestCommand(session.sessionId, { command: "sync_scene" }),
+      "engine_session_not_authoritative",
+      409,
+    );
+  });
+
   it("rejects replayed and stale sequences without overwriting newer preview state", () => {
     const { hub } = hubWithClock();
     const session = hub.hello(hello());

@@ -41,6 +41,7 @@ import {
   directorEngineSceneImportSelectionSchema,
   directorEngineSceneProviderSchema,
 } from "./directorEngineSceneImportContract";
+import { directorDccGodotRunSceneSchema } from "./directorDccEngineRunContract";
 import { strictOperation } from "@director/protocol/strictProtocolVariant";
 import { directorCameraAspectRatioSchema } from "@director/protocol/directorCameraProtocol";
 import { directorDccPortableExchangeFormatSchema, directorDccProviderIdSchema } from "./directorDccProviderContract";
@@ -345,6 +346,71 @@ export const directorDccOperationSchema = z.discriminatedUnion("op", [
     provider: directorEngineSceneProviderSchema,
     project_dir: z.string().trim().min(1).max(2_048),
     scene: z.string().trim().min(1).max(512).optional(),
+  }),
+  strictOperation("start_engine_session", {
+    provider: z.enum(["unity", "godot", "unreal"]),
+    label: z.string().trim().min(1).max(120).optional(),
+    /** Unreal-only: port printed by director_headless.py --mode live-preview. */
+    port: z.number().int().min(1).max(65_535).optional(),
+    /** Explicit local grant for execute_code commands in this session. */
+    allow_code: z.boolean().optional().default(false),
+    /** Engine authority enables repeated engine → Director review sync. */
+    authority: z.enum(["director", "engine"]).optional().default("director"),
+  }),
+  strictOperation("engine_session_command", {
+    provider: z.enum(["unity", "godot", "unreal"]),
+    session_id: z.string().trim().min(1).max(240),
+    command: z.enum(["capture_frame", "execute_code", "sync_scene"]),
+    camera: z.string().trim().min(1).max(240).optional(),
+    width: z.number().int().min(64).max(1_920).optional(),
+    height: z.number().int().min(64).max(1_080).optional(),
+    /** C# for Unity, GDScript for Godot, or Editor Python for Unreal. */
+    code: z.string().min(1).max(100_000).optional(),
+  }),
+  strictOperation("engine_session_command_status", {
+    provider: z.enum(["unity", "godot", "unreal"]),
+    session_id: z.string().trim().min(1).max(240),
+    command_id: z.string().trim().min(1).max(240),
+  }),
+  strictOperation("stop_engine_session", {
+    provider: z.enum(["unity", "godot", "unreal"]),
+    session_id: z.string().trim().min(1).max(240),
+  }),
+  strictOperation("sync_engine_session_to_director", {
+    provider: z.enum(["unity", "godot", "unreal"]),
+    session_id: z.string().trim().min(1).max(240),
+    command_id: z.string().trim().min(1).max(240),
+    expected_revision: z.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+    idempotency_key: z.string().trim().min(1).max(240),
+  }),
+  strictOperation("launch_engine_editor", {
+    provider: directorDccEngineIdSchema,
+  }),
+  strictOperation("run_engine_project", {
+    provider: directorDccEngineIdSchema,
+    /** Godot-only today: a res:// scene inside the configured project (defaults to the main scene). */
+    scene: directorDccGodotRunSceneSchema.optional(),
+    /** Run without a window; output capture is unchanged. */
+    headless: z.boolean().optional(),
+  }),
+  strictOperation("engine_run_status", {
+    provider: directorDccEngineIdSchema,
+  }),
+  strictOperation("stop_engine_project", {
+    provider: directorDccEngineIdSchema,
+  }),
+  strictOperation("render_engine_frame", {
+    provider: directorDccEngineIdSchema,
+    /** Unreal: required send-job id (renders that job's imported level); Unity: optional (resolves the imported scene). */
+    job_id: z.string().trim().min(1).max(240).optional(),
+    /** Godot: res:// scene (defaults to the main scene); Unity: project scene path. */
+    scene: z.string().trim().min(1).max(1_024).optional(),
+    /** Unreal: Director camera id; Unity: camera object name. */
+    camera: z.string().trim().min(1).max(240).optional(),
+    width: z.number().int().min(64).max(1_920).optional(),
+    height: z.number().int().min(64).max(1_080).optional(),
+    /** Unreal-only: the Director timeline frame to scrub to before rendering. */
+    frame: z.number().int().nonnegative().max(1_000_000).optional(),
   }),
 ]);
 

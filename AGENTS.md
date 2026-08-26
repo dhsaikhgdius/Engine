@@ -14,7 +14,7 @@ every coding agent; per-agent rule files only point back here.
 | `packages/`                      | Shared npm workspaces: protocol, agent-engine, dsh-plugin-workbench, project-schema, stage-protocol, dcc-*, model-provider, di, scene-pipeline |
 | `packages/dsh-plugin-workbench/` | Director Stage / Canvas / Video / Blender tools as a DeepSeek Harness plugin                                                                   |
 | `vendor/`                        | Official third-party Git submodules: DeepSeek Harness, LTX-2, Hunyuan3D-2, TRELLIS, ARDY. Do not fork them in-tree.                            |
-| `integrations/`                  | Blender live kernel, `.blend` interchange, portable Agent plugin                                                                               |
+| `integrations/`                  | Blender live kernel + interchange, Unreal / Unity / Godot engine connectors and scene exporters, portable Agent plugin                        |
 | `assets/`                        | Asset catalogs, manifests, provenance, and license metadata                                                                                    |
 | `docs/site/`                     | Product and engineering documentation site                                                                                                     |
 | `tools/scripts/`                 | Repository automation, local launchers, checks, reproducible tools                                                                             |

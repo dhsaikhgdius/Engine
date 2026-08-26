@@ -20,6 +20,7 @@ import {
   Eye,
   EyeOff,
   Folder,
+  Globe2,
   Link2,
   Lock,
   MoreHorizontal,
@@ -336,7 +337,7 @@ function getSceneTreeItemLabel(item: SceneTreeItem) {
   return item.displayName?.trim() || item.name;
 }
 
-export function ObjectTreePanel() {
+export function ObjectTreePanel({ onSceneSettingsOpen }: { onSceneSettingsOpen?: () => void } = {}) {
   const objectTreeScrollRef = useRef<HTMLDivElement>(null);
   const { t } = useLanguage();
   // Same roleAllowsTool policy the gateway applies to director_workbench
@@ -361,6 +362,8 @@ export function ObjectTreePanel() {
   const selectedObjectIds = useDirectorStore(selectSelectedObjectIds);
   const selectedCrowdId = useDirectorStore((state) => state.selectedCrowdId);
   const selectObject = useDirectorStore((state) => state.selectObject);
+  const openSceneInspector = useDirectorStore((state) => state.openSceneInspector);
+  const sceneInspectorActive = useDirectorStore((state) => state.directorInspectorMode === "scene");
   const selectCrowd = useDirectorStore((state) => state.selectCrowd);
   const toggleObjectSelection = useDirectorStore((state) => state.toggleObjectSelection);
   const setActiveCamera = useDirectorStore((state) => state.setActiveCamera);
@@ -974,6 +977,19 @@ export function ObjectTreePanel() {
   return (
     <section className="panel-card object-tree-panel">
       <h2 className="visually-hidden">场景对象</h2>
+      <button
+        aria-label={t("场景与世界设置")}
+        aria-pressed={sceneInspectorActive}
+        className={`object-tree-scene-settings${sceneInspectorActive ? " is-active" : ""}`}
+        onClick={() => {
+          openSceneInspector();
+          onSceneSettingsOpen?.();
+        }}
+        type="button"
+      >
+        <Globe2 aria-hidden size={15} strokeWidth={1.8} />
+        <span>{t("场景与世界设置")}</span>
+      </button>
       <label className="object-search-field">
         <Search aria-hidden="true" size={16} strokeWidth={1.8} />
         <input

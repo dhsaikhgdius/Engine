@@ -107,8 +107,9 @@ export function LivingWorldLayer({
 
   if (!world || !context) return null;
 
-  const visibleWaterBodies = world.waterBodies.filter((body) => body.visible && !body.river);
-  const visibleRivers = world.waterBodies.filter((body) => body.visible && body.river);
+  const visibleWaters = world.waterBodies.filter((body) => body.visible);
+  const visibleWaterBodies = visibleWaters.filter((body) => !body.river);
+  const visibleRivers = visibleWaters.filter((body) => body.river);
   const visibleWildlife = world.wildlife.filter((group) => group.visible);
   // Pre-roads world blocks may lack the collection until reparsed from disk.
   const visibleRoads = (world.roads ?? []).filter((road) => road.visible);
@@ -132,7 +133,7 @@ export function LivingWorldLayer({
       </Suspense>
       {resolvedEffects.length > 0 || weatherEvolving || context.settings.weather.preset !== "clear" ? (
         <Suspense fallback={null}>
-          <EffectsLayer context={context} effects={resolvedEffects} waterBodies={visibleWaterBodies} />
+          <EffectsLayer context={context} effects={resolvedEffects} waterBodies={visibleWaters} />
         </Suspense>
       ) : null}
       {visibleWaterBodies.length > 0 ? (

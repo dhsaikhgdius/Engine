@@ -18,8 +18,9 @@ Modes:
 - ``export``  export a ``director-dcc-return-v1`` package containing the
   canonical-space transforms of every ``director_id``-tagged actor that moved
   relative to the exchange package baseline.
-- ``live-preview``  preview-only loopback camera feed into the editor
-  viewport (sequence-numbered, token-gated); never a durable scene channel.
+- ``live-preview``  token-gated hot editor connection for camera preview and
+  opt-in Editor Python / engine-owned review snapshots; never the film
+  delivery channel.
 - ``render``  one optional clean still (offscreen, no editor gizmos or
   labels) through a Director-tagged CineCamera, writing a
   ``director-unreal-clean-frame-v1`` receipt. Runs with ``-RenderOffscreen``
@@ -32,6 +33,9 @@ All transforms cross the provider boundary in Director canonical space
 from __future__ import annotations
 
 import argparse
+import contextlib
+import datetime
+import io
 import json
 import os
 import sys
@@ -71,6 +75,8 @@ CONNECTOR_FEATURES = [
     "material_textures",
     "lights",
     "live_preview_protocol",
+    "engine_workshop",
+    "editor_python",
     "clean_frame_render",
 ]
 
@@ -869,13 +875,79 @@ def _apply_preview_frame(unreal, payload: dict) -> None:
     )
 
 
+def _engine_scene_snapshot(unreal) -> dict:
+    """Project Director-tagged Unreal actors into the shared review snapshot."""
+    actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    entities = []
+    for actor in actor_subsystem.get_all_level_actors():
+        director_id = director_id_of_actor(actor)
+        if not director_id:
+            continue
+        entity_type = "object"
+        if isinstance(actor, unreal.CineCameraActor):
+            entity_type = "camera"
+        elif isinstance(actor, unreal.Light):
+            entity_type = "light"
+        entities.append(
+            {
+                "directorId": director_id,
+                "name": actor.get_actor_label(),
+                "entityType": entity_type,
+                "transform": canonical_from_unreal_transform(actor.get_actor_transform()),
+            }
+        )
+    world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+    return {
+        "provider": "unreal",
+        "scenePath": world.get_path_name() if world else None,
+        "capturedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "entities": entities,
+    }
+
+
+def _run_editor_command(unreal, payload: dict, allow_code: bool) -> dict:
+    command_id = payload["commandId"]
+    command = payload["command"]
+    try:
+        if command == "sync_scene":
+            return {
+                "commandId": command_id,
+                "command": command,
+                "status": "completed",
+                "snapshot": _engine_scene_snapshot(unreal),
+            }
+        if not allow_code:
+            raise RuntimeError("Editor Python is disabled; restart live-preview with --preview-allow-code.")
+        output = io.StringIO()
+        scope = {"unreal": unreal}
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            exec(compile(payload["code"], "<director-editor-python>", "exec"), scope, scope)
+        value = scope.get("result")
+        if value is not None:
+            print(value, file=output)
+        return {
+            "commandId": command_id,
+            "command": command,
+            "status": "completed",
+            "output": output.getvalue()[: 128 * 1024],
+        }
+    except Exception as error:  # noqa: BLE001 - command failure is returned to the caller
+        return {
+            "commandId": command_id,
+            "command": command,
+            "status": "failed",
+            "error": str(error)[:4000],
+        }
+
+
 def run_live_preview(unreal, arguments) -> int:
-    """Preview-only loopback camera feed (never the durable scene channel).
+    """Token-gated loopback camera feed and opt-in workshop commands.
 
     Binds 127.0.0.1 only, requires the shared token from the
     ``DIRECTOR_UNREAL_PREVIEW_TOKEN`` environment variable, applies
     sequence-numbered ``camera_frame`` messages to the editor viewport, and
-    stops on ``bye``, a protocol error, or the staleness timeout.
+    stops on ``bye``, a protocol error, or the staleness timeout. Editor Python
+    remains disabled unless ``--preview-allow-code`` was supplied.
     """
     import socket
     import time
@@ -918,6 +990,9 @@ def run_live_preview(unreal, arguments) -> int:
                 break
             if verb == dlivelink.APPLY and payload is not None:
                 _apply_preview_frame(unreal, payload)
+            if verb == dlivelink.COMMAND and payload is not None:
+                result = _run_editor_command(unreal, payload, arguments.preview_allow_code)
+                connection.sendall((json.dumps({"type": "command_result", "result": result}) + "\n").encode("utf-8"))
     finally:
         server.close()
     print(json.dumps({"ok": True, "applied": session.applied_count, "dropped": session.dropped_count}))
@@ -972,6 +1047,12 @@ def main(argv: list[str]) -> int:
         type=int,
         default=dlivelink.DEFAULT_STALE_TIMEOUT_MS,
         help="Disconnect timeout for live-preview mode.",
+    )
+    parser.add_argument(
+        "--preview-allow-code",
+        dest="preview_allow_code",
+        action="store_true",
+        help="Opt in to Editor Python commands on the token-gated loopback session.",
     )
     arguments = parser.parse_args(argv)
 

@@ -580,6 +580,138 @@
   user-select: all;
 }
 
+.director-engine-run-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.director-engine-run-toolbar > button:not(.ui-icon-button) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  border-radius: 7px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--accent-rgb) / 0.08);
+  font-size: var(--interchange-control-size, 10.5px);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.director-engine-run-toolbar input.ui-field {
+  min-width: 0;
+  flex: 1 1 150px;
+}
+
+.director-engine-run-toolbar .director-engine-run-stop {
+  border-color: rgb(var(--director-danger-rgb, 226 104 104) / 0.28);
+  color: rgb(var(--director-danger-rgb, 226 104 104));
+  background: rgb(var(--director-danger-rgb, 226 104 104) / 0.08);
+}
+
+.director-engine-run-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.35;
+}
+
+.director-engine-run-status > span {
+  padding: 2px 7px;
+  border: 1px solid rgb(var(--border-rgb) / 0.14);
+  border-radius: 999px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.director-engine-run-status[data-state="running"] > span {
+  border-color: rgb(var(--director-positive-rgb, 104 206 126) / 0.24);
+  color: rgb(var(--director-positive-rgb, 104 206 126));
+  background: rgb(var(--director-positive-rgb, 104 206 126) / 0.1);
+}
+
+.director-engine-run-status[data-state="failed"] > span {
+  border-color: rgb(var(--director-danger-rgb, 226 104 104) / 0.24);
+  color: rgb(var(--director-danger-rgb, 226 104 104));
+  background: rgb(var(--director-danger-rgb, 226 104 104) / 0.1);
+}
+
+.director-engine-run-status small {
+  color: rgb(var(--text-dim-rgb));
+}
+
+.director-engine-run-output {
+  overflow: auto;
+  max-height: 180px;
+  margin: 0;
+  padding: 7px;
+  border: 1px solid rgb(var(--border-rgb) / 0.12);
+  border-radius: 7px;
+  background: rgb(var(--field-rgb) / 0.55);
+  color: rgb(var(--text-muted-rgb));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.director-engine-scene-selection {
+  display: grid;
+  gap: 6px;
+}
+
+.director-engine-scene-selection > button {
+  justify-self: start;
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  border-radius: 7px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--accent-rgb) / 0.08);
+  font-size: var(--interchange-control-size, 10.5px);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.director-engine-scene-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 7px;
+}
+
+.director-engine-scene-picks legend {
+  padding: 0 3px;
+  color: rgb(var(--text-dim-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  font-weight: 600;
+}
+
+.director-engine-scene-picks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.3;
+}
+
+.director-engine-scene-picks small {
+  color: rgb(var(--text-dim-rgb));
+}
+
 @keyframes director-engine-handoff-spin {
   to {
     transform: rotate(360deg);

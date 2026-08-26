@@ -39,6 +39,7 @@ schema、管线和外部契约时应维护的规范记录。
 | [角色资产与动作](/zh/engineering/character_asset_motion_pipeline/)      | 角色来源、规范化、rig、retarget、动作层和许可。                                                  |
 | [白模到视频](/zh/engineering/video_gen_pipeline/)                       | 当前白模到视频任务契约与 ComfyUI 适配器。                                                        |
 | [Blender 原生后端与文件交换](/zh/engineering/blender_bridge/) | Live 场景所有权、Director 根对象同步、原生 Mesh/Rig 编辑，以及可选 `.blend` 导入与稳定 ID 回传。 |
+| [Multi-DCC 集成（英文）](/engineering/multi_dcc_integration/)            | 规范 IR、提供方能力声明、可移植交换包、Unreal / Unity / Godot 原生适配器成熟度与推进顺序。       |
 | [参考复用台账](/zh/engineering/reference_reuse_ledger/)                 | 来源复用、许可、修订和 clean-room 决策。                                                         |
 
 ## 研究与发布证据

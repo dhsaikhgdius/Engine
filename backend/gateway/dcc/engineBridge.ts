@@ -182,6 +182,8 @@ export interface CreateDirectorDccEngineBridgeOptions {
   exchangePackager: DirectorDccExchangePackager;
   /** Optional environment override (defaults to `process.env`). */
   environment?: NodeJS.ProcessEnv;
+  /** Optional executable discovery override for deterministic tests. */
+  discoverExecutable?: (provider: DirectorDccEngineId, environment: NodeJS.ProcessEnv) => Promise<string | null>;
   /** Optional process runner override for tests. */
   runProcess?: EngineProcessRunner;
   /** Optional host version probe override for tests. */
@@ -529,6 +531,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
   const workspaceRoot = resolve(options.workspaceRoot);
   const dataDirectory = resolve(options.dataDirectory);
   const environment = options.environment ?? process.env;
+  const discoverExecutable = options.discoverExecutable ?? discoverEngineExecutable;
   const runProcess = options.runProcess ?? defaultRunProcess;
   const probeHostVersion =
     options.probeHostVersion ??
@@ -600,7 +603,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       }
     }
 
-    const executable = await discoverEngineExecutable(provider, environment);
+    const executable = await discoverExecutable(provider, environment);
     checks.push({
       id: "executable",
       ok: Boolean(executable),

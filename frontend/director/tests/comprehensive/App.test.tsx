@@ -105,7 +105,7 @@ vi.mock("../../src/comprehensive/editor/interchange/BlenderLivePanel", () => ({
   BlenderNativeMeshInspector: () => null,
 }));
 
-import App from "../../src/comprehensive/App";
+import App, { SETTINGS_CLUSTER_COLLAPSED_STORAGE_KEY } from "../../src/comprehensive/App";
 
 beforeEach(() => {
   hostBridgeMocks.clear.mockClear();
@@ -115,6 +115,7 @@ beforeEach(() => {
   workspaceModuleLoads.video.mockClear();
   workspaceModuleLoads.agent.mockClear();
   window.localStorage.removeItem(DIRECTOR_THEME_STORAGE_KEY);
+  window.localStorage.removeItem(SETTINGS_CLUSTER_COLLAPSED_STORAGE_KEY);
   window.localStorage.removeItem(STAGE_VIEWPORT_AUDIO_STORAGE_KEY);
   setStageViewportAudioEnabled(true);
   document.documentElement.classList.remove("dark");
@@ -352,6 +353,52 @@ it("keeps the director desk top bar visible without a collapse control", () => {
   expect(screen.queryByRole("button", { name: "展开顶部栏" })).not.toBeInTheDocument();
 });
 
+it("folds the top-bar settings cluster without hiding the header", async () => {
+  const user = userEvent.setup();
+  const { container } = render(<App />);
+  const cluster = container.querySelector(".top-bar-settings-cluster");
+  const fold = container.querySelector("#top-bar-settings-fold");
+
+  expect(cluster).not.toHaveClass("is-collapsed");
+  expect(fold).not.toHaveAttribute("inert");
+  expect(screen.getByRole("button", { name: "视角手感" })).toBeInTheDocument();
+
+  const collapseToggle = container.querySelector(".top-bar-settings-collapse");
+  expect(collapseToggle).toHaveAttribute("aria-expanded", "true");
+  expect(collapseToggle).not.toHaveAttribute("title");
+  expect(collapseToggle).not.toHaveAttribute("aria-label");
+
+  await user.click(collapseToggle!);
+
+  expect(cluster).toHaveClass("is-collapsed");
+  expect(fold).toHaveAttribute("inert", "");
+  expect(collapseToggle).toHaveAttribute("aria-expanded", "false");
+  expect(window.localStorage.getItem(SETTINGS_CLUSTER_COLLAPSED_STORAGE_KEY)).toBe("1");
+  expect(container.querySelector(".top-bar")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "收起顶部栏" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "收起设置栏" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "展开设置栏" })).not.toBeInTheDocument();
+
+  await user.click(collapseToggle!);
+
+  expect(cluster).not.toHaveClass("is-collapsed");
+  expect(fold).not.toHaveAttribute("inert");
+  expect(collapseToggle).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "视角手感" })).toBeInTheDocument();
+  expect(window.localStorage.getItem(SETTINGS_CLUSTER_COLLAPSED_STORAGE_KEY)).toBe("0");
+});
+
+it("restores a collapsed settings cluster from the remembered preference", () => {
+  window.localStorage.setItem(SETTINGS_CLUSTER_COLLAPSED_STORAGE_KEY, "1");
+  const { container } = render(<App />);
+  const collapseToggle = container.querySelector(".top-bar-settings-collapse");
+
+  expect(container.querySelector(".top-bar-settings-cluster")).toHaveClass("is-collapsed");
+  expect(container.querySelector("#top-bar-settings-fold")).toHaveAttribute("inert", "");
+  expect(collapseToggle).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("button", { name: "展开设置栏" })).not.toBeInTheDocument();
+});
+
 it("notifies the host canvas when the director desk app is ready", () => {
   const postMessage = vi.spyOn(window.parent, "postMessage").mockImplementation(() => undefined);
 
@@ -398,6 +445,18 @@ it("opens Stage with the timeline and right inspector collapsed", async () => {
   expect(screen.getByRole("separator", { name: "展开下方栏" })).toBeInTheDocument();
   expect(screen.queryByRole("separator", { name: "调整属性面板宽度" })).not.toBeInTheDocument();
   expect(screen.queryByRole("separator", { name: "调整时间轴高度" })).not.toBeInTheDocument();
+});
+
+it("opens the properties inspector directly from scene and world settings", async () => {
+  const user = userEvent.setup();
+  const { container } = render(<App />);
+  await screen.findByTestId("mock-director-canvas");
+
+  await user.click(screen.getByRole("button", { name: "场景与世界设置" }));
+
+  expect(container.querySelector(".app-shell")).not.toHaveClass("is-right-panel-collapsed");
+  expect(screen.getByRole("tab", { name: "属性" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("region", { name: "3D场景右侧属性面板" })).toBeInTheDocument();
 });
 
 it("keeps the scene sidebar without a collapse control", async () => {

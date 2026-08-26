@@ -7,8 +7,10 @@ git 子模块 `[vendor/deepseek-harness](../../vendor/deepseek-harness)`
 （[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)）。
 
 本包是 Director 专用 Cordis 插件：3D 导演台（`director_workbench`）、画布 / 视频编辑
-（`director_creative`）、视频生成（`stage_video`）、以及原生 Blender
-（`blender_native`）。每个工具都 POST 到正在运行的 Gateway `/api/tools/:name`。
+（`director_creative`）、视频生成（`stage_video`）、原生 Blender
+（`blender_native`）、游戏切片（`director_game`），以及 DCC / 引擎交接
+（`director_dcc`：Blender 文件、Unreal、Unity、Godot）。每个工具都 POST 到
+正在运行的 Gateway `/api/tools/:name`。
 
 插件还提供由 DSH 实时 LLM 注册表直接驱动的 `director_model_routes`。子代理与 workflow
 默认继承当前路由；确实需要其他能力时，Agent 必须读取该目录，而不是猜测 provider 或

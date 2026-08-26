@@ -84,6 +84,80 @@ describe("Unity live-link hub", () => {
     expect(Date.now() - startedAt).toBeLessThan(4_000);
   });
 
+  it("queues a hot capture command and accepts its token-authenticated result", async () => {
+    const hub = createUnityLiveLinkHub();
+    const { sessionId, token } = hub.createSession();
+    const queued = hub.requestCapture(sessionId, { camera: "Gameplay Camera", width: 800, height: 450 });
+    expect(queued).toMatchObject({ command: "capture_frame", status: "pending" });
+
+    const delivery = await hub.poll({ sessionId, token, afterSeq: 0, waitMs: 0 });
+    expect(delivery.events).toHaveLength(1);
+    expect(delivery.events[0]?.payload).toMatchObject({
+      kind: "editor_command",
+      commandId: queued.commandId,
+      command: "capture_frame",
+      camera: "Gameplay Camera",
+      width: 800,
+      height: 450,
+    });
+
+    const imageBase64 = Buffer.from("fixture-png").toString("base64");
+    const completed = hub.completeCommand(sessionId, token, {
+      commandId: queued.commandId,
+      command: "capture_frame",
+      status: "completed",
+      mimeType: "image/png",
+      imageBase64,
+      width: 800,
+      height: 450,
+    });
+    expect(completed).toMatchObject({
+      status: "completed",
+      capture: { mimeType: "image/png", dataBase64: imageBase64, width: 800, height: 450 },
+    });
+    expect(hub.commandStatus(sessionId, queued.commandId)).toEqual(completed);
+  });
+
+  it("gates C# execution and engine-owned scene sync at session creation", async () => {
+    const hub = createUnityLiveLinkHub();
+    const defaultSession = hub.createSession();
+    expect(() =>
+      hub.requestCommand(defaultSession.sessionId, { command: "execute_code", code: "return 1;" }),
+    ).toThrowError(/allow_code/);
+    expect(() => hub.requestCommand(defaultSession.sessionId, { command: "sync_scene" })).toThrowError(/authority/);
+
+    const { sessionId, token } = hub.createSession({ allowCode: true, authority: "engine" });
+    const execute = hub.requestCommand(sessionId, { command: "execute_code", code: "return 7;" });
+    const sync = hub.requestCommand(sessionId, { command: "sync_scene" });
+    const delivery = await hub.poll({ sessionId, token, afterSeq: 0, waitMs: 0 });
+    expect(delivery.events.map((event) => event.payload)).toEqual([
+      expect.objectContaining({ command: "execute_code", language: "csharp", code: "return 7;" }),
+      expect.objectContaining({ command: "sync_scene" }),
+    ]);
+
+    expect(
+      hub.completeCommand(sessionId, token, {
+        commandId: execute.commandId,
+        command: "execute_code",
+        status: "completed",
+        output: "7",
+      }),
+    ).toMatchObject({ status: "completed", output: "7" });
+    expect(
+      hub.completeCommand(sessionId, token, {
+        commandId: sync.commandId,
+        command: "sync_scene",
+        status: "completed",
+        snapshot: {
+          provider: "unity",
+          scenePath: "Assets/Scenes/Main.unity",
+          capturedAt: "2026-08-26T10:00:00.000Z",
+          entities: [],
+        },
+      }),
+    ).toMatchObject({ status: "completed", snapshot: { provider: "unity" } });
+  });
+
   it("returns an empty result when the wait times out", async () => {
     const hub = createUnityLiveLinkHub();
     const { sessionId, token } = hub.createSession();
@@ -294,6 +368,32 @@ describe("Unity live-link routes", () => {
     expect(result.latestSeq).toBe(1);
   });
 
+  it("accepts command results only from the connected Unity session", async () => {
+    const { hub, invoke } = routeHarness();
+    const created = await invoke("POST", "/api/dcc/unity/live-link/sessions", { body: {} });
+    const { sessionId, token } = created.body.result as { sessionId: string; token: string };
+    const command = hub.requestCapture(sessionId);
+    const body = {
+      commandId: command.commandId,
+      command: "capture_frame",
+      status: "completed",
+      mimeType: "image/png",
+      imageBase64: Buffer.from("fixture-png").toString("base64"),
+      width: 960,
+      height: 540,
+    };
+
+    const missing = await invoke("POST", `/api/dcc/unity/live-link/sessions/${sessionId}/command-results`, { body });
+    expect(missing.status).toBe(401);
+
+    const accepted = await invoke("POST", `/api/dcc/unity/live-link/sessions/${sessionId}/command-results`, {
+      body,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.result).toMatchObject({ commandId: command.commandId, status: "completed" });
+  });
+
   it("closes sessions so later polls get a clean 410", async () => {
     const { invoke } = routeHarness();
     const created = await invoke("POST", "/api/dcc/unity/live-link/sessions", { body: {} });
@@ -355,7 +455,7 @@ describe("Unity live-link routes", () => {
     // authoritative for project state.
     expect(importedModules.length).toBeGreaterThan(0);
     for (const module of importedModules) {
-      expect(["node:crypto", "zod"]).toContain(module);
+      expect(["node:crypto", "@director/dcc-protocol", "zod"]).toContain(module);
     }
     for (const forbidden of [
       "@director/project-schema",

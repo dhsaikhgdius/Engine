@@ -17,6 +17,19 @@ passes `--config` when it spawns the UI.
 npm run eval
 ```
 
+Run the engine-result gate separately when a real Godot 4 editor is available:
+
+```sh
+npm run eval:godot-result
+```
+
+This launches a runnable 3D room in Godot, captures the engine viewport, and
+compares a downsampled image against `fixtures/godot-room-reference.ppm`. The
+gate requires both runtime markers and a visual score of at least 82. Temporary
+project files are deleted; the frame and JSON report remain under
+`.runtime/evals/godot-result/` for review. Set `DIRECTOR_GODOT_BIN` when Godot
+is not installed in a standard location.
+
 The production reference case reuses the already-running Director, DSH, and Blender processes and never starts a
 second browser or server:
 

@@ -1,14 +1,14 @@
-"""Preview-only live camera/pose protocol for the Unreal connector.
+"""Live camera and opt-in editor-command protocol for the Unreal connector.
 
 Pure Python (no ``unreal`` import). Implements the session logic for the
 ``director-unreal-live-preview-v1`` loopback protocol: newline-delimited JSON
-messages carrying monotonically increasing sequence numbers. The session
+messages carrying camera sequences and scoped editor commands. The session
 
 - requires a ``hello`` with the shared loopback token before any frame,
 - drops reordered or duplicated frames (stale sequence numbers),
 - detects disconnects through an activity timeout,
-- never touches scene assets: this is a viewport preview channel only. The
-  durable scene channel remains the hash-verified exchange/return package.
+- validates editor-command envelopes before the Unreal-facing entry point
+  decides whether execution or a review snapshot is allowed.
 
 The Gateway side of this protocol lives in
 ``backend/gateway/dcc/unrealLivePreview.ts`` with matching
@@ -26,7 +26,7 @@ from typing import Optional, Tuple
 
 PROTOCOL = "director-unreal-live-preview-v1"
 MAX_LINE_BYTES = 64 * 1024
-DEFAULT_STALE_TIMEOUT_MS = 5_000
+DEFAULT_STALE_TIMEOUT_MS = 30 * 60 * 1_000
 
 # Session decision verbs returned by handle_line.
 APPLY = "apply"
@@ -34,6 +34,7 @@ DROP = "drop"
 HELLO_OK = "hello_ok"
 CLOSED = "closed"
 ERROR = "error"
+COMMAND = "command"
 
 
 def _is_finite_number(value) -> bool:
@@ -121,6 +122,19 @@ class PreviewSession:
         if message_type == "bye":
             self._closed = True
             return (CLOSED, None, None)
+        if message_type == "editor_command":
+            command_id = message.get("commandId")
+            command = message.get("command")
+            if not isinstance(command_id, str) or not command_id:
+                return (DROP, None, "editor_command requires commandId")
+            if command == "execute_code":
+                code = message.get("code")
+                if message.get("language") != "python" or not isinstance(code, str) or not code:
+                    return (DROP, None, "execute_code requires non-empty Python code")
+                return (COMMAND, {"commandId": command_id, "command": command, "code": code}, None)
+            if command == "sync_scene":
+                return (COMMAND, {"commandId": command_id, "command": command}, None)
+            return (DROP, None, f"unknown editor command {command!r}")
         if message_type != "camera_frame":
             return (DROP, None, f"unknown message type {message_type!r}")
 

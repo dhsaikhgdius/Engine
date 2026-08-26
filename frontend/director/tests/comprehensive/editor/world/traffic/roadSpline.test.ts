@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildRoadMarkings,
   buildRoadRibbon,
   buildRoadSpline,
   roadLaneOffsetM,
@@ -116,5 +117,83 @@ describe("roadSpline", () => {
     expect(ribbon.normals[1]).toBeCloseTo(1, 6);
     expect(ribbon.uvs[0]).toBe(0);
     expect(ribbon.uvs[2]).toBe(1);
+  });
+
+  it("generates dashed yellow centre paint and continuous white edge lines", () => {
+    const spline = buildRoadSpline(STRAIGHT_POINTS, false);
+    const markings = buildRoadMarkings(spline, 6, 0.026);
+    expect(markings.centerDashCount).toBe(2);
+    expect(markings.edgeLineCount).toBe(2);
+    expect(markings.positions.length).toBe(markings.normals.length);
+    expect(markings.colors.length).toBe(markings.positions.length);
+    expect(markings.indices.length).toBeGreaterThan(0);
+    expect([...markings.positions].every(Number.isFinite)).toBe(true);
+    expect([...markings.normals].every(Number.isFinite)).toBe(true);
+
+    const centerZ: number[] = [];
+    const edgeX: number[] = [];
+    for (let vertex = 0; vertex < markings.positions.length / 3; vertex += 1) {
+      const blue = markings.colors[vertex * 3 + 2]!;
+      expect(markings.positions[vertex * 3 + 1]).toBeCloseTo(0.026, 6);
+      if (blue < 0.5) centerZ.push(markings.positions[vertex * 3 + 2]!);
+      else edgeX.push(markings.positions[vertex * 3]!);
+    }
+    expect(Math.max(...centerZ.map((z, index) => (index === 0 ? 0 : z - centerZ[index - 1]!)))).toBeGreaterThan(4);
+    expect(Math.min(...edgeX.map(Math.abs))).toBeGreaterThan(2.6);
+    expect(Math.max(...edgeX)).toBeLessThan(3);
+    expect(Math.min(...edgeX)).toBeGreaterThan(-3);
+  });
+
+  it("keeps loop edge paint closed and normals aligned on graded curves", () => {
+    const gradedLoop = LOOP_POINTS.map(
+      (point, index) => [point[0], point[1] + Math.sin(index) * 1.2, point[2]] as const,
+    );
+    const spline = buildRoadSpline(gradedLoop, true);
+    const markings = buildRoadMarkings(spline, 8, 0.026);
+    expect(markings.centerDashCount).toBe(Math.round(spline.totalLengthM / 9));
+    expect(markings.edgeLineCount).toBe(2);
+
+    for (let vertex = 0; vertex < markings.normals.length / 3; vertex += 1) {
+      const x = markings.normals[vertex * 3]!;
+      const y = markings.normals[vertex * 3 + 1]!;
+      const z = markings.normals[vertex * 3 + 2]!;
+      expect(Math.hypot(x, y, z)).toBeCloseTo(1, 5);
+      expect(y).toBeGreaterThan(0);
+    }
+
+    const edgeSamples = Math.max(2, Math.ceil(spline.totalLengthM / 1.25) + 1);
+    const verticesPerEdge = edgeSamples * 2;
+    const totalVertices = markings.positions.length / 3;
+    for (const edgeStart of [totalVertices - verticesPerEdge * 2, totalVertices - verticesPerEdge]) {
+      for (let side = 0; side < 2; side += 1) {
+        const first = (edgeStart + side) * 3;
+        const last = (edgeStart + verticesPerEdge - 2 + side) * 3;
+        expect(markings.positions[last]).toBeCloseTo(markings.positions[first]!, 5);
+        expect(markings.positions[last + 1]).toBeCloseTo(markings.positions[first + 1]!, 5);
+        expect(markings.positions[last + 2]).toBeCloseTo(markings.positions[first + 2]!, 5);
+      }
+    }
+  });
+
+  it("omits edge paint on narrow roads and returns empty paint for a zero-length spline", () => {
+    const narrow = buildRoadMarkings(buildRoadSpline(STRAIGHT_POINTS, false), 3, 0.026);
+    expect(narrow.centerDashCount).toBeGreaterThan(0);
+    expect(narrow.edgeLineCount).toBe(0);
+
+    const degenerate = buildRoadMarkings(
+      buildRoadSpline(
+        [
+          [0, 0, 0],
+          [0, 0, 0],
+        ],
+        false,
+      ),
+      6,
+      0.026,
+    );
+    expect(degenerate.positions).toHaveLength(0);
+    expect(degenerate.indices).toHaveLength(0);
+    expect(degenerate.centerDashCount).toBe(0);
+    expect(degenerate.edgeLineCount).toBe(0);
   });
 });

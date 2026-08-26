@@ -19,8 +19,8 @@
   的实体，写出 `director-dcc-return-v1` 返回包。相机基线使用与 glTF/OpenUSD
   导出一致的 look-at 旋转。
 - **健康检查**（`--mode health`）：输出包含引擎版本、连接器版本与特性列表的 JSON。
-- **实时预览**（`--mode live-preview`）：可选的、仅用于预览的回环相机通道，
-  推送到编辑器视口。参见下文「实时预览」；它永远不是持久化场景通道。
+- **常驻编辑器会话**（`--mode live-preview`）：令牌保护的回环相机预览，以及
+  opt-in Editor Python 和引擎权威审阅快照；它永远不是电影交付通道。
 - **干净帧渲染**（`--mode render`）：可选的尽力而为静帧渲染，通过带 Director
   标签的 CineCamera 渲染已导入关卡，不含任何 gizmo、标签或选中描边。总是写出
   `director-unreal-clean-frame-v1` 回执——成功时为 `rendered` 并附图像
@@ -127,18 +127,19 @@ Windows Launcher 安装（`C:\Program Files\Epic Games\UE_5.x`）。引擎版本
 与源修订号。缺少 `--animation` 参数表示静态导入；提供了 sidecar 但校验失败则
 判定为硬失败。
 
-## 实时预览（`live_link`，仅预览、绝非权威通道）
+## 常驻编辑器会话（`live_link`）
 
 `--mode live-preview` 仅绑定 `127.0.0.1`，要求 `DIRECTOR_UNREAL_PREVIEW_TOKEN`
 环境变量提供的共享令牌，并将带序列号的 `camera_frame` 消息应用到编辑器视口。
 乱序或重复的帧会被丢弃；对端静默超时会断开会话。Gateway 侧实现在
 `backend/gateway/dcc/unrealLivePreview.ts`（`director-unreal-live-preview-v1`
-契约）：每个出站帧都经过校验，过期序列号被丢弃，入站字节只计数、绝不解析，
-因此实时帧永远不可能变成工程变更。两端均有断连/乱序/重复测试
+契约）：相机帧仍只用于预览。监听器带 `--preview-allow-code` 且 Gateway 会话带
+`allow_code:true` 时开启 Editor Python；`authority:"engine"` 开启稳定 ID 审阅快照。
+入站消息只有与 Gateway 已发送命令匹配并通过 schema 校验时才会接收。两端均有断连/乱序/重复测试
 （传输侧为 `backend/gateway/tests/dcc/unrealLivePreview.test.ts`，无主机的
 连接器会话侧为 `backend/gateway/tests/dcc/unrealConnectorModules.test.ts`），
-因此 `live_link` 能力为 `native`——但仅作为预览通道。持久化场景通道始终是
-经哈希校验的交换/返回包，Remote Control 绝不充当安全边界。
+因此 `live_link`、`hot_session`、`execute_code` 与 `engine_authority` 都是 native
+连接器能力。电影交付仍走受审交换/返回路径；原生玩法状态留在 Unreal。
 
 ## 干净帧渲染回执
 

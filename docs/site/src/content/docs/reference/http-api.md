@@ -316,6 +316,132 @@ curl -fsS -X POST "$BASE/api/tools/director_dcc" \
 `object_addition` entries stay reviewable skips. Apply is revision-guarded and idempotent;
 conflicts return `409` with a usable read-only plan.
 
+### Engine scene import (Unreal / Unity / Godot)
+
+Bring an existing engine scene into Director as a `director-engine-scene-v1` package. Either run
+the installed engine headlessly against a local project, or upload a `.zip` the in-engine exporter
+wrote (`POST /api/dcc/engine-scene/uploads?provider=unreal|unity|godot&filename=scene.zip` with
+`Content-Type: application/zip`; works without any engine installed):
+
+```bash
+curl -sS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"extract_engine_scene","provider":"godot","project_dir":"GodotProject","scene":"res://scenes/main.tscn"}}' | jq
+```
+
+Both paths return a validated package and an initial plan. Preview and apply follow the same
+revision-guarded discipline (`preview_engine_scene_import` with optional `selection`, then
+`apply_engine_scene_import` with `plan_id`, `expected_revision`, and `idempotency_key`).
+
+### Unreal live preview (gateway → editor loopback)
+
+Camera push into the Unreal editor viewport. Start the connector listener inside the engine
+environment (`director_headless.py --mode live-preview`, reading
+`DIRECTOR_UNREAL_PREVIEW_TOKEN`), set the same token on the gateway, then open a session against
+the printed loopback port. Camera frames stay preview-only. Validated command receipts are read
+only for commands the Gateway sent; applying an engine-owned review snapshot remains a separate,
+revision-guarded operation.
+
+```bash
+SESSION="$(curl -fsS -X POST "$BASE/api/dcc/unreal/live-preview/sessions" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"port":42813}' | jq -r '.result.session.sessionId')"
+
+curl -fsS -X POST "$BASE/api/dcc/unreal/live-preview/sessions/$SESSION/frames" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"seq":1,"transform":{"location":[0,1.7,5],"rotationQuaternion":[0,0,0,1],"scale":[1,1,1]},"focalLengthMm":35}' | jq
+
+curl -fsS -X DELETE "$BASE/api/dcc/unreal/live-preview/sessions/$SESSION" \
+  -H "X-Director-Browser-Token: $TOKEN" | jq
+```
+
+Sessions list at `GET /api/dcc/unreal/live-preview/sessions`; duplicate or reordered sequence
+numbers are dropped as structured `sent: false` results, never HTTP errors. The workbench "DCC /
+engine handoff" dock exposes the same push controls on the Unreal tab.
+
+### Independent engine capture
+
+`render_engine_frame` is the visual acceptance primitive for all three engines and does not
+require another `send_to_engine`. Unreal selects a previous send job, while Unity/Godot render the
+configured project scene:
+
+```bash
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"render_engine_frame","provider":"godot","scene":"res://scenes/main.tscn","width":1280,"height":720}}' | jq
+```
+
+### Engine editor launch and project runs
+
+Local, trusted engine process operations in the spirit of the community godot-mcp / unity-mcp
+tools, folded into `director_dcc`: the gateway only ever spawns the discovered engine executable
+against the configured `DIRECTOR_*_PROJECT` with a fixed argument vector — never a
+request-supplied script — and run output is a bounded tail, never an unbounded log. Opt-in editor
+code is a separate engine-session command described below.
+
+```bash
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"launch_engine_editor","provider":"godot"}}' | jq
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"run_engine_project","provider":"godot","scene":"res://scenes/main.tscn","headless":true}}' | jq
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"engine_run_status","provider":"godot"}}' | jq '.result.state, .result.output'
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"stop_engine_project","provider":"godot"}}' | jq
+```
+
+`launch_engine_editor` works for all three engines (the Unreal console binary maps onto its GUI
+sibling). Project runs are Godot-only today: Unity play mode and Unreal `-game` runs need
+engine-side support Director does not claim yet, so they answer `501 engine_run_unsupported` with
+recovery steps. A run that is already active answers `409 engine_run_active`; stopping escalates
+SIGTERM → SIGKILL after two seconds.
+
+### Opt-in engine workshop sessions
+
+`start_engine_session` adopts an already-open Unity or Godot editor; Unity connects with the
+**Director / Live Link Preview** grant, while Godot adopts its active outbound live-preview
+session. Unreal adopts the token-gated listener and therefore requires its printed `port`.
+`allow_code` and engine authority are explicit and default off:
+
+```bash
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"start_engine_session","provider":"unity","label":"Gameplay lookdev","allow_code":true,"authority":"engine"}}' | jq
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"engine_session_command","provider":"unity","session_id":"SESSION_ID","command":"execute_code","code":"var room = new GameObject(\"GameplayRoom\"); return room.name;"}}' | jq
+
+curl -fsS -X POST "$BASE/api/tools/director_dcc" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"op":"engine_session_command_status","provider":"unity","session_id":"SESSION_ID","command_id":"COMMAND_ID"}}' | jq
+```
+
+Unity and Godot also support hot `capture_frame`; Unreal clean pixels use `render_engine_frame`.
+All three support `sync_scene` in an engine-authority session. After its command status is
+`completed`, call `sync_engine_session_to_director` with the command id, current
+`expected_revision`, and an `idempotency_key`. Only matching stable-ID transforms/camera review
+data enter Director; engine-native scripts, prefab/scene structure, collision, navigation,
+lighting bake, and UI stay in the engine project. `stop_engine_session` closes the scoped grant.
+
 ## Analyze a reference image
 
 `POST /api/reconstruction/reference-scene/analyze` accepts the versioned

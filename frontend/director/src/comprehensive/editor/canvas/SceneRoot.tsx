@@ -87,6 +87,8 @@ import { SplatModel } from "./splat/SplatModel";
 import { createDirectorStaticPrimitiveBatchPartition, StaticPrimitiveBatches } from "./StaticPrimitiveBatches";
 import { useResolvedPerformanceConfig } from "../performance/performanceRuntime";
 import { getPrimitiveCoplanarDepthBias, stabilizeImportedModelCoplanarDepth } from "./importedModelDepth";
+import { CharacterPoseViewportRig } from "../pose/CharacterPoseViewportRig";
+import { useCharacterPoseEditorStore } from "../pose/characterPoseEditorStore";
 
 export { getEffectiveGroundOpacity, getPanoramaRotationRadians } from "./panoramaMath";
 
@@ -1131,6 +1133,7 @@ const ObjectSceneNode = memo(function ObjectSceneNode({
   sceneRootRef,
   transformMode,
   transformable,
+  poseEditable,
   translationSnap,
   onSelect,
 }: {
@@ -1155,6 +1158,7 @@ const ObjectSceneNode = memo(function ObjectSceneNode({
   sceneRootRef?: RefObject<Group>;
   transformMode: TransformMode;
   transformable: boolean;
+  poseEditable: boolean;
   translationSnap: number | null;
   onSelect?: (item: DirectorObject) => void;
 }) {
@@ -1167,6 +1171,7 @@ const ObjectSceneNode = memo(function ObjectSceneNode({
   const [importedModelCenter, setImportedModelCenter] = useState<CameraWirePoint>([0, 0, 0]);
   const updateObjectTransform = useDirectorStore((state) => state.updateObjectTransform);
   const setObjectMeasuredLocalBounds = useDirectorStore((state) => state.setObjectMeasuredLocalBounds);
+  const poseEditActive = useCharacterPoseEditorStore((state) => state.objectId === item.id);
   const isImportedModel = asset?.sourceType === "model";
   const isImportedCharacter = isImportedModel && item.kind === "character" && asset?.kind === "character";
   // Viewport-visible possession state: a bound Agent drives this character.
@@ -1402,7 +1407,19 @@ const ObjectSceneNode = memo(function ObjectSceneNode({
     </group>
   );
 
-  if (!selected || !transformable) return node;
+  const poseRigEnabled = Boolean(
+    selected && poseEditActive && poseEditable && item.kind === "character" && item.characterRig,
+  );
+  const poseRig = poseRigEnabled ? <CharacterPoseViewportRig item={item} rootRef={groupRef} /> : null;
+
+  if (!selected || !transformable || poseRigEnabled) {
+    return (
+      <>
+        {node}
+        {poseRig}
+      </>
+    );
+  }
 
   return (
     <>
@@ -2190,6 +2207,12 @@ export function SceneRoot({
                 !isDirectorObjectEffectivelyLocked(scene, item) &&
                 !isPlaying &&
                 !(item.animation?.enabled !== false && item.animation?.keyframes.length)
+              }
+              poseEditable={
+                interactionEnabled &&
+                item.kind === "character" &&
+                !isDirectorObjectEffectivelyLocked(scene, item) &&
+                !isPlaying
               }
               translationSnap={translationSnap}
               onSelect={handleObjectSelect}

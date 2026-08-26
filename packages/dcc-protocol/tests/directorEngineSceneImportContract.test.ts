@@ -20,7 +20,7 @@ function manifest(provider: DirectorEngineSceneProvider = "unreal") {
     packageId: `${provider}-scene-a`,
     provider,
     exportedAt: "2026-08-25T00:00:00.000Z",
-    engineVersion: provider === "unreal" ? "5.6.1" : "6000.0.82f1",
+    engineVersion: provider === "unreal" ? "5.6.1" : provider === "unity" ? "6000.0.82f1" : "Godot 4.4.1",
     exporter: { name: `director-${provider}-scene-export`, version: "1.0.0" },
     source: { projectName: "Fixture", sceneName: "Set" },
     coordinateSystem: {
@@ -93,7 +93,7 @@ function manifest(provider: DirectorEngineSceneProvider = "unreal") {
 }
 
 describe("engine scene import contracts", () => {
-  it("accepts Unreal and Unity manifests already converted to Director space", () => {
+  it("accepts Unreal, Unity, and Godot manifests already converted to Director space", () => {
     expect(directorEngineSceneManifestSchema.parse(manifest("unreal"))).toMatchObject({
       provider: "unreal",
       coordinateSystem: { linearMap: "(x,y,z)->(y,z,-x)*0.01" },
@@ -101,6 +101,10 @@ describe("engine scene import contracts", () => {
     expect(directorEngineSceneManifestSchema.parse(manifest("unity"))).toMatchObject({
       provider: "unity",
       coordinateSystem: { linearMap: "(x,y,z)->(-x,y,z)" },
+    });
+    expect(directorEngineSceneManifestSchema.parse(manifest("godot"))).toMatchObject({
+      provider: "godot",
+      coordinateSystem: { linearMap: "(x,y,z)->(x,y,z)" },
     });
   });
 
@@ -110,6 +114,11 @@ describe("engine scene import contracts", () => {
       coordinateSystem: { ...manifest("unreal").coordinateSystem },
     };
     expect(directorEngineSceneManifestSchema.safeParse(crossed).success).toBe(false);
+    const godotCrossed = {
+      ...manifest("godot"),
+      coordinateSystem: { ...manifest("unreal").coordinateSystem },
+    };
+    expect(directorEngineSceneManifestSchema.safeParse(godotCrossed).success).toBe(false);
   });
 
   it("requires a GLB bundle for renderable geometry and a hash for the bundle", () => {

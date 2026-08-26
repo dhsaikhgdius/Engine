@@ -66,15 +66,19 @@ Gateway 也绝不解析它。
 使用每会话独立的 Bearer 令牌长轮询 Gateway 的 Unity live-link 中枢
 （`/api/dcc/unity/live-link/sessions/<id>/events`）。该传输被刻意收窄：
 
-- **仅出站**：Unity 只发起 GET 轮询，绝不回写状态；Gateway 也不暴露任何形式
-  的 C# 执行端点。
+- **仅由连接器发起**：Unity 发起 GET 轮询并 POST 经校验的命令结果；Gateway
+  永不反向连接 Editor。
+- **常驻感知**：`director_dcc` 可在已经打开的 Editor 中排队 `capture_frame`，
+  无需再次启动 Unity 或 domain reload 即取得相机 PNG；命令只携带相机与图片尺寸。
+- **Opt-in 工作台**：会话显式设置 `allow_code:true` 后可在 Editor 进程执行 C#
+  方法体；`authority:"engine"` 还允许回传稳定 ID 场景快照，供 Director 做受保护的审阅投影。
 - **序列号保序**：每个事件携带单调递增的 `seq`；客户端以 `?after=<seq>` 续传，
   中枢从环形缓冲区重放，若请求的尾部已被淘汰则重发最新完整快照。
 - **断线安全**：套接字关闭、会话闲置过期（TTL）、Director 侧关闭会话都会得到
   干净的终止响应；客户端退避并重新同步，而不是拆毁场景。这些行为由
   `backend/gateway/tests/dcc/unityLiveLink.test.ts` 锁定。
-- **绝不作为权威**：live-link 事件只预览无头导入已经打上 `DirectorId` 的对象
-  的变换。持久通道始终是交换包 / 返回包往返。
+- **显式权威**：Director 权威会话仍是临时预览；引擎权威会话把 Prefab、脚本、
+  Collider、导航、灯光和 UI 留在 Unity，Director 只接收稳定 ID 审阅视图。
 
 ## 测试
 

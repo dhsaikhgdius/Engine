@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it } from "vitest";
 import { createInitialDirectorState, useDirectorStore } from "../../../../src/comprehensive/editor/store/directorStore";
@@ -20,6 +20,11 @@ async function enableWorld(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByLabelText("启用世界系统"));
 }
 
+async function expandEntryPrecision(user: ReturnType<typeof userEvent.setup>, entryLabel: string) {
+  const entry = screen.getByLabelText(entryLabel);
+  await user.click(within(entry).getByRole("button", { name: "Agent / 专业精调" }));
+}
+
 it("folds by default and creates the world block when enabled", async () => {
   const user = userEvent.setup();
   render(<SceneWorldSection />);
@@ -33,8 +38,11 @@ it("folds by default and creates the world block when enabled", async () => {
   const world = useDirectorStore.getState().project.world;
   expect(world?.settings.enabled).toBe(true);
   expect(world?.effects).toEqual([]);
-  expect(screen.getByText("风场")).toBeInTheDocument();
+  expect(screen.getByText("风感")).toBeInTheDocument();
   expect(screen.getByText("天气")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "微风" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Agent / 专业精调" })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByLabelText("风速")).not.toBeInTheDocument();
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["气候", "效果", "水体", "生态", "交通"]);
 });
 
@@ -63,14 +71,153 @@ it("updates weather settings through partial patches", async () => {
 
   await enableWorld(user);
 
-  await user.click(screen.getByRole("button", { name: "天气预设" }));
-  await user.click(screen.getByRole("option", { name: "风暴" }));
+  await user.click(screen.getByRole("button", { name: "风暴" }));
 
   const world = useDirectorStore.getState().project.world;
   expect(world?.settings.weather.preset).toBe("storm");
-  // Unrelated weather fields keep their defaults after the partial patch.
-  expect(world?.settings.weather.intensity).toBeCloseTo(0.5);
-  expect(screen.getByText("湿润")).toBeInTheDocument();
+  expect(world?.settings.weather).toMatchObject({ intensity: 0.92, cloudCover: 1, wetness: 0.86 });
+  expect(screen.queryByText("湿润")).not.toBeInTheDocument();
+});
+
+it("applies natural wind and time presets without exposing raw numbers", async () => {
+  const user = userEvent.setup();
+  render(<SceneWorldSection />);
+
+  await enableWorld(user);
+  await user.click(screen.getByRole("button", { name: "强风" }));
+  await user.click(screen.getByRole("button", { name: "昼夜循环" }));
+
+  expect(useDirectorStore.getState().project.world?.settings.timeOfDay).toMatchObject({
+    mode: "cycle",
+    drivesSky: true,
+  });
+
+  await user.click(screen.getByRole("button", { name: "黄昏" }));
+
+  const settings = useDirectorStore.getState().project.world?.settings;
+  expect(settings?.wind).toMatchObject({ speedMps: 11, gustiness: 0.7, turbulence: 0.62 });
+  expect(settings?.timeOfDay).toMatchObject({ mode: "fixed", hours: 17.5, drivesSky: true });
+  expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+});
+
+it("keeps every world entry semantic while folding raw parameters for Agent", async () => {
+  const user = userEvent.setup();
+  render(<SceneWorldSection />);
+
+  await enableWorld(user);
+
+  await user.click(screen.getByRole("tab", { name: "效果" }));
+  await user.click(screen.getByRole("button", { name: "添加效果" }));
+  let entry = screen.getByLabelText("火焰效果条目");
+  expect(within(entry).queryAllByRole("spinbutton")).toHaveLength(0);
+  expect(within(entry).getByRole("button", { name: "Agent / 专业精调" })).toHaveAttribute("aria-expanded", "false");
+  await user.click(within(entry).getByRole("button", { name: "强烈" }));
+  expect(useDirectorStore.getState().project.world?.effects[0]).toMatchObject({
+    intensity: 1.8,
+    sizeScale: 1.35,
+    speedScale: 1.2,
+  });
+
+  await user.click(screen.getByRole("tab", { name: "水体" }));
+  await user.click(screen.getByRole("button", { name: "添加水体" }));
+  entry = screen.getByLabelText("水体水体条目");
+  expect(within(entry).queryAllByRole("spinbutton")).toHaveLength(0);
+  await user.click(within(entry).getByRole("button", { name: "汹涌" }));
+  expect(useDirectorStore.getState().project.world?.waterBodies[0]).toMatchObject({
+    waveAmplitude: 0.24,
+    waveLengthM: 4.5,
+    flowSpeedMps: 0.65,
+    foamIntensity: 0.78,
+  });
+
+  await user.click(screen.getByRole("tab", { name: "生态" }));
+  await user.click(screen.getByRole("button", { name: "添加动物群" }));
+  entry = screen.getByLabelText("鸟群动物群条目");
+  expect(within(entry).queryAllByRole("spinbutton")).toHaveLength(0);
+  await user.click(within(entry).getByRole("button", { name: "繁盛" }));
+  expect(useDirectorStore.getState().project.world?.wildlife[0]?.count).toBe(42);
+
+  await user.click(screen.getByRole("tab", { name: "交通" }));
+  await user.click(screen.getByRole("button", { name: "添加道路" }));
+  entry = screen.getByLabelText("道路道路条目");
+  expect(within(entry).queryAllByRole("spinbutton")).toHaveLength(0);
+  expect(within(entry).queryByText("道路与水面相交")).toBeNull();
+  expect(within(entry).getByLabelText("环路")).toBeInTheDocument();
+  await user.click(within(entry).getByRole("button", { name: "繁忙" }));
+  expect(useDirectorStore.getState().project.world?.roads[0]).toMatchObject({ vehicleCount: 14, speedKph: 24 });
+});
+
+it("detects a road crossing water and offers a semantic one-click lift", async () => {
+  const user = userEvent.setup();
+  render(<SceneWorldSection />);
+
+  await enableWorld(user);
+  await user.click(screen.getByRole("tab", { name: "水体" }));
+  await user.click(screen.getByRole("button", { name: "添加水体" }));
+  await expandEntryPrecision(user, "水体水体条目");
+  fireEvent.change(screen.getByLabelText("水体尺寸X"), { target: { value: "80" } });
+  fireEvent.change(screen.getByLabelText("水体尺寸Z"), { target: { value: "80" } });
+
+  await user.click(screen.getByRole("tab", { name: "交通" }));
+  await user.click(screen.getByRole("button", { name: "添加道路" }));
+  const entry = screen.getByLabelText("道路道路条目");
+  expect(within(entry).queryAllByRole("spinbutton")).toHaveLength(0);
+  expect(within(entry).getByText("道路与水面相交")).toBeInTheDocument();
+
+  const before = useDirectorStore.getState().project.world!.roads[0]!.points.map((point) => point[1]);
+  await user.click(within(entry).getByRole("button", { name: "抬升到水面上方" }));
+  const after = useDirectorStore.getState().project.world!.roads[0]!.points.map((point) => point[1]);
+
+  expect(after[0]).toBeGreaterThan(before[0]!);
+  const lift = after[0]! - before[0]!;
+  after.forEach((height, index) => expect(height - before[index]!).toBeCloseTo(lift));
+  expect(within(entry).queryByText("道路与水面相交")).toBeNull();
+});
+
+it("explains submerged fire and moves it above water without exposing coordinates", async () => {
+  const user = userEvent.setup();
+  render(<SceneWorldSection />);
+
+  await enableWorld(user);
+  await user.click(screen.getByRole("tab", { name: "水体" }));
+  await user.click(screen.getByRole("button", { name: "添加水体" }));
+  await expandEntryPrecision(user, "水体水体条目");
+  fireEvent.change(screen.getByLabelText("水体尺寸X"), { target: { value: "80" } });
+  fireEvent.change(screen.getByLabelText("水体尺寸Z"), { target: { value: "80" } });
+
+  await user.click(screen.getByRole("tab", { name: "效果" }));
+  await user.click(screen.getByRole("button", { name: "添加效果" }));
+  const entry = screen.getByLabelText("火焰效果条目");
+  expect(within(entry).queryAllByRole("spinbutton")).toHaveLength(0);
+  expect(within(entry).getByText("火焰位于水下")).toBeInTheDocument();
+
+  const beforeY = useDirectorStore.getState().project.world!.effects[0]!.anchor.position[1];
+  await user.click(within(entry).getByRole("button", { name: "移到水面上方" }));
+  const afterY = useDirectorStore.getState().project.world!.effects[0]!.anchor.position[1];
+
+  expect(afterY).toBeGreaterThan(beforeY);
+  expect(within(entry).queryByText("火焰位于水下")).toBeNull();
+});
+
+it("scales semantic water motion to the authored water-body size", async () => {
+  const user = userEvent.setup();
+  render(<SceneWorldSection />);
+
+  await enableWorld(user);
+  await user.click(screen.getByRole("tab", { name: "水体" }));
+  await user.click(screen.getByRole("button", { name: "添加水体" }));
+  await expandEntryPrecision(user, "水体水体条目");
+  fireEvent.change(screen.getByLabelText("水体尺寸X"), { target: { value: "80" } });
+  fireEvent.change(screen.getByLabelText("水体尺寸Z"), { target: { value: "80" } });
+  await user.click(screen.getByRole("button", { name: "Agent / 专业精调" }));
+  await user.click(screen.getByRole("button", { name: "汹涌" }));
+
+  expect(useDirectorStore.getState().project.world?.waterBodies[0]).toMatchObject({
+    waveAmplitude: 0.48,
+    waveLengthM: 9,
+    flowSpeedMps: 0.65,
+    foamIntensity: 0.78,
+  });
 });
 
 it("writes the world seed from the climate tab", async () => {
@@ -78,6 +225,7 @@ it("writes the world seed from the climate tab", async () => {
   render(<SceneWorldSection />);
 
   await enableWorld(user);
+  await user.click(screen.getByRole("button", { name: "Agent / 专业精调" }));
 
   fireEvent.change(screen.getByLabelText("世界种子滑杆"), { target: { value: "12345" } });
   expect(useDirectorStore.getState().project.world?.settings.seed).toBe(12345);
@@ -94,6 +242,7 @@ it("authors effect shape, position, wind influence, and color tint", async () =>
   await enableWorld(user);
   await user.click(screen.getByRole("tab", { name: "效果" }));
   await user.click(screen.getByRole("button", { name: "添加效果" }));
+  await expandEntryPrecision(user, "火焰效果条目");
 
   fireEvent.change(screen.getByLabelText("火焰位置 X"), { target: { value: "3.5" } });
   expect(useDirectorStore.getState().project.world?.effects[0]?.anchor.position).toEqual([3.5, 0, 0]);
@@ -145,6 +294,8 @@ it("locks an effect entry, hiding its controls and disabling deletion", async ()
   await enableWorld(user);
   await user.click(screen.getByRole("tab", { name: "效果" }));
   await user.click(screen.getByRole("button", { name: "添加效果" }));
+  await expandEntryPrecision(user, "火焰效果条目");
+  expect(screen.getByLabelText("火焰强度滑杆")).toBeInTheDocument();
 
   await user.click(screen.getByLabelText("锁定"));
   expect(useDirectorStore.getState().project.world?.effects[0]?.locked).toBe(true);
@@ -154,6 +305,8 @@ it("locks an effect entry, hiding its controls and disabling deletion", async ()
 
   await user.click(screen.getByLabelText("锁定"));
   expect(useDirectorStore.getState().project.world?.effects[0]?.locked).toBe(false);
+  expect(screen.queryByLabelText("火焰强度滑杆")).toBeNull();
+  await expandEntryPrecision(user, "火焰效果条目");
   expect(screen.getByLabelText("火焰强度滑杆")).toBeInTheDocument();
 });
 
@@ -168,18 +321,18 @@ it("toggles seeded weather evolution and shows the live climate readout", async 
   expect(screen.queryByLabelText("演化周期")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("气候实时读数")).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: "天气演化模式" }));
-  await user.click(screen.getByRole("option", { name: "种子循环" }));
+  await user.click(screen.getByRole("button", { name: "自然变化" }));
 
   const world = useDirectorStore.getState().project.world;
   expect(world?.settings.weather.evolution).toEqual({ mode: "cycle", periodSeconds: 300 });
+  expect(screen.queryByLabelText("演化周期")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Agent / 专业精调" }));
   expect(screen.getByLabelText("演化周期")).toBeInTheDocument();
   expect(screen.getByLabelText("气候实时读数")).toBeInTheDocument();
-  expect(screen.getByText(/实时湿度/)).toBeInTheDocument();
+  expect(screen.getByText(/地表|地面/)).toBeInTheDocument();
 
   // Switching back to static keeps the period for the next toggle.
-  await user.click(screen.getByRole("button", { name: "天气演化模式" }));
-  await user.click(screen.getByRole("option", { name: "静态（固定预设）" }));
+  await user.click(screen.getByRole("button", { name: "保持当前天气" }));
   expect(useDirectorStore.getState().project.world?.settings.weather.evolution).toEqual({
     mode: "static",
     periodSeconds: 300,
@@ -195,6 +348,7 @@ it("authors fire propagation from the effects tab", async () => {
   await user.click(screen.getByLabelText("启用世界系统"));
   await user.click(screen.getByRole("tab", { name: "效果" }));
   await user.click(screen.getByRole("button", { name: "添加效果" }));
+  await expandEntryPrecision(user, "火焰效果条目");
 
   const effect = useDirectorStore.getState().project.world!.effects[0]!;
   expect(effect.kind).toBe("fire");
@@ -225,6 +379,8 @@ it("adds a river water body with a spline and channel width control", async () =
   expect(river?.river?.points.length).toBeGreaterThanOrEqual(2);
   expect(river?.river?.widthM).toBe(6);
   expect(screen.getByText(`${river!.name}（河流）`)).toBeInTheDocument();
+  expect(screen.queryByLabelText(`${river!.name}河道宽度`)).not.toBeInTheDocument();
+  await expandEntryPrecision(user, `${river!.name}水体条目`);
   expect(screen.getByLabelText(`${river!.name}河道宽度`)).toBeInTheDocument();
 });
 
@@ -235,6 +391,7 @@ it("authors basin surface, colors, and river control points", async () => {
   await enableWorld(user);
   await user.click(screen.getByRole("tab", { name: "水体" }));
   await user.click(screen.getByRole("button", { name: "添加水体" }));
+  await expandEntryPrecision(user, "水体水体条目");
 
   fireEvent.change(screen.getByLabelText("水体位置 Y"), { target: { value: "1.5" } });
   fireEvent.change(screen.getByLabelText("水体尺寸X滑杆"), { target: { value: "35" } });
@@ -256,6 +413,7 @@ it("authors basin surface, colors, and river control points", async () => {
   expect(basin?.foamIntensity).toBeCloseTo(0.9);
 
   await user.click(screen.getByRole("button", { name: "添加河流" }));
+  await expandEntryPrecision(user, "河流水体条目");
   fireEvent.change(screen.getByLabelText("河流控制点1 X"), { target: { value: "-20" } });
   expect(useDirectorStore.getState().project.world?.waterBodies[1]?.river?.points[0]).toEqual([-20, 0.2, -16]);
 
@@ -299,6 +457,7 @@ it("authors wildlife roaming area, scales, and altitude band", async () => {
   await enableWorld(user);
   await user.click(screen.getByRole("tab", { name: "生态" }));
   await user.click(screen.getByRole("button", { name: "添加动物群" }));
+  await expandEntryPrecision(user, "鸟群动物群条目");
 
   fireEvent.change(screen.getByLabelText("鸟群活动中心 Z"), { target: { value: "-12" } });
   fireEvent.change(screen.getByLabelText("鸟群活动半径滑杆"), { target: { value: "40" } });
@@ -325,6 +484,7 @@ it("adds, edits, and removes traffic roads from the traffic tab", async () => {
   expect(screen.getByText("尚未添加道路")).toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: "添加道路" }));
+  await expandEntryPrecision(user, "道路道路条目");
 
   let world = useDirectorStore.getState().project.world;
   expect(world?.roads).toHaveLength(1);
@@ -350,7 +510,7 @@ it("adds, edits, and removes traffic roads from the traffic tab", async () => {
   expect(edited.widthM).toBe(10);
   expect(edited.loop).toBe(false);
   expect(edited.showSurface).toBe(false);
-  expect(edited.points[0]).toEqual([20, 0.05, 8]);
+  expect(edited.points[0]).toEqual([20, 0.05, 15]);
 
   await user.click(screen.getByLabelText("添加道路控制点"));
   expect(useDirectorStore.getState().project.world?.roads[0]?.points).toHaveLength(9);

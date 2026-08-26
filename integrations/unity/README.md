@@ -82,8 +82,14 @@ that long-polls the Gateway's Unity live-link hub
 (`/api/dcc/unity/live-link/sessions/<id>/events`) with a per-session bearer
 token. The transport is deliberately narrow:
 
-- **Outbound-only**: Unity only ever issues GET polls; it never pushes state
-  back, and the Gateway exposes no C# execution endpoint of any kind.
+- **Connector-initiated only**: Unity issues GET polls and posts validated
+  command results; the Gateway never connects into the Editor.
+- **Hot perception**: `director_dcc` can queue `capture_frame` on the already
+  open Editor and receive its camera PNG without another Unity startup or
+  domain reload. The command carries only camera and image dimensions.
+- **Opt-in workshop**: a session started with `allow_code:true` accepts C#
+  method bodies in the Editor process. `authority:"engine"` additionally
+  enables stable-ID scene snapshots for Director's guarded review projection.
 - **Sequence-numbered**: every event carries a monotonic `seq`; the client
   resumes with `?after=<seq>` and the hub replays from its ring buffer, or
   re-sends the latest full snapshot when the requested tail was evicted.
@@ -91,9 +97,9 @@ token. The transport is deliberately narrow:
   Director-side session closes all resolve to clean terminal responses; the
   client backs off and resyncs instead of tearing the scene down. These
   behaviours are pinned by `backend/gateway/tests/dcc/unityLiveLink.test.ts`.
-- **Never authoritative**: live-link events preview transforms on objects the
-  headless import already stamped with `DirectorId`. The durable channel
-  remains the exchange package / return package round trip.
+- **Explicit authority**: Director-authority sessions remain transient.
+  Engine-authority sessions keep prefabs, scripts, colliders, navigation,
+  lighting, and UI in Unity; Director receives only the stable-ID review view.
 
 ## Tests
 

@@ -2,7 +2,8 @@
 
 仅源码分发的编辑器插件（`addons/director_bridge`），带固定的
 `godot --headless --script` 入口，用于将本机已授权的 Godot 4.2+（仅限 Godot 4.x）
-与 Director 连接。
+与 Director 连接。独立场景导出器（`interchange/director_scene_export.gd`）
+还可以在不安装 bridge 插件的情况下，把已有 Godot 场景带进 Director。
 
 Godot 4 的世界基（右手、Y-up、米制、相机朝向 -Z）与 Director 规范空间完全一致，
 因此提供方边界的转换是恒等映射 `(x, y, z) -> (x, y, z)`；转换仍统一经过
@@ -90,11 +91,35 @@ export DIRECTOR_GODOT_PROJECT=/path/to/YourProject
 编辑器插件的 **Director: Toggle Live Preview** 工具菜单项会把
 `director_id` 标记节点的临时、带序号的预览帧推送到 Director Gateway 的
 令牌保护实时链接路由（`director-godot-live-link-v1`：hello → frame… → bye）。
-传输严格出站——Godot 绝不监听端口、绝不暴露脚本端点——且预览帧永不具备
-权威性：持久变更仍只经由受审的 `director-dcc-return-v1` 返回包路径。过期或
+传输严格出站，Godot 绝不监听端口。`start_engine_session` 可把这条连接接入 opt-in
+工作台：`allow_code:true` 开启 GDScript 命令，`authority:"engine"` 开启稳定 ID
+审阅快照；原生脚本、场景资源、碰撞、导航、烘焙数据与 UI 仍留在 Godot。过期或
 重放的序号会被 Gateway 拒绝；连接中断（未发 bye）由 Gateway 的空闲超时清扫，
 不会触碰最后一次提交的 Director 修订。通过 `DIRECTOR_GATEWAY_URL` 与
 `DIRECTOR_GATEWAY_TOKEN` 配置目标。
+
+## 引擎场景导出到 Director（`interchange/`）
+
+`interchange/director_scene_export.gd` 是独立的 SceneTree 脚本——它不依赖
+bridge 插件，任何有效的 Godot 4 工程都能导出 `director-engine-scene-v1` 包
+（manifest 含层级快照、相机、灯光、动画剪辑清单、SHA-256 文件哈希，以及
+GLTFDocument 生成的 GLB 捆绑）。Godot 的基底本就与 Director 规范空间一致，
+manifest 因此声明恒等线性映射 `(x,y,z)->(x,y,z)`。场景只实例化、从不加入
+场景树，因此导出期间不会运行游戏 `_ready` 代码。
+
+Director 的 `extract_engine_scene` 会把该文件经哈希比对复制到
+`res://addons/director_interchange/`，然后运行：
+
+```bash
+"$DIRECTOR_GODOT_BIN" --headless --path "<你的工程>" \
+  --script res://addons/director_interchange/director_scene_export.gd -- \
+  --output-dir /abs/out [--scene res://scenes/main.tscn] [--zip]
+```
+
+省略 `--scene` 时导出工程主场景。`--zip` 会在输出目录旁额外写出
+`director-engine-scene.zip`，可直接上传到
+`POST /api/dcc/engine-scene/uploads?provider=godot`。正交相机、2D/UI 节点与
+天空驱动的环境光会记录为结构化 `unsupported`/警告条目，绝不静默丢弃。
 
 ## 能力诚实性
 
