@@ -24,6 +24,19 @@ RgbaLinear = Tuple[float, float, float, float]
 SCALAR_PARAMETERS = ("Metallic", "Roughness", "Opacity", "EmissiveIntensity")
 VECTOR_PARAMETERS = ("BaseColor", "EmissiveColor")
 
+# Director texture slots -> texture parameters on the Director parent
+# materials. A slot only binds when the referenced image is bundled as a
+# hashed relative file in the exchange package; anything else warn-and-omits.
+TEXTURE_SLOT_PARAMETERS = {
+    "baseColorMapAssetId": "BaseColorMap",
+    "normalMapAssetId": "NormalMap",
+    "roughnessMapAssetId": "RoughnessMap",
+    "metalnessMapAssetId": "MetalnessMap",
+    "emissiveMapAssetId": "EmissiveMap",
+    "aoMapAssetId": "AoMap",
+    "alphaMapAssetId": "OpacityMap",
+}
+
 _NAMED_COLORS = {
     "white": (255, 255, 255),
     "black": (0, 0, 0),
@@ -82,18 +95,23 @@ def _round_color(color: RgbaLinear) -> List[float]:
     return [round(component, 9) for component in color]
 
 
-def map_material(material: dict, entity_name: str = "") -> dict:
+def map_material(material: dict, entity_name: str = "", texture_files: Optional[Dict[str, str]] = None) -> dict:
     """Map one Director PBR material stanza to Unreal instance overrides.
 
     @param material: The Director ``material`` dict (already schema-shaped by
         the exchange manifest validation).
     @param entity_name: Owning entity name used in warning strings.
+    @param texture_files: Asset-ref id -> package file path for texture images
+        bundled in the exchange package. Slots referencing anything else
+        warn-and-omit.
     @returns A dict with ``parent`` ("opaque"|"translucent"), ``scalars``,
-        ``vectors``, ``twoSided``, ``omitted`` (channel names), and ``warnings``.
+        ``vectors``, ``textures`` (parameter name -> asset-ref id),
+        ``twoSided``, ``omitted`` (channel names), and ``warnings``.
     """
     prefix = f"{entity_name}: " if entity_name else ""
     scalars: Dict[str, float] = {}
     vectors: Dict[str, List[float]] = {}
+    mapped_textures: Dict[str, str] = {}
     omitted: List[str] = []
     warnings: List[str] = []
     two_sided = False
@@ -153,16 +171,36 @@ def map_material(material: dict, entity_name: str = "") -> dict:
 
     textures = material.get("textures") or {}
     for slot, reference in sorted(textures.items()):
-        if reference:
+        if not reference:
+            continue
+        parameter = TEXTURE_SLOT_PARAMETERS.get(slot)
+        if parameter is None:
+            omit(f"textures.{slot}", "has no texture parameter slot on the Director parent materials")
+            continue
+        if not texture_files or reference not in texture_files:
             omit(
                 f"textures.{slot}",
                 "references a texture that is not bundled as a relative hashed file in the exchange package",
             )
+            continue
+        if parameter == "OpacityMap" and not translucent:
+            omit(
+                f"textures.{slot}",
+                "is an alpha map on a fully opaque material; the opaque Director parent has no opacity input",
+            )
+            continue
+        mapped_textures[parameter] = reference
+
+    # An emissive map needs a non-zero emissive product to show at all.
+    if "EmissiveMap" in mapped_textures:
+        scalars.setdefault("EmissiveIntensity", 1.0)
+        vectors.setdefault("EmissiveColor", [1.0, 1.0, 1.0, 1.0])
 
     return {
         "parent": "translucent" if translucent else "opaque",
         "scalars": scalars,
         "vectors": vectors,
+        "textures": mapped_textures,
         "twoSided": two_sided,
         "omitted": omitted,
         "warnings": warnings,
@@ -173,10 +211,20 @@ def _run_cli(argv: list) -> int:
     """JSON-in/JSON-out CLI used by the host-free Gateway tests."""
     payload = json.loads(sys.stdin.read())
     if isinstance(payload, list):
-        results = [map_material(entry.get("material", {}), entry.get("name", "")) for entry in payload]
+        results = [
+            map_material(entry.get("material", {}), entry.get("name", ""), entry.get("textureFiles"))
+            for entry in payload
+        ]
         print(json.dumps({"ok": True, "result": results}))
         return 0
-    print(json.dumps({"ok": True, "result": map_material(payload.get("material", {}), payload.get("name", ""))}))
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "result": map_material(payload.get("material", {}), payload.get("name", ""), payload.get("textureFiles")),
+            }
+        )
+    )
     return 0
 
 

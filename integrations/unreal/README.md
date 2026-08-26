@@ -12,8 +12,10 @@ Engine EULA.
   SkeletalMeshActor for skinned GLBs, empty actor with a warning otherwise) and one
   CineCameraActor per Director camera, restores the parent hierarchy, stamps every
   actor with a `director_id:<id>` tag, applies Director PBR materials as Material
-  Instances, keys the LevelSequence from the Gateway's hash-pinned animation bake,
-  maps storyboard shots to a camera-cut track, saves the level under
+  Instances (binding bundled texture images to texture parameters), spawns the
+  supported subset of Director lights with `director_light_id:<id>` tags, keys
+  the LevelSequence from the Gateway's hash-pinned animation bake, maps
+  storyboard shots to a camera-cut track, saves the level under
   `/Game/Director/Levels/`, and echoes a canonical-space return package.
 - **Export** (`--mode export`): reads back every `director_id`-tagged actor in the
   current level, converts transforms to Director canonical space at the provider
@@ -45,11 +47,12 @@ Gateway CI suite runs the same golden cases against the TypeScript reference.
 | `director_space.py`          | yes (`--self-test`) | Canonical ↔ Unreal basis change, camera look-at quaternions                                                            |
 | `director_timebase.py`       | yes (`--self-test`) | Rational rates, Sequencer tick resolution, SMPTE NDF/DF timecode (23.976 / 24 / 25 / 29.97 DF / 30)                    |
 | `director_bake.py`           | yes (`--self-test`) | Hash-verifies the Gateway bake sidecar; converts canonical samples to Unreal keys with rotator continuity unwrapping   |
-| `director_materials.py`      | yes (CLI)           | Director PBR parameters → material-instance overrides, sRGB→linear, warn-and-omit records                              |
+| `director_materials.py`      | yes (CLI)           | Director PBR parameters → material-instance overrides, sRGB→linear, texture-slot mapping, warn-and-omit records        |
+| `director_lights.py`         | yes (CLI)           | Director lights → Unreal light classes; ambient/hemisphere structured omit records                                     |
 | `director_gltf.py`           | yes (CLI)           | GLB container inspection (JSON chunk only) to route skinned payloads to skeletal import                                |
 | `director_livelink.py`       | yes (CLI)           | Preview session protocol: token, sequence numbers, reorder/duplicate drop, staleness                                   |
 | `director_sequencer.py`      | no                  | LevelSequence authoring: display rate, tick resolution, start timecode, camera cuts, transform and focal-length tracks |
-| `director_host_materials.py` | no                  | Creates the `DirectorPbrOpaque`/`DirectorPbrTranslucent` parents and Material Instances                                |
+| `director_host_materials.py` | no                  | Creates the `DirectorPbrOpaque`/`DirectorPbrTranslucent` parents (with texture parameters) and Material Instances       |
 
 The host-free modules are exercised by the Gateway CI suite
 (`backend/gateway/tests/dcc/unrealConnectorModules.test.ts`) with plain `python3`;
@@ -80,10 +83,11 @@ not match, then keys:
 Channels the bake cannot carry — rig pose keyframes (Control-Rig-style values),
 character motion clips, character rig state — are never silently flattened.
 They surface twice as structured data: the Gateway computes
-`omittedAnimationChannels` records (`directorId`, `entityType`, `channels`) on
-the `send_to_engine` result from the bake itself, and the connector echoes
-matching `omitted_animation_channels` entries in its report alongside the
-per-entity warn-and-omit prose warnings. The report also embeds a `sequencer`
+`omittedAnimationChannels` records (`directorId`, `entityType`, `channels`,
+optional per-channel `details` with control names) on the `send_to_engine`
+result from the bake itself, and the connector echoes matching
+`omittedAnimationChannels` entries in its report alongside the per-entity
+warn-and-omit prose warnings. The report also embeds a `sequencer`
 receipt read back from the authored LevelSequence asset (display rate, tick
 resolution, start timecode, playback range, track and key counts).
 
@@ -97,8 +101,16 @@ resolution, start timecode, playback range, track and key counts).
 - Director PBR material parameters (baseColor, metalness, roughness, opacity,
   emissive, double-sided) become Material Instances whose parents are the
   Director-authored `DirectorPbrOpaque` / `DirectorPbrTranslucent` materials.
-  Unsupported channels (transmission, IOR, clearcoat, texture references that are
-  not bundled relative hashed files, back-face-only rendering) warn-and-omit.
+  Referenced texture slots (`baseColorMap`, `normalMap`, `roughnessMap`,
+  `metalnessMap`, `emissiveMap`, `aoMap`, and translucent `alphaMap`) bind when
+  the Gateway bundles the image as a relative hashed file in the Unreal exchange
+  package; each bind enables the matching `Use*` static switch on the parent.
+  Unsupported channels (transmission, IOR, clearcoat, unbundled texture
+  references, opaque alpha maps, back-face-only rendering) warn-and-omit.
+- Directional, point, spot, and rect-area lights spawn as Unreal light actors
+  tagged `director_light_id:<id>` (never `director_id`, so the return-package
+  transform echo ignores them). Ambient and hemisphere lights are structured
+  `omittedLights` warn-and-omit records.
 
 ## Install
 

@@ -634,11 +634,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
 
     let projectConnectorOk = false;
     if (project.ok && project.projectDirectory) {
-      const installed = await checkInstalledConnector(
-        provider,
-        project.projectDirectory,
-        manifest?.version ?? null,
-      );
+      const installed = await checkInstalledConnector(provider, project.projectDirectory, manifest?.version ?? null);
       projectConnectorOk = installed.ok;
       checks.push({ id: "project_connector", ok: installed.ok, detail: installed.detail });
       if (!installed.ok) {
@@ -965,6 +961,10 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
         directorId: entity.directorId,
         entityType: entity.entityType,
         channels: entity.omittedChannels!,
+        // Unreal bake carries per-channel control names; Godot entities omit this field.
+        ...("omittedChannelDetails" in entity && entity.omittedChannelDetails?.length
+          ? { details: entity.omittedChannelDetails }
+          : {}),
       }));
     if (omittedAnimationChannels.length > 0) {
       sendWarnings.push(

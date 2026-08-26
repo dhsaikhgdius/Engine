@@ -64,6 +64,28 @@ function strictlyIncreasingFrames(samples: ReadonlyArray<{ frame: number }>) {
   return -1;
 }
 
+/** Animation channels the Unreal Sequencer bake cannot carry (warn-and-omit). */
+export const directorUnrealOmittedChannelIdSchema = z.enum(["pose_values", "motion_blocks", "character_rig"]);
+
+/** Identifier of one omitted Unreal bake channel. */
+export type DirectorUnrealOmittedChannelId = z.infer<typeof directorUnrealOmittedChannelIdSchema>;
+
+/**
+ * One structured warn-and-omit detail record: which channel could not be
+ * baked, the control/clip names it carried, and a human-readable reason. The
+ * frontend lists these verbatim so nothing is silently flattened; Control Rig
+ * lossless round-trip remains planned and is never implied by this record.
+ */
+export const directorUnrealOmittedChannelDetailSchema = z.strictObject({
+  channel: directorUnrealOmittedChannelIdSchema,
+  /** Pose control names, motion clip ids, or rig control names (capped; see reason for overflow). */
+  controls: z.array(z.string().trim().min(1).max(200)).max(128),
+  reason: z.string().trim().min(1).max(600),
+});
+
+/** A structured omitted-channel detail record. */
+export type DirectorUnrealOmittedChannelDetail = z.infer<typeof directorUnrealOmittedChannelDetailSchema>;
+
 /**
  * One baked entity track. Transforms are Director canonical-space world
  * transforms (right-handed, Y-up, metres); the connector converts them to
@@ -85,10 +107,9 @@ export const directorUnrealBakedEntitySchema = z
       })
       .optional(),
     /** Channels present in the source animation that the bake could not carry (warn-and-omit). */
-    omittedChannels: z
-      .array(z.enum(["pose_values", "motion_blocks", "character_rig"]))
-      .max(8)
-      .optional(),
+    omittedChannels: directorUnrealOmittedChannelIdSchema.array().max(8).optional(),
+    /** Structured per-channel details (control names, reason) for the omitted channels. */
+    omittedChannelDetails: z.array(directorUnrealOmittedChannelDetailSchema).max(8).optional(),
     warnings: z.array(z.string().max(2_000)).max(200),
   })
   .superRefine((entity, context) => {
@@ -115,6 +136,25 @@ export const directorUnrealBakedEntitySchema = z
         message: "focal length samples and filmback are camera-only channels",
       });
     }
+    const omitted = new Set(entity.omittedChannels ?? []);
+    const seenDetailChannels = new Set<string>();
+    (entity.omittedChannelDetails ?? []).forEach((detail, index) => {
+      if (!omitted.has(detail.channel)) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedChannelDetails", index, "channel"],
+          message: `detail channel ${detail.channel} is not listed in omittedChannels`,
+        });
+      }
+      if (seenDetailChannels.has(detail.channel)) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedChannelDetails", index, "channel"],
+          message: `duplicate omitted-channel detail for ${detail.channel}`,
+        });
+      }
+      seenDetailChannels.add(detail.channel);
+    });
   });
 
 /** One baked entity track (object or camera). */
