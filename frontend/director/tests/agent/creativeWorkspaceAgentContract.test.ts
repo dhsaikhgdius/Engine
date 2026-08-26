@@ -1421,6 +1421,7 @@ describe("creative workspace agent operation contract", () => {
         operation_ids: expect.arrayContaining([
           "media.playback.update",
           "media.proxy.attach",
+          "media.verify",
           "gallery.media.update",
           "gallery.folder.add",
           "gallery.preferences.update",
@@ -1434,7 +1435,7 @@ describe("creative workspace agent operation contract", () => {
         batch: {
           atomic: true,
           reference_syntax: "@alias",
-          excluded_operations: expect.arrayContaining(["media.playback.update", "media.proxy.attach"]),
+          excluded_operations: expect.arrayContaining(["media.playback.update", "media.proxy.attach", "media.verify"]),
         },
         canvas_dag: {
           analysis: ["topological_order", "parallel_levels", "roots", "leaves", "cycle_path", "issues"],
@@ -1486,6 +1487,11 @@ describe("creative workspace agent operation contract", () => {
             offline_relink: {
               supported: true,
               director_creative_operation: "media.relink",
+            },
+            verify_bytes: {
+              director_creative_operation: "media.verify",
+              example: { op: "media.verify", media_ids: ["<media-id>"] },
+              outcomes: ["verified", "size_mismatch", "missing_bytes", "not_cataloged", "unverified"],
             },
           },
         },
