@@ -384,6 +384,8 @@ idempotency, exact-target, quality, asset, audit, and evidence contracts.
 | `409 idempotency_key_conflict`  | Preserve the old receipt and use a new key for different input.                                                   |
 | `409 idempotency_replay_stale`  | The old mutation succeeded and the project advanced; observe and express only remaining work as a new intent.     |
 | `409 outcome_unknown`           | Observe/diff first. If the effect is absent, retry only with the injected revision and key from `agent_boundary`. |
+| `403 possession_scope_violation` | The session possesses characters and may only mutate them (stage-wide writes such as `replace_project` or `reconstruction.apply` are rejected). Read the typed `possession` block (possessed ids, offending operation, reason) and retarget, or unbind the character. |
+| `400 possession_target_ambiguous` | The session possesses several characters, so omitted character targets cannot be auto-filled. Read `possession.omitted_targets` and name one possessed id explicitly. |
 | `504 command_timeout`           | Do not claim success. Keep the target visible, observe if necessary, and retry the read/evidence operation.       |
 | `profile_unavailable`           | Select an available, provider-compatible Profile and verify credentials.                                          |
 | `profile_capability_mismatch`   | Select a tool-capable Profile; a visual Critic also requires vision.                                              |
