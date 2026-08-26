@@ -37,8 +37,10 @@ import {
   directorDccReturnManifestSchema,
   type DirectorDccExchangePackageManifest,
   type DirectorDccImportPlanCameraOptics,
+  type DirectorDccImportPlanLightCreate,
   type DirectorDccImportPlanLightPatch,
   type DirectorDccImportPlanV1,
+  type DirectorDccReturnCameraOptics,
   type DirectorDccReturnManifestV1,
 } from "@director/dcc-protocol";
 
@@ -124,9 +126,10 @@ export interface DccReturnImportPlanOptions {
   /** Director IDs whose changes are skipped instead of applied or conflicted. */
   skipDirectorIds?: readonly string[];
   /**
-   * Opt in to `object_addition` changes (objects that gained a fresh
-   * director_id in the DCC after the export snapshot). Off by default:
-   * additions are listed as reviewable skips, never applied silently.
+   * Opt in to `object_addition`, `camera_addition`, and `light_addition`
+   * changes (entities that gained a fresh director_id in the DCC after the
+   * export snapshot). Off by default: additions are listed as reviewable
+   * skips, never applied silently.
    */
   includeNewObjects?: boolean;
 }
@@ -242,6 +245,18 @@ const directorDccSourceBaselineSchema = z.looseObject({
       color: z.string().optional(),
       parentObjectId: z.string().optional(),
       poseControls: z.record(z.string(), z.number().finite()).optional(),
+      /** Export-time timeline keyframes in wire space; optional on pre-animation snapshots. */
+      animation: z
+        .array(
+          z.looseObject({
+            frame: z.number().finite(),
+            interpolation: z.string().optional(),
+            transform: directorDccTransformSchema.optional(),
+            lookTarget: finiteVec3Schema.optional(),
+            poseValues: z.record(z.string(), z.number().finite()).optional(),
+          }),
+        )
+        .optional(),
     }),
   ),
   cameras: z.array(
@@ -381,6 +396,68 @@ function poseControlsClose(
   return true;
 }
 
+/** A Director entity's timeline animation stanza, as stored on the live project. */
+type DirectorObjectAnimation = NonNullable<DirectorProject["objects"][number]["animation"]>;
+
+type BaselineAnimationKeyframe = NonNullable<DirectorDccSourceBaseline["objects"][number]["animation"]>[number];
+
+/** True when the live Director timeline no longer matches the export-time snapshot. */
+function animationStanzaDiverged(
+  animation: DirectorObjectAnimation | undefined,
+  snapshot: readonly BaselineAnimationKeyframe[],
+  world: DirectorTransform,
+  space: DccReturnSpace,
+): boolean {
+  const keyframes = animation?.keyframes ?? [];
+  if (keyframes.length !== snapshot.length) return true;
+  return keyframes.some((keyframe, index) => {
+    const base = snapshot[index]!;
+    if (Math.abs(keyframe.frame - base.frame) > 1e-3) return true;
+    if ((keyframe.interpolation ?? "linear") !== (base.interpolation ?? "linear")) return true;
+    if ((keyframe.transform === undefined) !== (base.transform === undefined)) return true;
+    if (
+      keyframe.transform &&
+      base.transform &&
+      !dccTransformsEqual(space.fromDirector(keyframe.transform, world), base.transform)
+    ) {
+      return true;
+    }
+    if ((keyframe.lookTarget === undefined) !== (base.lookTarget === undefined)) return true;
+    if (
+      keyframe.lookTarget &&
+      base.lookTarget &&
+      !vectorsClose(space.worldPointFromDirector(keyframe.lookTarget, world), base.lookTarget)
+    ) {
+      return true;
+    }
+    return !poseControlsClose(keyframe.poseValues, base.poseValues);
+  });
+}
+
+/**
+ * Director-authored per-keyframe features a DCC keyframe replacement would
+ * silently delete. When the live timeline carries any of these, the
+ * animation_update is listed as a reviewable skip instead of applied.
+ */
+function nonPortableKeyframeFeatures(animation: DirectorObjectAnimation | undefined): string[] {
+  const features = new Set<string>();
+  for (const keyframe of animation?.keyframes ?? []) {
+    if (keyframe.poseValues && Object.keys(keyframe.poseValues).length) features.add("pose-control");
+    if (keyframe.lookTarget !== undefined || keyframe.lookTargetObjectId != null) features.add("look-target");
+    if (keyframe.timingCurve !== undefined || keyframe.curve !== undefined) features.add("easing-curve");
+    if (keyframe.fov !== undefined) features.add("fov");
+  }
+  return [...features];
+}
+
+const TRAJECTORY_METADATA_FIELDS = ["preset", "circle", "orientToPath", "motion", "speed", "source", "recipe"] as const;
+
+/** Trajectory metadata that becomes stale once a DCC replaces the keyframes it described. */
+function staleTrajectoryMetadata(animation: DirectorObjectAnimation | undefined): string[] {
+  if (!animation) return [];
+  return TRAJECTORY_METADATA_FIELDS.filter((field) => animation[field] !== undefined);
+}
+
 function directorSideDivergence(
   change: DirectorDccReturnManifestV1["changes"][number],
   entity:
@@ -443,6 +520,18 @@ function directorSideDivergence(
   if (change.kind === "pose_update") {
     if (!poseControlsClose(snapshot.poseControls, resolveCharacterPoseControls(object.characterRig ?? null))) {
       return `Character ${change.directorId} pose controls changed in Director after the export, and the return package also updates them.`;
+    }
+    if (change.transform && transformChanged) {
+      return `Object ${change.directorId} transform changed in Director after the export, and the return package also updates it.`;
+    }
+    return null;
+  }
+  if (change.kind === "animation_update") {
+    if (snapshot.animation === undefined) {
+      return `Object ${change.directorId} predates timeline snapshots in the export baseline, so its Director-side animation edits cannot be verified.`;
+    }
+    if (animationStanzaDiverged(object.animation, snapshot.animation, world, space)) {
+      return `Object ${change.directorId} timeline changed in Director after the export, and the return package also replaces its keyframes.`;
     }
     if (change.transform && transformChanged) {
       return `Object ${change.directorId} transform changed in Director after the export, and the return package also updates it.`;
@@ -521,6 +610,37 @@ export function buildDirectorDccImportPlan(
     return value;
   };
 
+  const plannedCameraOptics = (
+    source: DirectorDccReturnCameraOptics,
+    directorId: string,
+  ): DirectorDccImportPlanCameraOptics => {
+    const optics: DirectorDccImportPlanCameraOptics = {};
+    const label = (field: string) => `Camera ${directorId} ${field}`;
+    if (source.focalLengthMm !== undefined) {
+      optics.focal_length_mm = clamp(source.focalLengthMm, 12, 200, label("focal length (mm)"));
+    }
+    if (source.apertureFStop !== undefined) {
+      const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.apertureFStop;
+      optics.aperture_f_stop = clamp(source.apertureFStop, min, max, label("aperture (f-stop)"));
+    }
+    if (source.focusDistanceM !== undefined) {
+      const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.focusDistanceM;
+      optics.focus_distance_m = clamp(source.focusDistanceM, min, max, label("focus distance (m)"));
+    }
+    if (source.nearClipM !== undefined) {
+      const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.nearClipM;
+      optics.near_clip_m = clamp(source.nearClipM, min, max, label("near clip (m)"));
+    }
+    if (source.farClipM !== undefined) {
+      const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.farClipM;
+      optics.far_clip_m = clamp(source.farClipM, min, max, label("far clip (m)"));
+    }
+    if (source.sensorFormat !== undefined) {
+      optics.sensor_format = source.sensorFormat;
+    }
+    return optics;
+  };
+
   for (const change of manifest.changes) {
     if (requestedSkips.has(change.directorId)) {
       matchedSkips.add(change.directorId);
@@ -531,14 +651,16 @@ export function buildDirectorDccImportPlan(
       });
       continue;
     }
-    if (change.kind === "object_addition") {
+    if (change.kind === "object_addition" || change.kind === "camera_addition" || change.kind === "light_addition") {
+      const additionLabel =
+        change.kind === "camera_addition" ? "camera" : change.kind === "light_addition" ? "light" : "object";
       const existing =
         project.objects.find((candidate) => candidate.id === change.directorId) ??
         project.cameras.find((candidate) => candidate.id === change.directorId) ??
         (project.lights ?? []).find((candidate) => candidate.id === change.directorId);
       if (existing) {
         const reason =
-          `Stable ID ${change.directorId} already exists in the live project; a new DCC object cannot reuse it. ` +
+          `Stable ID ${change.directorId} already exists in the live project; a new DCC ${additionLabel} cannot reuse it. ` +
           "Assign a fresh director_id in the DCC and re-export the return package.";
         operations.push({ op: "skip", directorId: change.directorId, reason });
         conflicts.push({ directorId: change.directorId, code: "duplicate_director_id", reason });
@@ -551,9 +673,41 @@ export function buildDirectorDccImportPlan(
           op: "skip",
           directorId: change.directorId,
           reason:
-            `New DCC object "${change.name}" (${change.directorId}) is available but not imported; ` +
+            `New DCC ${additionLabel} "${change.name}" (${change.directorId}) is available but not imported; ` +
             "rebuild the plan with include_new_objects to import it after review.",
         });
+        continue;
+      }
+      if (change.kind === "camera_addition") {
+        const transform = space.toDirector(change.transform, world);
+        const optics = change.optics ? plannedCameraOptics(change.optics, change.directorId) : undefined;
+        operations.push({
+          op: "create_camera",
+          cameraId: change.directorId,
+          name: change.name,
+          position: transform.position,
+          target: space.worldPointToDirector(change.target, world),
+          ...(optics && Object.keys(optics).length ? { optics } : {}),
+        });
+        continue;
+      }
+      if (change.kind === "light_addition") {
+        const light: DirectorDccImportPlanLightCreate = {
+          name: change.name,
+          type: change.type,
+          color: change.color.toLowerCase(),
+          intensity: clamp(change.intensity, 0, 100, `Light ${change.directorId} intensity`),
+          position: space.worldPointToDirector(change.position, world),
+          ...(change.target ? { target: space.worldPointToDirector(change.target, world) } : {}),
+          ...(change.angleRad !== undefined
+            ? { angle: clamp(change.angleRad, 0.001, Math.PI / 2, `Light ${change.directorId} spot half-angle (rad)`) }
+            : {}),
+          ...(change.penumbra !== undefined ? { penumbra: change.penumbra } : {}),
+          ...(change.widthM !== undefined ? { width: change.widthM } : {}),
+          ...(change.heightM !== undefined ? { height: change.heightM } : {}),
+          ...(change.castShadow !== undefined ? { castShadow: change.castShadow } : {}),
+        };
+        operations.push({ op: "create_light", lightId: change.directorId, light });
         continue;
       }
       const hash = manifest.fileHashes[change.meshFile]!;
@@ -633,31 +787,11 @@ export function buildDirectorDccImportPlan(
         });
       }
       if (change.optics) {
-        const optics: DirectorDccImportPlanCameraOptics = {};
-        const label = (field: string) => `Camera ${change.directorId} ${field}`;
-        if (change.optics.focalLengthMm !== undefined) {
-          optics.focal_length_mm = clamp(change.optics.focalLengthMm, 12, 200, label("focal length (mm)"));
-        }
-        if (change.optics.apertureFStop !== undefined) {
-          const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.apertureFStop;
-          optics.aperture_f_stop = clamp(change.optics.apertureFStop, min, max, label("aperture (f-stop)"));
-        }
-        if (change.optics.focusDistanceM !== undefined) {
-          const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.focusDistanceM;
-          optics.focus_distance_m = clamp(change.optics.focusDistanceM, min, max, label("focus distance (m)"));
-        }
-        if (change.optics.nearClipM !== undefined) {
-          const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.nearClipM;
-          optics.near_clip_m = clamp(change.optics.nearClipM, min, max, label("near clip (m)"));
-        }
-        if (change.optics.farClipM !== undefined) {
-          const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.farClipM;
-          optics.far_clip_m = clamp(change.optics.farClipM, min, max, label("far clip (m)"));
-        }
-        if (change.optics.sensorFormat !== undefined) {
-          optics.sensor_format = change.optics.sensorFormat;
-        }
-        operations.push({ op: "update_camera_optics", objectId: change.directorId, optics });
+        operations.push({
+          op: "update_camera_optics",
+          objectId: change.directorId,
+          optics: plannedCameraOptics(change.optics, change.directorId),
+        });
       }
       continue;
     }
@@ -689,6 +823,49 @@ export function buildDirectorDccImportPlan(
           };
         });
       operations.push({ op: "set_character_pose", objectId: change.directorId, controls });
+      if (change.transform) {
+        operations.push({
+          op: "update_transform",
+          entityType: "object",
+          objectId: change.directorId,
+          transform: space.toDirector(change.transform, world),
+        });
+      }
+      continue;
+    }
+
+    if (change.kind === "animation_update") {
+      const blockers = nonPortableKeyframeFeatures(object!.animation);
+      if (blockers.length) {
+        // Replacing these keyframes would silently delete Director-authored
+        // data the DCC never saw; list the change as a reviewable skip.
+        operations.push({
+          op: "skip",
+          directorId: change.directorId,
+          reason:
+            `Director timeline keyframes for ${change.directorId} carry ${blockers.join(", ")} data that the DCC ` +
+            "cannot round-trip; the DCC animation update was skipped so those Director-authored keys are not deleted. " +
+            "Author the edit on the Director timeline instead.",
+        });
+        continue;
+      }
+      const dropped = staleTrajectoryMetadata(object!.animation);
+      if (dropped.length) {
+        warnings.push(
+          `Object ${change.directorId} trajectory metadata (${dropped.join(", ")}) is cleared by this import ` +
+            "because the DCC replaced the keyframes it described.",
+        );
+      }
+      operations.push({
+        op: "set_entity_animation",
+        entityType: "object",
+        objectId: change.directorId,
+        keyframes: change.keyframes.map((keyframe) => ({
+          frame: keyframe.frame,
+          interpolation: keyframe.interpolation,
+          transform: space.toDirector(keyframe.transform, world),
+        })),
+      });
       if (change.transform) {
         operations.push({
           op: "update_transform",
@@ -811,6 +988,77 @@ function authoringActionsForPlan(
         kind: "prop",
         asset_id: operation.assetId,
         transform: operation.transform,
+      });
+      continue;
+    }
+    if (operation.op === "set_entity_animation") {
+      const object = project.objects.find((candidate) => candidate.id === operation.objectId);
+      if (!object) {
+        throw new DirectorDccImportError("unknown_director_id", `Object ${operation.objectId} no longer exists.`, 409);
+      }
+      const preserved = object.animation;
+      // Character motion blocks and the enabled toggle are Director-authored
+      // state independent of the replaced keyframes; trajectory metadata that
+      // described the old keyframes is dropped (the plan warned about it).
+      const animation =
+        operation.keyframes.length || preserved?.motionBlocks?.length
+          ? {
+              version: 1 as const,
+              keyframes: operation.keyframes.map((keyframe) => ({
+                frame: keyframe.frame,
+                interpolation: keyframe.interpolation,
+                transform: keyframe.transform,
+              })),
+              ...(preserved?.enabled !== undefined ? { enabled: preserved.enabled } : {}),
+              ...(preserved?.motionBlocks?.length ? { motionBlocks: preserved.motionBlocks } : {}),
+              ...(preserved?.actionPresetId !== undefined ? { actionPresetId: preserved.actionPresetId } : {}),
+              ...(preserved?.color !== undefined ? { color: preserved.color } : {}),
+            }
+          : null;
+      actions.push({ action: "set_animation", target_type: "object", target_id: operation.objectId, animation });
+      continue;
+    }
+    if (operation.op === "create_camera") {
+      actions.push({
+        action: "add_camera",
+        id: operation.cameraId,
+        name: operation.name,
+        position: operation.position,
+        target: operation.target,
+        ...(operation.optics?.focal_length_mm !== undefined
+          ? { focal_length_mm: operation.optics.focal_length_mm }
+          : {}),
+        ...(operation.optics?.aperture_f_stop !== undefined
+          ? { aperture_f_stop: operation.optics.aperture_f_stop }
+          : {}),
+        ...(operation.optics?.focus_distance_m !== undefined
+          ? { focus_distance_m: operation.optics.focus_distance_m }
+          : {}),
+        ...(operation.optics?.near_clip_m !== undefined ? { near_clip_m: operation.optics.near_clip_m } : {}),
+        ...(operation.optics?.far_clip_m !== undefined ? { far_clip_m: operation.optics.far_clip_m } : {}),
+        ...(operation.optics?.sensor_format !== undefined ? { sensor_format: operation.optics.sensor_format } : {}),
+      });
+      continue;
+    }
+    if (operation.op === "create_light") {
+      actions.push({
+        action: "add_light",
+        light: {
+          id: operation.lightId,
+          name: operation.light.name,
+          type: operation.light.type,
+          visible: true,
+          locked: false,
+          color: operation.light.color,
+          intensity: operation.light.intensity,
+          position: operation.light.position,
+          ...(operation.light.target ? { target: operation.light.target } : {}),
+          ...(operation.light.angle !== undefined ? { angle: operation.light.angle } : {}),
+          ...(operation.light.penumbra !== undefined ? { penumbra: operation.light.penumbra } : {}),
+          ...(operation.light.width !== undefined ? { width: operation.light.width } : {}),
+          ...(operation.light.height !== undefined ? { height: operation.light.height } : {}),
+          ...(operation.light.castShadow !== undefined ? { castShadow: operation.light.castShadow } : {}),
+        },
       });
       continue;
     }
@@ -1140,7 +1388,10 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
     const skipDirectorIds = submitted.operations.flatMap((operation) =>
       operation.op === "skip" ? [operation.directorId] : [],
     );
-    const includeNewObjects = submitted.operations.some((operation) => operation.op === "create_prop");
+    const includeNewObjects = submitted.operations.some(
+      (operation) =>
+        operation.op === "create_prop" || operation.op === "create_camera" || operation.op === "create_light",
+    );
     const baseline =
       validated.manifest.sourceRevision === currentRevision ? null : await loadSourceBaseline(validated.manifest);
     const plan = buildDirectorDccImportPlan(validated, project, { baseline, skipDirectorIds, includeNewObjects });

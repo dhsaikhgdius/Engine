@@ -29,6 +29,7 @@ from director_animation_curves import (
     animation_fingerprint,
     animation_samples_equal,
     extract_transform_animation,
+    manifest_animation_has_look_targets,
     manifest_animation_has_pose_keys,
     manifest_animation_sample,
 )
@@ -522,6 +523,13 @@ def reconcile_animation(root: Any, source_object: dict[str, Any]) -> tuple[bool,
             warnings.append(
                 "animation curves changed, but the exported animation carried per-keyframe character pose values; "
                 "pose keyframes have no Blender curve mapping, so the animation edit was omitted "
+                "(author it on the Director timeline)."
+            )
+            return False, [], warnings
+        if manifest_animation_has_look_targets(source_object.get("animation")):
+            warnings.append(
+                "animation curves changed, but the exported animation carried per-keyframe look targets; "
+                "look-target keyframes have no Blender curve mapping, so the animation edit was omitted "
                 "(author it on the Director timeline)."
             )
             return False, [], warnings

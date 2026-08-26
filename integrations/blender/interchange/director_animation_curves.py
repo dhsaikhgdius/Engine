@@ -407,3 +407,10 @@ def manifest_animation_has_pose_keys(animation: Any) -> bool:
     return isinstance(animation, list) and any(
         isinstance(keyframe, dict) and keyframe.get("poseValues") for keyframe in animation
     )
+
+
+def manifest_animation_has_look_targets(animation: Any) -> bool:
+    """True when the exported animation carried per-keyframe look targets."""
+    return isinstance(animation, list) and any(
+        isinstance(keyframe, dict) and keyframe.get("lookTarget") is not None for keyframe in animation
+    )
