@@ -2768,3 +2768,52 @@ describe("camera capture evidence authoring", () => {
     ).toBe(false);
   });
 });
+
+describe("set_panorama_asset authoring", () => {
+  it("activates a panorama asset and clears it", () => {
+    const project = createDefaultDirectorProject();
+    const withAsset = applyDirectorAuthoringActions(project, [
+      {
+        action: "upsert_asset",
+        asset: {
+          id: "asset_panorama_1",
+          kind: "panorama",
+          sourceType: "image",
+          fileName: "sky.jpg",
+          name: "Sky",
+          url: "https://example.com/sky.jpg",
+        },
+      },
+    ]);
+    const activated = applyDirectorAuthoringActions(withAsset.project, [
+      { action: "set_panorama_asset", asset_id: "asset_panorama_1" },
+    ]);
+    expect(activated.project.panoramaAssetId).toBe("asset_panorama_1");
+
+    const cleared = applyDirectorAuthoringActions(activated.project, [
+      { action: "set_panorama_asset", asset_id: null },
+    ]);
+    expect(cleared.project.panoramaAssetId).toBeNull();
+  });
+
+  it("rejects non-panorama assets", () => {
+    const project = createDefaultDirectorProject();
+    const withProp = applyDirectorAuthoringActions(project, [
+      {
+        action: "upsert_asset",
+        asset: {
+          id: "asset_prop_1",
+          kind: "prop",
+          sourceType: "model",
+          fileName: "box.glb",
+          name: "Box",
+          url: "https://example.com/box.glb",
+          assetSource: "local",
+        },
+      },
+    ]);
+    expect(() =>
+      applyDirectorAuthoringActions(withProp.project, [{ action: "set_panorama_asset", asset_id: "asset_prop_1" }]),
+    ).toThrow(/cannot be the Stage panorama/);
+  });
+});

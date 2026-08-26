@@ -5823,7 +5823,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     addImportedAsset: (input) => {
       let assetId = "";
 
-      commitMutation((state) => {
+      const buildNextAsset = (state: DirectorRuntimeState): DirectorAssetRef => {
         const claimsPackagedCharacter =
           input.kind === "character" &&
           (input.assetSource === "library" ||
@@ -5850,7 +5850,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             ? DIRECTOR_IMPORTED_MODEL_TARGET_MAX_SIZE
             : undefined;
         const realWorldSizeM = input.realWorldSizeM ?? estimatedFallbackSizeM;
-        const nextAsset = catalogItem
+        return catalogItem
           ? createMixamoCharacterAssetRef(catalogItem)
           : ({
               id: input.assetSource === "generated" && input.id ? input.id : generatedAssetId,
@@ -5874,6 +5874,54 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               characterMetadata: input.kind === "character" ? input.characterMetadata : undefined,
               splatSequence: input.splatSequence,
             } satisfies DirectorAssetRef);
+      };
+
+      if (canUseAuthoringPath()) {
+        const state = get() as DirectorRuntimeState;
+        const nextAsset = buildNextAsset(state);
+        assetId = nextAsset.id;
+        const existingAsset = state.project.assets.find((asset) => asset.id === assetId);
+        if (existingAsset) {
+          if (JSON.stringify(existingAsset) !== JSON.stringify(nextAsset)) {
+            throw new Error(`资产 ID "${assetId}" 已存在，但内容与真实目录资产不一致。`);
+          }
+          // Catalog-only / panorama re-imports are no-ops when the asset matches.
+          if (input.addToScene === false || input.kind === "panorama" || existingAsset.sourceType === "image") {
+            return assetId;
+          }
+          // Scene placement for an existing asset keeps the legacy writer
+          // (createSceneObjectFromAsset nativeSource / selection semantics).
+        } else if (input.kind === "panorama") {
+          const applied = dispatchUiAuthoring(
+            [
+              { action: "upsert_asset", asset: cloneJsonValue(nextAsset) },
+              { action: "set_panorama_asset", asset_id: assetId },
+            ],
+            `ui-import-panorama:${assetId}`,
+            "导入失败",
+          );
+          if (applied) {
+            commitUiMutation((current) => ({
+              ...current,
+              ...selectedObjectsPatch([], null, "scene"),
+            }));
+          }
+          return assetId;
+        } else if (input.addToScene === false || nextAsset.sourceType === "image") {
+          const applied = dispatchUiAuthoring(
+            [{ action: "upsert_asset", asset: cloneJsonValue(nextAsset) }],
+            `ui-import-asset:${assetId}`,
+            "导入失败",
+          );
+          if (applied) persistLocalModelAsset(nextAsset);
+          return assetId;
+        }
+        // Model imports that also place a scene object keep the legacy writer
+        // until createSceneObjectFromAsset / add_object placement parity lands.
+      }
+
+      commitMutation((state) => {
+        const nextAsset = buildNextAsset(state);
         assetId = nextAsset.id;
         const existingAsset = state.project.assets.find((asset) => asset.id === assetId);
         if (existingAsset) {

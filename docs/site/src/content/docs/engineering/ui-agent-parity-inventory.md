@@ -29,13 +29,14 @@ Last verified: **2026-08-26**.
 
 | Category                             | Count             |
 | ------------------------------------ | ----------------- |
-| shared Stage project mutators        | 78                |
-| ui-only Stage project mutators       | 9                 |
-| Coverage (shared / project mutators) | **78 / 87 ≈ 90%** |
+| shared Stage project mutators        | 79                |
+| ui-only Stage project mutators       | 8                 |
+| Coverage (shared / project mutators) | **79 / 87 ≈ 91%** |
 
-Everything still ui-only either has no semantic action yet (object lists,
-catalog ingest) or is deliberately local with a documented
-divergence reason in the store (snapshot cameras, preset/crowd/asset add flows).
+Everything still ui-only either has no semantic action yet (object lists)
+or is deliberately local with a documented divergence reason in the store
+(snapshot cameras, preset/crowd/asset add flows, and model imports that also
+place a scene object).
 
 Parity is regression-tested in
 `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts`: the same
@@ -124,7 +125,7 @@ Parity is regression-tested in
 
 | Mutator                                     | File               | Semantic action(s)                                                                                                                                                  | Status                                                                                                                                                                                           |
 | ------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `addImportedAsset`                          | `directorStore.ts` | no semantic action yet (catalog ingest + optional scene placement)                                                                                                  | ui-only                                                                                                                                                                                          |
+| `addImportedAsset`                          | `directorStore.ts` | `upsert_asset`; panoramas also `set_panorama_asset`                                                                                                                 | shared (catalog-only and panorama paths; model imports that also place a scene object keep the legacy writer until `createSceneObjectFromAsset` / `add_object` placement parity)                 |
 | `setAssetRealWorldSize`                     | `directorStore.ts` | `upsert_asset` with the patched `realWorldSizeM` / `sizeSource`                                                                                                     | shared (clearing to `null` keeps the legacy writer so migrate's estimated 2 m backfill does not refill the Prop inspector)                                                                       |
 | `removeImportedAsset`                       | `directorStore.ts` | `remove_assets` with `cascade`                                                                                                                                      | shared (removals whose cascade would also delete children, clear look targets, camera follow/path bindings, or material texture references keep the legacy writer, which leaves those untouched) |
 | `addObjectFromAsset`                        | `directorStore.ts` | `add_object` diverges: `createSceneObjectFromAsset` stamps Blender `nativeSource` provisioning markers and character rig defaults that `add_object` does not author | ui-only (deliberately local)                                                                                                                                                                     |

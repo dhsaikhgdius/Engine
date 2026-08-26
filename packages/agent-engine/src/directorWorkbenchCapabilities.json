@@ -47,6 +47,7 @@
     "set_scene",
     "upsert_asset",
     "remove_assets",
+    "set_panorama_asset",
     "add_object",
     "update_object",
     "batch_update_objects",
