@@ -4913,11 +4913,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         const actions = compileCrowdTransformActions(
           crowdId,
           {
-            position: [
-              currentAnchor.position[0],
-              currentState.project.scene.groundHeight,
-              currentAnchor.position[2],
-            ],
+            position: [currentAnchor.position[0], currentState.project.scene.groundHeight, currentAnchor.position[2]],
           },
           { grounded: true },
         );
