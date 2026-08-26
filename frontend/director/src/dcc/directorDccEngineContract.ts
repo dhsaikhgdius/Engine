@@ -116,6 +116,30 @@ export const directorUnityOmittedMaterialSchema = z.strictObject({
 export type DirectorUnityOmittedMaterial = z.infer<typeof directorUnityOmittedMaterialSchema>;
 
 /**
+ * Structured warn-and-omit codes the Unity Timeline shot mapper stamps into
+ * reports. Mappable shots become ActivationTrack camera cuts; these codes
+ * cover the shots that could not produce a cut (mirroring the Godot shot
+ * mapper vocabulary so agents read one code set across engines).
+ */
+export const directorUnityOmittedShotCodeSchema = z.enum([
+  "shot_no_camera_binding",
+  "shot_camera_not_imported",
+  "shot_target_not_camera",
+]);
+
+/** One typed Unity shot omission (agents read this instead of scraping warnings). */
+export const directorUnityOmittedShotSchema = z.strictObject({
+  shotId: z.string().trim().min(1).max(200),
+  code: directorUnityOmittedShotCodeSchema,
+  /** Bound camera id when known; null when the shot has no camera binding. */
+  cameraDirectorId: z.string().trim().min(1).max(200).nullable(),
+  reason: z.string().trim().min(1).max(600),
+});
+
+/** A validated Unity omitted-shot record. */
+export type DirectorUnityOmittedShot = z.infer<typeof directorUnityOmittedShotSchema>;
+
+/**
  * Unity-specific details block the `com.director.bridge` connector appends to
  * its run report. Every field is an observed fact about the finished import —
  * not a capability claim — so the Gateway and Agents can audit what the
@@ -168,6 +192,23 @@ export const directorDccUnityEngineReportDetailsSchema = z
      */
     omittedMaterials: z.array(directorUnityOmittedMaterialSchema).max(1_024).optional(),
     /**
+     * Storyboard shots that produced an ActivationTrack camera cut on the
+     * Timeline. Optional: connector builds before typed omittedShots omit
+     * this field.
+     */
+    mappedShotCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Unmappable storyboard shot count. Optional: connector builds before
+     * typed omittedShots omit this field and dropped such shots silently.
+     */
+    omittedShotCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Typed shot omit records (`shot_no_camera_binding`,
+     * `shot_camera_not_imported`, `shot_target_not_camera`). Optional for
+     * older connectors; when present, length must equal omittedShotCount.
+     */
+    omittedShots: z.array(directorUnityOmittedShotSchema).max(1_024).optional(),
+    /**
      * Characters posed from Director semantic pose controls (static controls
      * applied to the imported skeleton, keyframed controls baked to clips).
      * Optional: connector 0.2.x reports predate pose baking.
@@ -208,6 +249,21 @@ export const directorDccUnityEngineReportDetailsSchema = z
           code: "custom",
           path: ["omittedMaterials"],
           message: "omittedMaterials length must equal omittedMaterialCount",
+        });
+      }
+    }
+    if (receipt.omittedShots !== undefined) {
+      if (receipt.omittedShotCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedShotCount"],
+          message: "omittedShotCount is required when omittedShots is present",
+        });
+      } else if (receipt.omittedShots.length !== receipt.omittedShotCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedShots"],
+          message: "omittedShots length must equal omittedShotCount",
         });
       }
     }
