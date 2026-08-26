@@ -58075,6 +58075,255 @@ var blenderNativeApplyResultSchema = external_exports.strictObject({
   evidence: blenderFocusedEvidenceSchema
 });
 
+// packages/protocol/src/gameSliceProtocol.ts
+var GAME_SLICE_CONTRACT = "director-game-slice-v1";
+var gameSliceIdSchema = external_exports.string().regex(/^game-[a-z0-9-]{8,64}$/i);
+var nonEmptyText3 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var boundedText4 = (maximum) => external_exports.string().trim().max(maximum);
+var finite9 = external_exports.number().finite();
+var objectId = nonEmptyText3(200);
+var GAME_SLICE_GENRES = ["exploration", "fps", "racing", "fighting", "rpg"];
+var gameSliceGenreSchema = external_exports.enum(GAME_SLICE_GENRES);
+var GAME_SLICE_PERSPECTIVES = ["first", "third", "top_down"];
+var gameSlicePerspectiveSchema = external_exports.enum(GAME_SLICE_PERSPECTIVES);
+var GAME_SLICE_ENGINE_TARGETS = ["stage", "godot", "unity", "unreal"];
+var gameSliceEngineTargetSchema = external_exports.enum(GAME_SLICE_ENGINE_TARGETS);
+var GAME_SLICE_VERBS = [
+  "move",
+  "look",
+  "jump",
+  "sprint",
+  "dash",
+  "crouch",
+  "interact",
+  "attack",
+  "fire",
+  "reload",
+  "enter_vehicle",
+  "exit_vehicle",
+  "pause"
+];
+var gameSliceVerbSchema = external_exports.enum(GAME_SLICE_VERBS);
+var GAME_SLICE_ROLE_KINDS = [
+  "player",
+  "enemy",
+  "npc",
+  "prop",
+  "vehicle",
+  "spawn",
+  "objective",
+  "hazard"
+];
+var gameSliceRoleKindSchema = external_exports.enum(GAME_SLICE_ROLE_KINDS);
+var GAME_SLICE_HUD_WIDGETS = [
+  "health",
+  "ammo",
+  "score",
+  "prompt",
+  "minimap",
+  "crosshair",
+  "speedometer",
+  "dialogue",
+  "timer"
+];
+var gameSliceHudWidgetKindSchema = external_exports.enum(GAME_SLICE_HUD_WIDGETS);
+var GAME_SLICE_PLAYABILITY_CHECKS = [
+  "on_ground",
+  "facing_matches_move",
+  "no_camera_clip",
+  "verb_exercised",
+  "interaction_in_range",
+  "hud_bound",
+  "objective_reachable",
+  "no_stuck"
+];
+var gameSlicePlayabilityCheckSchema = external_exports.enum(GAME_SLICE_PLAYABILITY_CHECKS);
+var GAME_SLICE_STATUSES = ["draft", "bound", "playtested", "playable", "exported"];
+var gameSliceStatusSchema = external_exports.enum(GAME_SLICE_STATUSES);
+var gameSliceIssueSeveritySchema = external_exports.enum(["error", "warning", "info"]);
+var gameSliceBriefSchema = external_exports.strictObject({
+  requirement: nonEmptyText3(8e3),
+  genre: gameSliceGenreSchema,
+  perspective: gameSlicePerspectiveSchema.optional(),
+  engine_target: gameSliceEngineTargetSchema.optional(),
+  platform: boundedText4(120).optional(),
+  style: boundedText4(240).optional(),
+  references: external_exports.array(nonEmptyText3(500)).max(16).optional()
+});
+var gameSliceLoopSchema = external_exports.strictObject({
+  summary: nonEmptyText3(2e3),
+  verbs: external_exports.array(gameSliceVerbSchema).min(1).max(GAME_SLICE_VERBS.length),
+  win: nonEmptyText3(1e3),
+  lose: boundedText4(1e3).optional(),
+  respawn: external_exports.boolean().default(true)
+});
+var gameSliceControlsSchema = external_exports.strictObject({
+  scheme: external_exports.enum(["wasd_mouse", "gamepad", "twin_stick"]).default("wasd_mouse"),
+  camera: gameSlicePerspectiveSchema,
+  verbs: external_exports.array(gameSliceVerbSchema).min(1).max(GAME_SLICE_VERBS.length)
+});
+var gameSliceRoleSchema = external_exports.strictObject({
+  id: nonEmptyText3(80),
+  kind: gameSliceRoleKindSchema,
+  purpose: nonEmptyText3(500),
+  object_id: objectId.optional(),
+  asset_id: nonEmptyText3(200).optional()
+});
+var gameSliceHudWidgetSchema = external_exports.strictObject({
+  id: nonEmptyText3(80),
+  kind: gameSliceHudWidgetKindSchema,
+  label: nonEmptyText3(80),
+  role_id: nonEmptyText3(80).optional(),
+  channel: boundedText4(80).optional()
+});
+var gameSliceHudSchema = external_exports.strictObject({
+  widgets: external_exports.array(gameSliceHudWidgetSchema).max(16).default([])
+});
+var GAME_SLICE_ASSET_SOURCES = ["catalog", "project", "generated_3d", "blender_native", "licensed"];
+var gameSliceAssetSourceSchema = external_exports.enum(GAME_SLICE_ASSET_SOURCES);
+var gameSliceAssetBindingSchema = external_exports.strictObject({
+  role_id: nonEmptyText3(80),
+  source: gameSliceAssetSourceSchema,
+  asset_id: nonEmptyText3(240).optional(),
+  object_id: objectId.optional(),
+  license: boundedText4(160).optional(),
+  notes: boundedText4(500).optional()
+});
+var gameSliceAcceptanceSchema = external_exports.strictObject({
+  operations: external_exports.array(gameSliceVerbSchema).min(1).max(GAME_SLICE_VERBS.length),
+  playability_checks: external_exports.array(gameSlicePlayabilityCheckSchema).min(1).max(GAME_SLICE_PLAYABILITY_CHECKS.length),
+  style: boundedText4(240).optional()
+});
+var gamePlaytestInputSchema = external_exports.strictObject({
+  forward: external_exports.boolean().default(false),
+  backward: external_exports.boolean().default(false),
+  left: external_exports.boolean().default(false),
+  right: external_exports.boolean().default(false),
+  sprint: external_exports.boolean().default(false),
+  jump: external_exports.boolean().default(false),
+  descend: external_exports.boolean().default(false),
+  dash: external_exports.boolean().default(false),
+  crouch: external_exports.boolean().default(false),
+  interact: external_exports.boolean().default(false),
+  fire: external_exports.boolean().default(false),
+  pause: external_exports.boolean().default(false),
+  enter_vehicle: external_exports.boolean().default(false),
+  exit_vehicle: external_exports.boolean().default(false),
+  look_left: external_exports.boolean().default(false),
+  look_right: external_exports.boolean().default(false),
+  look_up: external_exports.boolean().default(false),
+  look_down: external_exports.boolean().default(false),
+  move_forward_axis: finite9.min(-1).max(1).optional(),
+  move_right_axis: finite9.min(-1).max(1).optional()
+});
+var gamePlaytestExpectSchema = external_exports.strictObject({
+  on_ground: external_exports.boolean().optional(),
+  min_speed_mps: finite9.min(0).max(200).optional(),
+  max_speed_mps: finite9.min(0).max(200).optional(),
+  reached_object_id: objectId.optional(),
+  reached_radius_m: finite9.min(0.05).max(50).optional(),
+  verb: gameSliceVerbSchema.optional()
+});
+var gamePlaytestStepSchema = external_exports.strictObject({
+  frames: external_exports.number().int().min(1).max(1e4),
+  input: gamePlaytestInputSchema,
+  expect: gamePlaytestExpectSchema.optional()
+});
+var gamePlaytestScriptSchema = external_exports.strictObject({
+  dt: finite9.min(1 / 240).max(1 / 10).default(1 / 30),
+  steps: external_exports.array(gamePlaytestStepSchema).min(1).max(256)
+});
+var gamePlaytestSampleSchema = external_exports.strictObject({
+  frame: external_exports.number().int().nonnegative().max(1048576),
+  time_s: finite9.min(0),
+  position: external_exports.tuple([finite9, finite9, finite9]),
+  yaw: finite9,
+  pitch: finite9.optional(),
+  velocity: external_exports.tuple([finite9, finite9, finite9]).optional(),
+  on_ground: external_exports.boolean(),
+  flying: external_exports.boolean().default(false),
+  verb: gameSliceVerbSchema.optional(),
+  interaction_object_id: objectId.optional(),
+  camera_clip: external_exports.boolean().default(false),
+  stuck: external_exports.boolean().default(false)
+});
+var gamePlaytestTraceSchema = external_exports.strictObject({
+  contract: external_exports.literal("director-game-playtest-trace-v1"),
+  slice_id: gameSliceIdSchema,
+  project_revision: nonEmptyText3(240).optional(),
+  dt: finite9.min(1 / 240).max(1 / 10),
+  samples: external_exports.array(gamePlaytestSampleSchema).min(1).max(1048576),
+  verbs_exercised: external_exports.array(gameSliceVerbSchema).max(GAME_SLICE_VERBS.length).default([])
+});
+var gameSliceIssueSchema = external_exports.strictObject({
+  code: external_exports.enum([
+    "fell_through_floor",
+    "facing_mismatch",
+    "camera_clip",
+    "stuck",
+    "verb_not_exercised",
+    "interaction_out_of_range",
+    "hud_unbound",
+    "player_unbound",
+    "objective_unreachable",
+    "expect_failed",
+    "style_unverified",
+    "engine_not_ready"
+  ]),
+  severity: gameSliceIssueSeveritySchema,
+  check: gameSlicePlayabilityCheckSchema.optional(),
+  message: nonEmptyText3(500),
+  sample_frame: external_exports.number().int().nonnegative().optional(),
+  role_id: nonEmptyText3(80).optional(),
+  object_id: objectId.optional(),
+  corrective_call: external_exports.unknown().optional()
+});
+var gameEvaluationReportSchema = external_exports.strictObject({
+  contract: external_exports.literal("director-game-evaluation-v1"),
+  slice_id: gameSliceIdSchema,
+  playable: external_exports.boolean(),
+  verbs_exercised: external_exports.array(gameSliceVerbSchema).max(GAME_SLICE_VERBS.length),
+  checks: external_exports.array(
+    external_exports.strictObject({
+      check: gameSlicePlayabilityCheckSchema,
+      passed: external_exports.boolean()
+    })
+  ),
+  issues: external_exports.array(gameSliceIssueSchema).max(128),
+  notes: external_exports.array(nonEmptyText3(500)).max(32).default([])
+});
+var gameSliceSchema = external_exports.strictObject({
+  contract: external_exports.literal(GAME_SLICE_CONTRACT),
+  id: gameSliceIdSchema,
+  title: nonEmptyText3(160),
+  status: gameSliceStatusSchema,
+  brief: gameSliceBriefSchema,
+  loop: gameSliceLoopSchema,
+  controls: gameSliceControlsSchema,
+  roles: external_exports.array(gameSliceRoleSchema).min(1).max(64),
+  hud: gameSliceHudSchema,
+  assets: external_exports.array(gameSliceAssetBindingSchema).max(64).default([]),
+  acceptance: gameSliceAcceptanceSchema,
+  project_revision: nonEmptyText3(240).optional(),
+  last_playtest_id: nonEmptyText3(80).optional(),
+  last_evaluation: gameEvaluationReportSchema.optional(),
+  export: external_exports.strictObject({
+    provider: external_exports.enum(["godot", "unity", "unreal"]),
+    package_dir: nonEmptyText3(2048).optional(),
+    notes: external_exports.array(nonEmptyText3(500)).max(16).default([])
+  }).optional(),
+  notes: external_exports.array(nonEmptyText3(500)).max(32).default([]),
+  created_at: external_exports.string().min(1).max(40),
+  updated_at: external_exports.string().min(1).max(40)
+});
+var gameSliceBindPatchSchema = external_exports.strictObject({
+  role_id: nonEmptyText3(80),
+  object_id: objectId.optional(),
+  asset_id: nonEmptyText3(200).optional(),
+  source: gameSliceAssetSourceSchema.optional(),
+  license: boundedText4(160).optional()
+});
+
 // assets/library/mixamo-animations/catalog.json
 var catalog_default = {
   schemaVersion: 1,
@@ -120264,7 +120513,7 @@ var BUILTIN_MACROS = [
 ];
 
 // packages/agent-engine/src/directorWorkbenchContract.ts
-var nonEmptyText3 = (max) => external_exports.string().trim().min(1).max(max);
+var nonEmptyText4 = (max) => external_exports.string().trim().min(1).max(max);
 var jsonPointer = external_exports.string().min(1).max(500).regex(/^\/(project|ui)(?:\/|$)/, "path must start with /project or /ui");
 var directorProjectRevisionSchema = external_exports.string().trim().min(1).max(240);
 var directorIdempotencyKeySchema = external_exports.string().min(1).max(160).regex(
@@ -120331,19 +120580,19 @@ var directorWorkbenchProjectAssetSourceSchema = external_exports.enum(["uploaded
 var directorProductionCommandSchema = external_exports.discriminatedUnion("action", [
   strictAction("observe", {}),
   strictAction("rename_production", {
-    title: nonEmptyText3(240),
+    title: nonEmptyText4(240),
     ...productionMutationGuardFields
   }),
   strictAction("create_scene", {
-    scene_id: nonEmptyText3(160),
-    title: nonEmptyText3(240),
+    scene_id: nonEmptyText4(160),
+    title: nonEmptyText4(240),
     activate: external_exports.boolean().default(true),
     ...productionMutationGuardFields
   }),
   strictAction("duplicate_scene", {
-    source_scene_id: nonEmptyText3(160),
-    scene_id: nonEmptyText3(160),
-    title: nonEmptyText3(240).optional(),
+    source_scene_id: nonEmptyText4(160),
+    scene_id: nonEmptyText4(160),
+    title: nonEmptyText4(240).optional(),
     activate: external_exports.boolean().default(true),
     ...productionMutationGuardFields
   }).refine((value) => value.source_scene_id !== value.scene_id, {
@@ -120351,19 +120600,19 @@ var directorProductionCommandSchema = external_exports.discriminatedUnion("actio
     path: ["scene_id"]
   }),
   strictAction("rename_scene", {
-    scene_id: nonEmptyText3(160),
-    title: nonEmptyText3(240),
+    scene_id: nonEmptyText4(160),
+    title: nonEmptyText4(240),
     ...productionMutationGuardFields
   }),
   strictAction("activate_scene", {
-    scene_id: nonEmptyText3(160),
+    scene_id: nonEmptyText4(160),
     ...productionMutationGuardFields
   }),
   strictAction("delete_scene", {
-    scene_id: nonEmptyText3(160),
+    scene_id: nonEmptyText4(160),
     replacement: external_exports.strictObject({
-      scene_id: nonEmptyText3(160),
-      title: nonEmptyText3(240)
+      scene_id: nonEmptyText4(160),
+      title: nonEmptyText4(240)
     }).optional(),
     ...productionMutationGuardFields
   }).refine((value) => value.replacement?.scene_id !== value.scene_id, {
@@ -120377,9 +120626,9 @@ var directorAuditSuggestedFixSchema = external_exports.strictObject({
 });
 var directorAuditIssueInputSchema = external_exports.strictObject({
   severity: external_exports.enum(["error", "warning", "info"]).optional(),
-  code: nonEmptyText3(160),
+  code: nonEmptyText4(160),
   message: external_exports.string().max(4e3).optional(),
-  entity_ids: external_exports.array(nonEmptyText3(200)).max(64).optional(),
+  entity_ids: external_exports.array(nonEmptyText4(200)).max(64).optional(),
   suggested_fix: directorAuditSuggestedFixSchema.optional()
 });
 var directorWorkbenchPatchSchema = external_exports.discriminatedUnion("op", [
@@ -120390,14 +120639,14 @@ var directorWorkbenchPatchSchema = external_exports.discriminatedUnion("op", [
 var directorGenerated3DCommandSchema = external_exports.discriminatedUnion("action", [
   strictAction("providers", {}),
   strictAction("list", { limit: external_exports.number().int().min(1).max(200).default(50) }),
-  strictAction("get", { job_id: nonEmptyText3(240) }),
+  strictAction("get", { job_id: nonEmptyText4(240) }),
   strictAction("submit", {
     mode: generated3dModeSchema,
     provider_id: generated3dProviderIdSchema.optional(),
-    name: nonEmptyText3(160),
-    prompt: nonEmptyText3(600),
+    name: nonEmptyText4(160),
+    prompt: nonEmptyText4(600),
     negative_prompt: external_exports.string().trim().max(255).optional(),
-    source_media_id: nonEmptyText3(240).optional(),
+    source_media_id: nonEmptyText4(240).optional(),
     /** Omit to let the gateway estimate a plausible real-world height from the prompt. */
     target_height_m: external_exports.number().finite().min(0.01).max(100).optional(),
     topology: generated3dTopologySchema.default("triangle"),
@@ -120405,7 +120654,7 @@ var directorGenerated3DCommandSchema = external_exports.discriminatedUnion("acti
     texture: external_exports.boolean().default(true),
     pbr: external_exports.boolean().default(true),
     seed: external_exports.number().int().min(0).max(2147483647).default(0),
-    model_version: nonEmptyText3(160).optional(),
+    model_version: nonEmptyText4(160).optional(),
     idempotency_key: directorIdempotencyKeySchema.optional()
   }).refine((value) => value.mode === "image-to-3d" === Boolean(value.source_media_id), {
     message: "image-to-3d requires source_media_id; text-to-3d must omit it",
@@ -120414,15 +120663,15 @@ var directorGenerated3DCommandSchema = external_exports.discriminatedUnion("acti
     message: "PBR output requires texture=true",
     path: ["pbr"]
   }),
-  strictAction("cancel", { job_id: nonEmptyText3(240) }),
-  strictAction("retry", { job_id: nonEmptyText3(240), idempotency_key: directorIdempotencyKeySchema.optional() }),
-  strictAction("reconcile", { job_id: nonEmptyText3(240) }),
+  strictAction("cancel", { job_id: nonEmptyText4(240) }),
+  strictAction("retry", { job_id: nonEmptyText4(240), idempotency_key: directorIdempotencyKeySchema.optional() }),
+  strictAction("reconcile", { job_id: nonEmptyText4(240) }),
   strictAction("promote", {
-    job_id: nonEmptyText3(240),
+    job_id: nonEmptyText4(240),
     expected_revision: directorProjectRevisionSchema.optional(),
     idempotency_key: directorIdempotencyKeySchema.optional(),
     add_to_scene: external_exports.boolean().default(true),
-    object_id: nonEmptyText3(200).optional(),
+    object_id: nonEmptyText4(200).optional(),
     transform: directorTransformSchema.optional(),
     placement_mode: external_exports.enum(DIRECTOR_PLACEMENT_MODES).default("grounded")
   }).superRefine((value, context) => {
@@ -120439,11 +120688,11 @@ var directorGenerationCommandSchema = external_exports.discriminatedUnion("actio
   strictAction("nodes", {}),
   strictAction("workflows", { media_kind: comfyMediaKindSchema.optional() }),
   strictAction("list", { limit: external_exports.number().int().min(1).max(200).default(50) }),
-  strictAction("get", { job_id: nonEmptyText3(240) }),
+  strictAction("get", { job_id: nonEmptyText4(240) }),
   strictAction("submit", {
     kind: external_exports.enum(["image.generate", "video.generate", "audio.generate"]),
-    workflow_id: nonEmptyText3(160),
-    prompt: nonEmptyText3(12e3),
+    workflow_id: nonEmptyText4(160),
+    prompt: nonEmptyText4(12e3),
     negative_prompt: external_exports.string().trim().max(12e3).optional(),
     width: external_exports.number().int().min(64).max(8192).default(1024),
     height: external_exports.number().int().min(64).max(8192).default(1024),
@@ -120476,28 +120725,28 @@ var directorGenerationCommandSchema = external_exports.discriminatedUnion("actio
       });
     }
   }),
-  strictAction("cancel", { job_id: nonEmptyText3(240) }),
-  strictAction("retry", { job_id: nonEmptyText3(240), idempotency_key: directorIdempotencyKeySchema.optional() }),
-  strictAction("reconcile", { job_id: nonEmptyText3(240) }),
+  strictAction("cancel", { job_id: nonEmptyText4(240) }),
+  strictAction("retry", { job_id: nonEmptyText4(240), idempotency_key: directorIdempotencyKeySchema.optional() }),
+  strictAction("reconcile", { job_id: nonEmptyText4(240) }),
   strictAction("promote", {
-    job_id: nonEmptyText3(240),
-    artifact_ids: external_exports.array(nonEmptyText3(240)).max(64).default([]),
+    job_id: nonEmptyText4(240),
+    artifact_ids: external_exports.array(nonEmptyText4(240)).max(64).default([]),
     ensure_waveform: external_exports.boolean().default(true)
   })
 ]);
 var directorTranscriptionCommandSchema = external_exports.discriminatedUnion("action", [
   strictAction("capabilities", {}),
   strictAction("list", { limit: external_exports.number().int().min(1).max(200).default(50) }),
-  strictAction("get", { job_id: nonEmptyText3(240) }),
+  strictAction("get", { job_id: nonEmptyText4(240) }),
   strictAction("submit", {
-    source_media_id: nonEmptyText3(512),
+    source_media_id: nonEmptyText4(512),
     language: external_exports.string().trim().min(1).max(80).optional(),
     idempotency_key: directorIdempotencyKeySchema.optional()
   }),
-  strictAction("cancel", { job_id: nonEmptyText3(240) }),
-  strictAction("retry", { job_id: nonEmptyText3(240), idempotency_key: directorIdempotencyKeySchema.optional() }),
+  strictAction("cancel", { job_id: nonEmptyText4(240) }),
+  strictAction("retry", { job_id: nonEmptyText4(240), idempotency_key: directorIdempotencyKeySchema.optional() }),
   strictAction("read", {
-    source_media_id: nonEmptyText3(512),
+    source_media_id: nonEmptyText4(512),
     from_seconds: external_exports.number().finite().min(0).max(24 * 60 * 60).default(0),
     to_seconds: external_exports.number().finite().positive().max(24 * 60 * 60).optional(),
     max_segments: external_exports.number().int().min(1).max(200).default(80)
@@ -120506,8 +120755,8 @@ var directorTranscriptionCommandSchema = external_exports.discriminatedUnion("ac
     path: ["to_seconds"]
   }),
   strictAction("search", {
-    source_media_id: nonEmptyText3(512),
-    query: nonEmptyText3(500),
+    source_media_id: nonEmptyText4(512),
+    query: nonEmptyText4(500),
     speaker: external_exports.string().trim().min(1).max(160).optional(),
     from_seconds: external_exports.number().finite().min(0).max(24 * 60 * 60).default(0),
     to_seconds: external_exports.number().finite().positive().max(24 * 60 * 60).optional(),
@@ -120517,21 +120766,21 @@ var directorTranscriptionCommandSchema = external_exports.discriminatedUnion("ac
     path: ["to_seconds"]
   }),
   strictAction("promote", {
-    job_id: nonEmptyText3(240),
+    job_id: nonEmptyText4(240),
     add_to_timeline: external_exports.boolean().default(false),
     caption_offset_seconds: external_exports.number().finite().min(0).max(24 * 60 * 60).default(0)
   })
 ]);
 var directorReconstructionCommandSchema = external_exports.discriminatedUnion("action", [
   strictAction("list", { limit: external_exports.number().int().min(1).max(200).default(50) }),
-  strictAction("get", { job_id: nonEmptyText3(240) }),
+  strictAction("get", { job_id: nonEmptyText4(240) }),
   /**
    * Reconstruct a staged capture (Gallery video, or an RGB-D scanner bundle
    * staged through the media-inputs endpoint) into an editable, walkable plan.
    */
   strictAction("submit", {
     /** Gallery media id, or an already staged `…sha256:<hex>` media-input id. */
-    source_media_id: nonEmptyText3(512),
+    source_media_id: nonEmptyText4(512),
     /** Omitted: zip sources reconstruct as rgbd-bundle, others as rgb-video. */
     source_kind: external_exports.enum(["rgbd-bundle", "rgb-video"]).optional(),
     max_key_views: external_exports.number().int().min(1).max(12).default(6),
@@ -120539,9 +120788,9 @@ var directorReconstructionCommandSchema = external_exports.discriminatedUnion("a
     prompt: external_exports.string().trim().max(2e3).default(""),
     idempotency_key: directorIdempotencyKeySchema.optional()
   }),
-  strictAction("plan", { job_id: nonEmptyText3(240) }),
+  strictAction("plan", { job_id: nonEmptyText4(240) }),
   strictAction("apply", {
-    job_id: nonEmptyText3(240),
+    job_id: nonEmptyText4(240),
     mode: external_exports.enum(["append", "replace"]).default("append"),
     include_cameras: external_exports.boolean().default(true),
     include_shell: external_exports.boolean().default(false),
@@ -120550,9 +120799,9 @@ var directorReconstructionCommandSchema = external_exports.discriminatedUnion("a
   }),
   /** Render the stage from one applied capture camera and score it against the keyframe. */
   strictAction("compare", {
-    job_id: nonEmptyText3(240),
-    view_id: nonEmptyText3(120).optional(),
-    camera_id: nonEmptyText3(200).optional(),
+    job_id: nonEmptyText4(240),
+    view_id: nonEmptyText4(120).optional(),
+    camera_id: nonEmptyText4(200).optional(),
     frame: external_exports.number().int().nonnegative().default(0)
   })
 ]);
@@ -120561,13 +120810,13 @@ var directorStoryboardExportFields = {
   orientation: external_exports.enum(["portrait", "landscape"]).default("landscape"),
   columns: external_exports.union([external_exports.literal(1), external_exports.literal(2), external_exports.literal(3), external_exports.literal(4)]).default(3),
   scope: external_exports.enum(["all", "selected"]).default("all"),
-  shot_ids: external_exports.array(nonEmptyText3(200)).max(500).default([]),
+  shot_ids: external_exports.array(nonEmptyText4(200)).max(500).default([]),
   include_metadata: external_exports.boolean().default(true),
   include_action: external_exports.boolean().default(true)
 };
 var directorStoryboardArtifactCommandSchema = external_exports.discriminatedUnion("action", [
   strictAction("capture_thumbnail", {
-    shot_id: nonEmptyText3(200),
+    shot_id: nonEmptyText4(200),
     expected_revision: directorProjectRevisionSchema.optional(),
     idempotency_key: directorIdempotencyKeySchema.optional()
   }),
@@ -120597,7 +120846,7 @@ var directorAuthorDeliveryProfileSchema = external_exports.strictObject({
 });
 var directorAuthorEvidenceProfileSchema = external_exports.strictObject({
   kind: external_exports.literal("camera_frame").default("camera_frame"),
-  camera_id: nonEmptyText3(200).optional(),
+  camera_id: nonEmptyText4(200).optional(),
   frame: external_exports.number().int().nonnegative().optional(),
   width: rasterDimensionSchema.default(640),
   height: rasterDimensionSchema.default(360),
@@ -120609,7 +120858,7 @@ var directorCompareSourceSchema = external_exports.discriminatedUnion("kind", [
   external_exports.strictObject({
     kind: external_exports.literal("stage"),
     /** Omitted camera_id renders through the active project camera. */
-    camera_id: nonEmptyText3(200).optional(),
+    camera_id: nonEmptyText4(200).optional(),
     frame: external_exports.number().int().nonnegative().default(0),
     width: rasterDimensionSchema.default(640),
     height: rasterDimensionSchema.default(360)
@@ -120620,15 +120869,15 @@ var directorCompareSourceSchema = external_exports.discriminatedUnion("kind", [
   external_exports.strictObject({
     kind: external_exports.literal("media"),
     /** Durable Gallery still-image media id. */
-    media_id: nonEmptyText3(512)
+    media_id: nonEmptyText4(512)
   }),
   external_exports.strictObject({
     kind: external_exports.literal("reconstruction_keyframe"),
-    job_id: nonEmptyText3(240),
+    job_id: nonEmptyText4(240),
     /** Capture key-view id from the reconstruction plan. */
-    view_id: nonEmptyText3(120).optional(),
+    view_id: nonEmptyText4(120).optional(),
     /** Capture-view camera id from the reconstruction plan. */
-    camera_id: nonEmptyText3(200).optional()
+    camera_id: nonEmptyText4(200).optional()
   })
 ]);
 var directorCompareSourceKinds = directorCompareSourceSchema.options.map(
@@ -120638,7 +120887,7 @@ var directorSpatialVec3Schema = directorTransformSchema.shape.position;
 var directorObjectSpatialQuerySchema = external_exports.discriminatedUnion("mode", [
   external_exports.strictObject({
     mode: external_exports.literal("frustum"),
-    camera_id: nonEmptyText3(200).optional()
+    camera_id: nonEmptyText4(200).optional()
   }),
   external_exports.strictObject({
     mode: external_exports.literal("aabb"),
@@ -120655,7 +120904,7 @@ var directorObjectSpatialQuerySchema = external_exports.discriminatedUnion("mode
   }),
   external_exports.strictObject({
     mode: external_exports.literal("nearby"),
-    object_id: nonEmptyText3(200),
+    object_id: nonEmptyText4(200),
     radius_m: external_exports.number().positive().max(1e6)
   })
 ]);
@@ -120668,16 +120917,16 @@ var directorMacroCommandSchema = external_exports.discriminatedUnion("action", [
     query: external_exports.string().trim().max(200).optional(),
     limit: external_exports.number().int().min(1).max(128).default(50)
   }),
-  strictAction("get", { macro_id: nonEmptyText3(120) }),
+  strictAction("get", { macro_id: nonEmptyText4(120) }),
   strictAction("save", { macro: directorMacroDraftSchema, overwrite: external_exports.boolean().default(false) }),
-  strictAction("remove", { macro_id: nonEmptyText3(120) }),
+  strictAction("remove", { macro_id: nonEmptyText4(120) }),
   strictAction("export", { include_content: external_exports.boolean().default(false) })
 ]);
 var directorMemoryCommandSchema = external_exports.discriminatedUnion("action", [
   strictAction("recall", {
     query: external_exports.string().trim().max(500).optional(),
     scope: external_exports.enum(["all", "global", "scene"]).default("all"),
-    scene_id: nonEmptyText3(200).optional(),
+    scene_id: nonEmptyText4(200).optional(),
     category: external_exports.string().trim().min(1).max(80).optional(),
     limit: external_exports.number().int().min(1).max(100).default(50)
   }).refine((value) => value.scope !== "scene" || Boolean(value.scene_id), {
@@ -120685,18 +120934,18 @@ var directorMemoryCommandSchema = external_exports.discriminatedUnion("action", 
     path: ["scene_id"]
   }),
   strictAction("pin", {
-    memory_id: nonEmptyText3(120),
-    text: nonEmptyText3(4e3),
+    memory_id: nonEmptyText4(120),
+    text: nonEmptyText4(4e3),
     category: external_exports.string().trim().min(1).max(80).default("general"),
     tags: external_exports.array(external_exports.string().trim().min(1).max(80)).max(16).default([]),
     scope: external_exports.enum(["global", "scene"]).default("global"),
-    scene_id: nonEmptyText3(200).optional(),
+    scene_id: nonEmptyText4(200).optional(),
     overwrite: external_exports.boolean().default(false)
   }).refine((value) => value.scope === "scene" === Boolean(value.scene_id), {
     message: "scene-scoped memory requires scene_id; global memory must omit it",
     path: ["scene_id"]
   }),
-  strictAction("forget", { memory_id: nonEmptyText3(120) }),
+  strictAction("forget", { memory_id: nonEmptyText4(120) }),
   strictAction("export", { include_content: external_exports.boolean().default(false) })
 ]);
 var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op", [
@@ -120706,12 +120955,12 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
    * (`target: "capture"`) or one author action (`target: "author.add_object"`).
    * Pure contract reflection; requires no browser tab and no project state.
    */
-  strictOperation("describe", { target: nonEmptyText3(200) }),
+  strictOperation("describe", { target: nonEmptyText4(200) }),
   strictOperation("production", { command: directorProductionCommandSchema }),
   strictOperation("catalog", {
     catalog: directorWorkbenchCatalogIdSchema,
     query: external_exports.string().trim().max(200).optional(),
-    asset_id: nonEmptyText3(200).optional(),
+    asset_id: nonEmptyText4(200).optional(),
     category: directorAgentAssetCategorySchema.optional(),
     kind: directorAssetKindSchema.optional(),
     preview_status: directorAgentAssetPreviewSchema.shape.status.optional(),
@@ -120747,8 +120996,8 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
     detail: external_exports.enum(["summary", "full"]).optional(),
     fields: external_exports.array(directorWorkbenchObserveFieldSchema).min(1).max(16).optional(),
     since_revision: directorProjectRevisionSchema.optional(),
-    since_turn: nonEmptyText3(200).optional(),
-    since_audit: nonEmptyText3(200).optional(),
+    since_turn: nonEmptyText4(200).optional(),
+    since_audit: nonEmptyText4(200).optional(),
     object_mode: external_exports.enum(["flat", "hierarchy"]).optional(),
     max_objects: external_exports.number().int().min(1).max(500).optional(),
     max_changes: external_exports.number().int().min(1).max(500).optional()
@@ -120783,7 +121032,7 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
   }),
   strictOperation("query_objects", {
     spatial: directorObjectSpatialQuerySchema.optional(),
-    name_pattern: nonEmptyText3(120).optional(),
+    name_pattern: nonEmptyText4(120).optional(),
     kind: directorObjectKindSchema.optional(),
     include_hidden: external_exports.boolean().default(false),
     max_results: external_exports.number().int().min(1).max(200).default(50)
@@ -120807,14 +121056,14 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
       "coverage_sequence",
       "coverage_shot"
     ]),
-    id: nonEmptyText3(200)
+    id: nonEmptyText4(200)
   }).describe(
     "Object, light, and camera results carry a kernel_ownership block: which kernel (stage or blender) owns the entity's data, which update patch fields the Stage accepts, and which are rejected with the operation to use instead. Ownership is decided by that field, not by prose."
   ),
   strictOperation("shot_ir", {
-    camera_id: nonEmptyText3(200).optional(),
-    take_id: nonEmptyText3(200).optional(),
-    coverage_shot_id: nonEmptyText3(200).optional(),
+    camera_id: nonEmptyText4(200).optional(),
+    take_id: nonEmptyText4(200).optional(),
+    coverage_shot_id: nonEmptyText4(200).optional(),
     frame: external_exports.number().int().nonnegative().optional()
   }),
   /**
@@ -120822,8 +121071,8 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
    * between two frames — pure project math, so it also serves disconnected.
    */
   strictOperation("describe_camera_move", {
-    camera_id: nonEmptyText3(200),
-    subject_object_id: nonEmptyText3(200),
+    camera_id: nonEmptyText4(200),
+    subject_object_id: nonEmptyText4(200),
     from_frame: external_exports.number().int().min(0).max(1e6).optional(),
     to_frame: external_exports.number().int().min(0).max(1e6).optional()
   }).refine(
@@ -120838,10 +121087,10 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
   strictOperation("macro", { command: directorMacroCommandSchema }),
   strictOperation("memory", { command: directorMemoryCommandSchema }),
   strictOperation("run_macro", {
-    macro_id: nonEmptyText3(120),
+    macro_id: nonEmptyText4(120),
     parameters: external_exports.record(external_exports.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/), directorMacroScalarSchema).default({}),
-    camera_id: nonEmptyText3(200).optional(),
-    subject_id: nonEmptyText3(200).optional(),
+    camera_id: nonEmptyText4(200).optional(),
+    subject_id: nonEmptyText4(200).optional(),
     delivery: directorAuthorDeliveryProfileSchema.optional(),
     ...revisionGuardFields
   }).refine(revisionGuardIsUnambiguous, revisionGuardRefinement),
@@ -120851,33 +121100,33 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
   }).refine(revisionGuardIsUnambiguous, revisionGuardRefinement),
   strictOperation("author", {
     actions: external_exports.array(directorAuthoringActionSchema).min(1).max(128),
-    camera_id: nonEmptyText3(200).optional(),
-    subject_id: nonEmptyText3(200).optional(),
+    camera_id: nonEmptyText4(200).optional(),
+    subject_id: nonEmptyText4(200).optional(),
     delivery: directorAuthorDeliveryProfileSchema.optional(),
     evidence: directorAuthorEvidenceProfileSchema.optional(),
     ...revisionGuardFields
   }).refine(revisionGuardIsUnambiguous, revisionGuardRefinement),
   strictOperation("audit", {
     detail: external_exports.enum(["summary", "full"]).optional(),
-    camera_id: nonEmptyText3(200).optional(),
-    subject_id: nonEmptyText3(200).optional(),
+    camera_id: nonEmptyText4(200).optional(),
+    subject_id: nonEmptyText4(200).optional(),
     include_spatial: external_exports.boolean().optional()
   }),
   strictOperation("correct", {
     audit_issues: external_exports.array(directorAuditIssueInputSchema).min(1).max(64).optional(),
-    audit_token: nonEmptyText3(200).optional(),
+    audit_token: nonEmptyText4(200).optional(),
     ...revisionGuardFields
   }).refine((value) => !(value.audit_issues && value.audit_token), {
     message: "correct accepts audit_issues or audit_token, not both"
   }).refine(revisionGuardIsUnambiguous, revisionGuardRefinement),
   strictOperation("diff", {
-    since_turn: nonEmptyText3(200).optional(),
-    since_audit: nonEmptyText3(200).optional()
+    since_turn: nonEmptyText4(200).optional(),
+    since_audit: nonEmptyText4(200).optional()
   }).refine((value) => Boolean(value.since_turn) !== Boolean(value.since_audit), {
     message: DIFF_SHAPE_HINT
   }),
   strictOperation("trace", {
-    turn_id: nonEmptyText3(200).optional(),
+    turn_id: nonEmptyText4(200).optional(),
     limit: external_exports.number().int().min(1).max(100).optional()
   }),
   strictOperation("replace_project", { project: directorProjectSchema, ...revisionGuardFields }).refine(
@@ -120885,8 +121134,8 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
     revisionGuardRefinement
   ),
   strictOperation("select", {
-    object_ids: external_exports.array(nonEmptyText3(200)).max(200).optional(),
-    crowd_id: nonEmptyText3(200).nullable().optional()
+    object_ids: external_exports.array(nonEmptyText4(200)).max(200).optional(),
+    crowd_id: nonEmptyText4(200).nullable().optional()
   }),
   strictOperation("viewport", {
     transform_mode: directorUiStateSchema.shape.transformMode.optional(),
@@ -120918,21 +121167,32 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
       "record_start",
       "record_stop"
     ]),
-    actor_id: nonEmptyText3(200).optional(),
-    object_id: nonEmptyText3(200).optional(),
+    actor_id: nonEmptyText4(200).optional(),
+    object_id: nonEmptyText4(200).optional(),
     position: external_exports.tuple([external_exports.number().finite(), external_exports.number().finite(), external_exports.number().finite()]).optional()
   }),
   strictOperation("pilot", {
     action: external_exports.enum(["start", "stop", "set_view", "record_waypoint"]),
-    camera_id: nonEmptyText3(200).optional(),
+    camera_id: nonEmptyText4(200).optional(),
     position: external_exports.tuple([external_exports.number().finite(), external_exports.number().finite(), external_exports.number().finite()]).optional(),
     target: external_exports.tuple([external_exports.number().finite(), external_exports.number().finite(), external_exports.number().finite()]).optional(),
     fov: external_exports.number().finite().positive().max(179).optional()
   }),
+  /**
+   * Internal Gateway→browser transport for `director_game` playtest.
+   * Not part of the public Agent vocabulary: capabilities omit it, describe
+   * redirects to director_game, and HTTP `/api/tools/director_workbench`
+   * rejects it. Agents must call `director_game {op:"playtest"}`.
+   */
+  strictOperation("game_playtest", {
+    script: gamePlaytestScriptSchema,
+    actor_id: nonEmptyText4(200).optional(),
+    slice_id: nonEmptyText4(80).optional()
+  }),
   strictOperation("undo", revisionGuardFields).refine(revisionGuardIsUnambiguous, revisionGuardRefinement),
   strictOperation("capture", {
     /** Omitted camera_id captures through the active project camera. */
-    camera_id: nonEmptyText3(200).optional(),
+    camera_id: nonEmptyText4(200).optional(),
     frame: external_exports.number().int().nonnegative(),
     render_pass: external_exports.enum(DIRECTOR_SHOT_RENDER_PASS_IDS).optional(),
     clean_plate: external_exports.boolean().optional(),
@@ -120964,9 +121224,9 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
     }).optional()
   }),
   strictOperation("shot_package", {
-    camera_id: nonEmptyText3(200).optional(),
-    take_id: nonEmptyText3(200).optional(),
-    coverage_shot_id: nonEmptyText3(200).optional(),
+    camera_id: nonEmptyText4(200).optional(),
+    take_id: nonEmptyText4(200).optional(),
+    coverage_shot_id: nonEmptyText4(200).optional(),
     frame: external_exports.number().int().nonnegative().optional(),
     /** Additionally emit the depth pass as a float32 OpenEXR artifact; requires the depth render pass. */
     include_depth_exr: external_exports.boolean().optional(),
@@ -120977,10 +121237,10 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
     message: "shot_package raster cannot exceed 2073600 pixels over the Agent wire"
   }),
   strictOperation("deliver", {
-    camera_id: nonEmptyText3(200).optional(),
-    subject_id: nonEmptyText3(200).optional(),
-    take_id: nonEmptyText3(200).optional(),
-    coverage_shot_id: nonEmptyText3(200).optional(),
+    camera_id: nonEmptyText4(200).optional(),
+    subject_id: nonEmptyText4(200).optional(),
+    take_id: nonEmptyText4(200).optional(),
+    coverage_shot_id: nonEmptyText4(200).optional(),
     frame: external_exports.number().int().nonnegative().optional(),
     quality_profile: external_exports.enum(["blocking", "cinematic", "video-gen"]).default("cinematic"),
     /** Additionally emit the depth pass as a float32 OpenEXR artifact; requires the depth render pass. */
@@ -120992,9 +121252,7 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
     message: "deliver raster cannot exceed 2073600 pixels over the Agent wire"
   })
 ]);
-var directorWorkbenchOperationNames = directorWorkbenchOperationSchema.options.map(
-  (option) => option.shape.op.value
-);
+var directorWorkbenchOperationNames = directorWorkbenchOperationSchema.options.map((option) => option.shape.op.value).filter((name4) => name4 !== "game_playtest");
 function fnv1a32(serialized) {
   let hash2 = 2166136261;
   for (let index = 0; index < serialized.length; index += 1) {
@@ -121055,7 +121313,7 @@ function isFilmRoleId(value) {
 }
 
 // packages/agent-engine/src/agentRuntimeSchema.ts
-var nonEmptyText4 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var nonEmptyText5 = (maximum) => external_exports.string().trim().min(1).max(maximum);
 var agentProfileIdSchema = external_exports.string().trim().min(1).max(160).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
 var agentRuntimeKindSchema = external_exports.enum([
   "codex-app-server",
@@ -121080,7 +121338,7 @@ var modelCapabilitiesSchema = external_exports.strictObject({
 });
 var publicAgentProfileSchema = external_exports.strictObject({
   id: agentProfileIdSchema,
-  label: nonEmptyText4(160),
+  label: nonEmptyText5(160),
   runtime: agentRuntimeKindSchema,
   model: external_exports.string().nullable(),
   endpointHost: external_exports.string().nullable(),
@@ -121091,12 +121349,12 @@ var publicAgentProfileSchema = external_exports.strictObject({
 var hostedAgentDriverSchema = external_exports.enum(["openai", "anthropic", "openai-compatible"]);
 var publicAgentApiProviderModelSchema = external_exports.strictObject({
   profileId: agentProfileIdSchema,
-  model: nonEmptyText4(240)
+  model: nonEmptyText5(240)
 });
 var MAX_AGENT_API_PROVIDER_MODELS = 128;
 var publicAgentApiProviderSchema = external_exports.strictObject({
   id: agentProfileIdSchema,
-  label: nonEmptyText4(160),
+  label: nonEmptyText5(160),
   driver: hostedAgentDriverSchema,
   baseUrl: external_exports.string().trim().url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "must be an HTTP(S) URL"),
   credentialConfigured: external_exports.boolean(),
@@ -121585,7 +121843,7 @@ var creativeWorkspaceAgentToolResultSchema = external_exports.discriminatedUnion
 ]);
 
 // packages/protocol/src/agentGatewayProtocol.ts
-var nonEmptyText5 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var nonEmptyText6 = (maximum) => external_exports.string().trim().min(1).max(maximum);
 var nonNegativeInteger = external_exports.number().int().nonnegative();
 var directorAssistantChatStatusSchema = external_exports.enum([
   "completed",
@@ -121602,10 +121860,10 @@ var directorAssistantCommandStatusSchema = external_exports.enum([
   "rejected"
 ]);
 var directorAssistantRequiredConfirmationSchema = external_exports.strictObject({
-  sceneId: nonEmptyText5(160),
+  sceneId: nonEmptyText6(160),
   revision: nonNegativeInteger,
-  action: nonEmptyText5(160),
-  objectIds: external_exports.array(nonEmptyText5(160)).min(1).max(200)
+  action: nonEmptyText6(160),
+  objectIds: external_exports.array(nonEmptyText6(160)).min(1).max(200)
 });
 var confirmationEnvelopeSchema = external_exports.strictObject({
   error: external_exports.string().optional(),
@@ -121618,21 +121876,21 @@ var directorAssistantCommandErrorSchema = external_exports.looseObject({
 });
 var directorAssistantCommandWireSchema = external_exports.strictObject({
   index: nonNegativeInteger,
-  tool: nonEmptyText5(240),
+  tool: nonEmptyText6(240),
   status: directorAssistantCommandStatusSchema,
   revision: nonNegativeInteger.nullable(),
   result: external_exports.unknown().optional(),
   error: directorAssistantCommandErrorSchema.optional()
 });
 var directorAssistantPendingPlanWireSchema = external_exports.strictObject({
-  id: nonEmptyText5(160),
+  id: nonEmptyText6(160),
   expiresAt: external_exports.string().optional(),
   nextCommandIndex: nonNegativeInteger,
-  tool: nonEmptyText5(240).optional()
+  tool: nonEmptyText6(240).optional()
 });
 var directorAssistantChatWireSchema = external_exports.strictObject({
-  requestId: nonEmptyText5(160),
-  sceneId: nonEmptyText5(160),
+  requestId: nonEmptyText6(160),
+  sceneId: nonEmptyText6(160),
   startingRevision: nonNegativeInteger.optional(),
   endingRevision: nonNegativeInteger,
   summary: external_exports.string().max(8e3),
@@ -121651,12 +121909,12 @@ var directorAgentHealthWireSchema = external_exports.looseObject({
   comfyui: external_exports.looseObject({ status: gatewayConnectionStatusSchema })
 });
 var directorAgentBootstrapWireSchema = external_exports.strictObject({
-  browserToken: nonEmptyText5(1024),
+  browserToken: nonEmptyText6(1024),
   service: external_exports.literal("comfyui-3d-director-agent-gateway"),
   health: directorAgentHealthWireSchema
 });
 var directorAssistantConfirmationTokenWireSchema = external_exports.strictObject({
-  confirmationToken: nonEmptyText5(1024)
+  confirmationToken: nonEmptyText6(1024)
 });
 var directorPageStateWireSchema = external_exports.strictObject({
   selectedObjectIds: external_exports.array(external_exports.string()).optional(),
@@ -121672,14 +121930,14 @@ var directorPageStateWireSchema = external_exports.strictObject({
 });
 var directorPageEventWireSchema = external_exports.strictObject({
   sequence: nonNegativeInteger,
-  sceneId: nonEmptyText5(160),
+  sceneId: nonEmptyText6(160),
   revision: nonNegativeInteger,
-  tabId: nonEmptyText5(160),
+  tabId: nonEmptyText6(160),
   createdAt: external_exports.string(),
   state: directorPageStateWireSchema
 });
 var directorPageEventsWireSchema = external_exports.strictObject({
-  epoch: nonEmptyText5(160),
+  epoch: nonEmptyText6(160),
   events: external_exports.array(directorPageEventWireSchema).max(1e3)
 });
 var gatewayErrorWireSchema = external_exports.looseObject({
@@ -121693,11 +121951,11 @@ var stageAgentEventWireSchema = external_exports.strictObject({
   objectId: external_exports.string().max(200).optional()
 });
 var directorAgentTargetWireSchema = external_exports.strictObject({
-  token: nonEmptyText5(240),
-  client_id: nonEmptyText5(160),
-  instance_id: nonEmptyText5(160),
-  scene_id: nonEmptyText5(160),
-  creative_scope_id: nonEmptyText5(160),
+  token: nonEmptyText6(240),
+  client_id: nonEmptyText6(160),
+  instance_id: nonEmptyText6(160),
+  scene_id: nonEmptyText6(160),
+  creative_scope_id: nonEmptyText6(160),
   contract_version: external_exports.literal(2)
 });
 function sameDirectorAgentTarget(left, right) {
@@ -121714,7 +121972,7 @@ var directorGatewayInboundMessageSchema = external_exports.discriminatedUnion("t
     events: external_exports.array(stageAgentEventWireSchema).max(500).optional()
   }),
   strictType("capture-request", {
-    requestId: nonEmptyText5(160),
+    requestId: nonEmptyText6(160),
     cameraId: external_exports.string().max(200).optional()
   }),
   strictType("workbench-state", {
@@ -121722,28 +121980,28 @@ var directorGatewayInboundMessageSchema = external_exports.discriminatedUnion("t
     source: external_exports.string().max(160).optional()
   }),
   strictType("workbench-command-request", {
-    requestId: nonEmptyText5(160),
+    requestId: nonEmptyText6(160),
     target: directorAgentTargetWireSchema,
     input: directorWorkbenchOperationSchema
   }),
   strictType("workbench-command-cancel", {
-    requestId: nonEmptyText5(160),
+    requestId: nonEmptyText6(160),
     target: directorAgentTargetWireSchema,
     reason: browserCommandCancelReasonSchema
   }),
   strictType("creative-workspace-command-request", {
-    requestId: nonEmptyText5(160),
+    requestId: nonEmptyText6(160),
     target: directorAgentTargetWireSchema,
     input: creativeWorkspaceAgentRequestSchema
   }),
   strictType("creative-workspace-command-cancel", {
-    requestId: nonEmptyText5(160),
+    requestId: nonEmptyText6(160),
     target: directorAgentTargetWireSchema,
     reason: browserCommandCancelReasonSchema
   })
 ]);
 var directorWorkbenchCommandResponseWireSchema = strictType("workbench-command-response", {
-  requestId: nonEmptyText5(160),
+  requestId: nonEmptyText6(160),
   target: directorAgentTargetWireSchema,
   success: external_exports.boolean(),
   result: external_exports.unknown().optional(),
@@ -121753,7 +122011,7 @@ var directorWorkbenchCommandResponseWireSchema = strictType("workbench-command-r
   captureDataUrl: external_exports.string().max(168e5).optional()
 });
 var directorCreativeWorkspaceCommandResponseWireSchema = strictType("creative-workspace-command-response", {
-  requestId: nonEmptyText5(160),
+  requestId: nonEmptyText6(160),
   target: directorAgentTargetWireSchema,
   success: external_exports.boolean(),
   result: creativeWorkspaceAgentToolResultSchema.optional(),
@@ -121804,7 +122062,7 @@ var agentSessionProtocol_default = {
 };
 
 // packages/agent-engine/src/agentSessionSchema.ts
-var nonEmptyText6 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var nonEmptyText7 = (maximum) => external_exports.string().trim().min(1).max(maximum);
 var agentProviderSchema = external_exports.enum(DIRECTOR_SESSION_PROVIDER_IDS);
 var agentSessionOriginSchema = external_exports.enum(["user", "fork", "subagent"]);
 var agentSessionStatusSchema = external_exports.enum(protocolKeys(agentSessionProtocol_default.statuses));
@@ -121819,11 +122077,11 @@ var agentSessionCapabilitiesSchema = external_exports.strictObject({
   checkpoints: external_exports.boolean()
 });
 var agentSessionSchema = external_exports.strictObject({
-  id: nonEmptyText6(160),
+  id: nonEmptyText7(160),
   provider: agentProviderSchema,
   profileId: agentProfileIdSchema.nullable(),
   roleId: filmRoleIdSchema.nullable(),
-  title: nonEmptyText6(240),
+  title: nonEmptyText7(240),
   status: agentSessionStatusSchema,
   externalSessionId: external_exports.string().nullable(),
   parentSessionId: external_exports.string().nullable(),
@@ -121836,8 +122094,8 @@ var agentSessionSchema = external_exports.strictObject({
   capabilities: agentSessionCapabilitiesSchema
 });
 var agentEventSchema = external_exports.strictObject({
-  id: nonEmptyText6(160),
-  sessionId: nonEmptyText6(160),
+  id: nonEmptyText7(160),
+  sessionId: nonEmptyText7(160),
   sequence: external_exports.number().int().positive(),
   type: agentEventTypeSchema,
   timestamp: external_exports.string(),
@@ -121847,17 +122105,17 @@ var agentEventSchema = external_exports.strictObject({
   data: external_exports.record(external_exports.string(), external_exports.unknown())
 });
 var agentCheckpointSchema = external_exports.strictObject({
-  id: nonEmptyText6(160),
-  sessionId: nonEmptyText6(160),
-  name: nonEmptyText6(240),
+  id: nonEmptyText7(160),
+  sessionId: nonEmptyText7(160),
+  name: nonEmptyText7(240),
   createdAt: external_exports.string(),
   eventSequence: external_exports.number().int().nonnegative(),
   project: external_exports.unknown()
 });
 var agentQueuedMessageSchema = external_exports.strictObject({
-  id: nonEmptyText6(160),
-  sessionId: nonEmptyText6(160),
-  text: nonEmptyText6(8e3),
+  id: nonEmptyText7(160),
+  sessionId: nonEmptyText7(160),
+  text: nonEmptyText7(8e3),
   status: external_exports.enum(["queued", "running", "completed", "failed", "cancelled"]),
   createdAt: external_exports.string(),
   updatedAt: external_exports.string()
@@ -121874,14 +122132,14 @@ var setAgentSessionModelRequestSchema = external_exports.strictObject({
   profileId: agentProfileIdSchema
 });
 var sendAgentMessageRequestSchema = external_exports.strictObject({
-  message: nonEmptyText6(8e3),
+  message: nonEmptyText7(8e3),
   project: external_exports.unknown().optional(),
   target: directorAgentTargetWireSchema
 });
 var injectAgentContextRequestSchema = external_exports.strictObject({
   kind: external_exports.enum(["scene_revision"]).optional(),
-  project_revision: nonEmptyText6(240).optional(),
-  text: nonEmptyText6(2e3).optional()
+  project_revision: nonEmptyText7(240).optional(),
+  text: nonEmptyText7(2e3).optional()
 }).refine((value) => Boolean(value.project_revision || value.text), {
   message: "inject requires project_revision or text"
 });
@@ -121898,7 +122156,7 @@ var createAgentCheckpointRequestSchema = external_exports.strictObject({
   project: external_exports.unknown()
 });
 var resolveAgentApprovalRequestSchema = external_exports.strictObject({
-  requestId: nonEmptyText6(160),
+  requestId: nonEmptyText7(160),
   decision: external_exports.enum(["accept", "acceptForSession", "decline", "cancel"])
 });
 
@@ -121919,7 +122177,7 @@ var directorAuthoringActionNames = directorAuthoringActionSchema.options.map(
 );
 
 // packages/protocol/src/filmProductionProtocol.ts
-var nonEmptyText7 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var nonEmptyText8 = (maximum) => external_exports.string().trim().min(1).max(maximum);
 var filmProductionWorkflowSchema = external_exports.enum(["idea-to-film", "script-to-film", "novel-to-film"]);
 var filmProductionAspectRatioSchema = external_exports.enum(["16:9", "2.39:1", "1.85:1", "9:16"]);
 var filmProductionBriefSchema = external_exports.strictObject({
@@ -121927,19 +122185,19 @@ var filmProductionBriefSchema = external_exports.strictObject({
   targetDurationSec: external_exports.number().int().min(15).max(7200).default(90),
   aspectRatio: filmProductionAspectRatioSchema.default("2.39:1"),
   fps: external_exports.union([external_exports.literal(23.976), external_exports.literal(24), external_exports.literal(25), external_exports.literal(30)]).default(24),
-  language: nonEmptyText7(80).default("zh-CN"),
-  visualStyle: nonEmptyText7(2e3).default("cinematic, coherent production design, motivated lighting"),
+  language: nonEmptyText8(80).default("zh-CN"),
+  visualStyle: nonEmptyText8(2e3).default("cinematic, coherent production design, motivated lighting"),
   audience: external_exports.string().trim().max(500).default("general audience")
 });
 var filmRoleDeliverableSchema = external_exports.strictObject({
-  title: nonEmptyText7(240),
-  summary: nonEmptyText7(2e3),
+  title: nonEmptyText8(240),
+  summary: nonEmptyText8(2e3),
   deliverable: external_exports.unknown()
 });
 var FULL_FILM_ROLE_SEQUENCE = [...FILM_ROLE_IDS];
 
 // packages/agent-engine/src/multiAgentRunSchema.ts
-var nonEmptyText8 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var nonEmptyText9 = (maximum) => external_exports.string().trim().min(1).max(maximum);
 var productionRoleProfileMapSchema = agentRoleProfileMapSchema;
 var productionRunIdSchema = external_exports.string().trim().regex(/^run-[a-z0-9][a-z0-9-]{3,155}$/i);
 var productionRunStatusSchema = external_exports.enum([
@@ -121970,14 +122228,14 @@ var productionArtifactKindSchema2 = external_exports.enum([
   "generation-receipt"
 ]);
 var productionArtifactSchema = external_exports.object({
-  id: nonEmptyText8(160),
+  id: nonEmptyText9(160),
   kind: productionArtifactKindSchema2,
   roleId: filmRoleIdSchema,
   payload: external_exports.unknown(),
   createdAt: external_exports.string()
 });
 var productionRunNodeSchema = external_exports.strictObject({
-  id: nonEmptyText8(160),
+  id: nonEmptyText9(160),
   roleId: filmRoleIdSchema,
   /** The exact profile chosen when the run was created. Resume never re-routes it. */
   profileId: agentProfileIdSchema,
@@ -122052,7 +122310,7 @@ var productionRunGraphSchema = external_exports.strictObject({ nodes: external_e
 var productionRunV2Schema = external_exports.strictObject({
   version: external_exports.literal(2),
   id: productionRunIdSchema,
-  objective: nonEmptyText8(8e3),
+  objective: nonEmptyText9(8e3),
   provider: agentProviderSchema,
   /** Compatibility fallback for roles without an explicit/configured route. */
   profileId: agentProfileIdSchema,
@@ -122088,7 +122346,7 @@ function migrateProductionRun(value) {
 }
 var productionRunSchema = external_exports.preprocess(migrateProductionRun, productionRunV2Schema);
 var createProductionRunRequestSchema = external_exports.strictObject({
-  objective: nonEmptyText8(8e3),
+  objective: nonEmptyText9(8e3),
   provider: agentProviderSchema.default("api"),
   profileId: agentProfileIdSchema.default("api-default"),
   profileByRole: productionRoleProfileMapSchema.optional(),
@@ -122112,7 +122370,7 @@ var resumeProductionRunRequestSchema = external_exports.strictObject({
    * Re-run from this durable checkpoint: the node itself and every transitive
    * dependent are reset even when they previously succeeded.
    */
-  from_node_id: nonEmptyText8(160).optional()
+  from_node_id: nonEmptyText9(160).optional()
 });
 
 // packages/agent-engine/src/stageFeedback.ts
@@ -124067,7 +124325,7 @@ var directorDccTransformSchema = external_exports.strictObject({
 var DIRECTOR_BLEND_SCENE_CONTRACT = "director-blend-scene-v1";
 var DIRECTOR_BLEND_SCENE_IMPORT_PLAN_CONTRACT = "director-blend-scene-import-plan-v1";
 var nonEmpty2 = external_exports.string().trim().min(1);
-var finite9 = external_exports.number().finite();
+var finite10 = external_exports.number().finite();
 var sha2563 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
 var safeRelativePath = external_exports.string().trim().min(1).max(1024).refine((value) => !value.startsWith("/") && !value.startsWith("\\") && !/^[A-Za-z]:/.test(value), {
   message: "path must be relative"
@@ -124078,16 +124336,16 @@ var blendCameraSchema = external_exports.strictObject({
   sourceId: nonEmpty2.max(240),
   name: nonEmpty2.max(240),
   transform: directorDccTransformSchema,
-  focalLengthMm: finite9.min(1).max(2e3),
-  sensorWidthMm: finite9.positive().max(1e3),
-  sensorHeightMm: finite9.positive().max(1e3),
+  focalLengthMm: finite10.min(1).max(2e3),
+  sensorWidthMm: finite10.positive().max(1e3),
+  sensorHeightMm: finite10.positive().max(1e3),
   sensorFit: external_exports.enum(["auto", "horizontal", "vertical"]),
-  renderAspectRatio: finite9.positive().max(20),
-  verticalFovDegrees: finite9.positive().max(179),
-  apertureFStop: finite9.positive().max(256),
-  focusDistanceM: finite9.positive().max(1e6),
-  nearClipM: finite9.positive().max(1e5),
-  farClipM: finite9.positive().max(1e7)
+  renderAspectRatio: finite10.positive().max(20),
+  verticalFovDegrees: finite10.positive().max(179),
+  apertureFStop: finite10.positive().max(256),
+  focusDistanceM: finite10.positive().max(1e6),
+  nearClipM: finite10.positive().max(1e5),
+  farClipM: finite10.positive().max(1e7)
 });
 var directorBlendSceneManifestSchema = external_exports.strictObject({
   schemaVersion: external_exports.literal(1),
@@ -124107,10 +124365,10 @@ var directorBlendSceneManifestSchema = external_exports.strictObject({
     linearMap: external_exports.literal("(x,y,z)->(x,z,-y)")
   }),
   timeline: external_exports.strictObject({
-    frameStart: finite9,
-    frameEnd: finite9,
-    currentFrame: finite9,
-    fps: finite9.positive().max(1e3),
+    frameStart: finite10,
+    frameEnd: finite10,
+    currentFrame: finite10,
+    fps: finite10.positive().max(1e3),
     timebase: external_exports.strictObject({
       rate: external_exports.strictObject({
         numerator: external_exports.number().int().positive().max(1e6),
@@ -124188,14 +124446,14 @@ var importOperationSchema = external_exports.discriminatedUnion("op", [
     cameraId: nonEmpty2.max(240),
     objectId: nonEmpty2.max(240),
     name: nonEmpty2.max(240),
-    position: external_exports.tuple([finite9, finite9, finite9]),
-    target: external_exports.tuple([finite9, finite9, finite9]),
-    focalLengthMm: finite9.min(12).max(200),
+    position: external_exports.tuple([finite10, finite10, finite10]),
+    target: external_exports.tuple([finite10, finite10, finite10]),
+    focalLengthMm: finite10.min(12).max(200),
     sensorFormat: external_exports.enum(["super16", "super35", "fullFrame", "imax65"]),
-    apertureFStop: finite9.min(0.7).max(64),
-    focusDistanceM: finite9.min(0.01).max(1e4),
-    nearClipM: finite9.min(1e-3).max(100),
-    farClipM: finite9.min(1).max(1e6),
+    apertureFStop: finite10.min(0.7).max(64),
+    focusDistanceM: finite10.min(0.01).max(1e4),
+    nearClipM: finite10.min(1e-3).max(100),
+    farClipM: finite10.min(1).max(1e6),
     aspectRatio: directorCameraAspectRatioSchema
   }),
   strictOperation("skip", { sourceId: nonEmpty2.max(240), reason: nonEmpty2.max(2e3) }),
@@ -136191,7 +136449,7 @@ var DIRECTOR_ENGINE_SCENE_CONTRACT = "director-engine-scene-v1";
 var DIRECTOR_ENGINE_SCENE_IMPORT_PLAN_CONTRACT = "director-engine-scene-import-plan-v1";
 var directorEngineSceneProviderSchema = external_exports.enum(["unreal", "unity"]);
 var nonEmpty4 = external_exports.string().trim().min(1);
-var finite10 = external_exports.number().finite();
+var finite11 = external_exports.number().finite();
 var sha2565 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
 var hexColor2 = external_exports.string().regex(/^#[0-9a-fA-F]{6}$/, "expected #rrggbb hex color");
 var safeRelativePath3 = external_exports.string().trim().min(1).max(1024).refine((value) => !value.startsWith("/") && !value.startsWith("\\") && !/^[A-Za-z]:/.test(value), {
@@ -136238,14 +136496,14 @@ var engineCameraSchema = external_exports.strictObject({
   position: directorDccVec3Schema,
   /** Director-space world look target in meters. */
   lookTarget: directorDccVec3Schema,
-  verticalFovDegrees: finite10.positive().max(179),
-  sensorWidthMm: finite10.positive().max(1e3).optional(),
-  sensorHeightMm: finite10.positive().max(1e3).optional(),
-  apertureFStop: finite10.positive().max(256).optional(),
-  focusDistanceM: finite10.positive().max(1e6).optional(),
-  nearClipM: finite10.positive().max(1e5),
-  farClipM: finite10.positive().max(1e7),
-  renderAspectRatio: finite10.positive().max(20)
+  verticalFovDegrees: finite11.positive().max(179),
+  sensorWidthMm: finite11.positive().max(1e3).optional(),
+  sensorHeightMm: finite11.positive().max(1e3).optional(),
+  apertureFStop: finite11.positive().max(256).optional(),
+  focusDistanceM: finite11.positive().max(1e6).optional(),
+  nearClipM: finite11.positive().max(1e5),
+  farClipM: finite11.positive().max(1e7),
+  renderAspectRatio: finite11.positive().max(20)
 }).superRefine((camera, context) => {
   if (camera.farClipM <= camera.nearClipM) {
     context.addIssue({ code: "custom", path: ["farClipM"], message: "far clip must exceed near clip" });
@@ -136267,16 +136525,16 @@ var engineLightSchema = external_exports.strictObject({
   type: engineLightTypeSchema,
   color: hexColor2,
   /** Director-normalized intensity (0..100); exporters document their mapping. */
-  intensity: finite10.min(0).max(100),
+  intensity: finite11.min(0).max(100),
   /** Director-space world position in meters (omitted for ambient light). */
   position: directorDccVec3Schema.optional(),
   /** Director-space world aim point for directional / spot / rect-area lights. */
   target: directorDccVec3Schema.optional(),
-  rangeM: finite10.positive().max(1e6).optional(),
-  angleDegrees: finite10.positive().max(179).optional(),
-  penumbra: finite10.min(0).max(1).optional(),
-  widthM: finite10.positive().max(1e6).optional(),
-  heightM: finite10.positive().max(1e6).optional(),
+  rangeM: finite11.positive().max(1e6).optional(),
+  angleDegrees: finite11.positive().max(179).optional(),
+  penumbra: finite11.min(0).max(1).optional(),
+  widthM: finite11.positive().max(1e6).optional(),
+  heightM: finite11.positive().max(1e6).optional(),
   castShadow: external_exports.boolean().optional()
 }).superRefine((light, context) => {
   if (light.type !== "ambient" && light.type !== "hemisphere" && !light.position) {
@@ -136321,10 +136579,10 @@ var directorEngineSceneManifestSchema = external_exports.strictObject({
   }),
   coordinateSystem: engineCoordinateSystemSchema,
   timeline: external_exports.strictObject({
-    frameStart: finite10,
-    frameEnd: finite10,
-    currentFrame: finite10,
-    fps: finite10.positive().max(1e3)
+    frameStart: finite11,
+    frameEnd: finite11,
+    currentFrame: finite11,
+    fps: finite11.positive().max(1e3)
   }),
   scene: external_exports.strictObject({
     name: nonEmpty4.max(240),
@@ -136341,7 +136599,7 @@ var directorEngineSceneManifestSchema = external_exports.strictObject({
   animationClips: external_exports.array(
     external_exports.strictObject({
       name: nonEmpty4.max(240),
-      durationSeconds: finite10.nonnegative().max(1e6).optional()
+      durationSeconds: finite11.nonnegative().max(1e6).optional()
     })
   ).max(512),
   unsupported: external_exports.array(
@@ -136454,14 +136712,14 @@ var importOperationSchema2 = external_exports.discriminatedUnion("op", [
     cameraId: nonEmpty4.max(240),
     objectId: nonEmpty4.max(240),
     name: nonEmpty4.max(240),
-    position: external_exports.tuple([finite10, finite10, finite10]),
-    target: external_exports.tuple([finite10, finite10, finite10]),
-    focalLengthMm: finite10.min(12).max(200),
+    position: external_exports.tuple([finite11, finite11, finite11]),
+    target: external_exports.tuple([finite11, finite11, finite11]),
+    focalLengthMm: finite11.min(12).max(200),
     sensorFormat: external_exports.enum(["super16", "super35", "fullFrame", "imax65"]),
-    apertureFStop: finite10.min(0.7).max(64),
-    focusDistanceM: finite10.min(0.01).max(1e4),
-    nearClipM: finite10.min(1e-3).max(100),
-    farClipM: finite10.min(1).max(1e6),
+    apertureFStop: finite11.min(0.7).max(64),
+    focusDistanceM: finite11.min(0.01).max(1e4),
+    nearClipM: finite11.min(1e-3).max(100),
+    farClipM: finite11.min(1).max(1e6),
     aspectRatio: directorCameraAspectRatioSchema
   }),
   strictOperation("create_light", {
@@ -136470,14 +136728,14 @@ var importOperationSchema2 = external_exports.discriminatedUnion("op", [
     name: nonEmpty4.max(240),
     type: engineLightTypeSchema,
     color: hexColor2,
-    intensity: finite10.min(0).max(100),
-    position: external_exports.tuple([finite10, finite10, finite10]).optional(),
-    target: external_exports.tuple([finite10, finite10, finite10]).optional(),
-    distance: finite10.min(0).max(1e6).optional(),
-    angle: finite10.min(1e-3).max(Math.PI / 2).optional(),
-    penumbra: finite10.min(0).max(1).optional(),
-    width: finite10.positive().max(1e6).optional(),
-    height: finite10.positive().max(1e6).optional(),
+    intensity: finite11.min(0).max(100),
+    position: external_exports.tuple([finite11, finite11, finite11]).optional(),
+    target: external_exports.tuple([finite11, finite11, finite11]).optional(),
+    distance: finite11.min(0).max(1e6).optional(),
+    angle: finite11.min(1e-3).max(Math.PI / 2).optional(),
+    penumbra: finite11.min(0).max(1).optional(),
+    width: finite11.positive().max(1e6).optional(),
+    height: finite11.positive().max(1e6).optional(),
     castShadow: external_exports.boolean().optional()
   }),
   strictOperation("skip", { sourceId: nonEmpty4.max(240), reason: nonEmpty4.max(2e3) }),
@@ -136899,15 +137157,15 @@ var DIRECTOR_DCC_PROVIDERS = Object.freeze([
 
 // packages/dcc-protocol/src/directorDccContract.ts
 var DIRECTOR_DCC_SCENE_CONTRACT = "director-dcc-scene-v1";
-var finite11 = directorDccFiniteSchema;
+var finite12 = directorDccFiniteSchema;
 var vec38 = directorDccVec3Schema;
 var directorDccAnimationKeyframeSchema = external_exports.strictObject({
-  frame: finite11,
+  frame: finite12,
   interpolation: external_exports.enum(["step", "linear", "smooth"]),
   transform: directorDccTransformSchema.optional(),
   lookTarget: vec38.optional(),
-  poseValues: external_exports.record(external_exports.string(), finite11).optional(),
-  focalLengthMm: finite11.positive().optional()
+  poseValues: external_exports.record(external_exports.string(), finite12).optional(),
+  focalLengthMm: finite12.positive().optional()
 });
 var directorDccAssetSchema = external_exports.strictObject({
   id: external_exports.string(),
@@ -136936,7 +137194,7 @@ var directorDccObjectSchema = external_exports.strictObject({
    * editable per-control custom properties so a reviewed return can carry
    * a `pose_update` back to the same Director character binding.
    */
-  poseControls: external_exports.record(external_exports.string(), finite11).optional()
+  poseControls: external_exports.record(external_exports.string(), finite12).optional()
 }).superRefine((object3, context) => {
   if (object3.kind === "character" && !object3.assetRefId) {
     context.addIssue({
@@ -136951,18 +137209,18 @@ var directorDccCameraSchema = external_exports.strictObject({
   name: external_exports.string(),
   transform: directorDccTransformSchema,
   target: vec38,
-  focalLengthMm: finite11.positive(),
-  sensorWidthMm: finite11.positive(),
-  sensorHeightMm: finite11.positive(),
+  focalLengthMm: finite12.positive(),
+  sensorWidthMm: finite12.positive(),
+  sensorHeightMm: finite12.positive(),
   /** Director sensor gate id; optional so pre-optics-return packages still parse. */
   sensorFormat: external_exports.enum(DIRECTOR_CAMERA_SENSOR_FORMATS4).optional(),
-  apertureFStop: finite11.positive(),
-  focusDistanceM: finite11.positive(),
-  shutterAngle: finite11.min(0).max(360),
-  iso: finite11.positive(),
-  nearClipM: finite11.positive(),
-  farClipM: finite11.positive(),
-  anamorphicSqueeze: finite11.min(1).max(2.5),
+  apertureFStop: finite12.positive(),
+  focusDistanceM: finite12.positive(),
+  shutterAngle: finite12.min(0).max(360),
+  iso: finite12.positive(),
+  nearClipM: finite12.positive(),
+  farClipM: finite12.positive(),
+  anamorphicSqueeze: finite12.min(1).max(2.5),
   aspectRatio: directorCameraAspectRatioSchema,
   animation: external_exports.array(directorDccAnimationKeyframeSchema)
 });
@@ -136977,17 +137235,17 @@ var directorDccLightSchema = external_exports.strictObject({
   target: vec38.optional(),
   color: external_exports.string(),
   /** Director light intensity (0-100). */
-  intensity: finite11.min(0).max(100),
+  intensity: finite12.min(0).max(100),
   /** Precomputed Blender energy: intensity × wattsPerIntensity. */
-  energy: finite11.nonnegative(),
+  energy: finite12.nonnegative(),
   /** The deterministic factor used to invert energy back to Director intensity. */
-  wattsPerIntensity: finite11.positive(),
+  wattsPerIntensity: finite12.positive(),
   /** Spot half-angle in radians (Director convention; Blender spot_size is 2×). */
-  angleRad: finite11.positive().max(Math.PI / 2).optional(),
-  penumbra: finite11.min(0).max(1).optional(),
+  angleRad: finite12.positive().max(Math.PI / 2).optional(),
+  penumbra: finite12.min(0).max(1).optional(),
   /** Rect-area gate in metres. */
-  widthM: finite11.positive().optional(),
-  heightM: finite11.positive().optional(),
+  widthM: finite12.positive().optional(),
+  heightM: finite12.positive().optional(),
   castShadow: external_exports.boolean(),
   visible: external_exports.boolean()
 });
@@ -137003,7 +137261,7 @@ var directorDccScenePackageSchema = external_exports.strictObject({
     linearMap: external_exports.literal("(x,y,z)->(x,-z,y)")
   }),
   timeline: external_exports.strictObject({
-    fps: finite11.positive(),
+    fps: finite12.positive(),
     timebase: external_exports.strictObject({
       rate: external_exports.strictObject({
         numerator: external_exports.number().int().positive().max(1e6),
@@ -137012,15 +137270,15 @@ var directorDccScenePackageSchema = external_exports.strictObject({
       dropFrame: external_exports.boolean(),
       startTimecode: external_exports.string().regex(/^\d{2}:\d{2}:\d{2}[:;]\d{2}$/)
     }).optional(),
-    frameStart: finite11,
-    frameEnd: finite11,
-    currentFrame: finite11
+    frameStart: finite12,
+    frameEnd: finite12,
+    currentFrame: finite12
   }),
   scene: external_exports.strictObject({
     backgroundColor: external_exports.string(),
     showGround: external_exports.boolean(),
-    groundHeight: finite11,
-    groundOpacity: finite11.min(0).max(1)
+    groundHeight: finite12,
+    groundOpacity: finite12.min(0).max(1)
   }),
   assets: external_exports.array(directorDccAssetSchema),
   objects: external_exports.array(directorDccObjectSchema),
@@ -138059,255 +138317,6 @@ var directorGodotLiveLinkErrorCodeSchema = external_exports.enum([
   "live_link_session_limit"
 ]);
 
-// packages/protocol/src/gameSliceProtocol.ts
-var GAME_SLICE_CONTRACT = "director-game-slice-v1";
-var gameSliceIdSchema = external_exports.string().regex(/^game-[a-z0-9-]{8,64}$/i);
-var nonEmptyText9 = (maximum) => external_exports.string().trim().min(1).max(maximum);
-var boundedText4 = (maximum) => external_exports.string().trim().max(maximum);
-var finite12 = external_exports.number().finite();
-var objectId = nonEmptyText9(200);
-var GAME_SLICE_GENRES = ["exploration", "fps", "racing", "fighting", "rpg"];
-var gameSliceGenreSchema = external_exports.enum(GAME_SLICE_GENRES);
-var GAME_SLICE_PERSPECTIVES = ["first", "third", "top_down"];
-var gameSlicePerspectiveSchema = external_exports.enum(GAME_SLICE_PERSPECTIVES);
-var GAME_SLICE_ENGINE_TARGETS = ["stage", "godot", "unity", "unreal"];
-var gameSliceEngineTargetSchema = external_exports.enum(GAME_SLICE_ENGINE_TARGETS);
-var GAME_SLICE_VERBS = [
-  "move",
-  "look",
-  "jump",
-  "sprint",
-  "dash",
-  "crouch",
-  "interact",
-  "attack",
-  "fire",
-  "reload",
-  "enter_vehicle",
-  "exit_vehicle",
-  "pause"
-];
-var gameSliceVerbSchema = external_exports.enum(GAME_SLICE_VERBS);
-var GAME_SLICE_ROLE_KINDS = [
-  "player",
-  "enemy",
-  "npc",
-  "prop",
-  "vehicle",
-  "spawn",
-  "objective",
-  "hazard"
-];
-var gameSliceRoleKindSchema = external_exports.enum(GAME_SLICE_ROLE_KINDS);
-var GAME_SLICE_HUD_WIDGETS = [
-  "health",
-  "ammo",
-  "score",
-  "prompt",
-  "minimap",
-  "crosshair",
-  "speedometer",
-  "dialogue",
-  "timer"
-];
-var gameSliceHudWidgetKindSchema = external_exports.enum(GAME_SLICE_HUD_WIDGETS);
-var GAME_SLICE_PLAYABILITY_CHECKS = [
-  "on_ground",
-  "facing_matches_move",
-  "no_camera_clip",
-  "verb_exercised",
-  "interaction_in_range",
-  "hud_bound",
-  "objective_reachable",
-  "no_stuck"
-];
-var gameSlicePlayabilityCheckSchema = external_exports.enum(GAME_SLICE_PLAYABILITY_CHECKS);
-var GAME_SLICE_STATUSES = ["draft", "bound", "playtested", "playable", "exported"];
-var gameSliceStatusSchema = external_exports.enum(GAME_SLICE_STATUSES);
-var gameSliceIssueSeveritySchema = external_exports.enum(["error", "warning", "info"]);
-var gameSliceBriefSchema = external_exports.strictObject({
-  requirement: nonEmptyText9(8e3),
-  genre: gameSliceGenreSchema,
-  perspective: gameSlicePerspectiveSchema.optional(),
-  engine_target: gameSliceEngineTargetSchema.optional(),
-  platform: boundedText4(120).optional(),
-  style: boundedText4(240).optional(),
-  references: external_exports.array(nonEmptyText9(500)).max(16).optional()
-});
-var gameSliceLoopSchema = external_exports.strictObject({
-  summary: nonEmptyText9(2e3),
-  verbs: external_exports.array(gameSliceVerbSchema).min(1).max(GAME_SLICE_VERBS.length),
-  win: nonEmptyText9(1e3),
-  lose: boundedText4(1e3).optional(),
-  respawn: external_exports.boolean().default(true)
-});
-var gameSliceControlsSchema = external_exports.strictObject({
-  scheme: external_exports.enum(["wasd_mouse", "gamepad", "twin_stick"]).default("wasd_mouse"),
-  camera: gameSlicePerspectiveSchema,
-  verbs: external_exports.array(gameSliceVerbSchema).min(1).max(GAME_SLICE_VERBS.length)
-});
-var gameSliceRoleSchema = external_exports.strictObject({
-  id: nonEmptyText9(80),
-  kind: gameSliceRoleKindSchema,
-  purpose: nonEmptyText9(500),
-  object_id: objectId.optional(),
-  asset_id: nonEmptyText9(200).optional()
-});
-var gameSliceHudWidgetSchema = external_exports.strictObject({
-  id: nonEmptyText9(80),
-  kind: gameSliceHudWidgetKindSchema,
-  label: nonEmptyText9(80),
-  role_id: nonEmptyText9(80).optional(),
-  channel: boundedText4(80).optional()
-});
-var gameSliceHudSchema = external_exports.strictObject({
-  widgets: external_exports.array(gameSliceHudWidgetSchema).max(16).default([])
-});
-var GAME_SLICE_ASSET_SOURCES = ["catalog", "project", "generated_3d", "blender_native", "licensed"];
-var gameSliceAssetSourceSchema = external_exports.enum(GAME_SLICE_ASSET_SOURCES);
-var gameSliceAssetBindingSchema = external_exports.strictObject({
-  role_id: nonEmptyText9(80),
-  source: gameSliceAssetSourceSchema,
-  asset_id: nonEmptyText9(240).optional(),
-  object_id: objectId.optional(),
-  license: boundedText4(160).optional(),
-  notes: boundedText4(500).optional()
-});
-var gameSliceAcceptanceSchema = external_exports.strictObject({
-  operations: external_exports.array(gameSliceVerbSchema).min(1).max(GAME_SLICE_VERBS.length),
-  playability_checks: external_exports.array(gameSlicePlayabilityCheckSchema).min(1).max(GAME_SLICE_PLAYABILITY_CHECKS.length),
-  style: boundedText4(240).optional()
-});
-var gamePlaytestInputSchema = external_exports.strictObject({
-  forward: external_exports.boolean().default(false),
-  backward: external_exports.boolean().default(false),
-  left: external_exports.boolean().default(false),
-  right: external_exports.boolean().default(false),
-  sprint: external_exports.boolean().default(false),
-  jump: external_exports.boolean().default(false),
-  descend: external_exports.boolean().default(false),
-  dash: external_exports.boolean().default(false),
-  crouch: external_exports.boolean().default(false),
-  interact: external_exports.boolean().default(false),
-  fire: external_exports.boolean().default(false),
-  pause: external_exports.boolean().default(false),
-  enter_vehicle: external_exports.boolean().default(false),
-  exit_vehicle: external_exports.boolean().default(false),
-  look_left: external_exports.boolean().default(false),
-  look_right: external_exports.boolean().default(false),
-  look_up: external_exports.boolean().default(false),
-  look_down: external_exports.boolean().default(false),
-  move_forward_axis: finite12.min(-1).max(1).optional(),
-  move_right_axis: finite12.min(-1).max(1).optional()
-});
-var gamePlaytestExpectSchema = external_exports.strictObject({
-  on_ground: external_exports.boolean().optional(),
-  min_speed_mps: finite12.min(0).max(200).optional(),
-  max_speed_mps: finite12.min(0).max(200).optional(),
-  reached_object_id: objectId.optional(),
-  reached_radius_m: finite12.min(0.05).max(50).optional(),
-  verb: gameSliceVerbSchema.optional()
-});
-var gamePlaytestStepSchema = external_exports.strictObject({
-  frames: external_exports.number().int().min(1).max(1e4),
-  input: gamePlaytestInputSchema,
-  expect: gamePlaytestExpectSchema.optional()
-});
-var gamePlaytestScriptSchema = external_exports.strictObject({
-  dt: finite12.min(1 / 240).max(1 / 10).default(1 / 30),
-  steps: external_exports.array(gamePlaytestStepSchema).min(1).max(256)
-});
-var gamePlaytestSampleSchema = external_exports.strictObject({
-  frame: external_exports.number().int().nonnegative().max(1048576),
-  time_s: finite12.min(0),
-  position: external_exports.tuple([finite12, finite12, finite12]),
-  yaw: finite12,
-  pitch: finite12.optional(),
-  velocity: external_exports.tuple([finite12, finite12, finite12]).optional(),
-  on_ground: external_exports.boolean(),
-  flying: external_exports.boolean().default(false),
-  verb: gameSliceVerbSchema.optional(),
-  interaction_object_id: objectId.optional(),
-  camera_clip: external_exports.boolean().default(false),
-  stuck: external_exports.boolean().default(false)
-});
-var gamePlaytestTraceSchema = external_exports.strictObject({
-  contract: external_exports.literal("director-game-playtest-trace-v1"),
-  slice_id: gameSliceIdSchema,
-  project_revision: nonEmptyText9(240).optional(),
-  dt: finite12.min(1 / 240).max(1 / 10),
-  samples: external_exports.array(gamePlaytestSampleSchema).min(1).max(1048576),
-  verbs_exercised: external_exports.array(gameSliceVerbSchema).max(GAME_SLICE_VERBS.length).default([])
-});
-var gameSliceIssueSchema = external_exports.strictObject({
-  code: external_exports.enum([
-    "fell_through_floor",
-    "facing_mismatch",
-    "camera_clip",
-    "stuck",
-    "verb_not_exercised",
-    "interaction_out_of_range",
-    "hud_unbound",
-    "player_unbound",
-    "objective_unreachable",
-    "expect_failed",
-    "style_unverified",
-    "engine_not_ready"
-  ]),
-  severity: gameSliceIssueSeveritySchema,
-  check: gameSlicePlayabilityCheckSchema.optional(),
-  message: nonEmptyText9(500),
-  sample_frame: external_exports.number().int().nonnegative().optional(),
-  role_id: nonEmptyText9(80).optional(),
-  object_id: objectId.optional(),
-  corrective_call: external_exports.unknown().optional()
-});
-var gameEvaluationReportSchema = external_exports.strictObject({
-  contract: external_exports.literal("director-game-evaluation-v1"),
-  slice_id: gameSliceIdSchema,
-  playable: external_exports.boolean(),
-  verbs_exercised: external_exports.array(gameSliceVerbSchema).max(GAME_SLICE_VERBS.length),
-  checks: external_exports.array(
-    external_exports.strictObject({
-      check: gameSlicePlayabilityCheckSchema,
-      passed: external_exports.boolean()
-    })
-  ),
-  issues: external_exports.array(gameSliceIssueSchema).max(128),
-  notes: external_exports.array(nonEmptyText9(500)).max(32).default([])
-});
-var gameSliceSchema = external_exports.strictObject({
-  contract: external_exports.literal(GAME_SLICE_CONTRACT),
-  id: gameSliceIdSchema,
-  title: nonEmptyText9(160),
-  status: gameSliceStatusSchema,
-  brief: gameSliceBriefSchema,
-  loop: gameSliceLoopSchema,
-  controls: gameSliceControlsSchema,
-  roles: external_exports.array(gameSliceRoleSchema).min(1).max(64),
-  hud: gameSliceHudSchema,
-  assets: external_exports.array(gameSliceAssetBindingSchema).max(64).default([]),
-  acceptance: gameSliceAcceptanceSchema,
-  project_revision: nonEmptyText9(240).optional(),
-  last_playtest_id: nonEmptyText9(80).optional(),
-  last_evaluation: gameEvaluationReportSchema.optional(),
-  export: external_exports.strictObject({
-    provider: external_exports.enum(["godot", "unity", "unreal"]),
-    package_dir: nonEmptyText9(2048).optional(),
-    notes: external_exports.array(nonEmptyText9(500)).max(16).default([])
-  }).optional(),
-  notes: external_exports.array(nonEmptyText9(500)).max(32).default([]),
-  created_at: external_exports.string().min(1).max(40),
-  updated_at: external_exports.string().min(1).max(40)
-});
-var gameSliceBindPatchSchema = external_exports.strictObject({
-  role_id: nonEmptyText9(80),
-  object_id: objectId.optional(),
-  asset_id: nonEmptyText9(200).optional(),
-  source: gameSliceAssetSourceSchema.optional(),
-  license: boundedText4(160).optional()
-});
-
 // packages/protocol/src/directorGameProtocol.ts
 var nonEmptyText10 = (maximum) => external_exports.string().trim().min(1).max(maximum);
 var directorGameOperationSchema = external_exports.discriminatedUnion("op", [
@@ -138982,6 +138991,8 @@ var DIRECTOR_AGENT_PIPELINE_TOOLS = new Set(DIRECTOR_DYNAMIC_TOOLS.map((tool) =>
 // backend/gateway/mcp-server.ts
 var gatewayUrl = process.env.STAGE_GATEWAY_URL ?? "http://127.0.0.1:8787";
 var sessionId = process.env.DIRECTOR_MCP_SESSION_ID?.trim() || `mcp-${process.pid}-${crypto.randomUUID()}`;
+var profileId = process.env.DIRECTOR_MCP_PROFILE_ID?.trim() || "";
+var envelopeIdentity = { session_id: sessionId, ...profileId ? { profile_id: profileId } : {} };
 var configuredGatewayToken = process.env.DIRECTOR_GATEWAY_TOKEN?.trim() || "";
 if (configuredGatewayToken && configuredGatewayToken.length < 24) {
   console.warn(
@@ -139132,7 +139143,7 @@ async function callGateway(tool, input) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       input: effectiveInput,
-      session_id: sessionId,
+      ...envelopeIdentity,
       ...confirmToken ? { confirm_token: confirmToken } : {},
       ...boundTargetToken ? { target_token: boundTargetToken } : {}
     }),
@@ -139233,7 +139244,7 @@ registerVisibleTool("blender_native", () => {
         const response = await authenticatedGatewayFetch("/api/tools/blender_native", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ input, session_id: sessionId }),
+          body: JSON.stringify({ input, ...envelopeIdentity }),
           signal: AbortSignal.timeout(dynamicToolTimeoutMs("blender_native", input))
         });
         const payload = await response.json();
@@ -139488,7 +139499,7 @@ registerVisibleTool("director_dcc", () => {
         const response = await authenticatedGatewayFetch("/api/tools/director_dcc", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ input: parsedInput, session_id: sessionId })
+          body: JSON.stringify({ input: parsedInput, ...envelopeIdentity })
         });
         const payload = await response.json();
         const parsedPayload = external_exports.looseObject({ success: external_exports.boolean(), result: external_exports.unknown().optional(), error: external_exports.string().optional() }).safeParse(payload);
@@ -139540,7 +139551,7 @@ registerVisibleTool("director_game", () => {
         const response = await authenticatedGatewayFetch("/api/tools/director_game", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ input: parsedInput, session_id: sessionId })
+          body: JSON.stringify({ input: parsedInput, ...envelopeIdentity })
         });
         const payload = await response.json();
         const parsedPayload = external_exports.looseObject({ success: external_exports.boolean(), result: external_exports.unknown().optional(), error: external_exports.string().optional() }).safeParse(payload);
