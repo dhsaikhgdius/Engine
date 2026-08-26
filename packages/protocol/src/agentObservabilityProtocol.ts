@@ -473,9 +473,8 @@ export function filmRunToUnifiedProgress(run: FilmRun): UnifiedProgress {
     id: run.id,
     label: run.workflow,
     state,
-    // Shared with the film run receipt (filmRunProgress): phases advance
-    // sequentially, so the fraction of completed phases is the only honest
-    // numeric signal the film run exposes.
+    // Shared with the film run receipt (filmRunProgress): phase floor plus
+    // durable scene completion inside plan-scenes / render.
     progress: filmRunProgress(run),
     message: run.events.at(-1)?.message ?? null,
     source_status: run.status,

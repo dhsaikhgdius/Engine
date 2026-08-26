@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ModelContent, ModelDriver, ModelMessage } from "@director/model-provider/runtime";
+import type { AgentUsageMeter } from "../../../packages/protocol/src/agentObservabilityProtocol";
 
 /**
  * Structured LLM calls for the film planning agents.
@@ -17,6 +18,16 @@ export type StructuredCallRequest = {
   signal?: AbortSignal;
   maxAttempts?: number;
   temperature?: number;
+  /** Optional usage-meter scope override (defaults to `film-llm`). */
+  scope?: string;
+};
+
+/** Optional observability wiring for film planning completions. */
+export type FilmStructuredCallerOptions = {
+  /** Fire-and-forget usage meter; when omitted, completions are not metered. */
+  meter?: AgentUsageMeter;
+  /** Provider identity recorded on usage samples (never a credential). */
+  provider?: string;
 };
 
 /**
@@ -93,6 +104,11 @@ function toUserMessage(user: string | ModelContent[]): ModelMessage {
   };
 }
 
+function providerLabel(driver: ModelDriver, override?: string): string {
+  if (override) return override;
+  return driver.kind === "anthropic-messages" ? "anthropic" : "openai-compatible";
+}
+
 /**
  * The target schema is embedded into the system prompt as JSON Schema, the
  * reply is parsed with a fence- and trailing-comma-tolerant extractor,
@@ -104,7 +120,28 @@ export class FilmStructuredCaller {
     private readonly driver: ModelDriver,
     private readonly model: string,
     private readonly defaults: { temperature?: number; maxOutputTokens?: number } = {},
+    private readonly options: FilmStructuredCallerOptions = {},
   ) {}
+
+  private meterSample(
+    scope: string,
+    usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null | undefined,
+    durationMs: number,
+    retries: number,
+    succeeded: boolean,
+  ): void {
+    this.options.meter?.({
+      scope,
+      provider: providerLabel(this.driver, this.options.provider),
+      model: this.model,
+      input_tokens: usage?.inputTokens ?? 0,
+      output_tokens: usage?.outputTokens ?? 0,
+      total_tokens: usage?.totalTokens ?? 0,
+      duration_ms: Math.max(0, durationMs),
+      retries,
+      succeeded,
+    });
+  }
 
   /**
    * Completes a free-text prompt and returns the raw text.
@@ -114,20 +151,28 @@ export class FilmStructuredCaller {
    * @throws When the model returns an empty completion.
    */
   async completeText(request: StructuredCallRequest): Promise<string> {
-    const completion = await this.driver.complete({
-      model: this.model,
-      messages: [{ role: "system", content: [{ type: "text", text: request.system }] }, toUserMessage(request.user)],
-      temperature: request.temperature ?? this.defaults.temperature,
-      maxOutputTokens: this.defaults.maxOutputTokens,
-      signal: request.signal,
-    });
-    const text = completion.message.content
-      .filter((item): item is Extract<ModelContent, { type: "text" }> => item.type === "text")
-      .map((item) => item.text)
-      .join("\n")
-      .trim();
-    if (!text) throw new Error(`${this.model} returned an empty completion`);
-    return text;
+    const scope = request.scope ?? "film-llm";
+    const startedAtMs = Date.now();
+    try {
+      const completion = await this.driver.complete({
+        model: this.model,
+        messages: [{ role: "system", content: [{ type: "text", text: request.system }] }, toUserMessage(request.user)],
+        temperature: request.temperature ?? this.defaults.temperature,
+        maxOutputTokens: this.defaults.maxOutputTokens,
+        signal: request.signal,
+      });
+      const text = completion.message.content
+        .filter((item): item is Extract<ModelContent, { type: "text" }> => item.type === "text")
+        .map((item) => item.text)
+        .join("\n")
+        .trim();
+      if (!text) throw new Error(`${this.model} returned an empty completion`);
+      this.meterSample(scope, completion.usage, Date.now() - startedAtMs, 0, true);
+      return text;
+    } catch (error) {
+      this.meterSample(scope, null, Date.now() - startedAtMs, 0, false);
+      throw error;
+    }
   }
 
   /**
@@ -145,11 +190,14 @@ export class FilmStructuredCaller {
     request: StructuredCallRequest,
   ): Promise<z.infer<Schema>> {
     const maxAttempts = Math.max(1, Math.min(5, request.maxAttempts ?? 3));
+    const scope = request.scope ?? "film-llm";
     const messages: ModelMessage[] = [
       { role: "system", content: [{ type: "text", text: request.system }] },
       toUserMessage(request.user),
     ];
     let lastError: unknown = null;
+    let lastUsage: { inputTokens: number; outputTokens: number; totalTokens: number } | null = null;
+    const startedAtMs = Date.now();
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       request.signal?.throwIfAborted();
       const completion = await this.driver.complete({
@@ -159,13 +207,17 @@ export class FilmStructuredCaller {
         maxOutputTokens: this.defaults.maxOutputTokens,
         signal: request.signal,
       });
+      lastUsage = completion.usage;
       const text = completion.message.content
         .filter((item): item is Extract<ModelContent, { type: "text" }> => item.type === "text")
         .map((item) => item.text)
         .join("\n");
       try {
         const parsed = schema.safeParse(parseJsonTolerant(text));
-        if (parsed.success) return parsed.data;
+        if (parsed.success) {
+          this.meterSample(scope, lastUsage, Date.now() - startedAtMs, attempt, true);
+          return parsed.data;
+        }
         lastError = new Error(z.prettifyError(parsed.error));
       } catch (error) {
         lastError = error;
@@ -185,6 +237,7 @@ export class FilmStructuredCaller {
         },
       );
     }
+    this.meterSample(scope, lastUsage, Date.now() - startedAtMs, Math.max(0, maxAttempts - 1), false);
     throw new Error(
       `structured completion failed after ${maxAttempts} attempts: ${
         lastError instanceof Error ? lastError.message : String(lastError)
