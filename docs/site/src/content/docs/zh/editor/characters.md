@@ -170,8 +170,10 @@ possess 模式同时限制该 session 的写入范围：绑定了人物的 sessi
 删除其他对象、修改别人的人物、`start_scene`、`replace_project` 等全局写入会被网关以可读错误
 拒绝（HTTP 403，代码 `possession_scope_violation`）。玩家模式与相机 Pilot 也在同一范围内：
 `player` 的 `enter`/`set_actor`/`teleport`/`walk_to` 必须显式命名被接管的 `actor_id`（否则 Stage
-会回退到共享标签页选中对象；其余 player 动作驱动这个受约束的实时角色），`pilot record_waypoint`
-会写入不属于任何人物的相机关键帧，因而被拒绝；瞬时飞行（`start`/`stop`/`set_view`）不受影响。
+会回退到共享标签页选中对象；其余 player 动作驱动这个受约束的实时角色），当玩家模式正由未接管
+角色实时驱动时，`enter`/`set_actor` 不能抢占该实时会话（切换会把该角色踢出并结束其录制中的
+动作片段），`pilot record_waypoint` 会写入不属于任何人物的相机关键帧，因而被拒绝；
+瞬时飞行（`start`/`stop`/`set_view`）不受影响。
 未绑定任何人物的普通导演 session 行为不变。
 
 显式 id 仍是规范用法。当 session 只接管一个人物时，人物类 author action 可省略对象目标，

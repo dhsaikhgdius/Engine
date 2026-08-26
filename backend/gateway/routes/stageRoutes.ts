@@ -1003,9 +1003,12 @@ export async function handleStageRoute(
       // exact target when no preflight already observed characters) and writes
       // the 403 rejection; returns true when a response was written.
       const rejectsPossessionScope = async (candidate: DirectorWorkbenchOperation): Promise<boolean> => {
+        // Live Player Mode state gates the live-actor verbs and the
+        // enter/set_actor takeover check; teleport/walk_to move their named
+        // actor without switching the live session, so they skip the probe.
         const needsLivePlayer =
           candidate.op === "player" &&
-          ["exit", "interact", "enter_vehicle", "exit_vehicle", "record_start", "record_stop"].includes(
+          ["enter", "set_actor", "exit", "interact", "enter_vehicle", "exit_vehicle", "record_start", "record_stop"].includes(
             candidate.action,
           );
         if (!possessionCharacters || (needsLivePlayer && possessionLivePlayer === null)) {

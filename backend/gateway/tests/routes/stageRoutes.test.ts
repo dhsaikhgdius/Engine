@@ -884,8 +884,10 @@ describe("stage routes", () => {
       enterOmitted.dependencies,
     );
     expect(enterOmitted.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    // enter consults the live Player Mode state, so the possession probe
+    // observes ui next to characters.
     expect(enterOmitted.dependencies.requestWorkbenchCommand).toHaveBeenCalledWith(
-      { op: "observe", fields: ["characters"] },
+      { op: "observe", fields: ["characters", "ui"] },
       undefined,
       TARGET.token,
     );
@@ -1059,6 +1061,135 @@ describe("stage routes", () => {
       200,
       expect.objectContaining({ success: true }),
     );
+  });
+
+  it("blocks a possessed session from taking over a live Player Mode on an unpossessed actor", async () => {
+    const possessedCharacters = [
+      {
+        id: "hero",
+        kind: "character",
+        agent_binding: { session_id: "dsh-possessed", profile_id: null, role_id: null, mode: "possess" },
+      },
+      { id: "villain", kind: "character" },
+    ];
+    const liveOnVillainProbe = {
+      client: {},
+      target: TARGET,
+      response: {
+        success: true,
+        result: {
+          characters: possessedCharacters,
+          ui: { player_mode: true, player_actor_id: "villain" },
+        },
+      },
+    };
+
+    // Player Mode is live on the unpossessed villain (e.g. the human driving
+    // it), so entering the possessed hero would eject that live actor and
+    // finish its in-progress take. Rejected before any dispatch.
+    const takeover = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "player", action: "enter", actor_id: "hero" },
+    });
+    takeover.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(liveOnVillainProbe);
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      takeover.dependencies,
+    );
+    expect(takeover.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(takeover.dependencies.requestWorkbenchCommand).toHaveBeenCalledWith(
+      { op: "observe", fields: ["characters", "ui"] },
+      undefined,
+      TARGET.token,
+    );
+    expect(takeover.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({
+        success: false,
+        code: "possession_scope_violation",
+        error: expect.stringContaining('"villain"'),
+        possession: {
+          session_id: "dsh-possessed",
+          possessed_object_ids: ["hero"],
+          operation: "player.enter",
+          reason: "live_actor_conflict",
+          target_id: "villain",
+        },
+      }),
+    );
+
+    // Once the live actor is the possessed character, set_actor dispatches
+    // the session command verbatim.
+    const liveOnHeroProbe = {
+      client: {},
+      target: TARGET,
+      response: {
+        success: true,
+        result: {
+          characters: possessedCharacters,
+          ui: { player_mode: true, player_actor_id: "hero" },
+        },
+      },
+    };
+    const reenter = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "player", action: "set_actor", actor_id: "hero" },
+    });
+    reenter.dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce(liveOnHeroProbe)
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { surface: "player", action: "set_actor", actor_id: "hero" } },
+      });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      reenter.dependencies,
+    );
+    expect(reenter.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(reenter.dependencies.requestWorkbenchCommand).mock.calls[1]?.[0]).toEqual({
+      op: "player",
+      action: "set_actor",
+      actor_id: "hero",
+    });
+    expect(reenter.json).toHaveBeenLastCalledWith(expect.anything(), 200, expect.objectContaining({ success: true }));
+
+    // teleport moves the named possessed actor without switching the live
+    // session, so the live unpossessed actor does not block it and the
+    // possession probe stays characters-only.
+    const teleport = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "player", action: "teleport", actor_id: "hero", position: [1, 0, 2] },
+    });
+    teleport.dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce(liveOnVillainProbe)
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { surface: "player", action: "teleport" } },
+      });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      teleport.dependencies,
+    );
+    expect(teleport.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(teleport.dependencies.requestWorkbenchCommand).mock.calls[0]?.[0]).toEqual({
+      op: "observe",
+      fields: ["characters"],
+    });
+    expect(teleport.json).toHaveBeenLastCalledWith(expect.anything(), 200, expect.objectContaining({ success: true }));
   });
 
   it("rejects reconstruction.apply under possession with a typed payload while keeping submissions", async () => {
