@@ -41,6 +41,7 @@ import {
   isCreativeMutation,
   isWorkbenchDurableJobMutation,
   isWorkbenchMutation,
+  isWorkbenchReconstructionApplyMutation,
   isWorkbenchRevisionGuardedMutation,
   isWorkbenchSessionMutation,
   prepareAgentDurableJobMutation,
@@ -850,7 +851,10 @@ export async function handleStageRoute(
       // scope check below reuses the same preflight round trip.
       const discoveryObserve: DirectorWorkbenchOperation = {
         op: "observe",
-        fields: !operation || isWorkbenchMutation(operation) ? ["counts", "characters"] : ["counts"],
+        fields:
+          !operation || isWorkbenchMutation(operation) || isWorkbenchReconstructionApplyMutation(operation)
+            ? ["counts", "characters"]
+            : ["counts"],
       };
       let discovery: WorkbenchRemote | null = null;
       if (targetRequired && !targetToken) {
@@ -911,7 +915,10 @@ export async function handleStageRoute(
       targetLease = scheduledLease;
       if (
         targetToken &&
-        (!operation || isWorkbenchMutation(operation) || isWorkbenchDurableJobMutation(operation)) &&
+        (!operation ||
+          isWorkbenchMutation(operation) ||
+          isWorkbenchDurableJobMutation(operation) ||
+          isWorkbenchReconstructionApplyMutation(operation)) &&
         isTargetContractStale?.(targetToken)
       ) {
         respond(response, 409, {
@@ -971,6 +978,11 @@ export async function handleStageRoute(
                     possessedObjectIds,
                     gaps: characterTargetGaps,
                   }),
+                  possession: {
+                    session_id: sessionId,
+                    possessed_object_ids: possessedObjectIds,
+                    omitted_targets: characterTargetGaps,
+                  },
                 }
               : { scene, success: false, error: initialParseError ?? "director_workbench input invalid." },
           );
@@ -1042,6 +1054,7 @@ export async function handleStageRoute(
           success: false,
           code: "possession_scope_violation",
           error: verdict.error,
+          possession: verdict.rejection,
         });
         return true;
       };
@@ -1056,6 +1069,12 @@ export async function handleStageRoute(
         // Player Mode and pilot.record_waypoint mutate live project state but
         // carry no revision-guard fields, so they skip prepareAgentMutation;
         // the possession scope still applies before dispatch.
+        if (await rejectsPossessionScope(workbenchOperation)) return true;
+      } else if (isWorkbenchReconstructionApplyMutation(workbenchOperation)) {
+        // reconstruction.apply appends or replaces scene objects stage-wide.
+        // Its expected_revision/idempotency_key travel inside the command and
+        // are enforced by the browser executor, so it skips
+        // prepareAgentMutation; the possession scope still applies.
         if (await rejectsPossessionScope(workbenchOperation)) return true;
       } else if (isWorkbenchRevisionGuardedMutation(workbenchOperation)) {
         const prepared = prepareAgentMutation({ tool: "director_workbench", operation: workbenchOperation }, sessionId);
@@ -1129,7 +1148,9 @@ export async function handleStageRoute(
       if (!remote) {
         forgetAgentSessionTarget("director_workbench", sessionId);
         const mutationOutcomeUnknown =
-          isWorkbenchMutation(workbenchOperation) || isWorkbenchDurableJobMutation(workbenchOperation);
+          isWorkbenchMutation(workbenchOperation) ||
+          isWorkbenchDurableJobMutation(workbenchOperation) ||
+          isWorkbenchReconstructionApplyMutation(workbenchOperation);
         if (
           !mutationOutcomeUnknown &&
           (await respondDisconnectedWorkbenchRead({
@@ -1165,7 +1186,8 @@ export async function handleStageRoute(
                       ? `production.${workbenchOperation.command.action}`
                       : workbenchOperation.op === "generation" ||
                           workbenchOperation.op === "transcription" ||
-                          workbenchOperation.op === "generated_3d"
+                          workbenchOperation.op === "generated_3d" ||
+                          workbenchOperation.op === "reconstruction"
                         ? `${workbenchOperation.op}.${workbenchOperation.command.action}`
                         : workbenchOperation.op,
                   command_family: "workbench",

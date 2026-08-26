@@ -361,6 +361,8 @@ target、quality、asset、audit 和 evidence contract。
 | `409 idempotency_key_conflict`  | 保留旧回执；不同输入使用新 key。                                                       |
 | `409 idempotency_replay_stale`  | 旧 mutation 已成功但项目继续前进；observe 后只把剩余工作表达为新意图。                 |
 | `409 outcome_unknown`           | 先 observe/diff；效果不存在时，只能用 `agent_boundary` 中的注入 revision 与 key 重试。 |
+| `403 possession_scope_violation` | 该 session 处于人物占有（possess）中，只能改写被占有人物；`replace_project`、`reconstruction.apply` 等全场写入会被拒绝。读取类型化 `possession` 块（被占有 id、违规 operation、reason）后重新定位目标，或解除绑定。 |
+| `400 possession_target_ambiguous` | 该 session 占有多个人物，省略的人物目标无法自动填充。读取 `possession.omitted_targets`，显式指定一个被占有 id。 |
 | `504 command_timeout`           | 不要声称成功；保持 target 可见，必要时 observe，再重试读取/证据操作。                  |
 | `profile_unavailable`           | 选择可用且 provider 匹配的 Profile，并检查 credential。                                |
 | `profile_capability_mismatch`   | 选择具有 tools 的 Profile；Visual Critic 还必须具有 vision。                           |
