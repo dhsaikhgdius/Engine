@@ -350,6 +350,12 @@ describe.skipIf(!hasGodot)("Godot headless roundtrip (set DIRECTOR_GODOT_BIN to 
     expect(receipt.importedLightCount).toBe(3);
     expect(receipt.worldEnvironmentAmbient).toBe(true);
     expect(receipt.omittedLightCount).toBe(1);
+    expect(receipt.omittedLights).toEqual([
+      expect.objectContaining({
+        code: "light_rect_area_unsupported",
+        lightType: "rect-area",
+      }),
+    ]);
     expect(receipt.importedSkeletonCount).toBe(1);
     expect(receipt.appliedMaterialCount).toBe(1);
     expect(receipt.payloadAnimationPlayerCount).toBe(1);

@@ -153,12 +153,57 @@ describe("Godot import receipt and connector health", () => {
       importedLightCount: 3,
       worldEnvironmentAmbient: true,
       omittedLightCount: 1,
+      omittedLights: [
+        {
+          directorId: "light-rect",
+          code: "light_rect_area_unsupported",
+          lightType: "rect-area",
+          reason:
+            "Light light-rect (rect-area): Godot has no runtime area-light node, so the light was omitted rather than approximated (warn-and-omit code: light_rect_area_unsupported).",
+        },
+      ],
       appliedMaterialCount: 1,
       externalizedTextureCount: 2,
     });
     expect(receipt.displayRate).toBe("24000/1001");
     expect(receipt.mappedShotCount).toBe(2);
     expect(receipt.worldEnvironmentAmbient).toBe(true);
+    expect(receipt.omittedLights).toEqual([
+      expect.objectContaining({
+        directorId: "light-rect",
+        code: "light_rect_area_unsupported",
+        lightType: "rect-area",
+      }),
+    ]);
+  });
+
+  it("rejects omittedLights whose length disagrees with omittedLightCount", () => {
+    const base = {
+      animationPlayerPath: null,
+      animationLibrary: null,
+      displayRate: null,
+      bakedKeyCount: 0,
+      transformTrackCount: 0,
+      fovTrackCount: 0,
+      shotCutTrackCount: 0,
+      mappedShotCount: 0,
+      payloadAnimationPlayerCount: 0,
+      importedSkeletonCount: 0,
+      importedLightCount: 0,
+      worldEnvironmentAmbient: false,
+      omittedLightCount: 0,
+      omittedLights: [
+        {
+          directorId: "light-x",
+          code: "light_type_unknown" as const,
+          lightType: "laser",
+          reason: "Light light-x has unknown type laser; it was omitted (warn-and-omit code: light_type_unknown).",
+        },
+      ],
+      appliedMaterialCount: 0,
+      externalizedTextureCount: 0,
+    };
+    expect(directorGodotImportReceiptSchema.safeParse(base).success).toBe(false);
   });
 
   it("accepts a static import (no animation keyed) and rejects malformed rates", () => {

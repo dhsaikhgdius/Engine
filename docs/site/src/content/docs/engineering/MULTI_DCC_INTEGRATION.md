@@ -620,7 +620,8 @@ Implemented Director boundary (see `integrations/godot/README.md`):
   structured codes;
 - the engine report carries a Godot-specific receipt (track/key/shot-cut
   counts, light/skeleton/material/texture counts, `worldEnvironmentAmbient`,
-  `omittedLightCount`) read back from the saved scene;
+  `omittedLightCount`, and typed `omittedLights[]` with `directorId` / `code` /
+  `lightType` / `reason`) read back from the saved scene;
 - the editor plugin can stream an outbound-only preview live link
   (`director-godot-live-link-v1`): ephemeral sequence-numbered frames pushed
   to token-guarded Gateway routes, never authoritative, with stale/replayed

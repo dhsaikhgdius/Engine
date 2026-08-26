@@ -290,6 +290,7 @@ async function createGodotSendHarness() {
           importedLightCount: 0,
           worldEnvironmentAmbient: false,
           omittedLightCount: 0,
+          omittedLights: [],
           appliedMaterialCount: 0,
           externalizedTextureCount: 0,
         },

@@ -377,7 +377,23 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
           importedSkeletonCount: 1,
           importedLightCount: 2,
           worldEnvironmentAmbient: true,
-          omittedLightCount: 1,
+          omittedLightCount: 2,
+          omittedLights: [
+            {
+              directorId: "light-panel",
+              code: "light_rect_area_unsupported",
+              lightType: "rect-area",
+              reason:
+                "Light light-panel (rect-area): Godot has no runtime area-light node, so the light was omitted rather than approximated (warn-and-omit code: light_rect_area_unsupported).",
+            },
+            {
+              directorId: "light-panel-2",
+              code: "light_rect_area_unsupported",
+              lightType: "rect-area",
+              reason:
+                "Light light-panel-2 (rect-area): Godot has no runtime area-light node, so the light was omitted rather than approximated (warn-and-omit code: light_rect_area_unsupported).",
+            },
+          ],
           appliedMaterialCount: 3,
           externalizedTextureCount: 2,
         },
@@ -407,7 +423,7 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
   expect(factOf("相机切换轨道")).toHaveTextContent("1");
   expect(factOf("映射镜头")).toHaveTextContent("5");
   expect(factOf("环境光")).toHaveTextContent("WorldEnvironment 已烘焙");
-  expect(factOf("省略灯光")).toHaveTextContent("1");
+  expect(factOf("省略灯光")).toHaveTextContent("2");
   // Gateway bake channels render as per-entity structured rows (not free-text).
   const omittedChannels = screen.getByRole("list", { name: "省略的动画通道" });
   expect(within(omittedChannels).getByText("hero")).toBeInTheDocument();
