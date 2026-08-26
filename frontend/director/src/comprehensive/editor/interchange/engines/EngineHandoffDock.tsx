@@ -43,7 +43,10 @@ export interface EngineHandoffDockProps {
   onEngineSendCompleted?: (result: DirectorDccEngineSendResult) => void;
 }
 
-function statusOf(catalog: DirectorDccProviderCatalog | null, id: EngineHandoffTabId): DirectorDccProviderStatus | null {
+function statusOf(
+  catalog: DirectorDccProviderCatalog | null,
+  id: EngineHandoffTabId,
+): DirectorDccProviderStatus | null {
   return catalog?.providers.find((status) => status.provider.id === id) ?? null;
 }
 

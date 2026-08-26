@@ -111,7 +111,9 @@ export function UnrealLiveLinkSection() {
       </div>
       <ul className="director-engine-handoff-notes">
         <li>{t("链路仅绑定 127.0.0.1、单向、带序号；帧只作用于编辑器视口，绝不写入工程")}</li>
-        <li>{t("启动方式：在引擎项目中设置 DIRECTOR_UNREAL_PREVIEW_TOKEN，运行 director_headless.py --mode live-preview")}</li>
+        <li>
+          {t("启动方式：在引擎项目中设置 DIRECTOR_UNREAL_PREVIEW_TOKEN，运行 director_headless.py --mode live-preview")}
+        </li>
         <li>{t("Remote Control 不是安全边界；此链路不经过也不依赖它")}</li>
       </ul>
     </div>

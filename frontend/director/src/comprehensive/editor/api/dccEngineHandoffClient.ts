@@ -1,8 +1,5 @@
 import { z } from "zod";
-import {
-  directorDccEngineHealthSchema,
-  type DirectorDccEngineHealth,
-} from "../../../dcc/directorDccEngineContract";
+import { directorDccEngineHealthSchema, type DirectorDccEngineHealth } from "../../../dcc/directorDccEngineContract";
 import { directorDccEngineIdSchema, type DirectorDccEngineId } from "../../../dcc/directorDccEngineSpace";
 import {
   directorGodotLiveLinkPreviewSchema,

@@ -9,10 +9,7 @@
 
 import { CheckCircle2, RefreshCw, Send, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type {
-  DirectorDccEngineHealth,
-  DirectorDccEngineSendResult,
-} from "../../../../dcc/directorDccEngineContract";
+import type { DirectorDccEngineHealth, DirectorDccEngineSendResult } from "../../../../dcc/directorDccEngineContract";
 import type { DirectorDccEngineId } from "../../../../dcc/directorDccEngineSpace";
 import type {
   DirectorDccCapabilityLevel,
@@ -21,10 +18,7 @@ import type {
 import type { DirectorDccImportPlanV1 } from "../../../../dcc/directorDccReturnContract";
 import { useLanguage } from "../../../i18n/language";
 import { fetchDirectorDccEngineHealth } from "../../api/dccEngineHandoffClient";
-import {
-  DirectorDccProviderClientError,
-  sendDirectorProjectToEngine,
-} from "../../api/dccProviderClient";
+import { DirectorDccProviderClientError, sendDirectorProjectToEngine } from "../../api/dccProviderClient";
 import { applyDirectorDccImportPlan, previewDirectorDccReturnPackage } from "../../api/dccReturnClient";
 
 /** zh-CN capability labels keyed by the provider catalog capability ids. */
@@ -91,7 +85,15 @@ function TruncatedList({ items, label, tone }: { items: string[]; label: string;
   );
 }
 
-function ReadinessChip({ ready, readyLabel, notReadyLabel }: { ready: boolean; readyLabel: string; notReadyLabel: string }) {
+function ReadinessChip({
+  ready,
+  readyLabel,
+  notReadyLabel,
+}: {
+  ready: boolean;
+  readyLabel: string;
+  notReadyLabel: string;
+}) {
   return (
     <span className={ready ? "is-ready" : "is-unavailable"}>
       {ready ? <CheckCircle2 aria-hidden size={11} /> : <TriangleAlert aria-hidden size={11} />}
@@ -262,13 +264,17 @@ export function EngineDetailPanel({
         ) : null}
         {status ? (
           <div className="director-engine-handoff-readiness">
+            <ReadinessChip notReadyLabel={t("未检测到安装")} ready={status.installed} readyLabel={t("已检测安装")} />
             <ReadinessChip
-              notReadyLabel={t("未检测到安装")}
-              ready={status.installed}
-              readyLabel={t("已检测安装")}
+              notReadyLabel={t("原生连接未就绪")}
+              ready={status.nativeReady}
+              readyLabel={t("原生连接就绪")}
             />
-            <ReadinessChip notReadyLabel={t("原生连接未就绪")} ready={status.nativeReady} readyLabel={t("原生连接就绪")} />
-            <ReadinessChip notReadyLabel={t("交换包不可用")} ready={status.exchangeReady} readyLabel={t("交换包就绪")} />
+            <ReadinessChip
+              notReadyLabel={t("交换包不可用")}
+              ready={status.exchangeReady}
+              readyLabel={t("交换包就绪")}
+            />
           </div>
         ) : null}
         {provider ? (
@@ -439,7 +445,9 @@ export function EngineDetailPanel({
             >
               {applied ? t("已应用到当前场景") : applying ? t("应用中…") : t("应用引擎回传")}
             </button>
-            {applied && appliedSummary ? <output className="director-engine-handoff-applied">{appliedSummary}</output> : null}
+            {applied && appliedSummary ? (
+              <output className="director-engine-handoff-applied">{appliedSummary}</output>
+            ) : null}
           </div>
         ) : null}
       </section>
