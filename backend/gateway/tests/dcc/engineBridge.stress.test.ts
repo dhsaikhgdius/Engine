@@ -268,7 +268,9 @@ describe("engine bridge stress: provider validation and job isolation", () => {
   it("caches health per provider and TTL, and re-probes after expiry", async () => {
     const setup = await temporaryEngineSetup("unity");
     let clock = 1_000;
-    const probeHostVersion = vi.fn(async () => "unity 9.9 fixture");
+    const probeHostVersion = vi.fn(
+      async (_provider: DirectorDccEngineId, _executable: string) => "unity 9.9 fixture",
+    );
     const bridge = createDirectorDccEngineBridge({
       workspaceRoot: repositoryRoot,
       dataDirectory: setup.dataDirectory,

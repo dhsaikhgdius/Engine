@@ -167,14 +167,15 @@ describe("DCC exchange package stress: malformed requests", () => {
         dataDirectory: resolve(root, "data"),
         budgets,
       });
-    for (const budgets of [
+    const hostileBudgets: Array<Record<string, number>> = [
       { maxAssets: 0 },
       { maxAssets: -1 },
       { maxFileBytes: Number.NaN },
       { maxPackageBytes: Number.POSITIVE_INFINITY },
       { maxConcurrentExports: 1.5 },
       { maxPackageBytes: Number.MAX_SAFE_INTEGER + 2 },
-    ]) {
+    ];
+    for (const budgets of hostileBudgets) {
       expect(() => build(budgets)).toThrow(/positive safe integer/i);
     }
   });
