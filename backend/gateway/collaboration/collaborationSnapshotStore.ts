@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import * as Y from "yjs";
+import { z } from "zod";
 import { writeJsonAtomic } from "../atomicJsonFile";
 
 const DEFAULT_COMPACT_AFTER_UPDATES = 64;
@@ -21,6 +22,38 @@ export type CollaborationQuarantineRecord = {
   reason: string;
   quarantinedAt: string;
 };
+
+/**
+ * On-disk quarantine index entries are untrusted at read time (the file can
+ * be edited or corrupted between writes), so each record is re-validated
+ * before it is served over HTTP; entries that fail validation are dropped.
+ */
+const quarantineRecordSchema: z.ZodType<CollaborationQuarantineRecord> = z.object({
+  id: z.string().min(1).max(128),
+  room: z.string().min(1).max(256),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  byteLength: z.number().int().nonnegative(),
+  reason: z.string().max(400),
+  quarantinedAt: z.string().min(1).max(64),
+});
+
+/**
+ * The outcome of archiving one room's durable history. `no_durable_history`
+ * is the benign no-op (nothing on disk to move); `archive_failed` means the
+ * history is still in place and a retry or operator intervention is needed
+ * (`code` carries the errno name, never a filesystem path).
+ */
+export type CollaborationRoomArchiveOutcome =
+  | { archived: true; archivedAs: string }
+  | { archived: false; reason: "no_durable_history" }
+  | { archived: false; reason: "archive_failed"; code: string };
+
+function errnoCode(error: unknown): string {
+  if (error instanceof Error && "code" in error && typeof (error as NodeJS.ErrnoException).code === "string") {
+    return (error as NodeJS.ErrnoException).code!;
+  }
+  return "UNKNOWN";
+}
 
 /** Durable per-room operational status reported by {@link CollaborationSnapshotStore.status}. */
 export type CollaborationRoomOpsStatus = {
@@ -220,17 +253,26 @@ export class CollaborationSnapshotStore {
    * Moves a room's durable history (snapshot, pending updates, quarantine)
    * into the archive directory so future joins start from an empty document.
    * Archived data is renamed, never deleted, and stops seeding new rooms.
+   * The outcome distinguishes "nothing to archive" from a real filesystem
+   * failure so callers never report history as gone when it is still there.
    */
-  async archiveRoom(room: string): Promise<{ archived: boolean; archivedAs: string | null }> {
+  async archiveRoom(room: string): Promise<CollaborationRoomArchiveOutcome> {
     return this.withRoomLock(room, async () => {
       const source = this.roomDirectory(room);
       const archivedAs = `${encodeRoomDirectoryName(room)}.${Date.now().toString(16)}-${randomUUID().slice(0, 8)}`;
       try {
         await mkdir(this.archiveDirectory, { recursive: true });
+      } catch (error) {
+        return { archived: false, reason: "archive_failed", code: errnoCode(error) };
+      }
+      try {
         await rename(source, resolve(this.archiveDirectory, archivedAs));
         return { archived: true, archivedAs };
-      } catch {
-        return { archived: false, archivedAs: null };
+      } catch (error) {
+        // The archive directory exists at this point, so a missing-path error
+        // can only mean the room never wrote durable history.
+        if (errnoCode(error) === "ENOENT") return { archived: false, reason: "no_durable_history" };
+        return { archived: false, reason: "archive_failed", code: errnoCode(error) };
       }
     });
   }
@@ -322,7 +364,11 @@ export class CollaborationSnapshotStore {
       const parsed: unknown = JSON.parse(
         await readFile(resolve(this.roomDirectory(room), QUARANTINE_INDEX_FILE), "utf8"),
       );
-      return Array.isArray(parsed) ? (parsed as CollaborationQuarantineRecord[]) : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed.flatMap((entry) => {
+        const record = quarantineRecordSchema.safeParse(entry);
+        return record.success ? [record.data] : [];
+      });
     } catch {
       return [];
     }

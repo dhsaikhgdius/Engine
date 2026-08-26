@@ -283,6 +283,42 @@ describe("engine scene import", () => {
     expect(empty.conflicts).toContainEqual(expect.objectContaining({ code: "empty_selection" }));
   });
 
+  it("stamps typed omitted records for unsupported elements, flattening, clips, rigs, and camera roll", async () => {
+    const harness = await createHarness();
+    const manifest = buildManifest("unity", DEFAULT_BUNDLE);
+    const zip = await buildZip({ ...manifest, scene: { ...manifest.scene, skinnedMeshCount: 1 } });
+    const upload = await harness.importer.ingestUpload("unity", "scene.zip", chunks(zip), harness.project);
+
+    expect(upload.plan.omitted).toEqual([
+      { sourceId: "Disc", kind: "light", code: "unsupported_object", reason: "Disc lights are not mapped." },
+      { sourceId: "scene", code: "hierarchy_flattened", reason: expect.stringContaining("one flattened Director") },
+      {
+        sourceId: "camera-main",
+        code: "camera_roll",
+        reason: expect.stringContaining("camera roll on Main Camera"),
+      },
+      { sourceId: "scene", code: "animation_clips", reason: expect.stringContaining("exported frame") },
+      { sourceId: "scene", code: "skinned_mesh_rigs", reason: expect.stringContaining("character rig system") },
+    ]);
+    expect(upload.plan.omittedCount).toBe(upload.plan.omitted?.length);
+    // Every typed record keeps a matching free-text warning for humans.
+    for (const record of upload.plan.omitted ?? []) {
+      expect(upload.plan.warnings.some((warning) => warning.includes(record.reason))).toBe(true);
+    }
+
+    const lightOnly = await harness.importer.buildImportPlan("unity", upload.packagePath, harness.project, {
+      includeScene: false,
+      cameraSourceIds: [],
+      lightSourceIds: ["light-key"],
+    });
+    expect(lightOnly.omitted?.map((record) => `${record.code}:${record.sourceId}`)).toEqual([
+      "unsupported_object:Disc",
+      "animation_clips:scene",
+      "skinned_mesh_rigs:scene",
+    ]);
+    expect(lightOnly.omittedCount).toBe(3);
+  });
+
   it("applies the plan as one revision/idempotency-guarded replace_project and replays the receipt", async () => {
     const harness = await createHarness();
     const zip = await buildZip(buildManifest("unity", DEFAULT_BUNDLE));
