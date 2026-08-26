@@ -277,7 +277,7 @@ describe("exportFilmTimeline", () => {
     return path;
   }
 
-  it("writes timeline.otio and skips shots whose video file is missing", async () => {
+  it("writes timeline.otio and records typed omittedShots for missing clip files", async () => {
     const run = makeRun();
     const runDirectory = await createRunDirectory();
     await writeFakeClip(runDirectory, 0, 0);
@@ -290,11 +290,24 @@ describe("exportFilmTimeline", () => {
       return { durationSec: 5, fps: 24 };
     };
 
-    const outputPath = await exportFilmTimeline({ run, runDirectory, probe });
+    const { outputPath, receipt } = await exportFilmTimeline({ run, runDirectory, probe });
     expect(outputPath).toBe(join(runDirectory, "timeline.otio"));
     expect(probed).toEqual([
       join(runDirectory, "scene_0/shots/0/video.mp4"),
       join(runDirectory, "scene_1/shots/0/video.mp4"),
+    ]);
+
+    // The dropped shot is a typed receipt record, not a silent skip.
+    expect(receipt.shotCount).toBe(3);
+    expect(receipt.clipCount).toBe(2);
+    expect(receipt.omittedShotCount).toBe(1);
+    expect(receipt.omittedShots).toEqual([
+      {
+        sceneIdx: 0,
+        shotIdx: 1,
+        code: "clip_missing",
+        reason: "Rendered clip scene_0/shots/1/video.mp4 was missing from the run directory at export time",
+      },
     ]);
 
     const raw = await readFile(outputPath, "utf8");
@@ -350,9 +363,17 @@ describe("exportFilmTimeline", () => {
     };
     const warnings: string[] = [];
 
-    const outputPath = await exportFilmTimeline({ run, runDirectory, probe, onWarning: (m) => warnings.push(m) });
+    const { outputPath, receipt } = await exportFilmTimeline({
+      run,
+      runDirectory,
+      probe,
+      onWarning: (m) => warnings.push(m),
+    });
     expect(warnings).toEqual([]);
     expect(probed).toContain("scene_0/shots/1/video_with_audio.mp4");
+
+    // Every planned shot became a clip: the receipt claims a complete handoff.
+    expect(receipt).toEqual({ shotCount: 3, clipCount: 3, omittedShotCount: 0, omittedShots: [] });
 
     const timeline = JSON.parse(await readFile(outputPath, "utf8")) as Record<string, any>;
     expect(timeline.metadata.director).toEqual({
@@ -408,10 +429,20 @@ describe("exportFilmTimeline", () => {
     };
     const warnings: string[] = [];
 
-    const outputPath = await exportFilmTimeline({ run, runDirectory, probe, onWarning: (m) => warnings.push(m) });
+    const { outputPath, receipt } = await exportFilmTimeline({
+      run,
+      runDirectory,
+      probe,
+      onWarning: (m) => warnings.push(m),
+    });
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/scene_0\/shots\/0\/video_with_audio\.mp4/);
     expect(warnings[0]).toMatch(/moov atom not found/);
+    expect(receipt.omittedShotCount).toBe(2);
+    expect(receipt.omittedShots.map((shot) => [shot.sceneIdx, shot.shotIdx, shot.code])).toEqual([
+      [0, 1, "clip_missing"],
+      [1, 0, "clip_missing"],
+    ]);
 
     const timeline = JSON.parse(await readFile(outputPath, "utf8")) as Record<string, any>;
     // Still the v2 editorial document (markers, contract), just without A1.
@@ -432,7 +463,7 @@ describe("exportFilmTimeline", () => {
     };
     const warnings: string[] = [];
 
-    const outputPath = await exportFilmTimeline({ run, runDirectory, probe, onWarning: (m) => warnings.push(m) });
+    const { outputPath } = await exportFilmTimeline({ run, runDirectory, probe, onWarning: (m) => warnings.push(m) });
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/no decodable audio stream/);
 

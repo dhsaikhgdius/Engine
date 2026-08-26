@@ -168,6 +168,54 @@ describe("FilmPipelineOrchestrator", () => {
     expect(coordinator.renders).toEqual([0]);
   });
 
+  it("stamps the typed timeline export receipt next to timelinePath", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "director-film-orchestrator-"));
+    tempDirs.push(dir);
+    const store = new FilmRunStore(dir);
+    const orchestrator = new FilmPipelineOrchestrator({
+      store,
+      planningAgents: fakePlanningAgents(),
+      renderCoordinator: fakeRenderCoordinator(),
+      ffmpegPath: "ffmpeg",
+      exportTimeline: async ({ runDirectory }) => {
+        const outputPath = join(runDirectory, "timeline.otio");
+        await mkdir(dirname(outputPath), { recursive: true });
+        await writeFile(outputPath, "{}");
+        return {
+          outputPath,
+          receipt: {
+            shotCount: 2,
+            clipCount: 1,
+            omittedShotCount: 1,
+            omittedShots: [
+              { sceneIdx: 0, shotIdx: 1, code: "clip_missing" as const, reason: "clip bytes were missing" },
+            ],
+          },
+        };
+      },
+    });
+    const created = await orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 剪辑室 - 夜" },
+    });
+    const run = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(run.status).toBe("completed");
+    expect(run.timelinePath).toContain("timeline.otio");
+    // The partial handoff is a durable typed fact, not a silent skip.
+    expect(run.timelineExport).toEqual({
+      shotCount: 2,
+      clipCount: 1,
+      omittedShotCount: 1,
+      omittedShots: [{ sceneIdx: 0, shotIdx: 1, code: "clip_missing", reason: "clip bytes were missing" }],
+    });
+    expect(
+      run.events.some(
+        (event) =>
+          event.message === "OTIO timeline exported with 1 of 2 planned shots omitted (missing rendered clips)",
+      ),
+    ).toBe(true);
+  });
+
   it("marks failures with the error and resume retries only unfinished work", async () => {
     let failures = 1;
     const agents = fakePlanningAgents({
