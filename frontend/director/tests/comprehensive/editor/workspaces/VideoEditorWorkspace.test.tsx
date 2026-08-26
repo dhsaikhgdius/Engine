@@ -764,6 +764,53 @@ describe("VideoEditorWorkspace", () => {
     expect(preview?.style.transform).toContain("-10.0000%");
   });
 
+  it("renames the selected clip from the inspector through the shared contract", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<VideoEditorWorkspace />);
+    await user.click(screen.getByRole("button", { name: "添加 Camera take" }));
+
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "开场镜头" } });
+
+    expect(videoTrack().clips[0].name).toBe("开场镜头");
+    expect(timelineClipNames(container)).toContain("开场镜头");
+  });
+
+  it("keeps mid-typing name states the contract cannot express on the legacy writer", async () => {
+    const user = userEvent.setup();
+    render(<VideoEditorWorkspace />);
+    await user.click(screen.getByRole("button", { name: "添加 Camera take" }));
+    const nameInput = screen.getByLabelText("名称");
+
+    // Trailing whitespace would be trimmed by the contract schema; the caret's
+    // space must survive so "开场 镜头" can be typed naturally.
+    fireEvent.change(nameInput, { target: { value: "开场 " } });
+    expect(videoTrack().clips[0].name).toBe("开场 ");
+    fireEvent.change(nameInput, { target: { value: "开场 镜头" } });
+    expect(videoTrack().clips[0].name).toBe("开场 镜头");
+
+    // An emptied field mid-typing stays local instead of a contract rejection.
+    fireEvent.change(nameInput, { target: { value: "" } });
+    expect(videoTrack().clips[0].name).toBe("");
+
+    // Programmatic values beyond the 200-char contract cap also stay local.
+    const overlong = "长".repeat(220);
+    fireEvent.change(nameInput, { target: { value: overlong } });
+    expect(videoTrack().clips[0].name).toBe(overlong);
+    expect(screen.queryByText(/剪辑重命名失败/)).not.toBeInTheDocument();
+  });
+
+  it("surfaces a rename rejection for a locked track where the store used to silently no-op", async () => {
+    const user = userEvent.setup();
+    render(<VideoEditorWorkspace />);
+    await user.click(screen.getByRole("button", { name: "添加 Camera take" }));
+    act(() => useDirectorCreativeWorkspaceStore.getState().toggleTrackLock("video-1"));
+
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "重命名尝试" } });
+
+    expect(await screen.findByText(/剪辑重命名失败/)).toBeInTheDocument();
+    expect(videoTrack().clips[0].name).toBe("Camera take");
+  });
+
   it("splits the selected clip at the current playhead", async () => {
     const user = userEvent.setup();
     render(<VideoEditorWorkspace />);
