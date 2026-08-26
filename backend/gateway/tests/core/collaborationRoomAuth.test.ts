@@ -16,9 +16,9 @@ describe("collaboration invite tokens", () => {
   it("mints and verifies a room-scoped editor invite", () => {
     const invite = mintCollaborationInviteToken({ secret: SECRET, room: "scene-alpha", role: "editor" });
     expect(invite.token.startsWith("dcr1.")).toBe(true);
-    expect(verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha" })).toMatchObject(
-      { ok: true, role: "editor" },
-    );
+    expect(
+      verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha" }),
+    ).toMatchObject({ ok: true, role: "editor" });
   });
 
   it("returns the verified invite's revocation subject so live memberships can be re-checked later", () => {
