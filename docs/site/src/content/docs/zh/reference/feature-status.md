@@ -82,13 +82,13 @@ description: Director 功能、测试证据、支持边界和待完成工作的�
 这些数字是已打包目录的文档快照。资产准备完成后,以实时 `catalog` 响应为准。其他产品页应
 链接到本表,而不是另写一套数量。
 
-| 目录 | 快照 | 来源 |
-| ---- | ---- | ---- |
-| Mixamo 人物 | 108 | `assets/library/mixamo-characters/catalog.json` |
-| Mixamo 动作片段 | 14 | `assets/library/mixamo-animations/catalog.json` |
-| 已镜像 Stage 道具 metadata | 1,426 | `assets/library/flick-stage-props/catalog.json` |
-| Workbench 工具条目 | 117 | 由运行时 Zod schema 生成（`directorToolCatalog.ts`） |
-| 打包工作流技能 | 10 | 与工具目录一同生成 |
+| 目录                       | 快照  | 来源                                                 |
+| -------------------------- | ----- | ---------------------------------------------------- |
+| Mixamo 人物                | 108   | `assets/library/mixamo-characters/catalog.json`      |
+| Mixamo 动作片段            | 14    | `assets/library/mixamo-animations/catalog.json`      |
+| 已镜像 Stage 道具 metadata | 1,426 | `assets/library/flick-stage-props/catalog.json`      |
+| Workbench 工具条目         | 117   | 由运行时 Zod schema 生成（`directorToolCatalog.ts`） |
+| 打包工作流技能             | 10    | 与工具目录一同生成                                   |
 
 更新目录或工具注册表时,必须在同一次变更中更新本表。最近核验日期与上方状态矩阵相同。
 

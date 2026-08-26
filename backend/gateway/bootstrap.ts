@@ -35,8 +35,7 @@ import {
 import { RefSessionRegistry } from "./refSessions";
 import { TerminalSessionManager } from "./terminalSessionManager";
 import { DirectorCollaborationWebSocketHub } from "./collaborationWebSocketHub";
-import { createCollaborationRoomAuthorizer } from "./collaborationRoomAuth";
-import { CollaborationSnapshotStore } from "./collaboration/collaborationSnapshotStore";
+import { createCollaborationRuntime, type DirectorCollaborationRuntime } from "./collaboration/collaborationRuntime";
 import { createBlenderBridge } from "./dcc/blenderBridge";
 import { createBlenderReturnImporter, createDccReturnImporter } from "./dcc/blenderReturnImport";
 import { createBlenderSceneImporter } from "./dcc/blenderSceneImport";
@@ -213,6 +212,8 @@ export interface GatewayContext {
   terminalSessions: TerminalSessionManager;
   /** WebSocket hub for collaborative editing rooms. */
   collaborationHub: DirectorCollaborationWebSocketHub;
+  /** Full collaboration boundary: authorizer, revocations, persistence, lifecycle config. */
+  collaborationRuntime: DirectorCollaborationRuntime;
   /** Bridge to the local Blender DCC instance. */
   blenderBridge: ReturnType<typeof createBlenderBridge>;
   /** Importer for Blender-to-Director return workflows. */
@@ -319,14 +320,8 @@ export async function createGatewayContext(): Promise<GatewayContext> {
   // ---- Services ----
   const refSessions = new RefSessionRegistry();
   const terminalSessions = new TerminalSessionManager(root);
-  const collaborationSnapshotStore =
-    process.env.DIRECTOR_COLLAB_PERSISTENCE?.trim() === "1" ? new CollaborationSnapshotStore(dataDirectory) : null;
-  const collaborationHub = new DirectorCollaborationWebSocketHub({
-    authorizer: createCollaborationRoomAuthorizer({
-      secret: process.env.DIRECTOR_COLLAB_INVITE_SECRET?.trim() || gatewaySecret,
-    }),
-    ...(collaborationSnapshotStore ? { persistence: collaborationSnapshotStore } : {}),
-  });
+  const collaborationRuntime = createCollaborationRuntime({ dataDirectory, gatewaySecret });
+  const collaborationHub = collaborationRuntime.hub;
   const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
   const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
   const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
@@ -476,6 +471,7 @@ export async function createGatewayContext(): Promise<GatewayContext> {
     refSessions,
     terminalSessions,
     collaborationHub,
+    collaborationRuntime,
     blenderBridge,
     blenderReturnImporter,
     blenderSceneImporter,

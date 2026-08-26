@@ -29,6 +29,25 @@ describe("Director collaboration gateway protocol", () => {
     ).toBe(false);
   });
 
+  it("accepts the room_closed lifecycle error and rejects unknown error codes", () => {
+    expect(
+      directorCollaborationGatewayServerMessageSchema.safeParse({
+        type: "collab.error",
+        room: "production/shot-01",
+        code: "room_closed",
+        message: "This collaboration room was closed by an operator.",
+      }).success,
+    ).toBe(true);
+    expect(
+      directorCollaborationGatewayServerMessageSchema.safeParse({
+        type: "collab.error",
+        room: "production/shot-01",
+        code: "room_deleted",
+        message: "not a real code",
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects malformed payloads, unknown messages, and unsafe room names", () => {
     expect(decodeDirectorCollaborationGatewayPayload("not base64")).toBeNull();
     expect(

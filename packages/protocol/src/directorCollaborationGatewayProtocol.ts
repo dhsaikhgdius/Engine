@@ -79,6 +79,8 @@ export const directorCollaborationGatewayServerMessageSchema = z.discriminatedUn
       "invalid_payload",
       "unauthorized",
       "forbidden",
+      /** An operator explicitly closed the room; peers must stop writing until they rejoin. */
+      "room_closed",
     ]),
     message: z.string().trim().min(1).max(400),
   }),

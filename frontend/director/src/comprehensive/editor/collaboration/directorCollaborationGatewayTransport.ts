@@ -149,7 +149,13 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
             this.reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
             return;
           }
-          if (parsed.data.type === "collab.error") return;
+          if (parsed.data.type === "collab.error") {
+            // An operator explicitly closed the room: stop writing on this
+            // connection instead of spamming join_required errors. A later
+            // socket reconnect re-joins (and recreates) the room normally.
+            if (parsed.data.code === "room_closed") this.joined = false;
+            return;
+          }
           const payload = decodeDirectorCollaborationGatewayPayload(parsed.data.payload);
           if (!payload) return;
           const message: DirectorCollaborationWireMessage = {

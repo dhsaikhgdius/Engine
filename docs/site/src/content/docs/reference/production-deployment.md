@@ -16,22 +16,23 @@ access control. Do not expose the gateway port directly.
 
 ## 1. Pin the gateway identity
 
-| Step | Setting |
-| ---- | ------- |
-| Fixed gateway token (≥ 24 chars) so agents and browsers survive restarts | `DIRECTOR_GATEWAY_TOKEN` |
-| Trusted browser origins for your deployed UI URL(s) | `DIRECTOR_ALLOWED_ORIGINS=https://director.example.com` |
-| Durable data root on persistent storage (runs, jobs, media, snapshots) | `DIRECTOR_DATA_DIRECTORY=/srv/director/data` |
+| Step                                                                     | Setting                                                 |
+| ------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Fixed gateway token (≥ 24 chars) so agents and browsers survive restarts | `DIRECTOR_GATEWAY_TOKEN`                                |
+| Trusted browser origins for your deployed UI URL(s)                      | `DIRECTOR_ALLOWED_ORIGINS=https://director.example.com` |
+| Durable data root on persistent storage (runs, jobs, media, snapshots)   | `DIRECTOR_DATA_DIRECTORY=/srv/director/data`            |
 
 ## 2. Enable collaboration room auth
 
 Local trust mode (the default) admits every upgrade-authenticated socket as an editor — correct
 for one machine, wrong for a team.
 
-| Step | Setting |
-| ---- | ------- |
-| Require signed invite tokens on every room join | `DIRECTOR_COLLAB_ROOM_AUTH=required` |
-| Stable invite-signing secret (otherwise invites die with each restart) | `DIRECTOR_COLLAB_INVITE_SECRET` |
-| Persist Yjs room snapshots with compaction and corrupt-update quarantine | `DIRECTOR_COLLAB_PERSISTENCE=1` |
+| Step                                                                                               | Setting                                      |
+| -------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Require signed invite tokens on every room join                                                    | `DIRECTOR_COLLAB_ROOM_AUTH=required`         |
+| Stable invite-signing secret (otherwise invites die with each restart)                             | `DIRECTOR_COLLAB_INVITE_SECRET`              |
+| Persist Yjs room snapshots (compaction + corrupt-update quarantine) and the invite revocation list | `DIRECTOR_COLLAB_PERSISTENCE=1`              |
+| Optional: keep an empty room's in-memory document alive for quick rejoins                          | `DIRECTOR_COLLAB_EMPTY_ROOM_TTL_SECONDS=300` |
 
 Mint invites with the master gateway token:
 
@@ -46,14 +47,24 @@ curl -X POST "$GATEWAY_URL/api/collab/invites" \
 room id or a `prefix/*` capability. Hand the returned token to the browser via
 `VITE_DIRECTOR_COLLAB_INVITE_TOKEN` or your own invite flow.
 
+A leaked invite is revoked with the same master token: `POST /api/collab/invites/revoke` with
+`{"token":"…"}` kills that one invite (by its `jti`), and `{"room":"project-a/*"}` sets a cutoff
+denying every invite for that scope minted no later than the revocation instant. For day-2 operations,
+`GET /api/collab/rooms` reports member counts, snapshot age, quarantine counts, and the auth mode;
+`GET /api/collab/rooms/quarantine?room=…` lists a room's quarantined corrupt updates; and
+`POST /api/collab/rooms/close` (optionally with `"archive": true`) kicks every peer with a
+`room_closed` error and flushes — or archives — the durable history. In local trust mode a closed
+room can be recreated by any local client; combine close with invite revocation when access must
+actually end.
+
 ## 3. Configure hosted multi-agent runs (optional)
 
 Hosted production runs execute observe-only film roles against server-owned model profiles.
 
-| Step | Setting |
-| ---- | ------- |
+| Step                         | Setting                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------- |
 | Server-owned hosted profiles | `DIRECTOR_AGENT_PROFILES_JSON` (+ `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`) |
-| Optional per-role routing | `DIRECTOR_AGENT_ROLE_PROFILES_JSON` |
+| Optional per-role routing    | `DIRECTOR_AGENT_ROLE_PROFILES_JSON`                                       |
 
 Runs accept either a serial `roles` list or an explicit `graph` of nodes and `dependsOn` edges;
 independent branches execute in parallel waves, and `POST /api/agent/runs/:id/resume` with

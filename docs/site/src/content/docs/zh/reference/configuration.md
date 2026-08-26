@@ -21,18 +21,37 @@ Gateway 拒绝非 loopback 绑定。原生 CLI/MCP 客户端会自动 bootstrap 
 
 ## 协作房间
 
-| 变量                                | 默认值                  | 用途                                                                       |
-| ----------------------------------- | ----------------------- | -------------------------------------------------------------------------- |
-| `DIRECTOR_COLLAB_ROOM_AUTH`         | 未设置（本地信任）      | 设为 `required` 时，没有有效邀请 capability token 的房间加入会被拒绝        |
-| `DIRECTOR_COLLAB_INVITE_SECRET`     | 进程 gateway secret     | 邀请 token 的稳定 HMAC secret；设置后邀请可跨 gateway 重启存活              |
-| `DIRECTOR_COLLAB_PERSISTENCE`       | 未设置（内存）          | 设为 `1` 时在磁盘持久化 Yjs 房间快照（压缩 + 损坏更新隔离）                 |
-| `VITE_DIRECTOR_COLLAB_INVITE_TOKEN` | 未设置                  | 前端构建/环境提供的邀请 token，浏览器 transport 会附加到 `collab.join`      |
+| 变量                                     | 默认值              | 用途                                                                           |
+| ---------------------------------------- | ------------------- | ------------------------------------------------------------------------------ |
+| `DIRECTOR_COLLAB_ROOM_AUTH`              | 未设置（本地信任）  | 设为 `required` 时，没有有效邀请 capability token 的房间加入会被拒绝           |
+| `DIRECTOR_COLLAB_INVITE_SECRET`          | 进程 gateway secret | 邀请 token 的稳定 HMAC secret；设置后邀请可跨 gateway 重启存活                 |
+| `DIRECTOR_COLLAB_PERSISTENCE`            | 未设置（内存）      | 设为 `1` 时在磁盘持久化 Yjs 房间快照（压缩 + 损坏更新隔离）及邀请吊销列表      |
+| `DIRECTOR_COLLAB_EMPTY_ROOM_TTL_SECONDS` | 未设置（0）         | 最后一名成员离开后，空房间内存文档的保留宽限期（上限 24 小时；0 表示立即销毁） |
+| `VITE_DIRECTOR_COLLAB_INVITE_TOKEN`      | 未设置              | 前端构建/环境提供的邀请 token，浏览器 transport 会附加到 `collab.join`         |
 
 本地信任模式（默认）下，每个已通过升级鉴权的 socket 都以 editor 身份加入，与引入鉴权前的行为一致。
 设置 `DIRECTOR_COLLAB_ROOM_AUTH=required` 后，操作者通过 `POST /api/collab/invites` 铸造邀请
 （`{room, role, ttl_seconds}` — `role` 为 `editor` 或 `viewer`，`room` 可以是 `project-a/*` 这样的
-前缀 capability）。`GET /api/collab/auth` 报告当前模式。viewer 邀请可以接收文档并共享 awareness，
-但不能写入。
+前缀 capability；响应包含唯一的邀请 id `jti`）。`GET /api/collab/auth` 报告当前模式。viewer 邀请
+可以接收文档并共享 awareness，但不能写入。
+
+邀请可以通过 `POST /api/collab/invites/revoke` 吊销，参数为 `token`（按 `jti` 吊销该邀请）或
+`room`（按范围设置吊销截止点：该范围内不晚于吊销时刻铸造的所有邀请都被拒绝，包括没有 `jti` 的
+旧版邀请），二者恰好提供一个。只有在 `DIRECTOR_COLLAB_PERSISTENCE=1` 时吊销记录才跨重启存活。
+
+房间生命周期与运维（全部位于 master gateway token 之后，只返回计数、哈希与时间戳——绝不返回
+文档内容、邀请 token 或文件系统路径）：
+
+- `GET /api/collab/rooms` — 合并的实时 + 持久房间状态：成员/editor/viewer 计数、快照字节数与
+  年龄、待压缩更新数、隔离区计数、鉴权模式以及吊销计数。
+- `GET /api/collab/rooms/quarantine?room=<id>` — 单个房间的有界损坏更新隔离索引
+  （id、SHA-256 哈希、大小、原因）。
+- `POST /api/collab/rooms/close` — `{room, archive?}`：成员收到 `room_closed` 错误，待压缩更新
+  刷入快照后内存文档被销毁。`archive: true` 时还会把持久历史移入归档目录，后续加入从空文档开始。
+
+最后一名成员离开房间时，待压缩的持久更新会刷入规范快照；快照会一直保留，直到操作者归档房间。
+协作 HTTP 响应携带 `Cache-Control: no-store` 与 `Referrer-Policy: no-referrer`，因为它们传输
+capability token。
 
 ## Provider 命令
 
@@ -77,9 +96,9 @@ API key 及其环境变量名不会出现在发现接口、事件或持久化 Se
 `agent-workspace.sqlite`，通过 **Settings → Agent 工作区** 面板与 `/api/agent/workspace/*`
 编辑。harness 按优先级从低到高合并指令层：**仓库技能 → DB 工作区（org → user）→ 会话覆盖**。
 
-| 变量                            | 用途                                                             |
-| ------------------------------- | ---------------------------------------------------------------- |
-| `DIRECTOR_SESSION_INSTRUCTIONS` | 临时的单会话指令覆盖（优先级最高，不持久化）                     |
+| 变量                            | 用途                                                                        |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| `DIRECTOR_SESSION_INSTRUCTIONS` | 临时的单会话指令覆盖（优先级最高，不持久化）                                |
 | `DIRECTOR_WORKSPACE_REFRESH_MS` | DSH 插件刷新工作区提示词的周期；`0` 关闭，钳制在 5 秒–10 分钟（默认 30 秒） |
 
 与 `DIRECTOR_AGENT_PROFILES_JSON` 的合并策略：二者是相互独立的轴，不做互相迁移。模型/供应商
@@ -120,31 +139,31 @@ Production Run 选择的 Profile，最终仍可使用 `api-default`。Run 启动
 `DIRECTOR_ACCEPT_LTX2_LICENSE`、`npm run setup:ltx2` 和 submodule `vendor/ltx-2` 里的
 **LTX2** 是同一套集成的上游 LTX-2 系列 / 许可证名称，不是第二个视频模型。
 
-| 变量                           | 用途                                                             |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `DIRECTOR_VIDEO_PROVIDER`      | 默认 provider：`ltx-2.3`、`comfyui` 或 `minimax-h3`              |
-| `DIRECTOR_ACCEPT_LTX2_LICENSE` | 审阅 LTX-2 Community License 后设为 `1`                          |
-| `DIRECTOR_LTX2_SOURCE_DIR`     | 覆盖 `vendor/ltx-2` 检出                                         |
-| `DIRECTOR_LTX23_MODEL`         | 记录在制作 manifest 中的模型名称                                 |
-| `LTX23_DISTILLED_CHECKPOINT_PATH` | 官方 distilled checkpoint                                     |
-| `LTX23_SPATIAL_UPSAMPLER_PATH` | 官方 spatial upsampler                                           |
-| `LTX23_GEMMA_ROOT`             | 本地 Gemma encoder 目录                                          |
-| `LTX23_DEVICE` / `LTX23_QUANTIZATION` / `LTX23_OFFLOAD` | 可选 DistilledPipeline 策略        |
-| `DIRECTOR_MINIMAX_API_KEY`     | MiniMax 平台 API key（配置后启用 `minimax-h3` provider）         |
-| `DIRECTOR_MINIMAX_BASE_URL`    | 默认 `https://api.minimax.io`，国内可用 `https://api.minimaxi.com` |
-| `DIRECTOR_MINIMAX_VIDEO_MODEL` | 托管模型名，默认 `MiniMax-H3`                                    |
+| 变量                                                    | 用途                                                               |
+| ------------------------------------------------------- | ------------------------------------------------------------------ |
+| `DIRECTOR_VIDEO_PROVIDER`                               | 默认 provider：`ltx-2.3`、`comfyui` 或 `minimax-h3`                |
+| `DIRECTOR_ACCEPT_LTX2_LICENSE`                          | 审阅 LTX-2 Community License 后设为 `1`                            |
+| `DIRECTOR_LTX2_SOURCE_DIR`                              | 覆盖 `vendor/ltx-2` 检出                                           |
+| `DIRECTOR_LTX23_MODEL`                                  | 记录在制作 manifest 中的模型名称                                   |
+| `LTX23_DISTILLED_CHECKPOINT_PATH`                       | 官方 distilled checkpoint                                          |
+| `LTX23_SPATIAL_UPSAMPLER_PATH`                          | 官方 spatial upsampler                                             |
+| `LTX23_GEMMA_ROOT`                                      | 本地 Gemma encoder 目录                                            |
+| `LTX23_DEVICE` / `LTX23_QUANTIZATION` / `LTX23_OFFLOAD` | 可选 DistilledPipeline 策略                                        |
+| `DIRECTOR_MINIMAX_API_KEY`                              | MiniMax 平台 API key（配置后启用 `minimax-h3` provider）           |
+| `DIRECTOR_MINIMAX_BASE_URL`                             | 默认 `https://api.minimax.io`，国内可用 `https://api.minimaxi.com` |
+| `DIRECTOR_MINIMAX_VIDEO_MODEL`                          | 托管模型名，默认 `MiniMax-H3`                                      |
 
 ## 锁定的 Hunyuan3D、TRELLIS 与 ARDY 源码
 
 这些 Git 子模块按需克隆。CI 不会初始化它们。权重不进源码仓库。
 
-| 变量 / 命令 | 用途 |
-| --- | --- |
-| `DIRECTOR_ACCEPT_HUNYUAN3D_LICENSE=1` 然后 `npm run setup:hunyuan3d` | 审阅社区许可后锁定 Hunyuan3D-2 |
-| `npm run setup:trellis` | 锁定 Microsoft TRELLIS（源码 MIT；部分渲染/网格依赖不同） |
-| `npm run setup:ardy` | 锁定 NVIDIA ARDY；之后网关默认把 `DIRECTOR_ARDY_REPO` 指向该检出 |
-| `DIRECTOR_HUNYUAN3D_SOURCE_DIR` / `DIRECTOR_TRELLIS_SOURCE_DIR` / `DIRECTOR_ARDY_SOURCE_DIR` | 覆盖已在 GPU 主机上的检出 |
-| `DIRECTOR_ARDY_REPO` | 显式 ARDY 路径；与 `DIRECTOR_ARDY_SSH_HOST` 一起用于远程 GPU |
+| 变量 / 命令                                                                                  | 用途                                                             |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `DIRECTOR_ACCEPT_HUNYUAN3D_LICENSE=1` 然后 `npm run setup:hunyuan3d`                         | 审阅社区许可后锁定 Hunyuan3D-2                                   |
+| `npm run setup:trellis`                                                                      | 锁定 Microsoft TRELLIS（源码 MIT；部分渲染/网格依赖不同）        |
+| `npm run setup:ardy`                                                                         | 锁定 NVIDIA ARDY；之后网关默认把 `DIRECTOR_ARDY_REPO` 指向该检出 |
+| `DIRECTOR_HUNYUAN3D_SOURCE_DIR` / `DIRECTOR_TRELLIS_SOURCE_DIR` / `DIRECTOR_ARDY_SOURCE_DIR` | 覆盖已在 GPU 主机上的检出                                        |
+| `DIRECTOR_ARDY_REPO`                                                                         | 显式 ARDY 路径；与 `DIRECTOR_ARDY_SSH_HOST` 一起用于远程 GPU     |
 
 详见 `vendor/`（`ltx-2`、`hunyuan3d`、`trellis`、`ardy` 及其 `*.lock.json`）。
 
@@ -165,27 +184,27 @@ artifact route 读取。
 
 ## Blender 原生后端
 
-| 变量                                 | 默认值                                                   | 用途                                 |
-| ------------------------------------ | -------------------------------------------------------- | ------------------------------------ |
-| `BLENDER_BIN`                   | 标准本地安装，其次为已有的 `.runtime/blender-build` | 显式 Blender 可执行文件。 |
-| `WORLDENGINE_SESSION_PORT`           | `8791`                                                   | 原生场景 session 端口                |
-| `DIRECTOR_BLENDER_PROJECT_FILE` | `<data root>/blender/director-native.blend`         | 绑定的原生项目文件。 |
-| `DIRECTOR_BLENDER_URL` / `TOKEN` / `TIMEOUT_MS` | `http://127.0.0.1:8791` | Gateway 到原生 session（单次 HTTP 轮询；原生 job 最多等待 280 秒）。 |
-| `SKETCHFAB_API_TOKEN` | 未设置 | Blender 侧 `sketchfab_search` / `sketchfab_import` 所用令牌。 |
+| 变量                                            | 默认值                                              | 用途                                                                 |
+| ----------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------- |
+| `BLENDER_BIN`                                   | 标准本地安装，其次为已有的 `.runtime/blender-build` | 显式 Blender 可执行文件。                                            |
+| `WORLDENGINE_SESSION_PORT`                      | `8791`                                              | 原生场景 session 端口                                                |
+| `DIRECTOR_BLENDER_PROJECT_FILE`                 | `<data root>/blender/director-native.blend`         | 绑定的原生项目文件。                                                 |
+| `DIRECTOR_BLENDER_URL` / `TOKEN` / `TIMEOUT_MS` | `http://127.0.0.1:8791`                             | Gateway 到原生 session（单次 HTTP 轮询；原生 job 最多等待 280 秒）。 |
+| `SKETCHFAB_API_TOKEN`                           | 未设置                                              | Blender 侧 `sketchfab_search` / `sketchfab_import` 所用令牌。        |
 
 原生 launcher 会把 `BLENDER_USER_SCRIPTS` 指向 `integrations/blender/live`，并禁止输出
 Python bytecode。除非某个制片明确拥有另一条路径，应把项目文件保留在配置的数据根目录中。
 
 ## 引擎连接器（Unreal / Unity / Godot）
 
-| 变量                         | 默认值                                  | 用途                                                              |
-| ---------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
-| `DIRECTOR_UNREAL_EDITOR_BIN` | 常见安装路径，其次 `PATH` 发现          | 无头 Unreal 交接用的 `UnrealEditor-Cmd`                           |
-| `DIRECTOR_UNREAL_PROJECT`    | 未设置                                  | 已安装 `DirectorBridge` 插件的 `.uproject`                        |
-| `DIRECTOR_UNITY_BIN`         | 常见安装路径，其次 `PATH` 发现          | `-batchmode` 交接用的 Unity 编辑器可执行文件                      |
-| `DIRECTOR_UNITY_PROJECT`     | 未设置                                  | 含 `com.director.bridge` 包的 Unity 工程目录                      |
-| `DIRECTOR_GODOT_BIN`         | `PATH` 上的 `godot`/`godot4`，常见路径  | Godot 4 `--headless` 交接可执行文件                               |
-| `DIRECTOR_GODOT_PROJECT`     | 未设置                                  | 已启用 `director_bridge` 插件的 Godot 工程目录                    |
+| 变量                         | 默认值                                 | 用途                                           |
+| ---------------------------- | -------------------------------------- | ---------------------------------------------- |
+| `DIRECTOR_UNREAL_EDITOR_BIN` | 常见安装路径，其次 `PATH` 发现         | 无头 Unreal 交接用的 `UnrealEditor-Cmd`        |
+| `DIRECTOR_UNREAL_PROJECT`    | 未设置                                 | 已安装 `DirectorBridge` 插件的 `.uproject`     |
+| `DIRECTOR_UNITY_BIN`         | 常见安装路径，其次 `PATH` 发现         | `-batchmode` 交接用的 Unity 编辑器可执行文件   |
+| `DIRECTOR_UNITY_PROJECT`     | 未设置                                 | 含 `com.director.bridge` 包的 Unity 工程目录   |
+| `DIRECTOR_GODOT_BIN`         | `PATH` 上的 `godot`/`godot4`，常见路径 | Godot 4 `--headless` 交接可执行文件            |
+| `DIRECTOR_GODOT_PROJECT`     | 未设置                                 | 已启用 `director_bridge` 插件的 Godot 工程目录 |
 
 探测到可执行文件只会使提供商 `installed`，绝不会变成 `nativeReady`。原生引擎操作要求完整健康检查
 通过（连接器文件、带版本探测的可执行文件、已配置工程、工程内已安装连接器）。Godot 还额外要求
@@ -195,24 +214,24 @@ Python bytecode。除非某个制片明确拥有另一条路径，应把项目�
 
 ## 应用命令
 
-| 命令                               | 用途                                 |
-| ---------------------------------- | ------------------------------------ |
-| `npm run dev`                      | UI 与 gateway 的 watch 模式          |
-| `npm run dev:ui`                   | 仅 Vite UI                           |
-| `npm run dev:gateway`              | 仅 gateway，watch 模式               |
-| `npm run gateway`                  | 不使用 watch 的 gateway              |
-| `npm run blender`             | 集成原生 Director 产品 |
-| `npm run blender:test`        | 运行 Blender 原生冒烟测试套件   |
-| `npm run mcp`                      | 源 MCP server                        |
+| 命令                               | 用途                                                |
+| ---------------------------------- | --------------------------------------------------- |
+| `npm run dev`                      | UI 与 gateway 的 watch 模式                         |
+| `npm run dev:ui`                   | 仅 Vite UI                                          |
+| `npm run dev:gateway`              | 仅 gateway，watch 模式                              |
+| `npm run gateway`                  | 不使用 watch 的 gateway                             |
+| `npm run blender`                  | 集成原生 Director 产品                              |
+| `npm run blender:test`             | 运行 Blender 原生冒烟测试套件                       |
+| `npm run mcp`                      | 源 MCP server                                       |
 | `npm run stage -- <tool> '<json>'` | CLI 工具调用（`--help`；优先 `director_workbench`） |
-| `npm test`                         | 全部 Vitest suite                    |
-| `npm run test:comprehensive`       | 编辑器测试                           |
-| `npm run test:agent`               | Agent 与 Stage 测试                  |
-| `npm run lint`                     | ESLint                               |
-| `npm run format:check`             | Prettier 检查                        |
-| `npm run build`                    | 类型检查、UI 构建和 bundled MCP 构建 |
-| `npm run docs:dev`                 | 文档开发服务器                       |
-| `npm run docs:build`               | 静态文档构建                         |
+| `npm test`                         | 全部 Vitest suite                                   |
+| `npm run test:comprehensive`       | 编辑器测试                                          |
+| `npm run test:agent`               | Agent 与 Stage 测试                                 |
+| `npm run lint`                     | ESLint                                              |
+| `npm run format:check`             | Prettier 检查                                       |
+| `npm run build`                    | 类型检查、UI 构建和 bundled MCP 构建                |
+| `npm run docs:dev`                 | 文档开发服务器                                      |
+| `npm run docs:build`               | 静态文档构建                                        |
 
 文档站本地 canonical URL 与 sitemap 默认使用 `http://127.0.0.1:4321`。部署到线上时，应在构建
 文档前把 `DIRECTOR_DOCS_SITE_URL` 设置为公开 HTTPS origin。

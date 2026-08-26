@@ -23,18 +23,41 @@ automatically; raw HTTP clients obtain it from `/te-man/director/agent/bootstrap
 
 ## Collaboration rooms
 
-| Variable                            | Default                | Purpose                                                                                          |
-| ----------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ |
-| `DIRECTOR_COLLAB_ROOM_AUTH`         | unset (local trust)    | Set to `required` to reject room joins without a valid invite capability token                    |
-| `DIRECTOR_COLLAB_INVITE_SECRET`     | process gateway secret | Stable HMAC secret for invite tokens; set it so invites survive gateway restarts                  |
-| `DIRECTOR_COLLAB_PERSISTENCE`       | unset (in-memory)      | Set to `1` to persist Yjs room snapshots (compaction + corrupt-update quarantine) on disk         |
-| `VITE_DIRECTOR_COLLAB_INVITE_TOKEN` | unset                  | Frontend build/env-provided invite token the browser transport attaches to `collab.join`          |
+| Variable                                 | Default                | Purpose                                                                                                                            |
+| ---------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `DIRECTOR_COLLAB_ROOM_AUTH`              | unset (local trust)    | Set to `required` to reject room joins without a valid invite capability token                                                     |
+| `DIRECTOR_COLLAB_INVITE_SECRET`          | process gateway secret | Stable HMAC secret for invite tokens; set it so invites survive gateway restarts                                                   |
+| `DIRECTOR_COLLAB_PERSISTENCE`            | unset (in-memory)      | Set to `1` to persist Yjs room snapshots (compaction + corrupt-update quarantine) on disk, plus the invite revocation list         |
+| `DIRECTOR_COLLAB_EMPTY_ROOM_TTL_SECONDS` | unset (0)              | Grace period keeping an empty room's in-memory document alive after the last peer leaves (clamped to 24 h; 0 destroys immediately) |
+| `VITE_DIRECTOR_COLLAB_INVITE_TOKEN`      | unset                  | Frontend build/env-provided invite token the browser transport attaches to `collab.join`                                           |
 
 In local trust mode (default) every upgrade-authenticated socket joins as an editor, matching the
 pre-auth behavior. With `DIRECTOR_COLLAB_ROOM_AUTH=required`, operators mint invites through
 `POST /api/collab/invites` (`{room, role, ttl_seconds}` — `role` is `editor` or `viewer`, and `room`
-may be a prefix capability such as `project-a/*`). `GET /api/collab/auth` reports the active mode.
-Viewer invites receive documents and share awareness but cannot write.
+may be a prefix capability such as `project-a/*`; the response includes a unique `jti` invite id).
+`GET /api/collab/auth` reports the active mode. Viewer invites receive documents and share awareness
+but cannot write.
+
+Invites can be revoked through `POST /api/collab/invites/revoke` with exactly one of `token`
+(revokes that invite by its `jti`) or `room` (a scope cutoff: every invite for that scope minted
+no later than the revocation instant is denied, including legacy invites without a `jti`).
+Revocations persist across restarts only when `DIRECTOR_COLLAB_PERSISTENCE=1`.
+
+Room lifecycle and operations (all behind the master gateway token, returning counts, hashes, and
+timestamps only — never document content, invite tokens, or filesystem paths):
+
+- `GET /api/collab/rooms` — merged live + durable room status: peer/editor/viewer counts,
+  snapshot bytes and age, pending updates, quarantine counts, auth mode, and revocation counters.
+- `GET /api/collab/rooms/quarantine?room=<id>` — the bounded corrupt-update quarantine index for
+  one room (ids, SHA-256 hashes, sizes, reasons).
+- `POST /api/collab/rooms/close` — `{room, archive?}`: peers receive a `room_closed` error and the
+  in-memory document is destroyed after pending updates flush into the snapshot. With
+  `archive: true` the durable history is also moved aside so future joins start empty.
+
+When the last peer leaves a room, pending durable updates are flushed into the canonical snapshot;
+snapshots are retained until an operator archives the room. Collaboration HTTP responses carry
+`Cache-Control: no-store` and `Referrer-Policy: no-referrer` because they transport capability
+tokens.
 
 ## Provider commands
 
@@ -82,9 +105,9 @@ entries (with TTL) in `agent-workspace.sqlite` under the data directory, edited 
 **Settings → Agent Workspace** and `/api/agent/workspace/*`. The harness merges instruction
 layers lowest-precedence-first: **repo skills → DB workspace (org → user) → session override**.
 
-| Variable                        | Purpose                                                                       |
-| ------------------------------- | ----------------------------------------------------------------------------- |
-| `DIRECTOR_SESSION_INSTRUCTIONS` | Ephemeral per-session instruction override (highest precedence, not persisted) |
+| Variable                        | Purpose                                                                                          |
+| ------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `DIRECTOR_SESSION_INSTRUCTIONS` | Ephemeral per-session instruction override (highest precedence, not persisted)                   |
 | `DIRECTOR_WORKSPACE_REFRESH_MS` | Workspace prompt refresh cadence in the DSH plugin; `0` disables, clamped 5s–10min (default 30s) |
 
 Merge strategy with `DIRECTOR_AGENT_PROFILES_JSON`: the two are separate axes and are not
@@ -131,32 +154,32 @@ Naming: **LTX-2.3** is the product and provider id (`DIRECTOR_VIDEO_PROVIDER=ltx
 in `DIRECTOR_ACCEPT_LTX2_LICENSE`, `npm run setup:ltx2`, and the `vendor/ltx-2` submodule is the
 upstream LTX-2 family / license name for the same integration — not a second video model.
 
-| Variable                       | Purpose                                                        |
-| ------------------------------ | -------------------------------------------------------------- |
-| `DIRECTOR_VIDEO_PROVIDER`      | Default: `ltx-2.3`, `comfyui`, or `minimax-h3`                 |
-| `DIRECTOR_ACCEPT_LTX2_LICENSE` | Must be `1` after reviewing the LTX-2 Community License        |
-| `DIRECTOR_LTX2_SOURCE_DIR`     | Override the `vendor/ltx-2` checkout                           |
-| `DIRECTOR_LTX23_MODEL`         | Model label retained in the production manifest                |
-| `LTX23_DISTILLED_CHECKPOINT_PATH` | Official distilled checkpoint                               |
-| `LTX23_SPATIAL_UPSAMPLER_PATH` | Official spatial upsampler                                     |
-| `LTX23_GEMMA_ROOT`             | Local Gemma encoder root                                       |
-| `LTX23_DEVICE` / `LTX23_QUANTIZATION` / `LTX23_OFFLOAD` | Optional DistilledPipeline policy     |
-| `DIRECTOR_MINIMAX_API_KEY`     | MiniMax platform API key (enables the `minimax-h3` provider)   |
-| `DIRECTOR_MINIMAX_BASE_URL`    | `https://api.minimax.io` (default) or `https://api.minimaxi.com` |
-| `DIRECTOR_MINIMAX_VIDEO_MODEL` | Hosted model name, default `MiniMax-H3`                        |
+| Variable                                                | Purpose                                                          |
+| ------------------------------------------------------- | ---------------------------------------------------------------- |
+| `DIRECTOR_VIDEO_PROVIDER`                               | Default: `ltx-2.3`, `comfyui`, or `minimax-h3`                   |
+| `DIRECTOR_ACCEPT_LTX2_LICENSE`                          | Must be `1` after reviewing the LTX-2 Community License          |
+| `DIRECTOR_LTX2_SOURCE_DIR`                              | Override the `vendor/ltx-2` checkout                             |
+| `DIRECTOR_LTX23_MODEL`                                  | Model label retained in the production manifest                  |
+| `LTX23_DISTILLED_CHECKPOINT_PATH`                       | Official distilled checkpoint                                    |
+| `LTX23_SPATIAL_UPSAMPLER_PATH`                          | Official spatial upsampler                                       |
+| `LTX23_GEMMA_ROOT`                                      | Local Gemma encoder root                                         |
+| `LTX23_DEVICE` / `LTX23_QUANTIZATION` / `LTX23_OFFLOAD` | Optional DistilledPipeline policy                                |
+| `DIRECTOR_MINIMAX_API_KEY`                              | MiniMax platform API key (enables the `minimax-h3` provider)     |
+| `DIRECTOR_MINIMAX_BASE_URL`                             | `https://api.minimax.io` (default) or `https://api.minimaxi.com` |
+| `DIRECTOR_MINIMAX_VIDEO_MODEL`                          | Hosted model name, default `MiniMax-H3`                          |
 
 ## Pinned Hunyuan3D, TRELLIS, and ARDY sources
 
 These Git submodules are clone-on-demand. CI does not initialize them. Weights stay
 outside the source repository.
 
-| Variable / command | Purpose |
-| --- | --- |
-| `DIRECTOR_ACCEPT_HUNYUAN3D_LICENSE=1` then `npm run setup:hunyuan3d` | Pin Hunyuan3D-2 after reviewing the community license |
-| `npm run setup:trellis` | Pin Microsoft TRELLIS (MIT source; some render/mesh deps differ) |
-| `npm run setup:ardy` | Pin NVIDIA ARDY; Gateway then defaults `DIRECTOR_ARDY_REPO` to that checkout |
-| `DIRECTOR_HUNYUAN3D_SOURCE_DIR` / `DIRECTOR_TRELLIS_SOURCE_DIR` / `DIRECTOR_ARDY_SOURCE_DIR` | Override a checkout that already lives on a GPU host |
-| `DIRECTOR_ARDY_REPO` | Explicit ARDY path; required together with `DIRECTOR_ARDY_SSH_HOST` for remote GPU |
+| Variable / command                                                                           | Purpose                                                                            |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `DIRECTOR_ACCEPT_HUNYUAN3D_LICENSE=1` then `npm run setup:hunyuan3d`                         | Pin Hunyuan3D-2 after reviewing the community license                              |
+| `npm run setup:trellis`                                                                      | Pin Microsoft TRELLIS (MIT source; some render/mesh deps differ)                   |
+| `npm run setup:ardy`                                                                         | Pin NVIDIA ARDY; Gateway then defaults `DIRECTOR_ARDY_REPO` to that checkout       |
+| `DIRECTOR_HUNYUAN3D_SOURCE_DIR` / `DIRECTOR_TRELLIS_SOURCE_DIR` / `DIRECTOR_ARDY_SOURCE_DIR` | Override a checkout that already lives on a GPU host                               |
+| `DIRECTOR_ARDY_REPO`                                                                         | Explicit ARDY path; required together with `DIRECTOR_ARDY_SSH_HOST` for remote GPU |
 
 See `vendor/` (`ltx-2`, `hunyuan3d`, `trellis`, `ardy`, and their `*.lock.json` pins).
 
@@ -178,13 +201,13 @@ artifact routes.
 
 ## Blender native backend
 
-| Variable                             | Default                                                             | Purpose                                  |
-| ------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------- |
-| `BLENDER_BIN`                   | standard local install, then leftover `.runtime/blender-build` | Explicit Blender executable. |
-| `WORLDENGINE_SESSION_PORT`           | `8791`                                                              | Native scene session port                |
-| `DIRECTOR_BLENDER_PROJECT_FILE` | `<data root>/blender/director-native.blend`                    | Bound native project file. |
-| `DIRECTOR_BLENDER_URL` / `TOKEN` / `TIMEOUT_MS` | `http://127.0.0.1:8791` | Gateway → native session (per HTTP poll; native jobs wait up to 280s). |
-| `SKETCHFAB_API_TOKEN` | unset | Blender-side token for `sketchfab_search` / `sketchfab_import`. |
+| Variable                                        | Default                                                        | Purpose                                                                |
+| ----------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `BLENDER_BIN`                                   | standard local install, then leftover `.runtime/blender-build` | Explicit Blender executable.                                           |
+| `WORLDENGINE_SESSION_PORT`                      | `8791`                                                         | Native scene session port                                              |
+| `DIRECTOR_BLENDER_PROJECT_FILE`                 | `<data root>/blender/director-native.blend`                    | Bound native project file.                                             |
+| `DIRECTOR_BLENDER_URL` / `TOKEN` / `TIMEOUT_MS` | `http://127.0.0.1:8791`                                        | Gateway → native session (per HTTP poll; native jobs wait up to 280s). |
+| `SKETCHFAB_API_TOKEN`                           | unset                                                          | Blender-side token for `sketchfab_search` / `sketchfab_import`.        |
 
 The native launcher sets `BLENDER_USER_SCRIPTS` to `integrations/blender/live` and
 disables Python bytecode output. Keep the project file under the configured
@@ -192,14 +215,14 @@ data root unless a production explicitly owns another path.
 
 ## Engine connectors (Unreal / Unity / Godot)
 
-| Variable                    | Default                                     | Purpose                                                             |
-| --------------------------- | ------------------------------------------- | ------------------------------------------------------------------- |
-| `DIRECTOR_UNREAL_EDITOR_BIN` | common install paths, then `PATH` discovery | `UnrealEditor-Cmd` executable for headless Unreal handoff           |
-| `DIRECTOR_UNREAL_PROJECT`    | unset                                       | `.uproject` file hosting the installed `DirectorBridge` plugin      |
-| `DIRECTOR_UNITY_BIN`         | common install paths, then `PATH` discovery | Unity editor executable for `-batchmode` handoff                    |
+| Variable                     | Default                                     | Purpose                                                              |
+| ---------------------------- | ------------------------------------------- | -------------------------------------------------------------------- |
+| `DIRECTOR_UNREAL_EDITOR_BIN` | common install paths, then `PATH` discovery | `UnrealEditor-Cmd` executable for headless Unreal handoff            |
+| `DIRECTOR_UNREAL_PROJECT`    | unset                                       | `.uproject` file hosting the installed `DirectorBridge` plugin       |
+| `DIRECTOR_UNITY_BIN`         | common install paths, then `PATH` discovery | Unity editor executable for `-batchmode` handoff                     |
 | `DIRECTOR_UNITY_PROJECT`     | unset                                       | Unity project directory containing the `com.director.bridge` package |
-| `DIRECTOR_GODOT_BIN`         | `godot`/`godot4` on `PATH`, common paths    | Godot 4 executable for `--headless` handoff                         |
-| `DIRECTOR_GODOT_PROJECT`     | unset                                       | Godot project directory with the `director_bridge` addon enabled    |
+| `DIRECTOR_GODOT_BIN`         | `godot`/`godot4` on `PATH`, common paths    | Godot 4 executable for `--headless` handoff                          |
+| `DIRECTOR_GODOT_PROJECT`     | unset                                       | Godot project directory with the `director_bridge` addon enabled     |
 
 Detecting an executable makes a provider `installed`, never `nativeReady`. Native
 engine operations require the full health check (connector files, versioned
@@ -212,24 +235,24 @@ connector version matches the workspace; the probe covers macOS, Linux
 
 ## Application commands
 
-| Command                            | Purpose                                 |
-| ---------------------------------- | --------------------------------------- |
-| `npm run dev`                      | UI and gateway in watch mode            |
-| `npm run dev:ui`                   | Vite UI only                            |
-| `npm run dev:gateway`              | gateway only, watch mode                |
-| `npm run gateway`                  | gateway without watch mode              |
-| `npm run blender`             | integrated native Director product |
-| `npm run blender:test`        | run the native Blender smoke suite |
-| `npm run mcp`                      | source MCP server                       |
+| Command                            | Purpose                                               |
+| ---------------------------------- | ----------------------------------------------------- |
+| `npm run dev`                      | UI and gateway in watch mode                          |
+| `npm run dev:ui`                   | Vite UI only                                          |
+| `npm run dev:gateway`              | gateway only, watch mode                              |
+| `npm run gateway`                  | gateway without watch mode                            |
+| `npm run blender`                  | integrated native Director product                    |
+| `npm run blender:test`             | run the native Blender smoke suite                    |
+| `npm run mcp`                      | source MCP server                                     |
 | `npm run stage -- <tool> '<json>'` | CLI tool call (`--help`; prefer `director_workbench`) |
-| `npm test`                         | all Vitest suites                       |
-| `npm run test:comprehensive`       | editor tests                            |
-| `npm run test:agent`               | Agent and Stage tests                   |
-| `npm run lint`                     | ESLint                                  |
-| `npm run format:check`             | Prettier check                          |
-| `npm run build`                    | typecheck, UI build, bundled MCP build  |
-| `npm run docs:dev`                 | documentation dev server                |
-| `npm run docs:build`               | static documentation build              |
+| `npm test`                         | all Vitest suites                                     |
+| `npm run test:comprehensive`       | editor tests                                          |
+| `npm run test:agent`               | Agent and Stage tests                                 |
+| `npm run lint`                     | ESLint                                                |
+| `npm run format:check`             | Prettier check                                        |
+| `npm run build`                    | typecheck, UI build, bundled MCP build                |
+| `npm run docs:dev`                 | documentation dev server                              |
+| `npm run docs:build`               | static documentation build                            |
 
 The docs site uses `http://127.0.0.1:4321` for local canonical URLs and sitemap output. A hosted
 deployment should set `DIRECTOR_DOCS_SITE_URL` to its public HTTPS origin when running the docs build.
