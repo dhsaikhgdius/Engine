@@ -163,6 +163,15 @@ describe("Godot import receipt and connector health", () => {
         },
       ],
       appliedMaterialCount: 1,
+      omittedMaterialCount: 1,
+      omittedMaterials: [
+        {
+          directorId: "prop-glass",
+          code: "unsupported_channels",
+          reason:
+            "Object prop-glass: Director material channels transmission have no StandardMaterial3D equivalent here; omitted (warn-and-omit code: unsupported_channels).",
+        },
+      ],
       externalizedTextureCount: 2,
     });
     expect(receipt.displayRate).toBe("24000/1001");
@@ -173,6 +182,12 @@ describe("Godot import receipt and connector health", () => {
         directorId: "light-rect",
         code: "light_rect_area_unsupported",
         lightType: "rect-area",
+      }),
+    ]);
+    expect(receipt.omittedMaterials).toEqual([
+      expect.objectContaining({
+        directorId: "prop-glass",
+        code: "unsupported_channels",
       }),
     ]);
   });
@@ -201,6 +216,36 @@ describe("Godot import receipt and connector health", () => {
         },
       ],
       appliedMaterialCount: 0,
+      externalizedTextureCount: 0,
+    };
+    expect(directorGodotImportReceiptSchema.safeParse(base).success).toBe(false);
+  });
+
+  it("rejects omittedMaterials whose length disagrees with omittedMaterialCount", () => {
+    const base = {
+      animationPlayerPath: null,
+      animationLibrary: null,
+      displayRate: null,
+      bakedKeyCount: 0,
+      transformTrackCount: 0,
+      fovTrackCount: 0,
+      shotCutTrackCount: 0,
+      mappedShotCount: 0,
+      payloadAnimationPlayerCount: 0,
+      importedSkeletonCount: 0,
+      importedLightCount: 0,
+      worldEnvironmentAmbient: false,
+      omittedLightCount: 0,
+      appliedMaterialCount: 0,
+      omittedMaterialCount: 0,
+      omittedMaterials: [
+        {
+          directorId: "prop-x",
+          code: "no_mesh_target" as const,
+          reason:
+            "Object prop-x: a Director material was authored but the payload has no meshes to apply it to (warn-and-omit code: no_mesh_target).",
+        },
+      ],
       externalizedTextureCount: 0,
     };
     expect(directorGodotImportReceiptSchema.safeParse(base).success).toBe(false);

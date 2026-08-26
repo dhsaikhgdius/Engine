@@ -3650,5 +3650,8 @@
   "分区分配失败": "Failed to assign section",
   "本运行用量": "Usage for this run",
   "规划 LLM": "Planning LLM",
-  "次": "calls"
+  "次": "calls",
+  "不支持的材质通道": "Unsupported material channels",
+  "材质无网格目标": "Material has no mesh target",
+  "自定义着色器材质": "Custom shader material"
 }

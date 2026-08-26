@@ -30,6 +30,15 @@ const GODOT_OMIT_CODE_LABELS: Record<string, string> = {
   pose_values: "姿态控制",
   motion_blocks: "动作片段",
   character_rig: "角色绑定",
+  unsupported_channels: "不支持的材质通道",
+  no_mesh_target: "材质无网格目标",
+  custom_shader: "自定义着色器材质",
+};
+
+const GODOT_OMITTED_MATERIAL_LABELS: Record<string, string> = {
+  unsupported_channels: "不支持的材质通道",
+  no_mesh_target: "材质无网格目标",
+  custom_shader: "自定义着色器材质",
 };
 
 const OMITTED_CHANNEL_LABELS: Record<string, string> = {
@@ -49,20 +58,28 @@ interface GodotStructuredOmission {
 }
 
 /**
- * 从发送结果提取连接器侧结构化省略：优先使用回执里的 typed `omittedLights`，
- * 旧版连接器仍回退到警告文本中的 `warn-and-omit code: …`。
+ * 从发送结果提取连接器侧结构化省略：优先使用回执里的 typed `omittedLights` /
+ * `omittedMaterials`，旧版连接器仍回退到警告文本中的 `warn-and-omit code: …`。
  * 网关烘焙通道以 `result.omittedAnimationChannels` 为准，不依赖自由文本摘要。
  */
 export function collectGodotStructuredOmissions(
   warnings: string[],
   omittedLights: Array<{ directorId: string; code: string; lightType: string; reason: string }> = [],
+  omittedMaterials: Array<{ directorId: string; code: string; reason: string }> = [],
 ): GodotStructuredOmission[] {
-  if (omittedLights.length) {
-    return omittedLights.map((light) => ({
-      code: light.code,
-      detail: light.reason,
-      key: `${light.code}:${light.directorId}`,
-    }));
+  if (omittedLights.length || omittedMaterials.length) {
+    return [
+      ...omittedLights.map((light) => ({
+        code: light.code,
+        detail: light.reason,
+        key: `${light.code}:${light.directorId}`,
+      })),
+      ...omittedMaterials.map((material) => ({
+        code: material.code,
+        detail: material.reason,
+        key: `material:${material.code}:${material.directorId}`,
+      })),
+    ];
   }
   const omissions: GodotStructuredOmission[] = [];
   for (const warning of warnings) {
@@ -70,7 +87,7 @@ export function collectGodotStructuredOmissions(
     if (!match?.[1]) continue;
     // Prefer the first token that looks like an entity id so duplicate codes
     // across lights/shots stay distinct; fall back to the full warning text.
-    const entityHint = warning.match(/\b(?:Light|Camera|Shot|Object)\s+([^\s:]+)/i)?.[1] ?? warning;
+    const entityHint = warning.match(/\b(?:Light|Camera|Shot|Object|Node)\s+([^\s:]+)/i)?.[1] ?? warning;
     omissions.push({ code: match[1], detail: warning, key: `${match[1]}:${entityHint}` });
   }
   return omissions;
@@ -95,6 +112,7 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
   const connectorOmissions = collectGodotStructuredOmissions(
     [...result.warnings, ...result.report.warnings],
     godot.omittedLights ?? [],
+    godot.omittedMaterials ?? [],
   );
   const seenKeys = new Set<string>();
   const uniqueConnectorOmissions = connectorOmissions.filter((omission) => {
@@ -155,7 +173,27 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
           <dt>{t("材质")}</dt>
           <dd>{godot.appliedMaterialCount}</dd>
         </div>
+        <div>
+          <dt>{t("省略材质")}</dt>
+          <dd>{godot.omittedMaterialCount ?? godot.omittedMaterials?.length ?? 0}</dd>
+        </div>
       </dl>
+      {(godot.omittedMaterials?.length ?? 0) > 0 ? (
+        <ul aria-label={t("结构化省略材质")} className="director-engine-handoff-list is-warning">
+          {godot.omittedMaterials!.slice(0, 6).map((entry) => (
+            <li key={`material:${entry.code}:${entry.directorId}`}>
+              <code data-i18n-user-content>{entry.directorId}</code>
+              {` · ${t(GODOT_OMITTED_MATERIAL_LABELS[entry.code] ?? entry.code)} · `}
+              <span className="director-engine-handoff-omit-detail" data-i18n-user-content title={entry.reason}>
+                {entry.reason}
+              </span>
+            </li>
+          ))}
+          {godot.omittedMaterials!.length > 6 ? (
+            <li className="director-engine-handoff-more">+{godot.omittedMaterials!.length - 6}</li>
+          ) : null}
+        </ul>
+      ) : null}
       {omittedChannels.length ? (
         <ul aria-label={t("省略的动画通道")} className="director-engine-handoff-list is-warning">
           {omittedChannels.slice(0, 6).map((entry) => (

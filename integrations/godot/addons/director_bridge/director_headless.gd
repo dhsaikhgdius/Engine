@@ -129,6 +129,7 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 	var object_count := 0
 	var skeleton_count := 0
 	var applied_material_count := 0
+	var omitted_materials: Array = []
 	var payload_animation_players := 0
 	for entity in project["objects"]:
 		var instanced := [false]
@@ -151,10 +152,13 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 			if DirectorSkeleton.tag_skeleton(node, entity, warnings):
 				skeleton_count += 1
 			if entity.has("material") and typeof(entity["material"]) == TYPE_DICTIONARY:
-				if DirectorMaterials.apply_director_material(
+				var material_receipt: Dictionary = DirectorMaterials.apply_director_material(
 					node, entity["material"], "Object %s" % entity["id"], warnings
-				):
+				)
+				if material_receipt.get("applied", false):
 					applied_material_count += 1
+				for omit in material_receipt.get("omittedMaterials", []):
+					omitted_materials.append(omit)
 		elif entity.get("kind", "") == "character":
 			DirectorSkeleton.tag_skeleton(node, entity, warnings)
 
@@ -247,6 +251,9 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 		)
 
 	var externalized_textures := DirectorMaterials.externalize_textures(root, warnings)
+	var custom_shader_receipt: Dictionary = DirectorMaterials.warn_on_custom_shaders(root, warnings)
+	for omit in custom_shader_receipt.get("omittedMaterials", []):
+		omitted_materials.append(omit)
 
 	_set_owner_recursive(root, root)
 	var packed := PackedScene.new()
@@ -308,6 +315,8 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 		"omittedLightCount": int(light_receipt["omittedLightCount"]),
 		"omittedLights": light_receipt.get("omittedLights", []),
 		"appliedMaterialCount": applied_material_count,
+		"omittedMaterialCount": omitted_materials.size(),
+		"omittedMaterials": omitted_materials,
 		"externalizedTextureCount": externalized_textures,
 	}
 	DirectorPackage.write_report(

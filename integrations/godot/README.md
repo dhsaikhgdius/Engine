@@ -47,7 +47,7 @@ so the boundary stays explicit and testable.
     `shot_camera_not_imported`, `shot_target_not_camera`);
   - a `director-dcc-engine-report-v1` receipt with a Godot-specific `godot`
     block (track/key/shot-cut counts, light/skeleton/material/texture counts,
-    `worldEnvironmentAmbient`, `omittedLightCount`, and typed `omittedLights[]`
+    `worldEnvironmentAmbient`, `omittedLightCount`, typed `omittedLights[]`, `appliedMaterialCount`, `omittedMaterialCount`, and typed `omittedMaterials[]` (`unsupported_channels` / `no_mesh_target` / `custom_shader`)
     with `directorId` / `code` / `lightType` / `reason`) that is read back from
     the saved scene, plus an echoed canonical-space return package.
 - **Export** (`--mode export`): reloads the Director scene and writes a
