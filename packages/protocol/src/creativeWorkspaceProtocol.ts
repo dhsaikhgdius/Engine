@@ -1049,9 +1049,10 @@ export const creativeWorkspaceInterchangePlanSchema = z.strictObject({
 });
 
 /**
- * Typed interchange import omissions (Fountain storyboard, Creative OTIO/OTIOZ
- * video, and glTF/GLB Stage import). Optional on older plans; when `omitted` is
- * present, length must equal `omitted_count`. */
+ * Typed interchange omissions (Fountain storyboard, Creative OTIO/OTIOZ video,
+ * and glTF/GLB Stage import; OBJ/STL Stage mesh export). Optional on older
+ * plans and receipts; when `omitted` is present, length must equal
+ * `omitted_count`. */
 export const creativeWorkspaceInterchangeOmittedCodeSchema = z.enum([
   // Fountain → storyboard
   "character_dialogue",
@@ -1070,6 +1071,16 @@ export const creativeWorkspaceInterchangeOmittedCodeSchema = z.enum([
   "embedded_manifest_invalid",
   "duplicate_stable_id",
   "empty_project_no_metadata",
+  // Stage → OBJ / STL mesh export
+  "hidden_object",
+  "unsupported_object_kind",
+  "sync_export_requires_archive",
+  "degenerate_geometry",
+  "asset_not_model",
+  "rigged_character_requires_dcc",
+  "splat_no_triangle_mesh",
+  "imported_asset_limit",
+  "model_materialization_failed",
 ]);
 
 export const creativeWorkspaceInterchangeOmittedSchema = z.strictObject({
@@ -1140,24 +1151,44 @@ export type CreativeWorkspaceInterchangeImportPlan = Omit<
   "plan_id"
 > & { plan_id: `interchange-plan:v1:${string}` };
 
-const creativeWorkspaceInterchangeReceiptSchema = z.strictObject({
-  contract: z.literal("director-interchange-export-v1"),
-  receipt_id: z.string().regex(/^interchange-receipt:v1:[0-9a-f-]{36}$/),
-  plan_id: z.string().regex(/^interchange-plan:v1:[0-9a-f-]{36}$/),
-  format: creativeWorkspaceInterchangeFormatSchema,
-  workspace: creativeWorkspaceInterchangeWorkspaceSchema,
-  file_name: z.string().trim().min(1).max(240),
-  mime_type: z.string().trim().min(1).max(160),
-  payload_encoding: creativeWorkspacePayloadEncodingSchema,
-  byte_length: z
-    .number()
-    .int()
-    .nonnegative()
-    .max(8 * 1024 * 1024),
-  guard: creativeWorkspaceSemanticGuardSchema,
-  payload: z.string().max(11_200_000),
-  warnings: z.array(z.string().max(1_000)).max(50),
-});
+const creativeWorkspaceInterchangeReceiptSchema = z
+  .strictObject({
+    contract: z.literal("director-interchange-export-v1"),
+    receipt_id: z.string().regex(/^interchange-receipt:v1:[0-9a-f-]{36}$/),
+    plan_id: z.string().regex(/^interchange-plan:v1:[0-9a-f-]{36}$/),
+    format: creativeWorkspaceInterchangeFormatSchema,
+    workspace: creativeWorkspaceInterchangeWorkspaceSchema,
+    file_name: z.string().trim().min(1).max(240),
+    mime_type: z.string().trim().min(1).max(160),
+    payload_encoding: creativeWorkspacePayloadEncodingSchema,
+    byte_length: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(8 * 1024 * 1024),
+    guard: creativeWorkspaceSemanticGuardSchema,
+    payload: z.string().max(11_200_000),
+    warnings: z.array(z.string().max(1_000)).max(50),
+    omitted_count: z.number().int().nonnegative().max(50).optional(),
+    omitted: z.array(creativeWorkspaceInterchangeOmittedSchema).max(50).optional(),
+  })
+  .superRefine((receipt, context) => {
+    if (receipt.omitted !== undefined) {
+      if (receipt.omitted_count === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omitted_count"],
+          message: "omitted_count is required when omitted is present",
+        });
+      } else if (receipt.omitted.length !== receipt.omitted_count) {
+        context.addIssue({
+          code: "custom",
+          path: ["omitted"],
+          message: "omitted length must equal omitted_count",
+        });
+      }
+    }
+  });
 
 const creativeWorkspaceInterchangeImportReceiptSchema = z
   .strictObject({
