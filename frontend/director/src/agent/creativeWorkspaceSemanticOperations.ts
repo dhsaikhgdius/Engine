@@ -79,7 +79,17 @@ const defaultSemanticContext: CreativeWorkspaceSemanticContext = {
 const interchangePlans = new WeakMap<object, Map<string, InterchangePlanRecord>>();
 type PreparedImportPayload =
   | { kind: "stage"; project: DirectorProject; warnings: string[] }
-  | { kind: "video"; imported: { editTracks: unknown; editSettings: unknown; warnings: string[] }; warnings: string[] };
+  | {
+      kind: "video";
+      imported: {
+        editTracks: unknown;
+        editSettings: unknown;
+        warnings: string[];
+        omitted?: Array<{ code: string; subject: string; reason: string }>;
+      };
+      warnings: string[];
+      omitted: Array<{ code: string; subject: string; reason: string }>;
+    };
 const interchangeImportPayloads = new WeakMap<
   object,
   Map<string, { plan: InterchangeImportPlanRecord; payload: PreparedImportPayload }>
@@ -540,7 +550,12 @@ async function parseInterchangeImport(
       format === "otio"
         ? interchange.importDirectorCreativeTimelineFromOtio(text(), { knownMediaIds })
         : await interchange.importDirectorCreativeTimelineFromOtioz(bytes, { knownMediaIds });
-    return { kind: "video", imported, warnings: imported.warnings };
+    return {
+      kind: "video",
+      imported,
+      warnings: imported.warnings,
+      omitted: Array.isArray(imported.omitted) ? imported.omitted.slice(0, 50) : [],
+    };
   }
   if (format === "obj" || format === "stl") {
     throw new Error(`${format.toUpperCase()} import is not supported; only Stage mesh export is available`);
@@ -610,6 +625,12 @@ async function planInterchangeImport(
       guard,
       summary,
       warnings: payload.warnings.slice(0, 50),
+      ...(payload.kind === "video"
+        ? {
+            omitted_count: payload.omitted.length,
+            omitted: payload.omitted.slice(0, 50) as InterchangeImportPlanRecord["omitted"],
+          }
+        : {}),
     };
     rememberImportPlan(context, plan, payload);
     return creativeWorkspaceInterchangeToolResultSchema.parse({
@@ -706,6 +727,12 @@ async function commitInterchangeImport(
           before_guard: beforeGuard,
           after_guard: afterGuard,
           warnings: plan.warnings,
+          ...(plan.omitted !== undefined
+            ? {
+                omitted_count: plan.omitted_count ?? plan.omitted.length,
+                omitted: plan.omitted,
+              }
+            : {}),
         },
       },
     });

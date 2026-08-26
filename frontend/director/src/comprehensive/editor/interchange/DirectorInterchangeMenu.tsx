@@ -41,6 +41,7 @@ import { useDirectorMediaLibrary } from "../workspaces/directorMediaLibrary";
 import { useDirectorCreativeWorkspaceStore, type DirectorWorkspaceMode } from "../workspaces/directorWorkspaceStore";
 import { DccProviderBrowser } from "./DccProviderBrowser";
 import { EngineHandoffDock } from "./engines/EngineHandoffDock";
+import type { DirectorCreativeOtioOmitted } from "./creativeOtio";
 import type { DirectorMeshExportReport } from "./mesh";
 import "./DirectorInterchangeMenu.css";
 
@@ -48,6 +49,14 @@ type DirectorInterchangeFormat =
   "project" | "otio" | "otioz" | "fountain" | "gltf" | "glb" | "usda" | "usdz" | "obj" | "stl";
 
 type DirectorInterchangeFormatEntry = { id: DirectorInterchangeFormat; label: string; detail: string };
+
+const CREATIVE_OTIO_OMIT_LABELS: Record<string, string> = {
+  track_limit: "超出轨道上限",
+  invalid_source_range: "无效源范围",
+  unsupported_as_gap: "不支持项已作空隙",
+  clip_limit: "超出片段上限",
+  offline_media: "媒体离线待重链",
+};
 
 const FORMAT_GROUPS: Array<{ id: string; label: string; formats: DirectorInterchangeFormatEntry[] }> = [
   {
@@ -147,6 +156,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   const [importDragOver, setImportDragOver] = useState(false);
   const [meshExportScope, setMeshExportScope] = useState<"all" | "selection">("all");
   const [meshExportReport, setMeshExportReport] = useState<DirectorMeshExportReport | null>(null);
+  const [creativeOtioOmitted, setCreativeOtioOmitted] = useState<DirectorCreativeOtioOmitted[]>([]);
   const [blendPackageDir, setBlendPackageDir] = useState("");
   const [blendManifest, setBlendManifest] = useState<DirectorBlendSceneManifestV1 | null>(null);
   const [blendPlan, setBlendPlan] = useState<DirectorBlendSceneImportPlanV1 | null>(null);
@@ -196,6 +206,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
     setBusy(true);
     note("busy", t("正在准备交换文件…"));
     setMeshExportReport(null);
+    setCreativeOtioOmitted([]);
     try {
       const interchange = await import("./index");
       const project = useDirectorStore.getState().project;
@@ -273,6 +284,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   async function importFile(file: File) {
     setBusy(true);
     note("busy", t("正在校验并导入交换文件…"));
+    setCreativeOtioOmitted([]);
     try {
       const extension = extensionOf(file);
       if (extension === "json") {
@@ -294,10 +306,13 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
         if (!interchange.applyDirectorCreativeOtioImport(imported)) {
           throw new Error(t("视频编辑器时间线导入失败"));
         }
+        setCreativeOtioOmitted(imported.omitted ?? []);
         note(
           imported.warnings.length ? "warning" : "success",
           imported.warnings.length
-            ? `${t("导入完成")} · ${imported.warnings.length} ${t("条兼容性提示")}`
+            ? `${t("导入完成")} · ${imported.warnings.length} ${t("条兼容性提示")}${
+                imported.omitted.length ? ` · ${imported.omitted.length} ${t("项结构化省略")}` : ""
+              }`
             : t("导入完成 · 无兼容性警告"),
         );
         return;
@@ -629,6 +644,30 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                 tabIndex={-1}
                 type="file"
               />
+              {creativeOtioOmitted.length ? (
+                <section aria-label={t("视频 OTIO 导入省略")} className="director-mesh-export-report">
+                  <div>
+                    <strong>{t("视频 OTIO 导入省略")}</strong>
+                    <span>
+                      {creativeOtioOmitted.length} {t("项结构化省略")}
+                    </span>
+                  </div>
+                  <ul aria-label={t("结构化省略")} className="director-interchange-list is-warning">
+                    {creativeOtioOmitted.slice(0, 8).map((entry) => (
+                      <li key={`${entry.code}:${entry.subject}:${entry.reason}`}>
+                        <code>{entry.code}</code>
+                        {` · ${t(CREATIVE_OTIO_OMIT_LABELS[entry.code] ?? entry.code)} · `}
+                        <span data-i18n-user-content title={entry.reason}>
+                          {entry.subject}
+                        </span>
+                      </li>
+                    ))}
+                    {creativeOtioOmitted.length > 8 ? (
+                      <li className="director-interchange-more">+{creativeOtioOmitted.length - 8}</li>
+                    ) : null}
+                  </ul>
+                </section>
+              ) : null}
             </section>
             {workspace === "stage" ? (
               <section aria-label={t("DCC 工作流")} className="director-interchange-section">

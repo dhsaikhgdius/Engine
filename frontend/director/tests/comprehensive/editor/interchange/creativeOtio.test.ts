@@ -189,6 +189,56 @@ describe("Video Editor OTIO interchange", () => {
       targetUrl: null,
     });
     expect(imported.warnings).toContain("Media Missing insert.mov is offline and requires relinking.");
+    expect(imported.omitted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "offline_media",
+          subject: "Missing insert.mov",
+        }),
+      ]),
+    );
+  });
+
+  it("stamps typed omitted records for track limits, unsupported items, and invalid ranges", () => {
+    const tracks = Array.from({ length: 14 }, (_, index) => ({
+      OTIO_SCHEMA: "Track.1",
+      name: `V${index + 1}`,
+      kind: "Video",
+      metadata: {},
+      children: [
+        {
+          OTIO_SCHEMA: "Transition.1",
+          name: "Wipe",
+          source_range: {
+            OTIO_SCHEMA: "TimeRange.1",
+            start_time: { OTIO_SCHEMA: "RationalTime.1", value: 0, rate: 24 },
+            duration: { OTIO_SCHEMA: "RationalTime.1", value: 12, rate: 24 },
+          },
+          metadata: {},
+        },
+        {
+          OTIO_SCHEMA: "Clip.2",
+          name: "Bare",
+          metadata: {},
+        },
+      ],
+    }));
+    const imported = importDirectorCreativeTimelineFromOtio({
+      OTIO_SCHEMA: "Timeline.1",
+      name: "Limits",
+      global_start_time: { OTIO_SCHEMA: "RationalTime.1", value: 0, rate: 24 },
+      metadata: {},
+      tracks: {
+        OTIO_SCHEMA: "Stack.1",
+        name: "Tracks",
+        metadata: {},
+        children: tracks,
+      },
+    });
+    expect(imported.omitted.some((entry) => entry.code === "track_limit")).toBe(true);
+    expect(imported.omitted.some((entry) => entry.code === "unsupported_as_gap")).toBe(true);
+    expect(imported.omitted.some((entry) => entry.code === "invalid_source_range")).toBe(true);
+    expect(imported.omitted.length).toBe(imported.warnings.filter((warning) => !warning.includes("remapped")).length);
   });
 
   it("preserves an unknown external media URL in an offline virtual ID for later re-export", () => {

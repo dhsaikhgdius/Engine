@@ -1051,27 +1051,64 @@ export const creativeWorkspaceInterchangePlanSchema = z.strictObject({
 /**
  * An interchange import plan: summarizes a parsed payload ready for atomic commit.
  */
-export const creativeWorkspaceInterchangeImportPlanSchema = z.strictObject({
-  contract: z.literal("director-interchange-import-plan-v1"),
-  plan_id: z.string().regex(/^interchange-plan:v1:[0-9a-f-]{36}$/),
-  format: creativeWorkspaceInterchangeFormatSchema,
-  workspace: creativeWorkspaceInterchangeWorkspaceSchema,
-  file_name: z.string().trim().min(1).max(240),
-  source_kind: z.enum(["inline", "media_id", "workspace_path"]),
-  byte_length: z
-    .number()
-    .int()
-    .nonnegative()
-    .max(8 * 1024 * 1024),
-  guard: creativeWorkspaceSemanticGuardSchema,
-  summary: z.strictObject({
-    stage_objects: z.number().int().nonnegative().optional(),
-    cameras: z.number().int().nonnegative().optional(),
-    video_clips: z.number().int().nonnegative().optional(),
-    video_tracks: z.number().int().nonnegative().optional(),
-  }),
-  warnings: z.array(z.string().max(1_000)).max(50),
-});
+export const creativeWorkspaceInterchangeImportPlanSchema = z
+  .strictObject({
+    contract: z.literal("director-interchange-import-plan-v1"),
+    plan_id: z.string().regex(/^interchange-plan:v1:[0-9a-f-]{36}$/),
+    format: creativeWorkspaceInterchangeFormatSchema,
+    workspace: creativeWorkspaceInterchangeWorkspaceSchema,
+    file_name: z.string().trim().min(1).max(240),
+    source_kind: z.enum(["inline", "media_id", "workspace_path"]),
+    byte_length: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(8 * 1024 * 1024),
+    guard: creativeWorkspaceSemanticGuardSchema,
+    summary: z.strictObject({
+      stage_objects: z.number().int().nonnegative().optional(),
+      cameras: z.number().int().nonnegative().optional(),
+      video_clips: z.number().int().nonnegative().optional(),
+      video_tracks: z.number().int().nonnegative().optional(),
+    }),
+    warnings: z.array(z.string().max(1_000)).max(50),
+    /**
+     * Typed Creative OTIO/OTIOZ omit count. Optional for older plans / non-video
+     * formats; when `omitted` is present, length must equal this count.
+     */
+    omitted_count: z.number().int().nonnegative().max(50).optional(),
+    /**
+     * Typed Creative OTIO/OTIOZ omit records (`track_limit`, `invalid_source_range`,
+     * `unsupported_as_gap`, `clip_limit`, `offline_media`). Optional for older plans.
+     */
+    omitted: z
+      .array(
+        z.strictObject({
+          code: z.enum(["track_limit", "invalid_source_range", "unsupported_as_gap", "clip_limit", "offline_media"]),
+          subject: z.string().trim().min(1).max(240),
+          reason: z.string().trim().min(1).max(600),
+        }),
+      )
+      .max(50)
+      .optional(),
+  })
+  .superRefine((plan, context) => {
+    if (plan.omitted !== undefined) {
+      if (plan.omitted_count === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omitted_count"],
+          message: "omitted_count is required when omitted is present",
+        });
+      } else if (plan.omitted.length !== plan.omitted_count) {
+        context.addIssue({
+          code: "custom",
+          path: ["omitted"],
+          message: "omitted length must equal omitted_count",
+        });
+      }
+    }
+  });
 
 /** A supported interchange format. */
 export type CreativeWorkspaceInterchangeFormat = z.infer<typeof creativeWorkspaceInterchangeFormatSchema>;
@@ -1109,17 +1146,48 @@ const creativeWorkspaceInterchangeReceiptSchema = z.strictObject({
   warnings: z.array(z.string().max(1_000)).max(50),
 });
 
-const creativeWorkspaceInterchangeImportReceiptSchema = z.strictObject({
-  contract: z.literal("director-interchange-import-v1"),
-  receipt_id: z.string().regex(/^interchange-receipt:v1:[0-9a-f-]{36}$/),
-  plan_id: z.string().regex(/^interchange-plan:v1:[0-9a-f-]{36}$/),
-  format: creativeWorkspaceInterchangeFormatSchema,
-  workspace: creativeWorkspaceInterchangeWorkspaceSchema,
-  file_name: z.string().trim().min(1).max(240),
-  before_guard: creativeWorkspaceSemanticGuardSchema,
-  after_guard: creativeWorkspaceSemanticGuardSchema,
-  warnings: z.array(z.string().max(1_000)).max(50),
-});
+const creativeWorkspaceInterchangeImportReceiptSchema = z
+  .strictObject({
+    contract: z.literal("director-interchange-import-v1"),
+    receipt_id: z.string().regex(/^interchange-receipt:v1:[0-9a-f-]{36}$/),
+    plan_id: z.string().regex(/^interchange-plan:v1:[0-9a-f-]{36}$/),
+    format: creativeWorkspaceInterchangeFormatSchema,
+    workspace: creativeWorkspaceInterchangeWorkspaceSchema,
+    file_name: z.string().trim().min(1).max(240),
+    before_guard: creativeWorkspaceSemanticGuardSchema,
+    after_guard: creativeWorkspaceSemanticGuardSchema,
+    warnings: z.array(z.string().max(1_000)).max(50),
+    /** Typed Creative OTIO/OTIOZ omit count; optional for older receipts. */
+    omitted_count: z.number().int().nonnegative().max(50).optional(),
+    /** Typed Creative OTIO/OTIOZ omit records; optional for older receipts. */
+    omitted: z
+      .array(
+        z.strictObject({
+          code: z.enum(["track_limit", "invalid_source_range", "unsupported_as_gap", "clip_limit", "offline_media"]),
+          subject: z.string().trim().min(1).max(240),
+          reason: z.string().trim().min(1).max(600),
+        }),
+      )
+      .max(50)
+      .optional(),
+  })
+  .superRefine((receipt, context) => {
+    if (receipt.omitted !== undefined) {
+      if (receipt.omitted_count === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omitted_count"],
+          message: "omitted_count is required when omitted is present",
+        });
+      } else if (receipt.omitted.length !== receipt.omitted_count) {
+        context.addIssue({
+          code: "custom",
+          path: ["omitted"],
+          message: "omitted length must equal omitted_count",
+        });
+      }
+    }
+  });
 
 /** The result of an interchange operation: capabilities, export/import plans, or a semantic failure. */
 export const creativeWorkspaceInterchangeResultSchema = z.union([
