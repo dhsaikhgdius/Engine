@@ -139131,11 +139131,12 @@ var unifiedProgressSummarySchema = external_exports.strictObject({
 });
 
 // packages/protocol/src/filmRunUsage.ts
+var lazyUsageSummarySchema = external_exports.lazy(() => agentUsageSummarySchema);
 var filmRunUsageSchema = external_exports.strictObject({
-  "film-llm": agentUsageSummarySchema,
-  "film-image": agentUsageSummarySchema,
-  "film-video": agentUsageSummarySchema,
-  "film-tts": external_exports.lazy(() => agentUsageSummarySchema).default(() => ({ ...EMPTY_AGENT_USAGE_SUMMARY }))
+  "film-llm": lazyUsageSummarySchema,
+  "film-image": lazyUsageSummarySchema,
+  "film-video": lazyUsageSummarySchema,
+  "film-tts": lazyUsageSummarySchema.default(() => ({ ...EMPTY_AGENT_USAGE_SUMMARY }))
 });
 function emptyFilmRunUsage() {
   return {
