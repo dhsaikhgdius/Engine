@@ -135,7 +135,11 @@ describe("filmPipelineProtocol", () => {
     // The window stays bounded; the newest receipts win.
     let many: FilmRunPhaseReceipt[] = [];
     for (let index = 0; index < FILM_RUN_PHASE_RECEIPT_LIMIT + 8; index += 1) {
-      many = openFilmRunPhaseReceipt(many, "plan-scenes", `2026-08-13T00:00:${String(index % 60).padStart(2, "0")}.000Z`);
+      many = openFilmRunPhaseReceipt(
+        many,
+        "plan-scenes",
+        `2026-08-13T00:00:${String(index % 60).padStart(2, "0")}.000Z`,
+      );
     }
     expect(many).toHaveLength(FILM_RUN_PHASE_RECEIPT_LIMIT);
     expect(many.at(-1)?.finishedAt).toBeNull();

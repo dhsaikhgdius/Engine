@@ -155,7 +155,12 @@ describe("film pipeline routes", () => {
 
   it("answers every failure with a frozen public error code", async () => {
     const invalidId = await harness(null);
-    await handleFilmPipelineRoute(request("GET"), invalidId.response, url("/api/film/runs/%ZZ"), invalidId.dependencies);
+    await handleFilmPipelineRoute(
+      request("GET"),
+      invalidId.response,
+      url("/api/film/runs/%ZZ"),
+      invalidId.dependencies,
+    );
     expect(invalidId.writes[0]).toMatchObject({ status: 400, body: { code: "invalid_run_id" } });
 
     const missing = await harness(null);

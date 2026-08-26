@@ -275,10 +275,7 @@ export const FILM_RUN_PHASE_RECEIPT_LIMIT = 64;
  * Closes every open phase receipt at the given timestamp. Idempotent:
  * receipts that already carry a `finishedAt` are returned unchanged.
  */
-export function closeFilmRunPhaseReceipts(
-  receipts: readonly FilmRunPhaseReceipt[],
-  at: string,
-): FilmRunPhaseReceipt[] {
+export function closeFilmRunPhaseReceipts(receipts: readonly FilmRunPhaseReceipt[], at: string): FilmRunPhaseReceipt[] {
   return receipts.map((receipt) => (receipt.finishedAt === null ? { ...receipt, finishedAt: at } : receipt));
 }
 

@@ -20,8 +20,7 @@ export type AgentTraceEventInput = Omit<AgentTraceEvent, "id">;
 
 /** One record delivered to an in-process observer, after redaction. */
 export type AgentTraceStoreRecord =
-  | { kind: "trace"; event: AgentTraceEvent }
-  | { kind: "usage"; sample: AgentUsageSample };
+  { kind: "trace"; event: AgentTraceEvent } | { kind: "usage"; sample: AgentUsageSample };
 
 /** In-process observer callback (optional eval hook). */
 export type AgentTraceStoreObserver = (record: AgentTraceStoreRecord) => void;
