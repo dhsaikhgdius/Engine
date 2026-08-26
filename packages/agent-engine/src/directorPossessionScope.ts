@@ -47,7 +47,9 @@ export type DirectorPossessionIdentity = {
 
 /**
  * Live Player Mode state observed from Stage `ui` (Canvas-published snapshot).
- * Required under possession for the remaining live-actor player verbs.
+ * Required under possession for the remaining live-actor player verbs, and
+ * consulted by `player.enter`/`set_actor` so a possessed session cannot take
+ * over a live Player Mode that is driving an unpossessed actor.
  */
 export type DirectorLivePlayerState = {
   playerMode: boolean;
@@ -147,6 +149,7 @@ export type DirectorPossessionScopeRejectionReason =
   | "unscoped_author_action"
   | "target_not_possessed"
   | "actor_id_omitted"
+  | "live_actor_conflict"
   | "live_player_inactive";
 
 /**
@@ -254,10 +257,13 @@ function authoringActionTargetIds(action: DirectorAuthoringAction): string[] | n
  * Player Mode and Camera Pilot session commands are scoped too: `player`
  * `enter`/`set_actor`/`teleport`/`walk_to` must explicitly name a possessed
  * `actor_id` (Stage otherwise falls back to shared-tab state such as the
- * user's selection), the remaining `player` verbs (`exit`/`interact`/
- * `enter_vehicle`/`exit_vehicle`/`record_start`/`record_stop`) require an
- * active Player Mode whose live actor is one of the possessed characters
- * (pass {@link DirectorLivePlayerState} from observe `ui`), and
+ * user's selection), `enter`/`set_actor` additionally must not take over a
+ * live Player Mode whose current actor is unpossessed (switching would eject
+ * that actor and finish its in-progress movement take), the remaining
+ * `player` verbs (`exit`/`interact`/`enter_vehicle`/`exit_vehicle`/
+ * `record_start`/`record_stop`) require an active Player Mode whose live
+ * actor is one of the possessed characters (pass
+ * {@link DirectorLivePlayerState} from observe `ui`), and
  * `pilot.record_waypoint` is rejected because it writes camera keyframes
  * outside any character. Transient pilot flight (`start`/`stop`/`set_view`)
  * stays available.
@@ -269,7 +275,10 @@ export function evaluateDirectorPossessionScope(input: {
   operation: DirectorWorkbenchOperation;
   sessionId: string;
   possessedObjectIds: readonly string[];
-  /** Live Player Mode from observe `ui`; required for live-actor player verbs. */
+  /**
+   * Live Player Mode from observe `ui`; required for live-actor player verbs
+   * and for the `enter`/`set_actor` takeover check.
+   */
   livePlayer?: DirectorLivePlayerState | null;
 }): DirectorPossessionScopeVerdict {
   const { operation, sessionId, possessedObjectIds, livePlayer } = input;
@@ -312,6 +321,27 @@ export function evaluateDirectorPossessionScope(input: {
             operation: workbenchOperationName(operation),
             reason: "target_not_possessed",
             target_id: operation.actor_id,
+          },
+        );
+      }
+      // enter/set_actor switch the tab's single live Player Mode actor
+      // (finishing any in-progress movement take), so a possessed session
+      // must not take that live session over while it is driving an
+      // unpossessed character — e.g. the human directing another actor.
+      if (
+        (operation.action === "enter" || operation.action === "set_actor") &&
+        livePlayer?.playerMode &&
+        livePlayer.playerActorId &&
+        !possessed.has(livePlayer.playerActorId)
+      ) {
+        return possessionScopeError(
+          sessionId,
+          possessedObjectIds,
+          `player.${operation.action} would take over the live Player Mode from actor "${livePlayer.playerActorId}", which this session does not possess. Observe fields=["ui"] until player_mode is false or player_actor_id is a possessed character, then retry.`,
+          {
+            operation: workbenchOperationName(operation),
+            reason: "live_actor_conflict",
+            target_id: livePlayer.playerActorId,
           },
         );
       }

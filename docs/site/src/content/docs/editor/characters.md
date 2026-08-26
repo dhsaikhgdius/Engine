@@ -198,7 +198,9 @@ and `replace_project` are rejected by the gateway with a readable error (HTTP 40
 `possession_scope_violation`). Player Mode and Camera Pilot are scoped the same way:
 `player` `enter`/`set_actor`/`teleport`/`walk_to` must name a possessed `actor_id` explicitly
 (Stage otherwise falls back to shared-tab selection; the remaining player verbs then drive that
-constrained live actor), and `pilot record_waypoint` is rejected because it writes camera
+constrained live actor), `enter`/`set_actor` cannot take over a live Player Mode that is
+currently driving an unpossessed actor (switching would eject that actor and finish its
+in-progress movement take), and `pilot record_waypoint` is rejected because it writes camera
 keyframes outside any character, while transient pilot flight
 (`start`/`stop`/`set_view`) stays available. Sessions that possess no character keep full
 stage-wide authoring.

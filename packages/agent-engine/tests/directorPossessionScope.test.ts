@@ -272,6 +272,53 @@ describe("evaluateDirectorPossessionScope", () => {
     });
   });
 
+  it("blocks enter/set_actor from taking over a live Player Mode on an unpossessed actor", () => {
+    // Entering or switching actors ejects the current live actor and finishes
+    // its in-progress movement take, so a possessed session may not do it
+    // while the live actor is outside its possessed set.
+    const liveOnVillain = { livePlayer: { playerMode: true, playerActorId: "villain" } };
+    for (const action of ["enter", "set_actor"] as const) {
+      const conflict = evaluate({ op: "player", action, actor_id: "hero" }, ["hero"], liveOnVillain);
+      expect(conflict).toMatchObject({
+        allowed: false,
+        error: expect.stringContaining('"villain"'),
+        rejection: {
+          operation: `player.${action}`,
+          reason: "live_actor_conflict",
+          target_id: "villain",
+        },
+      });
+    }
+
+    // Switching among the session's own characters stays allowed.
+    expect(
+      evaluate({ op: "player", action: "set_actor", actor_id: "sidekick" }, ["hero", "sidekick"], {
+        livePlayer: { playerMode: true, playerActorId: "hero" },
+      }),
+    ).toEqual({ allowed: true });
+    // Idle Player Mode (or an unresolved snapshot) is no conflict.
+    expect(
+      evaluate({ op: "player", action: "enter", actor_id: "hero" }, ["hero"], {
+        livePlayer: { playerMode: false, playerActorId: null },
+      }),
+    ).toEqual({ allowed: true });
+    expect(evaluate({ op: "player", action: "enter", actor_id: "hero" }, ["hero"], { livePlayer: null })).toEqual({
+      allowed: true,
+    });
+    // teleport/walk_to move their named actor without switching the live
+    // session, so a live unpossessed actor does not block them.
+    expect(
+      evaluate({ op: "player", action: "teleport", actor_id: "hero", position: [1, 0, 2] }, ["hero"], liveOnVillain),
+    ).toEqual({ allowed: true });
+    expect(
+      evaluate({ op: "player", action: "walk_to", actor_id: "hero", object_id: "marker" }, ["hero"], liveOnVillain),
+    ).toEqual({ allowed: true });
+    // Unpossessed sessions keep the whole player surface.
+    expect(evaluate({ op: "player", action: "enter", actor_id: "hero" }, [], liveOnVillain)).toEqual({
+      allowed: true,
+    });
+  });
+
   it("gates live-actor player verbs on an active possessed Player Mode", () => {
     const idle = evaluate({ op: "player", action: "interact", object_id: "door" }, ["hero"]);
     expect(idle).toMatchObject({ allowed: false, error: expect.stringMatching(/player_mode|Player Mode/i) });
