@@ -51,7 +51,7 @@ import director_package as dpkg  # noqa: E402
 import director_sequencer as dsequencer  # noqa: E402
 import director_space as dspace  # noqa: E402
 
-CONNECTOR_VERSION = "0.4.1"
+CONNECTOR_VERSION = "0.4.2"
 PROVIDER = "unreal"
 DIRECTOR_TAG_PREFIX = "director_id:"
 # Lights are tagged with their own prefix so the transform-echo export loop
@@ -210,8 +210,8 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
 
     @returns ``(spawned, cameras, stats)`` where stats carries
         ``importedSkeletalMeshCount``, ``appliedMaterialCount``, and
-        ``appliedTextureCount``, plus ``omittedMaterials`` typed warn-and-omit
-        records for channel / no-mesh / parent / apply failures.
+        ``appliedTextureCount``, plus ``omittedMaterials`` / ``omittedSkeletal``
+        typed warn-and-omit records.
     """
     actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     scene = manifest["project"]["scene"]
@@ -244,6 +244,7 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
         "appliedMaterialCount": 0,
         "appliedTextureCount": 0,
         "omittedMaterials": [],
+        "omittedSkeletal": [],
     }
 
     def texture_asset_for(asset_ref: str):
@@ -260,6 +261,8 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
         mesh = None
         mesh_kind = None
         asset_ref = entity.get("assetRefId")
+        prefer_skeletal = False
+        inspection = None
         if asset_ref and asset_ref in assets_by_id and assets_by_id[asset_ref].lower().endswith(".glb"):
             glb_path = assets_by_id[asset_ref]
             inspection = inspect_payload(asset_ref, glb_path)
@@ -273,10 +276,22 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
                     warnings,
                 )
             mesh, mesh_kind = imported_meshes[asset_ref]
+            if prefer_skeletal and mesh_kind == "static":
+                reason = (
+                    f"Object {entity['id']}: skinned GLB imported as a static mesh only; "
+                    "the bind-pose skeleton was not produced by the import pipeline (warn-and-omit)."
+                )
+                stats["omittedSkeletal"].append(
+                    {"directorId": entity["id"], "code": "skeleton_unavailable", "reason": reason}
+                )
             if entity.get("kind") == "character" and not inspection.get("skinned"):
-                warnings.append(
+                reason = (
                     f"Character {entity['name']} references a GLB without a skin; "
                     "it was imported without a skeleton (warn-and-omit)."
+                )
+                warnings.append(reason)
+                stats["omittedSkeletal"].append(
+                    {"directorId": entity["id"], "code": "character_unskinned", "reason": reason}
                 )
         mesh_component = None
         if mesh is not None:
@@ -288,9 +303,13 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
                 unreal.Actor, transform.translation, transform.rotation.rotator()
             )
             if entity.get("assetRefId"):
-                warnings.append(
+                reason = (
                     f"Object {entity['id']} references asset {entity.get('assetRefId')} that is not a GLB payload; "
                     "spawned as an empty actor (warn-and-omit)."
+                )
+                warnings.append(reason)
+                stats["omittedSkeletal"].append(
+                    {"directorId": entity["id"], "code": "empty_actor", "reason": reason}
                 )
         actor.set_actor_transform(transform, False, False)
         actor.set_actor_label(entity["name"])
@@ -612,7 +631,10 @@ def run_import(unreal, arguments) -> int:
             "appliedTextureCount": stats["appliedTextureCount"],
             "omittedMaterialCount": len(stats["omittedMaterials"]) or None,
             "omittedMaterials": stats["omittedMaterials"] or None,
+            "omittedSkeletalCount": len(stats["omittedSkeletal"]) or None,
+            "omittedSkeletal": stats["omittedSkeletal"] or None,
             "importedLightCount": imported_light_count,
+            "omittedLightCount": len(omitted_lights) or None,
             "omittedLights": omitted_lights or None,
             "omittedAnimationChannels": omitted_animation_channels or None,
         },
