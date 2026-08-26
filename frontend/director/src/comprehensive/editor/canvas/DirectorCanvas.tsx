@@ -152,6 +152,8 @@ import {
 } from "../timeline/DirectorTimelineDock";
 import { getEffectiveTimelineEndFrame } from "../timeline/frameTimeline";
 import { createPlayerMotionRecordingSession, type PlayerMotionRecordingSession } from "../player/playerMotionRecorder";
+import { cancelActiveGamePlaytestSession, startGamePlaytestSession } from "../player/gamePlaytestSession";
+import { gamePlaytestScriptSchema } from "@director/protocol/game-slice";
 import {
   createTimelineRecordingSettings,
   normalizeTimelineRecordingSettings,
@@ -4784,6 +4786,71 @@ export function DirectorCanvas({
             });
             return;
           }
+          if (command.type === "play_script") {
+            const parsedScript = gamePlaytestScriptSchema.safeParse(command.script);
+            if (!parsedScript.success) {
+              const issue = parsedScript.error.issues[0];
+              publishDirectorSessionCommandResult({
+                requestId: envelope.requestId,
+                ok: false,
+                error: `Invalid playtest script at ${issue?.path.join(".") || "script"}: ${issue?.message ?? "invalid value"}.`,
+              });
+              return;
+            }
+            const store = useDirectorStore.getState();
+            const actorId = command.actor_id ?? playerActorId ?? store.selectedObjectId;
+            const actor = actorId ? store.project.objects.find((object) => object.id === actorId) : undefined;
+            if (!actor) {
+              publishDirectorSessionCommandResult({
+                requestId: envelope.requestId,
+                ok: false,
+                error: actorId
+                  ? `No actor object with id "${actorId}" for play_script.`
+                  : "play_script requires actor_id (bind the player role, then pass its object id).",
+              });
+              return;
+            }
+            // Ensure Player Mode is live for the tape's actor before the
+            // first tick, mirroring the `enter` command.
+            if (!playerMode || playerActorId !== actor.id) {
+              beginUndoBatch();
+              playerUndoBatchActiveRef.current = true;
+              setPlayerActorId(actor.id);
+              setPlayerViewMode("third");
+              setPlayerFlying(false);
+              setPlayerControlActive(false);
+              playerRuntimeStatusStore.publish(null);
+              publishPlayheadFrameAndRenderShell(currentFrameRef.current);
+              setIsPlaying(false);
+              setViewMode("director");
+              setPlayerMode(true);
+            }
+            // The receipt is published when the live PlayerController has
+            // consumed and sampled every tape frame; the bus dispatcher's
+            // timeout covers a tab that never ticks.
+            startGamePlaytestSession({ script: parsedScript.data, sliceId: command.slice_id }).then(
+              (trace) => {
+                publishDirectorSessionCommandResult({
+                  requestId: envelope.requestId,
+                  ok: true,
+                  result: {
+                    actor_id: actor.id,
+                    trace,
+                    sample_count: trace.samples.length,
+                    verbs_exercised: trace.verbs_exercised,
+                  },
+                });
+              },
+              (error: unknown) => {
+                publishDirectorSessionCommandResult({
+                  requestId: envelope.requestId,
+                  ok: false,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              },
+            );
+            return;
+          }
         }
 
         if (envelope.surface === "pilot") {
@@ -4883,6 +4950,7 @@ export function DirectorCanvas({
 
   function exitPlayerMode() {
     if (playerModeRecording) stopPlayerModeRecording();
+    cancelActiveGamePlaytestSession("Player Mode exited before the playtest tape finished.");
     setPlayerControlActive(false);
     playerRuntimeStatusStore.publish(null);
     setPlayerEmoteRequest(null);
@@ -4893,6 +4961,7 @@ export function DirectorCanvas({
     if (actorId === playerActorId) return;
     // A movement take belongs to a single actor; finish it before switching.
     if (playerModeRecording) stopPlayerModeRecording();
+    cancelActiveGamePlaytestSession("Player actor switched before the playtest tape finished.");
     setPlayerActorId(actorId);
   }
 

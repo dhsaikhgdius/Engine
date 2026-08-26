@@ -21,6 +21,8 @@ import {
   type PlayerViewMode,
 } from "./playerLocomotion";
 import { selectNearestPlayerInteraction, type PlayerInteractionCandidate } from "./playerInteractions";
+import { mapGamePlaytestInputToVehicleDriveInput } from "./gamePlaytestReplay";
+import { getActiveGamePlaytestSession } from "./gamePlaytestSession";
 import { isPlayerCameraCollisionRoot, PlayerCameraCollisionProbe } from "./playerCameraCollision";
 import { setPlayerCameraLookQuaternion } from "./playerCameraRig";
 import {
@@ -560,6 +562,9 @@ export function PlayerController({
   const interactionCandidatesRef = useRef(interactionCandidates);
   const promptInteractionRef = useRef<PlayerInteractionCandidate | null>(null);
   const lastStatusInteractionIdRef = useRef<string | null>(null);
+  // True while a scripted playtest tape owns the held-input frame, so the
+  // synthetic keys are released once the tape finishes or is cancelled.
+  const playtestInputActiveRef = useRef(false);
 
   // Drivable vehicles are read straight from the project store: the obstacle
   // prop cannot carry vehicle profiles, and the session must know these
@@ -1831,7 +1836,39 @@ export function PlayerController({
     // controller. Never sample one actor's locomotion state into another.
     if (!currentPlayer || !controller || currentPlayer.id !== controlledPlayerIdRef.current) return;
 
-    const frameDelta = sanitizeFollowDelta(delta);
+    // Scripted playtest tape: consume one tape tick per rendered frame at the
+    // script's fixed dt. The mapped input replaces the keyboard frame so the
+    // tape drives the exact live input path; session verbs dispatch the
+    // existing player actions on the first frame of their step.
+    const playtestSession = getActiveGamePlaytestSession();
+    const playtestFrame = playtestSession ? playtestSession.beginFrame() : null;
+    if (playtestFrame) {
+      playtestInputActiveRef.current = true;
+      inputRef.current = playtestFrame.playerInput;
+      if (playtestFrame.firstFrameOfStep) {
+        if (playtestFrame.playerInput.dash) dashRequestedRef.current = true;
+        const sessionVerb = playtestFrame.sessionVerb;
+        if (sessionVerb === "enter_vehicle" && !activeVehicleIdRef.current) {
+          vehicleEnterRequestedRef.current = true;
+        } else if (sessionVerb === "exit_vehicle" && activeVehicleIdRef.current) {
+          vehicleExitRequestedRef.current = true;
+        } else if (
+          sessionVerb === "interact" &&
+          !activeVehicleIdRef.current &&
+          promptInteractionRef.current &&
+          !controller.flying
+        ) {
+          onInteractRef.current?.(promptInteractionRef.current.id);
+        }
+      }
+    } else if (playtestInputActiveRef.current) {
+      // The tape finished (or was cancelled) since the last frame: release
+      // the synthetic held keys so the actor stops walking.
+      playtestInputActiveRef.current = false;
+      inputRef.current = createEmptyPlayerInput();
+    }
+
+    const frameDelta = playtestFrame ? playtestFrame.dt : sanitizeFollowDelta(delta);
     const pendingExternalTransform = pendingExternalTransformRef.current;
     if (pendingExternalTransform) {
       pendingExternalTransformRef.current = null;
@@ -1883,7 +1920,22 @@ export function PlayerController({
     ensureVehicleRuntimes();
     if (vehicleEnterRequestedRef.current) tryEnterPromptVehicle();
     if (activeVehicleIdRef.current) {
+      // A tape drives the seat too: held move inputs become drive controls.
+      if (playtestFrame) {
+        vehicleDriveInputRef.current = mapGamePlaytestInputToVehicleDriveInput(playtestFrame.input);
+      }
       driveActiveVehicleFrame(currentPlayer, frameDelta);
+      if (playtestSession && playtestFrame) {
+        // The drive loop parks the character on the seat; sample that pose.
+        // Velocity is derived from seat displacement by the trace recorder.
+        const seated = controllerRef.current;
+        if (seated) {
+          playtestSession.recordSample(
+            { position: seated.position, yaw: seated.yaw, pitch: seated.pitch, onGround: true, flying: false },
+            { seated: true },
+          );
+        }
+      }
       return;
     }
     updateVehicleEnterPrompt(controller);
@@ -1961,9 +2013,10 @@ export function PlayerController({
     frameInput.dash = dashTimer.remainingS > 0;
     // Merge the pad into the input the motors consume this frame. The
     // keyboard object stays authoritative and unmutated (except toggles), so
-    // releasing the pad never leaves phantom held keys behind.
+    // releasing the pad never leaves phantom held keys behind. A playtest
+    // tape owns the frame outright: an idle pad must not zero its axes.
     let activeInput: PlayerInput = frameInput;
-    if (gamepadFrame.connected) {
+    if (gamepadFrame.connected && !playtestFrame) {
       const merged = gamepadMergedInputRef.current;
       Object.assign(merged, frameInput);
       merged.moveForwardAxis = gamepadFrame.moveForwardAxis;
@@ -2690,6 +2743,21 @@ export function PlayerController({
       ? null
       : selectNearestPlayerInteraction(interactionCandidatesRef.current, next.position);
     promptInteractionRef.current = statusInteraction;
+    if (playtestSession && playtestFrame) {
+      // Honest telemetry for the playtest trace: raw motor state plus the
+      // follow-rig occlusion flag and the nearest in-range interaction.
+      playtestSession.recordSample(
+        {
+          position: next.position,
+          velocity: next.velocity,
+          yaw: next.yaw,
+          pitch: next.pitch,
+          onGround: next.onGround,
+          flying: next.flying,
+        },
+        { cameraClip: cameraObstructed, interactionObjectId: statusInteraction?.id },
+      );
+    }
     const statusStateChanged =
       statusAiming !== lastStatusAimingRef.current ||
       statusEmoteClipId !== lastStatusEmoteRef.current ||
