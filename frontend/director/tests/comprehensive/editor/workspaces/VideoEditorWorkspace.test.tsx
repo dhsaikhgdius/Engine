@@ -653,7 +653,9 @@ describe("VideoEditorWorkspace", () => {
     // Persisting registers the durable asset in the library, which the shared
     // agent contract then resolves when the clip add dispatches.
     mediaLibraryMock.persist.mockImplementation(async () => {
-      mediaImportMocks.assets.push(libraryAsset("creative-media:image:durable-frame", "image", "Transient frame", null));
+      mediaImportMocks.assets.push(
+        libraryAsset("creative-media:image:durable-frame", "image", "Transient frame", null),
+      );
       return "creative-media:image:durable-frame";
     });
     render(<VideoEditorWorkspace />);

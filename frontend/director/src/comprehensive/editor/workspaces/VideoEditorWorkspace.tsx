@@ -896,7 +896,10 @@ export function VideoEditorWorkspace() {
   function updateEditFrameRate(serializedRate: string) {
     const rate = normalizeDirectorFrameRate(serializedRate, editTimebase.rate);
     dispatchVideo(
-      { op: "edit.settings.update", patch: { frame_rate: { numerator: rate.numerator, denominator: rate.denominator } } },
+      {
+        op: "edit.settings.update",
+        patch: { frame_rate: { numerator: rate.numerator, denominator: rate.denominator } },
+      },
       t("时间基准更新失败"),
     );
   }
@@ -2951,9 +2954,7 @@ export function VideoEditorWorkspace() {
             )}
             <button
               className="creative-danger-button"
-              onClick={() =>
-                dispatchVideo({ op: "edit.clip.remove", clip_id: selected.clip.id }, t("剪辑删除失败"))
-              }
+              onClick={() => dispatchVideo({ op: "edit.clip.remove", clip_id: selected.clip.id }, t("剪辑删除失败"))}
               title={`${t("删除剪辑")} (Delete)`}
               type="button"
             >
