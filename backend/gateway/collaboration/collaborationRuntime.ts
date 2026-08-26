@@ -53,9 +53,7 @@ export function createCollaborationRuntime(options: {
   const persistenceEnabled = env.DIRECTOR_COLLAB_PERSISTENCE?.trim() === "1";
   const snapshotStore = persistenceEnabled ? new CollaborationSnapshotStore(options.dataDirectory) : null;
   const revocations = new CollaborationInviteRevocationRegistry(
-    persistenceEnabled
-      ? { persistPath: resolve(options.dataDirectory, "collaboration-invite-revocations.json") }
-      : {},
+    persistenceEnabled ? { persistPath: resolve(options.dataDirectory, "collaboration-invite-revocations.json") } : {},
   );
   void revocations.load();
   // An explicit empty mode keeps the factory bound to the provided env

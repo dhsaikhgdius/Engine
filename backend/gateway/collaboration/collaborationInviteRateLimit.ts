@@ -14,8 +14,7 @@ const MAX_TRACKED_KEYS = 4_096;
 
 /** Outcome of one rate-limit check. */
 export type CollaborationInviteRateLimitVerdict =
-  | { allowed: true }
-  | { allowed: false; retryAfterSeconds: number; limitPerMinute: number };
+  { allowed: true } | { allowed: false; retryAfterSeconds: number; limitPerMinute: number };
 
 /**
  * Parses `DIRECTOR_COLLAB_INVITE_RATE_LIMIT_PER_MINUTE`: a positive integer
