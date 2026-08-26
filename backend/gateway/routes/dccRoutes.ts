@@ -24,6 +24,7 @@ import {
 } from "../agents/httpToolGovernance";
 import { UnityLiveLinkError, unityLiveLinkEventPayloadSchema, type UnityLiveLinkHub } from "../dcc/unityLiveLink";
 import { DirectorGodotLiveLinkError, type GodotLiveLinkHub } from "../dcc/godotLiveLink";
+import type { DirectorUnrealLivePreviewHub } from "../dcc/unrealLivePreview";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -84,6 +85,8 @@ export interface DccRouteDependencies {
   unityLiveLink?: UnityLiveLinkHub;
   /** In-memory Godot live-link preview hub (outbound-only transport, never authoritative). */
   godotLiveLink?: GodotLiveLinkHub;
+  /** Unreal loopback live preview hub (read-only status; preview-only, never authoritative). */
+  unrealLivePreview?: DirectorUnrealLivePreviewHub;
   applyAuthoring?: (operation: DirectorWorkbenchOperation) => Promise<DirectorDccAuthoringResponse | null>;
   /** Film-role/plan-mode policy overrides plus the audit trail for POST /api/tools. */
   governance?: HttpToolGovernanceDependencies;
@@ -258,6 +261,7 @@ export async function handleDccRoute(
     engineReturnImporters,
     unityLiveLink,
     godotLiveLink,
+    unrealLivePreview,
     applyAuthoring,
   } = dependencies;
   // Reassigned with an audit-recording wrapper once a governed tool call is admitted.
@@ -279,6 +283,26 @@ export async function handleDccRoute(
 
   if (request.method === "GET" && url.pathname === "/api/dcc/status") {
     json(response, 200, { success: true, result: await blender.status() });
+    return true;
+  }
+  // Read-only Unreal live-preview status snapshot for UI polling. The preview
+  // channel is loopback-only and never authoritative; this route exposes
+  // lifecycle states and counters only — never scene data — and reading it
+  // never mutates a session or the project.
+  if (url.pathname === "/api/dcc/unreal/live-preview/status") {
+    if (request.method !== "GET") {
+      json(response, 405, { success: false, error: "The Unreal live-preview status route is read-only (GET)." });
+      return true;
+    }
+    if (!unrealLivePreview) {
+      json(response, 503, {
+        success: false,
+        code: "live_preview_unavailable",
+        error: "The Unreal live-preview hub is not configured on this gateway.",
+      });
+      return true;
+    }
+    json(response, 200, { success: true, result: unrealLivePreview.status() });
     return true;
   }
   if (request.method === "GET" && url.pathname === "/api/dcc/providers") {

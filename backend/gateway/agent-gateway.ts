@@ -87,6 +87,7 @@ import { createGodotLiveLinkHub } from "./dcc/godotLiveLink";
 import { handleDccRoute } from "./routes/dccRoutes";
 import { createDirectorDccProviderRegistry, registerConfiguredDirectorDccProviders } from "./dcc/dccProviderRegistry";
 import { createUnityLiveLinkHub } from "./dcc/unityLiveLink";
+import { createDirectorUnrealLivePreviewHub } from "./dcc/unrealLivePreview";
 import { createDirectorDccExchangePackager } from "./dcc/dccExchangePackage";
 import { createBlenderNativeSession, BlenderNativeSessionError } from "./dcc/blenderNativeSession";
 import { bindBlenderNativeSessionProject, executeBlenderNativeTool } from "./dcc/blenderNativeTool";
@@ -300,6 +301,10 @@ const dccProviders = createDirectorDccProviderRegistry({
 });
 await registerConfiguredDirectorDccProviders(dccProviders, { workspaceRoot: root });
 const unityLiveLinkHub = createUnityLiveLinkHub();
+// Loopback-only Unreal preview transport: sessions forward camera frames to
+// the connector's editor viewport; the hub exposes a read-only status
+// snapshot and nothing here can mutate the Director project.
+const unrealLivePreviewHub = createDirectorUnrealLivePreviewHub();
 const blenderNativeSession = createBlenderNativeSession(controlPlaneConfig.dcc.blender);
 
 /** Hard deadline in milliseconds for a planner subprocess to produce output. */
@@ -2287,6 +2292,7 @@ const server = createServer(async (request, response) => {
         engineReturnImporters: dccEngineReturnImporters,
         unityLiveLink: unityLiveLinkHub,
         godotLiveLink: godotLiveLinkHub,
+        unrealLivePreview: unrealLivePreviewHub,
         applyAuthoring: async (operation) => {
           const remote = await requestWorkbenchCommand(operation);
           return remote
