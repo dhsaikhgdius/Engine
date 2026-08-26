@@ -24,6 +24,14 @@ _INTERCHANGE_DIR = str(Path(__file__).resolve().parent)
 if _INTERCHANGE_DIR not in sys.path:
     sys.path.insert(0, _INTERCHANGE_DIR)
 
+from director_additions import camera_addition_change, light_addition_change
+from director_animation_curves import (
+    animation_fingerprint,
+    animation_samples_equal,
+    extract_transform_animation,
+    manifest_animation_has_pose_keys,
+    manifest_animation_sample,
+)
 from director_pose_bones import (
     LOCATION_TOLERANCE,
     MIN_DELTA_DEGREES,
@@ -38,6 +46,7 @@ from director_properties import (
     POSE_BONE_MAP_PROPERTY,
     POSE_CONTROL_PREFIX,
     POSE_CONTROLS_BASELINE_PROPERTY,
+    SOURCE_ANIMATION_PROPERTY,
     SOURCE_CAMERA_OPTICS_PROPERTY,
     SOURCE_LIGHT_PROPERTY,
     SOURCE_MESH_SIGNATURE_PROPERTY,
@@ -385,6 +394,13 @@ _DEFAULT_BLENDER_NAMES = frozenset(
         "curve",
         "surface",
         "mball",
+        "camera",
+        "light",
+        "lamp",
+        "sun",
+        "spot",
+        "point",
+        "area",
     )
 )
 
@@ -423,6 +439,117 @@ def addition_review_warnings(root: Any) -> list[str]:
                 "copy and Director does not track the library reference."
             )
     return warnings
+
+
+def addition_identity_warnings(root: Any) -> list[str]:
+    """Review notes shared by every addition kind: anonymous names and linked libraries."""
+    director_id = root.get("director_id")
+    warnings: list[str] = []
+    if is_default_blender_name(getattr(root, "name", None)):
+        warnings.append(
+            f"{director_id}: new object keeps the default Blender name {getattr(root, 'name', '')!r}; "
+            "rename it before import so the Director object is identifiable."
+        )
+    if getattr(root, "library", None) is not None or getattr(getattr(root, "data", None), "library", None) is not None:
+        warnings.append(
+            f"{director_id}: {root.name} uses a linked library datablock; Director does not track the library "
+            "reference."
+        )
+    return warnings
+
+
+def addition_camera_state(root: Any) -> dict[str, Any]:
+    """Read the evaluated state of a new Blender camera offered as an addition."""
+    from mathutils import Vector  # Blender-only; keeps this module import-safe in CI.
+
+    translation = root.matrix_world.translation
+    direction = root.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0))
+    data = root.data
+    return {
+        "name": str(root.name),
+        "transform": blender_transform(root),
+        "position": [float(translation.x), float(translation.y), float(translation.z)],
+        "aim": [float(direction.x), float(direction.y), float(direction.z)],
+        "focalLengthMm": float(data.lens),
+        "apertureFStop": float(data.dof.aperture_fstop),
+        "focusDistanceM": float(data.dof.focus_distance),
+        "nearClipM": float(data.clip_start),
+        "farClipM": float(data.clip_end),
+        "sensorWidthMm": float(data.sensor_width),
+        "sensorHeightMm": float(data.sensor_height),
+    }
+
+
+def addition_light_state(root: Any) -> dict[str, Any]:
+    """Read the evaluated state of a new Blender light offered as an addition."""
+    from mathutils import Vector  # Blender-only; keeps this module import-safe in CI.
+
+    translation = root.matrix_world.translation
+    direction = root.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0))
+    data = root.data
+    return {
+        "name": str(root.name),
+        "lightType": str(data.type),
+        "position": [float(translation.x), float(translation.y), float(translation.z)],
+        "aim": [float(direction.x), float(direction.y), float(direction.z)],
+        "colorHex": color_to_hex(data.color),
+        "energy": float(data.energy),
+        "spotSizeRad": float(getattr(data, "spot_size", 0.0)),
+        "spotBlend": float(getattr(data, "spot_blend", 0.0)),
+        "shape": str(getattr(data, "shape", "SQUARE")),
+        "sizeM": float(getattr(data, "size", 0.0)),
+        "sizeYM": float(getattr(data, "size_y", 0.0)),
+        "castShadow": bool(getattr(data, "use_shadow", False)),
+    }
+
+
+def reconcile_animation(root: Any, source_object: dict[str, Any]) -> tuple[bool, list[dict[str, Any]], list[str]]:
+    """Diff a root's live animation curves against the stamped import baseline.
+
+    Returns ``(changed, keyframes, warnings)``. Curves round-trip only when
+    they are plainly keyed transform channels (see director_animation_curves);
+    everything else is warned about with a structured code and omitted --
+    never silently flattened. Legacy .blend files without a stamped baseline
+    fall back to the source manifest's keyframes and stay warn-and-omit when
+    a difference cannot be attributed honestly.
+    """
+    warnings: list[str] = []
+    stored = _stored_json_object(root, SOURCE_ANIMATION_PROPERTY)
+    if stored is not None and isinstance(stored.get("fingerprint"), str):
+        if stored["fingerprint"] == animation_fingerprint(root):
+            return False, [], warnings
+        if manifest_animation_has_pose_keys(source_object.get("animation")):
+            warnings.append(
+                "animation curves changed, but the exported animation carried per-keyframe character pose values; "
+                "pose keyframes have no Blender curve mapping, so the animation edit was omitted "
+                "(author it on the Director timeline)."
+            )
+            return False, [], warnings
+        live = extract_transform_animation(root)
+        warnings.extend(live.get("warnings", []))
+        if not live["ok"]:
+            warnings.append(
+                f"animation curves changed in Blender but cannot round-trip losslessly ({live['code']}): "
+                f"{live['detail']} The animation edit was omitted; simplify to plainly keyed transform channels "
+                "or author it on the Director timeline."
+            )
+            return False, [], warnings
+        baseline = stored.get("sample")
+        baseline_keyframes = (
+            baseline.get("keyframes") if isinstance(baseline, dict) and baseline.get("ok") is True else None
+        )
+        if baseline_keyframes is not None and animation_samples_equal(live["keyframes"], baseline_keyframes):
+            return False, [], warnings
+        return True, live["keyframes"], warnings
+    live = extract_transform_animation(root)
+    manifest_baseline = manifest_animation_sample(source_object.get("animation"))
+    if live.get("ok") and animation_samples_equal(live.get("keyframes"), manifest_baseline or []):
+        return False, [], warnings
+    warnings.append(
+        "animation appears edited, but this .blend predates stamped animation baselines; the animation was "
+        "omitted. Re-export the scene from Director to round-trip animation curves."
+    )
+    return False, [], warnings
 
 
 def has_director_ancestor(root: Any) -> bool:
@@ -683,10 +810,25 @@ def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, 
                     f"{root.name}: duplicate new director_id {director_id!r}; only the first object was exported."
                 )
                 continue
+            if root.type == "CAMERA":
+                seen_addition_ids.add(director_id)
+                warnings.extend(addition_identity_warnings(root))
+                change, addition_warnings = camera_addition_change(addition_camera_state(root))
+                warnings.extend(f"{director_id}: {message}" for message in addition_warnings)
+                changes.append({**change, "directorId": director_id})
+                continue
+            if root.type == "LIGHT":
+                seen_addition_ids.add(director_id)
+                change, addition_warnings = light_addition_change(addition_light_state(root))
+                warnings.extend(f"{director_id}: {message}" for message in addition_warnings)
+                if change is not None:
+                    warnings.extend(addition_identity_warnings(root))
+                    changes.append({**change, "directorId": director_id})
+                continue
             if not descendant_meshes(root):
                 warnings.append(
-                    f"{root.name}: new director_id {director_id!r} has no mesh geometry; Director additions import "
-                    "as mesh props, so it was skipped."
+                    f"{root.name}: new director_id {director_id!r} has no mesh geometry; Director imports new "
+                    "objects as mesh props, cameras, or lights, so it was skipped."
                 )
                 continue
             seen_addition_ids.add(director_id)
@@ -732,6 +874,20 @@ def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, 
                 )
             continue
         if source_camera is not None:
+            stored_camera_animation = _stored_json_object(root, SOURCE_ANIMATION_PROPERTY)
+            if (
+                isinstance(stored_camera_animation, dict)
+                and isinstance(stored_camera_animation.get("fingerprint"), str)
+                and stored_camera_animation["fingerprint"] != animation_fingerprint(root, include_data_animation=True)
+            ):
+                # Camera look targets and focal-length curves have no lossless
+                # Director mapping (camera_animation); say so instead of
+                # flattening the move into a current-frame transform.
+                warnings.append(
+                    f"{director_id}: camera animation curves changed in Blender, but camera animation has no "
+                    "lossless Director mapping (camera_animation); the animation edit was omitted. Author camera "
+                    "moves on the Director timeline."
+                )
             transform_changed = not transforms_equal(current_transform, _stored_transform(root, source_camera["transform"]))
             optics_baseline = _stored_json_object(root, SOURCE_CAMERA_OPTICS_PROPERTY)
             legacy_optics_baseline = optics_baseline is None
@@ -778,6 +934,8 @@ def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, 
         meshes = descendant_meshes(root)
         source_transform = _stored_transform(root, source_object["transform"])
         transform_changed = not transforms_equal(current_transform, source_transform)
+        animation_changed, animation_keyframes, animation_warnings = reconcile_animation(root, source_object)
+        warnings.extend(f"{director_id}: {message}" for message in animation_warnings)
         source_mesh_signature = root.get(SOURCE_MESH_SIGNATURE_PROPERTY)
         current_mesh_signature = mesh_content_signature(root) if meshes else None
         mesh_changed = bool(meshes) and (
@@ -858,6 +1016,28 @@ def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, 
                     f"{director_id}: the pose sample was omitted because this return already replaces the mesh; "
                     "apply the mesh, then run another return export for the pose."
                 )
+            if animation_changed:
+                warnings.append(
+                    f"{director_id}: the animation update was omitted because this return already replaces the "
+                    "mesh; apply the mesh, then run another return export for the animation."
+                )
+        elif animation_changed:
+            change = {
+                "kind": "animation_update",
+                "directorId": director_id,
+                "entityType": "object",
+                "keyframes": animation_keyframes,
+            }
+            # The base transform sampled at currentFrame keeps the entity
+            # placed when the Director timeline is disabled or emptied.
+            if transform_changed:
+                change["transform"] = current_transform
+            changes.append(change)
+            if pose_changed:
+                warnings.append(
+                    f"{director_id}: the pose sample was omitted because this return already replaces the "
+                    "animation; apply the animation, then run another return export for the pose."
+                )
         elif pose_changed:
             change = {
                 "kind": "pose_update",
@@ -884,8 +1064,8 @@ def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, 
             continue
         if item.type == "LIGHT":
             warnings.append(
-                f"{item.name}: Blender light has no director_id; Director does not auto-create lights from a "
-                "return package, so it was not included."
+                f"{item.name}: Blender light has no director_id and was not included in the return package. "
+                "Assign a fresh director_id custom property to offer it as a reviewed, opt-in light addition."
             )
             continue
         warnings.append(
@@ -940,7 +1120,11 @@ def main() -> int:
             "cameraCount": sum(change["kind"] == "camera_update" for change in manifest["changes"]),
             "lightCount": sum(change["kind"] == "light_update" for change in manifest["changes"]),
             "poseCount": sum(change["kind"] == "pose_update" for change in manifest["changes"]),
-            "additionCount": sum(change["kind"] == "object_addition" for change in manifest["changes"]),
+            "animationCount": sum(change["kind"] == "animation_update" for change in manifest["changes"]),
+            "additionCount": sum(
+                change["kind"] in ("object_addition", "camera_addition", "light_addition")
+                for change in manifest["changes"]
+            ),
             "warnings": manifest["warnings"],
             "blenderVersion": manifest["blenderVersion"],
         }

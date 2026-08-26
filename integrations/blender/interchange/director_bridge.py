@@ -19,6 +19,7 @@ _INTERCHANGE_DIR = str(Path(__file__).resolve().parent)
 if _INTERCHANGE_DIR not in sys.path:
     sys.path.insert(0, _INTERCHANGE_DIR)
 
+from director_animation_curves import animation_fingerprint, extract_transform_animation
 from director_pose_bones import resolve_pose_bone_roles
 from director_properties import (
     CAMERA_TARGET_PROPERTY,
@@ -26,6 +27,7 @@ from director_properties import (
     POSE_BONE_MAP_PROPERTY,
     POSE_CONTROL_PREFIX,
     POSE_CONTROLS_BASELINE_PROPERTY,
+    SOURCE_ANIMATION_PROPERTY,
     SOURCE_CAMERA_OPTICS_PROPERTY,
     SOURCE_LIGHT_PROPERTY,
     SOURCE_MESH_SIGNATURE_PROPERTY,
@@ -190,10 +192,27 @@ def stamp_source_baselines(payload: dict[str, Any]) -> None:
             if pose_fingerprint is not None:
                 root[SOURCE_POSE_FINGERPRINT_PROPERTY] = pose_fingerprint
                 stamp_pose_bone_baselines(root)
+            # The fingerprint detects any curve edit; the extracted sample is
+            # the no-op baseline a Blender-authored animation_update diffs
+            # against (float32-safe on the return side).
+            root[SOURCE_ANIMATION_PROPERTY] = json.dumps(
+                {"fingerprint": animation_fingerprint(root), "sample": extract_transform_animation(root)},
+                separators=(",", ":"),
+                sort_keys=True,
+            )
         camera_item = camera_items.get(director_id)
         if camera_item is not None:
             root[CAMERA_TARGET_PROPERTY] = json.dumps(camera_item["target"], separators=(",", ":"))
             if root.type == "CAMERA":
+                # Camera animation does not round-trip (look targets and lens
+                # curves have no lossless Director mapping); the fingerprint
+                # only detects edits so the return can warn instead of
+                # silently flattening them into a current-frame transform.
+                root[SOURCE_ANIMATION_PROPERTY] = json.dumps(
+                    {"fingerprint": animation_fingerprint(root, include_data_animation=True)},
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
                 # The optics baseline uses evaluated values (a focal-length
                 # animation may have moved data.lens away from the package
                 # value at currentFrame), so an untouched round trip is a no-op.

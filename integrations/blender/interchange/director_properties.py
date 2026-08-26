@@ -27,6 +27,13 @@ SOURCE_CAMERA_OPTICS_PROPERTY = "director_source_camera_optics"
 # color, intensity, energy, wattsPerIntensity).
 SOURCE_LIGHT_PROPERTY = "director_source_light"
 
+# Import-time animation baseline of a Director-tracked root (JSON:
+# {"fingerprint": sha256 of every fcurve/NLA/driver stanza, "sample":
+# extract_transform_animation result}). Objects stamp fingerprint + sample;
+# cameras stamp the fingerprint only (including lens data curves) because
+# camera animation does not round-trip.
+SOURCE_ANIMATION_PROPERTY = "director_source_animation"
+
 # Import-time baseline of a Director character's portable pose controls
 # (JSON: control key -> value). The editable per-control values live in
 # individual custom properties named POSE_CONTROL_PREFIX + control key.
