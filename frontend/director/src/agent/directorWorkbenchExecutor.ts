@@ -13,10 +13,7 @@ import { safeParseDirectorProject } from "@director/project-schema";
 import { directorUiStateSchema } from "@director/protocol/workbench-ui";
 import type { DirectorStore, DirectorUiState } from "../comprehensive/editor/store/directorStore";
 import { applyDirectorPageEvent } from "../comprehensive/editor/assistant/pageStateBridge";
-import {
-  dispatchDirectorSessionCommand,
-  directorPlayerScriptTimeoutMs,
-} from "./directorSessionCommandBus";
+import { dispatchDirectorSessionCommand, directorPlayerScriptTimeoutMs } from "./directorSessionCommandBus";
 import { useTimelineRuntimeStore } from "../comprehensive/editor/runtime/timelineRuntimeStore";
 import type {
   DirectorAuditIssueInput,
