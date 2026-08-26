@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorWorldWeather } from "../../../../../src/comprehensive/editor/schema/directorProject";
-import { evaluateSkyWeatherMood, resolveSkyWeatherMood } from "../../../../../src/comprehensive/editor/world/sky/skyWeather";
+import {
+  evaluateSkyWeatherMood,
+  resolveSkyWeatherMood,
+} from "../../../../../src/comprehensive/editor/world/sky/skyWeather";
 import type { WorldClimateState } from "../../../../../src/comprehensive/editor/world/worldClimate";
 
 const PRESETS = ["clear", "overcast", "rain", "snow", "storm"] as const;

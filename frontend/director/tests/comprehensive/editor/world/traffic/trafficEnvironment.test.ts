@@ -117,9 +117,7 @@ describe("road surface appearance", () => {
         for (const wetness of [0, 0.4, 1]) {
           const settings = makeSettings({ preset, intensity, wetness });
           const climate = evaluateWorldClimate(settings, 25);
-          expect(computeClimateRoadSurfaceAppearance(climate)).toEqual(
-            computeRoadSurfaceAppearance(settings.weather),
-          );
+          expect(computeClimateRoadSurfaceAppearance(climate)).toEqual(computeRoadSurfaceAppearance(settings.weather));
         }
       }
     }

@@ -131,10 +131,7 @@ describe("environment determinism", () => {
     });
     const cases: Array<[DirectorWorldWildlifeGroup, WildlifeSimEnvironment]> = [
       [makeGroup("birds", 48), { settings }],
-      [
-        makeGroup("sheep", 32),
-        { settings, predatorZones: [{ x: 10, z: 0, radius: 8 }] },
-      ],
+      [makeGroup("sheep", 32), { settings, predatorZones: [{ x: 10, z: 0, radius: 8 }] }],
       [
         makeGroup("fish", 40, { area: { center: [0, 2, 0], radius: 10 } }),
         { settings, waterRects: [{ centerX: 0, centerZ: 0, sizeX: 16, sizeZ: 16, rotationDegrees: 20 }] },
