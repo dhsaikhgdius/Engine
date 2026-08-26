@@ -220,7 +220,7 @@ export interface GatewayContext {
   blenderReturnImporter: ReturnType<typeof createBlenderReturnImporter>;
   /** Importer for Blender scene files. */
   blenderSceneImporter: ReturnType<typeof createBlenderSceneImporter>;
-  /** Importer for Unreal / Unity engine scene packages. */
+  /** Importer for Unreal / Unity / Godot engine scene packages. */
   engineSceneImporter: ReturnType<typeof createEngineSceneImporter>;
   /** Registry of configured DCC providers. */
   dccProviders: ReturnType<typeof createDirectorDccProviderRegistry>;

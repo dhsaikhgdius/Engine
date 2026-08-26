@@ -4,6 +4,7 @@ import {
   directorWorkbenchCatalogIdSchema,
   directorWorkbenchOperationSchema,
 } from "@director/agent-engine";
+import { directorDccOperationSchema } from "@director/dcc-protocol";
 import { creativeWorkspaceAgentRequestSchema } from "@director/protocol/creative-workspace";
 import { blenderNativeToolRequestSchema } from "@director/protocol/blender-live";
 import { videoModelOperationSchema, videoProviderIdSchema } from "@director/protocol/video-generation";
@@ -242,12 +243,86 @@ export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
     assetType: z.enum(["hdris", "textures", "models", "all"]).optional().describe('For op="polyhaven_search".'),
     uid: z.string().optional().describe("Sketchfab model uid for sketchfab_import."),
   }),
+  director_dcc: compactWireSchema(
+    directorDccOperationSchema,
+    'Operation. Call {"op":"discover"} first: it reports installed, exchangeReady, nativeReady, and capability maturity per provider. Other fields ride alongside op and are strictly validated by the Gateway.',
+  ).extend({
+    provider: z
+      .string()
+      .optional()
+      .describe(
+        "Provider id. send_to_engine / receive_from_engine / extract_engine_scene use unreal, unity, or godot; apply_import_plan also accepts blender (its default); status and export_exchange_package accept any discovered provider id.",
+      ),
+    package_dir: z
+      .string()
+      .optional()
+      .describe(
+        'Required for receive_from_engine and import_return_package: the return package directory from the send receipt (e.g. "JOB_ID/return").',
+      ),
+    project_dir: z
+      .string()
+      .optional()
+      .describe(
+        "Required for extract_engine_scene: the engine project directory inside the workspace or DIRECTOR_ENGINE_PROJECT_ROOT.",
+      ),
+    scene: z
+      .string()
+      .optional()
+      .describe(
+        'Optional scene for extract_engine_scene: "/Game/Maps/Set" (unreal), "Assets/Scenes/Main.unity" (unity), or "res://scenes/main.tscn" (godot).',
+      ),
+    plan_id: z
+      .string()
+      .optional()
+      .describe("Required for apply_engine_scene_import and apply_blend_scene_import: the planId from the preview."),
+    expected_revision: z
+      .string()
+      .optional()
+      .describe("Revision guard for apply operations: the project_revision the plan was built against."),
+    idempotency_key: z
+      .string()
+      .optional()
+      .describe("Apply operations: a unique key for this intent; reuse it only to replay the identical apply."),
+    clean_frame: z
+      .boolean()
+      .optional()
+      .describe("send_to_engine, Unreal only: also render one clean still (no gizmos) and attach its receipt."),
+    headless: z
+      .boolean()
+      .optional()
+      .describe("run_engine_project: run without a window; the bounded debug-output capture is unchanged."),
+    label: z.string().optional().describe("start_engine_session: optional engine workshop label."),
+    port: z.number().int().optional().describe("start_engine_session, Unreal only: live-preview listener port."),
+    allow_code: z
+      .boolean()
+      .optional()
+      .describe("start_engine_session: explicit local grant for C#, GDScript, or Editor Python execute_code."),
+    authority: z
+      .enum(["director", "engine"])
+      .optional()
+      .describe("start_engine_session: engine enables repeated engine → Director review sync."),
+    session_id: z.string().optional().describe("Engine session id returned by start_engine_session."),
+    command: z
+      .enum(["capture_frame", "execute_code", "sync_scene"])
+      .optional()
+      .describe("engine_session_command: capture, execute, or snapshot the already-open editor."),
+    code: z
+      .string()
+      .optional()
+      .describe("execute_code: C# for Unity, GDScript for Godot, or Editor Python for Unreal."),
+    command_id: z.string().optional().describe("engine_session_command_status: id returned by engine_session_command."),
+    camera: z.string().optional().describe("render_engine_frame or capture_frame: camera name/id."),
+    width: z.number().int().optional(),
+    height: z.number().int().optional(),
+  }),
   director_game: compactWireSchema(
     directorGameOperationSchema,
     'Operation. Use {"op":"capabilities"} or {"op":"describe","target":"plan"} when fields are unknown. Stage is the first playable runtime; engine export is director_dcc after a playable receipt.',
   ).extend({
     target: z.string().optional().describe('Required for op="describe", e.g. "plan" or "playtest".'),
-    slice_id: gameSliceIdSchema.optional().describe("Existing slice id for observe/bind/playtest/evaluate/export_slice."),
+    slice_id: gameSliceIdSchema
+      .optional()
+      .describe("Existing slice id for observe/bind/playtest/evaluate/export_slice."),
     brief: z
       .looseObject({ requirement: z.string().min(1), genre: gameSliceGenreSchema })
       .optional()
@@ -309,6 +384,14 @@ export const DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
       'Plan and playtest a typed game slice on the live Director Stage. Start with {"op":"capabilities"} or {"op":"describe","target":"plan"}; bind Stage object ids before playtest; a scripted input tape is playability evidence, not a compile. Engine export is director_dcc after status playable — do not dump engine source.',
     inputSchema: z.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_game),
     dshParameters: dshToolParameters(z.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_game)),
+  },
+  {
+    type: "function" as const,
+    name: "director_dcc",
+    description:
+      "Use discover first, then hand Director projects to Blender or a game engine. render_engine_frame gives Unreal, Unity, and Godot independent visual feedback. start_engine_session reuses open editors for opt-in execute_code and engine-owned sync_scene; Unity and Godot also serve hot capture_frame, while Unreal uses render_engine_frame. sync_engine_session_to_director updates the stable-id review view while native game state stays in the engine. Live Blender modeling stays on blender_native; film handoff keeps the reviewed send/receive path.",
+    inputSchema: z.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_dcc),
+    dshParameters: dshToolParameters(z.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_dcc)),
   },
 ] as const;
 

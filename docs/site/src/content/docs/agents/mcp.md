@@ -22,7 +22,7 @@ Reload the coding-agent session after the project MCP configuration is present.
 | -------------------- | -------------------------------------------------------------------------------------------------------- |
 | `director_workbench` | Complete editor observation, authoring, audit, capture, Shot IR, multi-pass Shot Package, and UI control |
 | `director_creative`  | Canvas/Video observation, atomic editing, audit, and fingerprint-bound clean PNG preview                 |
-| `director_dcc`       | Blender status, stable-ID round trips, and preview/apply of uploaded `.blend` scene plans                |
+| `director_dcc`       | DCC/engine handoff: provider discovery, Blender `.blend` round trips, Unreal/Unity/Godot headless send + guarded returns, and engine scene import |
 | `stage_read`         | Compact observation, inspection, critique, full state, and camera capture                                |
 | `stage_scene`        | Reset, scene settings, validation, and scene-level mutations                                             |
 | `stage_object`       | Create, transform, place, parent, animate, and remove white-box objects                                  |

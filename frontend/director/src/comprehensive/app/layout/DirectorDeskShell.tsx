@@ -222,7 +222,15 @@ export function DirectorDeskShell({
         aria-hidden={panelsHidden ? "true" : undefined}
         aria-label="场景"
       >
-        <ObjectTreePanel />
+        <ObjectTreePanel
+          onSceneSettingsOpen={() =>
+            setLayout((current) => ({
+              ...current,
+              rightPanelCollapsed: false,
+              rightPanelMode: "properties",
+            }))
+          }
+        />
       </aside>
       {!panelsHidden ? (
         <div

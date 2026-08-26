@@ -15,16 +15,18 @@ function pluginTool(name: (typeof DIRECTOR_WORKBENCH_PLUGIN_TOOLS)[number]["name
 }
 
 describe("Director DSH workbench plugin catalog", () => {
-  it("owns Stage, Canvas/Video, generation, Blender, and game-slice tools", () => {
+  it("owns Stage, Canvas/Video, generation, Blender, game-slice, and DCC handoff tools", () => {
     expect(DIRECTOR_WORKBENCH_PLUGIN_TOOLS.map((tool) => tool.name)).toEqual([
       "director_creative",
       "director_workbench",
       "stage_video",
       "blender_native",
       "director_game",
+      "director_dcc",
     ]);
     expect(isDirectorWorkbenchPluginTool("read")).toBe(false);
     expect(isDirectorWorkbenchPluginTool("director_workbench")).toBe(true);
+    expect(isDirectorWorkbenchPluginTool("director_dcc")).toBe(true);
   });
 
   it("keeps compact discoverable envelopes for each domain tool", () => {
@@ -327,6 +329,63 @@ describe("Director DSH workbench plugin catalog", () => {
       DIRECTOR_AGENT_WIRE_SCHEMAS.director_game.safeParse({
         op: "plan",
         brief: { requirement: "walk to a stele", genre: "exploration" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("routes director_dcc through a compact envelope covering all four hosts", () => {
+    const dcc = pluginTool("director_dcc");
+    expect(dcc.description).toContain("discover");
+    expect(dcc.description).toContain("blender_native");
+    expect(dcc.description).toContain("Godot");
+    expect(dcc.description.length).toBeLessThan(1200);
+    const schema = dcc.dshParameters as {
+      properties?: {
+        op?: { enum?: unknown[] };
+        provider?: unknown;
+        package_dir?: unknown;
+        project_dir?: unknown;
+        plan_id?: unknown;
+      };
+      required?: string[];
+    };
+    expect(schema.properties?.op?.enum).toEqual(
+      expect.arrayContaining([
+        "discover",
+        "status",
+        "export_exchange_package",
+        "send_to_engine",
+        "receive_from_engine",
+        "apply_import_plan",
+        "extract_engine_scene",
+        "preview_engine_scene_import",
+        "apply_engine_scene_import",
+        "start_engine_session",
+        "engine_session_command",
+        "engine_session_command_status",
+        "stop_engine_session",
+      ]),
+    );
+    expect(schema.properties?.provider).toBeDefined();
+    expect(schema.properties?.package_dir).toBeDefined();
+    expect(schema.properties?.project_dir).toBeDefined();
+    expect(schema.properties?.plan_id).toBeDefined();
+    expect(schema.required).toContain("op");
+    expect(DIRECTOR_AGENT_WIRE_SCHEMAS.director_dcc.safeParse({ op: "discover" }).success).toBe(true);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.director_dcc.safeParse({
+        op: "extract_engine_scene",
+        provider: "godot",
+        project_dir: "GodotProject",
+        scene: "res://scenes/main.tscn",
+      }).success,
+    ).toBe(true);
+    expect(
+      DIRECTOR_AGENT_WIRE_SCHEMAS.director_dcc.safeParse({
+        op: "engine_session_command",
+        provider: "unity",
+        session_id: "session-1",
+        command: "capture_frame",
       }).success,
     ).toBe(true);
   });

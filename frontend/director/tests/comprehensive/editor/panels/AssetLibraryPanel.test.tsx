@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -113,6 +113,17 @@ it("uses Flick-only categories and adds a locally mirrored Flick component", asy
   await user.click(screen.getByRole("tab", { name: "动物" }));
   const previewCard = await screen.findByRole("button", { name: "预览模型 Cat" });
   expect(previewCard).toHaveAttribute("draggable", "true");
+  expect(screen.getByText("拖入场景直接放置")).toBeInTheDocument();
+  expect(screen.getByText("单击可预览")).toBeInTheDocument();
+  const dataTransfer = {
+    effectAllowed: "none",
+    setData: vi.fn(),
+    setDragImage: vi.fn(),
+  } as unknown as DataTransfer;
+  fireEvent.dragStart(previewCard, { dataTransfer });
+  expect(previewCard).toHaveClass("is-dragging");
+  fireEvent.dragEnd(previewCard, { dataTransfer });
+  expect(previewCard).not.toHaveClass("is-dragging");
   expect(previewCard.querySelector("img.model-library-thumb-image")).toHaveAttribute(
     "src",
     "/flick-stage-props/thumbnails/animals/cat.webp",

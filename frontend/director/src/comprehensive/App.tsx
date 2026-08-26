@@ -12,7 +12,18 @@ import "./styles/objectTreePanel.css";
 import "./styles/rightSidebar.css";
 import "./styles/workspaceLoading.css";
 import { lazy, Suspense, useEffect, useLayoutEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { Bot, Boxes, ChevronDown, Film, Languages, LayoutDashboard, Minimize2, Moon, Sun } from "lucide-react";
+import {
+  Bot,
+  Boxes,
+  ChevronDown,
+  ChevronsRight,
+  Film,
+  Languages,
+  LayoutDashboard,
+  Minimize2,
+  Moon,
+  Sun,
+} from "lucide-react";
 import { LanguageProvider, useLanguage } from "./i18n/language";
 import { WorkspaceErrorBoundary } from "./app/errors/WorkspaceErrorBoundary";
 import { HelpMenu } from "./app/help/HelpMenu";
@@ -106,6 +117,26 @@ function isComfyUiEmbedded() {
   return new URLSearchParams(window.location.search).get("embed") === "comfyui";
 }
 
+/** localStorage key for the top-bar settings cluster collapsed preference. */
+export const SETTINGS_CLUSTER_COLLAPSED_STORAGE_KEY = "director.ui.settings-cluster-collapsed.v1";
+
+function readSettingsClusterCollapsed() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SETTINGS_CLUSTER_COLLAPSED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function persistSettingsClusterCollapsed(collapsed: boolean) {
+  try {
+    window.localStorage.setItem(SETTINGS_CLUSTER_COLLAPSED_STORAGE_KEY, collapsed ? "1" : "0");
+  } catch {
+    // Private mode or quota: keep the in-session choice.
+  }
+}
+
 function getRequestedAppWorkspace(): DirectorAppWorkspace | null {
   if (typeof window === "undefined") return null;
   return readDirectorAppWorkspaceFromLocation();
@@ -128,6 +159,7 @@ function DirectorApp() {
   const [agentOpen, setAgentOpen] = useState(() => requestedAppWorkspace === "agent");
   const [workspaceLayout, setWorkspaceLayout] = useState<DirectorWorkspaceLayout>(DEFAULT_DIRECTOR_WORKSPACE_LAYOUT);
   const [blenderLiveVisible, setBlenderLiveVisible] = useState(true);
+  const [settingsClusterCollapsed, setSettingsClusterCollapsed] = useState(readSettingsClusterCollapsed);
   const captureHostNeeded = useSyncExternalStore(
     subscribeViewportCaptureHost,
     isViewportCaptureHostNeeded,
@@ -341,48 +373,70 @@ function DirectorApp() {
           <div aria-hidden="true" className="top-bar-center flex items-center justify-center min-w-0" />
         )}
         <div className="top-bar-actions flex items-center justify-end min-w-0 gap-2.5">
-          <div className="top-bar-settings-cluster">
-            {!comfyUiEmbedded ? (
-              <Suspense fallback={null}>
-                <DirectorInterchangeMenu workspace={creativeWorkspaceMode} />
-              </Suspense>
-            ) : null}
-            <ViewportNavigationSettings
-              blenderLive={
-                activeAppWorkspace === "stage"
-                  ? { visible: blenderLiveVisible, onVisibleChange: setBlenderLiveVisible }
-                  : undefined
-              }
-            />
-            <PerformanceSettings />
-            {!comfyUiEmbedded ? <AgentWorkspaceSettings /> : null}
-            <DirectorTaskTrayMenu />
-            {!comfyUiEmbedded ? <HelpMenu /> : null}
-            <EditorShortcuts workspace={creativeWorkspaceMode} />
-            <button
-              aria-label={t(theme === "dark" ? "切换到浅色模式" : "切换到深色模式")}
-              aria-pressed={theme === "light"}
-              className="top-bar-settings-trigger theme-switcher"
-              onClick={() => applyDirectorTheme(theme === "dark" ? "light" : "dark", { persist: true })}
-              title={t(theme === "dark" ? "切换到浅色模式" : "切换到深色模式")}
-              type="button"
+          <div className={`top-bar-settings-cluster${settingsClusterCollapsed ? " is-collapsed" : ""}`}>
+            <div
+              aria-hidden={settingsClusterCollapsed}
+              className="top-bar-settings-fold"
+              id="top-bar-settings-fold"
+              {...(settingsClusterCollapsed ? { inert: "" } : {})}
             >
-              {theme === "dark" ? <Sun aria-hidden size={14} /> : <Moon aria-hidden size={14} />}
-              <span className="top-bar-settings-label">{t(theme === "dark" ? "浅色" : "深色")}</span>
+              <div className="top-bar-settings-fold-inner">
+                {!comfyUiEmbedded ? (
+                  <Suspense fallback={null}>
+                    <DirectorInterchangeMenu workspace={creativeWorkspaceMode} />
+                  </Suspense>
+                ) : null}
+                <ViewportNavigationSettings
+                  blenderLive={
+                    activeAppWorkspace === "stage"
+                      ? { visible: blenderLiveVisible, onVisibleChange: setBlenderLiveVisible }
+                      : undefined
+                  }
+                />
+                <PerformanceSettings />
+                {!comfyUiEmbedded ? <AgentWorkspaceSettings /> : null}
+                <DirectorTaskTrayMenu />
+                {!comfyUiEmbedded ? <HelpMenu /> : null}
+                <button
+                  aria-label={t(theme === "dark" ? "切换到浅色模式" : "切换到深色模式")}
+                  aria-pressed={theme === "light"}
+                  className="top-bar-settings-trigger theme-switcher"
+                  onClick={() => applyDirectorTheme(theme === "dark" ? "light" : "dark", { persist: true })}
+                  title={t(theme === "dark" ? "切换到浅色模式" : "切换到深色模式")}
+                  type="button"
+                >
+                  {theme === "dark" ? <Sun aria-hidden size={14} /> : <Moon aria-hidden size={14} />}
+                  <span className="top-bar-settings-label">{t(theme === "dark" ? "浅色" : "深色")}</span>
+                </button>
+                <label className="top-bar-settings-trigger language-switcher" title={t("界面语言")}>
+                  <Languages aria-hidden size={14} />
+                  <span className="sr-only">{t("界面语言")}</span>
+                  <select
+                    aria-label={t("界面语言")}
+                    value={locale}
+                    onChange={(event) => setLocale(event.currentTarget.value as typeof locale)}
+                  >
+                    <option value="zh-CN">{t("中文")}</option>
+                    <option value="en-US">English</option>
+                  </select>
+                  <ChevronDown aria-hidden className="top-bar-settings-chevron" size={12} />
+                </label>
+              </div>
+            </div>
+            <button
+              aria-controls="top-bar-settings-fold"
+              aria-expanded={!settingsClusterCollapsed}
+              className="top-bar-settings-trigger top-bar-settings-collapse"
+              type="button"
+              onClick={() => {
+                const next = !settingsClusterCollapsed;
+                setSettingsClusterCollapsed(next);
+                persistSettingsClusterCollapsed(next);
+              }}
+            >
+              <ChevronsRight aria-hidden className="top-bar-settings-collapse-icon" size={14} />
             </button>
-            <label className="top-bar-settings-trigger language-switcher" title={t("界面语言")}>
-              <Languages aria-hidden size={14} />
-              <span className="sr-only">{t("界面语言")}</span>
-              <select
-                aria-label={t("界面语言")}
-                value={locale}
-                onChange={(event) => setLocale(event.currentTarget.value as typeof locale)}
-              >
-                <option value="zh-CN">{t("中文")}</option>
-                <option value="en-US">English</option>
-              </select>
-              <ChevronDown aria-hidden className="top-bar-settings-chevron" size={12} />
-            </label>
+            <EditorShortcuts workspace={creativeWorkspaceMode} />
           </div>
         </div>
       </header>

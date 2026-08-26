@@ -17,7 +17,7 @@ export const DIRECTOR_UNREAL_LIVE_PREVIEW_SESSION_CONTRACT = "director-unreal-li
 export const DIRECTOR_UNREAL_LIVE_PREVIEW_MAX_LINE_BYTES = 64 * 1024;
 
 /** Default silent-peer disconnect timeout in milliseconds (mirrors the connector). */
-export const DIRECTOR_UNREAL_LIVE_PREVIEW_DEFAULT_STALE_TIMEOUT_MS = 5_000;
+export const DIRECTOR_UNREAL_LIVE_PREVIEW_DEFAULT_STALE_TIMEOUT_MS = 30 * 60 * 1_000;
 
 const nonEmpty = z.string().trim().min(1);
 
@@ -53,10 +53,30 @@ export const directorUnrealLivePreviewByeSchema = z.strictObject({ type: z.liter
 /** A validated live preview bye message. */
 export type DirectorUnrealLivePreviewBye = z.infer<typeof directorUnrealLivePreviewByeSchema>;
 
+/** Opt-in commands carried by the already-open Unreal editor connection. */
+export const directorUnrealLivePreviewEditorCommandSchema = z.discriminatedUnion("command", [
+  z.strictObject({
+    type: z.literal("editor_command"),
+    commandId: z.string().uuid(),
+    command: z.literal("execute_code"),
+    language: z.literal("python"),
+    code: z.string().min(1).max(100_000),
+  }),
+  z.strictObject({
+    type: z.literal("editor_command"),
+    commandId: z.string().uuid(),
+    command: z.literal("sync_scene"),
+  }),
+]);
+
+/** A validated Unreal editor command. */
+export type DirectorUnrealLivePreviewEditorCommand = z.infer<typeof directorUnrealLivePreviewEditorCommandSchema>;
+
 /** Every message the Gateway may write onto the preview socket. */
-export const directorUnrealLivePreviewClientMessageSchema = z.discriminatedUnion("type", [
+export const directorUnrealLivePreviewClientMessageSchema = z.union([
   directorUnrealLivePreviewHelloSchema,
   directorUnrealLivePreviewFrameSchema,
+  directorUnrealLivePreviewEditorCommandSchema,
   directorUnrealLivePreviewByeSchema,
 ]);
 
@@ -93,7 +113,7 @@ export const directorUnrealLivePreviewSessionSummarySchema = z.strictObject({
   forwardedFrameCount: z.number().int().nonnegative(),
   /** Frames dropped before the socket (stale seq, duplicate seq, malformed body). */
   droppedFrameCount: z.number().int().nonnegative(),
-  /** Inbound bytes ignored: the preview channel is strictly one-way. */
+  /** Inbound bytes observed; only matching command receipts are parsed. */
   ignoredInboundByteCount: z.number().int().nonnegative(),
   closed: z.boolean(),
   disconnectReason: directorUnrealLivePreviewDisconnectReasonSchema.nullable(),
@@ -103,3 +123,57 @@ export const directorUnrealLivePreviewSessionSummarySchema = z.strictObject({
 
 /** A validated Gateway live preview session summary. */
 export type DirectorUnrealLivePreviewSessionSummary = z.infer<typeof directorUnrealLivePreviewSessionSummarySchema>;
+
+/** Contract identifier for one Gateway-held live preview session record. */
+export const DIRECTOR_UNREAL_LIVE_PREVIEW_STATUS_CONTRACT = "director-unreal-live-preview-status-v1" as const;
+
+/**
+ * Caller request to open one Gateway → connector preview session. The
+ * loopback port is the one `director_headless.py --mode live-preview` printed
+ * on start; the shared token is never part of the request — the gateway reads
+ * DIRECTOR_UNREAL_PREVIEW_TOKEN from its own environment.
+ */
+export const directorUnrealLivePreviewOpenRequestSchema = z.strictObject({
+  port: z.number().int().min(1).max(65_535),
+  staleTimeoutMs: z.number().int().min(100).max(300_000).optional(),
+  allowCode: z.boolean().optional().default(false),
+  authority: z.enum(["director", "engine"]).optional().default("director"),
+});
+
+/** A validated live preview session open request. */
+export type DirectorUnrealLivePreviewOpenRequest = z.infer<typeof directorUnrealLivePreviewOpenRequestSchema>;
+
+/**
+ * One Gateway-held preview session record: the loopback port it targets and
+ * the preview-only counters. Like the summary itself, this record carries no
+ * scene data and never the shared token.
+ */
+export const directorUnrealLivePreviewSessionStatusSchema = z.strictObject({
+  contract: z.literal(DIRECTOR_UNREAL_LIVE_PREVIEW_STATUS_CONTRACT),
+  sessionId: nonEmpty.max(120),
+  port: z.number().int().min(1).max(65_535),
+  allowCode: z.boolean(),
+  authority: z.enum(["director", "engine"]),
+  openedAtMs: z.number().int().nonnegative(),
+  summary: directorUnrealLivePreviewSessionSummarySchema,
+});
+
+/** A validated Gateway-held live preview session record. */
+export type DirectorUnrealLivePreviewSessionStatus = z.infer<typeof directorUnrealLivePreviewSessionStatusSchema>;
+
+/** Machine-readable error codes for the Gateway live preview HTTP surface. */
+export const directorUnrealLivePreviewErrorCodeSchema = z.enum([
+  "live_preview_unavailable",
+  "live_preview_token_missing",
+  "live_preview_invalid",
+  "live_preview_session_limit",
+  "live_preview_session_unknown",
+  "live_preview_connect_failed",
+  "engine_session_code_disabled",
+  "engine_session_authority_required",
+  "engine_session_command_unknown",
+  "engine_session_command_unsupported",
+]);
+
+/** A validated live preview error code. */
+export type DirectorUnrealLivePreviewErrorCode = z.infer<typeof directorUnrealLivePreviewErrorCodeSchema>;

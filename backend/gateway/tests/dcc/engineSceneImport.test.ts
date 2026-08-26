@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import JSZip from "jszip";
@@ -47,7 +47,7 @@ function buildManifest(
     packageId: `${provider}-scene-fixture`,
     provider,
     exportedAt: "2026-08-25T00:00:00.000Z",
-    engineVersion: provider === "unreal" ? "5.6.1" : "6000.0.82f1",
+    engineVersion: provider === "unreal" ? "5.6.1" : provider === "unity" ? "6000.0.82f1" : "Godot 4.4.1",
     exporter: { name: `director-${provider}-scene-export`, version: "1.0.0" },
     source: { projectName: "Fixture", sceneName: "Set" },
     coordinateSystem:
@@ -58,12 +58,19 @@ function buildManifest(
             unit: "meter",
             linearMap: "(x,y,z)->(y,z,-x)*0.01",
           }
-        : {
-            source: "left-handed-y-up-z-forward-meter",
-            destination: "right-handed-y-up-negative-z-forward",
-            unit: "meter",
-            linearMap: "(x,y,z)->(-x,y,z)",
-          },
+        : provider === "unity"
+          ? {
+              source: "left-handed-y-up-z-forward-meter",
+              destination: "right-handed-y-up-negative-z-forward",
+              unit: "meter",
+              linearMap: "(x,y,z)->(-x,y,z)",
+            }
+          : {
+              source: "right-handed-y-up-negative-z-forward-meter",
+              destination: "right-handed-y-up-negative-z-forward",
+              unit: "meter",
+              linearMap: "(x,y,z)->(x,y,z)",
+            },
     timeline: { frameStart: 0, frameEnd: 0, currentFrame: 0, fps: 30 },
     scene: {
       name: "Set",
@@ -445,5 +452,88 @@ describe("engine scene import", () => {
     await expect(harness.importer.ingestProject("unreal", outside, harness.project)).rejects.toMatchObject({
       code: "project_invalid",
     });
+  });
+
+  it("ingests an uploaded Godot package with the identity coordinate map into a ready plan", async () => {
+    const harness = await createHarness();
+    const zip = await buildZip(buildManifest("godot", DEFAULT_BUNDLE));
+    const upload = await harness.importer.ingestUpload(
+      "godot",
+      "director-engine-scene.zip",
+      chunks(zip),
+      harness.project,
+      zip.byteLength,
+    );
+
+    expect(upload.provider).toBe("godot");
+    expect(upload.manifest.coordinateSystem).toMatchObject({
+      source: "right-handed-y-up-negative-z-forward-meter",
+      linearMap: "(x,y,z)->(x,y,z)",
+    });
+    expect(upload.plan.ready).toBe(true);
+    expect(upload.plan.provider).toBe("godot");
+    expect(upload.plan.operations.map((op) => op.op)).toEqual(
+      expect.arrayContaining(["create_scene_asset", "create_scene_object", "create_camera", "create_light"]),
+    );
+
+    const unityPackage = await buildZip(buildManifest("unity", DEFAULT_BUNDLE));
+    await expect(
+      harness.importer.ingestUpload("godot", "scene.zip", chunks(unityPackage), harness.project),
+    ).rejects.toMatchObject({ code: "package_invalid", status: 409 });
+  });
+
+  it("drives the default Godot headless extraction through the fixed copied exporter entry", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "director-godot-extract-"));
+    temporaryRoots.push(root);
+    // The default runner resolves the exporter source from the workspace, so
+    // this harness points at the real repository root; the engine project
+    // itself stays inside DIRECTOR_ENGINE_PROJECT_ROOT in the temp dir.
+    const repositoryRoot = resolve(import.meta.dirname, "..", "..", "..", "..");
+    const argvCapture = resolve(root, "godot-argv.txt");
+    const fakeGodot = resolve(root, "godot");
+    await writeFile(fakeGodot, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvCapture}"\nexit 0\n`, { mode: 0o755 });
+    const importer = createEngineSceneImporter({
+      workspaceRoot: repositoryRoot,
+      dataDirectory: resolve(root, "data"),
+      environment: { PATH: "", DIRECTOR_GODOT_BIN: fakeGodot, DIRECTOR_ENGINE_PROJECT_ROOT: root },
+    });
+    const project = createTestDirectorProject();
+
+    const missingProjectFile = resolve(root, "EmptyGodotProject");
+    await mkdir(missingProjectFile, { recursive: true });
+    await expect(importer.ingestProject("godot", missingProjectFile, project)).rejects.toMatchObject({
+      code: "project_invalid",
+    });
+
+    const projectDirectory = resolve(root, "GodotProject");
+    await mkdir(projectDirectory, { recursive: true });
+    await writeFile(resolve(projectDirectory, "project.godot"), "config_version=5\n");
+    // The fake godot writes no package, so ingestion fails after the spawn —
+    // the assertions below pin the copy step and the fixed argument vector.
+    await expect(
+      importer.ingestProject("godot", projectDirectory, project, "res://scenes/main.tscn"),
+    ).rejects.toMatchObject({ code: "package_invalid" });
+
+    const copiedExporter = await readFile(
+      resolve(projectDirectory, "addons", "director_interchange", "director_scene_export.gd"),
+      "utf8",
+    );
+    const sourceExporter = await readFile(
+      resolve(repositoryRoot, "integrations", "godot", "interchange", "director_scene_export.gd"),
+      "utf8",
+    );
+    expect(copiedExporter).toEqual(sourceExporter);
+
+    const argv = (await readFile(argvCapture, "utf8")).trim().split("\n");
+    expect(argv.slice(0, 5)).toEqual([
+      "--headless",
+      "--path",
+      await realpath(projectDirectory),
+      "--script",
+      "res://addons/director_interchange/director_scene_export.gd",
+    ]);
+    expect(argv).toContain("--");
+    expect(argv).toContain("--output-dir");
+    expect(argv[argv.indexOf("--scene") + 1]).toBe("res://scenes/main.tscn");
   });
 });

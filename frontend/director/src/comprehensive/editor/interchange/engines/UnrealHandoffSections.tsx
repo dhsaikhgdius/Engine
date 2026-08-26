@@ -1,13 +1,22 @@
 /**
  * Unreal 交接专属区块:Sequencer 烘焙回执、洁净帧回执、结构化省略通道,以及
- * 回环实时预览的诚实状态说明(浏览器不可观测,绝不伪造"已连接")。
+ * 网关 → 编辑器回环实时预览(推送 Director 活动相机;仅预览、绝不写入工程)。
  *
  * @module unreal-handoff-sections
  */
 
-import { Camera, MonitorOff } from "lucide-react";
+import { Camera, Link2, Link2Off } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Matrix4, Quaternion, Vector3 } from "three";
 import type { DirectorDccEngineSendResult } from "../../../../dcc/directorDccEngineContract";
+import type { DirectorUnrealLivePreviewSessionStatus } from "../../../../dcc/directorUnrealLivePreviewContract";
 import { useLanguage } from "../../../i18n/language";
+import {
+  closeDirectorUnrealLivePreviewSession,
+  openDirectorUnrealLivePreviewSession,
+  sendDirectorUnrealLivePreviewFrame,
+} from "../../api/dccEngineHandoffClient";
+import { useDirectorStore } from "../../store/directorStore";
 
 const OMITTED_CHANNEL_LABELS: Record<string, string> = {
   pose_values: "姿态控制",
@@ -165,22 +174,171 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
   );
 }
 
+/** Preview push cadence; ticks are skipped while a request is still in flight. */
+const LIVE_PREVIEW_INTERVAL_MS = 100;
+
 /**
- * Unreal 实时预览状态:网关到连接器的 127.0.0.1 回环推送,浏览器无法观测其
- * 会话,因此绝不显示"已连接";只给出启动方式与安全边界说明。
+ * Unreal 实时预览:网关到连接器的 127.0.0.1 回环推送。此面板打开网关侧会话并
+ * 以固定节奏推送 Director 活动相机(带序号,单向);帧只作用于编辑器视口,
+ * 绝不写入工程。共享令牌只存在于网关环境变量,从不经过浏览器。
  */
 export function UnrealLiveLinkSection() {
   const { t } = useLanguage();
+  const [portInput, setPortInput] = useState("");
+  const [session, setSession] = useState<DirectorUnrealLivePreviewSessionStatus | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const sequenceRef = useRef(0);
+  const inFlightRef = useRef(false);
+  const timerRef = useRef<number | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  const stopTimer = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const stopPushing = useCallback(
+    async (reason?: string) => {
+      stopTimer();
+      const sessionId = sessionIdRef.current;
+      sessionIdRef.current = null;
+      if (reason) setError(reason);
+      if (sessionId) {
+        try {
+          const finalSession = await closeDirectorUnrealLivePreviewSession(sessionId);
+          setSession(finalSession);
+        } catch {
+          // The gateway already dropped the session (peer close, stale sweep);
+          // there is nothing durable to clean up on a preview-only channel.
+        }
+      }
+    },
+    [stopTimer],
+  );
+
+  useEffect(
+    () => () => {
+      stopTimer();
+      const sessionId = sessionIdRef.current;
+      sessionIdRef.current = null;
+      if (sessionId) void closeDirectorUnrealLivePreviewSession(sessionId).catch(() => undefined);
+    },
+    [stopTimer],
+  );
+
+  const pushFrame = useCallback(async () => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId || inFlightRef.current) return;
+    const project = useDirectorStore.getState().project;
+    const camera = project.cameras.find((entry) => entry.id === project.activeCameraId) ?? project.cameras[0];
+    if (!camera) return;
+    const eye = new Vector3(...camera.transform.position);
+    const target = new Vector3(...camera.target);
+    if (eye.distanceToSquared(target) < 1e-10) return;
+    const rotation = new Quaternion().setFromRotationMatrix(new Matrix4().lookAt(eye, target, new Vector3(0, 1, 0)));
+    sequenceRef.current += 1;
+    inFlightRef.current = true;
+    try {
+      const outcome = await sendDirectorUnrealLivePreviewFrame(sessionId, {
+        seq: sequenceRef.current,
+        transform: {
+          location: [eye.x, eye.y, eye.z],
+          rotationQuaternion: [rotation.x, rotation.y, rotation.z, rotation.w],
+          scale: [1, 1, 1],
+        },
+        ...(camera.focalLengthMm ? { focalLengthMm: camera.focalLengthMm } : {}),
+      });
+      if (sessionIdRef.current !== sessionId) return;
+      setSession(outcome.session);
+      if (outcome.session.summary.closed) {
+        sessionIdRef.current = null;
+        stopTimer();
+        setError(t("会话已结束（连接器断开或超时）"));
+      }
+    } catch (pushError) {
+      if (sessionIdRef.current !== sessionId) return;
+      sessionIdRef.current = null;
+      stopTimer();
+      setSession(null);
+      setError(pushError instanceof Error ? pushError.message : t("Unreal 实时预览推送失败"));
+    } finally {
+      inFlightRef.current = false;
+    }
+  }, [stopTimer, t]);
+
+  const startPushing = useCallback(async () => {
+    const port = Number.parseInt(portInput.trim(), 10);
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      setError(t("端口无效（1-65535，填 live-preview 模式打印的端口）"));
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const opened = await openDirectorUnrealLivePreviewSession(port);
+      sequenceRef.current = 0;
+      sessionIdRef.current = opened.sessionId;
+      setSession(opened);
+      timerRef.current = window.setInterval(() => void pushFrame(), LIVE_PREVIEW_INTERVAL_MS);
+    } catch (openError) {
+      setSession(null);
+      setError(openError instanceof Error ? openError.message : t("Unreal 实时预览会话打开失败"));
+    } finally {
+      setBusy(false);
+    }
+  }, [portInput, pushFrame, t]);
+
+  const pushing = session !== null && sessionIdRef.current !== null && !session.summary.closed;
+
   return (
     <div className="director-engine-handoff-live" data-live-engine="unreal">
-      <div className="director-engine-handoff-live-status" data-status="unobservable">
-        <MonitorOff aria-hidden size={12} />
-        <span>{t("浏览器不可观测（网关 → 编辑器回环推送）")}</span>
+      <div className="director-engine-handoff-live-toolbar">
+        <input
+          aria-label={t("Unreal 实时预览端口")}
+          className="ui-field"
+          disabled={busy || pushing}
+          inputMode="numeric"
+          onChange={(event) => setPortInput(event.currentTarget.value)}
+          placeholder={t("连接器端口")}
+          spellCheck={false}
+          value={portInput}
+        />
+        {pushing ? (
+          <button disabled={busy} onClick={() => void stopPushing()} type="button">
+            {t("停止推送")}
+          </button>
+        ) : (
+          <button disabled={busy || !portInput.trim()} onClick={() => void startPushing()} type="button">
+            {t("推送活动相机")}
+          </button>
+        )}
       </div>
+      {error ? (
+        <p className="director-engine-handoff-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {session ? (
+        <div className="director-engine-handoff-live-status" data-status={pushing ? "connected" : "disconnected"}>
+          {pushing ? <Link2 aria-hidden size={12} /> : <Link2Off aria-hidden size={12} />}
+          <span>
+            {pushing ? t("已连接（网关 → 编辑器回环推送）") : t("已断开")} · {t("已转发")}{" "}
+            {session.summary.forwardedFrameCount} · {t("已丢弃")} {session.summary.droppedFrameCount}
+          </span>
+        </div>
+      ) : (
+        <div className="director-engine-handoff-live-status" data-status="disconnected">
+          <Link2Off aria-hidden size={12} />
+          <span>{t("未连接；在引擎侧运行 director_headless.py --mode live-preview，填入其打印的端口")}</span>
+        </div>
+      )}
       <ul className="director-engine-handoff-notes">
         <li>{t("链路仅绑定 127.0.0.1、单向、带序号；帧只作用于编辑器视口，绝不写入工程")}</li>
         <li>
-          {t("启动方式：在引擎项目中设置 DIRECTOR_UNREAL_PREVIEW_TOKEN，运行 director_headless.py --mode live-preview")}
+          {t("共享令牌 DIRECTOR_UNREAL_PREVIEW_TOKEN 由网关与引擎环境各自读取，从不经过浏览器")}
         </li>
         <li>{t("Remote Control 不是安全边界；此链路不经过也不依赖它")}</li>
       </ul>

@@ -936,6 +936,136 @@ of the room with `author` from the video evidence. Without a depth model the
 result is a degraded scaffold plus keyframes: author the room from the
 keyframe evidence instead of trusting the scaffold.
 
+## Hand off to a DCC or engine (`director_dcc` tool)
+
+Discover providers first and trust `nativeReady` / `exchangeReady`; never infer
+native readiness from `installed`:
+
+```json
+{ "op": "discover" }
+```
+
+```json
+{ "op": "status", "provider": "godot" }
+```
+
+Send the current project through the fixed headless connector (Unreal, Unity,
+or Godot; requires `nativeReady`, otherwise the result carries structured
+diagnostics with recovery steps):
+
+```json
+{ "op": "send_to_engine", "provider": "godot" }
+```
+
+Preview the engine's return package as a revision-guarded plan, then apply it
+with the same provider:
+
+```json
+{ "op": "receive_from_engine", "provider": "godot", "package_dir": "JOB_ID/return" }
+```
+
+```json
+{
+  "op": "apply_import_plan",
+  "provider": "godot",
+  "plan": { "...": "the plan object returned by receive_from_engine, unchanged" },
+  "expected_revision": "director-project-revision:v1:sha256:…",
+  "idempotency_key": "engine-return-2026-08-26-a"
+}
+```
+
+Bring an existing engine scene into Director (works for `unreal`, `unity`, and
+`godot`; extraction runs the installed engine headlessly, or upload the `.zip`
+the exporter wrote to `POST /api/dcc/engine-scene/uploads?provider=…`):
+
+```json
+{
+  "op": "extract_engine_scene",
+  "provider": "godot",
+  "project_dir": "GodotProject",
+  "scene": "res://scenes/main.tscn"
+}
+```
+
+```json
+{ "op": "preview_engine_scene_import", "provider": "godot", "package_dir": "<packageDir from extract/upload>" }
+```
+
+```json
+{
+  "op": "apply_engine_scene_import",
+  "plan_id": "<planId from the preview>",
+  "expected_revision": "director-project-revision:v1:sha256:…",
+  "idempotency_key": "engine-scene-2026-08-26-a"
+}
+```
+
+Open the configured engine project in its editor, or run it with a bounded
+debug-output tail (Godot runs today; Unity/Unreal runs return structured
+`engine_run_unsupported` diagnostics):
+
+```json
+{ "op": "launch_engine_editor", "provider": "godot" }
+```
+
+```json
+{ "op": "run_engine_project", "provider": "godot", "scene": "res://scenes/main.tscn", "headless": true }
+```
+
+```json
+{ "op": "engine_run_status", "provider": "godot" }
+```
+
+```json
+{ "op": "stop_engine_project", "provider": "godot" }
+```
+
+Capture engine pixels independently of a send job whenever visual acceptance
+matters:
+
+```json
+{ "op": "render_engine_frame", "provider": "godot", "scene": "res://scenes/main.tscn", "width": 1280, "height": 720 }
+```
+
+For an already-open Unity or Godot editor, create an opt-in workshop session.
+Unreal uses the same operation with the token-gated live-preview listener's
+`port`; start that listener with `--preview-allow-code` when Editor Python is
+needed:
+
+```json
+{ "op": "start_engine_session", "provider": "unity", "label": "Gameplay lookdev", "allow_code": true, "authority": "engine" }
+```
+
+```json
+{
+  "op": "engine_session_command",
+  "provider": "unity",
+  "session_id": "<sessionId>",
+  "command": "execute_code",
+  "code": "var room = new GameObject(\"GameplayRoom\"); return room.name;"
+}
+```
+
+```json
+{
+  "op": "engine_session_command_status",
+  "provider": "unity",
+  "session_id": "<sessionId>",
+  "command_id": "<commandId>"
+}
+```
+
+```json
+{ "op": "stop_engine_session", "provider": "unity", "session_id": "<sessionId>" }
+```
+
+Use `sync_scene`, then `sync_engine_session_to_director` with the returned
+command id plus revision/idempotency guards, to refresh Director's stable-ID
+review view. Engine-native scripts, prefab/scene structure, collision,
+navigation, lighting bake, and UI remain authoritative in the engine. Default
+sessions have code disabled and Director authority. `director_dcc` is not a
+Blender modeling surface: live Blender geometry stays on `blender_native`.
+
 ## Optional checks
 
 Use these only when they match the request:
@@ -1006,4 +1136,3 @@ await tools.get_goal({});
 await tools.director_model_routes({});
 await tools.job_list({});
 ```
-

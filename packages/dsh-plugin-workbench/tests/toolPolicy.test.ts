@@ -30,4 +30,20 @@ describe("Director DSH tool policy", () => {
     ).toBe(15 * 60_000);
     expect(dynamicToolTimeoutMs("director_workbench", { op: "observe" })).toBe(70_000);
   });
+
+  it("treats director_dcc discover/status as reads and gives host jobs the long budget", () => {
+    expect(directorAgentToolExecutionMode("director_dcc", { op: "discover" })).toBe("parallel");
+    expect(directorAgentToolExecutionMode("director_dcc", { op: "status", provider: "godot" })).toBe("parallel");
+    expect(
+      directorAgentToolExecutionMode("director_dcc", { op: "engine_session_command_status", provider: "unity" }),
+    ).toBe("parallel");
+    expect(directorAgentToolExecutionMode("director_dcc", { op: "send_to_engine", provider: "godot" })).toBe(
+      "exclusive",
+    );
+    expect(directorAgentToolExecutionMode("director_dcc", { op: "apply_import_plan" })).toBe("exclusive");
+    expect(dynamicToolTimeoutMs("director_dcc", { op: "send_to_engine", provider: "unreal" })).toBe(16 * 60_000);
+    expect(dynamicToolTimeoutMs("director_dcc", { op: "extract_engine_scene", provider: "godot" })).toBe(16 * 60_000);
+    expect(dynamicToolTimeoutMs("director_dcc", { op: "export_blend" })).toBe(16 * 60_000);
+    expect(dynamicToolTimeoutMs("director_dcc", { op: "discover" })).toBe(70_000);
+  });
 });

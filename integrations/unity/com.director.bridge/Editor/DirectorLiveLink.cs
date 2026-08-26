@@ -1,12 +1,17 @@
 using System;
+using System.CodeDom.Compiler;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.CSharp;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Director.Bridge.Editor
 {
@@ -15,14 +20,12 @@ namespace Director.Bridge.Editor
     ///
     /// The client long-polls the Director Gateway's live-link event feed with
     /// the per-session bearer token minted by Director; the gateway never
-    /// connects into Unity and no event can carry executable code — the
-    /// payload schema is fixed to snapshot / transform_update /
-    /// timeline_update preview data validated gateway-side.
+    /// connects into Unity. Besides preview state, an explicitly granted
+    /// workshop session can capture, execute C#, and snapshot the open scene.
     ///
-    /// The link is never authoritative: events move DirectorId-tagged scene
-    /// objects as a transient preview (the scene is never marked dirty and
-    /// nothing is written back to Director). Authoritative changes still
-    /// travel exclusively through hash-checked exchange/return packages.
+    /// Director-authority sessions remain transient. Engine-authority
+    /// sessions can return a stable-id review snapshot without flattening
+    /// prefabs, colliders, scripts, navigation, or UI out of the Unity project.
     ///
     /// Delivery is sequence-numbered: the client resumes each poll after the
     /// last applied sequence number, and when the gateway signals a gap
@@ -38,6 +41,7 @@ namespace Director.Bridge.Editor
 
         private HttpClient _http;
         private CancellationTokenSource _cancellation;
+        private string _commandResultUrl;
         private readonly Dictionary<string, DirectorId> _entitiesByDirectorId =
             new Dictionary<string, DirectorId>();
 
@@ -66,6 +70,7 @@ namespace Director.Bridge.Editor
             }
             string baseUrl = gatewayUrl.Trim().TrimEnd('/');
             string pollUrl = $"{baseUrl}/api/dcc/unity/live-link/sessions/{Uri.EscapeDataString(sessionId.Trim())}/events";
+            _commandResultUrl = $"{baseUrl}/api/dcc/unity/live-link/sessions/{Uri.EscapeDataString(sessionId.Trim())}/command-results";
             _http = new HttpClient { Timeout = RequestTimeout };
             _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Trim());
             _cancellation = new CancellationTokenSource();
@@ -82,6 +87,7 @@ namespace Director.Bridge.Editor
             _cancellation = null;
             _http?.Dispose();
             _http = null;
+            _commandResultUrl = null;
             _entitiesByDirectorId.Clear();
             StatusLine = "Not connected.";
         }
@@ -202,6 +208,207 @@ namespace Director.Bridge.Editor
                 // Timeline scrub state is surfaced but not applied: the baked
                 // Timeline asset owns playback inside Unity.
                 StatusLine = $"Director playhead at frame {(double?)payload["frame"] ?? 0}.";
+                return;
+            }
+            if (kind == "editor_command")
+            {
+                string command = (string)payload["command"];
+                if (command == "capture_frame") ExecuteCaptureCommand(payload);
+                else if (command == "execute_code") ExecuteCodeCommand(payload);
+                else if (command == "sync_scene") ExecuteSyncCommand(payload);
+            }
+        }
+
+        private void ExecuteCaptureCommand(JObject payload)
+        {
+            string commandId = (string)payload["commandId"];
+            if (string.IsNullOrWhiteSpace(commandId)) return;
+            JObject result;
+            try
+            {
+                int width = Math.Max(64, Math.Min(1920, (int?)payload["width"] ?? 960));
+                int height = Math.Max(64, Math.Min(1080, (int?)payload["height"] ?? 540));
+                string camera = (string)payload["camera"];
+                byte[] png = DirectorBridgeCli.CaptureFrame(camera, width, height);
+                result = new JObject
+                {
+                    ["commandId"] = commandId,
+                    ["command"] = "capture_frame",
+                    ["status"] = "completed",
+                    ["mimeType"] = "image/png",
+                    ["imageBase64"] = Convert.ToBase64String(png),
+                    ["width"] = width,
+                    ["height"] = height,
+                };
+            }
+            catch (Exception error)
+            {
+                result = new JObject
+                {
+                    ["commandId"] = commandId,
+                    ["command"] = "capture_frame",
+                    ["status"] = "failed",
+                    ["error"] = error.Message,
+                };
+            }
+            _ = SubmitCommandResult(result);
+        }
+
+        private void ExecuteCodeCommand(JObject payload)
+        {
+            string commandId = (string)payload["commandId"];
+            if (string.IsNullOrWhiteSpace(commandId)) return;
+            JObject result;
+            try
+            {
+                string code = (string)payload["code"] ?? string.Empty;
+                string source =
+                    "using System; using System.Linq; using UnityEditor; using UnityEngine; " +
+                    "public static class DirectorEngineSessionCommand { public static object Run() {\n" +
+                    code + "\nreturn null; } }";
+                using (var provider = new CSharpCodeProvider())
+                {
+                    var parameters = new CompilerParameters { GenerateExecutable = false, GenerateInMemory = true };
+                    foreach (string assemblyPath in AppDomain.CurrentDomain.GetAssemblies()
+                                 .Where(assembly => !assembly.IsDynamic && !string.IsNullOrWhiteSpace(assembly.Location))
+                                 .Select(assembly => assembly.Location)
+                                 .Distinct())
+                    {
+                        parameters.ReferencedAssemblies.Add(assemblyPath);
+                    }
+                    CompilerResults compiled = provider.CompileAssemblyFromSource(parameters, source);
+                    if (compiled.Errors.HasErrors)
+                    {
+                        string errors = string.Join("\n", compiled.Errors.Cast<CompilerError>()
+                            .Where(error => !error.IsWarning).Select(error => error.ToString()));
+                        throw new InvalidOperationException(errors);
+                    }
+                    object value = compiled.CompiledAssembly
+                        .GetType("DirectorEngineSessionCommand", true)
+                        .GetMethod("Run")
+                        .Invoke(null, null);
+                    string output;
+                    try
+                    {
+                        output = value == null
+                            ? "null"
+                            : JToken.FromObject(value).ToString(Newtonsoft.Json.Formatting.None);
+                    }
+                    catch
+                    {
+                        output = value?.ToString() ?? "null";
+                    }
+                    result = new JObject
+                    {
+                        ["commandId"] = commandId,
+                        ["command"] = "execute_code",
+                        ["status"] = "completed",
+                        ["output"] = output.Length > 131072 ? output.Substring(0, 131072) : output,
+                    };
+                }
+            }
+            catch (Exception error)
+            {
+                result = new JObject
+                {
+                    ["commandId"] = commandId,
+                    ["command"] = "execute_code",
+                    ["status"] = "failed",
+                    ["error"] = error.GetBaseException().Message,
+                };
+            }
+            _ = SubmitCommandResult(result);
+        }
+
+        private void ExecuteSyncCommand(JObject payload)
+        {
+            string commandId = (string)payload["commandId"];
+            if (string.IsNullOrWhiteSpace(commandId)) return;
+            JObject result;
+            try
+            {
+                var entities = new JArray();
+                foreach (DirectorId marker in UnityEngine.Object.FindObjectsByType<DirectorId>(
+                             FindObjectsInactive.Include, FindObjectsSortMode.None))
+                {
+                    if (marker == null || string.IsNullOrWhiteSpace(marker.directorId)) continue;
+                    Transform transform = marker.transform;
+                    string entityType = marker.entityType == "camera" || marker.entityType == "light"
+                        ? marker.entityType
+                        : "object";
+                    var entity = new JObject
+                    {
+                        ["directorId"] = marker.directorId,
+                        ["name"] = marker.gameObject.name,
+                        ["entityType"] = entityType,
+                        ["transform"] = new JObject
+                        {
+                            ["location"] = JArray.FromObject(DirectorSpace.UnityPointToDirector(transform.position)),
+                            ["rotationQuaternion"] = JArray.FromObject(
+                                DirectorSpace.UnityQuaternionToDirector(transform.rotation)),
+                            ["scale"] = JArray.FromObject(DirectorSpace.UnityScaleToDirector(transform.lossyScale)),
+                        },
+                    };
+                    Camera camera = marker.GetComponent<Camera>();
+                    if (entityType == "camera" && camera != null) entity["fovDegrees"] = camera.fieldOfView;
+                    entities.Add(entity);
+                }
+                result = new JObject
+                {
+                    ["commandId"] = commandId,
+                    ["command"] = "sync_scene",
+                    ["status"] = "completed",
+                    ["snapshot"] = new JObject
+                    {
+                        ["provider"] = "unity",
+                        ["scenePath"] = string.IsNullOrWhiteSpace(SceneManager.GetActiveScene().path)
+                            ? null
+                            : SceneManager.GetActiveScene().path,
+                        ["capturedAt"] = DateTime.UtcNow.ToString("O"),
+                        ["entities"] = entities,
+                    },
+                };
+            }
+            catch (Exception error)
+            {
+                result = new JObject
+                {
+                    ["commandId"] = commandId,
+                    ["command"] = "sync_scene",
+                    ["status"] = "failed",
+                    ["error"] = error.Message,
+                };
+            }
+            _ = SubmitCommandResult(result);
+        }
+
+        private async Task SubmitCommandResult(JObject result)
+        {
+            HttpClient http = _http;
+            CancellationTokenSource cancellation = _cancellation;
+            string resultUrl = _commandResultUrl;
+            if (http == null || cancellation == null || string.IsNullOrWhiteSpace(resultUrl)) return;
+            try
+            {
+                using (var content = new StringContent(
+                           result.ToString(Newtonsoft.Json.Formatting.None), Encoding.UTF8, "application/json"))
+                {
+                    using (HttpResponseMessage response = await http.PostAsync(resultUrl, content, cancellation.Token))
+                    {
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            StatusLine = $"Engine command result rejected (HTTP {(int)response.StatusCode}).";
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Disconnect owns cancellation; there is no result to retry.
+            }
+            catch (Exception error)
+            {
+                StatusLine = $"Engine command result upload failed: {error.Message}";
             }
         }
 
@@ -268,8 +475,8 @@ namespace Director.Bridge.Editor
         private void OnGUI()
         {
             EditorGUILayout.HelpBox(
-                "Preview-only link: Director streams entity transforms into this scene. Nothing is written back " +
-                "and the scene is never saved by the link.",
+                "Live session: Director streams preview transforms. An explicitly granted workshop session may " +
+                "capture, execute C#, or return a stable-id review snapshot. Unity remains authoritative in engine mode.",
                 MessageType.Info);
             using (new EditorGUI.DisabledScope(_client.Running))
             {

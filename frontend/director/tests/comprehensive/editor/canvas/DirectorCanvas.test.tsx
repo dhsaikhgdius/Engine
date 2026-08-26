@@ -971,10 +971,15 @@ it("snaps horizontal drop coordinates while preserving the support height", () =
 
 it("renders a live R3F viewport and director scene controls", () => {
   const { container } = render(<App />);
+  const scenePanel = screen.getByLabelText("3D场景右侧属性面板");
 
   expect(screen.getByTestId("director-canvas")).toBeInTheDocument();
+  expect(screen.queryByLabelText("场景缩放")).not.toBeInTheDocument();
+  fireEvent.click(within(scenePanel).getByText("变换").closest("button")!);
   expect(screen.getByLabelText("场景缩放")).toBeInTheDocument();
   expect(screen.getByText("背景与全景")).toBeInTheDocument();
+  expect(screen.queryByLabelText("全景球参数")).not.toBeInTheDocument();
+  fireEvent.click(within(scenePanel).getByText("全景精调").closest("button")!);
   expect(screen.getByLabelText("全景球参数")).toBeInTheDocument();
   expect(screen.getByTestId("orbit-controls")).toHaveAttribute("data-enabled", "true");
   expect(container.querySelector(".director-stage-canvas")).toHaveAttribute("data-frameloop", "demand");
@@ -1902,7 +1907,10 @@ it("opens the scene inspector when users click empty 3D viewport space", () => {
   fireEvent.click(within(screen.getByTestId("director-canvas")).getByTestId("mock-r3f-canvas"));
 
   expect(useDirectorStore.getState().selectedObjectId).toBeNull();
-  expect(screen.getByLabelText("3D场景右侧属性面板")).toBeInTheDocument();
+  const scenePanel = screen.getByLabelText("3D场景右侧属性面板");
+  expect(scenePanel).toBeInTheDocument();
+  expect(screen.queryByLabelText("场景缩放")).not.toBeInTheDocument();
+  fireEvent.click(within(scenePanel).getByText("变换").closest("button")!);
   expect(screen.getByLabelText("场景缩放")).toBeInTheDocument();
 });
 

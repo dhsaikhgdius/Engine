@@ -4,7 +4,7 @@
  * @module PropPanel
  */
 
-import { ArrowDownToLine } from "lucide-react";
+import { ArrowDownToLine, Move3D } from "lucide-react";
 import { replaceTupleAxis as replaceAxis } from "../../../../../../packages/protocol/src/primitives";
 import { createDefaultDirectorCarProfile } from "../../../../../../packages/protocol/src/vehicleProtocol";
 import {
@@ -76,7 +76,31 @@ export function PropPanel() {
         onChange={(value) => updateObjectName(prop.id, value)}
       />
 
-      <InspectorSection title="变换" className="prop-transform-section" collapsible>
+      <div aria-label="视口直接摆放提示" className="prop-direct-placement" role="note">
+        <Move3D aria-hidden size={16} strokeWidth={1.8} />
+        <div>
+          <strong>在视口直接摆放</strong>
+          <span>拖动彩色手柄移动；顶部可切换旋转与缩放。</span>
+        </div>
+      </div>
+      <button
+        aria-label="贴地放置"
+        className="inspector-action-button inspector-ground-button"
+        title="让资产落到当前场景地面"
+        type="button"
+        onClick={() => dropObjectToGround(prop.id)}
+      >
+        <ArrowDownToLine aria-hidden size={15} />
+        <span>贴地放置</span>
+      </button>
+
+      <InspectorSection
+        title="精确变换"
+        className="prop-transform-section"
+        collapsible
+        defaultOpen={false}
+        description="数值用于 Agent 与专业校准；日常摆放请直接操作视口。"
+      >
         <div className="prop-transform-group">
           <InspectorAxisGroup
             label="位置"
@@ -202,16 +226,6 @@ export function PropPanel() {
             />
           ) : null}
         </div>
-        <button
-          aria-label="贴地放置"
-          className="inspector-action-button inspector-ground-button"
-          title="让资产落到当前场景地面"
-          type="button"
-          onClick={() => dropObjectToGround(prop.id)}
-        >
-          <ArrowDownToLine aria-hidden size={15} />
-          <span>贴地放置</span>
-        </button>
       </InspectorSection>
 
       {!prop.isCompositeParent ? (

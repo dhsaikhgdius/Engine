@@ -20,6 +20,8 @@ import { useLanguage } from "../../../i18n/language";
 import { fetchDirectorDccEngineHealth } from "../../api/dccEngineHandoffClient";
 import { DirectorDccProviderClientError, sendDirectorProjectToEngine } from "../../api/dccProviderClient";
 import { applyDirectorDccImportPlan, DirectorDccReturnClientError, previewDirectorDccReturnPackage } from "../../api/dccReturnClient";
+import { EngineRunSection } from "./EngineRunSection";
+import { EngineSceneImportSection } from "./EngineSceneImportSection";
 
 /** zh-CN capability labels keyed by the provider catalog capability ids. */
 const CAPABILITY_LABELS: Record<string, string> = {
@@ -335,6 +337,8 @@ export function EngineDetailPanel({
         ) : null}
       </section>
 
+      <EngineRunSection engine={engine} />
+
       <section aria-label={`${provider?.label ?? engine} ${t("发送")}`} className="director-engine-handoff-block">
         <div className="director-engine-handoff-block-heading">
           <strong>{t("无头发送")}</strong>
@@ -483,6 +487,8 @@ export function EngineDetailPanel({
           </div>
         ) : null}
       </section>
+
+      <EngineSceneImportSection engine={engine} />
 
       <section aria-label={`${provider?.label ?? engine} ${t("实时预览")}`} className="director-engine-handoff-block">
         <div className="director-engine-handoff-block-heading">

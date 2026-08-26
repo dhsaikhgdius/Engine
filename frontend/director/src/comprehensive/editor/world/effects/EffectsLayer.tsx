@@ -67,6 +67,8 @@ import {
   releaseWorldHeightMap,
   type WorldHeightMap,
 } from "../surface/worldHeightMap";
+import { computeWaterAmplitudeScale } from "../water/waterParams";
+import { buildWaterSpatialIndex, evaluateCombustionWaterFactor, type WaterSpatialIndex } from "../worldWaterSpatial";
 
 /**
  * Effects sub-layer: stateless analytic GPU particles.
@@ -245,6 +247,7 @@ function writeParticleUniforms(
   context: LivingWorldFrameContext,
   lighting: EffectsSceneLighting,
   origin: readonly [number, number, number] | null,
+  combustionWaterFactor: number,
 ): void {
   const preset = config.preset;
   uniforms.uTime.value = context.worldSeconds;
@@ -257,7 +260,10 @@ function writeParticleUniforms(
   // COUNT stays fixed so geometry never reallocates on a weather change;
   // alpha (uIntensity) and sprite size carry the visible suppression.
   const fireFamily = config.kind === "fire" || config.kind === "sparks";
-  const burn = fireFamily ? evaluateFireBurnFactor(context.climate.weather, config.seedHash, context.worldSeconds) : 1;
+  const waterBurn = fireFamily ? Math.min(1, Math.max(0, combustionWaterFactor)) : 1;
+  const burn = fireFamily
+    ? evaluateFireBurnFactor(context.climate.weather, config.seedHash, context.worldSeconds) * waterBurn
+    : 1;
   uniforms.uBurn.value = burn;
   uniforms.uIntensity.value = config.intensity * burn;
   uniforms.uSizeScale.value = config.kind === "fire" ? config.sizeScale * (0.55 + 0.45 * burn) : config.sizeScale;
@@ -390,6 +396,7 @@ type ParticleFrameWriter = (uniforms: EffectParticleUniforms, geometry: Instance
 function ParticleSystemMesh({
   config,
   context,
+  getCombustionFactor,
   getLighting,
   origin,
   renderOrder,
@@ -397,6 +404,7 @@ function ParticleSystemMesh({
 }: {
   config: EffectSystemConfig;
   context: LivingWorldFrameContext;
+  getCombustionFactor?: () => number;
   getLighting: () => EffectsSceneLighting;
   /** null = follow the render camera (weather precipitation). */
   origin: readonly [number, number, number] | null;
@@ -410,9 +418,11 @@ function ParticleSystemMesh({
   useEffect(() => () => materials.forEach((material) => material.dispose()), [materials]);
 
   const syncUniforms = useCallback(() => {
-    writeParticleUniforms(uniforms, config, context, getLighting(), origin);
+    const combustionFactor = getCombustionFactor?.() ?? 1;
+    geometry.instanceCount = Math.round(config.count * combustionFactor);
+    writeParticleUniforms(uniforms, config, context, getLighting(), origin, combustionFactor);
     writeFrameOverrides?.(uniforms, geometry);
-  }, [config, context, geometry, getLighting, origin, uniforms, writeFrameOverrides]);
+  }, [config, context, geometry, getCombustionFactor, getLighting, origin, uniforms, writeFrameOverrides]);
   syncUniforms();
   useFrame(syncUniforms);
 
@@ -436,23 +446,44 @@ function ParticleSystemMesh({
   );
 }
 
+/** Water is a physical combustion constraint, evaluated from the live crest budget. */
+function getCombustionWaterFactor(
+  context: LivingWorldFrameContext,
+  origin: readonly [number, number, number],
+  water: WaterSpatialIndex,
+): number {
+  const windSpeedMps = Math.hypot(context.windVector[0], context.windVector[2]);
+  return evaluateCombustionWaterFactor(
+    origin,
+    water,
+    computeWaterAmplitudeScale(windSpeedMps, context.climate.weather),
+  );
+}
+
 function WorldEffectParticles({
   context,
   effect,
   getLighting,
   origin,
+  water,
 }: {
   context: LivingWorldFrameContext;
   effect: DirectorWorldEffect;
   getLighting: () => EffectsSceneLighting;
   origin: readonly [number, number, number];
+  water: WaterSpatialIndex;
 }) {
   const config = useMemo(() => buildEffectSystemConfig(effect, context.seed), [effect, context.seed]);
+  const getCombustionFactor = useCallback(
+    () => (effect.kind === "fire" || effect.kind === "sparks" ? getCombustionWaterFactor(context, origin, water) : 1),
+    [context, effect.kind, origin, water],
+  );
   if (config.count <= 0) return null;
   return (
     <ParticleSystemMesh
       config={config}
       context={context}
+      getCombustionFactor={getCombustionFactor}
       getLighting={getLighting}
       origin={origin}
       renderOrder={EFFECT_RENDER_ORDER}
@@ -597,10 +628,12 @@ function FireCellEmitter({
       const life = sim.readCellLife(cell.cellIndex);
       // 1.2 s flare-up after ignition; the last quarter of the fuel dies down.
       const fade = life > 0 ? Math.min(1, sim.readCellAgeSeconds(cell.cellIndex) / 1.2) * Math.min(1, life / 0.25) : 0;
-      geometry.instanceCount = Math.round(config.count * fade);
-      uniforms.uIntensity.value = config.intensity * fade;
+      geometry.instanceCount = Math.round(geometry.instanceCount * fade);
+      // Preserve the base weather/water burn factor written immediately
+      // before this live-cell fade instead of restoring authored intensity.
+      uniforms.uIntensity.value *= fade;
     },
-    [cell, config, context, getSim],
+    [cell, context, getSim],
   );
 
   if (config.count <= 0) return null;
@@ -704,13 +737,17 @@ function FireEffectLight({
   context,
   effect,
   origin,
+  water,
 }: {
   /** True only for the single budgeted caster (see selectShadowCastingFireId). */
   castShadow: boolean;
   context: LivingWorldFrameContext;
   effect: DirectorWorldEffect;
   origin: readonly [number, number, number];
+  water: WaterSpatialIndex;
 }) {
+  const getWaterFactor = useCallback(() => getCombustionWaterFactor(context, origin, water), [context, origin, water]);
+  const initialWaterFactor = getWaterFactor();
   const state = computeFireLightState(
     effect,
     context.seed,
@@ -721,12 +758,12 @@ function FireEffectLight({
   useFrame(() => {
     const light = lightRef.current;
     if (!light) return;
-    light.intensity = computeFireLightState(
-      effect,
-      context.seed,
-      context.worldSeconds,
-      getFireLightEnvironment(effect, context),
-    ).intensity;
+    const waterFactor = getWaterFactor();
+    light.intensity =
+      computeFireLightState(effect, context.seed, context.worldSeconds, getFireLightEnvironment(effect, context))
+        .intensity * waterFactor;
+    light.visible = waterFactor > 0.001;
+    light.castShadow = castShadow && waterFactor > 0.05;
   });
   // Shadow props are set unconditionally (every PointLight owns a shadow
   // object); only castShadow gates the six-face cube render, and the flag
@@ -736,17 +773,18 @@ function FireEffectLight({
   return (
     <pointLight
       ref={lightRef}
-      castShadow={castShadow}
+      castShadow={castShadow && initialWaterFactor > 0.05}
       color={FIRE_LIGHT_COLOR}
       decay={2}
       distance={state.distance}
-      intensity={state.intensity}
+      intensity={state.intensity * initialWaterFactor}
       name={`world-effect-light-${effect.id}`}
       position={[origin[0], origin[1] + state.offsetY, origin[2]]}
       shadow-bias={FIRE_SHADOW_BIAS}
       shadow-camera-far={state.distance}
       shadow-camera-near={FIRE_SHADOW_CAMERA_NEAR}
       shadow-mapSize={[FIRE_SHADOW_MAP_SIZE, FIRE_SHADOW_MAP_SIZE]}
+      visible={initialWaterFactor > 0.001}
     />
   );
 }
@@ -773,6 +811,10 @@ export default function EffectsLayer({ context, effects, waterBodies }: EffectsL
         .slice(0, FIRE_PROPAGATION_MAX_SYSTEMS)
         .map((entry) => entry.effect),
     [effects],
+  );
+  const waterSpatial = useMemo(
+    () => buildWaterSpatialIndex(waterBodies ?? [], context.groundHeight, context.sampleGroundHeight),
+    [context.groundHeight, context.sampleGroundHeight, waterBodies],
   );
   const fireWaterRects = useMemo(() => toFireWaterRects(waterBodies ?? []), [waterBodies]);
   const lightingCacheRef = useRef({
@@ -802,6 +844,7 @@ export default function EffectsLayer({ context, effects, waterBodies }: EffectsL
           effect={entry.effect}
           getLighting={getLighting}
           origin={entry.origin}
+          water={waterSpatial}
         />
       ))}
       {fireLights.map((entry) => (
@@ -811,6 +854,7 @@ export default function EffectsLayer({ context, effects, waterBodies }: EffectsL
           context={context}
           effect={entry.effect}
           origin={entry.origin}
+          water={waterSpatial}
         />
       ))}
       {fireSpreadEffects.map((effect) => (

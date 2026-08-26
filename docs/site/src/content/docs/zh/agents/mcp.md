@@ -21,7 +21,7 @@ npm run dev
 | -------------------- | ------------------------------------------------------------------------- |
 | `director_workbench` | 完整编辑器观察、创作、审计、捕获、Shot IR、多通道 Shot Package 和 UI 控制 |
 | `director_creative`  | Canvas/Video 观察、原子编辑、审计和绑定指纹的 clean PNG 预览              |
-| `director_dcc`       | Blender 状态、稳定 ID 往返，以及已上传 `.blend` 场景计划的预览与应用      |
+| `director_dcc`       | DCC/引擎交接：提供方发现、Blender `.blend` 往返、Unreal/Unity/Godot 无头发送与受保护回传、引擎场景导入 |
 | `stage_read`         | 紧凑观察、检查、批评、完整状态和相机捕获                                  |
 | `stage_scene`        | 重置、场景设置、校验和场景级 mutation                                     |
 | `stage_object`       | 创建、变换、放置、父子绑定、动画和移除白模对象                            |

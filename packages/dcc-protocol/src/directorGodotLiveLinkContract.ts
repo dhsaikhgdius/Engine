@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { directorDccTransformSchema } from "./directorDccSharedContract";
+import { directorEngineSessionCommandPayloadSchema } from "./directorEngineSessionContract";
 
 /**
  * Contract identifier for the Godot live-link preview transport.
@@ -53,14 +54,17 @@ export type DirectorGodotLiveLinkSession = z.infer<typeof directorGodotLiveLinkS
 
 const liveLinkEntityShape = {
   directorId: nonEmpty.max(200),
-  entityType: z.enum(["object", "camera"]),
+  entityType: z.enum(["object", "camera", "light"]),
   /** Canonical Director-space world transform (Godot's basis is the identity map). */
   transform: directorDccTransformSchema,
   /** Camera-only: vertical field of view in degrees. */
   fovDeg: z.number().finite().gt(0).lt(180).optional(),
 } as const;
 
-function cameraOnlyFov(entity: { entityType: "object" | "camera"; fovDeg?: number }, context: z.RefinementCtx) {
+function cameraOnlyFov(
+  entity: { entityType: "object" | "camera" | "light"; fovDeg?: number },
+  context: z.RefinementCtx,
+) {
   if (entity.entityType !== "camera" && entity.fovDeg !== undefined) {
     context.addIssue({
       code: "custom",
@@ -100,6 +104,8 @@ export const directorGodotLiveLinkFrameAckSchema = z.strictObject({
   sessionId: z.string().uuid(),
   sequence: z.number().int().positive().max(1_000_000_000_000),
   accepted: z.literal(true),
+  /** Pending workshop commands for the already-open editor. */
+  commands: z.array(directorEngineSessionCommandPayloadSchema).max(16).optional(),
 });
 
 /** A validated frame acknowledgement. */
@@ -173,6 +179,11 @@ export const directorGodotLiveLinkErrorCodeSchema = z.enum([
   "live_link_session_expired",
   "live_link_sequence_stale",
   "live_link_session_limit",
+  "engine_session_unavailable",
+  "engine_session_code_not_allowed",
+  "engine_session_not_authoritative",
+  "engine_session_command_unknown",
+  "engine_session_command_mismatch",
 ]);
 
 /** A machine-readable live-link error code. */

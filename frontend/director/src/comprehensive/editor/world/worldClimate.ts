@@ -196,7 +196,8 @@ export function isWorldWeatherEvolving(settings: Pick<DirectorWorldSettings, "we
   return settings.weather.evolution?.mode === "cycle";
 }
 
-function getSegmentSeconds(settings: DirectorWorldSettings): number {
+/** Duration of one seeded weather node, clamped to the simulation minimum. */
+export function getWorldClimateSegmentSeconds(settings: DirectorWorldSettings): number {
   const period = settings.weather.evolution?.periodSeconds ?? DIRECTOR_WORLD_WEATHER_DEFAULT_PERIOD_SECONDS;
   return Math.max(60, period);
 }
@@ -207,9 +208,12 @@ export function getWorldClimateSegmentPreset(settings: DirectorWorldSettings, se
   return pickSchedulePreset(worldRandom01(settings.seed, SCHEDULE_STREAM, segment, PRESET_STREAM));
 }
 
-function getSegmentRampSeconds(settings: DirectorWorldSettings, segment: number, segmentSeconds: number): number {
+/** Duration of the smooth transition entering one seeded weather node. */
+export function getWorldClimateSegmentRampSeconds(settings: DirectorWorldSettings, segment: number): number {
+  const segmentSeconds = getWorldClimateSegmentSeconds(settings);
   const roll = worldRandom01(settings.seed, SCHEDULE_STREAM, segment, RAMP_STREAM);
-  const ramp = WORLD_CLIMATE_MIN_RAMP_SECONDS + (WORLD_CLIMATE_MAX_RAMP_SECONDS - WORLD_CLIMATE_MIN_RAMP_SECONDS) * roll;
+  const ramp =
+    WORLD_CLIMATE_MIN_RAMP_SECONDS + (WORLD_CLIMATE_MAX_RAMP_SECONDS - WORLD_CLIMATE_MIN_RAMP_SECONDS) * roll;
   // A ramp never exceeds 60% of its segment, so every node visibly holds.
   return Math.min(ramp, segmentSeconds * 0.6);
 }
@@ -227,11 +231,11 @@ export function evaluateWorldClimateSchedule(
     return { fromPreset: preset, toPreset: preset, blend: 1, preset };
   }
   const seconds = Number.isFinite(worldSeconds) ? Math.max(0, worldSeconds) : 0;
-  const segmentSeconds = getSegmentSeconds(settings);
+  const segmentSeconds = getWorldClimateSegmentSeconds(settings);
   const segment = Math.floor(seconds / segmentSeconds);
   const toPreset = getWorldClimateSegmentPreset(settings, segment);
   const fromPreset = segment === 0 ? toPreset : getWorldClimateSegmentPreset(settings, segment - 1);
-  const rampSeconds = getSegmentRampSeconds(settings, segment, segmentSeconds);
+  const rampSeconds = getWorldClimateSegmentRampSeconds(settings, segment);
   const secondsIntoSegment = seconds - segment * segmentSeconds;
   const blend = segment === 0 ? 1 : smoothstep01(secondsIntoSegment / rampSeconds);
   const preset = blend >= 0.5 ? toPreset : fromPreset;
@@ -247,10 +251,7 @@ export function blendWorldPresetScalar(
   return lerp(table[schedule.fromPreset], table[schedule.toPreset], schedule.blend);
 }
 
-function blendNodeField(
-  field: keyof WorldClimateNodeVector,
-  schedule: WorldClimateSchedule,
-): number {
+function blendNodeField(field: keyof WorldClimateNodeVector, schedule: WorldClimateSchedule): number {
   const from = WORLD_CLIMATE_NODE_VECTORS[schedule.fromPreset][field];
   const to = WORLD_CLIMATE_NODE_VECTORS[schedule.toPreset][field];
   return lerp(from, to, schedule.blend);
@@ -386,7 +387,7 @@ export function evaluateWorldClimate(settings: DirectorWorldSettings, worldSecon
 
   const schedule = evaluateWorldClimateSchedule(settings, worldSeconds);
   const inFirstSegment =
-    Math.max(0, Number.isFinite(worldSeconds) ? worldSeconds : 0) < getSegmentSeconds(settings);
+    Math.max(0, Number.isFinite(worldSeconds) ? worldSeconds : 0) < getWorldClimateSegmentSeconds(settings);
   // Segment 0 "from" state is the authored look, so switching evolution on
   // does not snap the frame at t = 0.
   const cloudCover = inFirstSegment
@@ -428,7 +429,7 @@ export function evaluateWorldClimate(settings: DirectorWorldSettings, worldSecon
 /** Eases the authored t=0 look into the node vector across the first ramp. */
 function firstSegmentSettle(settings: DirectorWorldSettings, worldSeconds: number): number {
   const seconds = Number.isFinite(worldSeconds) ? Math.max(0, worldSeconds) : 0;
-  const ramp = getSegmentRampSeconds(settings, 0, getSegmentSeconds(settings));
+  const ramp = getWorldClimateSegmentRampSeconds(settings, 0);
   return smoothstep01(seconds / ramp);
 }
 

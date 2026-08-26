@@ -486,6 +486,119 @@
   line-height: 1.5;
 }
 
+.right-sidebar .character-inspector .pose-viewport-guide {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.2);
+  border-radius: 9px;
+  background: rgb(var(--accent-rgb) / 0.055);
+}
+
+.right-sidebar .character-inspector .pose-viewport-guide-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+}
+
+.right-sidebar .character-inspector .pose-viewport-guide-heading strong {
+  color: rgb(var(--accent-rgb));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.right-sidebar .character-inspector .pose-viewport-guide p {
+  margin: 0;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.right-sidebar .character-inspector .pose-viewport-guide-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.right-sidebar .character-inspector .pose-viewport-guide-actions .inspector-action-button {
+  height: 30px;
+  font-size: 11px;
+}
+
+.character-pose-handle {
+  position: relative;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  place-items: center;
+  background: transparent;
+  filter: drop-shadow(0 1px 4px rgb(0 0 0 / 0.75));
+}
+
+.character-pose-handle-dot {
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgb(255 255 255 / 0.9);
+  border-radius: 999px;
+  background: rgb(var(--accent-rgb));
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.16);
+  transition:
+    width 120ms ease,
+    height 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.character-pose-handle.is-right .character-pose-handle-dot {
+  background: #ffb45f;
+  box-shadow: 0 0 0 3px rgb(255 180 95 / 0.16);
+}
+
+.character-pose-handle:hover .character-pose-handle-dot,
+.character-pose-handle:focus-visible .character-pose-handle-dot,
+.character-pose-handle.is-active .character-pose-handle-dot {
+  width: 13px;
+  height: 13px;
+  box-shadow:
+    0 0 0 3px rgb(8 9 13 / 0.9),
+    0 0 0 5px rgb(var(--accent-rgb) / 0.9);
+}
+
+.character-pose-handle.is-right:hover .character-pose-handle-dot,
+.character-pose-handle.is-right:focus-visible .character-pose-handle-dot,
+.character-pose-handle.is-right.is-active .character-pose-handle-dot {
+  box-shadow:
+    0 0 0 3px rgb(8 9 13 / 0.9),
+    0 0 0 5px rgb(255 180 95 / 0.9);
+}
+
+.character-pose-handle:focus-visible {
+  outline: none;
+}
+
+.character-pose-handle-label {
+  position: absolute;
+  left: 23px;
+  top: 50%;
+  padding: 3px 7px;
+  border: 1px solid rgb(var(--border-rgb) / 0.14);
+  border-radius: 6px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--overlay-rgb) / 0.9);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.32);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  pointer-events: none;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
 /* AI motion (ARDY) */
 .right-sidebar .character-inspector .ardy-prompt-input {
   height: auto;

@@ -777,6 +777,28 @@
   }
 }
 
+.director-host-status-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 3px;
+}
+
+.director-host-status-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgb(var(--text-dim-rgb) / 0.4);
+}
+
+.director-host-status-dots i[data-state="native"] {
+  background: rgb(var(--director-positive-rgb, 104 206 126));
+}
+
+.director-host-status-dots i[data-state="exchange"] {
+  background: rgb(var(--director-warning-rgb, 226 178 94));
+}
+
 @media (max-width: 560px) {
   .director-interchange-menu {
     right: -6px;

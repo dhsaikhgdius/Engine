@@ -4383,6 +4383,10 @@ export function DirectorCanvas({
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     if (!assetDropActiveRef.current) {
+      // A model may have finished loading since the previous drag. Refresh once
+      // per gesture so surface snapping sees it without traversing every frame.
+      dropSurfacesSceneRef.current = null;
+      dropSurfacesSignatureRef.current = "";
       assetDropActiveRef.current = true;
       setAssetDropActive(true);
     }

@@ -289,33 +289,34 @@ Director adapter implemented.
 | ---------------- | -------------------------------------------------- | ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------ | -------- |
 | Blender          | **Implemented native subset**                      | `.blend` + GLB/USDA     | Background CLI and Python API                      | Reviewed round trip plus preview-only live-link delta feed         | P0       |
 | Autodesk Maya    | **Exchange**                                       | USDA, then GLB          | `mayapy`, `maya.standalone`, Python API 2.0        | Headless export/import plus authenticated in-host connector        | P0       |
-| Unreal Engine    | **Implemented headless connector (scene/cameras/animation/skeleton/materials/preview live link)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer tracks, timecode, skeletal import, material instances, preview-only live link, and clean-frame render receipts implemented | P0       |
+| Unreal Engine    | **Implemented headless connector (scene/cameras/animation/skeleton/materials/preview live link)** | USDA, then GLB          | Editor Python, commandlets, Interchange, Sequencer | Sequencer tracks, timecode, skeletal import, material instances, preview-only live link (Gateway loopback sessions), clean-frame render receipts, and engine scene extraction implemented | P0       |
 | SideFX Houdini   | **Exchange**                                       | USDA, then GLB          | `hython`, HOM, HAPI, SessionSync                   | Headless bake/export; HAPI or SessionSync preview optional         | P1       |
 | Cinema 4D        | **Exchange**                                       | USDA, then GLB          | Python SDK and `c4dpy`                             | Headless bake/export plus authenticated in-host connector          | P1       |
-| Unity            | **Implemented headless connector (scene/cameras/animation/poses/avatars/materials)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline animation and pose baking, Avatars, lights, PBR fallback, and outbound-only preview live link implemented | P2       |
+| Unity            | **Implemented headless connector (scene/cameras/animation/poses/avatars/materials)** | GLB, then USDA          | Batch mode, C# Editor API, `AssetPostprocessor`    | Timeline animation and pose baking, Avatars, lights, PBR fallback, outbound-only preview live link, and engine scene extraction implemented | P2       |
 | Autodesk 3ds Max | **Exchange**                                       | USDA, then GLB          | `3dsmaxbatch`, Python, MAXScript                   | Windows headless adapter and optional in-host plug-in              | P2       |
-| Godot 4          | **Implemented headless connector (deep)**          | GLB                     | `godot --headless`, GDScript editor plug-ins       | Baked animation, shot cuts, skeletons, materials, lights, WorldEnvironment ambient bake, and outbound live preview implemented | P2       |
+| Godot 4          | **Implemented headless connector (deep)**          | GLB                     | `godot --headless`, GDScript editor plug-ins       | Baked animation, shot cuts, skeletons, materials, lights, WorldEnvironment ambient bake, outbound live preview, and engine scene extraction implemented | P2       |
 
 "Implemented headless connector" means the Director-authored connector performs
 the headless scene/camera import and transform-level return round trip verified
 by Director's host-free tests. The Unreal connector claims exactly the deeper
 subset its fixtures verify: Gateway-baked transform/camera animation into
 Sequencer, skinned-GLB skeletal mesh import, PBR material instances, a
-preview-only live-link camera transport, and best-effort clean-frame render
+token-gated hot editor transport, and best-effort clean-frame render
 receipts — not lossless USD animation, Control Rig transfer, or texture
 translation. Unity
 bakes Director animation onto Timeline, builds Humanoid/Generic Avatars from
 skinned GLB, and translates PBR materials, pinned by the in-package EditMode
 suite plus the host-free Unity golden tests. It also ships an outbound-only,
-token-authenticated, sequence-numbered preview live link with gateway
-disconnect-safety tests, never scene authority. Godot 4 ships Gateway-baked
+token-authenticated, sequence-numbered live link with gateway disconnect-safety
+tests and an opt-in engine-authority workshop. Godot 4 ships Gateway-baked
 `AnimationPlayer` animation, storyboard shot cuts as `Camera3D.current` tracks,
 skinned GLB `Skeleton3D` import, `StandardMaterial3D` translation with hashed
 external textures, Omni/Spot/Directional lights plus a `WorldEnvironment`
-ambient bake, and an outbound-only preview live link, backed by host-free
+ambient bake, and an outbound-only live link/workshop, backed by host-free
 goldens plus a skip-if-missing real headless roundtrip. All three remain
-warned, bounded subsets. Unreal, Unity, and Godot preview live link are
-`native`. Blender also ships a preview-only native live-link delta feed.
+warned, bounded subsets. Unreal, Unity, and Godot capture, hot sessions,
+provider-native code execution, and engine-authority review sync are `native`.
+Blender also ships a preview-only native live-link delta feed.
 
 The table does not promise complete USD or glTF fidelity. Director only claims the
 subset covered by its schemas, fixtures, validators, and provider acceptance tests.
@@ -397,10 +398,17 @@ Implemented Director boundary (see `integrations/unreal/README.md`):
   skeletal meshes in bind pose and spawn tagged `SkeletalMeshActor`s;
 - Director PBR parameters become Material Instances on Director-authored parent
   materials; unsupported channels warn-and-omit;
-- an optional preview-only loopback camera feed (`--mode live-preview`) applies
+- an optional loopback editor session (`--mode live-preview`) applies
   token-gated, sequence-numbered frames to the editor viewport with tested
-  reorder/disconnect semantics — the `live_link` capability is `native`
-  as a preview-only Gateway loopback (live frames never mutate the project);
+  reorder/disconnect semantics. Camera frames stay preview-only; explicit
+  grants add Editor Python and engine-owned stable-ID review snapshots.
+  The Gateway holds these sessions at `/api/dcc/unreal/live-preview/sessions`
+  (the shared token stays in `DIRECTOR_UNREAL_PREVIEW_TOKEN` on both
+  environments; only matching validated command receipts are parsed), and the workbench
+  "DCC / engine handoff" dock pushes the active Director camera through them;
+- `extract_engine_scene` runs `integrations/unreal/interchange/director_scene_export.py`
+  headlessly to bring an existing Unreal level into Director as a
+  `director-engine-scene-v1` package (preview/apply guarded like `.blend` imports);
 - the connector runs only its fixed entry points from `connector.json`; a
   request can never substitute its own script.
 
@@ -408,9 +416,12 @@ Still planned:
 
 - rig pose and motion-clip transfer (Control Rig channels warn-and-omit today);
 - texture-file translation (only bundled relative hashed files are considered);
-- a Gateway Live Link transport for camera or pose preview (never durable scene
-  authority);
-- clean-frame render receipts;
+- a Gateway Live Link transport for pose preview (camera preview ships through
+  the loopback sessions above; never durable scene authority);
+- `-game` project runs: `run_engine_project` answers structured
+  `engine_run_unsupported` for Unreal; `launch_engine_editor` opens the
+  `.uproject` in the GUI editor today (the console binary maps onto its
+  UnrealEditor sibling);
 - Remote Control stays optional rather than the security boundary; and
 - `.uasset` files are never parsed or synthesized outside Unreal.
 
@@ -531,17 +542,22 @@ Implemented Director boundary (see `integrations/unity/README.md`):
   host-free Gateway golden tests
   (`packages/dcc-protocol/tests/directorDccUnityConnectorGolden.test.ts`), so
   Unity is never required in CI;
-- a preview-only live link: the `Director → Live Link Preview` Editor window
+- an outbound live link: the `Director → Live Link Preview` Editor window
   long-polls the Gateway hub (`/api/dcc/unity/live-link/sessions/<id>/events`)
   with a per-session bearer token and monotonic sequence numbers, resyncing
-  from snapshots after gaps. The transport is outbound-only (Unity never
-  writes back and no C# execution endpoint exists), disconnect-safe (pinned by
-  `backend/gateway/tests/dcc/unityLiveLink.test.ts`), and never authoritative
-  — the durable channel stays the exchange/return package round trip;
+  from snapshots after gaps. The transport is outbound-only and disconnect-safe
+  (pinned by `backend/gateway/tests/dcc/unityLiveLink.test.ts`). Explicit
+  workshop grants add C# execution and engine-owned review snapshots while
+  native project state stays in Unity;
 - when `DIRECTOR_UNITY_BIN` is unset, the Gateway discovers Unity Hub
   per-version editor installs on macOS, Linux, and Windows (newest stable
   first; `DIRECTOR_UNITY_HUB_EDITORS` names a relocated Hub root) before
   falling back to legacy layouts and `PATH`;
+- `extract_engine_scene` copies the standalone
+  `integrations/unity/interchange/DirectorSceneExport.cs` exporter into
+  `Assets/Editor/DirectorInterchange/` (hash-compared) and runs it in batch
+  mode to bring an existing Unity scene into Director as a
+  `director-engine-scene-v1` package;
 - GLB remains the preferred portable asset format; Unity scene YAML is never an
   exchange format.
 
@@ -549,7 +565,11 @@ Still planned:
 
 - production USD round trip (USD stays experimental until Director has
   version-pinned acceptance tests against the pre-release Unity packages;
-  GLB remains the preferred payload).
+  GLB remains the preferred payload); and
+- editor play-mode runs: `run_engine_project` answers structured
+  `engine_run_unsupported` for Unity (play mode needs an in-editor bridge the
+  connector does not claim); `launch_engine_editor` opens the configured
+  project in the Unity editor today.
 
 ### Autodesk 3ds Max
 
@@ -642,6 +662,19 @@ Implemented Director boundary (see `integrations/godot/README.md`):
 - headless export collects tagged nodes and diffs their transforms against the
   exchange baseline at matrix level (an identity basis change, since Godot
   matches Director), so mirrored transforms round-trip without false drift;
+- `extract_engine_scene` copies the standalone
+  `integrations/godot/interchange/director_scene_export.gd` exporter into
+  `res://addons/director_interchange/` (hash-compared, no dependency on the
+  bridge addon) and runs it headlessly to bring an existing Godot scene into
+  Director as a `director-engine-scene-v1` package — nodes, cameras, lights,
+  animation-clip inventory, and a GLTFDocument GLB bundle, declaring the
+  identity linear map;
+- `launch_engine_editor` opens the configured project in the Godot editor, and
+  `run_engine_project` / `engine_run_status` / `stop_engine_project` run the
+  configured project (optional `res://` scene, optional headless) with a
+  bounded stdout/stderr tail and SIGTERM→SIGKILL stop — the Director-native
+  equivalent of the community godot-mcp launch/run/debug-output tools, with a
+  fixed argument vector and no request-supplied scripts;
 - GLB is the only advertised portable format; USDA is deliberately not claimed
   because Godot has no bundled USD importer.
 

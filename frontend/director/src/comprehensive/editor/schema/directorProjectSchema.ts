@@ -563,6 +563,17 @@ export const directorNativeSceneSchema = z.strictObject({
   contentRevision: z.number().int().nonnegative().optional(),
 });
 
+/** Engine-owned game workspace projected into Director as a review view. */
+export const directorEngineWorkspaceSchema = z.strictObject({
+  provider: z.enum(["unreal", "unity", "godot"]),
+  authority: z.literal("engine"),
+  projectId: z.string().trim().min(1).max(240),
+  scenePath: z.string().trim().min(1).max(1_024).nullable(),
+  sessionId: z.string().trim().min(1).max(240).optional(),
+  lastSyncAt: z.string().datetime(),
+  syncedEntityCount: z.number().int().nonnegative().max(4_096),
+});
+
 export const directorToggleTransformInteractionSchema = z.strictObject({
   kind: z.literal("toggle-transform"),
   prompt: z.string().trim().min(1).max(120),
@@ -823,6 +834,7 @@ export const directorProductionSchema = z.strictObject({
 const directorProjectBaseSchema = z.strictObject({
   version: z.literal(1),
   nativeScene: directorNativeSceneSchema.optional(),
+  engineWorkspace: directorEngineWorkspaceSchema.optional(),
   scene: z.strictObject({
     scale: finiteNumber,
     position: vec3Schema,
@@ -1069,6 +1081,8 @@ export type DirectorSceneMeasurement = z.infer<typeof directorSceneMeasurementSc
 export type DirectorReferenceBinding = NonNullable<z.infer<typeof directorObjectSchema>["referenceBindings"]>[number];
 /** Native scene binding to an external Blender project. */
 export type DirectorNativeScene = z.infer<typeof directorNativeSceneSchema>;
+/** Engine-owned game workspace metadata for Director's review projection. */
+export type DirectorEngineWorkspace = z.infer<typeof directorEngineWorkspaceSchema>;
 /** Native object source referencing a Blender object. */
 export type DirectorNativeObjectSource = z.infer<typeof directorNativeObjectSourceSchema>;
 /** The rig state of a character object (pose, IK, motion). */

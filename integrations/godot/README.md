@@ -2,7 +2,9 @@
 
 Source-only editor plugin (`addons/director_bridge`) plus a fixed
 `godot --headless --script` entry point that connects a licensed Godot 4.2+
-installation (Godot 4.x only) to Director.
+installation (Godot 4.x only) to Director. A standalone scene exporter
+(`interchange/director_scene_export.gd`) additionally brings existing Godot
+scenes into Director without requiring the bridge addon.
 
 Godot 4's world basis (right-handed, Y-up, metres, camera forward -Z) matches
 Director's canonical space exactly, so the provider-boundary conversion is the
@@ -104,13 +106,40 @@ The editor plugin's **Director: Toggle Live Preview** tool menu item streams
 ephemeral, sequence-numbered preview frames of `director_id`-tagged nodes to
 the Director Gateway's token-guarded live-link routes
 (`director-godot-live-link-v1`: hello → frame… → bye). The transport is
-strictly outbound — Godot never opens a listening port and never exposes a
-scripting endpoint — and preview frames are never authoritative: durable
-changes still travel only through the reviewed `director-dcc-return-v1`
-package path. Stale or replayed sequence numbers are rejected by the Gateway,
+strictly outbound — Godot never opens a listening port. `start_engine_session`
+can adopt this connection as an opt-in workshop: `allow_code:true` enables
+GDScript commands and `authority:"engine"` enables a stable-ID review snapshot.
+Native scripts, scene resources, collision, navigation, bake data, and UI stay
+in Godot. Stale or replayed sequence numbers are rejected by the Gateway,
 and a dropped connection (missed bye) is swept by the Gateway's idle timeout
 without touching the last committed Director revision. Configure the target
 with `DIRECTOR_GATEWAY_URL` and `DIRECTOR_GATEWAY_TOKEN`.
+
+## Engine scene export into Director (`interchange/`)
+
+`interchange/director_scene_export.gd` is a standalone SceneTree script — it
+never depends on the bridge addon, so any valid Godot 4 project can export a
+`director-engine-scene-v1` package (manifest with a hierarchy snapshot,
+cameras, lights, animation-clip inventory, SHA-256 file hashes, and a
+GLTFDocument GLB bundle). Godot's basis already matches Director's canonical
+space, so the manifest declares the identity linear map `(x,y,z)->(x,y,z)`.
+The scene is instantiated but never added to the tree, so game `_ready` code
+does not run during export.
+
+Director's `extract_engine_scene` copies this file into
+`res://addons/director_interchange/` (hash-compared) and runs:
+
+```bash
+"$DIRECTOR_GODOT_BIN" --headless --path "<YourProject>" \
+  --script res://addons/director_interchange/director_scene_export.gd -- \
+  --output-dir /abs/out [--scene res://scenes/main.tscn] [--zip]
+```
+
+Omitting `--scene` exports the project's main scene. `--zip` additionally
+writes `director-engine-scene.zip` next to the output directory, ready to
+upload to `POST /api/dcc/engine-scene/uploads?provider=godot`. Orthographic
+cameras, 2D/UI nodes, and sky-driven ambient light are recorded as structured
+`unsupported`/warning entries rather than silently dropped.
 
 ## Capability honesty
 

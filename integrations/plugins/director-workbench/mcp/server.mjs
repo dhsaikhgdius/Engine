@@ -54346,6 +54346,15 @@ var directorNativeSceneSchema = external_exports.strictObject({
   revision: external_exports.number().int().nonnegative().optional(),
   contentRevision: external_exports.number().int().nonnegative().optional()
 });
+var directorEngineWorkspaceSchema = external_exports.strictObject({
+  provider: external_exports.enum(["unreal", "unity", "godot"]),
+  authority: external_exports.literal("engine"),
+  projectId: external_exports.string().trim().min(1).max(240),
+  scenePath: external_exports.string().trim().min(1).max(1024).nullable(),
+  sessionId: external_exports.string().trim().min(1).max(240).optional(),
+  lastSyncAt: external_exports.string().datetime(),
+  syncedEntityCount: external_exports.number().int().nonnegative().max(4096)
+});
 var directorToggleTransformInteractionSchema = external_exports.strictObject({
   kind: external_exports.literal("toggle-transform"),
   prompt: external_exports.string().trim().min(1).max(120),
@@ -54562,6 +54571,7 @@ var directorProductionSchema = external_exports.strictObject({
 var directorProjectBaseSchema = external_exports.strictObject({
   version: external_exports.literal(1),
   nativeScene: directorNativeSceneSchema.optional(),
+  engineWorkspace: directorEngineWorkspaceSchema.optional(),
   scene: external_exports.strictObject({
     scale: finiteNumber3,
     position: vec3Schema2,
@@ -124255,6 +124265,15 @@ var directorNativeSceneSchema2 = external_exports.strictObject({
   revision: external_exports.number().int().nonnegative().optional(),
   contentRevision: external_exports.number().int().nonnegative().optional()
 });
+var directorEngineWorkspaceSchema2 = external_exports.strictObject({
+  provider: external_exports.enum(["unreal", "unity", "godot"]),
+  authority: external_exports.literal("engine"),
+  projectId: external_exports.string().trim().min(1).max(240),
+  scenePath: external_exports.string().trim().min(1).max(1024).nullable(),
+  sessionId: external_exports.string().trim().min(1).max(240).optional(),
+  lastSyncAt: external_exports.string().datetime(),
+  syncedEntityCount: external_exports.number().int().nonnegative().max(4096)
+});
 var directorToggleTransformInteractionSchema2 = external_exports.strictObject({
   kind: external_exports.literal("toggle-transform"),
   prompt: external_exports.string().trim().min(1).max(120),
@@ -124471,6 +124490,7 @@ var directorProductionSchema2 = external_exports.strictObject({
 var directorProjectBaseSchema2 = external_exports.strictObject({
   version: external_exports.literal(1),
   nativeScene: directorNativeSceneSchema2.optional(),
+  engineWorkspace: directorEngineWorkspaceSchema2.optional(),
   scene: external_exports.strictObject({
     scale: finiteNumber5,
     position: vec3Schema3,
@@ -136906,7 +136926,7 @@ var directorDccReturnReportSchema = external_exports.strictObject({
 // packages/dcc-protocol/src/directorEngineSceneImportContract.ts
 var DIRECTOR_ENGINE_SCENE_CONTRACT = "director-engine-scene-v1";
 var DIRECTOR_ENGINE_SCENE_IMPORT_PLAN_CONTRACT = "director-engine-scene-import-plan-v1";
-var directorEngineSceneProviderSchema = external_exports.enum(["unreal", "unity"]);
+var directorEngineSceneProviderSchema = external_exports.enum(["unreal", "unity", "godot"]);
 var nonEmpty4 = external_exports.string().trim().min(1);
 var finite11 = external_exports.number().finite();
 var sha2565 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
@@ -136928,15 +136948,28 @@ var DIRECTOR_ENGINE_COORDINATE_SYSTEMS = Object.freeze({
     destination: "right-handed-y-up-negative-z-forward",
     unit: "meter",
     linearMap: "(x,y,z)->(-x,y,z)"
+  },
+  // Godot 4 already authors in Director's convention; the exporter still
+  // declares the identity map so packages stay auditable.
+  godot: {
+    source: "right-handed-y-up-negative-z-forward-meter",
+    destination: "right-handed-y-up-negative-z-forward",
+    unit: "meter",
+    linearMap: "(x,y,z)->(x,y,z)"
   }
 });
 var engineCoordinateSystemSchema = external_exports.strictObject({
-  source: external_exports.enum([DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.source, DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.source]),
+  source: external_exports.enum([
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.source,
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.source,
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.godot.source
+  ]),
   destination: external_exports.literal("right-handed-y-up-negative-z-forward"),
   unit: external_exports.literal("meter"),
   linearMap: external_exports.enum([
     DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.linearMap,
-    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.linearMap
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.linearMap,
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.godot.linearMap
   ])
 });
 var directorEngineSceneNodeKindSchema = external_exports.enum(["mesh", "skinned-mesh", "camera", "light", "group", "other"]);
@@ -137285,6 +137318,57 @@ var directorEngineSceneImportPlanSchema = external_exports.strictObject({
   }
 });
 
+// packages/dcc-protocol/src/directorDccEngineRunContract.ts
+var nonEmpty5 = external_exports.string().trim().min(1);
+var DIRECTOR_DCC_ENGINE_EDITOR_LAUNCH_CONTRACT = "director-dcc-engine-editor-launch-v1";
+var directorDccEngineEditorLaunchSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_DCC_ENGINE_EDITOR_LAUNCH_CONTRACT),
+  provider: directorDccEngineIdSchema,
+  executable: nonEmpty5.max(1024),
+  projectPath: nonEmpty5.max(1024),
+  pid: external_exports.number().int().positive(),
+  launchedAtMs: external_exports.number().int().nonnegative(),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(32)
+});
+var DIRECTOR_DCC_ENGINE_RUN_CONTRACT = "director-dcc-engine-run-v1";
+var directorDccEngineRunStateSchema = external_exports.enum(["running", "exited", "stopped", "failed"]);
+var DIRECTOR_DCC_ENGINE_RUN_MAX_OUTPUT_BYTES = 128 * 1024;
+var directorDccGodotRunSceneSchema = external_exports.string().trim().min(1).max(1024).regex(/^res:\/\/[^\\]+$/, "scene must be a res:// path inside the project").refine(
+  (value) => value.slice("res://".length).split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
+  { message: "scene path cannot contain empty, dot, or parent segments" }
+);
+var directorDccEngineRunStatusSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_DCC_ENGINE_RUN_CONTRACT),
+  provider: directorDccEngineIdSchema,
+  runId: nonEmpty5.max(120),
+  executable: nonEmpty5.max(1024),
+  projectPath: nonEmpty5.max(1024),
+  scene: external_exports.string().max(1024).nullable(),
+  headless: external_exports.boolean(),
+  pid: external_exports.number().int().positive().nullable(),
+  state: directorDccEngineRunStateSchema,
+  exitCode: external_exports.number().int().nullable(),
+  startedAtMs: external_exports.number().int().nonnegative(),
+  endedAtMs: external_exports.number().int().nonnegative().nullable(),
+  output: external_exports.string().max(DIRECTOR_DCC_ENGINE_RUN_MAX_OUTPUT_BYTES + 256),
+  outputTruncated: external_exports.boolean()
+}).superRefine((status, context) => {
+  if (status.state === "running" && status.endedAtMs !== null) {
+    context.addIssue({ code: "custom", path: ["endedAtMs"], message: "running runs cannot carry an end time" });
+  }
+  if (status.state !== "running" && status.endedAtMs === null) {
+    context.addIssue({ code: "custom", path: ["endedAtMs"], message: "finished runs must carry an end time" });
+  }
+});
+var directorDccEngineRunErrorCodeSchema = external_exports.enum([
+  "engine_run_not_ready",
+  "engine_run_unsupported",
+  "engine_run_active",
+  "engine_run_unknown",
+  "engine_run_invalid",
+  "engine_run_failed"
+]);
+
 // packages/dcc-protocol/src/directorDccProviderContract.ts
 var directorDccProviderIdSchema = external_exports.string().trim().min(1).max(120).regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/, "provider id must be a lowercase, namespaced identifier");
 var directorDccExchangeFormatSchema = external_exports.enum(["blend", "glb", "usda"]);
@@ -137298,7 +137382,11 @@ var directorDccCapabilityIdSchema = external_exports.enum([
   "stable_ids",
   "roundtrip",
   "headless",
-  "live_link"
+  "live_link",
+  "capture",
+  "hot_session",
+  "execute_code",
+  "engine_authority"
 ]);
 var directorDccCapabilityLevelSchema = external_exports.enum(["native", "exchange", "planned"]);
 var directorDccCapabilityLayerSchema = external_exports.enum(["connector", "exchange-format", "director-manifest"]);
@@ -137532,13 +137620,11 @@ var UNREAL_PROVIDER_DESCRIPTOR = directorDccProviderDescriptorSchema.parse({
     { id: "stable_ids", level: "native", layer: "director-manifest" },
     { id: "roundtrip", level: "native", layer: "connector" },
     { id: "headless", level: "native", layer: "connector" },
-    // Preview-only live link: the Gateway loopback transport
-    // (backend/gateway/dcc/unrealLivePreview.ts) and the connector session
-    // (director_livelink.py) both carry tested disconnect/reorder/duplicate
-    // semantics, and neither side can turn a live frame into a project
-    // mutation. The durable scene channel remains the hash-verified
-    // exchange/return package.
-    { id: "live_link", level: "native", layer: "connector" }
+    { id: "live_link", level: "native", layer: "connector" },
+    { id: "capture", level: "native", layer: "connector" },
+    { id: "hot_session", level: "native", layer: "connector" },
+    { id: "execute_code", level: "native", layer: "connector" },
+    { id: "engine_authority", level: "native", layer: "connector" }
   ],
   connectorDirectory: "integrations/unreal"
 });
@@ -137574,9 +137660,13 @@ function unityEngineProvider() {
       { id: "headless", level: "native", layer: "connector" },
       // Preview-only live link: the DirectorLiveLink Editor window long-polls
       // the gateway hub (scoped bearer token, monotonic sequence numbers,
-      // snapshot resync) and never writes back. Disconnect safety is pinned by
-      // the gateway unityLiveLink tests; there is no remote-execute endpoint.
-      { id: "live_link", level: "native", layer: "connector" }
+      // snapshot resync). An explicitly granted workshop session can return
+      // command receipts and engine-owned review snapshots.
+      { id: "live_link", level: "native", layer: "connector" },
+      { id: "capture", level: "native", layer: "connector" },
+      { id: "hot_session", level: "native", layer: "connector" },
+      { id: "execute_code", level: "native", layer: "connector" },
+      { id: "engine_authority", level: "native", layer: "connector" }
     ],
     connectorDirectory: "integrations/unity"
   });
@@ -137617,7 +137707,11 @@ var GODOT_PROVIDER_DESCRIPTOR = directorDccProviderDescriptorSchema.parse({
     // verified by the sequence/replay/disconnect goldens in
     // backend/gateway/tests/dcc/godotLiveLink.test.ts. Durable changes still
     // travel only through the reviewed return-package path.
-    { id: "live_link", level: "native", layer: "connector" }
+    { id: "live_link", level: "native", layer: "connector" },
+    { id: "capture", level: "native", layer: "connector" },
+    { id: "hot_session", level: "native", layer: "connector" },
+    { id: "execute_code", level: "native", layer: "connector" },
+    { id: "engine_authority", level: "native", layer: "connector" }
   ],
   connectorDirectory: "integrations/godot"
 });
@@ -137642,7 +137736,10 @@ var DIRECTOR_DCC_PROVIDERS = Object.freeze([
       // replay protection, resync on epoch change/eviction). Never
       // authoritative: committed Director state only changes through the
       // revision-guarded live command batches or the reviewed return import.
-      { id: "live_link", level: "native", layer: "connector" }
+      { id: "live_link", level: "native", layer: "connector" },
+      { id: "capture", level: "native", layer: "connector" },
+      { id: "hot_session", level: "native", layer: "connector" },
+      { id: "execute_code", level: "native", layer: "connector" }
     ],
     connectorDirectory: "integrations/blender"
   }),
@@ -137884,6 +137981,71 @@ var directorDccOperationSchema = external_exports.discriminatedUnion("op", [
     provider: directorEngineSceneProviderSchema,
     project_dir: external_exports.string().trim().min(1).max(2048),
     scene: external_exports.string().trim().min(1).max(512).optional()
+  }),
+  strictOperation("start_engine_session", {
+    provider: external_exports.enum(["unity", "godot", "unreal"]),
+    label: external_exports.string().trim().min(1).max(120).optional(),
+    /** Unreal-only: port printed by director_headless.py --mode live-preview. */
+    port: external_exports.number().int().min(1).max(65535).optional(),
+    /** Explicit local grant for execute_code commands in this session. */
+    allow_code: external_exports.boolean().optional().default(false),
+    /** Engine authority enables repeated engine → Director review sync. */
+    authority: external_exports.enum(["director", "engine"]).optional().default("director")
+  }),
+  strictOperation("engine_session_command", {
+    provider: external_exports.enum(["unity", "godot", "unreal"]),
+    session_id: external_exports.string().trim().min(1).max(240),
+    command: external_exports.enum(["capture_frame", "execute_code", "sync_scene"]),
+    camera: external_exports.string().trim().min(1).max(240).optional(),
+    width: external_exports.number().int().min(64).max(1920).optional(),
+    height: external_exports.number().int().min(64).max(1080).optional(),
+    /** C# for Unity, GDScript for Godot, or Editor Python for Unreal. */
+    code: external_exports.string().min(1).max(1e5).optional()
+  }),
+  strictOperation("engine_session_command_status", {
+    provider: external_exports.enum(["unity", "godot", "unreal"]),
+    session_id: external_exports.string().trim().min(1).max(240),
+    command_id: external_exports.string().trim().min(1).max(240)
+  }),
+  strictOperation("stop_engine_session", {
+    provider: external_exports.enum(["unity", "godot", "unreal"]),
+    session_id: external_exports.string().trim().min(1).max(240)
+  }),
+  strictOperation("sync_engine_session_to_director", {
+    provider: external_exports.enum(["unity", "godot", "unreal"]),
+    session_id: external_exports.string().trim().min(1).max(240),
+    command_id: external_exports.string().trim().min(1).max(240),
+    expected_revision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+    idempotency_key: external_exports.string().trim().min(1).max(240)
+  }),
+  strictOperation("launch_engine_editor", {
+    provider: directorDccEngineIdSchema
+  }),
+  strictOperation("run_engine_project", {
+    provider: directorDccEngineIdSchema,
+    /** Godot-only today: a res:// scene inside the configured project (defaults to the main scene). */
+    scene: directorDccGodotRunSceneSchema.optional(),
+    /** Run without a window; output capture is unchanged. */
+    headless: external_exports.boolean().optional()
+  }),
+  strictOperation("engine_run_status", {
+    provider: directorDccEngineIdSchema
+  }),
+  strictOperation("stop_engine_project", {
+    provider: directorDccEngineIdSchema
+  }),
+  strictOperation("render_engine_frame", {
+    provider: directorDccEngineIdSchema,
+    /** Unreal: required send-job id (renders that job's imported level); Unity: optional (resolves the imported scene). */
+    job_id: external_exports.string().trim().min(1).max(240).optional(),
+    /** Godot: res:// scene (defaults to the main scene); Unity: project scene path. */
+    scene: external_exports.string().trim().min(1).max(1024).optional(),
+    /** Unreal: Director camera id; Unity: camera object name. */
+    camera: external_exports.string().trim().min(1).max(240).optional(),
+    width: external_exports.number().int().min(64).max(1920).optional(),
+    height: external_exports.number().int().min(64).max(1080).optional(),
+    /** Unreal-only: the Director timeline frame to scrub to before rendering. */
+    frame: external_exports.number().int().nonnegative().max(1e6).optional()
   })
 ]);
 var DIRECTOR_TO_BLENDER_BASIS = new Matrix4().set(1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1);
@@ -137891,7 +138053,7 @@ var BLENDER_TO_DIRECTOR_BASIS = DIRECTOR_TO_BLENDER_BASIS.clone().invert();
 
 // packages/dcc-protocol/src/directorUnrealCleanFrameContract.ts
 var DIRECTOR_UNREAL_CLEAN_FRAME_CONTRACT = "director-unreal-clean-frame-v1";
-var nonEmpty5 = external_exports.string().trim().min(1);
+var nonEmpty6 = external_exports.string().trim().min(1);
 var sha256Schema3 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
 var safeRelativePathSchema = external_exports.string().trim().min(1).max(1024).refine(
   (path) => !path.startsWith("/") && !path.includes("\\") && !/^[A-Za-z]:/.test(path) && path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
@@ -137902,10 +138064,10 @@ var directorUnrealCleanFrameRenderedSchema = external_exports.strictObject({
   provider: external_exports.literal("unreal"),
   status: external_exports.literal("rendered"),
   /** The exchange package (job) this frame belongs to. */
-  packageId: nonEmpty5.max(240),
+  packageId: nonEmpty6.max(240),
   sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
   /** Content path of the imported Director level the frame was rendered from. */
-  levelPath: nonEmpty5.max(1024),
+  levelPath: nonEmpty6.max(1024),
   /** The Director camera the frame was rendered through, or null for the first tagged camera. */
   cameraDirectorId: external_exports.string().trim().min(1).max(200).nullable(),
   /** The Director timeline frame the still represents. */
@@ -137921,14 +138083,14 @@ var directorUnrealCleanFrameRenderedSchema = external_exports.strictObject({
    * screenshot never composites editor gizmos, actor labels, or helper widgets.
    */
   method: external_exports.literal("offscreen_high_res_screenshot"),
-  hostVersion: nonEmpty5.max(200),
+  hostVersion: nonEmpty6.max(200),
   warnings: external_exports.array(external_exports.string().max(2e3)).max(2e3)
 });
 var directorUnrealCleanFrameSkippedSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_UNREAL_CLEAN_FRAME_CONTRACT),
   provider: external_exports.literal("unreal"),
   status: external_exports.literal("skipped"),
-  skipReason: nonEmpty5.max(2e3),
+  skipReason: nonEmpty6.max(2e3),
   warnings: external_exports.array(external_exports.string().max(2e3)).max(2e3)
 });
 var directorUnrealCleanFrameReceiptSchema = external_exports.discriminatedUnion("status", [
@@ -137938,7 +138100,7 @@ var directorUnrealCleanFrameReceiptSchema = external_exports.discriminatedUnion(
 
 // packages/dcc-protocol/src/directorUnrealSequencerContract.ts
 var DIRECTOR_UNREAL_SEQUENCER_BAKE_CONTRACT = "director-unreal-sequencer-bake-v1";
-var nonEmpty6 = external_exports.string().trim().min(1);
+var nonEmpty7 = external_exports.string().trim().min(1);
 var directorUnrealTimecodeSchema = external_exports.string().regex(/^\d{2}:\d{2}:\d{2}[:;]\d{2}$/);
 var directorUnrealRationalRateSchema = external_exports.strictObject({
   numerator: external_exports.number().int().positive().max(1e6),
@@ -137971,7 +138133,7 @@ var directorUnrealOmittedChannelDetailSchema = external_exports.strictObject({
   reason: external_exports.string().trim().min(1).max(600)
 });
 var directorUnrealBakedEntitySchema = external_exports.strictObject({
-  directorId: nonEmpty6.max(200),
+  directorId: nonEmpty7.max(200),
   entityType: external_exports.enum(["object", "camera"]),
   name: external_exports.string().max(240),
   transformSamples: external_exports.array(directorUnrealTransformSampleSchema).min(1).max(1e5),
@@ -138067,7 +138229,7 @@ var directorUnrealSequencerBakeSchema = external_exports.strictObject({
 var rationalRateStringSchema = external_exports.string().regex(/^[1-9]\d{0,6}\/[1-9]\d{0,6}$/);
 var directorUnrealSequencerReceiptSchema = external_exports.strictObject({
   /** Content path of the LevelSequence asset (for example `/Game/Director/Sequences/...`). */
-  sequencePath: nonEmpty6.max(1024),
+  sequencePath: nonEmpty7.max(1024),
   /** Rational display rate applied to the sequence, e.g. `24000/1001`. */
   displayRate: rationalRateStringSchema,
   /** Rational tick resolution applied to the sequence, e.g. `24000/1`. */
@@ -138086,7 +138248,7 @@ var directorUnrealSequencerReceiptSchema = external_exports.strictObject({
 
 // packages/dcc-protocol/src/directorGodotAnimationContract.ts
 var DIRECTOR_GODOT_ANIMATION_BAKE_CONTRACT = "director-godot-animation-bake-v1";
-var nonEmpty7 = external_exports.string().trim().min(1);
+var nonEmpty8 = external_exports.string().trim().min(1);
 var directorGodotRationalRateSchema = external_exports.strictObject({
   numerator: external_exports.number().int().positive().max(1e6),
   denominator: external_exports.number().int().positive().max(1e6)
@@ -138112,10 +138274,10 @@ function strictlyIncreasingFrames2(samples) {
   return -1;
 }
 var directorGodotShotRangeSchema = external_exports.strictObject({
-  shotId: nonEmpty7.max(200),
+  shotId: nonEmpty8.max(200),
   title: external_exports.string().max(240),
   /** Director camera id bound to the shot, or null when the shot has no camera. */
-  cameraDirectorId: nonEmpty7.max(200).nullable(),
+  cameraDirectorId: nonEmpty8.max(200).nullable(),
   frameStart: external_exports.number().int().min(-1e6).max(75e9),
   frameEnd: external_exports.number().int().min(-1e6).max(75e9)
 }).refine((shot) => shot.frameEnd >= shot.frameStart, {
@@ -138126,20 +138288,20 @@ var directorGodotOmittedChannelDetailSchema = external_exports.strictObject({
   /** Total distinct rig pose control names present in authored keyframes. */
   poseControlCount: external_exports.number().int().nonnegative().max(1e5),
   /** Sorted sample of omitted pose control names (capped at 32). */
-  poseControls: external_exports.array(nonEmpty7.max(160)).max(32),
+  poseControls: external_exports.array(nonEmpty8.max(160)).max(32),
   /** Total character motion clips authored on the entity. */
   motionClipCount: external_exports.number().int().nonnegative().max(1e5),
   /** Sample of omitted motion clip ranges (capped at 32). */
   motionClips: external_exports.array(
     external_exports.strictObject({
-      id: nonEmpty7.max(120),
+      id: nonEmpty8.max(120),
       frameStart: external_exports.number().int().min(-1e6).max(1e6),
       frameEnd: external_exports.number().int().min(-1e6).max(1e6)
     })
   ).max(32)
 });
 var directorGodotBakedEntitySchema = external_exports.strictObject({
-  directorId: nonEmpty7.max(200),
+  directorId: nonEmpty8.max(200),
   entityType: external_exports.enum(["object", "camera"]),
   name: external_exports.string().max(240),
   transformSamples: external_exports.array(directorGodotTransformSampleSchema).min(1).max(1e5),
@@ -138368,7 +138530,7 @@ var directorGodotConnectorHealthSchema = external_exports.strictObject({
   ok: external_exports.literal(true),
   provider: external_exports.literal("godot"),
   hostVersion: external_exports.string().trim().min(1).max(200),
-  connectorVersion: nonEmpty7.max(60)
+  connectorVersion: nonEmpty8.max(60)
 });
 
 // packages/dcc-protocol/src/directorDccEngineContract.ts
@@ -138376,7 +138538,7 @@ var DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT = "director-dcc-connector-v1";
 var DIRECTOR_DCC_ENGINE_REPORT_CONTRACT = "director-dcc-engine-report-v1";
 var DIRECTOR_DCC_ENGINE_HEALTH_CONTRACT = "director-dcc-engine-health-v1";
 var DIRECTOR_DCC_ENGINE_SEND_CONTRACT = "director-dcc-engine-send-v1";
-var nonEmpty8 = external_exports.string().trim().min(1);
+var nonEmpty9 = external_exports.string().trim().min(1);
 var sha256Schema4 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
 var safeRelativePathSchema2 = external_exports.string().trim().min(1).max(1024).refine(
   (path) => !path.startsWith("/") && !path.includes("\\") && !/^[A-Za-z]:/.test(path) && path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
@@ -138386,7 +138548,7 @@ var directorDccConnectorManifestSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT),
   provider: directorDccEngineIdSchema,
   /** Version of the Director-authored connector source. */
-  version: nonEmpty8.max(60),
+  version: nonEmpty9.max(60),
   /** Fixed entry points relative to the connector directory. */
   entryPoints: external_exports.strictObject({
     health: safeRelativePathSchema2,
@@ -138394,15 +138556,15 @@ var directorDccConnectorManifestSchema = external_exports.strictObject({
     export: safeRelativePathSchema2
   }),
   /** Human-readable host requirement, e.g. "Unreal Engine 5.3+". */
-  hostRequirement: nonEmpty8.max(200)
+  hostRequirement: nonEmpty9.max(200)
 });
 var directorDccUnityOmittedChannelIdSchema = external_exports.enum(["poseValues", "motionBlocks", "motion", "ik"]);
 var directorDccUnityOmittedChannelSchema = external_exports.strictObject({
   /** The Director entity whose channel was omitted. */
-  directorId: nonEmpty8.max(240),
+  directorId: nonEmpty9.max(240),
   channel: directorDccUnityOmittedChannelIdSchema,
   /** Human-readable reason (why it could not bake, and what to do instead). */
-  reason: nonEmpty8.max(600)
+  reason: nonEmpty9.max(600)
 });
 var directorUnityOmittedLightSchema = external_exports.strictObject({
   directorId: external_exports.string().trim().min(1).max(200),
@@ -138550,10 +138712,10 @@ var directorDccEngineReportSchema = external_exports.strictObject({
   ok: external_exports.literal(true),
   contract: external_exports.literal(DIRECTOR_DCC_ENGINE_REPORT_CONTRACT),
   provider: directorDccEngineIdSchema,
-  hostVersion: nonEmpty8.max(200),
-  connectorVersion: nonEmpty8.max(60),
+  hostVersion: nonEmpty9.max(200),
+  connectorVersion: nonEmpty9.max(60),
   /** The exchange package id this run consumed. */
-  packageId: nonEmpty8.max(240),
+  packageId: nonEmpty9.max(240),
   sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
   importedObjectCount: external_exports.number().int().nonnegative(),
   importedCameraCount: external_exports.number().int().nonnegative(),
@@ -138688,7 +138850,7 @@ var directorDccEngineHealthSchema = external_exports.strictObject({
   hostVersion: external_exports.string().nullable(),
   connectorVersion: external_exports.string().nullable(),
   /** Workspace-relative connector source directory. */
-  connectorDirectory: nonEmpty8.max(240),
+  connectorDirectory: nonEmpty9.max(240),
   /** The configured engine project path, or null when not configured. */
   projectPath: external_exports.string().nullable(),
   checks: external_exports.array(
@@ -138712,12 +138874,12 @@ var directorDccEngineSendResultSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_DCC_ENGINE_SEND_CONTRACT),
   jobId: external_exports.string().uuid(),
   provider: directorDccEngineIdSchema,
-  packagePath: nonEmpty8.max(2048),
-  manifestPath: nonEmpty8.max(2048),
+  packagePath: nonEmpty9.max(2048),
+  manifestPath: nonEmpty9.max(2048),
   manifestSha256: sha256Schema4,
   packageDigest: sha256Schema4,
   sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
-  reportPath: nonEmpty8.max(2048),
+  reportPath: nonEmpty9.max(2048),
   report: directorDccEngineReportSchema,
   /** Absolute path of the echoed return package directory, when produced. */
   returnPackagePath: external_exports.string().nullable(),
@@ -138731,6 +138893,103 @@ var directorDccEngineSendResultSchema = external_exports.strictObject({
   cleanFrame: directorUnrealCleanFrameReceiptSchema.optional(),
   warnings: external_exports.array(external_exports.string().max(2e3))
 });
+
+// packages/dcc-protocol/src/directorDccEngineFrameContract.ts
+var nonEmpty10 = external_exports.string().trim().min(1);
+var sha2566 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
+var DIRECTOR_DCC_ENGINE_FRAME_CONTRACT = "director-dcc-engine-frame-v1";
+var directorDccEngineFrameRenderedSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_DCC_ENGINE_FRAME_CONTRACT),
+  provider: directorDccEngineIdSchema,
+  status: external_exports.literal("rendered"),
+  /** Image path relative to the private job directory that produced it. */
+  imagePath: nonEmpty10.max(1024),
+  imageSha256: sha2566,
+  width: external_exports.number().int().min(1).max(16384),
+  height: external_exports.number().int().min(1).max(16384),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(32)
+});
+var directorDccEngineFrameSkippedSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_DCC_ENGINE_FRAME_CONTRACT),
+  provider: directorDccEngineIdSchema,
+  status: external_exports.literal("skipped"),
+  skipReason: nonEmpty10.max(2e3),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(32)
+});
+var directorDccEngineFrameReceiptSchema = external_exports.discriminatedUnion("status", [
+  directorDccEngineFrameRenderedSchema,
+  directorDccEngineFrameSkippedSchema
+]);
+
+// packages/dcc-protocol/src/directorEngineSessionContract.ts
+var directorEngineSessionAuthoritySchema = external_exports.enum(["director", "engine"]);
+var directorEngineSessionCommandNameSchema = external_exports.enum(["capture_frame", "execute_code", "sync_scene"]);
+var directorEngineSessionCodeLanguageSchema = external_exports.enum(["csharp", "gdscript", "python"]);
+var directorEngineSessionSnapshotEntitySchema = external_exports.strictObject({
+  directorId: external_exports.string().trim().min(1).max(240),
+  name: external_exports.string().trim().min(1).max(240),
+  entityType: external_exports.enum(["object", "camera", "light"]),
+  transform: directorDccTransformSchema,
+  fovDegrees: external_exports.number().finite().positive().max(179).optional()
+});
+var directorEngineSessionSceneSnapshotSchema = external_exports.strictObject({
+  provider: directorEngineSceneProviderSchema,
+  scenePath: external_exports.string().trim().min(1).max(1024).nullable(),
+  capturedAt: external_exports.string().datetime(),
+  entities: external_exports.array(directorEngineSessionSnapshotEntitySchema).max(4096)
+});
+var commandIdSchema = external_exports.string().uuid();
+var directorEngineSessionCommandPayloadSchema = external_exports.discriminatedUnion("command", [
+  external_exports.strictObject({
+    kind: external_exports.literal("editor_command"),
+    commandId: commandIdSchema,
+    command: external_exports.literal("capture_frame"),
+    camera: external_exports.string().trim().min(1).max(240).optional(),
+    width: external_exports.number().int().min(64).max(1920),
+    height: external_exports.number().int().min(64).max(1080)
+  }),
+  external_exports.strictObject({
+    kind: external_exports.literal("editor_command"),
+    commandId: commandIdSchema,
+    command: external_exports.literal("execute_code"),
+    language: directorEngineSessionCodeLanguageSchema,
+    code: external_exports.string().min(1).max(1e5)
+  }),
+  external_exports.strictObject({
+    kind: external_exports.literal("editor_command"),
+    commandId: commandIdSchema,
+    command: external_exports.literal("sync_scene")
+  })
+]);
+var directorEngineSessionCommandResultSchema = external_exports.union([
+  external_exports.strictObject({
+    commandId: commandIdSchema,
+    command: external_exports.literal("capture_frame"),
+    status: external_exports.literal("completed"),
+    mimeType: external_exports.literal("image/png"),
+    imageBase64: external_exports.string().min(1).max(16 * 1024 * 1024),
+    width: external_exports.number().int().min(64).max(1920),
+    height: external_exports.number().int().min(64).max(1080)
+  }),
+  external_exports.strictObject({
+    commandId: commandIdSchema,
+    command: external_exports.literal("execute_code"),
+    status: external_exports.literal("completed"),
+    output: external_exports.string().max(128 * 1024)
+  }),
+  external_exports.strictObject({
+    commandId: commandIdSchema,
+    command: external_exports.literal("sync_scene"),
+    status: external_exports.literal("completed"),
+    snapshot: directorEngineSessionSceneSnapshotSchema
+  }),
+  external_exports.strictObject({
+    commandId: commandIdSchema,
+    command: directorEngineSessionCommandNameSchema,
+    status: external_exports.literal("failed"),
+    error: external_exports.string().trim().min(1).max(4e3)
+  })
+]);
 
 // packages/dcc-protocol/src/directorDccExchangePackageContract.ts
 var DIRECTOR_DCC_EXCHANGE_PACKAGE_CONTRACT = "director-dcc-exchange-package-v1";
@@ -138986,11 +139245,12 @@ var directorDccExchangePackageResultSchema = external_exports.strictObject({
 var DIRECTOR_UNREAL_LIVE_PREVIEW_PROTOCOL = "director-unreal-live-preview-v1";
 var DIRECTOR_UNREAL_LIVE_PREVIEW_SESSION_CONTRACT = "director-unreal-live-preview-session-v1";
 var DIRECTOR_UNREAL_LIVE_PREVIEW_MAX_LINE_BYTES = 64 * 1024;
-var nonEmpty9 = external_exports.string().trim().min(1);
+var DIRECTOR_UNREAL_LIVE_PREVIEW_DEFAULT_STALE_TIMEOUT_MS = 30 * 60 * 1e3;
+var nonEmpty11 = external_exports.string().trim().min(1);
 var directorUnrealLivePreviewHelloSchema = external_exports.strictObject({
   type: external_exports.literal("hello"),
   protocol: external_exports.literal(DIRECTOR_UNREAL_LIVE_PREVIEW_PROTOCOL),
-  token: nonEmpty9.max(512)
+  token: nonEmpty11.max(512)
 });
 var directorUnrealLivePreviewFrameSchema = external_exports.strictObject({
   type: external_exports.literal("camera_frame"),
@@ -139001,9 +139261,28 @@ var directorUnrealLivePreviewFrameSchema = external_exports.strictObject({
   focalLengthMm: external_exports.number().finite().positive().max(1e4).optional()
 });
 var directorUnrealLivePreviewByeSchema = external_exports.strictObject({ type: external_exports.literal("bye") });
-var directorUnrealLivePreviewClientMessageSchema = external_exports.discriminatedUnion("type", [
+var directorUnrealLivePreviewEditorCommandSchema = external_exports.discriminatedUnion("command", [
+  external_exports.strictObject({
+    type: external_exports.literal("editor_command"),
+    commandId: external_exports.string().uuid(),
+    command: external_exports.literal("execute_code"),
+    language: external_exports.literal("python"),
+    code: external_exports.string().min(1).max(1e5)
+  }),
+  external_exports.strictObject({
+    type: external_exports.literal("editor_command"),
+    commandId: external_exports.string().uuid(),
+    command: external_exports.literal("sync_scene")
+  })
+]);
+var directorUnrealLivePreviewCommandResultMessageSchema = external_exports.strictObject({
+  type: external_exports.literal("command_result"),
+  result: directorEngineSessionCommandResultSchema
+});
+var directorUnrealLivePreviewClientMessageSchema = external_exports.union([
   directorUnrealLivePreviewHelloSchema,
   directorUnrealLivePreviewFrameSchema,
+  directorUnrealLivePreviewEditorCommandSchema,
   directorUnrealLivePreviewByeSchema
 ]);
 var directorUnrealLivePreviewFrameInputSchema = directorUnrealLivePreviewFrameSchema.omit({ type: true });
@@ -139021,23 +139300,51 @@ var directorUnrealLivePreviewSessionSummarySchema = external_exports.strictObjec
   forwardedFrameCount: external_exports.number().int().nonnegative(),
   /** Frames dropped before the socket (stale seq, duplicate seq, malformed body). */
   droppedFrameCount: external_exports.number().int().nonnegative(),
-  /** Inbound bytes ignored: the preview channel is strictly one-way. */
+  /** Inbound bytes observed; only matching command receipts are parsed. */
   ignoredInboundByteCount: external_exports.number().int().nonnegative(),
   closed: external_exports.boolean(),
   disconnectReason: directorUnrealLivePreviewDisconnectReasonSchema.nullable(),
   /** Optional human-readable detail for socket errors. */
   disconnectDetail: external_exports.string().max(2e3).nullable()
 });
+var DIRECTOR_UNREAL_LIVE_PREVIEW_STATUS_CONTRACT = "director-unreal-live-preview-status-v1";
+var directorUnrealLivePreviewOpenRequestSchema = external_exports.strictObject({
+  port: external_exports.number().int().min(1).max(65535),
+  staleTimeoutMs: external_exports.number().int().min(100).max(3e5).optional(),
+  allowCode: external_exports.boolean().optional().default(false),
+  authority: external_exports.enum(["director", "engine"]).optional().default("director")
+});
+var directorUnrealLivePreviewSessionStatusSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_UNREAL_LIVE_PREVIEW_STATUS_CONTRACT),
+  sessionId: nonEmpty11.max(120),
+  port: external_exports.number().int().min(1).max(65535),
+  allowCode: external_exports.boolean(),
+  authority: external_exports.enum(["director", "engine"]),
+  openedAtMs: external_exports.number().int().nonnegative(),
+  summary: directorUnrealLivePreviewSessionSummarySchema
+});
+var directorUnrealLivePreviewErrorCodeSchema = external_exports.enum([
+  "live_preview_unavailable",
+  "live_preview_token_missing",
+  "live_preview_invalid",
+  "live_preview_session_limit",
+  "live_preview_session_unknown",
+  "live_preview_connect_failed",
+  "engine_session_code_disabled",
+  "engine_session_authority_required",
+  "engine_session_command_unknown",
+  "engine_session_command_unsupported"
+]);
 
 // packages/dcc-protocol/src/directorGodotLiveLinkContract.ts
 var DIRECTOR_GODOT_LIVE_LINK_CONTRACT = "director-godot-live-link-v1";
 var DIRECTOR_GODOT_LIVE_LINK_PREVIEW_CONTRACT = "director-godot-live-link-preview-v1";
-var nonEmpty10 = external_exports.string().trim().min(1);
+var nonEmpty12 = external_exports.string().trim().min(1);
 var directorGodotLiveLinkHelloSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
   provider: external_exports.literal("godot"),
-  connectorVersion: nonEmpty10.max(60),
-  hostVersion: nonEmpty10.max(200),
+  connectorVersion: nonEmpty12.max(60),
+  hostVersion: nonEmpty12.max(200),
   /** `res://` path of the scene being previewed, when known. */
   scenePath: external_exports.string().trim().min(1).max(1024).optional()
 });
@@ -139051,8 +139358,8 @@ var directorGodotLiveLinkSessionSchema = external_exports.strictObject({
   maxEntitiesPerFrame: external_exports.number().int().positive().max(2048)
 });
 var liveLinkEntityShape = {
-  directorId: nonEmpty10.max(200),
-  entityType: external_exports.enum(["object", "camera"]),
+  directorId: nonEmpty12.max(200),
+  entityType: external_exports.enum(["object", "camera", "light"]),
   /** Canonical Director-space world transform (Godot's basis is the identity map). */
   transform: directorDccTransformSchema,
   /** Camera-only: vertical field of view in degrees. */
@@ -139081,7 +139388,9 @@ var directorGodotLiveLinkFrameAckSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
   sessionId: external_exports.string().uuid(),
   sequence: external_exports.number().int().positive().max(1e12),
-  accepted: external_exports.literal(true)
+  accepted: external_exports.literal(true),
+  /** Pending workshop commands for the already-open editor. */
+  commands: external_exports.array(directorEngineSessionCommandPayloadSchema).max(16).optional()
 });
 var directorGodotLiveLinkByeSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
@@ -139100,8 +139409,8 @@ var directorGodotLiveLinkPreviewSchema = external_exports.strictObject({
   sessions: external_exports.array(
     external_exports.strictObject({
       sessionId: external_exports.string().uuid(),
-      connectorVersion: nonEmpty10.max(60),
-      hostVersion: nonEmpty10.max(200),
+      connectorVersion: nonEmpty12.max(60),
+      hostVersion: nonEmpty12.max(200),
       scenePath: external_exports.string().max(1024).nullable(),
       startedAtMs: external_exports.number().int().nonnegative(),
       lastSeenAtMs: external_exports.number().int().nonnegative(),
@@ -139124,7 +139433,12 @@ var directorGodotLiveLinkErrorCodeSchema = external_exports.enum([
   "live_link_session_unknown",
   "live_link_session_expired",
   "live_link_sequence_stale",
-  "live_link_session_limit"
+  "live_link_session_limit",
+  "engine_session_unavailable",
+  "engine_session_code_not_allowed",
+  "engine_session_not_authoritative",
+  "engine_session_command_unknown",
+  "engine_session_command_mismatch"
 ]);
 
 // packages/protocol/src/directorGameProtocol.ts
@@ -139934,6 +140248,39 @@ var DIRECTOR_AGENT_WIRE_SCHEMAS = {
     assetType: external_exports.enum(["hdris", "textures", "models", "all"]).optional().describe('For op="polyhaven_search".'),
     uid: external_exports.string().optional().describe("Sketchfab model uid for sketchfab_import.")
   }),
+  director_dcc: compactWireSchema(
+    directorDccOperationSchema,
+    'Operation. Call {"op":"discover"} first: it reports installed, exchangeReady, nativeReady, and capability maturity per provider. Other fields ride alongside op and are strictly validated by the Gateway.'
+  ).extend({
+    provider: external_exports.string().optional().describe(
+      "Provider id. send_to_engine / receive_from_engine / extract_engine_scene use unreal, unity, or godot; apply_import_plan also accepts blender (its default); status and export_exchange_package accept any discovered provider id."
+    ),
+    package_dir: external_exports.string().optional().describe(
+      'Required for receive_from_engine and import_return_package: the return package directory from the send receipt (e.g. "JOB_ID/return").'
+    ),
+    project_dir: external_exports.string().optional().describe(
+      "Required for extract_engine_scene: the engine project directory inside the workspace or DIRECTOR_ENGINE_PROJECT_ROOT."
+    ),
+    scene: external_exports.string().optional().describe(
+      'Optional scene for extract_engine_scene: "/Game/Maps/Set" (unreal), "Assets/Scenes/Main.unity" (unity), or "res://scenes/main.tscn" (godot).'
+    ),
+    plan_id: external_exports.string().optional().describe("Required for apply_engine_scene_import and apply_blend_scene_import: the planId from the preview."),
+    expected_revision: external_exports.string().optional().describe("Revision guard for apply operations: the project_revision the plan was built against."),
+    idempotency_key: external_exports.string().optional().describe("Apply operations: a unique key for this intent; reuse it only to replay the identical apply."),
+    clean_frame: external_exports.boolean().optional().describe("send_to_engine, Unreal only: also render one clean still (no gizmos) and attach its receipt."),
+    headless: external_exports.boolean().optional().describe("run_engine_project: run without a window; the bounded debug-output capture is unchanged."),
+    label: external_exports.string().optional().describe("start_engine_session: optional engine workshop label."),
+    port: external_exports.number().int().optional().describe("start_engine_session, Unreal only: live-preview listener port."),
+    allow_code: external_exports.boolean().optional().describe("start_engine_session: explicit local grant for C#, GDScript, or Editor Python execute_code."),
+    authority: external_exports.enum(["director", "engine"]).optional().describe("start_engine_session: engine enables repeated engine \u2192 Director review sync."),
+    session_id: external_exports.string().optional().describe("Engine session id returned by start_engine_session."),
+    command: external_exports.enum(["capture_frame", "execute_code", "sync_scene"]).optional().describe("engine_session_command: capture, execute, or snapshot the already-open editor."),
+    code: external_exports.string().optional().describe("execute_code: C# for Unity, GDScript for Godot, or Editor Python for Unreal."),
+    command_id: external_exports.string().optional().describe("engine_session_command_status: id returned by engine_session_command."),
+    camera: external_exports.string().optional().describe("render_engine_frame or capture_frame: camera name/id."),
+    width: external_exports.number().int().optional(),
+    height: external_exports.number().int().optional()
+  }),
   director_game: compactWireSchema(
     directorGameOperationSchema,
     'Operation. Use {"op":"capabilities"} or {"op":"describe","target":"plan"} when fields are unknown. Stage is the first playable runtime; engine export is director_dcc after a playable receipt.'
@@ -139982,6 +140329,13 @@ var DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
     description: 'Plan and playtest a typed game slice on the live Director Stage. Start with {"op":"capabilities"} or {"op":"describe","target":"plan"}; bind Stage object ids before playtest; a scripted input tape is playability evidence, not a compile. Engine export is director_dcc after status playable \u2014 do not dump engine source.',
     inputSchema: external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_game),
     dshParameters: dshToolParameters(external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_game))
+  },
+  {
+    type: "function",
+    name: "director_dcc",
+    description: "Use discover first, then hand Director projects to Blender or a game engine. render_engine_frame gives Unreal, Unity, and Godot independent visual feedback. start_engine_session reuses open editors for opt-in execute_code and engine-owned sync_scene; Unity and Godot also serve hot capture_frame, while Unreal uses render_engine_frame. sync_engine_session_to_director updates the stable-id review view while native game state stays in the engine. Live Blender modeling stays on blender_native; film handoff keeps the reviewed send/receive path.",
+    inputSchema: external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_dcc),
+    dshParameters: dshToolParameters(external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_dcc))
   }
 ];
 var DIRECTOR_WORKBENCH_PLUGIN_TOOL_NAMES = DIRECTOR_WORKBENCH_PLUGIN_TOOLS.map((tool) => tool.name);
@@ -139997,6 +140351,8 @@ var BLENDER_NATIVE_TOOL_TIMEOUT_MS = 3e5;
 var DIRECTOR_TOOL_TIMEOUT_MS = 7e4;
 var DIRECTOR_PIPELINE_AWAIT_TIMEOUT_MS = 15 * 6e4;
 var DIRECTOR_PIPELINE_CANCEL_TIMEOUT_MS = 12e4;
+var DIRECTOR_DCC_HOST_JOB_TIMEOUT_MS = 16 * 6e4;
+var DCC_HOST_JOB_OPS = /* @__PURE__ */ new Set(["export_blend", "send_to_engine", "extract_engine_scene", "render_engine_frame"]);
 function dynamicToolTimeoutMs(tool, input) {
   if (tool === "blender_native") return BLENDER_NATIVE_TOOL_TIMEOUT_MS;
   const values = asRecord(input);
@@ -140004,6 +140360,9 @@ function dynamicToolTimeoutMs(tool, input) {
     const request = asRecord(values.request);
     if (request?.action === "start" && request.await_completion === true) return DIRECTOR_PIPELINE_AWAIT_TIMEOUT_MS;
     if (request?.action === "cancel") return DIRECTOR_PIPELINE_CANCEL_TIMEOUT_MS;
+  }
+  if (tool === "director_dcc" && typeof values?.op === "string" && DCC_HOST_JOB_OPS.has(values.op)) {
+    return DIRECTOR_DCC_HOST_JOB_TIMEOUT_MS;
   }
   return DIRECTOR_TOOL_TIMEOUT_MS;
 }
@@ -140512,7 +140871,7 @@ registerVisibleTool("director_dcc", () => {
     "director_dcc",
     {
       title: "Director DCC Bridge",
-      description: "Discover and operate Director DCC providers. Call discover first: it reports nativeReady/exchangeReady, supported formats, and capability maturity for Blender, Maya, Unreal, Houdini, Cinema 4D, Unity, 3ds Max, Godot, and registered third-party providers. export_exchange_package creates a canonical metre/Y-up/stable-ID USD/GLB package without overstating native readiness. send_to_engine runs the Director-authored Unreal/Unity/Godot connector headlessly against the configured engine project (only when nativeReady; otherwise it returns structured diagnostics with recovery steps). receive_from_engine previews an engine return package as a revision-guarded import plan; apply_import_plan applies it with provider set to the engine. Blender additionally retains its revision-guarded export, raw-scene preview/apply, and stable-ID return workflow.",
+      description: "Discover and operate Director DCC providers. render_engine_frame independently captures Unreal, Unity, or Godot. start_engine_session reuses open editors for opt-in C#, GDScript, or Editor Python and engine-owned sync_scene; Unity and Godot also serve hot capture_frame. sync_engine_session_to_director updates Director's stable-id review projection while engine-native game state stays authoritative. Film delivery retains the reviewed send/receive and import-plan paths. Blender retains its revision-guarded native scene workflow.",
       inputSchema: wireSchemas.director_dcc,
       outputSchema: directorDccOutputSchema,
       annotations: {
@@ -140533,15 +140892,31 @@ registerVisibleTool("director_dcc", () => {
           body: JSON.stringify({ input: parsedInput, ...envelopeIdentity })
         });
         const payload = await response.json();
-        const parsedPayload = external_exports.looseObject({ success: external_exports.boolean(), result: external_exports.unknown().optional(), error: external_exports.string().optional() }).safeParse(payload);
+        const parsedPayload = external_exports.looseObject({
+          success: external_exports.boolean(),
+          result: external_exports.unknown().optional(),
+          error: external_exports.string().optional(),
+          capture: external_exports.looseObject({ mimeType: external_exports.string(), dataBase64: external_exports.string().optional(), data: external_exports.string().optional() }).optional()
+        }).safeParse(payload);
         if (!parsedPayload.success) throw new Error("Gateway returned malformed DCC JSON.");
         const structuredContent = {
           ok: parsedPayload.data.success,
-          result: parsedPayload.data.result ?? null,
+          result: stripEncodedMediaPayloads(parsedPayload.data.result ?? null),
           error: parsedPayload.data.error ?? null
         };
+        const frameData = parsedPayload.data.capture?.dataBase64 ?? parsedPayload.data.capture?.data ?? null;
+        const frameMimeType = parsedPayload.data.capture?.mimeType ?? null;
+        const content = [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }];
+        if (frameData && frameMimeType) {
+          content.push({
+            type: "image",
+            data: frameData,
+            mimeType: frameMimeType,
+            annotations: { audience: ["assistant"], priority: 1 }
+          });
+        }
         return {
-          content: [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }],
+          content,
           structuredContent,
           isError: !structuredContent.ok
         };

@@ -85,30 +85,35 @@ execution, but it does not provide an OS/container sandbox for Blender's native 
 job paths, size limits, and process timeouts are containment measures, not a sandbox. Process
 untrusted `.blend` files in a container or VM before they reach Director.
 
-## Game-engine scenes (Unreal / Unity)
+## Game-engine scenes (Unreal / Unity / Godot)
 
-Unreal Engine 5 and Unity scenes import through the same preview/apply discipline as `.blend`
-files, but the package format differs: the in-engine exporters
+Unreal Engine 5, Unity, and Godot 4 scenes import through the same preview/apply discipline as
+`.blend` files, but the package format differs: the in-engine exporters
 (`integrations/unreal/interchange/director_scene_export.py`,
-`integrations/unity/interchange/DirectorSceneExport.cs`) own the coordinate conversion and write a
-`director-engine-scene-v1` package whose transforms are already in Director's right-handed Y-up
+`integrations/unity/interchange/DirectorSceneExport.cs`,
+`integrations/godot/interchange/director_scene_export.gd`) own the coordinate conversion and write
+a `director-engine-scene-v1` package whose transforms are already in Director's right-handed Y-up
 metre convention. The manifest declares the exact linear map that was applied
-(Unreal `(x,y,z)->(y,z,-x)*0.01`, Unity `(x,y,z)->(-x,y,z)`), the hierarchy snapshot, cameras,
+(Unreal `(x,y,z)->(y,z,-x)*0.01`, Unity `(x,y,z)->(-x,y,z)`, Godot the identity
+`(x,y,z)->(x,y,z)` because its native basis already matches), the hierarchy snapshot, cameras,
 lights, animation clip inventory, warnings, and SHA-256 hashes for every file.
 
 Two ingestion paths produce identical packages. `director_dcc extract_engine_scene` runs the
 installed engine headlessly against a local project (Unreal `UnrealEditor-Cmd -run=pythonscript`,
-Unity `-batchmode -executeMethod`; Unity additionally requires an activated license). Uploading a
-`.zip` exported inside the engine to `POST /api/dcc/engine-scene/uploads?provider=unreal|unity`
-works without any engine installed and is the headless-verifiable path for cloud environments.
+Unity `-batchmode -executeMethod`, Godot `--headless --script`; Unity additionally requires an
+activated license; the Unity and Godot exporters are hash-compared and copied into the project
+first). Uploading a `.zip` exported inside the engine to
+`POST /api/dcc/engine-scene/uploads?provider=unreal|unity|godot` works without any engine
+installed and is the headless-verifiable path for cloud environments.
 
 `preview_engine_scene_import` builds a server-persisted `director-engine-scene-import-plan-v1`;
 `apply_engine_scene_import` revalidates hashes, copies the GLB into content-addressed storage, and
 performs one atomic authoring mutation with `plan_id`, `expected_revision`, and a retry-only
 `idempotency_key`. Geometry keeps `modelNormalization: "preserve"`. Renderable geometry requires
-the engine-side glTF exporter (Unreal's glTF Exporter plugin, Unity's `com.unity.cloud.gltfast`);
-without it the package still imports cameras, lights, and hierarchy and records the geometry gap.
-Round-trip back to the engines is a declared `planned` capability, not an available one.
+the engine-side glTF exporter (Unreal's glTF Exporter plugin, Unity's `com.unity.cloud.gltfast`;
+Godot uses the built-in GLTFDocument with no extra plugin); without it the package still imports
+cameras, lights, and hierarchy and records the geometry gap. Round-trip back to the engines is a
+declared `planned` capability, not an available one.
 
 Every plan returned by upload, extraction, preview, and apply states what it leaves behind in typed
 `result.plan.omitted[]` records paired with `omittedCount` (mirroring the `.blend` import plan):

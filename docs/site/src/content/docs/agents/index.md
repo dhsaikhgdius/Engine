@@ -32,7 +32,7 @@ every surface. Unfamiliar terms on this page are defined in the [Glossary](/conc
 | `director_workbench` | Full DirectorProject and Stage evidence | Scene, object, character, camera, timeline, coverage, audit, delivery |
 | `director_creative`  | Canvas and Video workspace              | Nodes, edges, media clips, tracks, preview, undo/redo                 |
 | `stage_video`        | Generation jobs                         | Prepare, submit/render, poll, cancel                                  |
-| `director_dcc`       | DCC handoff                             | Capability discovery, Blender export/status                           |
+| `director_dcc`       | DCC / engine handoff                    | Provider discovery, engine send/returns, engine scene import          |
 
 The `stage_*` tools remain a compact compatibility surface for the white-box scene protocol and
 existing Stage version 5 clients. New automation should prefer `director_workbench`.

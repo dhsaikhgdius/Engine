@@ -42,6 +42,7 @@ import { useDirectorMediaLibrary } from "../workspaces/directorMediaLibrary";
 import { useDirectorCreativeWorkspaceStore, type DirectorWorkspaceMode } from "../workspaces/directorWorkspaceStore";
 import { DccProviderBrowser } from "./DccProviderBrowser";
 import { EngineHandoffDock } from "./engines/EngineHandoffDock";
+import { EngineHostStatusDots } from "./engines/EngineHostStatusDots";
 import type { DirectorInterchangeImportResult } from "./contract";
 import type { DirectorCreativeOtioOmitted } from "./creativeOtio";
 import type { DirectorFountainOmitted } from "./fountain";
@@ -642,6 +643,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
       >
         <RefreshCw aria-hidden size={14} />
         <span className="top-bar-settings-label">{t("交换")}</span>
+        <EngineHostStatusDots />
       </button>
       {open ? (
         <section aria-label={t("专业格式交换")} className="director-interchange-menu" id="director-interchange-popover">

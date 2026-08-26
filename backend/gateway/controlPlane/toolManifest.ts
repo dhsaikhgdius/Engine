@@ -107,7 +107,7 @@ export function buildDirectorToolManifest(now: Date = new Date()): DirectorToolM
       name: "director_dcc",
       surface: "both",
       description:
-        "Discover and operate Director DCC providers (Blender, Maya, Unreal, and others): exchange packages, revision-guarded .blend export, and preview/apply import plans.",
+        "Discover and operate Director DCC providers (Blender, Unreal, Unity, Godot, and exchange-only DCCs): exchange packages, headless engine handoff and returns, engine scene import, and revision-guarded .blend workflows.",
       operations: [...typedToolOperations.director_dcc],
       http: toolsHttpBinding("director_dcc"),
     },

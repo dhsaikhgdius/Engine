@@ -23,6 +23,7 @@ var _live_link = null
 var _live_link_timer: Timer = null
 var _live_link_request: HTTPRequest = null
 var _live_link_busy := false
+var _live_link_request_path := ""
 
 
 func _enter_tree() -> void:
@@ -86,6 +87,7 @@ func _stop_live_preview(reason: String) -> void:
 		_live_link_request = null
 	_live_link = null
 	_live_link_busy = false
+	_live_link_request_path = ""
 	print("Director Bridge: live preview stopped (%s)." % reason)
 
 
@@ -112,12 +114,71 @@ func _send_live_link(path: String, payload: Dictionary) -> void:
 		_stop_live_preview("transport error")
 		return
 	_live_link_busy = true
+	_live_link_request_path = path
+
+
+func _execute_engine_command(command: Dictionary) -> Dictionary:
+	var command_id := str(command.get("commandId", ""))
+	var command_name := str(command.get("command", ""))
+	if command_id.is_empty() or command_name.is_empty():
+		return {}
+	if command_name == "capture_frame":
+		var viewport := EditorInterface.get_editor_viewport_3d(0)
+		if viewport == null:
+			return {
+				"commandId": command_id,
+				"command": command_name,
+				"status": "failed",
+				"error": "Godot editor viewport 0 is unavailable.",
+			}
+		var image := viewport.get_texture().get_image()
+		var width := clampi(int(command.get("width", 960)), 64, 1920)
+		var height := clampi(int(command.get("height", 540)), 64, 1080)
+		image.resize(width, height, Image.INTERPOLATE_LANCZOS)
+		return {
+			"commandId": command_id,
+			"command": command_name,
+			"status": "completed",
+			"mimeType": "image/png",
+			"imageBase64": Marshalls.raw_to_base64(image.save_png_to_buffer()),
+			"width": width,
+			"height": height,
+		}
+	if command_name == "execute_code":
+		var source := "extends RefCounted\nfunc run(editor_interface):\n"
+		for line in str(command.get("code", "")).split("\n"):
+			source += "\t%s\n" % line
+		var script := GDScript.new()
+		script.source_code = source
+		var compile_error := script.reload()
+		if compile_error != OK:
+			return {
+				"commandId": command_id,
+				"command": command_name,
+				"status": "failed",
+				"error": "GDScript compilation failed with error %d." % compile_error,
+			}
+		var value = script.new().run(EditorInterface)
+		return {
+			"commandId": command_id,
+			"command": command_name,
+			"status": "completed",
+			"output": str(value).substr(0, 131072),
+		}
+	return {
+		"commandId": command_id,
+		"command": command_name,
+		"status": "failed",
+		"error": "Unsupported Godot editor command: %s." % command_name,
+	}
 
 
 func _on_live_link_response(
 	result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray
 ) -> void:
 	_live_link_busy = false
+	var request_path := _live_link_request_path
+	_live_link_request_path = ""
 	if _live_link == null:
 		return
 	if result != HTTPRequest.RESULT_SUCCESS or response_code >= 400:
@@ -127,18 +188,23 @@ func _on_live_link_response(
 		)
 		_stop_live_preview("gateway rejected the preview stream")
 		return
-	if not _live_link.session_id.is_empty():
-		if _live_link_timer != null and _live_link_timer.is_stopped():
-			_live_link_timer.start()
-		return
 	var parsed = JSON.parse_string(body.get_string_from_utf8())
 	if typeof(parsed) != TYPE_DICTIONARY or typeof(parsed.get("result")) != TYPE_DICTIONARY:
 		push_warning("Director Bridge: live preview hello returned no session; stopping preview.")
 		_stop_live_preview("hello was not granted")
 		return
-	if not _live_link.accept_session(parsed["result"]):
+	var response_result: Dictionary = parsed["result"]
+	if _live_link.session_id.is_empty() and not _live_link.accept_session(response_result):
 		push_warning("Director Bridge: live preview hello returned no session; stopping preview.")
 		_stop_live_preview("hello was not granted")
 		return
+	if request_path != DirectorLiveLink.COMMAND_RESULT_PATH:
+		var commands: Array = response_result.get("commands", [])
+		if not commands.is_empty():
+			var command_result := _execute_engine_command(commands[0])
+			if not command_result.is_empty():
+				command_result["sessionId"] = _live_link.session_id
+				_send_live_link(DirectorLiveLink.COMMAND_RESULT_PATH, command_result)
+				return
 	if _live_link_timer != null:
 		_live_link_timer.start()

@@ -31,7 +31,7 @@ Director 面向 Agent 原生设计:同一份制片状态可以通过 UI、MCP �
 | `director_workbench` | 完整 DirectorProject 与 Stage 证据 | 场景、对象、角色、相机、时间线、coverage、审计、交付 |
 | `director_creative`  | 画布与视频工作区                   | 节点、连线、媒体剪辑、轨道、预览、撤销/重做          |
 | `stage_video`        | 生成任务                           | 准备、提交/渲染、轮询、取消                          |
-| `director_dcc`       | DCC 交接                           | 能力发现、Blender 导出/状态                          |
+| `director_dcc`       | DCC / 引擎交接                     | 提供方发现、引擎发送/回传、引擎场景导入              |
 
 `stage_*` 工具仍作为紧凑兼容接口,服务白模场景协议和现有 Stage v5 客户端。新的自动化
 应优先使用 `director_workbench`。

@@ -43,12 +43,37 @@ export interface RoadRibbon {
   sampleCount: number;
 }
 
+export interface RoadMarkings {
+  /** Triangle-strip positions for the dashed centre line and solid edge lines. */
+  positions: Float32Array;
+  /** Surface normals aligned to the road grade. */
+  normals: Float32Array;
+  /** Per-vertex paint colours (yellow centre, white edges). */
+  colors: Float32Array;
+  /** Triangle indices for every independent strip. */
+  indices: Uint32Array;
+  /** Number of centre-line dashes generated. */
+  centerDashCount: number;
+  /** Number of continuous edge lines (0 for narrow roads, otherwise 2). */
+  edgeLineCount: number;
+}
+
 const MIN_SEGMENTS_PER_SPAN = 4;
 const MAX_SEGMENTS_PER_SPAN = 32;
 /** Target metres between samples; small enough that vehicles glide smoothly. */
 const TARGET_SAMPLE_SPACING_M = 1.5;
 /** First and last control points closer than this collapse when looping. */
 const LOOP_WELD_EPSILON_M = 1e-6;
+const ROAD_MARKING_SAMPLE_SPACING_M = 1.25;
+const ROAD_CENTER_DASH_LENGTH_M = 4;
+const ROAD_CENTER_DASH_PERIOD_M = 9;
+const ROAD_CENTER_LINE_WIDTH_M = 0.14;
+const ROAD_EDGE_LINE_WIDTH_M = 0.11;
+const ROAD_EDGE_LINE_INSET_M = 0.24;
+/** Narrow single-track roads read more naturally without motorway-style edge lines. */
+const ROAD_EDGE_LINE_MIN_WIDTH_M = 4.5;
+const ROAD_CENTER_LINE_COLOR = [0.96, 0.68, 0.12] as const;
+const ROAD_EDGE_LINE_COLOR = [0.92, 0.94, 0.95] as const;
 
 /** Two lanes sit at ±laneOffset around the centerline. */
 export function roadLaneOffsetM(widthM: number): number {
@@ -305,5 +330,127 @@ export function buildRoadRibbon(spline: RoadSpline, widthM: number, liftM: numbe
     uvs: ribbonUvs,
     indices,
     sampleCount,
+  };
+}
+
+/**
+ * Builds automatic road paint from the same arc-length spline as vehicles and
+ * asphalt. Two-way roads receive a yellow dashed centre line; roads wide
+ * enough to read as multi-lane also receive continuous white edge lines.
+ * Values are physical paint dimensions, not authoring controls.
+ */
+export function buildRoadMarkings(spline: RoadSpline, widthM: number, liftM: number): RoadMarkings {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+  const point: MutableRoadVec3 = [0, 0, 0];
+  const tangent: MutableRoadVec3 = [0, 0, 1];
+
+  const appendStrip = (
+    startM: number,
+    endM: number,
+    lateralOffsetM: number,
+    lineWidthM: number,
+    color: readonly [number, number, number],
+  ) => {
+    const lengthM = endM - startM;
+    if (lengthM <= 1e-6) return;
+    const stripSamples = Math.max(2, Math.ceil(lengthM / ROAD_MARKING_SAMPLE_SPACING_M) + 1);
+    const firstVertex = positions.length / 3;
+    let lateralX = 1;
+    let lateralZ = 0;
+
+    for (let sample = 0; sample < stripSamples; sample += 1) {
+      const alpha = sample / (stripSamples - 1);
+      sampleRoadSplineAt(spline, startM + lengthM * alpha, point, tangent);
+      const horizontal = Math.hypot(tangent[0], tangent[2]);
+      if (horizontal > 1e-7) {
+        lateralX = tangent[2] / horizontal;
+        lateralZ = -tangent[0] / horizontal;
+      }
+
+      let normalX = -tangent[1] * tangent[0];
+      let normalY = tangent[0] * tangent[0] + tangent[2] * tangent[2];
+      let normalZ = -tangent[1] * tangent[2];
+      const normalLength = Math.hypot(normalX, normalY, normalZ);
+      if (normalLength > 1e-7) {
+        normalX /= normalLength;
+        normalY /= normalLength;
+        normalZ /= normalLength;
+      } else {
+        normalX = 0;
+        normalY = 1;
+        normalZ = 0;
+      }
+
+      for (let side = 0; side < 2; side += 1) {
+        const across = lateralOffsetM + (side === 0 ? lineWidthM / 2 : -lineWidthM / 2);
+        positions.push(point[0] + lateralX * across, point[1] + liftM, point[2] + lateralZ * across);
+        normals.push(normalX, normalY, normalZ);
+        colors.push(color[0], color[1], color[2]);
+      }
+    }
+
+    for (let sample = 0; sample < stripSamples - 1; sample += 1) {
+      const left = firstVertex + sample * 2;
+      const right = left + 1;
+      const nextLeft = left + 2;
+      const nextRight = left + 3;
+      indices.push(left, right, nextLeft, right, nextRight, nextLeft);
+    }
+  };
+
+  const lengthM = spline.totalLengthM;
+  if (lengthM <= 1e-6) {
+    return {
+      positions: new Float32Array(),
+      normals: new Float32Array(),
+      colors: new Float32Array(),
+      indices: new Uint32Array(),
+      centerDashCount: 0,
+      edgeLineCount: 0,
+    };
+  }
+
+  let centerDashCount = 0;
+  if (spline.loop) {
+    const dashCount = Math.max(1, Math.round(lengthM / ROAD_CENTER_DASH_PERIOD_M));
+    const periodM = lengthM / dashCount;
+    const dashLengthM = Math.min(ROAD_CENTER_DASH_LENGTH_M, periodM * 0.6);
+    const gapInsetM = (periodM - dashLengthM) / 2;
+    for (let dash = 0; dash < dashCount; dash += 1) {
+      const startM = dash * periodM + gapInsetM;
+      appendStrip(startM, startM + dashLengthM, 0, ROAD_CENTER_LINE_WIDTH_M, ROAD_CENTER_LINE_COLOR);
+    }
+    centerDashCount = dashCount;
+  } else {
+    const firstDashM = (ROAD_CENTER_DASH_PERIOD_M - ROAD_CENTER_DASH_LENGTH_M) / 2;
+    for (let startM = firstDashM; startM < lengthM; startM += ROAD_CENTER_DASH_PERIOD_M) {
+      appendStrip(
+        startM,
+        Math.min(lengthM, startM + ROAD_CENTER_DASH_LENGTH_M),
+        0,
+        ROAD_CENTER_LINE_WIDTH_M,
+        ROAD_CENTER_LINE_COLOR,
+      );
+      centerDashCount += 1;
+    }
+  }
+
+  const edgeLineCount = widthM >= ROAD_EDGE_LINE_MIN_WIDTH_M ? 2 : 0;
+  if (edgeLineCount > 0) {
+    const edgeOffsetM = Math.max(ROAD_EDGE_LINE_WIDTH_M, widthM / 2 - ROAD_EDGE_LINE_INSET_M);
+    appendStrip(0, lengthM, edgeOffsetM, ROAD_EDGE_LINE_WIDTH_M, ROAD_EDGE_LINE_COLOR);
+    appendStrip(0, lengthM, -edgeOffsetM, ROAD_EDGE_LINE_WIDTH_M, ROAD_EDGE_LINE_COLOR);
+  }
+
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals),
+    colors: new Float32Array(colors),
+    indices: new Uint32Array(indices),
+    centerDashCount,
+    edgeLineCount,
   };
 }

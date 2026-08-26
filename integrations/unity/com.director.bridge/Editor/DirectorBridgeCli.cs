@@ -237,6 +237,108 @@ namespace Director.Bridge.Editor
             }
         }
 
+        /// <summary>
+        /// Renders one PNG frame of a project scene through a chosen camera.
+        /// Invoked by the Director Gateway with <c>-batchmode -quit</c> but
+        /// deliberately WITHOUT <c>-nographics</c>, so the editor keeps a GPU
+        /// device for <see cref="Camera.Render"/>. Arguments:
+        /// <c>-directorRenderOutput</c> (PNG path), <c>-directorScene</c>
+        /// (project scene path), optional <c>-directorCamera</c> (camera name
+        /// or director_id), optional <c>-directorWidth/-directorHeight</c>.
+        /// </summary>
+        public static void Render()
+        {
+            string outputPath = Argument("-directorRenderOutput");
+            string scenePath = Argument("-directorScene");
+            string cameraName = Argument("-directorCamera");
+            try
+            {
+                if (outputPath == null || scenePath == null)
+                {
+                    throw new InvalidDataException("-directorRenderOutput and -directorScene are required.");
+                }
+                int width = ParseRenderSide(Argument("-directorWidth"), 960);
+                int height = ParseRenderSide(Argument("-directorHeight"), 540);
+                EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                byte[] png = CaptureFrame(cameraName, width, height);
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath)) ?? ".");
+                File.WriteAllBytes(outputPath, png);
+                Debug.Log($"Director render wrote {outputPath}");
+                ExitBatch(0);
+            }
+            catch (Exception error)
+            {
+                Debug.LogError($"Director render failed: {error}");
+                ExitBatch(1);
+            }
+        }
+
+        /// <summary>Renders the open editor scene without restarting Unity.</summary>
+        internal static byte[] CaptureFrame(string cameraName, int width, int height)
+        {
+            Camera camera = PickRenderCamera(cameraName);
+            if (camera == null)
+            {
+                throw new InvalidDataException(
+                    cameraName == null
+                        ? "The scene contains no camera to render through."
+                        : $"No camera named or tagged \"{cameraName}\" was found in the scene.");
+            }
+            var renderTexture = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
+            RenderTexture previousTarget = camera.targetTexture;
+            RenderTexture previousActive = RenderTexture.active;
+            Texture2D image = null;
+            try
+            {
+                camera.targetTexture = renderTexture;
+                camera.Render();
+                RenderTexture.active = renderTexture;
+                image = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                image.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                image.Apply();
+                return image.EncodeToPNG();
+            }
+            finally
+            {
+                camera.targetTexture = previousTarget;
+                RenderTexture.active = previousActive;
+                renderTexture.Release();
+                UnityEngine.Object.DestroyImmediate(renderTexture);
+                if (image != null) UnityEngine.Object.DestroyImmediate(image);
+            }
+        }
+
+        private static Camera PickRenderCamera(string cameraName)
+        {
+            Camera[] cameras = UnityEngine.Object.FindObjectsByType<Camera>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+            if (cameraName != null)
+            {
+                foreach (Camera candidate in cameras)
+                {
+                    DirectorId marker = candidate.GetComponent<DirectorId>();
+                    if (candidate.name == cameraName || (marker != null && marker.directorId == cameraName))
+                    {
+                        return candidate;
+                    }
+                }
+                return null;
+            }
+            foreach (Camera candidate in cameras)
+            {
+                if (candidate.enabled)
+                {
+                    return candidate;
+                }
+            }
+            return cameras.Length > 0 ? cameras[0] : null;
+        }
+
+        private static int ParseRenderSide(string value, int fallback)
+        {
+            return int.TryParse(value, out int parsed) ? Math.Max(64, Math.Min(1920, parsed)) : fallback;
+        }
+
         private sealed class ImportCounters
         {
             public int ObjectCount;

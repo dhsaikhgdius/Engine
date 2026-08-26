@@ -291,14 +291,11 @@ function exchangeAdapter(
       const version = executable ? await readDccEngineVersion(descriptor.id, executable) : null;
       const connectorPath = connectorScript ? resolve(workspaceRoot, connectorScript) : null;
       const connectorReady = connectorPath ? await isFile(connectorPath) : false;
-      const nativeReady = Boolean(executable) && connectorReady;
+      const nativeReady = false;
       let reason: string;
       if (connectorScript) {
-        if (nativeReady) {
-          reason =
-            descriptor.id === "unity"
-              ? `${descriptor.label} was detected with the Director scene-import connector. Headless export requires an activated Unity license; the portable director-engine-scene-v1 .zip upload works without one.`
-              : `${descriptor.label} was detected with the Director scene-import connector. Headless director-engine-scene-v1 export and portable .zip upload are both available.`;
+        if (executable && connectorReady) {
+          reason = `${descriptor.label} and its scene-import exporter were detected. Full native readiness still requires the versioned Director engine bridge health check; portable scene extraction and .zip upload remain available.`;
         } else if (executable) {
           reason = `${descriptor.label} was detected, but its Director connector script is missing at ${connectorScript}.`;
         } else {

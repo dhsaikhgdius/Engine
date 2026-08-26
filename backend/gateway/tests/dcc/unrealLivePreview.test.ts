@@ -147,6 +147,42 @@ describe("Unreal Gateway live preview transport (loopback, preview-only)", () =>
     }
   });
 
+  it("returns validated results for explicitly enabled Editor Python commands", async () => {
+    const server = await startPreviewServer();
+    try {
+      const session = await DirectorUnrealLivePreviewSession.connect({
+        port: server.port,
+        token: TOKEN,
+        allowCode: true,
+        authority: "engine",
+      });
+      const commandId = "11111111-1111-4111-8111-111111111111";
+      expect(
+        session.sendCommand({
+          type: "editor_command",
+          commandId,
+          command: "execute_code",
+          language: "python",
+          code: 'print("workshop-ready")',
+        }),
+      ).toEqual({ sent: true, commandId });
+      const lines = await server.waitForLines(2);
+      expect(JSON.parse(lines[1]!)).toMatchObject({ type: "editor_command", commandId, language: "python" });
+
+      server.sockets[0]!.write(
+        `${JSON.stringify({
+          type: "command_result",
+          result: { commandId, command: "execute_code", status: "completed", output: "workshop-ready\n" },
+        })}\n`,
+      );
+      await waitUntil(() => session.commandResult(commandId) !== null);
+      expect(session.commandResult(commandId)).toMatchObject({ status: "completed", output: "workshop-ready\n" });
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
   it("reports a silent session stale and disconnects on the next frame", async () => {
     const server = await startPreviewServer();
     try {

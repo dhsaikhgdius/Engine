@@ -11,6 +11,35 @@ import { getBodyPreset, type CharacterBodyProportions, type CharacterBodyType } 
 import { degreesToRadians, getRotationFromControls, getSingleAxisRotation } from "./mannequinPose";
 import { ArticulationRing, Foot, Hand, Head, Joint, Segment, Torso } from "./mannequinParts";
 import { getCharacterIkChainGeometry, solveCharacterIkRotations, type CharacterIkVector } from "./characterIk";
+import { getCharacterPoseJointNodeName, type CharacterPoseJointId } from "../../pose/characterPoseJoints";
+import { POSE_JOINT_ROTATABLE_KEY } from "../../pose/characterPoseJointProbe";
+
+/**
+ * Empty anchor whose world transform the viewport pose rig reads to place a
+ * joint handle. Mixamo characters expose real deform bones for this; the
+ * procedural mannequin has no skeleton, so it publishes these instead.
+ *
+ * The anchor must sit at the origin of the node its pose controls rotate. Hands
+ * and feet are rendered rigidly here, so they pass `rotatable={false}` and stay
+ * drag-only IK goals rather than claiming their elbow's or knee's rotation.
+ */
+function PoseJointAnchor({
+  id,
+  position,
+  rotatable = true,
+}: {
+  id: CharacterPoseJointId;
+  position?: [number, number, number];
+  rotatable?: boolean;
+}) {
+  return (
+    <group
+      name={getCharacterPoseJointNodeName(id)}
+      position={position}
+      userData={{ [POSE_JOINT_ROTATABLE_KEY]: rotatable }}
+    />
+  );
+}
 
 interface ProceduralMannequinProps {
   appearance?: "classic" | "flick-stage";
@@ -88,6 +117,11 @@ function MannequinLimb({
   endY: number;
 }) {
   const arm = kind === "arm";
+  const jointIds = (
+    arm
+      ? { root: `${side}Shoulder`, middle: `${side}Elbow`, end: `${side}Hand` }
+      : { root: `${side}Hip`, middle: `${side}Knee`, end: `${side}Foot` }
+  ) as { root: CharacterPoseJointId; middle: CharacterPoseJointId; end: CharacterPoseJointId };
   const anatomy = arm
     ? {
         rootOffset: p.shoulderWidth,
@@ -123,6 +157,7 @@ function MannequinLimb({
       position={[side === "left" ? -anatomy.rootOffset : anatomy.rootOffset, originY, 0]}
       rotation={ik.upperRotation}
     >
+      <PoseJointAnchor id={jointIds.root} />
       {articulationColor ? (
         <ArticulationRing
           color={articulationColor}
@@ -138,6 +173,8 @@ function MannequinLimb({
         radius={anatomy.upperRadius}
       />
       <group name={`mannequin-${side}-${anatomy.middleJoint}`} position={[0, middleY, 0]} rotation={ik.lowerRotation}>
+        <PoseJointAnchor id={jointIds.middle} />
+        <PoseJointAnchor id={jointIds.end} position={[0, endY, 0]} rotatable={false} />
         {articulationColor ? (
           <ArticulationRing
             color={articulationColor}
@@ -262,7 +299,12 @@ export function ProceduralMannequin({
       rotation={bodyRotation}
       scale={preset.defaultScale}
     >
+      <PoseJointAnchor id="body" position={[0, p.hipY, 0]} />
       <group rotation={torsoRotation}>
+        <PoseJointAnchor id="torso" position={[0, abdomenY, 0]} />
+        <group position={[0, headY, 0]} rotation={headRotation}>
+          <PoseJointAnchor id="head" />
+        </group>
         <Torso
           accentColor={articulationColor}
           abdomenPosition={[0, abdomenY, 0]}

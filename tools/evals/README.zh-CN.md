@@ -15,6 +15,17 @@ Vite 配置为 `tools/vite.config.ts`（见 [`tools/README.md`](../README.md)）
 npm run eval
 ```
 
+有真实 Godot 4 编辑器时，单独运行引擎结果门槛：
+
+```sh
+npm run eval:godot-result
+```
+
+该评测在 Godot 中启动一个可运行的 3D 房间、抓取引擎视口，并把降采样图像与
+`fixtures/godot-room-reference.ppm` 对比；运行标记必须齐全，视觉得分不得低于 82。
+临时工程会删除，截图与 JSON 报告保留在 `.runtime/evals/godot-result/` 供审阅。
+Godot 不在标准位置时设置 `DIRECTOR_GODOT_BIN`。
+
 生产级标杆案例复用已经运行的 Director、DSH 与 Blender，不会再启动浏览器或服务：
 
 ```sh

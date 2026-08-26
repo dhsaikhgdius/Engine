@@ -334,7 +334,13 @@ export function ScenePanel() {
 
   return (
     <InspectorPanel title="3D场景" ariaLabel="3D场景右侧属性面板" className="scene-inspector">
-      <InspectorSection title="变换" className="scene-transform-section" collapsible>
+      <InspectorSection
+        title="变换"
+        className="scene-transform-section"
+        collapsible
+        defaultOpen={false}
+        description="数值用于 Agent 与专业校准；日常布景请直接操作视口。"
+      >
         <div className="scene-transform-group">
           <InspectorRangeNumberField
             label="场景缩放"
@@ -437,34 +443,36 @@ export function ScenePanel() {
           onColorChange={(value) => updateScene({ backgroundColor: value })}
           onHexChange={(value) => updateScene({ backgroundColor: value })}
         />
-        <div className="scene-panorama-controls" aria-label="全景球参数">
-          <InspectorRangeNumberField
-            label="水平旋转"
-            rangeAriaLabel="全景球水平旋转滑杆"
-            numberAriaLabel="全景球水平旋转"
-            max={PANORAMA_YAW_MAX}
-            min={PANORAMA_YAW_MIN}
-            step="1"
-            value={panoramaYawField.draft}
-            onValueChange={panoramaYawField.commit}
-            onRangeChange={panoramaYawField.commit}
-            onNumberBlur={panoramaYawField.commit}
-            onNumberChange={panoramaYawField.change}
-          />
-          <InspectorRangeNumberField
-            label="球形半径"
-            rangeAriaLabel="全景球半径滑杆"
-            numberAriaLabel="全景球半径"
-            max={PANORAMA_RADIUS_MAX}
-            min={PANORAMA_RADIUS_MIN}
-            step="1"
-            value={panoramaRadiusField.draft}
-            onValueChange={panoramaRadiusField.commit}
-            onRangeChange={panoramaRadiusField.commit}
-            onNumberBlur={panoramaRadiusField.commit}
-            onNumberChange={panoramaRadiusField.change}
-          />
-        </div>
+        <InspectorSection title="全景精调" className="scene-panorama-precision" collapsible defaultOpen={false}>
+          <div className="scene-panorama-controls" aria-label="全景球参数">
+            <InspectorRangeNumberField
+              label="水平旋转"
+              rangeAriaLabel="全景球水平旋转滑杆"
+              numberAriaLabel="全景球水平旋转"
+              max={PANORAMA_YAW_MAX}
+              min={PANORAMA_YAW_MIN}
+              step="1"
+              value={panoramaYawField.draft}
+              onValueChange={panoramaYawField.commit}
+              onRangeChange={panoramaYawField.commit}
+              onNumberBlur={panoramaYawField.commit}
+              onNumberChange={panoramaYawField.change}
+            />
+            <InspectorRangeNumberField
+              label="球形半径"
+              rangeAriaLabel="全景球半径滑杆"
+              numberAriaLabel="全景球半径"
+              max={PANORAMA_RADIUS_MAX}
+              min={PANORAMA_RADIUS_MIN}
+              step="1"
+              value={panoramaRadiusField.draft}
+              onValueChange={panoramaRadiusField.commit}
+              onRangeChange={panoramaRadiusField.commit}
+              onNumberBlur={panoramaRadiusField.commit}
+              onNumberChange={panoramaRadiusField.change}
+            />
+          </div>
+        </InspectorSection>
       </InspectorSection>
       <InspectorSection title="显示与吸附" className="scene-display-section" collapsible>
         <div className="scene-switch-row" role="group" aria-label="开关项设置">
@@ -497,21 +505,23 @@ export function ScenePanel() {
           </div>
         </div>
         {scene.showGround ? (
-          <div className="scene-ground-controls">
-            <InspectorRangeNumberField
-              label="地面高度"
-              rangeAriaLabel="地面高度滑杆"
-              numberAriaLabel="地面高度"
-              max={GROUND_HEIGHT_MAX}
-              min={GROUND_HEIGHT_MIN}
-              step="0.1"
-              value={groundHeightField.draft}
-              onValueChange={groundHeightField.commit}
-              onRangeChange={groundHeightField.commit}
-              onNumberBlur={groundHeightField.commit}
-              onNumberChange={groundHeightField.change}
-            />
-          </div>
+          <InspectorSection title="地面高度精调" className="scene-ground-precision" collapsible defaultOpen={false}>
+            <div className="scene-ground-controls">
+              <InspectorRangeNumberField
+                label="地面高度"
+                rangeAriaLabel="地面高度滑杆"
+                numberAriaLabel="地面高度"
+                max={GROUND_HEIGHT_MAX}
+                min={GROUND_HEIGHT_MIN}
+                step="0.1"
+                value={groundHeightField.draft}
+                onValueChange={groundHeightField.commit}
+                onRangeChange={groundHeightField.commit}
+                onNumberBlur={groundHeightField.commit}
+                onNumberChange={groundHeightField.change}
+              />
+            </div>
+          </InspectorSection>
         ) : null}
       </InspectorSection>
       <InspectorSection title="氛围" className="scene-atmosphere-section" collapsible defaultOpen={false}>

@@ -1,5 +1,5 @@
 import "./assetLibrary.css";
-import { Boxes, Globe, ImagePlus, ScanLine, ScanSearch, Sparkles, Upload } from "lucide-react";
+import { Boxes, Globe, ImagePlus, Move3D, ScanLine, ScanSearch, Sparkles, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { readLocalModelFile } from "../loaders/localModelImport";
 import { applyEstimatedLocalModelSize } from "../loaders/localModelSize";
@@ -375,6 +375,12 @@ export function AssetLibraryPanel() {
               </button>
             );
           })}
+        </div>
+
+        <div className="asset-library-placement-hint" role="note">
+          <Move3D aria-hidden size={13} strokeWidth={1.9} />
+          <span>拖入场景直接放置</span>
+          <small>单击可预览</small>
         </div>
 
         {catalogUnavailable ? (

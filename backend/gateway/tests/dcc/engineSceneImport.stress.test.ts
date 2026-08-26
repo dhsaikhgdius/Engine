@@ -309,7 +309,7 @@ describe("engine scene import stress: malformed manifests", () => {
 
   it("rejects invalid providers with the structured engine_provider_invalid code", async () => {
     const harness = await createHarness();
-    for (const provider of ["godot", "blender", "", "../unity", "UNITY"]) {
+    for (const provider of ["blender", "maya", "", "../unity", "UNITY"]) {
       await expect(
         harness.importer.ingestUpload(
           provider as DirectorEngineSceneProvider,

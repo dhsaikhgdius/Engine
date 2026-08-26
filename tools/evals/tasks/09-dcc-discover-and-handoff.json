@@ -21,10 +21,43 @@
       }
     },
     {
+      "label": "unreal engine readiness is reported honestly",
+      "tool": "director_dcc",
+      "input": { "op": "status", "provider": "unreal" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.provider.id", "result.provider.integration", "result.nativeReady"]
+      }
+    },
+    {
+      "label": "unity engine readiness is reported honestly",
+      "tool": "director_dcc",
+      "input": { "op": "status", "provider": "unity" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.provider.id", "result.provider.integration", "result.nativeReady"]
+      }
+    },
+    {
+      "label": "godot engine readiness is reported honestly",
+      "tool": "director_dcc",
+      "input": { "op": "status", "provider": "godot" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.provider.id", "result.provider.integration", "result.nativeReady"]
+      }
+    },
+    {
       "label": "unknown provider is rejected",
       "tool": "director_dcc",
       "input": { "op": "status", "provider": "nonexistent-engine" },
       "expect": { "success": false, "code": "dcc_provider_unknown" }
+    },
+    {
+      "label": "engine scene extraction rejects non-engine providers",
+      "tool": "director_dcc",
+      "input": { "op": "extract_engine_scene", "provider": "blender", "project_dir": "does-not-matter" },
+      "expect": { "success": false, "error_includes": "provider" }
     }
   ]
 }

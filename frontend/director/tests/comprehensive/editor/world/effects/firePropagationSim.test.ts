@@ -293,6 +293,37 @@ describe("fire as a system", () => {
     expect(west).toBeGreaterThan(4);
   });
 
+  it("blocks a river corridor without using its placeholder surface rectangle", () => {
+    const rects = toFireWaterRects([
+      {
+        id: "river-1",
+        name: "river",
+        surface: { center: [100, 0, 100], sizeX: 500, sizeZ: 500, rotationDegrees: 0 },
+        river: {
+          points: [
+            [-10, 0, 0],
+            [10, 0, 0],
+          ],
+          widthM: 4,
+        },
+        waveAmplitude: 0.1,
+        waveLengthM: 4,
+        flowDirectionDegrees: 0,
+        flowSpeedMps: 1,
+        colorShallow: "#3fb8c8",
+        colorDeep: "#0c3a4a",
+        opacity: 0.8,
+        foamIntensity: 0.5,
+        visible: true,
+        locked: false,
+      },
+    ]);
+
+    expect(rects.length).toBeGreaterThan(4);
+    expect(rects.every((rect) => rect.centerZ === 0 && rect.sizeZ === 4)).toBe(true);
+    expect(rects.every((rect) => Math.abs(rect.centerX) < 20 && rect.sizeX < 10)).toBe(true);
+  });
+
   it("cell life fades from 1 toward 0 while burning", () => {
     const sim = createFirePropagationSim(makeFireEffect(), makeSettings(), []);
     sim.stepTo(0);

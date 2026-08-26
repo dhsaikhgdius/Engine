@@ -162,9 +162,10 @@ describe("Director DSH workbench plugin gateway client", () => {
       "stage_video",
       "blender_native",
       "director_game",
+      "director_dcc",
       DIRECTOR_MODEL_ROUTES_TOOL_NAME,
     ]);
-    expect(defineTool).toHaveBeenCalledTimes(6);
+    expect(defineTool).toHaveBeenCalledTimes(7);
     const workbench = defineTool.mock.calls.find((call) => call[0].name === "director_workbench")?.[0];
     expect(workbench?.timeoutMs).toBe(70_000);
     expect(workbench?.isConcurrencySafe?.({ op: "observe" })).toBe(true);
@@ -176,6 +177,12 @@ describe("Director DSH workbench plugin gateway client", () => {
     });
     const blender = defineTool.mock.calls.find((call) => call[0].name === "blender_native")?.[0];
     expect(blender?.timeoutMs).toBe(300_000);
+    // The DCC tool registers with the host-job budget so a headless engine
+    // send is not cut off mid-run; reads still classify as concurrency-safe.
+    const dcc = defineTool.mock.calls.find((call) => call[0].name === "director_dcc")?.[0];
+    expect(dcc?.timeoutMs).toBe(16 * 60_000);
+    expect(dcc?.isConcurrencySafe?.({ op: "discover" })).toBe(true);
+    expect(dcc?.isConcurrencySafe?.({ op: "send_to_engine", provider: "godot" })).toBe(false);
   });
 
   it("lists exact registered model routes and tells agents to inherit by default", async () => {

@@ -7,6 +7,9 @@ import {
   computeClimateRoadSurfaceAppearance,
   computeRoadSurfaceAppearance,
   computeTrafficHeadlightFactor,
+  evaluateTrafficTravelSeconds,
+  evaluateTrafficWeatherSpeedScale,
+  resetTrafficEnvironmentCaches,
   TRAFFIC_HEADLIGHT_DAWN_END_HOURS,
   TRAFFIC_HEADLIGHT_DAWN_START_HOURS,
   TRAFFIC_HEADLIGHT_DUSK_END_HOURS,
@@ -15,6 +18,8 @@ import {
 } from "../../../../../src/comprehensive/editor/world/traffic/trafficEnvironment";
 import {
   evaluateWorldClimate,
+  getWorldClimateSegmentRampSeconds,
+  getWorldClimateSegmentSeconds,
   resetWorldClimateCaches,
 } from "../../../../../src/comprehensive/editor/world/worldClimate";
 
@@ -40,6 +45,7 @@ function makeSettings(overrides: Partial<DirectorWorldWeather> = {}): DirectorWo
 
 beforeEach(() => {
   resetWorldClimateCaches();
+  resetTrafficEnvironmentCaches();
 });
 
 describe("traffic weather speed scale", () => {
@@ -61,6 +67,89 @@ describe("traffic weather speed scale", () => {
     }
     // Intensity deepens the slowdown.
     expect(trafficWeatherSpeedScale(weather({ preset: "storm", intensity: 0 }))).toBeGreaterThan(storm);
+  });
+});
+
+describe("traffic weather travel clock", () => {
+  it("reproduces the legacy scaled clock exactly for static weather", () => {
+    for (const preset of ["clear", "overcast", "rain", "snow", "storm"] as const) {
+      for (const intensity of [0, 0.4, 1]) {
+        const settings = makeSettings({ preset, intensity });
+        const scale = trafficWeatherSpeedScale(settings.weather);
+        for (const seconds of [-25, 0, 12.5, 900]) {
+          expect(evaluateTrafficTravelSeconds(settings, seconds)).toBe(seconds * scale);
+        }
+      }
+    }
+  });
+
+  it("enters and leaves an evolving weather slowdown without a position jump", () => {
+    const settings = makeSettings({
+      preset: "clear",
+      intensity: 1,
+      evolution: { mode: "cycle", periodSeconds: 120 },
+    });
+    const segmentSeconds = getWorldClimateSegmentSeconds(settings);
+    let transitionSegment = 1;
+    while (transitionSegment < 64) {
+      const start = transitionSegment * segmentSeconds;
+      const end = start + getWorldClimateSegmentRampSeconds(settings, transitionSegment);
+      if (
+        Math.abs(evaluateTrafficWeatherSpeedScale(settings, start) - evaluateTrafficWeatherSpeedScale(settings, end)) >
+        1e-9
+      )
+        break;
+      transitionSegment += 1;
+    }
+    expect(transitionSegment).toBeLessThan(64);
+
+    const start = transitionSegment * segmentSeconds;
+    const end = start + getWorldClimateSegmentRampSeconds(settings, transitionSegment);
+    const fromScale = evaluateTrafficWeatherSpeedScale(settings, start);
+    const toScale = evaluateTrafficWeatherSpeedScale(settings, end);
+    const epsilon = 0.001;
+    const midRamp = start + (end - start) * 0.37;
+
+    expect(
+      evaluateTrafficTravelSeconds(settings, start) - evaluateTrafficTravelSeconds(settings, start - epsilon),
+    ).toBeCloseTo(fromScale * epsilon, 9);
+    expect(
+      evaluateTrafficTravelSeconds(settings, start + epsilon) - evaluateTrafficTravelSeconds(settings, start),
+    ).toBeCloseTo(fromScale * epsilon, 9);
+    expect(
+      evaluateTrafficTravelSeconds(settings, end) - evaluateTrafficTravelSeconds(settings, end - epsilon),
+    ).toBeCloseTo(toScale * epsilon, 9);
+    expect(
+      evaluateTrafficTravelSeconds(settings, end + epsilon) - evaluateTrafficTravelSeconds(settings, end),
+    ).toBeCloseTo(toScale * epsilon, 9);
+    expect(
+      (evaluateTrafficTravelSeconds(settings, midRamp + epsilon) -
+        evaluateTrafficTravelSeconds(settings, midRamp - epsilon)) /
+        (2 * epsilon),
+    ).toBeCloseTo(evaluateTrafficWeatherSpeedScale(settings, midRamp), 8);
+  });
+
+  it("is monotonic, bounded, and identical for seek and play-to-time query orders", () => {
+    const settings = makeSettings({
+      preset: "rain",
+      intensity: 0.82,
+      evolution: { mode: "cycle", periodSeconds: 75 },
+    });
+    let previous = evaluateTrafficTravelSeconds(settings, 0);
+    for (let seconds = 0.25; seconds <= 1_200; seconds += 0.25) {
+      const current = evaluateTrafficTravelSeconds(settings, seconds);
+      const delta = current - previous;
+      expect(delta).toBeGreaterThanOrEqual(0.55 * 0.25 - 1e-10);
+      expect(delta).toBeLessThanOrEqual(0.25 + 1e-10);
+      previous = current;
+    }
+
+    const target = 987.654;
+    const played = evaluateTrafficTravelSeconds(settings, target);
+    for (const seconds of [1_100, 12, 640, target, 0, target]) evaluateTrafficTravelSeconds(settings, seconds);
+    expect(evaluateTrafficTravelSeconds(settings, target)).toBe(played);
+    resetTrafficEnvironmentCaches();
+    expect(evaluateTrafficTravelSeconds(settings, target)).toBe(played);
   });
 });
 

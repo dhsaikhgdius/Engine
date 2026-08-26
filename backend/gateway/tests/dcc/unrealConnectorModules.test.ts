@@ -866,6 +866,41 @@ describe.skipIf(!pythonAvailable)(
         expect(decisions[1]).toMatchObject({ verb: "apply", payload: expect.objectContaining({ focalLengthMm: 50 }) });
         expect(decisions[2]).toMatchObject({ verb: "drop", reason: expect.stringMatching(/focalLengthMm/) });
       });
+
+      it("validates Editor Python and review-sync commands after authentication", async () => {
+        const token = "fixture-preview-token";
+        const { output } = await runModule(
+          "director_livelink",
+          [],
+          JSON.stringify({
+            token,
+            events: [
+              { atMs: 0, line: JSON.stringify({ type: "hello", protocol: "director-unreal-live-preview-v1", token }) },
+              {
+                atMs: 10,
+                line: JSON.stringify({
+                  type: "editor_command",
+                  commandId: "11111111-1111-4111-8111-111111111111",
+                  command: "execute_code",
+                  language: "python",
+                  code: 'print("ready")',
+                }),
+              },
+              {
+                atMs: 20,
+                line: JSON.stringify({
+                  type: "editor_command",
+                  commandId: "22222222-2222-4222-8222-222222222222",
+                  command: "sync_scene",
+                }),
+              },
+            ],
+          }),
+        );
+        const decisions = output.decisions as Array<Record<string, unknown>>;
+        expect(decisions[1]).toMatchObject({ verb: "command", payload: { command: "execute_code" } });
+        expect(decisions[2]).toMatchObject({ verb: "command", payload: { command: "sync_scene" } });
+      });
     });
   },
 );

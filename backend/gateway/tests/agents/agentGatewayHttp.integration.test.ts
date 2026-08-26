@@ -316,6 +316,25 @@ process.exit(17);
     expect(authenticatedNative.status).toBe(200);
   });
 
+  it("allows every header a first-party browser client sends through CORS preflight", async () => {
+    const preflight = await fetch(`${baseUrl}/api/agent/workspace`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://127.0.0.1:5175",
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "content-type, x-director-browser-token, x-director-trace-source",
+      },
+    });
+    expect(preflight.status).toBe(204);
+    const allowed = (preflight.headers.get("access-control-allow-headers") ?? "")
+      .split(",")
+      .map((header) => header.trim().toLowerCase());
+    expect(allowed).toEqual(expect.arrayContaining(["content-type", "x-director-browser-token"]));
+    // The browser attaches this on every call; omitting it fails preflight and
+    // the UI only ever sees "Failed to fetch".
+    expect(allowed).toContain("x-director-trace-source");
+  });
+
   it("protects preview bytes while preserving authenticated browser and Agent reads", async () => {
     expect((await fetch(`${baseUrl}/api/preview`)).status).toBe(401);
     expect((await fetch(`${baseUrl}/api/dcc/blender/preview.glb`)).status).toBe(401);

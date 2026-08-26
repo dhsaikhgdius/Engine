@@ -18,6 +18,7 @@ import type { DirectorWorldRoad } from "../../../../../../../packages/protocol/s
 import type { LivingWorldFrameContext, TrafficLayerProps } from "../livingWorldContracts";
 import { evaluateWorldTimeOfDayHours } from "../worldTime";
 import {
+  buildRoadMarkings,
   buildRoadRibbon,
   buildRoadSpline,
   roadLaneOffsetM,
@@ -28,7 +29,7 @@ import {
 import {
   computeClimateRoadSurfaceAppearance,
   computeTrafficHeadlightFactor,
-  trafficWeatherSpeedScale,
+  evaluateTrafficTravelSeconds,
   type RoadSurfaceAppearance,
 } from "./trafficEnvironment";
 import {
@@ -64,6 +65,7 @@ import {
  */
 
 const ROAD_SURFACE_LIFT_M = 0.02;
+const ROAD_MARKING_LIFT_M = ROAD_SURFACE_LIFT_M + 0.006;
 const ROAD_SURFACE_COLOR = 0x2b2e33;
 /** Snow-covered asphalt blend target (trampled white). */
 const ROAD_SNOW_COLOR = new Color(0.78, 0.81, 0.85);
@@ -83,16 +85,21 @@ const UNIT_SCALE = new Vector3(1, 1, 1);
 const scratchPoint: MutableRoadVec3 = [0, 0, 0];
 const scratchTangent: MutableRoadVec3 = [0, 0, 0];
 
+/** Releases a manually owned instance buffer even after R3F's `dispose={null}` shadows the instance method. */
+export function disposeTrafficInstancedMesh(mesh: InstancedMesh): void {
+  InstancedMesh.prototype.dispose.call(mesh);
+}
+
 function composeVehicleMatrices(
   meshes: readonly InstancedMesh[],
   plan: TrafficBodyVariantPlan,
   spline: RoadSpline,
   streams: RoadTrafficStreams,
   laneOffsetM: number,
-  worldSeconds: number,
+  travelSeconds: number,
 ): void {
   for (let index = 0; index < streams.count; index += 1) {
-    const arc = vehicleArcPositionAt(streams, index, worldSeconds);
+    const arc = vehicleArcPositionAt(streams, index, travelSeconds);
     sampleRoadSplineAt(spline, arc, scratchPoint, scratchTangent);
     const direction = streams.directions[index]!;
     const forwardX = scratchTangent[0] * direction;
@@ -108,7 +115,7 @@ function composeVehicleMatrices(
       lateralZ = forwardX / horizontal;
     }
 
-    const bounce = Math.sin(worldSeconds * TWO_PI * BOUNCE_HZ + streams.bouncePhases[index]!) * BOUNCE_AMPLITUDE_M;
+    const bounce = Math.sin(travelSeconds * TWO_PI * BOUNCE_HZ + streams.bouncePhases[index]!) * BOUNCE_AMPLITUDE_M;
 
     const yaw = Math.atan2(forwardX, forwardZ);
     const climb = Math.min(Math.max(forwardY, -1), 1);
@@ -152,11 +159,43 @@ function RoadSurface({
   }, [road.id, road.widthM, spline]);
   useEffect(() => () => geometry.dispose(), [geometry]);
 
+  const markingGeometry = useMemo(() => {
+    const markings = buildRoadMarkings(spline, road.widthM, ROAD_MARKING_LIFT_M);
+    const built = new BufferGeometry();
+    built.setAttribute("position", new BufferAttribute(markings.positions, 3));
+    built.setAttribute("normal", new BufferAttribute(markings.normals, 3));
+    built.setAttribute("color", new BufferAttribute(markings.colors, 3));
+    built.setIndex(new BufferAttribute(markings.indices, 1));
+    built.computeBoundingBox();
+    built.computeBoundingSphere();
+    built.name = `director-road-markings-${road.id}`;
+    return built;
+  }, [road.id, road.widthM, spline]);
+  useEffect(() => () => markingGeometry.dispose(), [markingGeometry]);
+
   const material = useMemo(
     () => new MeshStandardMaterial({ color: ROAD_SURFACE_COLOR, roughness: 1, metalness: 0 }),
     [],
   );
   useEffect(() => () => material.dispose(), [material]);
+
+  const markingMaterial = useMemo(
+    () =>
+      new MeshStandardMaterial({
+        color: 0xffffff,
+        depthWrite: false,
+        metalness: 0,
+        opacity: 1,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+        roughness: 0.65,
+        transparent: true,
+        vertexColors: true,
+      }),
+    [],
+  );
+  useEffect(() => () => markingMaterial.dispose(), [markingMaterial]);
 
   // The road owns its weather appearance (the surface patcher skips
   // living-world-road-* meshes): wet asphalt darkens and glazes, snow blends
@@ -181,6 +220,10 @@ function RoadSurface({
       .multiplyScalar(appearance.colorScale)
       .lerp(ROAD_SNOW_COLOR, appearance.snowMix);
     material.roughness = appearance.roughness;
+    markingMaterial.roughness = Math.max(0.22, appearance.roughness * 0.65);
+    // Snow softens the paint contrast instead of leaving pristine lines on a
+    // covered road; rain keeps the paint visible but gives it the same sheen.
+    markingMaterial.opacity = 1 - appearance.snowMix * 0.75;
   };
   // First paint before the frameloop starts (e.g. while scrubbing paused).
   useLayoutEffect(() => {
@@ -188,7 +231,18 @@ function RoadSurface({
   });
   useFrame(syncAppearance);
 
-  return <mesh geometry={geometry} material={material} name={`living-world-road-${road.id}`} receiveShadow />;
+  return (
+    <group name={`living-world-road-group-${road.id}`}>
+      <mesh geometry={geometry} material={material} name={`living-world-road-${road.id}`} receiveShadow />
+      <mesh
+        geometry={markingGeometry}
+        material={markingMaterial}
+        name={`living-world-road-markings-${road.id}`}
+        receiveShadow
+        renderOrder={1}
+      />
+    </group>
+  );
 }
 
 function RoadVehicles({
@@ -200,41 +254,19 @@ function RoadVehicles({
   spline: RoadSpline;
   context: LivingWorldFrameContext;
 }) {
-  // Weather scales the whole lane uniformly; the hashed 0.85..1.15 band and
-  // slot offsets are untouched, so gaps and ordering replay identically.
-  // This reads the AUTHORED weather block deliberately: vehicle positions
-  // are a closed form of `speed * worldSeconds`, so a time-varying climate
-  // scale would teleport every car whenever the ramp moved. Making traffic
-  // slow inside an evolving storm needs an integrated arc-length clock
-  // (like the wetness integrator) — out of scope for a view-layer scale.
-  const laneSpeedScale = trafficWeatherSpeedScale(context.settings.weather);
   const streams = useMemo(
     () =>
       buildRoadTrafficStreams(
         { id: road.id, seedOffset: road.seedOffset, vehicleCount: road.vehicleCount, speedKph: road.speedKph },
         context.seed,
         spline.totalLengthM,
-        laneSpeedScale,
       ),
-    [road.id, road.seedOffset, road.vehicleCount, road.speedKph, context.seed, spline.totalLengthM, laneSpeedScale],
+    [road.id, road.seedOffset, road.vehicleCount, road.speedKph, context.seed, spline.totalLengthM],
   );
 
   // Body type is a cosmetic hash: it reroutes a vehicle into the sedan or
   // SUV InstancedMesh but never touches arc offsets or the shared lane speed.
-  // The plan is keyed on road identity WITHOUT the weather scale (the hash
-  // ignores it), so an intensity drag rebuilds `streams` per tick without
-  // reallocating the InstancedMesh GPU buffers below.
-  const plan = useMemo(
-    () =>
-      planTrafficBodyVariants(
-        buildRoadTrafficStreams(
-          { id: road.id, seedOffset: road.seedOffset, vehicleCount: road.vehicleCount, speedKph: road.speedKph },
-          context.seed,
-          spline.totalLengthM,
-        ),
-      ),
-    [road.id, road.seedOffset, road.vehicleCount, road.speedKph, context.seed, spline.totalLengthM],
-  );
+  const plan = useMemo(() => planTrafficBodyVariants(streams), [streams]);
 
   const geometries = useMemo(() => VEHICLE_BODY_TYPES.map((bodyType) => buildVehicleGeometry(bodyType)), []);
   useEffect(
@@ -269,7 +301,7 @@ function RoadVehicles({
   // owned by the effects above.
   useEffect(
     () => () => {
-      for (const mesh of meshes) mesh.dispose();
+      for (const mesh of meshes) disposeTrafficInstancedMesh(mesh);
     },
     [meshes],
   );
@@ -308,7 +340,7 @@ function RoadVehicles({
   );
   useEffect(
     () => () => {
-      for (const mesh of lightsMeshes) mesh.dispose();
+      for (const mesh of lightsMeshes) disposeTrafficInstancedMesh(mesh);
     },
     [lightsMeshes],
   );
@@ -334,12 +366,13 @@ function RoadVehicles({
     spline: RoadSpline;
     streams: RoadTrafficStreams;
     laneOffsetM: number;
-    seconds: number;
+    travelSeconds: number;
     headlightFactor: number;
   } | null>(null);
   const composeIfNeeded = () => {
     const hours = evaluateWorldTimeOfDayHours(context.settings.timeOfDay, context.worldSeconds);
     const headlightFactor = computeTrafficHeadlightFactor(hours);
+    const travelSeconds = evaluateTrafficTravelSeconds(context.settings, context.worldSeconds);
     const last = lastComposeRef.current;
     if (
       last &&
@@ -347,12 +380,12 @@ function RoadVehicles({
       last.spline === spline &&
       last.streams === streams &&
       last.laneOffsetM === laneOffsetM &&
-      last.seconds === context.worldSeconds &&
+      last.travelSeconds === travelSeconds &&
       last.headlightFactor === headlightFactor
     ) {
       return;
     }
-    composeVehicleMatrices(meshes, plan, spline, streams, laneOffsetM, context.worldSeconds);
+    composeVehicleMatrices(meshes, plan, spline, streams, laneOffsetM, travelSeconds);
     lightsMaterial.opacity = headlightFactor;
     for (const lightsMesh of lightsMeshes) {
       lightsMesh.visible = headlightFactor > HEADLIGHT_VISIBLE_EPSILON;
@@ -362,7 +395,7 @@ function RoadVehicles({
       spline,
       streams,
       laneOffsetM,
-      seconds: context.worldSeconds,
+      travelSeconds,
       headlightFactor,
     };
   };

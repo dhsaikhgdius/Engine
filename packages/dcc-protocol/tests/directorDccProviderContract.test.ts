@@ -147,8 +147,11 @@ describe("Director DCC provider contract", () => {
         expect(byId.get(id)).toEqual({ id, level: "native", layer: "connector" });
       }
       // Unreal, Unity, and Godot all ship tested preview-only live links
-      // (never the durable scene channel).
+      // plus independent capture and opt-in engine workshop sessions.
       expect(byId.get("live_link")).toEqual({ id: "live_link", level: "native", layer: "connector" });
+      for (const id of ["capture", "hot_session", "execute_code", "engine_authority"] as const) {
+        expect(byId.get(id)).toEqual({ id, level: "native", layer: "connector" });
+      }
     }
   });
 

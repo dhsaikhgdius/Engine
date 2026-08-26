@@ -136,7 +136,8 @@ describe("DirectorDccEngineBridge", () => {
       workspaceRoot: repositoryRoot,
       dataDirectory: resolve(root, "data"),
       exchangePackager: { exportPackage: vi.fn() },
-      environment: { PATH: "" },
+      environment: { PATH: "", [DIRECTOR_ENGINE_BINARY_ENV[provider]]: resolve(root, "missing-engine") },
+      discoverExecutable: async () => null,
       healthTtlMs: 0,
     });
     const health = await bridge.health(provider);

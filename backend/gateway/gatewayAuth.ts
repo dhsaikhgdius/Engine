@@ -10,7 +10,8 @@ const DEFAULT_BROWSER_PORTS = [5175, 4173, 8787];
  * tag) must be listed, or cross-origin fetches fail the preflight with an
  * opaque "Failed to fetch".
  */
-export const DIRECTOR_CORS_ALLOWED_REQUEST_HEADERS = "content-type, x-director-browser-token, x-director-trace-source";
+export const DIRECTOR_CORS_ALLOWED_REQUEST_HEADERS =
+  "content-type, x-director-browser-token, x-director-trace-source, x-director-tool-source, x-director-film-role";
 
 function configuredPort(value: string | undefined) {
   if (!value?.trim()) return null;

@@ -148,8 +148,8 @@ export type DirectorEngineSceneImportErrorCode =
 
 const RECOVERY: Record<DirectorEngineSceneImportErrorCode, string> = {
   engine_unavailable:
-    "Install the engine or set DIRECTOR_UNREAL_EDITOR_BIN / DIRECTOR_UNITY_BIN, or export the scene package inside the engine and upload the .zip instead.",
-  engine_provider_invalid: "Use provider unreal or unity for engine scene import operations.",
+    "Install the engine or set DIRECTOR_UNREAL_EDITOR_BIN / DIRECTOR_UNITY_BIN / DIRECTOR_GODOT_BIN, or export the scene package inside the engine and upload the .zip instead.",
+  engine_provider_invalid: "Use provider unreal, unity, or godot for engine scene import operations.",
   project_invalid: "Point project_dir at a readable engine project inside the workspace, then retry.",
   upload_invalid: "Choose a .zip engine scene package produced by the Director exporter and retry.",
   upload_too_large: "Reduce the engine scene package below 512 MiB, then retry.",
@@ -239,10 +239,10 @@ export interface EngineSceneImportUploadResult {
 
 /**
  * An engine scene importer ingests director-engine-scene-v1 packages exported
- * from Unreal Engine or Unity — either as uploaded .zip archives (portable,
- * headless-verifiable path) or by running the installed engine headlessly
- * against a local project (native path) — validates them, builds import
- * plans, and applies them through the Director authoring surface.
+ * from Unreal Engine, Unity, or Godot — either as uploaded .zip archives
+ * (portable, headless-verifiable path) or by running the installed engine
+ * headlessly against a local project (native path) — validates them, builds
+ * import plans, and applies them through the Director authoring surface.
  */
 export interface EngineSceneImporter {
   /** Ingest a .zip package upload, extract it, and return an initial plan. */
@@ -315,7 +315,7 @@ function parseEngineSceneProvider(provider: DirectorEngineSceneProvider): Direct
   if (!parsed.success) {
     throw new DirectorEngineSceneImportError(
       "engine_provider_invalid",
-      `${JSON.stringify(String(provider).slice(0, 120))} is not an engine scene provider (unreal, unity).`,
+      `${JSON.stringify(String(provider).slice(0, 120))} is not an engine scene provider (unreal, unity, godot).`,
     );
   }
   return parsed.data;
@@ -514,6 +514,16 @@ async function findUnrealProjectFile(projectDirectory: string): Promise<string> 
   return projects[0]!;
 }
 
+async function assertGodotProjectFile(projectDirectory: string): Promise<void> {
+  const projectStat = await stat(resolve(projectDirectory, "project.godot")).catch(() => null);
+  if (!projectStat?.isFile()) {
+    throw new DirectorEngineSceneImportError(
+      "project_invalid",
+      `No project.godot file was found in ${projectDirectory}.`,
+    );
+  }
+}
+
 function appendBounded(current: string, next: string): string {
   const combined = current + next;
   return combined.length <= MAX_PROCESS_OUTPUT ? combined : combined.slice(combined.length - MAX_PROCESS_OUTPUT);
@@ -580,14 +590,14 @@ async function runProcess(
 
 /**
  * Creates an engine scene importer that ingests director-engine-scene-v1
- * packages from Unreal Engine and Unity, validates them, builds import plans,
- * and applies them through the Director authoring surface.
+ * packages from Unreal Engine, Unity, and Godot, validates them, builds
+ * import plans, and applies them through the Director authoring surface.
  *
  * Uploaded .zip packages are the portable, headless-verifiable path and work
  * without any engine installed. When the engine executable is discoverable
- * (DIRECTOR_UNREAL_EDITOR_BIN / DIRECTOR_UNITY_BIN, well-known paths, or
- * PATH), `ingestProject` can additionally run the engine headlessly against a
- * local project to produce the same package.
+ * (DIRECTOR_UNREAL_EDITOR_BIN / DIRECTOR_UNITY_BIN / DIRECTOR_GODOT_BIN,
+ * well-known paths, or PATH), `ingestProject` can additionally run the engine
+ * headlessly against a local project to produce the same package.
  *
  * @param options - Workspace, data directory, and budget overrides.
  * @returns An importer with ingest, validate, build, and apply methods.
@@ -1229,6 +1239,45 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
       );
       return;
     }
+    if (input.provider === "godot") {
+      // Mirror the Unity path: the standalone interchange exporter is copied
+      // into the user's project (hash-compared) and run through the fixed
+      // res:// entry, never a request-supplied script.
+      await assertGodotProjectFile(input.projectDirectory);
+      const godotSource = resolve(workspaceRoot, "integrations", "godot", "interchange", "director_scene_export.gd");
+      await access(godotSource);
+      const godotDestination = resolve(
+        input.projectDirectory,
+        "addons",
+        "director_interchange",
+        "director_scene_export.gd",
+      );
+      const [godotSourceHash, godotDestinationHash] = await Promise.all([
+        sha256File(godotSource),
+        sha256File(godotDestination).catch(() => null),
+      ]);
+      if (godotSourceHash !== godotDestinationHash) {
+        await mkdir(dirname(godotDestination), { recursive: true });
+        await copyFile(godotSource, godotDestination);
+      }
+      await runProcess(
+        input.executable,
+        [
+          "--headless",
+          "--path",
+          input.projectDirectory,
+          "--script",
+          "res://addons/director_interchange/director_scene_export.gd",
+          "--",
+          "--output-dir",
+          input.outputDirectory,
+          ...(input.scene ? ["--scene", input.scene] : []),
+        ],
+        input.timeoutMs,
+        input.jobDirectory,
+      );
+      return;
+    }
     const connectorSource = resolve(workspaceRoot, "integrations", "unity", "interchange", "DirectorSceneExport.cs");
     await access(connectorSource);
     const connectorDestination = resolve(
@@ -1304,13 +1353,15 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     const projectDirectory = await resolveEngineProjectDirectory(projectDir);
     const executable = await discoverDccRuntimeExecutable(parsedProvider, environment);
     if (!executable) {
-      throw new DirectorEngineSceneImportError(
-        "engine_unavailable",
-        parsedProvider === "unreal"
-          ? "Unreal Editor was not found. Set DIRECTOR_UNREAL_EDITOR_BIN or install Unreal Engine, or export the package inside the engine and upload the .zip."
-          : "Unity was not found. Set DIRECTOR_UNITY_BIN or install Unity, or export the package inside the engine and upload the .zip.",
-        503,
-      );
+      const unavailableByProvider: Record<DirectorEngineSceneProvider, string> = {
+        unreal:
+          "Unreal Editor was not found. Set DIRECTOR_UNREAL_EDITOR_BIN or install Unreal Engine, or export the package inside the engine and upload the .zip.",
+        unity:
+          "Unity was not found. Set DIRECTOR_UNITY_BIN or install Unity, or export the package inside the engine and upload the .zip.",
+        godot:
+          "Godot was not found. Set DIRECTOR_GODOT_BIN or install Godot 4, or export the package inside the engine and upload the .zip.",
+      };
+      throw new DirectorEngineSceneImportError("engine_unavailable", unavailableByProvider[parsedProvider], 503);
     }
     const jobId = `${parsedProvider}-${randomUUID()}`;
     const jobDirectory = resolve(jobRoot, jobId);

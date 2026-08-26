@@ -17,6 +17,11 @@ export function degreesToRadians(value: number) {
   return (value * Math.PI) / 180;
 }
 
+/** Convert radians to degrees. */
+export function radiansToDegrees(value: number) {
+  return (value * 180) / Math.PI;
+}
+
 /** Maximum body.pitch limit for the given body type, in degrees. */
 export function getBodyTypePoseLimit(bodyType?: string | null): number {
   return Math.round(getCharacterPoseControlValueLimits("body.pitch", normalizeBodyType(bodyType)).max * 1e6) / 1e6;

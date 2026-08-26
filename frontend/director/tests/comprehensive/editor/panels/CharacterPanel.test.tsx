@@ -5,6 +5,7 @@ import { createInitialDirectorState, useDirectorStore } from "../../../../src/co
 import { useBlenderRuntimeStore } from "../../../../src/comprehensive/editor/runtime/blenderRuntimeStore";
 import { CharacterPanel } from "../../../../src/comprehensive/editor/panels/CharacterPanel";
 import { dispatchDirectorAuthoringActions } from "../../../../src/agent/dispatchDirectorAuthoringActions";
+import { useCharacterPoseEditorStore } from "../../../../src/comprehensive/editor/pose/characterPoseEditorStore";
 
 vi.mock("../../../../src/comprehensive/editor/assistant/agentProfilesClient", () => ({
   listAgentProfiles: vi.fn().mockResolvedValue([
@@ -30,6 +31,7 @@ vi.mock("../../../../src/comprehensive/editor/assistant/agentSessionsClient", ()
 
 beforeEach(() => {
   useBlenderRuntimeStore.getState().reset();
+  useCharacterPoseEditorStore.setState({ objectId: null, jointId: "torso" });
   useDirectorStore.setState({
     ...useDirectorStore.getState(),
     ...createInitialDirectorState(),
@@ -151,6 +153,42 @@ it("marks the pose adjustment section for the compact character inspector layout
 
   expect(screen.getByText("姿势预设").closest(".inspector-section")).toHaveClass("pose-preset-section");
   expect(screen.getByText("姿势调节").closest(".inspector-section")).toHaveClass("pose-adjust-section");
+});
+
+it("activates the viewport joint tool only while the single-character pose tab is open", async () => {
+  const user = userEvent.setup();
+  render(<CharacterPanel />);
+
+  await user.click(screen.getByRole("button", { name: "姿势" }));
+
+  expect(screen.getByText("视口关节编辑")).toBeInTheDocument();
+  expect(screen.getByText("点击人物上的关节点；手脚拖动位置，其余关节拖动旋转圆环。")).toBeInTheDocument();
+  expect(useCharacterPoseEditorStore.getState()).toMatchObject({ objectId: "char_default_a", jointId: "torso" });
+
+  await user.click(screen.getByRole("button", { name: "属性" }));
+  expect(useCharacterPoseEditorStore.getState().objectId).toBeNull();
+});
+
+it("resets the selected joint and its IK in one undoable pose edit", async () => {
+  const user = userEvent.setup();
+  useDirectorStore.getState().updatePoseControl("char_default_a", "leftElbow.bend", 48);
+  useDirectorStore.getState().setCharacterIkEffector("char_default_a", "leftHand", {
+    target: [-0.6, 1.2, 0.3],
+    pole: [-0.8, 1, 0.8],
+    weight: 1,
+    reachClamp: 0.98,
+  });
+  useCharacterPoseEditorStore.setState({ jointId: "leftHand" });
+  render(<CharacterPanel />);
+
+  await user.click(screen.getByRole("button", { name: "姿势" }));
+  useCharacterPoseEditorStore.getState().selectJoint("leftHand");
+  await user.click(screen.getByRole("button", { name: "重置当前关节" }));
+
+  const character = useDirectorStore.getState().project.objects.find((item) => item.id === "char_default_a");
+  expect(character?.characterRig?.ik?.leftHand).toBeUndefined();
+  expect(character?.characterRig?.controls["leftHand.pitch"] ?? 0).toBe(0);
+  expect(useDirectorStore.getState().undoBatchDepth).toBe(0);
 });
 
 it("uses the shared per-control range for hinge joints and extended shoulder motion", async () => {

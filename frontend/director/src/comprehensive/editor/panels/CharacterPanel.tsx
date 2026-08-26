@@ -44,6 +44,8 @@ import {
   type CharacterPoseControlKey,
   type PosePresetId,
 } from "../schema/poseSchema";
+import { getCharacterPoseJoint } from "../pose/characterPoseJoints";
+import { useCharacterPoseEditorStore } from "../pose/characterPoseEditorStore";
 
 function clampFinite(value: string, minimum: number, maximum: number, fallback: number) {
   const parsed = Number(value);
@@ -622,6 +624,47 @@ const CharacterPoseTab = memo(function CharacterPoseTab({ selection }: { selecti
   const crowdId = selection.crowdId;
   const controls = resolveCharacterPoseControls(role.characterRig);
   const activePresetId = MANNEQUIN_POSE_PRESETS.find((preset) => preset.id === role.characterRig?.posePresetId)?.id;
+  const hasCharacterRig = Boolean(role.characterRig);
+  const activeJointId = useCharacterPoseEditorStore((state) => state.jointId);
+  const activeJoint = getCharacterPoseJoint(activeJointId);
+
+  useEffect(() => {
+    const editor = useCharacterPoseEditorStore.getState();
+    if (isCrowd || !hasCharacterRig) {
+      editor.deactivate();
+      return;
+    }
+    editor.activate(role.id);
+    return () => useCharacterPoseEditorStore.getState().deactivate(role.id);
+  }, [hasCharacterRig, isCrowd, role.id]);
+
+  const resetActiveJoint = useCallback(() => {
+    if (!activeJoint || isCrowd) return;
+    const store = useDirectorStore.getState();
+    store.beginUndoBatch();
+    try {
+      [...activeJoint.controls, ...(activeJoint.offsetControl ? [activeJoint.offsetControl] : [])].forEach((key) =>
+        store.updatePoseControl(role.id, key, 0),
+      );
+      if (activeJoint.ikEffector) store.clearCharacterIkEffector(role.id, activeJoint.ikEffector);
+    } finally {
+      store.endUndoBatch();
+    }
+  }, [activeJoint, isCrowd, role.id]);
+
+  const resetFullPose = useCallback(() => {
+    if (isCrowd) return;
+    const store = useDirectorStore.getState();
+    store.beginUndoBatch();
+    try {
+      store.applyPosePreset(role.id, "stand");
+      (["leftHand", "rightHand", "leftFoot", "rightFoot"] as DirectorCharacterIkEffector[]).forEach((effector) =>
+        store.clearCharacterIkEffector(role.id, effector),
+      );
+    } finally {
+      store.endUndoBatch();
+    }
+  }, [isCrowd, role.id]);
 
   if (!role.characterRig) {
     return <p>该模型未识别到标准 humanoid 骨骼，暂不支持姿势编辑。</p>;
@@ -629,6 +672,25 @@ const CharacterPoseTab = memo(function CharacterPoseTab({ selection }: { selecti
 
   return (
     <InspectorSection title="姿势预设" className="pose-preset-section">
+      {isCrowd ? (
+        <p className="character-ik-note">群组可批量调整姿势；请选择单个人物以使用视口关节控制器。</p>
+      ) : (
+        <div className="pose-viewport-guide">
+          <div className="pose-viewport-guide-heading">
+            <span>视口关节编辑</span>
+            <strong>{activeJoint?.label ?? "躯干"}</strong>
+          </div>
+          <p>点击人物上的关节点；手脚拖动位置，其余关节拖动旋转圆环。</p>
+          <div className="pose-viewport-guide-actions">
+            <button className="inspector-action-button" type="button" onClick={resetActiveJoint}>
+              重置当前关节
+            </button>
+            <button className="inspector-action-button" type="button" onClick={resetFullPose}>
+              重置全身姿势
+            </button>
+          </div>
+        </div>
+      )}
       <CharacterPosePresetGrid activePresetId={activePresetId} isCrowd={isCrowd} crowdId={crowdId} roleId={role.id} />
       <InspectorSection title="姿势调节" className="pose-adjust-section">
         <div className="pose-groups">

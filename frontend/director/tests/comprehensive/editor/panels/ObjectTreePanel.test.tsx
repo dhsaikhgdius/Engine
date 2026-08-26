@@ -51,6 +51,20 @@ it("keeps the sidebar focused on scene objects instead of the production sync pa
   expect(screen.queryByRole("region", { name: "制作项目" })).not.toBeInTheDocument();
 });
 
+it("keeps scene and world settings directly reachable while an object is selected", async () => {
+  const user = userEvent.setup();
+  render(<ObjectTreePanel />);
+
+  await user.click(screen.getByRole("button", { name: "角色01" }));
+  expect(useDirectorStore.getState().selectedObjectId).toBe("char_default_a");
+
+  await user.click(screen.getByRole("button", { name: "场景与世界设置" }));
+
+  expect(useDirectorStore.getState().directorInspectorMode).toBe("scene");
+  expect(useDirectorStore.getState().selectedObjectId).toBeNull();
+  expect(screen.getByRole("button", { name: "场景与世界设置" })).toHaveAttribute("aria-pressed", "true");
+});
+
 it("does not rebuild the outliner when only an object's transform changes", () => {
   let renderCount = 0;
   render(
