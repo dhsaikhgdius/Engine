@@ -41654,7 +41654,17 @@ var creativeWorkspaceInterchangeOmittedCodeSchema = external_exports.enum([
   // glTF / GLB → Stage
   "embedded_manifest_invalid",
   "duplicate_stable_id",
-  "empty_project_no_metadata"
+  "empty_project_no_metadata",
+  // Stage → OBJ / STL mesh export
+  "hidden_object",
+  "unsupported_object_kind",
+  "sync_export_requires_archive",
+  "degenerate_geometry",
+  "asset_not_model",
+  "rigged_character_requires_dcc",
+  "splat_no_triangle_mesh",
+  "imported_asset_limit",
+  "model_materialization_failed"
 ]);
 var creativeWorkspaceInterchangeOmittedSchema = external_exports.strictObject({
   code: creativeWorkspaceInterchangeOmittedCodeSchema,
@@ -41708,7 +41718,25 @@ var creativeWorkspaceInterchangeReceiptSchema = external_exports.strictObject({
   byte_length: external_exports.number().int().nonnegative().max(8 * 1024 * 1024),
   guard: creativeWorkspaceSemanticGuardSchema,
   payload: external_exports.string().max(112e5),
-  warnings: external_exports.array(external_exports.string().max(1e3)).max(50)
+  warnings: external_exports.array(external_exports.string().max(1e3)).max(50),
+  omitted_count: external_exports.number().int().nonnegative().max(50).optional(),
+  omitted: external_exports.array(creativeWorkspaceInterchangeOmittedSchema).max(50).optional()
+}).superRefine((receipt, context) => {
+  if (receipt.omitted !== void 0) {
+    if (receipt.omitted_count === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omitted_count"],
+        message: "omitted_count is required when omitted is present"
+      });
+    } else if (receipt.omitted.length !== receipt.omitted_count) {
+      context.addIssue({
+        code: "custom",
+        path: ["omitted"],
+        message: "omitted length must equal omitted_count"
+      });
+    }
+  }
 });
 var creativeWorkspaceInterchangeImportReceiptSchema = external_exports.strictObject({
   contract: external_exports.literal("director-interchange-import-v1"),

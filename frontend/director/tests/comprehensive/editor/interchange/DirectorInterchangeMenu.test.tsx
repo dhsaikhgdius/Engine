@@ -244,8 +244,17 @@ it("exports selected primitive geometry with a visible OBJ loss report and hashe
       transform: { position: [1, 0, 2], rotation: [0, 0, 0], scale: [2, 1, 3] },
     },
   ]).project;
+  project.objects.push({
+    id: "menu-hidden-box",
+    name: "Menu hidden box",
+    kind: "prop",
+    visible: false,
+    locked: false,
+    geometryType: "box",
+    transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+  });
   useDirectorStore.getState().replaceProject(project);
-  useDirectorStore.getState().selectObjects(["menu-export-box"]);
+  useDirectorStore.getState().selectObjects(["menu-export-box", "menu-hidden-box"]);
   let downloaded: Blob | null = null;
   vi.spyOn(URL, "createObjectURL").mockImplementation((value) => {
     downloaded = value as Blob;
@@ -263,8 +272,13 @@ it("exports selected primitive geometry with a visible OBJ loss report and hashe
   await user.click(screen.getByRole("radio", { name: /当前选择/ }));
   await user.click(screen.getByRole("button", { name: "导出 OBJ" }));
   await waitFor(() => expect(screen.getByText(/OBJ · 导出完成/)).toBeInTheDocument());
+  expect(screen.getByText(/1 项结构化省略/)).toBeInTheDocument();
   const report = screen.getByRole("region", { name: "网格导出损失报告" });
   expect(within(report).getByText(/1 个对象/)).toBeInTheDocument();
+  const omittedList = within(report).getByRole("list", { name: "结构化省略" });
+  expect(within(omittedList).getByText("hidden_object")).toBeInTheDocument();
+  expect(within(omittedList).getByText(/隐藏对象未导出/)).toBeInTheDocument();
+  expect(within(omittedList).getByText("Menu hidden box")).toBeInTheDocument();
 
   const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
     const reader = new FileReader();
@@ -278,6 +292,7 @@ it("exports selected primitive geometry with a visible OBJ loss report and hashe
   expect(manifest).toMatchObject({
     format: "obj",
     scope: { mode: "selection", includedObjectIds: ["menu-export-box"] },
+    omitted: [expect.objectContaining({ stableId: "menu-hidden-box", code: "hidden_object" })],
     files: expect.arrayContaining([
       expect.objectContaining({ path: "director-scene.obj", sha256: expect.any(String) }),
     ]),

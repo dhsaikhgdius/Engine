@@ -13,6 +13,7 @@ import {
   type Object3D,
 } from "three";
 import { z } from "zod";
+import { isDirectorSplatAssetFileName } from "../loaders/splatFormats";
 import type { DirectorAssetRef, DirectorObject, DirectorProject } from "../schema/directorProject";
 import { getDirectorProjectRevision } from "../schema/directorProjectRevision";
 import { DIRECTOR_INTERCHANGE_CONTRACT, DIRECTOR_INTERCHANGE_COORDINATE_SYSTEM } from "./contract";
@@ -36,6 +37,26 @@ export const DIRECTOR_MESH_EXPORT_MAX_OBJECTS = 2_048;
 export const DIRECTOR_MESH_EXPORT_MAX_TRIANGLES = 1_000_000;
 /** Maximum number of distinct imported model assets that can be materialized. */
 export const DIRECTOR_MESH_EXPORT_MAX_IMPORTED_ASSETS = 64;
+
+/**
+ * Structured warn-and-omit codes for OBJ/STL mesh export. Every omitted Stage
+ * object carries one typed code; free-text `reason` stays for humans. Agents
+ * read `omitted[]` on the loss report and on interchange export receipts.
+ */
+export const DIRECTOR_MESH_EXPORT_OMITTED_CODES = [
+  "hidden_object",
+  "unsupported_object_kind",
+  "sync_export_requires_archive",
+  "degenerate_geometry",
+  "asset_not_model",
+  "rigged_character_requires_dcc",
+  "splat_no_triangle_mesh",
+  "imported_asset_limit",
+  "model_materialization_failed",
+] as const;
+
+/** One mesh export omit code. */
+export type DirectorMeshExportOmittedCode = (typeof DIRECTOR_MESH_EXPORT_OMITTED_CODES)[number];
 
 const nonEmpty = z.string().trim().min(1).max(500);
 
@@ -78,6 +99,7 @@ export const directorMeshExportReportSchema = z.strictObject({
       z.strictObject({
         stableId: nonEmpty,
         name: nonEmpty,
+        code: z.enum(DIRECTOR_MESH_EXPORT_OMITTED_CODES),
         reason: nonEmpty,
       }),
     )
@@ -125,7 +147,7 @@ interface MeshEntry {
 
 interface MaterializedMeshExportState {
   meshes: Map<string, { asset: DirectorAssetRef; mesh: DirectorMaterializedModelMesh }>;
-  failures: Map<string, string>;
+  failures: Map<string, { code: DirectorMeshExportOmittedCode; reason: string }>;
 }
 
 function number(value: number) {
@@ -224,7 +246,7 @@ async function materializeImportedMeshState(
   const scope = selectedObjects(project, options);
   const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
   const meshes = new Map<string, { asset: DirectorAssetRef; mesh: DirectorMaterializedModelMesh }>();
-  const failures = new Map<string, string>();
+  const failures: MaterializedMeshExportState["failures"] = new Map();
   const rootPromises = new Map<string, Promise<Object3D>>();
   const admittedAssetIds = new Set<string>();
   const loader = options.modelLoader ?? loadDirectorImportedModelObject;
@@ -233,19 +255,32 @@ async function materializeImportedMeshState(
     if ((!object.visible && !options.includeHidden) || object.geometryType || !object.assetRefId) continue;
     const asset = assetsById.get(object.assetRefId);
     if (!asset || asset.sourceType !== "model") {
-      failures.set(object.id, `asset reference ${object.assetRefId} does not resolve to a model asset`);
+      failures.set(object.id, {
+        code: "asset_not_model",
+        reason: `asset reference ${object.assetRefId} does not resolve to a model asset`,
+      });
       continue;
     }
     if (object.kind === "character" || asset.kind === "character") {
-      failures.set(object.id, "rigged character assets require pose-aware DCC export");
+      failures.set(object.id, {
+        code: "rigged_character_requires_dcc",
+        reason: "rigged character assets require pose-aware DCC export",
+      });
+      continue;
+    }
+    if (isDirectorSplatAssetFileName(asset.fileName)) {
+      failures.set(object.id, {
+        code: "splat_no_triangle_mesh",
+        reason: "gaussian splat captures carry no triangle mesh and cannot be materialized for mesh export",
+      });
       continue;
     }
     if (!admittedAssetIds.has(asset.id)) {
       if (admittedAssetIds.size >= DIRECTOR_MESH_EXPORT_MAX_IMPORTED_ASSETS) {
-        failures.set(
-          object.id,
-          `imported model materialization is limited to ${DIRECTOR_MESH_EXPORT_MAX_IMPORTED_ASSETS} unique assets`,
-        );
+        failures.set(object.id, {
+          code: "imported_asset_limit",
+          reason: `imported model materialization is limited to ${DIRECTOR_MESH_EXPORT_MAX_IMPORTED_ASSETS} unique assets`,
+        });
         continue;
       }
       admittedAssetIds.add(asset.id);
@@ -267,7 +302,7 @@ async function materializeImportedMeshState(
       );
       meshes.set(object.id, { asset, mesh });
     } catch (error) {
-      failures.set(object.id, boundedModelFailure(error));
+      failures.set(object.id, { code: "model_materialization_failed", reason: boundedModelFailure(error) });
     }
   }
   return { meshes, failures };
@@ -284,7 +319,7 @@ function prepareMeshExport(
   const entries: MeshEntry[] = [];
   scope.objects.forEach((object) => {
     if (!object.visible && !options.includeHidden) {
-      omitted.push({ stableId: object.id, name: object.name, reason: "hidden object excluded" });
+      omitted.push({ stableId: object.id, name: object.name, code: "hidden_object", reason: "hidden object excluded" });
       return;
     }
     if (!object.geometryType) {
@@ -303,14 +338,16 @@ function prepareMeshExport(
         });
         return;
       }
-      omitted.push({
-        stableId: object.id,
-        name: object.name,
-        reason: object.assetRefId
-          ? (materialized?.failures.get(object.id) ??
-            "imported model materialization is available only through the asynchronous archive exporter")
-          : `${object.kind} has no supported primitive mesh`,
-      });
+      const failure = object.assetRefId
+        ? (materialized?.failures.get(object.id) ?? {
+            code: "sync_export_requires_archive" as const,
+            reason: "imported model materialization is available only through the asynchronous archive exporter",
+          })
+        : {
+            code: "unsupported_object_kind" as const,
+            reason: `${object.kind} has no supported primitive mesh`,
+          };
+      omitted.push({ stableId: object.id, name: object.name, code: failure.code, reason: failure.reason });
       return;
     }
     const { triangles, negativeScaleBaked } = trianglesFor(
@@ -318,7 +355,12 @@ function prepareMeshExport(
       object as DirectorObject & { geometryType: NonNullable<DirectorObject["geometryType"]> },
     );
     if (!triangles.length) {
-      omitted.push({ stableId: object.id, name: object.name, reason: "transform produced only degenerate triangles" });
+      omitted.push({
+        stableId: object.id,
+        name: object.name,
+        code: "degenerate_geometry",
+        reason: "transform produced only degenerate triangles",
+      });
       return;
     }
     entries.push({

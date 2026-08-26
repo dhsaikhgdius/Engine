@@ -223,6 +223,53 @@ describe("filmRunReceipt", () => {
     expect(receipt.artifacts).toEqual({ finalVideoPath: "/runs/final_video.mp4", timelinePath: "/runs/timeline.otio" });
   });
 
+  it("stamps live artifact storagePresence only when probe results are provided", () => {
+    const completed = makeRun({
+      status: "completed",
+      phase: "completed",
+      finalVideoPath: "/runs/final_video.mp4",
+      timelinePath: "/runs/timeline.otio",
+    });
+
+    // Pure projections (tests, offline consumers) never invent a probe.
+    expect(projectFilmRunReceipt(completed).artifacts.storagePresence).toBeUndefined();
+
+    const live = projectFilmRunReceipt(completed, {
+      artifactStoragePresence: { finalVideo: "present", timeline: "absent" },
+    });
+    expect(live.artifacts.storagePresence).toEqual({ finalVideo: "present", timeline: "absent" });
+
+    // Missing probe keys degrade to absent instead of silently over-claiming.
+    const partial = projectFilmRunReceipt(completed, { artifactStoragePresence: { finalVideo: "present" } });
+    expect(partial.artifacts.storagePresence).toEqual({ finalVideo: "present", timeline: "absent" });
+
+    // Unclaimed (null-path) artifacts normalize to null presence.
+    const unclaimed = projectFilmRunReceipt(makeRun(), { artifactStoragePresence: {} });
+    expect(unclaimed.artifacts.storagePresence).toEqual({ finalVideo: null, timeline: null });
+  });
+
+  it("rejects storagePresence verdicts that disagree with the path claims", () => {
+    const receipt = projectFilmRunReceipt(makeRun(), { artifactStoragePresence: {} });
+    // A probe verdict on an unclaimed path is a contradiction.
+    expect(
+      filmRunReceiptSchema.safeParse({
+        ...receipt,
+        artifacts: { ...receipt.artifacts, storagePresence: { finalVideo: "present", timeline: null } },
+      }).success,
+    ).toBe(false);
+    // A claimed path must carry a probe verdict when the stanza is present.
+    expect(
+      filmRunReceiptSchema.safeParse({
+        ...receipt,
+        artifacts: {
+          finalVideoPath: "/runs/final_video.mp4",
+          timelinePath: null,
+          storagePresence: { finalVideo: null, timeline: null },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects receipts whose invariants are violated", () => {
     const receipt = projectFilmRunReceipt(makeRun());
     expect(filmRunReceiptSchema.safeParse({ ...receipt, terminal: true }).success).toBe(false);

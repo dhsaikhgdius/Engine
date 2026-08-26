@@ -286,7 +286,7 @@ describe("creative workspace semantic operations", () => {
     expect(exported.result.receipt.byte_length).toBeGreaterThan(0);
   });
 
-  it("plans and exports an exact Stage primitive selection as an OBJ archive", async () => {
+  it("plans and exports an exact Stage primitive selection as an OBJ archive with typed omissions", async () => {
     const project = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
       {
         action: "add_object",
@@ -297,6 +297,24 @@ describe("creative workspace semantic operations", () => {
         transform: { position: [1, 0, 2], rotation: [0, 0.2, 0], scale: [2, 1, 3] },
       },
     ]).project;
+    project.assets.push({
+      id: "asset-agent-splat",
+      name: "Agent Splat",
+      kind: "prop",
+      sourceType: "model",
+      assetSource: "local",
+      fileName: "garden.spz",
+      url: "/native-models/asset-agent-splat/garden.spz",
+    });
+    project.objects.push({
+      id: "agent-garden-splat",
+      name: "Agent Splat",
+      kind: "prop",
+      visible: true,
+      locked: false,
+      assetRefId: "asset-agent-splat",
+      transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+    });
     const context = semanticContext({ project });
     const planned = await executeCreativeWorkspaceInterchangeRequest(
       {
@@ -305,7 +323,7 @@ describe("creative workspace semantic operations", () => {
           action: "plan-export",
           format: "obj",
           workspace: "stage",
-          object_ids: ["agent-export-box"],
+          object_ids: ["agent-export-box", "agent-garden-splat"],
           max_inline_bytes: 512 * 1024,
         },
       },
@@ -320,7 +338,7 @@ describe("creative workspace semantic operations", () => {
           file_name: "director-stage-obj.zip",
           mime_type: "application/zip",
           payload_encoding: "base64",
-          object_ids: ["agent-export-box"],
+          object_ids: ["agent-export-box", "agent-garden-splat"],
         },
       },
     });
@@ -340,6 +358,14 @@ describe("creative workspace semantic operations", () => {
     if (!exported.result.success || exported.result.action !== "export") throw new Error("missing receipt");
     expect(exported.result.receipt).toMatchObject({ format: "obj", payload_encoding: "base64" });
     expect(exported.result.receipt.warnings.join(" ")).toContain("static primitive geometry");
+    expect(exported.result.receipt.omitted_count).toBe(1);
+    expect(exported.result.receipt.omitted).toEqual([
+      {
+        code: "splat_no_triangle_mesh",
+        subject: "agent-garden-splat",
+        reason: "gaussian splat captures carry no triangle mesh and cannot be materialized for mesh export",
+      },
+    ]);
     const zip = await JSZip.loadAsync(Buffer.from(exported.result.receipt.payload, "base64"));
     const manifest = JSON.parse(await zip.file("director-export.json")!.async("string"));
     expect(manifest).toMatchObject({
@@ -347,6 +373,14 @@ describe("creative workspace semantic operations", () => {
       scope: { mode: "selection", includedObjectIds: ["agent-export-box"] },
       coordinateSystem: { metersPerUnit: 1, upAxis: "Y", handedness: "right" },
     });
+    expect(manifest.omitted).toEqual([
+      {
+        stableId: "agent-garden-splat",
+        name: "Agent Splat",
+        code: "splat_no_triangle_mesh",
+        reason: "gaussian splat captures carry no triangle mesh and cannot be materialized for mesh export",
+      },
+    ]);
     expect(zip.file("director-scene.obj")).not.toBeNull();
   });
 

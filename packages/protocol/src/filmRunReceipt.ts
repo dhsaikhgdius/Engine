@@ -34,6 +34,42 @@ export function isTerminalFilmRunStatus(status: FilmRunStatus) {
 }
 
 /**
+ * Live byte presence for one claimed film run artifact path. The durable run
+ * document never stores this — it is projected at read time so disk cleanup,
+ * `.runtime` wipes, or manual deletion can age bytes out while the run's
+ * path claim and phase-receipt evidence remain (mirrors production job
+ * receipt `storagePresence`).
+ */
+export const filmRunArtifactStoragePresenceSchema = z.enum(["present", "absent"]);
+
+/** Live artifact byte presence on a film run receipt. */
+export type FilmRunArtifactStoragePresence = z.infer<typeof filmRunArtifactStoragePresenceSchema>;
+
+/**
+ * Per-artifact live byte presence: `null` for artifacts the run never
+ * claimed (path is null); `present`/`absent` for claimed paths that were
+ * probed at read time.
+ */
+export const filmRunArtifactsStoragePresenceSchema = z.strictObject({
+  finalVideo: filmRunArtifactStoragePresenceSchema.nullable(),
+  timeline: filmRunArtifactStoragePresenceSchema.nullable(),
+});
+
+/** Options for {@link projectFilmRunReceipt}. */
+export type ProjectFilmRunReceiptOptions = {
+  /**
+   * Live byte presence for the run's claimed artifact paths. When provided,
+   * the receipt stamps `artifacts.storagePresence`; artifacts whose path is
+   * null are normalized to null presence and missing probe keys become
+   * `absent`, matching the production job receipt discipline.
+   */
+  artifactStoragePresence?: {
+    finalVideo?: FilmRunArtifactStoragePresence;
+    timeline?: FilmRunArtifactStoragePresence;
+  };
+};
+
+/**
  * Normalized receipt for one durable film run. Purely a projection of
  * {@link FilmRun}: it never carries state of its own and is safe to
  * recompute at any time.
@@ -64,6 +100,8 @@ export const filmRunReceiptSchema = z
     artifacts: z.strictObject({
       finalVideoPath: z.string().nullable(),
       timelinePath: z.string().nullable(),
+      /** Live byte presence probed at read time; omitted on pure projections. */
+      storagePresence: filmRunArtifactsStoragePresenceSchema.optional(),
     }),
     timestamps: z.strictObject({
       createdAt: z.string(),
@@ -94,6 +132,25 @@ export const filmRunReceiptSchema = z
         message: "renderedSceneCount cannot exceed sceneCount",
       });
     }
+    const presence = receipt.artifacts.storagePresence;
+    if (presence) {
+      // Presence classifies claimed paths only: a null path has nothing to
+      // probe, and a claimed path must carry a probe verdict.
+      if ((presence.finalVideo === null) !== (receipt.artifacts.finalVideoPath === null)) {
+        context.addIssue({
+          code: "custom",
+          path: ["artifacts", "storagePresence", "finalVideo"],
+          message: "storagePresence.finalVideo must be null exactly when finalVideoPath is null",
+        });
+      }
+      if ((presence.timeline === null) !== (receipt.artifacts.timelinePath === null)) {
+        context.addIssue({
+          code: "custom",
+          path: ["artifacts", "storagePresence", "timeline"],
+          message: "storagePresence.timeline must be null exactly when timelinePath is null",
+        });
+      }
+    }
   });
 
 /** Normalized receipt of one durable film run. */
@@ -105,10 +162,15 @@ export type FilmRunReceipt = z.infer<typeof filmRunReceiptSchema>;
  * same receipt, and its progress comes from the same {@link filmRunProgress}
  * the unified progress adapter uses.
  *
+ * Pass {@link ProjectFilmRunReceiptOptions.artifactStoragePresence} from
+ * Gateway live reads so agents see whether the claimed final-video/timeline
+ * bytes still exist instead of trusting the stored paths.
+ *
  * @param run - The durable film run document.
+ * @param options - Optional live byte-presence probe results.
  * @returns The validated normalized receipt.
  */
-export function projectFilmRunReceipt(run: FilmRun): FilmRunReceipt {
+export function projectFilmRunReceipt(run: FilmRun, options: ProjectFilmRunReceiptOptions = {}): FilmRunReceipt {
   const error =
     run.error === null ? undefined : { code: run.errorCode ?? ("film_run_error" as const), message: run.error };
   return filmRunReceiptSchema.parse({
@@ -126,7 +188,18 @@ export function projectFilmRunReceipt(run: FilmRun): FilmRunReceipt {
     awaitingApproval: run.status === "waiting_approval" && !run.approvedAt,
     phaseReceipts: run.phaseReceipts,
     ...(error ? { error } : {}),
-    artifacts: { finalVideoPath: run.finalVideoPath, timelinePath: run.timelinePath },
+    artifacts: {
+      finalVideoPath: run.finalVideoPath,
+      timelinePath: run.timelinePath,
+      ...(options.artifactStoragePresence
+        ? {
+            storagePresence: {
+              finalVideo: run.finalVideoPath === null ? null : (options.artifactStoragePresence.finalVideo ?? "absent"),
+              timeline: run.timelinePath === null ? null : (options.artifactStoragePresence.timeline ?? "absent"),
+            },
+          }
+        : {}),
+    },
     timestamps: {
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
