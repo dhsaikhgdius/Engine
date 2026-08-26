@@ -100,7 +100,12 @@ function blendPlan(
   cameraSourceIds = ["camera-a", "camera-b"],
   includeScene = true,
   warnings: string[] = [],
-  omitted: Array<{ sourceId: string; kind?: string; code: "unsupported_object" | "hierarchy_flattened" | "animation_actions" | "camera_roll_lens_shift"; reason: string }> = [],
+  omitted: Array<{
+    sourceId: string;
+    kind?: string;
+    code: "unsupported_object" | "hierarchy_flattened" | "animation_actions" | "camera_roll_lens_shift";
+    reason: string;
+  }> = [],
 ) {
   return {
     contract: "director-blend-scene-import-plan-v1" as const,
@@ -617,11 +622,17 @@ it("routes engine return previews through the selected connector provider", asyn
 it("uploads a Blender scene, rebuilds camera selection, and applies the reviewed plan", async () => {
   const user = userEvent.setup();
   const manifest = blendManifest();
-  const initialPlan = blendPlan(true, ["camera-a", "camera-b"], true, [], [
-    { sourceId: "Area Light", kind: "LIGHT", code: "unsupported_object", reason: "灯光尚未导入" },
-    { sourceId: "scene", code: "animation_actions", reason: "1 个动作仍嵌在 GLB 中，未映射到时间线" },
-    { sourceId: "camera-a", code: "camera_roll_lens_shift", reason: "Camera A 的滚转与移轴未导入" },
-  ]);
+  const initialPlan = blendPlan(
+    true,
+    ["camera-a", "camera-b"],
+    true,
+    [],
+    [
+      { sourceId: "Area Light", kind: "LIGHT", code: "unsupported_object", reason: "灯光尚未导入" },
+      { sourceId: "scene", code: "animation_actions", reason: "1 个动作仍嵌在 GLB 中，未映射到时间线" },
+      { sourceId: "camera-a", code: "camera_roll_lens_shift", reason: "Camera A 的滚转与移轴未导入" },
+    ],
+  );
   const noCameraPlan = blendPlan(true, []);
   const upload = vi.spyOn(dccSceneImportClient, "uploadDirectorBlendScene").mockResolvedValue({
     jobId: "blend-job-ui",
