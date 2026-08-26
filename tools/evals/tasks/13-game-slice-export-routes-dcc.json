@@ -1,0 +1,121 @@
+{
+  "name": "game-slice-export-routes-dcc",
+  "description": "After a playable director_game evaluation, export_slice must refuse codegen and route the agent to director_dcc discover/send_to_engine. Harness success is the structured game_export_via_dcc rejection, not a generated Unreal/Unity/Godot project.",
+  "steps": [
+    {
+      "label": "plan exploration slice",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-export-01",
+        "brief": {
+          "requirement": "Reach the stele and interact.",
+          "genre": "exploration"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id"]
+      }
+    },
+    {
+      "label": "bind roles",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-export-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "hero-1" },
+          { "role_id": "spawn", "object_id": "spawn-1" },
+          { "role_id": "objective-1", "object_id": "stele-1" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.bind_complete"]
+      }
+    },
+    {
+      "label": "playtest with host-free trace to playable",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-export-01",
+        "script": {
+          "steps": [
+            { "frames": 20, "input": { "forward": true } },
+            { "frames": 8, "input": { "look_right": true } },
+            { "frames": 6, "input": { "jump": true } },
+            { "frames": 4, "input": { "interact": true } }
+          ]
+        },
+        "trace": {
+          "contract": "director-game-playtest-trace-v1",
+          "slice_id": "game-eval-export-01",
+          "dt": 0.03333333333333333,
+          "verbs_exercised": ["move", "look", "jump", "interact"],
+          "samples": [
+            {
+              "frame": 0,
+              "time_s": 0,
+              "position": [0, 0, 0],
+              "yaw": 0,
+              "velocity": [0, 0, 1.2],
+              "on_ground": true,
+              "flying": false,
+              "verb": "move"
+            },
+            {
+              "frame": 10,
+              "time_s": 0.33,
+              "position": [0, 0, 0.4],
+              "yaw": -0.2,
+              "velocity": [0, 0, 0],
+              "on_ground": true,
+              "flying": false,
+              "verb": "look"
+            },
+            {
+              "frame": 20,
+              "time_s": 0.66,
+              "position": [0, 0, 0.4],
+              "yaw": -0.2,
+              "velocity": [0, 0, 0],
+              "on_ground": true,
+              "flying": false,
+              "verb": "jump"
+            },
+            {
+              "frame": 30,
+              "time_s": 1,
+              "position": [0, 0, 0.4],
+              "yaw": -0.2,
+              "velocity": [0, 0, 0],
+              "on_ground": true,
+              "flying": false,
+              "verb": "interact",
+              "interaction_object_id": "stele-1"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.evaluation.playable", "result.slice.status"]
+      }
+    },
+    {
+      "label": "export_slice routes to director_dcc",
+      "tool": "director_game",
+      "input": {
+        "op": "export_slice",
+        "slice_id": "game-eval-export-01",
+        "provider": "godot"
+      },
+      "expect": {
+        "success": false,
+        "error_includes": "director_dcc"
+      }
+    }
+  ]
+}

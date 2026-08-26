@@ -217,8 +217,10 @@ function wildlifeEnvironmentKey(species: WorldWildlifeSpecies, environment?: Wil
     parts.push(`wx:${weather.preset},${weather.intensity},${evolution}`);
   }
   if (archetype === "flock") {
+    // Every field the wind evaluator reads: turbulence drives the flutter
+    // band and heading meander, so an edit must invalidate the sim too.
     const wind = environment.settings.wind;
-    parts.push(`wind:${wind.directionDegrees},${wind.speedMps},${wind.gustiness}`);
+    parts.push(`wind:${wind.directionDegrees},${wind.speedMps},${wind.gustiness},${wind.turbulence}`);
   }
   if (archetype === "school" && environment.waterRects && environment.waterRects.length > 0) {
     parts.push(
@@ -545,9 +547,7 @@ export function createWildlifeSim(
   const windDriftFactor =
     config.archetype === "flock" && envSettings ? (WILDLIFE_WIND_DRIFT_FACTOR[config.species] ?? 0) : 0;
   const windHeadingFactor =
-    config.archetype === "flock" && envSettings
-      ? (WILDLIFE_WIND_HEADING_FACTOR[config.species] ?? 0)
-      : 0;
+    config.archetype === "flock" && envSettings ? (WILDLIFE_WIND_HEADING_FACTOR[config.species] ?? 0) : 0;
   const respondsToStorm =
     envSettings !== undefined &&
     (config.archetype === "flock" || (config.archetype === "herd" && config.species !== "wolves"));
@@ -558,9 +558,7 @@ export function createWildlifeSim(
   const waterHalfX = waterRect ? Math.max(0.5, waterRect.sizeX / 2 - 0.4) : 0;
   const waterHalfZ = waterRect ? Math.max(0.5, waterRect.sizeZ / 2 - 0.4) : 0;
   const predatorZones =
-    config.archetype === "herd" && WILDLIFE_PREY_SPECIES.has(config.species)
-      ? (environment?.predatorZones ?? [])
-      : [];
+    config.archetype === "herd" && WILDLIFE_PREY_SPECIES.has(config.species) ? (environment?.predatorZones ?? []) : [];
 
   // Per-tick environment sample, evaluated inside step() from the quantized
   // tick (pure function of tick — replay-safe).
@@ -805,8 +803,7 @@ export function createWildlifeSim(
     const stateSeconds = simTick * DT;
     // Storms press flocks toward the bottom of their flight band (soft
     // springs only; the hard band clamp stays authored).
-    const stormBandTop =
-      config.bandMaxY - envStorm * WILDLIFE_STORM_BAND_DROP * (config.bandMaxY - config.bandMinY);
+    const stormBandTop = config.bandMaxY - envStorm * WILDLIFE_STORM_BAND_DROP * (config.bandMaxY - config.bandMinY);
     // Air-mass advection per tick (pure function of the quantized tick):
     // fliers get carried by a fraction of the wind on top of their steering.
     const windAdvectX = envWindX * windDriftFactor;
@@ -947,7 +944,6 @@ export function createWildlifeSim(
         ax += envWindX * windHeadingFactor;
         az += envWindZ * windHeadingFactor;
       }
-
 
       const accel2 = ax * ax + ay * ay + az * az;
       if (accel2 > maxAccel * maxAccel) {

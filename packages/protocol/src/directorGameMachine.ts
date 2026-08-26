@@ -18,6 +18,7 @@ import {
   type GameSlicePlayabilityCheck,
   type GameSliceVerb,
 } from "./gameSliceProtocol";
+import { suggestedPlaytestScriptForSlice } from "./gamePlaytestFixtures";
 
 /** In-memory slice table. Gateway persistence wraps this reducer. */
 export type DirectorGameState = {
@@ -155,7 +156,15 @@ export function evaluateGamePlaytest(slice: GameSlice, trace: GamePlaytestTrace)
   let consecutiveSlow = 0;
   for (const sample of trace.samples) {
     const moving =
-      planarSpeed(sample) > 0.15 || sample.verb === "jump" || sample.verb === "interact" || sample.verb === "fire";
+      planarSpeed(sample) > 0.15 ||
+      sample.verb === "jump" ||
+      sample.verb === "interact" ||
+      sample.verb === "fire" ||
+      sample.verb === "attack" ||
+      sample.verb === "reload" ||
+      sample.verb === "enter_vehicle" ||
+      sample.verb === "exit_vehicle" ||
+      sample.verb === "dash";
     consecutiveSlow = moving ? 0 : consecutiveSlow + 1;
     if (sample.stuck || consecutiveSlow > Math.max(12, Math.round(1.5 / trace.dt))) {
       stuck = true;
@@ -368,6 +377,7 @@ export async function executeDirectorGame(
           slice,
           bind_complete: gameSliceBindComplete(slice),
           player: playerRole(slice) ?? null,
+          suggested_playtest_script: suggestedPlaytestScriptForSlice(slice),
         });
       }
       const limit = operation.limit ?? 20;
@@ -392,8 +402,11 @@ export async function executeDirectorGame(
         slice: next,
         bind_complete: gameSliceBindComplete(next),
         notes: gameSliceBindComplete(next)
-          ? ["Every role has an object_id. Next: playtest with a scripted input tape."]
+          ? [
+              "Every role has an object_id. Next: playtest with a scripted input tape (see observe.suggested_playtest_script).",
+            ]
           : ["Some roles remain unbound. Playtest will reject until the player role has an object_id."],
+        suggested_playtest_script: gameSliceBindComplete(next) ? suggestedPlaytestScriptForSlice(next) : undefined,
       });
     }
     case "author_loop": {

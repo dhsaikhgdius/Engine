@@ -107,7 +107,9 @@ export default function SkyStars({ context }: SkyStarsProps) {
   );
 
   const syncStarFrame = () => {
-    const lighting = evaluateSkyLighting(settings, context.worldSeconds);
+    // The evaluated climate carries the evolving cover/preset blend, so
+    // stars fade under an approaching storm; static mode is bit-exact legacy.
+    const lighting = evaluateSkyLighting(settings, context.worldSeconds, context.climate);
     material.uniforms.uOpacity.value = lighting.starsOpacity;
     material.uniforms.uTime.value = context.worldSeconds;
     if (pointsRef.current) pointsRef.current.visible = lighting.starsOpacity > SKY_STARS_MIN_VISIBLE_OPACITY;

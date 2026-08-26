@@ -4,6 +4,7 @@ import {
   type DirectorGameMachineContext,
 } from "../../../packages/protocol/src/directorGameMachine";
 import type { DirectorGameEnvelope } from "../../../packages/protocol/src/directorGameProtocol";
+import { createHostFreePlaytestRunner } from "../../../packages/protocol/src/gamePlaytestHostFree";
 import { GameSliceStore } from "./gameSliceStore";
 
 /** Live `director_game` handle: the durable slice store plus one governed executor. */
@@ -21,11 +22,17 @@ export type DirectorGameOptions = {
   /** Slice id factory override for deterministic tests. */
   createId?: () => string;
   /**
-   * Live-Stage playtest tape driver. Deliberately optional: when absent,
-   * `playtest` without an explicit `trace` returns `game_playtest_needs_stage`
-   * with a corrective call, and a supplied trace is scored host-free.
+   * Playtest tape driver. When omitted, Gateway defaults to the host-free
+   * kinematic runner so `playtest` without an explicit `trace` still scores.
+   * Pass `runPlaytest: undefined` via {@link DirectorGameOptions.disableHostFreePlaytest}
+   * only in unit tests that assert `game_playtest_needs_stage`.
    */
   runPlaytest?: DirectorGameMachineContext["runPlaytest"];
+  /**
+   * When true, do not install the host-free default runner. Used by tests that
+   * assert the bare-machine `game_playtest_needs_stage` corrective path.
+   */
+  disableHostFreePlaytest?: boolean;
 };
 
 /**
@@ -34,10 +41,15 @@ export type DirectorGameOptions = {
  * `executeDirectorGame`, and writes back exactly the slices the reducer
  * replaced. Executions are serialized so concurrent HTTP calls never race the
  * load → reduce → persist cycle.
+ *
+ * Default playtest is the shared kinematic host-free runner. A live Stage
+ * driver may wrap or replace it via {@link DirectorGameOptions.runPlaytest}.
  */
 export function createDirectorGame(dataDirectory: string, options: DirectorGameOptions = {}): DirectorGameRuntime {
   const store = new GameSliceStore(dataDirectory);
   let chain: Promise<unknown> = Promise.resolve();
+  const defaultRunner = options.disableHostFreePlaytest ? undefined : createHostFreePlaytestRunner();
+  const runPlaytest = options.runPlaytest ?? defaultRunner;
 
   const execute = (input: unknown): Promise<DirectorGameEnvelope> => {
     const run = chain.then(async () => {
@@ -48,7 +60,7 @@ export function createDirectorGame(dataDirectory: string, options: DirectorGameO
       const envelope = await executeDirectorGame(state, input, {
         now: options.now?.() ?? new Date().toISOString(),
         ...(options.createId ? { createId: options.createId } : {}),
-        ...(options.runPlaytest ? { runPlaytest: options.runPlaytest } : {}),
+        ...(runPlaytest ? { runPlaytest } : {}),
       });
       for (const [id, slice] of state.slices) {
         if (before.get(id) !== slice) await store.put(slice);

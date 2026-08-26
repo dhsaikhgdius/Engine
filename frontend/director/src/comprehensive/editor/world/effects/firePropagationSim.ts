@@ -190,7 +190,9 @@ export function firePropagationConfigKey(
     effect.anchor.position.join(","),
     propagation ? `${propagation.radiusM},${propagation.spreadRate}` : "off",
     settings.seed,
-    `${settings.wind.directionDegrees},${settings.wind.speedMps},${settings.wind.gustiness}`,
+    // Every field the wind evaluator reads: turbulence drives the flutter
+    // band and heading meander, so an edit must invalidate the sim too.
+    `${settings.wind.directionDegrees},${settings.wind.speedMps},${settings.wind.gustiness},${settings.wind.turbulence}`,
     `${weather.preset},${weather.intensity},${weather.wetness}`,
     weather.evolution ? `${weather.evolution.mode},${weather.evolution.periodSeconds}` : "static",
     waterRects

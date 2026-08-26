@@ -32,7 +32,6 @@ import {
   buildClimateWeatherSystemConfig,
   buildEffectSystemConfig,
   buildParticleIndexArray,
-  buildWeatherSystemConfig,
   getEffectSystemSeedHash,
   type EffectSystemConfig,
 } from "./effectSystemConfig";
@@ -252,20 +251,24 @@ function writeParticleUniforms(
   uniforms.uSeed.value.set(config.seed[0], config.seed[1]);
   if (origin) uniforms.uOrigin.value.set(origin[0], origin[1], origin[2]);
   // Fire-family systems couple to the weather: rain smothers flames and
-  // embers via the pure burn factor (see fireSystem.ts). Particle COUNT
-  // stays fixed so geometry never reallocates on a weather change; alpha
-  // (uIntensity) and sprite size carry the visible suppression.
+  // embers via the pure burn factor (see fireSystem.ts). The EVALUATED
+  // climate weather is the input — the same one the fire point lights read —
+  // so an evolving rain segment dims flames and lights together. Particle
+  // COUNT stays fixed so geometry never reallocates on a weather change;
+  // alpha (uIntensity) and sprite size carry the visible suppression.
   const fireFamily = config.kind === "fire" || config.kind === "sparks";
-  const burn = fireFamily ? evaluateFireBurnFactor(context.settings.weather, config.seedHash, context.worldSeconds) : 1;
+  const burn = fireFamily ? evaluateFireBurnFactor(context.climate.weather, config.seedHash, context.worldSeconds) : 1;
   uniforms.uBurn.value = burn;
   uniforms.uIntensity.value = config.intensity * burn;
   uniforms.uSizeScale.value = config.kind === "fire" ? config.sizeScale * (0.55 + 0.45 * burn) : config.sizeScale;
   uniforms.uSpeedScale.value = config.speedScale;
   // uWind carries the MEAN wind (gusts integrate in-shader in closed form,
   // so a gust bends new trajectory segments without teleporting old ones).
+  // The climate wind gain scales the mean like it scales the evaluated
+  // vector: storms blow smoke and snow harder. Static mode gain is 1.
   const wind = context.settings.wind;
   const windRadians = (wind.directionDegrees * Math.PI) / 180;
-  const meanWind = wind.speedMps * config.windInfluence;
+  const meanWind = wind.speedMps * context.climate.windGain * config.windInfluence;
   uniforms.uWind.value.set(Math.sin(windRadians) * meanWind, 0, Math.cos(windRadians) * meanWind);
   uniforms.uGustiness.value = wind.gustiness;
   uniforms.uEmitterMode.value = config.emitter.mode;
@@ -502,6 +505,11 @@ function WeatherPrecipitation({
       geometry.instanceCount = Math.min(config.count, plan.count);
       uniforms.uIntensity.value = context.climate.weather.intensity;
       uniforms.uSpeedScale.value = plan.speedMultiplier;
+      // The max-count config bakes neutral scales, so every plan channel must
+      // be written here: storm streaks read heavier (size) and splash more of
+      // the drops into ground rings than calm base rain.
+      uniforms.uSizeScale.value = plan.sizeMultiplier;
+      uniforms.uSplash.value = plan.splashFraction;
       const wind = context.windVector;
       uniforms.uWind.value.set(
         wind[0] * plan.windMultiplier,

@@ -2265,4 +2265,35 @@ describe("agent boundary hardening", () => {
       }),
     );
   });
+
+  it("rejects public director_workbench game_playtest and routes agents to director_game", async () => {
+    const { dependencies, json } = createDependencies({
+      input: {
+        op: "game_playtest",
+        script: { steps: [{ frames: 4, input: { forward: true } }] },
+        slice_id: "game-courtyard-01",
+        actor_id: "hero-1",
+      },
+    });
+    const handled = await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      dependencies,
+    );
+    expect(handled).toBe(true);
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      400,
+      expect.objectContaining({
+        success: false,
+        code: "game_playtest_via_director_game",
+        corrective_call: expect.objectContaining({
+          tool: "director_game",
+          input: expect.objectContaining({ op: "playtest", slice_id: "game-courtyard-01" }),
+        }),
+      }),
+    );
+    expect(dependencies.requestWorkbenchCommand).not.toHaveBeenCalled();
+  });
 });
