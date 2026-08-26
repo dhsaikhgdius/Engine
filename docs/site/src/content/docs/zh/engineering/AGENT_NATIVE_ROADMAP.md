@@ -91,7 +91,7 @@ flowchart LR
 
 - [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/) 覆盖 Stage `directorStore` 全部
   变更入口，含 mutator、文件、semantic action 与
-  `shared` / `ui-only` / `human-only-interactive` 状态（84 / 87 项目 mutator 已 shared，约 97%）。
+  `shared` / `ui-only` / `human-only-interactive` 状态（86 / 87 项目 mutator 已 shared，约 99%）。
 - `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 的 parity 测试断言
   store mutator 与直接 `applyDirectorAuthoringActions` 对删除、变换、相机 update/activate、
   角色 motion set/clear、体型、统一/人群缩放、人群变换/标签/配色、落地、场景设置、资产删除、
@@ -145,7 +145,7 @@ flowchart LR
 
 | 批次   | 范围                 | 典型 action                                            | 状态                                               |
 | ------ | -------------------- | ------------------------------------------------------ | -------------------------------------------------- |
-| **1a** | 对象 CRUD、transform | `add_object`, `update_object`, `delete_objects`        | 删除/单次与多选变换/开关/编辑及几何 primitive 已 shared；资产/预置/人群新建流程有意保持本地 |
+| **1a** | 对象 CRUD、transform | `add_object`, `update_object`, `delete_objects`        | 删除/单次与多选变换/开关/编辑、几何 primitive 及资产/预置/人群新建流程均已 shared（人群分组经 `add_object` `crowd_id` / `crowd_label` author） |
 | **1b** | 相机与镜头           | `add_camera`, `update_camera`, `set_active_camera`     | 已 shared                                          |
 | **1c** | 角色与 motion        | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | 已 shared                       |
 | **1d** | Timeline / coverage  | `add_coverage_shot`, `add_performance_take`, timeline 音频 | Storyboard + 实体动画已 shared；timeline 音频未完成 |
@@ -410,7 +410,7 @@ flowchart LR
 
 | 指标                             | 当前（2026-08-26）                                    | 剩余 M3 完成后     | 剩余 M1 拖拽流完成后 |
 | -------------------------------- | ----------------------------------------------------- | ------------------ | -------------------- |
-| Parity coverage（top mutations） | top 编辑 mutation 已全部 shared；全部 Stage 项目 mutator 约 97%（84/87，见[对等清单](/zh/engineering/ui-agent-parity-inventory/)） | ≥85%               | ≥95%  |
+| Parity coverage（top mutations） | top 编辑 mutation 已全部 shared；全部 Stage 项目 mutator 约 99%（86/87，见[对等清单](/zh/engineering/ui-agent-parity-inventory/)） | ≥85%               | ≥95%  |
 | Human-only 能力（已文档化）      | 0 类必需（文件选择器仅作为本地文件的可选导入便捷入口；OBJ/STL 仍只导出） | 0 类必需           | 0 类  |
 | Gateway 入口 policy 一致         | 是（MCP / 本地 / 托管 / 原始 HTTP+CLI；role 限制 UI 已交付） | 是，含完整只读 mode | 是    |
 | In-product workspace             | **是（SQL instructions/skills/memory 已于 2026-08-25 交付）** | 是                 | 是    |

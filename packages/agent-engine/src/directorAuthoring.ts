@@ -2204,7 +2204,9 @@ export function applyDirectorAuthoringActions(
           throw new Error(`crowd_id/crowd_label are only valid on kind:"character" adds; drop them for "${item.id}".`);
         }
         if ((item.crowd_id === undefined) !== (item.crowd_label === undefined)) {
-          throw new Error(`Crowd adds require crowd_id and crowd_label together; pass both or neither for "${item.id}".`);
+          throw new Error(
+            `Crowd adds require crowd_id and crowd_label together; pass both or neither for "${item.id}".`,
+          );
         }
         if (item.parent_id) requireObject(project, item.parent_id);
         const posePreset = getMannequinPosePreset(item.pose_preset_id ?? "stand");

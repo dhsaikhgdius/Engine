@@ -26,12 +26,12 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 
 | 类别                            | 数量              |
 | ------------------------------- | ----------------- |
-| shared Stage 项目 mutator       | 84                |
-| ui-only Stage 项目 mutator      | 3                 |
-| 覆盖率（shared / 项目 mutator） | **84 / 87 ≈ 97%** |
+| shared Stage 项目 mutator       | 86                |
+| ui-only Stage 项目 mutator      | 1                 |
+| 覆盖率（shared / 项目 mutator） | **86 / 87 ≈ 99%** |
 
 仍为 ui-only 的入口均在 store 中带注释、有意保持本地写入
-（快照相机、预置/人群角色新建）。
+（快照相机）。
 
 对等性由
 `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 回归保护：同一份
@@ -124,7 +124,7 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 | `setAssetRealWorldSize`                     | `directorStore.ts` | `upsert_asset` 写入补丁后的 `realWorldSizeM` / `sizeSource`                                                                   | shared（清空为 `null` 仍走旧写入，避免 migrate 的 2 m 估计回填把道具检查器再次填满）                                  |
 | `removeImportedAsset`                       | `directorStore.ts` | `remove_assets`（`cascade`）                                                                                                  | shared（当级联还会删除子对象、清除 look target、相机 follow/path 绑定或材质纹理引用时，仍走保持这些引用不动的旧写入） |
 | `addObjectFromAsset`                        | `directorStore.ts` | `add_object`（角色另带 `placement_mode` / `body_type` / `color`；`asset_id` 时打上 `nativeSource`）                           | shared                                                                                                                |
-| `addPresetCharacter` / `addCrowdCharacters` | `directorStore.ts` | 与 `add_object` 存在分歧：预置新增保留每次的体型与轮换配色，人群分组（`crowdId`）是 `add_object` 无法 author 的 UI 状态       | ui-only（有意保持本地）                                                                                               |
+| `addPresetCharacter` / `addCrowdCharacters` | `directorStore.ts` | `add_object` 带显式 `body_type` 与轮换配色 `color`；人群新增逐成员携带 `crowd_id` / `crowd_label`，整批一次原子提交           | shared（编译产出与旧写入相同的顺序 `char_preset_N` id、名称、网格位置与配色；项目缺省时引擎自动从打包目录注入默认 Mixamo 资产；配色盘不再发放会被迁移改写的旧自动蓝） |
 | `addGeometryPrimitive`                      | `directorStore.ts` | `add_object` 带 `geometry_type`（进程内 authoring 接受；仅公开 workbench agent wire 拒绝）                                    | shared                                                                                                                |
 
 ## Human-only 交互面

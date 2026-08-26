@@ -1432,9 +1432,7 @@ describe("preset and crowd character add parity", () => {
 
     expect(createdIds).toEqual(["char_preset_2", "char_preset_3"]);
     expect(storeRevision()).toBe(agentRevision);
-    const members = useDirectorStore
-      .getState()
-      .project.objects.filter((object) => object.crowdId === "crowd_1");
+    const members = useDirectorStore.getState().project.objects.filter((object) => object.crowdId === "crowd_1");
     expect(members.map((object) => object.id)).toEqual(createdIds);
     expect(members.every((object) => object.crowdLabel === "群众（1x2）")).toBe(true);
     expect(useDirectorStore.getState().selectedCrowdId).toBe("crowd_1");
@@ -1453,8 +1451,8 @@ describe("preset and crowd character add parity", () => {
 
     expect(useDirectorStore.getState().project.objects.some((object) => object.id === "char_preset_2")).toBe(true);
     expect(crowdIds).toEqual(["char_preset_3", "char_preset_4"]);
-    const members = crowdIds.map(
-      (id) => useDirectorStore.getState().project.objects.find((object) => object.id === id)!,
+    const members = crowdIds.map((id) =>
+      useDirectorStore.getState().project.objects.find((object) => object.id === id)!,
     );
     expect(members.every((member) => member.crowdId === "crowd_1")).toBe(true);
     expect(members.every((member) => member.crowdLabel === "群众（1x2）")).toBe(true);
