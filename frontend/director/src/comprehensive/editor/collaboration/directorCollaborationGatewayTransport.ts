@@ -25,6 +25,9 @@ type GatewayTransportOptions = {
   inviteToken?: string;
 };
 
+/** Error codes that must not trigger reconnect loops (access denied or operator close). */
+const PERMANENT_COLLAB_ERROR_CODES = new Set(["unauthorized", "forbidden", "room_closed"]);
+
 /** Resolves the deployment-provided invite token, if any. */
 function defaultCollaborationInviteToken(): string | undefined {
   const configured: unknown = import.meta.env.VITE_DIRECTOR_COLLAB_INVITE_TOKEN;
@@ -59,6 +62,10 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
   private generation = 0;
   private joined = false;
   private closed = false;
+  /** When set, scheduleReconnect becomes a no-op (permanent join denial / room close). */
+  private haltReconnect = false;
+  /** Capability role from the latest `collab.ready`; null until joined. */
+  private role: "editor" | "viewer" | null = null;
   private readonly inviteToken: string | undefined;
 
   readonly roomId: string;
@@ -81,9 +88,24 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
     void this.connect();
   }
 
+  /**
+   * Viewers must not push document updates; awareness and sync-request stay
+   * allowed so presence and catch-up still work. Defaults to true until the
+   * gateway reports a role (legacy ready packets without `role`).
+   */
+  get canWriteDocuments(): boolean {
+    return this.role !== "viewer";
+  }
+
+  /** Latest capability role from `collab.ready`, or null before join. */
+  get grantedRole(): "editor" | "viewer" | null {
+    return this.role;
+  }
+
   send(message: DirectorCollaborationWireMessage) {
     const socket = this.socket;
     if (this.closed || !this.joined || !socket || socket.readyState !== WebSocket.OPEN) return;
+    if (message.type === "document-update" && !this.canWriteDocuments) return;
     const payload = encodeDirectorCollaborationGatewayPayload(message.payload);
     if (!payload) return;
     socket.send(
@@ -104,10 +126,7 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
     if (this.closed) return;
     this.closed = true;
     this.generation += 1;
-    if (this.reconnectTimer !== null) {
-      this.options.clearReconnectTimer(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this.clearPendingReconnect();
     const socket = this.socket;
     this.socket = null;
     if (socket && socket.readyState === WebSocket.OPEN) {
@@ -117,19 +136,34 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
       socket?.close();
     }
     this.joined = false;
+    this.role = null;
     this.listeners.clear();
+  }
+
+  private clearPendingReconnect() {
+    if (this.reconnectTimer !== null) {
+      this.options.clearReconnectTimer(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private haltOnPermanentError() {
+    this.joined = false;
+    this.haltReconnect = true;
+    this.clearPendingReconnect();
   }
 
   private async connect() {
     const generation = ++this.generation;
     try {
       const browserToken = await this.options.getBrowserToken();
-      if (this.closed || generation !== this.generation) return;
+      if (this.closed || this.haltReconnect || generation !== this.generation) return;
       const socket = this.options.createWebSocket(toWebSocketUrl(this.options.gatewayUrl, browserToken));
       this.socket = socket;
       this.joined = false;
+      this.role = null;
       socket.addEventListener("open", () => {
-        if (this.closed || generation !== this.generation || this.socket !== socket) return;
+        if (this.closed || this.haltReconnect || generation !== this.generation || this.socket !== socket) return;
         socket.send(
           JSON.stringify({
             type: "collab.join",
@@ -146,14 +180,19 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
           if (!parsed.success || (parsed.data.room && parsed.data.room !== this.roomId)) return;
           if (parsed.data.type === "collab.ready") {
             this.joined = true;
+            this.role = parsed.data.role ?? "editor";
             this.reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
             return;
           }
           if (parsed.data.type === "collab.error") {
-            // An operator explicitly closed the room: stop writing on this
-            // connection instead of spamming join_required errors. A later
-            // socket reconnect re-joins (and recreates) the room normally.
-            if (parsed.data.code === "room_closed") this.joined = false;
+            if (PERMANENT_COLLAB_ERROR_CODES.has(parsed.data.code)) {
+              // Access denials and operator closes must not spin reconnect
+              // loops against the gateway. Drop membership and stop reconnect.
+              this.haltOnPermanentError();
+              if (parsed.data.code === "room_closed" || parsed.data.code === "unauthorized") {
+                socket.close(4000, parsed.data.code);
+              }
+            }
             return;
           }
           const payload = decodeDirectorCollaborationGatewayPayload(parsed.data.payload);
@@ -171,17 +210,18 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
         if (this.closed || generation !== this.generation || this.socket !== socket) return;
         this.socket = null;
         this.joined = false;
+        this.role = null;
         this.scheduleReconnect();
       };
       socket.addEventListener("close", reconnect, { once: true });
       socket.addEventListener("error", () => socket.close(), { once: true });
     } catch {
-      if (!this.closed && generation === this.generation) this.scheduleReconnect();
+      if (!this.closed && !this.haltReconnect && generation === this.generation) this.scheduleReconnect();
     }
   }
 
   private scheduleReconnect() {
-    if (this.closed || !this.options.reconnect || this.reconnectTimer !== null) return;
+    if (this.closed || this.haltReconnect || !this.options.reconnect || this.reconnectTimer !== null) return;
     const delay = this.reconnectDelayMs;
     this.reconnectDelayMs = Math.min(MAX_RECONNECT_DELAY_MS, this.reconnectDelayMs * 2);
     this.reconnectTimer = this.options.setReconnectTimer(() => {
