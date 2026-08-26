@@ -14,6 +14,8 @@ import type {
   DirectorSceneAnnotation,
   DirectorSceneMeasurement,
   DirectorStoryboard,
+  DirectorTimelineAudioClip,
+  DirectorTimelineAudioTrack,
   DirectorTransform,
   DirectorVehicleProfile,
   DirectorWorld,
@@ -26,6 +28,7 @@ import type {
 } from "@director/project-schema";
 import {
   CHARACTER_BODY_TYPES,
+  createDefaultDirectorFrameTimeline,
   DIRECTOR_ASSET_KINDS,
   DIRECTOR_CAMERA_HANDHELD_SHAKES,
   DIRECTOR_CAMERA_SENSOR_FORMATS,
@@ -58,6 +61,7 @@ import {
   directorSceneAnnotationSchema,
   directorSceneMeasurementSchema,
   directorStoryboardSchema,
+  directorTimelineAudioClipSchema,
   directorTimelineSchema,
   directorTransformSchema,
   directorVec3Schema,
@@ -756,6 +760,34 @@ export const directorAuthoringActionSchema = z
         .optional()
         .describe("X/Z position offset in meters for every duplicate; defaults to 0.6."),
     }),
+    strictAction("add_timeline_audio_clip", {
+      id: id.optional(),
+      track_id: id.optional(),
+      name,
+      media_id: z.string().trim().min(1).max(512),
+      source_url: z.string().trim().min(1).max(8_192).optional(),
+      start_frame: z.number().int().min(0).max(1_000_000).optional(),
+      duration_frames: z.number().int().min(1).max(1_000_000),
+      source_duration_sec: z.number().finite().positive().max(86_400).optional(),
+    }),
+    strictAction("update_timeline_audio_clip", {
+      clip_id: id,
+      patch: directorTimelineAudioClipSchema
+        .omit({ id: true, mediaId: true })
+        .partial()
+        .refine((patch) => Object.keys(patch).length > 0, { message: "patch must not be empty" }),
+    }),
+    strictAction("remove_timeline_audio_clips", {
+      clip_ids: z
+        .array(id)
+        .min(1)
+        .max(128)
+        .refine((values) => new Set(values).size === values.length, { message: "clip_ids must be unique" }),
+    }),
+    strictAction("set_timeline_audio_track_muted", {
+      track_id: id,
+      muted: z.boolean(),
+    }),
     strictAction("add_light", { light: directorLightCreateSchema }),
     strictAction("update_light", {
       light_id: id,
@@ -1007,6 +1039,8 @@ interface DirectorAuthoringChangedIds {
   world_water_body_ids: string[];
   world_wildlife_group_ids: string[];
   world_road_ids: string[];
+  timeline_audio_clip_ids: string[];
+  timeline_audio_track_ids: string[];
 }
 
 function createChangedIds(): DirectorAuthoringChangedIds {
@@ -1025,11 +1059,42 @@ function createChangedIds(): DirectorAuthoringChangedIds {
     world_water_body_ids: [],
     world_wildlife_group_ids: [],
     world_road_ids: [],
+    timeline_audio_clip_ids: [],
+    timeline_audio_track_ids: [],
   };
 }
 
 function addUnique(values: string[], value: string) {
   if (!values.includes(value)) values.push(value);
+}
+
+const MAX_TIMELINE_AUDIO_TRACKS = 8;
+const MAX_TIMELINE_AUDIO_CLIPS_PER_TRACK = 128;
+
+/** Ensure the project has a frame timeline and return a mutable audioTracks array. */
+function ensureTimelineAudioTracks(project: DirectorProject): {
+  timeline: NonNullable<DirectorProject["scene"]["timeline"]>;
+  tracks: DirectorTimelineAudioTrack[];
+} {
+  const timeline = project.scene.timeline ?? createDefaultDirectorFrameTimeline();
+  project.scene.timeline = timeline;
+  const tracks = timeline.audioTracks ? [...timeline.audioTracks] : [];
+  timeline.audioTracks = tracks;
+  return { timeline, tracks };
+}
+
+function requireTimelineAudioClip(
+  tracks: DirectorTimelineAudioTrack[],
+  clipId: string,
+): { track: DirectorTimelineAudioTrack; clip: DirectorTimelineAudioClip; trackIndex: number; clipIndex: number } {
+  for (let trackIndex = 0; trackIndex < tracks.length; trackIndex += 1) {
+    const track = tracks[trackIndex]!;
+    const clipIndex = track.clips.findIndex((clip) => clip.id === clipId);
+    if (clipIndex >= 0) {
+      return { track, clip: track.clips[clipIndex]!, trackIndex, clipIndex };
+    }
+  }
+  throw new Error(`Timeline audio clip "${clipId}" was not found.`);
 }
 
 function ensureAvailableId(project: DirectorProject, value: string, label: string) {
@@ -2513,6 +2578,121 @@ export function applyDirectorAuthoringActions(
         );
         duplicated.objectIds.forEach((value) => addUnique(result.created.object_ids, value));
         duplicated.cameraIds.forEach((value) => addUnique(result.created.camera_ids, value));
+        break;
+      }
+      case "add_timeline_audio_clip": {
+        const { timeline, tracks } = ensureTimelineAudioTracks(project);
+        let trackIndex = item.track_id
+          ? tracks.findIndex((track) => track.id === item.track_id)
+          : tracks.findIndex((track) => track.clips.length < MAX_TIMELINE_AUDIO_CLIPS_PER_TRACK);
+        if (item.track_id && trackIndex < 0) {
+          throw new Error(`Timeline audio track "${item.track_id}" was not found.`);
+        }
+        if (trackIndex >= 0 && tracks[trackIndex]!.clips.length >= MAX_TIMELINE_AUDIO_CLIPS_PER_TRACK) {
+          throw new Error(
+            `Timeline audio track "${tracks[trackIndex]!.id}" already holds ${MAX_TIMELINE_AUDIO_CLIPS_PER_TRACK} clips.`,
+          );
+        }
+        if (trackIndex < 0) {
+          if (tracks.length >= MAX_TIMELINE_AUDIO_TRACKS) {
+            throw new Error(`Projects support at most ${MAX_TIMELINE_AUDIO_TRACKS} timeline audio tracks.`);
+          }
+          const trackId = getNextSequentialId(
+            tracks.map((track) => track.id),
+            "audio_track_",
+          );
+          tracks.push({
+            id: trackId,
+            name: `音频轨 ${tracks.length + 1}`,
+            muted: false,
+            clips: [],
+          });
+          trackIndex = tracks.length - 1;
+          addUnique(result.created.timeline_audio_track_ids, trackId);
+        }
+        const clipId =
+          item.id ??
+          getNextSequentialId(
+            tracks.flatMap((track) => track.clips.map((clip) => clip.id)),
+            "audio_clip_",
+          );
+        if (tracks.some((track) => track.clips.some((clip) => clip.id === clipId))) {
+          throw new Error(`Timeline audio clip "${clipId}" already exists.`);
+        }
+        const startFrame = Math.max(
+          0,
+          Math.min(
+            1_000_000,
+            Math.round(
+              item.start_frame !== undefined && Number.isFinite(item.start_frame)
+                ? item.start_frame
+                : Math.max(timeline.currentFrame, 0),
+            ),
+          ),
+        );
+        const clip: DirectorTimelineAudioClip = {
+          id: clipId,
+          name: item.name,
+          mediaId: item.media_id,
+          ...(item.source_url ? { sourceUrl: item.source_url } : {}),
+          startFrame,
+          durationFrames: item.duration_frames,
+          inSec: 0,
+          ...(item.source_duration_sec !== undefined ? { sourceDurationSec: item.source_duration_sec } : {}),
+          volume: 1,
+          fadeInSec: 0,
+          fadeOutSec: 0,
+          muted: false,
+        };
+        tracks[trackIndex] = {
+          ...tracks[trackIndex]!,
+          clips: [...tracks[trackIndex]!.clips, clip],
+        };
+        timeline.audioTracks = tracks;
+        addUnique(result.created.timeline_audio_clip_ids, clipId);
+        break;
+      }
+      case "update_timeline_audio_clip": {
+        const { timeline, tracks } = ensureTimelineAudioTracks(project);
+        const found = requireTimelineAudioClip(tracks, item.clip_id);
+        const patch = item.patch;
+        const next: DirectorTimelineAudioClip = { ...found.clip };
+        if (patch.name !== undefined) next.name = patch.name;
+        if (patch.sourceUrl !== undefined) next.sourceUrl = patch.sourceUrl;
+        if (patch.startFrame !== undefined) next.startFrame = patch.startFrame;
+        if (patch.durationFrames !== undefined) next.durationFrames = patch.durationFrames;
+        if (patch.inSec !== undefined) next.inSec = patch.inSec;
+        if (patch.sourceDurationSec !== undefined) next.sourceDurationSec = patch.sourceDurationSec;
+        if (patch.volume !== undefined) next.volume = patch.volume;
+        if (patch.fadeInSec !== undefined) next.fadeInSec = patch.fadeInSec;
+        if (patch.fadeOutSec !== undefined) next.fadeOutSec = patch.fadeOutSec;
+        if (patch.muted !== undefined) next.muted = patch.muted;
+        const nextClips = [...found.track.clips];
+        nextClips[found.clipIndex] = next;
+        tracks[found.trackIndex] = { ...found.track, clips: nextClips };
+        timeline.audioTracks = tracks;
+        addUnique(result.updated.timeline_audio_clip_ids, item.clip_id);
+        break;
+      }
+      case "remove_timeline_audio_clips": {
+        const { timeline, tracks } = ensureTimelineAudioTracks(project);
+        for (const clipId of item.clip_ids) requireTimelineAudioClip(tracks, clipId);
+        const requested = new Set(item.clip_ids);
+        timeline.audioTracks = tracks.map((track) => ({
+          ...track,
+          clips: track.clips.filter((clip) => !requested.has(clip.id)),
+        }));
+        item.clip_ids.forEach((clipId) => addUnique(result.deleted.timeline_audio_clip_ids, clipId));
+        break;
+      }
+      case "set_timeline_audio_track_muted": {
+        const { timeline, tracks } = ensureTimelineAudioTracks(project);
+        const trackIndex = tracks.findIndex((track) => track.id === item.track_id);
+        if (trackIndex < 0) throw new Error(`Timeline audio track "${item.track_id}" was not found.`);
+        if (tracks[trackIndex]!.muted === item.muted) break;
+        tracks[trackIndex] = { ...tracks[trackIndex]!, muted: item.muted };
+        timeline.audioTracks = tracks;
+        addUnique(result.updated.timeline_audio_track_ids, item.track_id);
         break;
       }
       case "add_light": {
