@@ -80,6 +80,7 @@ function dependencies(overrides: Partial<CollaborationRoomRouteDependencies> = {
     snapshotStore: null,
     revocations: new CollaborationInviteRevocationRegistry(),
     emptyRoomTtlSeconds: 0,
+    inviteRateLimitPerMinute: 0,
     ...overrides,
   };
   return { deps, json };
@@ -101,7 +102,12 @@ describe("handleCollaborationRoomRoute /api/collab/rooms", () => {
     const peer = socket();
     hub.handle(peer, { type: "collab.join", room: "ops/live-room", awareness_client_id: 21 });
 
-    const { deps, json } = dependencies({ hub, snapshotStore: store, emptyRoomTtlSeconds: 120 });
+    const { deps, json } = dependencies({
+      hub,
+      snapshotStore: store,
+      emptyRoomTtlSeconds: 120,
+      inviteRateLimitPerMinute: 30,
+    });
     const res = response();
     const handled = await handleCollaborationRoomRoute(
       request("GET"),
@@ -113,7 +119,12 @@ describe("handleCollaborationRoomRoute /api/collab/rooms", () => {
 
     const { status, body } = lastJsonCall(json);
     expect(status).toBe(200);
-    expect(body).toMatchObject({ mode: "local-trust", persistence: true, empty_room_ttl_seconds: 120 });
+    expect(body).toMatchObject({
+      mode: "local-trust",
+      persistence: true,
+      empty_room_ttl_seconds: 120,
+      invite_rate_limit_per_minute: 30,
+    });
     expect(body.invite_revocations).toEqual({ revoked_tokens: 0, room_cutoffs: 0 });
     const rooms = body.rooms as Array<Record<string, unknown>>;
     expect(rooms.map((room) => room.room)).toEqual(["ops/idle-room", "ops/live-room"]);

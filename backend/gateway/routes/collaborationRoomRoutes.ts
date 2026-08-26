@@ -110,6 +110,8 @@ export type CollaborationRoomRouteDependencies = {
   revocations: CollaborationInviteRevocationRegistry;
   /** The configured empty-room retention in seconds (0 = immediate destroy). */
   emptyRoomTtlSeconds: number;
+  /** Configured invite mint/revoke limit per minute (0 = unlimited / off). */
+  inviteRateLimitPerMinute: number;
   /** Clock override for tests. */
   now?: () => number;
 };
@@ -122,7 +124,8 @@ export type CollaborationRoomRouteDependencies = {
  *
  * Routes:
  * - `GET /api/collab/rooms` — merged live + durable room status (member
- *   counts, snapshot age, quarantine counts, auth mode).
+ *   counts, snapshot age, quarantine counts, auth mode, empty-room TTL, and
+ *   invite mint/revoke rate-limit policy).
  * - `GET /api/collab/rooms/quarantine?room=<id>` — the bounded quarantine
  *   index for one room (ids, hashes, sizes, reasons).
  * - `POST /api/collab/rooms/close` — explicitly close a live room; with
@@ -137,7 +140,16 @@ export async function handleCollaborationRoomRoute(
   url: URL,
   dependencies: CollaborationRoomRouteDependencies,
 ) {
-  const { readBody, json, hub, authorizer, snapshotStore, revocations, emptyRoomTtlSeconds } = dependencies;
+  const {
+    readBody,
+    json,
+    hub,
+    authorizer,
+    snapshotStore,
+    revocations,
+    emptyRoomTtlSeconds,
+    inviteRateLimitPerMinute,
+  } = dependencies;
   const now = dependencies.now ?? Date.now;
 
   if (request.method === "GET" && url.pathname === "/api/collab/rooms") {
@@ -165,6 +177,7 @@ export async function handleCollaborationRoomRoute(
       mode: authorizer.mode,
       persistence: snapshotStore !== null,
       empty_room_ttl_seconds: emptyRoomTtlSeconds,
+      invite_rate_limit_per_minute: inviteRateLimitPerMinute,
       invite_revocations: {
         revoked_tokens: revocations.counts().revokedTokens,
         room_cutoffs: revocations.counts().roomCutoffs,
