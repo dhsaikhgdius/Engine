@@ -362,6 +362,11 @@ export const directorDccEngineReportSchema = z
     appliedTextureCount: z.number().int().nonnegative().optional(),
     /** Unreal-only: Director lights spawned as Unreal light actors tagged `director_light_id:` (not `director_id`). */
     importedLightCount: z.number().int().nonnegative().optional(),
+    /**
+     * Unreal-only: light warn-and-omit count. Optional for connectors before
+     * 0.4.2; when omittedLights is present, length must equal this count.
+     */
+    omittedLightCount: z.number().int().nonnegative().max(100_000).optional(),
     /** Unreal-only: Director lights the connector declined to spawn (warn-and-omit). */
     omittedLights: z.array(directorUnrealOmittedLightSchema).max(1_024).optional(),
     /** Unreal-only: pose/rig channels the bake omitted, echoed from the verified sidecar. */
@@ -413,6 +418,21 @@ export const directorDccEngineReportSchema = z
           code: "custom",
           path: ["omittedSkeletal"],
           message: "omittedSkeletal length must equal omittedSkeletalCount",
+        });
+      }
+    }
+    if (report.omittedLights !== undefined) {
+      if (report.omittedLightCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedLightCount"],
+          message: "omittedLightCount is required when omittedLights is present",
+        });
+      } else if (report.omittedLights.length !== report.omittedLightCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedLights"],
+          message: "omittedLights length must equal omittedLightCount",
         });
       }
     }

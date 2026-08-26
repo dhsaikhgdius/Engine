@@ -634,6 +634,7 @@ def run_import(unreal, arguments) -> int:
             "omittedSkeletalCount": len(stats["omittedSkeletal"]) or None,
             "omittedSkeletal": stats["omittedSkeletal"] or None,
             "importedLightCount": imported_light_count,
+            "omittedLightCount": len(omitted_lights) or None,
             "omittedLights": omitted_lights or None,
             "omittedAnimationChannels": omitted_animation_channels or None,
         },
