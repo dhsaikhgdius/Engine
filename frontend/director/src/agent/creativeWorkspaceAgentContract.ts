@@ -1970,6 +1970,48 @@ async function resolveRelinkFile(
   throw new Error("workspace_path media.relink requires a host-provided file; use inline or media_id in the browser.");
 }
 
+/**
+ * Shared media.relink body for the Agent async wire path and in-process UI file
+ * picks. Both resolve to a File, then land on the same catalog rewrite + receipt.
+ */
+export async function executeCreativeWorkspaceMediaRelinkFile(
+  mediaId: string,
+  file: File,
+  context: CreativeWorkspaceAgentContext = defaultContext,
+): Promise<CreativeWorkspaceAgentExecutionResult> {
+  const state = context.workspace.getState();
+  if (!isKnownGalleryMedia(state, context, mediaId)) {
+    return semanticFailure(
+      "media.relink",
+      "not_found",
+      `Gallery media "${mediaId}" is not cataloged, imported, or referenced by this project.`,
+    );
+  }
+  try {
+    const expected = findMedia(context, mediaId)?.kind;
+    const receipt = await relinkDirectorCreativeMedia(mediaId, file, expected ?? undefined);
+    const media = findMedia(context, receipt.newMediaId);
+    return success(
+      "media.relink",
+      `Relinked media "${mediaId}" to "${receipt.newMediaId}".`,
+      {
+        old_media_id: receipt.oldMediaId,
+        new_media_id: receipt.newMediaId,
+        references_updated: receipt.referencesUpdated,
+        waveform_ready: receipt.waveformReady,
+        media: media ? projectMediaAsset(media) : null,
+      },
+      context,
+    );
+  } catch (error) {
+    return semanticFailure(
+      "media.relink",
+      "operation_rejected",
+      `Media relink failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 /** Async execute path for operations that need durable media IO (media.relink). */
 export async function executeCreativeWorkspaceAgentOperationAsync(
   input: unknown,
@@ -1988,35 +2030,12 @@ export async function executeCreativeWorkspaceAgentOperationAsync(
   if (parsed.operation.op !== "media.relink") {
     return executeCreativeWorkspaceAgentOperation(parsed.operation, context);
   }
-  const operation = parsed.operation;
-  const state = context.workspace.getState();
-  if (!isKnownGalleryMedia(state, context, operation.media_id)) {
-    return semanticFailure(
-      operation.op,
-      "not_found",
-      `Gallery media "${operation.media_id}" is not cataloged, imported, or referenced by this project.`,
-    );
-  }
   try {
-    const file = await resolveRelinkFile(operation.source);
-    const expected = findMedia(context, operation.media_id)?.kind;
-    const receipt = await relinkDirectorCreativeMedia(operation.media_id, file, expected ?? undefined);
-    const media = findMedia(context, receipt.newMediaId);
-    return success(
-      operation.op,
-      `Relinked media "${operation.media_id}" to "${receipt.newMediaId}".`,
-      {
-        old_media_id: receipt.oldMediaId,
-        new_media_id: receipt.newMediaId,
-        references_updated: receipt.referencesUpdated,
-        waveform_ready: receipt.waveformReady,
-        media: media ? projectMediaAsset(media) : null,
-      },
-      context,
-    );
+    const file = await resolveRelinkFile(parsed.operation.source);
+    return executeCreativeWorkspaceMediaRelinkFile(parsed.operation.media_id, file, context);
   } catch (error) {
     return semanticFailure(
-      operation.op,
+      "media.relink",
       "operation_rejected",
       `Media relink failed: ${error instanceof Error ? error.message : String(error)}`,
     );

@@ -52,6 +52,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import {
+  dispatchCreativeWorkspaceMediaRelink,
   dispatchCreativeWorkspaceOperations,
   type CreativeWorkspaceOperationInput,
 } from "../../../agent/dispatchCreativeWorkspaceOperations";
@@ -94,7 +95,6 @@ import {
   getDirectorMediaPreviewSource,
   importDirectorCreativeMediaProxyCandidate,
   persistDirectorMediaItem,
-  relinkDirectorCreativeMedia,
   useDirectorMediaLibrary,
   type DirectorMediaItem,
 } from "./directorMediaLibrary";
@@ -759,14 +759,13 @@ export function VideoEditorWorkspace() {
   const timelineZoom = useDirectorCreativeWorkspaceStore((state) => state.timelineZoom);
   const editSettings = useDirectorCreativeWorkspaceStore((state) => state.editSettings);
   // Clip add ("+" placement), split/remove/transition, discrete fade steps,
-  // track management, settings, import cataloging, undo/redo, and proxy attach
-  // dispatch through the shared agent contract
-  // (dispatchCreativeWorkspaceOperations). Only continuous interactions
-  // (drags, trims, fades, range sliders, live typing), remaining
-  // overwrite-adjacent nudges/duplicates, media-less text/caption clips, and
-  // file-picker media.relink (durable IO; see media.relink async path) keep
-  // direct helpers. Explicit media drops share `edit.clip.add` with
-  // overwrite:true.
+  // track management, settings, import cataloging, undo/redo, media relink,
+  // and proxy attach dispatch through the shared agent contract
+  // (dispatchCreativeWorkspaceOperations / dispatchCreativeWorkspaceMediaRelink).
+  // Only continuous interactions (drags, trims, fades, range sliders, live
+  // typing), remaining overwrite-adjacent nudges/duplicates, and media-less
+  // text/caption clips keep the direct store mutators. Explicit media drops
+  // share `edit.clip.add` with overwrite:true.
   const addClip = useDirectorCreativeWorkspaceStore((state) => state.addClip);
   const updateClip = useDirectorCreativeWorkspaceStore((state) => state.updateClip);
   const moveClipToTrack = useDirectorCreativeWorkspaceStore((state) => state.moveClipToTrack);
@@ -1585,14 +1584,17 @@ export function VideoEditorWorkspace() {
     pendingMediaTargetRef.current = null;
     if (!target) return;
     setImportMessage(t("正在重连素材…"));
-    try {
-      const receipt = await relinkDirectorCreativeMedia(target.id, file, target.kind);
-      setImportMessage(
-        `${t("素材已重连")} · ${receipt.referencesUpdated} ${t("处引用")} · ${receipt.waveformReady ? t("波形已缓存") : t("波形待生成")}`,
-      );
-    } catch (error) {
-      setImportMessage(error instanceof Error ? error.message : t("素材重连失败"));
+    const receipt = await dispatchCreativeWorkspaceMediaRelink(target.id, file);
+    if (!receipt.ok) {
+      const detail = receipt.error.replace(/^Media relink failed:\s*/i, "").trim();
+      setImportMessage(detail || t("素材重连失败"));
+      return;
     }
+    const referencesUpdated = Number(receipt.execution.result.references_updated ?? 0);
+    const waveformReady = Boolean(receipt.execution.result.waveform_ready);
+    setImportMessage(
+      `${t("素材已重连")} · ${referencesUpdated} ${t("处引用")} · ${waveformReady ? t("波形已缓存") : t("波形待生成")}`,
+    );
   }
 
   async function attachSelectedMediaProxy(file: File) {

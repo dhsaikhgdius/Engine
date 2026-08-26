@@ -162,6 +162,9 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 - Canvas 到时间线的桥（`edit.clip.add` + `workspace.switch`）、Stage 截图导入为单个原子
   `execute_batch`（入册 + 节点添加一起回滚），以及媒体评审星级/标签写入
   （`gallery.media.update`，仅当契约不认识该 media id 时回退直接写 store）。
+- Canvas/Video 文件选择器的离线素材重连经 `dispatchCreativeWorkspaceMediaRelink` →
+  `executeCreativeWorkspaceMediaRelinkFile`（与 Agent 在把 `media.relink` 线源解析为 `File`
+  之后进入的同一执行体）。
 - Video Editor 代理文件选择：先导入候选，再经 `dispatchCreativeWorkspaceOperations` 执行
   `media.proxy.attach`（与 Agent 在两个已入册 id 上使用的同一 linker）。
 
@@ -172,5 +175,4 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 - 仍走 `commitClipPlacement` 的覆盖相关流（逐帧微移、裁入邻接、后接复制）。显式媒体落点已
   共用 `edit.clip.add` 且 `overwrite: true`（同一 `resolveDirectorTrackOverwrite` 解析器）。
 - 无媒体的文字/字幕剪辑（`text:` id）、Canvas 置顶、视图状态与分区簿记——尚无语义操作。
-- 媒体重连引用改写、Canvas 流水线产物入册、旧评审镜像迁移与批量清除评审——多 store 或迁移
-  簿记流程。
+- Canvas 流水线产物入册、旧评审镜像迁移与批量清除评审——多 store 或迁移簿记流程。
