@@ -159,6 +159,13 @@ export function describeDirectorWorkbenchTarget(
     };
   }
   if (target === "author.evidence") return { success: true, result: describeAuthorEvidence() };
+  if (target === "game_playtest") {
+    return {
+      success: false,
+      error:
+        'game_playtest is an internal Gateway→Stage transport, not a public director_workbench op. Use director_game {"op":"playtest"} (capabilities/describe on director_game).',
+    };
+  }
   if (target.startsWith("author.")) {
     const described = describeAuthorAction(target.slice("author.".length));
     if (described) return { success: true, result: described };

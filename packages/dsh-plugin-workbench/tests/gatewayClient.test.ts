@@ -117,9 +117,10 @@ describe("Director DSH workbench plugin gateway client", () => {
       "director_workbench",
       "stage_video",
       "blender_native",
+      "director_game",
       DIRECTOR_MODEL_ROUTES_TOOL_NAME,
     ]);
-    expect(defineTool).toHaveBeenCalledTimes(5);
+    expect(defineTool).toHaveBeenCalledTimes(6);
     const workbench = defineTool.mock.calls.find((call) => call[0].name === "director_workbench")?.[0];
     expect(workbench?.timeoutMs).toBe(70_000);
     expect(workbench?.isConcurrencySafe?.({ op: "observe" })).toBe(true);

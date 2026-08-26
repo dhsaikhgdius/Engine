@@ -1280,7 +1280,11 @@ async function connectSocket() {
                   project_revision: projectRevision,
                 },
               };
-            } else if (executable.operation.op === "player" || executable.operation.op === "pilot") {
+            } else if (
+              executable.operation.op === "player" ||
+              executable.operation.op === "pilot" ||
+              executable.operation.op === "game_playtest"
+            ) {
               execution = await executeDirectorSessionWorkbenchOperation(executable.operation);
             } else {
               execution = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), executable.operation, {

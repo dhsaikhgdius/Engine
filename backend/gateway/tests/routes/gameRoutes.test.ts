@@ -211,8 +211,10 @@ describe("director_game routes", () => {
     expect(unbound.body.corrective_call).toMatchObject({ op: "bind", slice_id: SLICE_ID });
   });
 
-  it("needs a Stage session when playtest has no trace and no runner is wired", async () => {
-    const { game } = await createGame();
+  it("can assert needs_stage when the host-free default runner is disabled", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "director-game-routes-"));
+    tempDirs.push(dir);
+    const game = createDirectorGame(dir, { now: () => NOW, disableHostFreePlaytest: true });
     await planCourtyard(game);
     await bindCourtyard(game);
     const needsStage = await call(game, {
@@ -220,6 +222,33 @@ describe("director_game routes", () => {
     });
     expect(needsStage).toMatchObject({ status: 409, body: { success: false, code: "game_playtest_needs_stage" } });
     expect(needsStage.body.corrective_call).toMatchObject({ op: "playtest", slice_id: SLICE_ID });
+  });
+
+  it("playtests without an inline trace via the default host-free runner", async () => {
+    const { game, dir } = await createGame();
+    await planCourtyard(game);
+    await bindCourtyard(game);
+    const playtested = await call(game, {
+      input: {
+        op: "playtest",
+        slice_id: SLICE_ID,
+        script: {
+          steps: [
+            { frames: 20, input: { forward: true } },
+            { frames: 10, input: { look_right: true } },
+            { frames: 8, input: { jump: true } },
+            { frames: 6, input: { interact: true } },
+          ],
+        },
+      },
+    });
+    expect(playtested).toMatchObject({
+      status: 200,
+      body: { success: true, result: { evaluation: { playable: true }, slice: { status: "playable" } } },
+    });
+    const persisted = await createDirectorGame(dir).store.get(SLICE_ID);
+    expect(persisted?.status).toBe("playable");
+    expect(persisted?.last_evaluation?.playable).toBe(true);
   });
 
   it("scores a supplied host-free trace and marks the slice playable", async () => {

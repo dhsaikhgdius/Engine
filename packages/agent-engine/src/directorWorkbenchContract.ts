@@ -14,6 +14,7 @@ import {
 } from "@director/protocol/workbench-ui";
 import { asRecord } from "@director/protocol/primitives";
 import { blenderAgentOperationNames } from "@director/protocol/blenderLiveProtocol";
+import { gamePlaytestScriptSchema } from "@director/protocol/game-slice";
 import { strictAction, strictOperation } from "@director/protocol/strictProtocolVariant";
 import {
   generated3dModeSchema,
@@ -792,6 +793,17 @@ export const directorWorkbenchOperationSchema = z.discriminatedUnion("op", [
     target: z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]).optional(),
     fov: z.number().finite().positive().max(179).optional(),
   }),
+  /**
+   * Internal Gateway→browser transport for `director_game` playtest.
+   * Not part of the public Agent vocabulary: capabilities omit it, describe
+   * redirects to director_game, and HTTP `/api/tools/director_workbench`
+   * rejects it. Agents must call `director_game {op:"playtest"}`.
+   */
+  strictOperation("game_playtest", {
+    script: gamePlaytestScriptSchema,
+    actor_id: nonEmptyText(200).optional(),
+    slice_id: nonEmptyText(80).optional(),
+  }),
   strictOperation("undo", revisionGuardFields).refine(revisionGuardIsUnambiguous, revisionGuardRefinement),
   strictOperation("capture", {
     /** Omitted camera_id captures through the active project camera. */
@@ -895,9 +907,10 @@ export type DirectorAuditIssueInput = z.infer<typeof directorAuditIssueInputSche
 export type DirectorAuditSuggestedFix = z.infer<typeof directorAuditSuggestedFixSchema>;
 export type DirectorWorkbenchObserveField = z.infer<typeof directorWorkbenchObserveFieldSchema>;
 
-export const directorWorkbenchOperationNames = directorWorkbenchOperationSchema.options.map(
-  (option) => option.shape.op.value,
-);
+export const directorWorkbenchOperationNames = directorWorkbenchOperationSchema.options
+  .map((option) => option.shape.op.value)
+  // Internal Gateway→browser transport for director_game; not Agent vocabulary.
+  .filter((name) => name !== "game_playtest");
 
 function fnv1a32(serialized: string): string {
   let hash = 0x811c9dc5;
