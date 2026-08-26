@@ -51,7 +51,7 @@ Gateway CI suite runs the same golden cases against the TypeScript reference.
 | `director_lights.py`         | yes (CLI)           | Director lights → Unreal light classes; ambient/hemisphere structured omit records                                     |
 | `director_gltf.py`           | yes (CLI)           | GLB container inspection (JSON chunk only) to route skinned payloads to skeletal import                                |
 | `director_livelink.py`       | yes (CLI)           | Preview session protocol: token, sequence numbers, reorder/duplicate drop, staleness                                   |
-| `director_sequencer.py`      | no                  | LevelSequence authoring: display rate, tick resolution, start timecode, camera cuts, transform and focal-length tracks |
+| `director_sequencer.py`      | shot classify (CLI) | LevelSequence authoring: display rate, tick resolution, start timecode, camera cuts (typed shot omissions), transform and focal-length tracks |
 | `director_host_materials.py` | no                  | Creates the `DirectorPbrOpaque`/`DirectorPbrTranslucent` parents (with texture parameters) and Material Instances       |
 
 The host-free modules are exercised by the Gateway CI suite
@@ -113,7 +113,7 @@ resolution, start timecode, playback range, track and key counts).
   `omittedLights` warn-and-omit records. Material channel / no-mesh /
   parent / apply failures surface as typed `omittedMaterials[]`
   (`unsupported_channels` / `no_mesh_target` / `parent_unavailable` /
-  `apply_failed`) with `omittedMaterialCount` (connector ≥0.4.1). Skeletal bind-pose failures surface as typed `omittedSkeletal[]` (`skeleton_unavailable` / `character_unskinned` / `empty_actor`) with `omittedSkeletalCount` (connector ≥0.4.2). Omitted lights carry matching `omittedLightCount`.
+  `apply_failed`) with `omittedMaterialCount` (connector ≥0.4.1). Skeletal bind-pose failures surface as typed `omittedSkeletal[]` (`skeleton_unavailable` / `character_unskinned` / `empty_actor`) with `omittedSkeletalCount` (connector ≥0.4.2). Storyboard shots that cannot key a camera cut surface as typed `omittedShots[]` (`shot_no_camera_binding` / `shot_camera_not_imported` / `shot_target_not_camera` — the same code set as the Godot and Unity shot mappers) with `omittedShotCount` (connector ≥0.4.3), even when no LevelSequence is authored. Omitted lights carry matching `omittedLightCount`.
 
 ## Install
 
