@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -92,6 +92,35 @@ describe("CollaborationInviteRevocationRegistry", () => {
     const reloaded = new CollaborationInviteRevocationRegistry({ persistPath, now });
     await reloaded.load();
     expect(reloaded.counts().roomCutoffs).toBe(0);
+  });
+
+  it("reports revocation durability honestly: persisted only when the flush reached the durable file", async () => {
+    const invite = () => mintCollaborationInviteToken({ secret: SECRET, room: "scene-alpha", role: "editor" });
+
+    // Process-local registry: revocations die with the process.
+    const inMemory = new CollaborationInviteRevocationRegistry();
+    expect(inMemory.persistenceEnabled).toBe(false);
+    expect(await inMemory.revokeToken(invite().token)).toMatchObject({ revoked: true, persisted: false });
+    expect(await inMemory.revokeRoomScope("scene-alpha")).toMatchObject({ revoked: true, persisted: false });
+
+    // Durable registry: the flush landed, so the revocation survives restarts.
+    const durable = new CollaborationInviteRevocationRegistry({ persistPath: tempPersistPath() });
+    expect(durable.persistenceEnabled).toBe(true);
+    expect(await durable.revokeToken(invite().token)).toMatchObject({ revoked: true, persisted: true });
+    expect(await durable.revokeRoomScope("scene-alpha")).toMatchObject({ revoked: true, persisted: true });
+
+    // Persistence configured but the write fails (a file blocks the parent
+    // directory): the revocation is still active in-process but not durable.
+    const directory = mkdtempSync(resolve(tmpdir(), "director-collab-revocations-"));
+    directories.push(directory);
+    writeFileSync(resolve(directory, "blocked"), "not a directory");
+    const failing = new CollaborationInviteRevocationRegistry({
+      persistPath: resolve(directory, "blocked", "revocations.json"),
+    });
+    expect(failing.persistenceEnabled).toBe(true);
+    const outcome = await failing.revokeToken(invite().token);
+    expect(outcome).toMatchObject({ revoked: true, persisted: false });
+    expect(failing.counts().revokedTokens).toBe(1);
   });
 
   it("refreshes a re-revoked scope's recency so bounded eviction drops the least recently revoked scope", async () => {

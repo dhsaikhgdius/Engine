@@ -367,6 +367,41 @@ export const directorEngineSceneImportSelectionSchema = z.strictObject({
   lightSourceIds: z.array(nonEmpty.max(240)).max(1_024),
 });
 
+/** Typed warn-and-omit codes for engine scene data an import plan leaves behind. */
+export const DIRECTOR_ENGINE_SCENE_OMITTED_CODES = [
+  "unsupported_object",
+  "hierarchy_flattened",
+  "animation_clips",
+  "skinned_mesh_rigs",
+  "camera_roll",
+] as const;
+
+/**
+ * Typed warn-and-omit record for engine scene data the import plan leaves
+ * behind. Free-text `warnings` stay for humans; agents should read this array
+ * (mirrors the Blender scene import `omitted` and the DCC return plan
+ * `omittedOptics` / `omittedAdditions`).
+ *
+ * - `unsupported_object`: the exporter skipped a scene element it cannot carry (`kind` carries the engine type).
+ * - `hierarchy_flattened`: the scene imports as one flattened Director scene object; per-node edits need the planned engine round trip.
+ * - `animation_clips`: engine animation clips stay embedded in the GLB and are not mapped onto Director's editable timeline.
+ * - `skinned_mesh_rigs`: skinned-mesh skeletons stay inside the GLB and are not rebound to Director's character rig system.
+ * - `camera_roll`: engine camera roll cannot be expressed by Director's target-based camera model.
+ */
+export const directorEngineSceneOmittedSchema = z.strictObject({
+  sourceId: nonEmpty.max(240),
+  /** Engine element kind for `unsupported_object` records. */
+  kind: nonEmpty.max(120).optional(),
+  code: z.enum(DIRECTOR_ENGINE_SCENE_OMITTED_CODES),
+  reason: nonEmpty.max(2_000),
+});
+
+/** A validated engine scene import omitted record. */
+export type DirectorEngineSceneOmitted = z.infer<typeof directorEngineSceneOmittedSchema>;
+
+/** A typed warn-and-omit code on an engine scene import plan. */
+export type DirectorEngineSceneOmittedCode = DirectorEngineSceneOmitted["code"];
+
 /**
  * An import plan generated from an engine scene manifest.
  * Contains the concrete operations Director will execute to import the scene,
@@ -394,6 +429,18 @@ export const directorEngineSceneImportPlanSchema = z
       )
       .max(4_000),
     warnings: z.array(z.string().max(2_000)).max(20_000),
+    /**
+     * Count of typed omitted records. Optional for plans persisted before
+     * typed omits; when omitted is present, length must equal this count.
+     */
+    omittedCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Typed warn-and-omit records for engine scene data the plan leaves
+     * behind. Optional for older stored plans; when present, length must
+     * equal omittedCount. The cap covers the manifest `unsupported` cap plus
+     * per-camera and per-scene records.
+     */
+    omitted: z.array(directorEngineSceneOmittedSchema).max(21_000).optional(),
   })
   .superRefine((plan, context) => {
     if (plan.ready && plan.conflicts.length > 0) {
@@ -412,6 +459,21 @@ export const directorEngineSceneImportPlanSchema = z
         path: ["selection", "lightSourceIds"],
         message: "light selection must be unique",
       });
+    }
+    if (plan.omitted !== undefined) {
+      if (plan.omittedCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedCount"],
+          message: "omittedCount is required when omitted is present",
+        });
+      } else if (plan.omitted.length !== plan.omittedCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omitted"],
+          message: "omitted length must equal omittedCount",
+        });
+      }
     }
   });
 

@@ -125,7 +125,7 @@ describe("handleCollaborationRoomRoute /api/collab/rooms", () => {
       empty_room_ttl_seconds: 120,
       invite_rate_limit_per_minute: 30,
     });
-    expect(body.invite_revocations).toEqual({ revoked_tokens: 0, room_cutoffs: 0 });
+    expect(body.invite_revocations).toEqual({ revoked_tokens: 0, room_cutoffs: 0, durable: false });
     const rooms = body.rooms as Array<Record<string, unknown>>;
     expect(rooms.map((room) => room.room)).toEqual(["ops/idle-room", "ops/live-room"]);
     expect(rooms[0]).toMatchObject({ active: false, peers: 0, pending_updates: 0 });
@@ -271,5 +271,69 @@ describe("handleCollaborationRoomRoute /api/collab/rooms/close", () => {
       status: 200,
       body: { closed: false, disconnected_peers: 0, archived: null },
     });
+  });
+
+  it("distinguishes a room with no durable history from a real archive failure", async () => {
+    const { store } = tempStore();
+    const { deps, json } = dependencies({
+      snapshotStore: store,
+      readBody: vi.fn().mockResolvedValue({ room: "empty-room", archive: true }),
+    });
+    await handleCollaborationRoomRoute(
+      request("POST"),
+      response(),
+      new URL("http://gateway.local/api/collab/rooms/close"),
+      deps,
+    );
+    expect(lastJsonCall(json)).toEqual({
+      status: 200,
+      body: {
+        room: "empty-room",
+        closed: false,
+        disconnected_peers: 0,
+        archived: false,
+        archive_reason: "no_durable_history",
+      },
+    });
+  });
+
+  it("returns 500 archive_failed instead of overclaiming when the history cannot be moved", async () => {
+    const { directory, store } = tempStore({ compactAfterUpdates: 1 });
+    const hub = new DirectorCollaborationWebSocketHub({ persistence: store });
+    await store.appendUpdate(
+      "stuck/room",
+      docUpdate((doc) => doc.getMap("scene").set("title", "still here")),
+    );
+    const peer = socket();
+    hub.handle(peer, { type: "collab.join", room: "stuck/room", awareness_client_id: 41 });
+    // A file squatting on the archive directory path blocks every rename.
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(resolve(directory, "collaboration-rooms-archive"), "not a directory");
+
+    const { deps, json } = dependencies({
+      hub,
+      snapshotStore: store,
+      readBody: vi.fn().mockResolvedValue({ room: "stuck/room", archive: true }),
+    });
+    await handleCollaborationRoomRoute(
+      request("POST"),
+      response(),
+      new URL("http://gateway.local/api/collab/rooms/close"),
+      deps,
+    );
+    const { status, body } = lastJsonCall(json);
+    expect(status).toBe(500);
+    // The close still happened and is reported; the archive claim is refused.
+    expect(body).toMatchObject({
+      code: "archive_failed",
+      room: "stuck/room",
+      closed: true,
+      disconnected_peers: 1,
+      archived: false,
+    });
+    expect(body.archive_error_code).toMatch(/^[A-Z]+$/);
+    expect(JSON.stringify(body)).not.toContain(directory);
+    expect(await store.loadSnapshot("stuck/room")).not.toBeNull();
+    hub.destroy();
   });
 });
