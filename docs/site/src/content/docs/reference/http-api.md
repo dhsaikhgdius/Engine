@@ -304,9 +304,10 @@ curl -fsS -X POST "$BASE/api/tools/director_dcc" \
   }}')" | jq
 ```
 
-`receive_from_engine` accepts the same optional `skip_director_ids` list as
-`import_return_package`. Apply is revision-guarded and idempotent; conflicts return `409` with a
-usable read-only plan.
+`receive_from_engine` accepts the same optional `skip_director_ids` list and
+`include_new_objects` opt-in as `import_return_package`; without the opt-in, engine
+`object_addition` entries stay reviewable skips. Apply is revision-guarded and idempotent;
+conflicts return `409` with a usable read-only plan.
 
 ## Analyze a reference image
 
