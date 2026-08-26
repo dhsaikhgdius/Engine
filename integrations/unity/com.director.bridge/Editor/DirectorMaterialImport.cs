@@ -19,6 +19,17 @@ namespace Director.Bridge.Editor
     /// </summary>
     public static class DirectorMaterialImport
     {
+        /// <summary>
+        /// Result of one Director PBR fallback attempt: either a saved Material
+        /// or a typed omit record when the active pipeline/shader cannot host
+        /// the override. Partial feature/texture warnings stay free-text.
+        /// </summary>
+        public sealed class MaterialImportResult
+        {
+            public Material Material;
+            public JObject OmittedMaterial;
+        }
+
         /// <summary>The render pipeline the fallback targets, as reported to the Gateway.</summary>
         public static string DetectRenderPipeline()
         {
@@ -35,11 +46,11 @@ namespace Director.Bridge.Editor
 
         /// <summary>
         /// Creates and saves a fallback material for one Director object, or
-        /// returns null (with a warning) when the active pipeline has no
-        /// supported lit shader. The material asset lives under the package
-        /// folder so re-imports overwrite deterministically.
+        /// returns a typed omit when the active pipeline has no supported lit
+        /// shader. The material asset lives under the package folder so
+        /// re-imports overwrite deterministically.
         /// </summary>
-        public static Material CreateFallbackMaterial(
+        public static MaterialImportResult CreateFallbackMaterial(
             JObject materialJson,
             string directorId,
             string renderPipeline,
@@ -49,8 +60,13 @@ namespace Director.Bridge.Editor
             out int appliedTextureCount)
         {
             appliedTextureCount = 0;
-            Shader shader = FindLitShader(renderPipeline, directorId, warnings);
-            if (shader == null) return null;
+            var result = new MaterialImportResult();
+            Shader shader = FindLitShader(renderPipeline, directorId, warnings, out JObject omit);
+            if (shader == null)
+            {
+                result.OmittedMaterial = omit;
+                return result;
+            }
             bool universal = renderPipeline == "urp";
             var material = new Material(shader);
 
@@ -78,11 +94,25 @@ namespace Director.Bridge.Editor
             System.IO.Directory.CreateDirectory(materialFolder);
             string assetPath = $"{materialFolder}/{DirectorGlbImport.SafeFileStem(directorId)}.mat";
             AssetDatabase.CreateAsset(material, assetPath);
-            return material;
+            result.Material = material;
+            return result;
         }
 
-        private static Shader FindLitShader(string renderPipeline, string directorId, List<string> warnings)
+        private static JObject MakeOmit(string directorId, string code, string renderPipeline, string reason)
         {
+            return new JObject
+            {
+                ["directorId"] = directorId,
+                ["code"] = code,
+                ["renderPipeline"] = renderPipeline,
+                ["reason"] = reason,
+            };
+        }
+
+        private static Shader FindLitShader(
+            string renderPipeline, string directorId, List<string> warnings, out JObject omit)
+        {
+            omit = null;
             switch (renderPipeline)
             {
                 case "urp":
@@ -90,9 +120,12 @@ namespace Director.Bridge.Editor
                     Shader shader = Shader.Find("Universal Render Pipeline/Lit");
                     if (shader == null)
                     {
-                        warnings.Add(
+                        const string code = "shader_missing";
+                        string reason =
                             $"Object {directorId}: URP is active but Universal Render Pipeline/Lit was not " +
-                            "found; material fallback omitted.");
+                            $"found; material fallback omitted (warn-and-omit code: {code}).";
+                        warnings.Add(reason);
+                        omit = MakeOmit(directorId, code, renderPipeline, reason);
                     }
                     return shader;
                 }
@@ -101,16 +134,26 @@ namespace Director.Bridge.Editor
                     Shader shader = Shader.Find("Standard");
                     if (shader == null)
                     {
-                        warnings.Add($"Object {directorId}: the Standard shader was not found; material fallback omitted.");
+                        const string code = "shader_missing";
+                        string reason =
+                            $"Object {directorId}: the Standard shader was not found; material fallback " +
+                            $"omitted (warn-and-omit code: {code}).";
+                        warnings.Add(reason);
+                        omit = MakeOmit(directorId, code, renderPipeline, reason);
                     }
                     return shader;
                 }
                 default:
-                    warnings.Add(
+                {
+                    const string code = "pipeline_unsupported";
+                    string reason =
                         $"Object {directorId}: Director PBR fallback supports URP and Built-in; the active " +
                         $"{renderPipeline} pipeline uses an unsupported material graph, so the override was " +
-                        "omitted (warn-and-omit). GLB payload materials still import through the glTF importer.");
+                        $"omitted (warn-and-omit code: {code}). GLB payload materials still import through the glTF importer.";
+                    warnings.Add(reason);
+                    omit = MakeOmit(directorId, code, renderPipeline, reason);
                     return null;
+                }
             }
         }
 

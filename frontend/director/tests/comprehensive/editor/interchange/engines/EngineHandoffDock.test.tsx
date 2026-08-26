@@ -331,6 +331,15 @@ it("renders the Unity bake summary with structured omitted channels and never of
           humanoidAvatarCount: 1,
           genericAvatarCount: 1,
           materialFallbackCount: 3,
+          omittedMaterialCount: 1,
+          omittedMaterials: [
+            {
+              directorId: "prop-hdrp",
+              code: "pipeline_unsupported",
+              renderPipeline: "hdrp",
+              reason: "HDRP has no Director PBR fallback; omitted.",
+            },
+          ],
           posedCharacterCount: 2,
           omittedChannels: [
             { directorId: "char-alien", channel: "poseValues", reason: "Non-Mixamo rig: pose controls cannot map." },
@@ -353,6 +362,10 @@ it("renders the Unity bake summary with structured omitted channels and never of
   const facts = await screen.findByLabelText("Unity 回执");
   expect(facts).toHaveTextContent("Assets/Director/DirectorTimeline.playable");
   expect(facts).toHaveTextContent("URP");
+  expect(facts).toHaveTextContent("省略材质");
+  const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
+  expect(within(omittedMaterials).getByText("prop-hdrp")).toBeInTheDocument();
+  expect(omittedMaterials).toHaveTextContent("管线不支持材质回退");
   const omitted = screen.getByRole("list", { name: "省略的动画通道" });
   expect(within(omitted).getAllByText("char-alien")).toHaveLength(2);
   expect(omitted).toHaveTextContent("Non-Mixamo rig: pose controls cannot map.");
