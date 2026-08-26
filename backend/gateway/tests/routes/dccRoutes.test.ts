@@ -123,6 +123,68 @@ describe("DCC routes", () => {
     expect(getProject).not.toHaveBeenCalled();
   });
 
+  it("serves the read-only Unreal live-preview status snapshot without touching the project", async () => {
+    const json = vi.fn();
+    const getProject = vi.fn();
+    const snapshot = {
+      contract: "director-unreal-live-preview-status-v1",
+      provider: "unreal",
+      protocol: "director-unreal-live-preview-v1",
+      sessions: [],
+    };
+    const unrealLivePreview = {
+      open: vi.fn(),
+      get: vi.fn(),
+      close: vi.fn(),
+      status: vi.fn().mockReturnValue(snapshot),
+    };
+    expect(
+      await handleDccRoute(request("GET"), response(), new URL("http://test/api/dcc/unreal/live-preview/status"), {
+        readBody: vi.fn(),
+        json,
+        getProject,
+        unrealLivePreview,
+      }),
+    ).toBe(true);
+    expect(json).toHaveBeenCalledWith(expect.anything(), 200, { success: true, result: snapshot });
+    // Read-only by contract: polling the status never opens, closes, or
+    // mutates a session and never reads the Director project.
+    expect(unrealLivePreview.open).not.toHaveBeenCalled();
+    expect(unrealLivePreview.close).not.toHaveBeenCalled();
+    expect(getProject).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-GET methods on the Unreal live-preview status route", async () => {
+    const json = vi.fn();
+    const unrealLivePreview = { open: vi.fn(), get: vi.fn(), close: vi.fn(), status: vi.fn() };
+    expect(
+      await handleDccRoute(request("POST"), response(), new URL("http://test/api/dcc/unreal/live-preview/status"), {
+        readBody: vi.fn(),
+        json,
+        getProject: vi.fn(),
+        unrealLivePreview,
+      }),
+    ).toBe(true);
+    expect(json).toHaveBeenCalledWith(expect.anything(), 405, expect.objectContaining({ success: false }));
+    expect(unrealLivePreview.status).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 when the Unreal live-preview hub is not configured", async () => {
+    const json = vi.fn();
+    expect(
+      await handleDccRoute(request("GET"), response(), new URL("http://test/api/dcc/unreal/live-preview/status"), {
+        readBody: vi.fn(),
+        json,
+        getProject: vi.fn(),
+      }),
+    ).toBe(true);
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      503,
+      expect.objectContaining({ success: false, code: "live_preview_unavailable" }),
+    );
+  });
+
   it("streams a raw Blender upload to the scene importer without parsing it as JSON", async () => {
     const json = vi.fn();
     const readBody = vi.fn();

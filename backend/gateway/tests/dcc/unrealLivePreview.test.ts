@@ -3,9 +3,11 @@ import { createServer, type Server, type Socket } from "node:net";
 import { resolve } from "node:path";
 import {
   DIRECTOR_UNREAL_LIVE_PREVIEW_PROTOCOL,
+  DIRECTOR_UNREAL_LIVE_PREVIEW_STATUS_CONTRACT,
   directorUnrealLivePreviewSessionSummarySchema,
+  directorUnrealLivePreviewStatusSchema,
 } from "@director/dcc-protocol";
-import { DirectorUnrealLivePreviewSession } from "../../dcc/unrealLivePreview";
+import { DirectorUnrealLivePreviewSession, createDirectorUnrealLivePreviewHub } from "../../dcc/unrealLivePreview";
 
 const TOKEN = "fixture-preview-token";
 
@@ -219,5 +221,99 @@ describe("Unreal Gateway live preview transport (loopback, preview-only)", () =>
 
   it("refuses an empty preview token before touching the network", async () => {
     await expect(DirectorUnrealLivePreviewSession.connect({ port: 1, token: "   " })).rejects.toThrow(/token/i);
+  });
+});
+
+describe("Unreal live preview hub (read-only status snapshot)", () => {
+  it("tracks the idle -> connected -> closed lifecycle with schema-valid snapshots", async () => {
+    const server = await startPreviewServer();
+    try {
+      const hub = createDirectorUnrealLivePreviewHub();
+      const { sessionId, session } = await hub.open({ port: server.port, token: TOKEN });
+      expect(hub.get(sessionId)).toBe(session);
+
+      // Idle: connected with the hello sent but no camera frame forwarded yet.
+      const idle = directorUnrealLivePreviewStatusSchema.parse(hub.status());
+      expect(idle.contract).toBe(DIRECTOR_UNREAL_LIVE_PREVIEW_STATUS_CONTRACT);
+      expect(idle.sessions).toHaveLength(1);
+      expect(idle.sessions[0]).toMatchObject({
+        sessionId,
+        port: server.port,
+        state: "idle",
+        lastFrameAtMs: null,
+        lastForwardedSeq: null,
+      });
+
+      expect(session.sendFrame(frame(1))).toEqual({ sent: true, seq: 1 });
+      const connected = hub.status();
+      expect(connected.sessions[0]).toMatchObject({ state: "connected", lastForwardedSeq: 1 });
+      expect(connected.sessions[0]!.lastFrameAtMs).toBeGreaterThanOrEqual(connected.sessions[0]!.openedAtMs);
+
+      expect(await hub.close(sessionId)).toBe(true);
+      const closed = hub.status();
+      expect(closed.sessions[0]).toMatchObject({ state: "closed" });
+      expect(closed.sessions[0]!.summary.disconnectReason).toBe("client_close");
+      expect(await hub.close("unknown-session")).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("reports a silent session stale without mutating it, then closed after teardown", async () => {
+    const server = await startPreviewServer();
+    try {
+      const hub = createDirectorUnrealLivePreviewHub();
+      let nowMs = 0;
+      const { session } = await hub.open({ port: server.port, token: TOKEN, staleTimeoutMs: 1_000, now: () => nowMs });
+      expect(session.sendFrame(frame(1))).toEqual({ sent: true, seq: 1 });
+
+      nowMs = 2_000;
+      // Reading the status is side-effect free: the session is reported stale
+      // but stays alive until the next frame attempt tears it down.
+      expect(hub.status().sessions[0]!.state).toBe("stale");
+      expect(hub.status().sessions[0]!.state).toBe("stale");
+      expect(session.connected).toBe(true);
+
+      expect(session.sendFrame(frame(2))).toMatchObject({ sent: false, reason: expect.stringMatching(/stale/i) });
+      const closed = hub.status();
+      expect(closed.sessions[0]!.state).toBe("closed");
+      expect(closed.sessions[0]!.summary.disconnectReason).toBe("stale_timeout");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("evicts the oldest closed sessions beyond the retention window", async () => {
+    const server = await startPreviewServer();
+    try {
+      const hub = createDirectorUnrealLivePreviewHub({ closedSessionRetention: 1 });
+      const first = await hub.open({ port: server.port, token: TOKEN });
+      const second = await hub.open({ port: server.port, token: TOKEN });
+      const third = await hub.open({ port: server.port, token: TOKEN });
+      await hub.close(first.sessionId);
+      await hub.close(second.sessionId);
+
+      const status = hub.status();
+      expect(status.sessions.map((entry) => entry.sessionId)).toEqual([second.sessionId, third.sessionId]);
+      expect(hub.get(first.sessionId)).toBeNull();
+      await hub.close(third.sessionId);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("refuses to open past the concurrent-session cap", async () => {
+    const server = await startPreviewServer();
+    try {
+      const hub = createDirectorUnrealLivePreviewHub();
+      const opened = [];
+      for (let index = 0; index < 16; index += 1) {
+        opened.push(await hub.open({ port: server.port, token: TOKEN }));
+      }
+      await expect(hub.open({ port: server.port, token: TOKEN })).rejects.toThrow(/open sessions/i);
+      for (const { sessionId } of opened) await hub.close(sessionId);
+    } finally {
+      await server.close();
+    }
   });
 });

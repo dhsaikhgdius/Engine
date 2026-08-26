@@ -194,6 +194,58 @@ describe("buildUnrealSequencerBake", () => {
     expect(entity!.transformSamples.length).toBeGreaterThan(1);
   });
 
+  it("names the omitted controls and clips in structured per-channel details", () => {
+    const project = withTimeline(createTestDirectorProject(), 0, 8);
+    const rigged = slidingBox("walker-2");
+    rigged.kind = "character";
+    rigged.characterRig = { rigType: "mannequin", posePresetId: null, controls: { "spine.bend": 0.25, "head.nod": 0 } };
+    rigged.animation!.keyframes[0]!.poseValues = { "arm.L": 0.5, "arm.R": 0.25 };
+    rigged.animation!.keyframes[1]!.poseValues = { "arm.L": 1 };
+    rigged.animation!.motionBlocks = [
+      {
+        id: "block-1",
+        clipId: "walk-cycle",
+        enabled: true,
+        loop: "repeat",
+        speed: 1,
+        weight: 1,
+        blendInS: 0,
+        blendOutS: 0,
+        rootMotion: "in-place",
+        frameStart: 0,
+        frameEnd: 8,
+      },
+    ];
+    project.objects = [rigged];
+
+    const bake = buildUnrealSequencerBake(project, randomUUID(), REVISION);
+    expect(directorUnrealSequencerBakeSchema.parse(bake)).toEqual(bake);
+    const [entity] = bake.entities;
+    const details = Object.fromEntries(entity!.omittedChannelDetails!.map((detail) => [detail.channel, detail]));
+    // Every detail channel is also listed in omittedChannels (schema-enforced),
+    // and control/clip names are deduplicated and sorted for stable receipts.
+    expect(Object.keys(details).sort()).toEqual(["character_rig", "motion_blocks", "pose_values"]);
+    expect(details.pose_values!.controls).toEqual(["arm.L", "arm.R"]);
+    expect(details.pose_values!.reason).toMatch(/Control Rig transfer is planned/);
+    expect(details.motion_blocks!.controls).toEqual(["walk-cycle"]);
+    expect(details.character_rig!.controls).toEqual(["head.nod", "spine.bend"]);
+  });
+
+  it("caps the listed control names and says how many overflowed", () => {
+    const project = withTimeline(createTestDirectorProject(), 0, 4);
+    const rigged = slidingBox("walker-3");
+    rigged.animation!.keyframes[0]!.poseValues = Object.fromEntries(
+      Array.from({ length: 80 }, (_, index) => [`control.${String(index).padStart(3, "0")}`, 0.5]),
+    );
+    project.objects = [rigged];
+
+    const bake = buildUnrealSequencerBake(project, randomUUID(), REVISION);
+    expect(directorUnrealSequencerBakeSchema.parse(bake)).toEqual(bake);
+    const detail = bake.entities[0]!.omittedChannelDetails!.find((entry) => entry.channel === "pose_values")!;
+    expect(detail.controls).toHaveLength(64);
+    expect(detail.reason).toMatch(/16 more not listed/);
+  });
+
   it.each([
     ["23.976 NDF", { numerator: 24_000, denominator: 1_001 }, false, "00:59:56:16", false],
     ["24 NDF", { numerator: 24, denominator: 1 }, false, "01:00:00:00", false],

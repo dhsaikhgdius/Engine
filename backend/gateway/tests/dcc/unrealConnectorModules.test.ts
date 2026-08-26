@@ -130,6 +130,7 @@ describe.skipIf(!pythonAvailable)(
         "director_materials",
         "director_host_materials",
         "director_gltf",
+        "director_lights",
         "director_livelink",
         "director_sequencer",
       ];
@@ -476,6 +477,211 @@ describe.skipIf(!pythonAvailable)(
         const result = (output as { result: { omitted: string[]; vectors: Record<string, number[]> } }).result;
         expect(result.omitted).toEqual(["baseColor"]);
         expect(result.vectors.BaseColor).toBeUndefined();
+      });
+
+      it("binds bundled texture slots to the parent texture parameters and omits unbundled ones", async () => {
+        const { output } = await runModule(
+          "director_materials",
+          [],
+          JSON.stringify({
+            name: "Crate",
+            material: {
+              baseColor: "#ffffff",
+              textures: {
+                baseColorMapAssetId: "asset-albedo",
+                normalMapAssetId: "asset-normal",
+                roughnessMapAssetId: "asset-rough",
+                metalnessMapAssetId: "asset-metal",
+                aoMapAssetId: "asset-ao",
+                emissiveMapAssetId: "asset-glow",
+                alphaMapAssetId: "asset-alpha",
+              },
+            },
+            textureFiles: {
+              "asset-albedo": "assets/001-albedo.png",
+              "asset-normal": "assets/002-normal.png",
+              "asset-rough": "assets/003-rough.png",
+              "asset-metal": "assets/004-metal.png",
+              "asset-ao": "assets/005-ao.png",
+              "asset-glow": "assets/006-glow.png",
+              // asset-alpha is intentionally bundled too: it must still omit
+              // on an opaque material because the opaque parent has no
+              // opacity input.
+              "asset-alpha": "assets/007-alpha.png",
+            },
+          }),
+        );
+        expect(output.ok).toBe(true);
+        const result = output.result as {
+          textures: Record<string, string>;
+          scalars: Record<string, number>;
+          vectors: Record<string, number[]>;
+          omitted: string[];
+        };
+        expect(result.textures).toEqual({
+          BaseColorMap: "asset-albedo",
+          NormalMap: "asset-normal",
+          RoughnessMap: "asset-rough",
+          MetalnessMap: "asset-metal",
+          AoMap: "asset-ao",
+          EmissiveMap: "asset-glow",
+        });
+        expect(result.omitted).toEqual(["textures.alphaMapAssetId"]);
+        // An emissive map forces a visible emissive product by default.
+        expect(result.scalars.EmissiveIntensity).toBe(1);
+        expect(result.vectors.EmissiveColor).toEqual([1, 1, 1, 1]);
+      });
+
+      it("maps the alpha texture on translucent materials and omits unbundled references", async () => {
+        const { output } = await runModule(
+          "director_materials",
+          [],
+          JSON.stringify({
+            name: "Window",
+            material: {
+              opacity: 0.5,
+              textures: { alphaMapAssetId: "asset-alpha", baseColorMapAssetId: "asset-unbundled" },
+            },
+            textureFiles: { "asset-alpha": "assets/001-alpha.png" },
+          }),
+        );
+        const result = (
+          output as { result: { parent: string; textures: Record<string, string>; omitted: string[] } }
+        ).result;
+        expect(result.parent).toBe("translucent");
+        expect(result.textures).toEqual({ OpacityMap: "asset-alpha" });
+        // Referenced but not bundled: structured omit, never a silent drop.
+        expect(result.omitted).toEqual(["textures.baseColorMapAssetId"]);
+      });
+    });
+
+    describe("director_lights golden fixtures (supported subset + structured omits)", () => {
+      const scene = { position: [0, 0, 0], rotation: [0, 0, 0], scale: 1 };
+      const baseLight = { visible: true, locked: false, color: "#ffffff", intensity: 1 };
+
+      async function mapLights(lights: unknown[], sceneOverride: unknown = scene) {
+        const { output } = await runModule("director_lights", [], JSON.stringify({ scene: sceneOverride, lights }));
+        expect(output.ok).toBe(true);
+        return output.result as {
+          lights: Array<Record<string, unknown>>;
+          omitted: Array<Record<string, unknown>>;
+          warnings: string[];
+        };
+      }
+
+      it("maps directional, point, spot, and rect-area lights onto Unreal light classes", async () => {
+        const result = await mapLights([
+          {
+            ...baseLight,
+            id: "sun",
+            name: "Sun",
+            type: "directional",
+            intensity: 1.2,
+            position: [0, 5, 0],
+            target: [0, 0, 0],
+            castShadow: true,
+          },
+          { ...baseLight, id: "bulb", name: "Bulb", type: "point", intensity: 2, position: [0, 3, 0], distance: 12 },
+          {
+            ...baseLight,
+            id: "beam",
+            name: "Beam",
+            type: "spot",
+            position: [3, 5, 3],
+            target: [0, 0, 0],
+            angle: Math.PI / 6,
+            penumbra: 0.25,
+          },
+          {
+            ...baseLight,
+            id: "panel",
+            name: "Panel",
+            type: "rect-area",
+            intensity: 3,
+            position: [0, 4, 2],
+            target: [0, 1, 0],
+            width: 2,
+            height: 0.5,
+          },
+        ]);
+        expect(result.omitted).toEqual([]);
+        const byId = Object.fromEntries(result.lights.map((light) => [light.directorId as string, light]));
+
+        expect(byId.sun).toMatchObject({
+          unrealClass: "DirectionalLight",
+          intensityUnit: "lux",
+          intensity: 12,
+          castShadow: true,
+          colorLinear: [1, 1, 1],
+        });
+        // Straight-down aim: the canonical rotation carries local -Z onto (0,-1,0),
+        // which the pinned basis change turns into the Unreal +X light forward.
+        const sunTransform = byId.sun!.transform as { location: number[]; rotationQuaternion: number[] };
+        expect(sunTransform.location).toEqual([0, 5, 0]);
+        const [qx, qy, qz, qw] = sunTransform.rotationQuaternion as [number, number, number, number];
+        // Rotate (0,0,-1) by the quaternion and expect (0,-1,0).
+        const forward = [
+          2 * (qx * qz + qw * qy) * -1,
+          2 * (qy * qz - qw * qx) * -1,
+          (1 - 2 * (qx * qx + qy * qy)) * -1,
+        ];
+        expect(forward[0]).toBeCloseTo(0, 6);
+        expect(forward[1]).toBeCloseTo(-1, 6);
+        expect(forward[2]).toBeCloseTo(0, 6);
+
+        expect(byId.bulb).toMatchObject({
+          unrealClass: "PointLight",
+          intensityUnit: "candela",
+          intensity: 16,
+          attenuationRadiusCm: 1_200,
+          castShadow: false,
+        });
+        expect(byId.beam).toMatchObject({ unrealClass: "SpotLight", intensityUnit: "candela" });
+        expect(byId.beam!.outerConeAngleDeg as number).toBeCloseTo(30, 4);
+        expect(byId.beam!.innerConeAngleDeg as number).toBeCloseTo(22.5, 4);
+        expect(byId.panel).toMatchObject({
+          unrealClass: "RectLight",
+          intensityUnit: "nits",
+          intensity: 30,
+          sourceWidthCm: 200,
+          sourceHeightCm: 50,
+        });
+        // Honesty marker: the intensity conversion is documented as approximate.
+        expect(result.warnings.join("\n")).toMatch(/approximate photometric/i);
+      });
+
+      it("emits structured omit records for ambient and hemisphere lights", async () => {
+        const result = await mapLights([
+          { ...baseLight, id: "amb", name: "Ambient", type: "ambient", intensity: 1.15 },
+          { ...baseLight, id: "hemi", name: "Hemi", type: "hemisphere", groundColor: "#303744", position: [0, 5, 0] },
+        ]);
+        expect(result.lights).toEqual([]);
+        expect(result.omitted).toEqual([
+          { directorId: "amb", lightType: "ambient", reason: expect.stringMatching(/warn-and-omit/) },
+          { directorId: "hemi", lightType: "hemisphere", reason: expect.stringMatching(/warn-and-omit/) },
+        ]);
+      });
+
+      it("composes the scene transform and keeps unsupported colors and hidden flags honest", async () => {
+        const result = await mapLights(
+          [
+            {
+              ...baseLight,
+              id: "moved",
+              name: "Moved",
+              type: "point",
+              position: [1, 2, 3],
+              color: "hsl(1,2%,3%)",
+              visible: false,
+            },
+          ],
+          { position: [10, 0, 0], rotation: [0, 0, 0], scale: 2 },
+        );
+        const [light] = result.lights;
+        expect((light!.transform as { location: number[] }).location).toEqual([12, 4, 6]);
+        expect(light!.hidden).toBe(true);
+        expect(light!.colorLinear).toBeUndefined();
+        expect(result.warnings.join("\n")).toMatch(/unsupported syntax/);
       });
     });
 

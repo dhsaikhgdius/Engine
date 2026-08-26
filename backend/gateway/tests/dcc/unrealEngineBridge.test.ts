@@ -252,11 +252,32 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
       sequencer: SEQUENCER_RECEIPT,
       importedSkeletalMeshCount: 1,
       appliedMaterialCount: 3,
+      appliedTextureCount: 2,
+      importedLightCount: 2,
+      omittedLights: [
+        {
+          directorId: "light_ambient_1",
+          lightType: "ambient",
+          reason: "Uniform ambient light has no single-actor Unreal equivalent (warn-and-omit).",
+        },
+      ],
     });
     const result = await harness.send();
     expect(result.report.sequencer).toEqual(SEQUENCER_RECEIPT);
     expect(result.report.importedSkeletalMeshCount).toBe(1);
     expect(result.report.appliedMaterialCount).toBe(3);
+    expect(result.report.appliedTextureCount).toBe(2);
+    expect(result.report.importedLightCount).toBe(2);
+    expect(result.report.omittedLights).toEqual([
+      expect.objectContaining({ directorId: "light_ambient_1", lightType: "ambient" }),
+    ]);
+  });
+
+  it("fails the job when the connector reports a malformed omitted-light record", async () => {
+    const harness = await createSendHarness({
+      omittedLights: [{ directorId: "light-1", lightType: "laser", reason: "not a Director light type" }],
+    });
+    await expect(harness.send()).rejects.toMatchObject({ code: "engine_report_invalid" });
   });
 
   it("keeps the receipt optional so static imports stay valid", async () => {
@@ -292,6 +313,12 @@ describe("Unreal engine bridge structured pose-channel omissions", () => {
         directorId: "hero-crate",
         entityType: "object",
         channels: expect.arrayContaining(["pose_values", "character_rig"]),
+        // Per-channel details name the affected controls so the frontend can
+        // list exactly what was omitted (Control Rig transfer stays planned).
+        details: expect.arrayContaining([
+          expect.objectContaining({ channel: "pose_values", controls: ["arm.L"] }),
+          expect.objectContaining({ channel: "character_rig" }),
+        ]),
       },
     ]);
     // The prose warning still exists, but the structured field is the contract.
@@ -304,14 +331,24 @@ describe("Unreal engine bridge structured pose-channel omissions", () => {
     expect(result.omittedAnimationChannels).toBeUndefined();
   });
 
-  it("accepts the connector's structured omission echo on the report", async () => {
-    const harness = await createSendHarness({
-      omittedAnimationChannels: [{ directorId: "walker-1", entityType: "object", channels: ["pose_values"] }],
-    });
+  it("accepts the connector's structured omission echo on the report, including details", async () => {
+    const echoed = [
+      {
+        directorId: "walker-1",
+        entityType: "object",
+        channels: ["pose_values"],
+        details: [
+          {
+            channel: "pose_values",
+            controls: ["arm.L", "arm.R"],
+            reason: "Semantic pose keyframes are not carried by the Sequencer bake.",
+          },
+        ],
+      },
+    ];
+    const harness = await createSendHarness({ omittedAnimationChannels: echoed });
     const result = await harness.send();
-    expect(result.report.omittedAnimationChannels).toEqual([
-      { directorId: "walker-1", entityType: "object", channels: ["pose_values"] },
-    ]);
+    expect(result.report.omittedAnimationChannels).toEqual(echoed);
   });
 });
 
