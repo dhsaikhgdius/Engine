@@ -1419,6 +1419,9 @@ function compileAddObjectFromAssetAction(
   nextObject: DirectorObject,
   assetId: string,
 ): Extract<DirectorAuthoringAction, { action: "add_object" }> {
+  if (nextObject.kind === "camera") {
+    throw new Error(`相机对象不能通过资产落场景添加：${nextObject.id}`);
+  }
   return {
     action: "add_object",
     id: nextObject.id,
