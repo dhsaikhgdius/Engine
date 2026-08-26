@@ -29,6 +29,27 @@ export const directorGodotOmittedLightSchema = z.strictObject({
 export type DirectorGodotOmittedLight = z.infer<typeof directorGodotOmittedLightSchema>;
 
 /**
+ * Structured warn-and-omit codes the Godot material path stamps into receipts.
+ * `unsupported_channels` still applies the StandardMaterial3D override for the
+ * channels Godot can carry; `no_mesh_target` and `custom_shader` are whole omits.
+ */
+export const directorGodotOmittedMaterialCodeSchema = z.enum([
+  "unsupported_channels",
+  "no_mesh_target",
+  "custom_shader",
+]);
+
+/** One typed Godot material omission (agents read this instead of scraping warnings). */
+export const directorGodotOmittedMaterialSchema = z.strictObject({
+  directorId: z.string().trim().min(1).max(200),
+  code: directorGodotOmittedMaterialCodeSchema,
+  reason: z.string().trim().min(1).max(600),
+});
+
+/** A validated structured Godot omitted-material record. */
+export type DirectorGodotOmittedMaterial = z.infer<typeof directorGodotOmittedMaterialSchema>;
+
+/**
  * The Godot import receipt the connector embeds in its engine report. All
  * values are read back from the saved scene and authored animation resources,
  * so the receipt proves what was built, not what was requested.
@@ -69,6 +90,17 @@ export const directorGodotImportReceiptSchema = z
     omittedLights: z.array(directorGodotOmittedLightSchema).max(1_024).optional(),
     /** Director PBR materials applied to imported payload meshes. */
     appliedMaterialCount: z.number().int().nonnegative().max(100_000),
+    /**
+     * Material warn-and-omit count (unsupported channels, no mesh target, custom
+     * ShaderMaterial). Always present on connector ≥0.3.1; older receipts omit
+     * the field and Agents fall back to free-text warnings.
+     */
+    omittedMaterialCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Typed material omit records. Optional for older connectors; when present,
+     * length must equal omittedMaterialCount.
+     */
+    omittedMaterials: z.array(directorGodotOmittedMaterialSchema).max(1_024).optional(),
     /** Payload textures externalized to hashed `res://director/textures/` resources. */
     externalizedTextureCount: z.number().int().nonnegative().max(100_000),
   })
@@ -79,6 +111,21 @@ export const directorGodotImportReceiptSchema = z
         path: ["omittedLights"],
         message: "omittedLights length must equal omittedLightCount",
       });
+    }
+    if (receipt.omittedMaterials !== undefined) {
+      if (receipt.omittedMaterialCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedMaterialCount"],
+          message: "omittedMaterialCount is required when omittedMaterials is present",
+        });
+      } else if (receipt.omittedMaterials.length !== receipt.omittedMaterialCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedMaterials"],
+          message: "omittedMaterials length must equal omittedMaterialCount",
+        });
+      }
     }
   });
 

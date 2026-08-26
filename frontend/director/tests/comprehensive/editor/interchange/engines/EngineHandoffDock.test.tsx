@@ -408,6 +408,15 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
             },
           ],
           appliedMaterialCount: 3,
+          omittedMaterialCount: 1,
+          omittedMaterials: [
+            {
+              directorId: "prop-glass",
+              code: "unsupported_channels",
+              reason:
+                "Object prop-glass: Director material channels transmission have no StandardMaterial3D equivalent here; omitted (warn-and-omit code: unsupported_channels).",
+            },
+          ],
           externalizedTextureCount: 2,
         },
         warnings: [
@@ -437,16 +446,22 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
   expect(factOf("映射镜头")).toHaveTextContent("5");
   expect(factOf("环境光")).toHaveTextContent("WorldEnvironment 已烘焙");
   expect(factOf("省略灯光")).toHaveTextContent("2");
+  expect(factOf("省略材质")).toHaveTextContent("1");
+  const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
+  expect(within(omittedMaterials).getByText("prop-glass")).toBeInTheDocument();
+  expect(omittedMaterials).toHaveTextContent("不支持的材质通道");
   // Gateway bake channels render as per-entity structured rows (not free-text).
   const omittedChannels = screen.getByRole("list", { name: "省略的动画通道" });
   expect(within(omittedChannels).getByText("hero")).toBeInTheDocument();
   expect(omittedChannels).toHaveTextContent("姿态控制");
   expect(omittedChannels).toHaveTextContent("动作片段");
-  // Connector-side light omits keep both entities (dedup is per code+entity).
+  // Connector-side light+material omits keep both light entities (dedup is per code+entity).
   const omissions = screen.getByRole("list", { name: "结构化省略" });
   expect(within(omissions).getAllByText("light_rect_area_unsupported")).toHaveLength(2);
   expect(omissions).toHaveTextContent("面光源不支持");
   expect(omissions).toHaveTextContent("light-panel");
+  expect(omissions).toHaveTextContent("unsupported_channels");
+  expect(omissions).toHaveTextContent("不支持的材质通道");
   expect(omissions).toHaveTextContent("light-panel-2");
 });
 

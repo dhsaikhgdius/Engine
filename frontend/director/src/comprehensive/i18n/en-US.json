@@ -3648,7 +3648,13 @@
   "Film 视频生成": "Film video generation",
   "添加分区失败": "Failed to add section",
   "分区分配失败": "Failed to assign section",
+<<<<<<< HEAD
   "本运行用量": "Usage for this run",
   "规划 LLM": "Planning LLM",
   "次": "calls"
+=======
+  "不支持的材质通道": "Unsupported material channels",
+  "材质无网格目标": "Material has no mesh target",
+  "自定义着色器材质": "Custom shader material"
+>>>>>>> 23ed345 (feat(godot): expose typed omittedMaterials on send receipts)
 }

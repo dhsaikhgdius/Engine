@@ -99,7 +99,9 @@ describe("FilmPipelineOrchestrator", () => {
   const tempDirs: string[] = [];
 
   afterEach(async () => {
-    await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+    await Promise.all(
+      tempDirs.map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 })),
+    );
     tempDirs.length = 0;
   });
 

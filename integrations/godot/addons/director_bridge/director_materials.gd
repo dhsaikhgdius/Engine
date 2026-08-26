@@ -3,11 +3,12 @@
 ## glTF PBR materials in GLB payloads already import as StandardMaterial3D
 ## through GLTFDocument; this module adds the Director-side responsibilities:
 ## - apply Director PBR overrides (`object.material`) as StandardMaterial3D,
-##   warn-and-omit channels Godot cannot carry;
+##   warn-and-omit channels Godot cannot carry (typed omittedMaterials);
 ## - externalize embedded payload textures into content-hashed
 ##   `res://director/textures/` resources so the saved scene references
 ##   relative hashed files instead of embedding image bytes;
-## - warn on custom ShaderMaterials, which Director cannot translate.
+## - warn on custom ShaderMaterials, which Director cannot translate
+##   (typed `custom_shader` omittedMaterials).
 ##
 ## No class_name: headless `godot --script` runs on a fresh project have no
 ## global class cache, so every module is referenced through `preload`.
@@ -25,14 +26,22 @@ const TEXTURE_SLOT_PROPERTIES := [
 
 const TEXTURE_DIRECTORY := "res://director/textures"
 
+## Channels Godot StandardMaterial3D cannot carry from a Director PBR override.
+const OMIT_UNSUPPORTED_CHANNELS := "unsupported_channels"
+## A Director material was authored but the payload has no MeshInstance3D.
+const OMIT_NO_MESH_TARGET := "no_mesh_target"
+## Custom ShaderMaterial stays in Godot and does not travel through the handoff.
+const OMIT_CUSTOM_SHADER := "custom_shader"
+
 
 ## Applies a Director PBR material dictionary onto every MeshInstance3D under
 ## `target` as a StandardMaterial3D override. Channels without a faithful
-## StandardMaterial3D equivalent warn-and-omit. Returns true when at least one
-## mesh received the override.
+## StandardMaterial3D equivalent warn-and-omit with a typed receipt record.
+## Returns {"applied": bool, "omittedMaterials": Array}.
 static func apply_director_material(
 	target: Node3D, material_dict: Dictionary, entity_label: String, warnings: Array
-) -> bool:
+) -> Dictionary:
+	var director_id := _director_id_from_label(entity_label, target)
 	var material := StandardMaterial3D.new()
 	var base := Color.from_string(str(material_dict.get("baseColor", "#ffffff")), Color(1, 1, 1))
 	var opacity := clampf(float(material_dict.get("opacity", 1.0)), 0.0, 1.0)
@@ -60,6 +69,7 @@ static func apply_director_material(
 		_:
 			material.cull_mode = BaseMaterial3D.CULL_BACK
 
+	var omitted_materials: Array = []
 	var unsupported: Array = []
 	if float(material_dict.get("transmission", 0.0)) > 0.0:
 		unsupported.append("transmission")
@@ -73,9 +83,16 @@ static func apply_director_material(
 	if not textures.is_empty():
 		unsupported.append("textures (texture assets are not bundled in the exchange package)")
 	if not unsupported.is_empty():
-		warnings.append(
-			"%s: Director material channels %s have no StandardMaterial3D equivalent here; omitted (warn-and-omit)."
-			% [entity_label, ", ".join(unsupported)]
+		var channel_reason := (
+			"%s: Director material channels %s have no StandardMaterial3D equivalent here; omitted (warn-and-omit code: %s)."
+			% [entity_label, ", ".join(unsupported), OMIT_UNSUPPORTED_CHANNELS]
+		)
+		_omit_material(
+			omitted_materials,
+			warnings,
+			director_id,
+			OMIT_UNSUPPORTED_CHANNELS,
+			channel_reason,
 		)
 
 	var applied := false
@@ -83,10 +100,12 @@ static func apply_director_material(
 		mesh_instance.material_override = material
 		applied = true
 	if not applied:
-		warnings.append(
-			"%s: a Director material was authored but the payload has no meshes to apply it to." % entity_label
+		var no_mesh_reason := (
+			"%s: a Director material was authored but the payload has no meshes to apply it to (warn-and-omit code: %s)."
+			% [entity_label, OMIT_NO_MESH_TARGET]
 		)
-	return applied
+		_omit_material(omitted_materials, warnings, director_id, OMIT_NO_MESH_TARGET, no_mesh_reason)
+	return {"applied": applied, "omittedMaterials": omitted_materials}
 
 
 ## Saves every embedded payload texture (BaseMaterial3D texture slots) as a
@@ -108,12 +127,14 @@ static func externalize_textures(root: Node, warnings: Array) -> int:
 	return written
 
 
-## Appends a warning for every custom ShaderMaterial found under `root`.
-## Director translates glTF PBR / StandardMaterial3D only; custom shaders are
-## preserved in the Godot scene but cannot travel through the handoff.
-static func warn_on_custom_shaders(root: Node, warnings: Array) -> int:
+## Appends typed omittedMaterials + warnings for every custom ShaderMaterial
+## found under `root`. Director translates glTF PBR / StandardMaterial3D only;
+## custom shaders are preserved in the Godot scene but cannot travel through
+## the handoff. Returns {"found": int, "omittedMaterials": Array}.
+static func warn_on_custom_shaders(root: Node, warnings: Array) -> Dictionary:
 	var seen := {}
 	var found := 0
+	var omitted_materials: Array = []
 	for mesh_instance in collect_mesh_instances(root):
 		var candidates: Array = [mesh_instance.material_override]
 		var mesh: Mesh = mesh_instance.mesh
@@ -125,14 +146,17 @@ static func warn_on_custom_shaders(root: Node, warnings: Array) -> int:
 			if material is ShaderMaterial and not seen.has(material.get_rid()):
 				seen[material.get_rid()] = true
 				found += 1
-				warnings.append(
+				var director_id := str(mesh_instance.get_meta("director_id", mesh_instance.name))
+				var reason := (
 					(
 						"Node %s uses a custom ShaderMaterial; Director translates StandardMaterial3D / "
-						+ "glTF PBR only, so the shader stays in Godot and does not travel back (warn-and-omit)."
+						+ "glTF PBR only, so the shader stays in Godot and does not travel back "
+						+ "(warn-and-omit code: %s)."
 					)
-					% mesh_instance.name
+					% [mesh_instance.name, OMIT_CUSTOM_SHADER]
 				)
-	return found
+				_omit_material(omitted_materials, warnings, director_id, OMIT_CUSTOM_SHADER, reason)
+	return {"found": found, "omittedMaterials": omitted_materials}
 
 
 static func collect_mesh_instances(root: Node) -> Array:
@@ -145,6 +169,23 @@ static func collect_mesh_instances(root: Node) -> Array:
 		for child in node.get_children():
 			queue.append(child)
 	return found
+
+
+static func _omit_material(
+	omitted_materials: Array, warnings: Array, director_id: String, code: String, reason: String
+) -> void:
+	warnings.append(reason)
+	omitted_materials.append({"directorId": director_id, "code": code, "reason": reason})
+
+
+## Prefer the Node's director_id meta; fall back to parsing "Object <id>" labels.
+static func _director_id_from_label(entity_label: String, target: Node) -> String:
+	if target.has_meta("director_id"):
+		return str(target.get_meta("director_id"))
+	# Labels are authored as "Object <id>" by the headless importer.
+	if entity_label.begins_with("Object "):
+		return entity_label.substr(7).strip_edges()
+	return entity_label
 
 
 static func _externalize_material_textures(material, externalized: Dictionary, warnings: Array) -> int:
