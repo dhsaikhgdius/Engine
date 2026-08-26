@@ -42567,15 +42567,15 @@ function getDirectorProductionIssues(project) {
     const takePath = `production.takes.${takeIndex}`;
     addFrameRangeIssues(issues, takePath, take.frameStart, take.frameEnd);
     const takeObjectIds = /* @__PURE__ */ new Set();
-    take.objectIds.forEach((objectId, objectIndex) => {
+    take.objectIds.forEach((objectId2, objectIndex) => {
       const path = `${takePath}.objectIds.${objectIndex}`;
-      if (!objectIds2.has(objectId)) {
-        issues.push({ code: "missing-ref", path, message: `objectId "${objectId}" \u4E0D\u5B58\u5728` });
+      if (!objectIds2.has(objectId2)) {
+        issues.push({ code: "missing-ref", path, message: `objectId "${objectId2}" \u4E0D\u5B58\u5728` });
       }
-      if (takeObjectIds.has(objectId)) {
-        issues.push({ code: "duplicate-ref", path, message: `objectId "${objectId}" \u5728\u540C\u4E00 take \u4E2D\u91CD\u590D` });
+      if (takeObjectIds.has(objectId2)) {
+        issues.push({ code: "duplicate-ref", path, message: `objectId "${objectId2}" \u5728\u540C\u4E00 take \u4E2D\u91CD\u590D` });
       }
-      takeObjectIds.add(objectId);
+      takeObjectIds.add(objectId2);
     });
     const trackedObjectIds = /* @__PURE__ */ new Set();
     take.entityTracks.forEach((track, trackIndex) => {
@@ -54454,12 +54454,12 @@ function addDirectorProjectReferenceIssues(project, context) {
   });
   project.scene.measurements?.forEach((measurement, measurementIndex) => {
     ["start", "end"].forEach((endpoint) => {
-      const objectId = measurement[endpoint].objectId;
-      if (objectId && !objectIds2.has(objectId)) {
+      const objectId2 = measurement[endpoint].objectId;
+      if (objectId2 && !objectIds2.has(objectId2)) {
         context.addIssue({
           code: "custom",
           path: ["scene", "measurements", measurementIndex, endpoint, "objectId"],
-          message: `measurement object ${objectId} does not exist`
+          message: `measurement object ${objectId2} does not exist`
         });
       }
     });
@@ -118927,14 +118927,14 @@ function localBoundsFromCatalogSpatial(spatial) {
   };
 }
 function authoringFor(asset, name4, kind) {
-  const objectId = recommendedObjectId(asset.id);
+  const objectId2 = recommendedObjectId(asset.id);
   return {
-    object_id: objectId,
+    object_id: objectId2,
     actions: [
       { action: "upsert_asset", asset },
       {
         action: "add_object",
-        id: objectId,
+        id: objectId2,
         name: name4,
         kind,
         asset_id: asset.id,
@@ -119480,6 +119480,8 @@ var scenePatchSchema = external_exports.strictObject({
 }).refine((value) => Object.keys(value).length > 0, { message: "scene patch cannot be empty" });
 var objectUpdateSchema = external_exports.strictObject({
   name: name3.optional(),
+  /** Display label shared by every member of the target's crowd; only valid on crowd characters. */
+  crowd_label: external_exports.string().trim().min(1).max(240).nullable().optional(),
   visible: external_exports.boolean().optional(),
   locked: external_exports.boolean().optional(),
   layer: external_exports.string().trim().min(1).max(80).nullable().optional(),
@@ -122754,15 +122756,15 @@ function getDirectorProductionIssues2(project) {
     const takePath = `production.takes.${takeIndex}`;
     addFrameRangeIssues2(issues, takePath, take.frameStart, take.frameEnd);
     const takeObjectIds = /* @__PURE__ */ new Set();
-    take.objectIds.forEach((objectId, objectIndex) => {
+    take.objectIds.forEach((objectId2, objectIndex) => {
       const path = `${takePath}.objectIds.${objectIndex}`;
-      if (!objectIds2.has(objectId)) {
-        issues.push({ code: "missing-ref", path, message: `objectId "${objectId}" \u4E0D\u5B58\u5728` });
+      if (!objectIds2.has(objectId2)) {
+        issues.push({ code: "missing-ref", path, message: `objectId "${objectId2}" \u4E0D\u5B58\u5728` });
       }
-      if (takeObjectIds.has(objectId)) {
-        issues.push({ code: "duplicate-ref", path, message: `objectId "${objectId}" \u5728\u540C\u4E00 take \u4E2D\u91CD\u590D` });
+      if (takeObjectIds.has(objectId2)) {
+        issues.push({ code: "duplicate-ref", path, message: `objectId "${objectId2}" \u5728\u540C\u4E00 take \u4E2D\u91CD\u590D` });
       }
-      takeObjectIds.add(objectId);
+      takeObjectIds.add(objectId2);
     });
     const trackedObjectIds = /* @__PURE__ */ new Set();
     take.entityTracks.forEach((track, trackIndex) => {
@@ -123961,12 +123963,12 @@ function addDirectorProjectReferenceIssues2(project, context) {
   });
   project.scene.measurements?.forEach((measurement, measurementIndex) => {
     ["start", "end"].forEach((endpoint) => {
-      const objectId = measurement[endpoint].objectId;
-      if (objectId && !objectIds2.has(objectId)) {
+      const objectId2 = measurement[endpoint].objectId;
+      if (objectId2 && !objectIds2.has(objectId2)) {
         context.addIssue({
           code: "custom",
           path: ["scene", "measurements", measurementIndex, endpoint, "objectId"],
-          message: `measurement object ${objectId} does not exist`
+          message: `measurement object ${objectId2} does not exist`
         });
       }
     });
@@ -138057,59 +138059,391 @@ var directorGodotLiveLinkErrorCodeSchema = external_exports.enum([
   "live_link_session_limit"
 ]);
 
-// packages/protocol/src/filmPipelineProtocol.ts
+// packages/protocol/src/gameSliceProtocol.ts
+var GAME_SLICE_CONTRACT = "director-game-slice-v1";
+var gameSliceIdSchema = external_exports.string().regex(/^game-[a-z0-9-]{8,64}$/i);
 var nonEmptyText9 = (maximum) => external_exports.string().trim().min(1).max(maximum);
 var boundedText4 = (maximum) => external_exports.string().trim().max(maximum);
+var finite12 = external_exports.number().finite();
+var objectId = nonEmptyText9(200);
+var GAME_SLICE_GENRES = ["exploration", "fps", "racing", "fighting", "rpg"];
+var gameSliceGenreSchema = external_exports.enum(GAME_SLICE_GENRES);
+var GAME_SLICE_PERSPECTIVES = ["first", "third", "top_down"];
+var gameSlicePerspectiveSchema = external_exports.enum(GAME_SLICE_PERSPECTIVES);
+var GAME_SLICE_ENGINE_TARGETS = ["stage", "godot", "unity", "unreal"];
+var gameSliceEngineTargetSchema = external_exports.enum(GAME_SLICE_ENGINE_TARGETS);
+var GAME_SLICE_VERBS = [
+  "move",
+  "look",
+  "jump",
+  "sprint",
+  "dash",
+  "crouch",
+  "interact",
+  "attack",
+  "fire",
+  "reload",
+  "enter_vehicle",
+  "exit_vehicle",
+  "pause"
+];
+var gameSliceVerbSchema = external_exports.enum(GAME_SLICE_VERBS);
+var GAME_SLICE_ROLE_KINDS = [
+  "player",
+  "enemy",
+  "npc",
+  "prop",
+  "vehicle",
+  "spawn",
+  "objective",
+  "hazard"
+];
+var gameSliceRoleKindSchema = external_exports.enum(GAME_SLICE_ROLE_KINDS);
+var GAME_SLICE_HUD_WIDGETS = [
+  "health",
+  "ammo",
+  "score",
+  "prompt",
+  "minimap",
+  "crosshair",
+  "speedometer",
+  "dialogue",
+  "timer"
+];
+var gameSliceHudWidgetKindSchema = external_exports.enum(GAME_SLICE_HUD_WIDGETS);
+var GAME_SLICE_PLAYABILITY_CHECKS = [
+  "on_ground",
+  "facing_matches_move",
+  "no_camera_clip",
+  "verb_exercised",
+  "interaction_in_range",
+  "hud_bound",
+  "objective_reachable",
+  "no_stuck"
+];
+var gameSlicePlayabilityCheckSchema = external_exports.enum(GAME_SLICE_PLAYABILITY_CHECKS);
+var GAME_SLICE_STATUSES = ["draft", "bound", "playtested", "playable", "exported"];
+var gameSliceStatusSchema = external_exports.enum(GAME_SLICE_STATUSES);
+var gameSliceIssueSeveritySchema = external_exports.enum(["error", "warning", "info"]);
+var gameSliceBriefSchema = external_exports.strictObject({
+  requirement: nonEmptyText9(8e3),
+  genre: gameSliceGenreSchema,
+  perspective: gameSlicePerspectiveSchema.optional(),
+  engine_target: gameSliceEngineTargetSchema.optional(),
+  platform: boundedText4(120).optional(),
+  style: boundedText4(240).optional(),
+  references: external_exports.array(nonEmptyText9(500)).max(16).optional()
+});
+var gameSliceLoopSchema = external_exports.strictObject({
+  summary: nonEmptyText9(2e3),
+  verbs: external_exports.array(gameSliceVerbSchema).min(1).max(GAME_SLICE_VERBS.length),
+  win: nonEmptyText9(1e3),
+  lose: boundedText4(1e3).optional(),
+  respawn: external_exports.boolean().default(true)
+});
+var gameSliceControlsSchema = external_exports.strictObject({
+  scheme: external_exports.enum(["wasd_mouse", "gamepad", "twin_stick"]).default("wasd_mouse"),
+  camera: gameSlicePerspectiveSchema,
+  verbs: external_exports.array(gameSliceVerbSchema).min(1).max(GAME_SLICE_VERBS.length)
+});
+var gameSliceRoleSchema = external_exports.strictObject({
+  id: nonEmptyText9(80),
+  kind: gameSliceRoleKindSchema,
+  purpose: nonEmptyText9(500),
+  object_id: objectId.optional(),
+  asset_id: nonEmptyText9(200).optional()
+});
+var gameSliceHudWidgetSchema = external_exports.strictObject({
+  id: nonEmptyText9(80),
+  kind: gameSliceHudWidgetKindSchema,
+  label: nonEmptyText9(80),
+  role_id: nonEmptyText9(80).optional(),
+  channel: boundedText4(80).optional()
+});
+var gameSliceHudSchema = external_exports.strictObject({
+  widgets: external_exports.array(gameSliceHudWidgetSchema).max(16).default([])
+});
+var GAME_SLICE_ASSET_SOURCES = ["catalog", "project", "generated_3d", "blender_native", "licensed"];
+var gameSliceAssetSourceSchema = external_exports.enum(GAME_SLICE_ASSET_SOURCES);
+var gameSliceAssetBindingSchema = external_exports.strictObject({
+  role_id: nonEmptyText9(80),
+  source: gameSliceAssetSourceSchema,
+  asset_id: nonEmptyText9(240).optional(),
+  object_id: objectId.optional(),
+  license: boundedText4(160).optional(),
+  notes: boundedText4(500).optional()
+});
+var gameSliceAcceptanceSchema = external_exports.strictObject({
+  operations: external_exports.array(gameSliceVerbSchema).min(1).max(GAME_SLICE_VERBS.length),
+  playability_checks: external_exports.array(gameSlicePlayabilityCheckSchema).min(1).max(GAME_SLICE_PLAYABILITY_CHECKS.length),
+  style: boundedText4(240).optional()
+});
+var gamePlaytestInputSchema = external_exports.strictObject({
+  forward: external_exports.boolean().default(false),
+  backward: external_exports.boolean().default(false),
+  left: external_exports.boolean().default(false),
+  right: external_exports.boolean().default(false),
+  sprint: external_exports.boolean().default(false),
+  jump: external_exports.boolean().default(false),
+  descend: external_exports.boolean().default(false),
+  dash: external_exports.boolean().default(false),
+  crouch: external_exports.boolean().default(false),
+  interact: external_exports.boolean().default(false),
+  fire: external_exports.boolean().default(false),
+  pause: external_exports.boolean().default(false),
+  enter_vehicle: external_exports.boolean().default(false),
+  exit_vehicle: external_exports.boolean().default(false),
+  look_left: external_exports.boolean().default(false),
+  look_right: external_exports.boolean().default(false),
+  look_up: external_exports.boolean().default(false),
+  look_down: external_exports.boolean().default(false),
+  move_forward_axis: finite12.min(-1).max(1).optional(),
+  move_right_axis: finite12.min(-1).max(1).optional()
+});
+var gamePlaytestExpectSchema = external_exports.strictObject({
+  on_ground: external_exports.boolean().optional(),
+  min_speed_mps: finite12.min(0).max(200).optional(),
+  max_speed_mps: finite12.min(0).max(200).optional(),
+  reached_object_id: objectId.optional(),
+  reached_radius_m: finite12.min(0.05).max(50).optional(),
+  verb: gameSliceVerbSchema.optional()
+});
+var gamePlaytestStepSchema = external_exports.strictObject({
+  frames: external_exports.number().int().min(1).max(1e4),
+  input: gamePlaytestInputSchema,
+  expect: gamePlaytestExpectSchema.optional()
+});
+var gamePlaytestScriptSchema = external_exports.strictObject({
+  dt: finite12.min(1 / 240).max(1 / 10).default(1 / 30),
+  steps: external_exports.array(gamePlaytestStepSchema).min(1).max(256)
+});
+var gamePlaytestSampleSchema = external_exports.strictObject({
+  frame: external_exports.number().int().nonnegative().max(1048576),
+  time_s: finite12.min(0),
+  position: external_exports.tuple([finite12, finite12, finite12]),
+  yaw: finite12,
+  pitch: finite12.optional(),
+  velocity: external_exports.tuple([finite12, finite12, finite12]).optional(),
+  on_ground: external_exports.boolean(),
+  flying: external_exports.boolean().default(false),
+  verb: gameSliceVerbSchema.optional(),
+  interaction_object_id: objectId.optional(),
+  camera_clip: external_exports.boolean().default(false),
+  stuck: external_exports.boolean().default(false)
+});
+var gamePlaytestTraceSchema = external_exports.strictObject({
+  contract: external_exports.literal("director-game-playtest-trace-v1"),
+  slice_id: gameSliceIdSchema,
+  project_revision: nonEmptyText9(240).optional(),
+  dt: finite12.min(1 / 240).max(1 / 10),
+  samples: external_exports.array(gamePlaytestSampleSchema).min(1).max(1048576),
+  verbs_exercised: external_exports.array(gameSliceVerbSchema).max(GAME_SLICE_VERBS.length).default([])
+});
+var gameSliceIssueSchema = external_exports.strictObject({
+  code: external_exports.enum([
+    "fell_through_floor",
+    "facing_mismatch",
+    "camera_clip",
+    "stuck",
+    "verb_not_exercised",
+    "interaction_out_of_range",
+    "hud_unbound",
+    "player_unbound",
+    "objective_unreachable",
+    "expect_failed",
+    "style_unverified",
+    "engine_not_ready"
+  ]),
+  severity: gameSliceIssueSeveritySchema,
+  check: gameSlicePlayabilityCheckSchema.optional(),
+  message: nonEmptyText9(500),
+  sample_frame: external_exports.number().int().nonnegative().optional(),
+  role_id: nonEmptyText9(80).optional(),
+  object_id: objectId.optional(),
+  corrective_call: external_exports.unknown().optional()
+});
+var gameEvaluationReportSchema = external_exports.strictObject({
+  contract: external_exports.literal("director-game-evaluation-v1"),
+  slice_id: gameSliceIdSchema,
+  playable: external_exports.boolean(),
+  verbs_exercised: external_exports.array(gameSliceVerbSchema).max(GAME_SLICE_VERBS.length),
+  checks: external_exports.array(
+    external_exports.strictObject({
+      check: gameSlicePlayabilityCheckSchema,
+      passed: external_exports.boolean()
+    })
+  ),
+  issues: external_exports.array(gameSliceIssueSchema).max(128),
+  notes: external_exports.array(nonEmptyText9(500)).max(32).default([])
+});
+var gameSliceSchema = external_exports.strictObject({
+  contract: external_exports.literal(GAME_SLICE_CONTRACT),
+  id: gameSliceIdSchema,
+  title: nonEmptyText9(160),
+  status: gameSliceStatusSchema,
+  brief: gameSliceBriefSchema,
+  loop: gameSliceLoopSchema,
+  controls: gameSliceControlsSchema,
+  roles: external_exports.array(gameSliceRoleSchema).min(1).max(64),
+  hud: gameSliceHudSchema,
+  assets: external_exports.array(gameSliceAssetBindingSchema).max(64).default([]),
+  acceptance: gameSliceAcceptanceSchema,
+  project_revision: nonEmptyText9(240).optional(),
+  last_playtest_id: nonEmptyText9(80).optional(),
+  last_evaluation: gameEvaluationReportSchema.optional(),
+  export: external_exports.strictObject({
+    provider: external_exports.enum(["godot", "unity", "unreal"]),
+    package_dir: nonEmptyText9(2048).optional(),
+    notes: external_exports.array(nonEmptyText9(500)).max(16).default([])
+  }).optional(),
+  notes: external_exports.array(nonEmptyText9(500)).max(32).default([]),
+  created_at: external_exports.string().min(1).max(40),
+  updated_at: external_exports.string().min(1).max(40)
+});
+var gameSliceBindPatchSchema = external_exports.strictObject({
+  role_id: nonEmptyText9(80),
+  object_id: objectId.optional(),
+  asset_id: nonEmptyText9(200).optional(),
+  source: gameSliceAssetSourceSchema.optional(),
+  license: boundedText4(160).optional()
+});
+
+// packages/protocol/src/directorGameProtocol.ts
+var nonEmptyText10 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var directorGameOperationSchema = external_exports.discriminatedUnion("op", [
+  strictOperation("capabilities", {}),
+  /** Progressive schema disclosure. No slice state, no Stage tab. */
+  strictOperation("describe", { target: nonEmptyText10(200) }),
+  strictOperation("plan", {
+    brief: gameSliceBriefSchema,
+    title: nonEmptyText10(160).optional(),
+    slice_id: gameSliceIdSchema.optional()
+  }),
+  strictOperation("observe", {
+    slice_id: gameSliceIdSchema.optional(),
+    limit: external_exports.number().int().min(1).max(100).optional()
+  }),
+  strictOperation("bind", {
+    slice_id: gameSliceIdSchema,
+    bindings: external_exports.array(gameSliceBindPatchSchema).min(1).max(64),
+    project_revision: nonEmptyText10(240).optional()
+  }),
+  strictOperation("author_loop", {
+    slice_id: gameSliceIdSchema,
+    loop: gameSliceLoopSchema.partial(),
+    controls: gameSliceControlsSchema.partial().optional()
+  }),
+  strictOperation("author_hud", {
+    slice_id: gameSliceIdSchema,
+    hud: gameSliceHudSchema
+  }),
+  strictOperation("playtest", {
+    slice_id: gameSliceIdSchema,
+    script: gamePlaytestScriptSchema,
+    project_revision: nonEmptyText10(240).optional(),
+    /** Host-free path: supply a recorded trace instead of driving the live player. */
+    trace: gamePlaytestTraceSchema.optional()
+  }),
+  strictOperation("evaluate", {
+    slice_id: gameSliceIdSchema,
+    trace: gamePlaytestTraceSchema.optional()
+  }),
+  /**
+   * Hand the bound Stage scene to an engine through `director_dcc`.
+   * Requires status `playable`. `stage` is not an export provider.
+   */
+  strictOperation("export_slice", {
+    slice_id: gameSliceIdSchema,
+    provider: external_exports.enum(["godot", "unity", "unreal"]),
+    formats: external_exports.array(external_exports.enum(["glb", "usda"])).min(1).max(2).optional()
+  })
+]);
+var directorGameOperationNames = directorGameOperationSchema.options.map(
+  (option) => option.shape.op.value
+);
+var directorGameSuccessEnvelopeSchema = external_exports.strictObject({
+  success: external_exports.literal(true),
+  result: external_exports.unknown()
+});
+var directorGameRejectionEnvelopeSchema = external_exports.strictObject({
+  success: external_exports.literal(false),
+  code: external_exports.string().min(1).max(80),
+  error: external_exports.string().min(1).max(2e3),
+  corrective_call: external_exports.unknown().optional(),
+  result: external_exports.unknown().optional()
+});
+var directorGameEnvelopeSchema = external_exports.discriminatedUnion("success", [
+  directorGameSuccessEnvelopeSchema,
+  directorGameRejectionEnvelopeSchema
+]);
+
+// packages/protocol/src/filmPipelineProtocol.ts
+var nonEmptyText11 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var boundedText5 = (maximum) => external_exports.string().trim().max(maximum);
 var shotIndex = external_exports.number().int().min(0).max(4096);
 var filmRunIdSchema = external_exports.string().regex(/^film-[a-z0-9-]{8,64}$/i);
+var filmRunErrorCodeSchema = external_exports.enum([
+  /** The owning gateway process exited while the run was queued or running. */
+  "film_run_interrupted",
+  /** A hosted LLM/image/video provider call failed. */
+  "film_provider_error",
+  /** Any other execution failure (planning validation, ffmpeg, filesystem, …). */
+  "film_run_error"
+]);
+var filmPipelineAvailabilitySchema = external_exports.strictObject({
+  /** True when the planning LLM plus image and video providers are configured. */
+  configured: external_exports.boolean(),
+  /** Missing-config diagnostic (a reported state, not an error); null when configured. */
+  reason: external_exports.string().max(500).nullable()
+});
 var filmCharacterSchema = external_exports.strictObject({
   idx: shotIndex,
   /** Stable identifier used inside descriptions, e.g. "Alice" or "老渔夫". */
-  name: nonEmptyText9(240),
+  name: nonEmptyText11(240),
   /** Off-screen voices are never sent to the portrait generator. */
   isVisible: external_exports.boolean(),
   /** Facial features, body shape and other rarely-changing traits. */
-  staticFeatures: boundedText4(4e3).default(""),
+  staticFeatures: boundedText5(4e3).default(""),
   /** Clothing, accessories and other scene-variable traits. */
-  dynamicFeatures: boundedText4(4e3).nullable().default(null)
+  dynamicFeatures: boundedText5(4e3).nullable().default(null)
 });
 var shotBriefSchema = external_exports.strictObject({
   idx: shotIndex,
   /** Shots sharing one physical camera setup share a camIdx. */
   camIdx: shotIndex,
-  visualDesc: nonEmptyText9(8e3),
-  audioDesc: boundedText4(4e3).default("")
+  visualDesc: nonEmptyText11(8e3),
+  audioDesc: boundedText5(4e3).default("")
 });
 var shotVariationSchema = external_exports.enum(["small", "medium", "large"]);
 var shotSpecSchema = external_exports.strictObject({
   idx: shotIndex,
   camIdx: shotIndex,
-  visualDesc: nonEmptyText9(8e3),
+  visualDesc: nonEmptyText11(8e3),
   /** medium/large shots additionally require a generated last frame. */
   variationType: shotVariationSchema,
-  variationReason: boundedText4(4e3).default(""),
+  variationReason: boundedText5(4e3).default(""),
   /** First-frame still description; a pure snapshot without ongoing motion. */
-  ffDesc: nonEmptyText9(8e3),
+  ffDesc: nonEmptyText11(8e3),
   ffVisCharIdxs: external_exports.array(shotIndex).max(64).default([]),
-  lfDesc: boundedText4(8e3).default(""),
+  lfDesc: boundedText5(8e3).default(""),
   lfVisCharIdxs: external_exports.array(shotIndex).max(64).default([]),
   /** Camera and subject motion connecting first and last frame, plus dialogue. */
-  motionDesc: nonEmptyText9(8e3),
-  audioDesc: boundedText4(4e3).default("")
+  motionDesc: nonEmptyText11(8e3),
+  audioDesc: boundedText5(4e3).default("")
 });
 var cameraPlanNodeSchema = external_exports.strictObject({
   idx: shotIndex,
   activeShotIdxs: external_exports.array(shotIndex).min(1).max(512),
   parentCamIdx: shotIndex.nullable().default(null),
   parentShotIdx: shotIndex.nullable().default(null),
-  reason: boundedText4(4e3).nullable().default(null),
+  reason: boundedText5(4e3).nullable().default(null),
   isParentFullyCoversChild: external_exports.boolean().nullable().default(null),
-  missingInfo: boundedText4(4e3).nullable().default(null)
+  missingInfo: boundedText5(4e3).nullable().default(null)
 });
 var portraitViewSchema = external_exports.enum(["front", "side", "back"]);
 var portraitEntrySchema = external_exports.strictObject({
-  path: nonEmptyText9(2048),
-  description: nonEmptyText9(2e3)
+  path: nonEmptyText11(2048),
+  description: nonEmptyText11(2e3)
 });
 var characterPortraitsSchema = external_exports.strictObject({
   front: portraitEntrySchema,
@@ -138120,16 +138454,16 @@ var portraitRegistrySchema = external_exports.record(external_exports.string(), 
 var stageReferenceSchema = external_exports.strictObject({
   sceneIdx: shotIndex,
   shotIdx: shotIndex,
-  imagePath: nonEmptyText9(2048),
-  note: boundedText4(2e3).default(
+  imagePath: nonEmptyText11(2048),
+  note: boundedText5(2e3).default(
     "White-box stage capture: composition, camera angle and spatial blocking are authoritative. Replace mannequin characters and untextured geometry with the final styled characters and environment while preserving the layout."
   )
 });
 var characterReferenceSchema = external_exports.strictObject({
-  name: nonEmptyText9(240),
+  name: nonEmptyText11(240),
   view: portraitViewSchema.default("front"),
-  imagePath: nonEmptyText9(2048),
-  note: boundedText4(2e3).default("")
+  imagePath: nonEmptyText11(2048),
+  note: boundedText5(2e3).default("")
 });
 var filmWorkflowSchema = external_exports.enum(["idea-to-film", "script-to-film"]);
 var filmRunStatusSchema = external_exports.enum([
@@ -138152,7 +138486,7 @@ var filmRunPhaseSchema = external_exports.enum([
 ]);
 var filmSceneStateSchema = external_exports.strictObject({
   idx: shotIndex,
-  script: nonEmptyText9(64e3),
+  script: nonEmptyText11(64e3),
   storyboard: external_exports.array(shotBriefSchema).max(512).nullable().default(null),
   shotSpecs: external_exports.array(shotSpecSchema).max(512).nullable().default(null),
   cameraPlan: external_exports.array(cameraPlanNodeSchema).max(512).nullable().default(null),
@@ -138162,12 +138496,12 @@ var filmSceneStateSchema = external_exports.strictObject({
   videoPath: external_exports.string().nullable().default(null)
 });
 var filmRunInputSchema = external_exports.strictObject({
-  idea: nonEmptyText9(16e3).optional(),
-  script: nonEmptyText9(12e4).optional(),
+  idea: nonEmptyText11(16e3).optional(),
+  script: nonEmptyText11(12e4).optional(),
   /** Pre-split scene scripts skip scene segmentation entirely. */
-  sceneScripts: external_exports.array(nonEmptyText9(64e3)).min(1).max(64).optional(),
-  userRequirement: boundedText4(8e3).default(""),
-  style: nonEmptyText9(500).default("cinematic, photorealistic film still, motivated lighting"),
+  sceneScripts: external_exports.array(nonEmptyText11(64e3)).min(1).max(64).optional(),
+  userRequirement: boundedText5(8e3).default(""),
+  style: nonEmptyText11(500).default("cinematic, photorealistic film still, motivated lighting"),
   aspectRatio: external_exports.enum(["16:9", "9:16", "2.39:1", "1:1"]).default("16:9"),
   /** Pause after planning so a human or agent can review artifacts. */
   reviewGate: external_exports.boolean().default(false),
@@ -138186,9 +138520,16 @@ var filmRunInputSchema = external_exports.strictObject({
 });
 var filmRunEventSchema = external_exports.strictObject({
   at: external_exports.string(),
-  stage: nonEmptyText9(120),
-  message: nonEmptyText9(2e3)
+  stage: nonEmptyText11(120),
+  message: nonEmptyText11(2e3)
 });
+var filmRunPhaseReceiptSchema = external_exports.strictObject({
+  phase: filmRunPhaseSchema,
+  startedAt: external_exports.string(),
+  /** Null while the run is still inside the phase. */
+  finishedAt: external_exports.string().nullable().default(null)
+});
+var FILM_RUN_PHASE_RECEIPT_LIMIT = 64;
 var filmRunSchema = external_exports.strictObject({
   version: external_exports.literal(1),
   id: filmRunIdSchema,
@@ -138205,8 +138546,12 @@ var filmRunSchema = external_exports.strictObject({
   timelinePath: external_exports.string().nullable().default(null),
   approvedAt: external_exports.string().nullable().default(null),
   error: external_exports.string().nullable().default(null),
+  /** Stable classification of `error`; null when the run carries no error. */
+  errorCode: filmRunErrorCodeSchema.nullable().default(null),
   /** Bounded progress log; oldest entries are dropped past 200. */
   events: external_exports.array(filmRunEventSchema).max(200).default([]),
+  /** Durable per-phase execution receipts, oldest first; bounded window. */
+  phaseReceipts: external_exports.array(filmRunPhaseReceiptSchema).max(FILM_RUN_PHASE_RECEIPT_LIMIT).default([]),
   createdAt: external_exports.string(),
   updatedAt: external_exports.string()
 });
@@ -138265,8 +138610,11 @@ var STAGE_AUTHOR_TOOLS = /* @__PURE__ */ new Set([
   "stage_camera",
   "stage_show",
   "director_workbench",
-  "blender_native"
+  "blender_native",
+  "director_game"
 ]);
+var READ_ONLY_GAME_OPERATIONS = /* @__PURE__ */ new Set(["capabilities", "describe", "observe", "evaluate"]);
+var GAME_EVIDENCE_OPERATIONS = /* @__PURE__ */ new Set(["capabilities", "describe", "observe", "evaluate", "playtest"]);
 function isReadOnlyCreativeOperation(values) {
   const operation2 = typeof values?.op === "string" ? values.op : "";
   if (READ_ONLY_CREATIVE_OPERATIONS.has(operation2)) return true;
@@ -138304,6 +138652,7 @@ function isReadOnlyDirectorTool(tool, input) {
   if (tool === "director_creative") return isReadOnlyCreativeOperation(values);
   if (tool === "stage_video") return operation2 === "capabilities" || operation2 === "status";
   if (tool === "blender_native") return READ_ONLY_BLENDER_OPERATIONS.has(operation2);
+  if (tool === "director_game") return READ_ONLY_GAME_OPERATIONS.has(operation2);
   return false;
 }
 function planModeToolPolicyRejection(planMode, tool, input) {
@@ -138328,10 +138677,10 @@ function roleAllowsTool(roleId, tool, input) {
     return tool === "stage_video" || tool === "stage_read" || tool === "blender_native" && READ_ONLY_BLENDER_OPERATIONS.has(operation2) || tool === "director_workbench" && READ_ONLY_WORKBENCH_OPERATIONS.has(operation2) || tool === "director_creative" && isCanvasPipelineOperatorOperation(values);
   }
   if (roleId === "visual-critic") {
-    return tool === "stage_read" || tool === "blender_native" && READ_ONLY_BLENDER_OPERATIONS.has(operation2) || tool === "director_workbench" && VISUAL_EVIDENCE_WORKBENCH_OPERATIONS.has(operation2) || tool === "director_creative" && isReadOnlyCreativeOperation(values);
+    return tool === "stage_read" || tool === "blender_native" && READ_ONLY_BLENDER_OPERATIONS.has(operation2) || tool === "director_workbench" && VISUAL_EVIDENCE_WORKBENCH_OPERATIONS.has(operation2) || tool === "director_creative" && isReadOnlyCreativeOperation(values) || tool === "director_game" && GAME_EVIDENCE_OPERATIONS.has(operation2);
   }
   if (roleId === "editor") return tool === "director_creative" || tool === "stage_read";
-  return tool === "stage_read" || tool === "blender_native" && READ_ONLY_BLENDER_OPERATIONS.has(operation2) || tool === "director_workbench" && READ_ONLY_WORKBENCH_OPERATIONS.has(operation2) || tool === "director_creative" && isReadOnlyCreativeOperation(values);
+  return tool === "stage_read" || tool === "blender_native" && READ_ONLY_BLENDER_OPERATIONS.has(operation2) || tool === "director_workbench" && READ_ONLY_WORKBENCH_OPERATIONS.has(operation2) || tool === "director_creative" && isReadOnlyCreativeOperation(values) || tool === "director_game" && READ_ONLY_GAME_OPERATIONS.has(operation2);
 }
 function roleCanSeeTool(roleId, tool) {
   const op = tool === "blender_native" ? "status" : tool === "stage_read" ? "observe" : "capabilities";
@@ -138544,6 +138893,18 @@ var DIRECTOR_AGENT_WIRE_SCHEMAS = {
     height: external_exports.number().int().optional(),
     assetType: external_exports.enum(["hdris", "textures", "models", "all"]).optional().describe('For op="polyhaven_search".'),
     uid: external_exports.string().optional().describe("Sketchfab model uid for sketchfab_import.")
+  }),
+  director_game: compactWireSchema(
+    directorGameOperationSchema,
+    'Operation. Use {"op":"capabilities"} or {"op":"describe","target":"plan"} when fields are unknown. Stage is the first playable runtime; engine export is director_dcc after a playable receipt.'
+  ).extend({
+    target: external_exports.string().optional().describe('Required for op="describe", e.g. "plan" or "playtest".'),
+    slice_id: gameSliceIdSchema.optional().describe("Existing slice id for observe/bind/playtest/evaluate/export_slice."),
+    brief: external_exports.looseObject({ requirement: external_exports.string().min(1), genre: gameSliceGenreSchema }).optional().describe('Required for op="plan": requirement plus genre. Exact fields via describe target "plan".'),
+    bindings: external_exports.array(external_exports.looseObject({ role_id: external_exports.string().min(1) })).optional().describe('Required for op="bind": role_id plus object_id from the Stage scene.'),
+    script: external_exports.looseObject({ steps: external_exports.array(external_exports.looseObject({})).min(1) }).optional().describe('Required for op="playtest": held-input tape. A compile is not a playtest.'),
+    trace: external_exports.looseObject({}).optional().describe("Optional host-free playtest samples when no Stage tab is attached."),
+    provider: external_exports.enum(["godot", "unity", "unreal"]).optional().describe('For op="export_slice": godot, unity, or unreal. "stage" is not an export provider.')
   })
 };
 var DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
@@ -138574,6 +138935,13 @@ var DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
     description: `Operate Blender's native modeling and rig surface in the same Director project. Use this for unique architecture and set pieces that are not in the catalog; successful edits synchronize automatically, never via GLB re-import. White-box shells use apply create_blockout (presets floor/wall/room/corridor/stairs, metric metres, stable ids "<idPrefix>:1..n"); door/window holes use create_opening on the wall, never a darker box. Call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search","assetType":"models","query":"chair"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Native stills are {"op":"capture"} or the alias {"op":"capture_render"}. Describe typed apply ops with {"op":"describe","target":"create_blockout"} when a field is unknown. invoke_operator covers most Blender RNA; execute_code runs Python when that is not enough. Missing scene epoch, revision, and intent id are filled by the gateway.`,
     inputSchema: external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native),
     dshParameters: dshToolParameters(external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native))
+  },
+  {
+    type: "function",
+    name: "director_game",
+    description: 'Plan and playtest a typed game slice on the live Director Stage. Start with {"op":"capabilities"} or {"op":"describe","target":"plan"}; bind Stage object ids before playtest; a scripted input tape is playability evidence, not a compile. Engine export is director_dcc after status playable \u2014 do not dump engine source.',
+    inputSchema: external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_game),
+    dshParameters: dshToolParameters(external_exports.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_game))
   }
 ];
 var DIRECTOR_WORKBENCH_PLUGIN_TOOL_NAMES = DIRECTOR_WORKBENCH_PLUGIN_TOOLS.map((tool) => tool.name);
@@ -138702,9 +139070,18 @@ var wireSchemas = {
   director_dcc: compactWireSchema(
     directorDccOperationSchema,
     "Operation. Call discover first to see provider readiness, formats, and capability maturity."
+  ),
+  director_game: compactWireSchema(
+    directorGameOperationSchema,
+    'Operation. Use {"op":"capabilities"} or {"op":"describe","target":"plan"} when fields are unknown. Stage is the first playable runtime.'
   )
 };
 var directorDccOutputSchema = external_exports.strictObject({
+  ok: external_exports.boolean(),
+  result: external_exports.unknown().nullable(),
+  error: external_exports.string().nullable()
+});
+var directorGameOutputSchema = external_exports.strictObject({
   ok: external_exports.boolean(),
   result: external_exports.unknown().nullable(),
   error: external_exports.string().nullable()
@@ -139132,6 +139509,58 @@ registerVisibleTool("director_dcc", () => {
             {
               type: "text",
               text: `Director DCC gateway is unavailable at ${gatewayUrl}. Start it with "npm run gateway" or "npm run dev". ${error52 instanceof Error ? error52.message : String(error52)}`
+            }
+          ],
+          isError: true
+        };
+      }
+    }
+  );
+});
+registerVisibleTool("director_game", () => {
+  server.registerTool(
+    "director_game",
+    {
+      title: "Director Game Slice",
+      description: 'Plan and playtest a typed game slice on the live Director Stage. Call {"op":"capabilities"} or {"op":"describe","target":"plan"} when fields are unknown. Bind Stage object ids, then playtest with a scripted input tape. Engine export is director_dcc after status playable; do not dump engine source.',
+      inputSchema: wireSchemas.director_game,
+      outputSchema: directorGameOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false
+      }
+    },
+    async (input) => {
+      const rejection = await policyRejectedToolResponse("director_game", input);
+      if (rejection) return rejection;
+      try {
+        const parsedInput = parseToolInput(directorGameOperationSchema, input, "director_game");
+        const response = await authenticatedGatewayFetch("/api/tools/director_game", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ input: parsedInput, session_id: sessionId })
+        });
+        const payload = await response.json();
+        const parsedPayload = external_exports.looseObject({ success: external_exports.boolean(), result: external_exports.unknown().optional(), error: external_exports.string().optional() }).safeParse(payload);
+        if (!parsedPayload.success) throw new Error("Gateway returned malformed director_game JSON.");
+        const structuredContent = {
+          ok: parsedPayload.data.success,
+          result: parsedPayload.data.result ?? null,
+          error: parsedPayload.data.error ?? null
+        };
+        return {
+          content: [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }],
+          structuredContent,
+          isError: !structuredContent.ok
+        };
+      } catch (error52) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Director game gateway is unavailable at ${gatewayUrl}. Start it with "npm run gateway" or "npm run dev". ${error52 instanceof Error ? error52.message : String(error52)}`
             }
           ],
           isError: true
