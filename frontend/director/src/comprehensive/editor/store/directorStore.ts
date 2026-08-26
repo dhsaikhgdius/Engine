@@ -1445,7 +1445,17 @@ function resolveWorldUpsertMode(
 }
 
 /** Snake_case authoring fields shared by add_world_effect / update_world_effect. */
+function worldFirePropagationAuthoring(propagation: DirectorWorldEffect["propagation"]) {
+  if (!propagation) return undefined;
+  return {
+    enabled: propagation.enabled,
+    radius_m: propagation.radiusM,
+    spread_rate: propagation.spreadRate,
+  };
+}
+
 function worldEffectAuthoringFields(effect: DirectorWorldEffect) {
+  const propagation = worldFirePropagationAuthoring(effect.propagation);
   return {
     name: effect.name,
     kind: effect.kind,
@@ -1459,6 +1469,7 @@ function worldEffectAuthoringFields(effect: DirectorWorldEffect) {
     speed_scale: effect.speedScale,
     wind_influence: effect.windInfluence,
     seed_offset: effect.seedOffset,
+    ...(propagation ? { propagation } : {}),
   };
 }
 
@@ -3374,7 +3385,11 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     },
     upsertWorldWaterBody: (body) => {
       if (canUseAuthoringPath()) {
-        const mode = resolveWorldUpsertMode(get().project.world?.waterBodies ?? [], body, DIRECTOR_WORLD_MAX_WATER_BODIES);
+        const mode = resolveWorldUpsertMode(
+          get().project.world?.waterBodies ?? [],
+          body,
+          DIRECTOR_WORLD_MAX_WATER_BODIES,
+        );
         if (mode === "capacity") return false;
         if (mode === "update") {
           return dispatchUiAuthoring(
@@ -3446,11 +3461,14 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     upsertWorldWildlifeGroup: (group) => {
       // add_world_wildlife_group injects a default flight band for aerial
       // species; an intentionally band-less aerial group keeps the local path.
-      const needsAltitudeFallback =
-        !group.altitude && (group.species === "birds" || group.species === "butterflies");
+      const needsAltitudeFallback = !group.altitude && (group.species === "birds" || group.species === "butterflies");
       const assetExists = !group.assetId || get().project.assets.some((asset) => asset.id === group.assetId);
       if (canUseAuthoringPath() && !needsAltitudeFallback && assetExists) {
-        const mode = resolveWorldUpsertMode(get().project.world?.wildlife ?? [], group, DIRECTOR_WORLD_MAX_WILDLIFE_GROUPS);
+        const mode = resolveWorldUpsertMode(
+          get().project.world?.wildlife ?? [],
+          group,
+          DIRECTOR_WORLD_MAX_WILDLIFE_GROUPS,
+        );
         if (mode === "capacity") return false;
         if (mode === "update") {
           return dispatchUiAuthoring(
@@ -3729,9 +3747,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       const currentProject = get().project;
       const applicable = updates.filter((update) => {
         const object = currentProject.objects.find((item) => item.id === update.id);
-        return (
-          object && !isObjectTransformEffectivelyLocked(currentProject.scene, currentProject.objects, object)
-        );
+        return object && !isObjectTransformEffectivelyLocked(currentProject.scene, currentProject.objects, object);
       });
       // Cameras sync their linked rig, composite parents propagate to children,
       // and object-focused cameras need the UI refresh helper, so any of those
@@ -3742,9 +3758,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         return (
           object.kind === "camera" ||
           object.isCompositeParent ||
-          currentProject.cameras.some(
-            (camera) => camera.targetMode === "object" && camera.targetObjectId === update.id,
-          )
+          currentProject.cameras.some((camera) => camera.targetMode === "object" && camera.targetObjectId === update.id)
         );
       });
       if (canUseAuthoringPath() && applicable.length && !needsUiOnlyHandling) {
@@ -5056,7 +5070,10 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         currentObject.kind !== "camera" &&
         !(currentObject.nativeSource?.engine === "blender" && currentObject.nativeSource.provisioned !== false)
       ) {
-        dispatchUiAuthoring([{ action: "update_object", object_id: id, patch: { color }, force: true }], `ui-color:${id}`);
+        dispatchUiAuthoring(
+          [{ action: "update_object", object_id: id, patch: { color }, force: true }],
+          `ui-color:${id}`,
+        );
         return;
       }
       commitMutation((state) =>

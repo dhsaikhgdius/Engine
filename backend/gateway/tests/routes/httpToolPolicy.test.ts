@@ -197,18 +197,11 @@ describe("raw HTTP film-role policy on POST /api/tools", () => {
       },
       { filmRoleId: null },
     );
-    dependencies.requestWorkbenchCommand = vi
-      .fn()
-      .mockResolvedValueOnce({
-        client: {},
-        target: TARGET,
-        response: { success: true, result: { project_revision: REVISION_A } },
-      })
-      .mockResolvedValueOnce({
-        client: {},
-        target: TARGET,
-        response: { success: true, result: { changed: true } },
-      });
+    dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue({
+      client: {},
+      target: TARGET,
+      response: { success: true, result: { project_revision: REVISION_A, changed: true, characters: [] } },
+    });
 
     await handleStageRoute(
       request(),
