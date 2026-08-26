@@ -1049,10 +1049,9 @@ export const creativeWorkspaceInterchangePlanSchema = z.strictObject({
 });
 
 /**
- * Typed interchange import omissions (Fountain storyboard import and Creative
- * OTIO/OTIOZ video import). Optional on older plans; when `omitted` is present,
- * length must equal `omitted_count`.
- */
+ * Typed interchange import omissions (Fountain storyboard, Creative OTIO/OTIOZ
+ * video, and glTF/GLB Stage import). Optional on older plans; when `omitted` is
+ * present, length must equal `omitted_count`. */
 export const creativeWorkspaceInterchangeOmittedCodeSchema = z.enum([
   // Fountain → storyboard
   "character_dialogue",
@@ -1067,6 +1066,10 @@ export const creativeWorkspaceInterchangeOmittedCodeSchema = z.enum([
   "unsupported_as_gap",
   "clip_limit",
   "offline_media",
+  // glTF / GLB → Stage
+  "embedded_manifest_invalid",
+  "duplicate_stable_id",
+  "empty_project_no_metadata",
 ]);
 
 export const creativeWorkspaceInterchangeOmittedSchema = z.strictObject({

@@ -3670,5 +3670,9 @@
   "材质无网格目标": "Material has no mesh target",
   "自定义着色器材质": "Custom shader material",
   "父材质不可用": "Parent material unavailable",
-  "材质应用失败": "Material application failed"
+  "材质应用失败": "Material application failed",
+  "glTF 导入省略": "glTF import omissions",
+  "嵌入工程清单无效": "Embedded project manifest invalid",
+  "重复稳定 ID 已忽略": "Duplicate stable ID ignored",
+  "无 Director 元数据": "No Director metadata"
 }
