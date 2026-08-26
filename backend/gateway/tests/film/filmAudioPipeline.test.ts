@@ -172,6 +172,72 @@ describe("OpenAiSpeechProvider", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(vi.mocked(fetchImpl)).not.toHaveBeenCalled();
   });
+
+  it("meters one film-tts sample per successful synthesis call", async () => {
+    const meter = vi.fn();
+    const fetchImpl = vi.fn(async () => new Response(Buffer.from("mp3-bytes"), { status: 200 })) as typeof fetch;
+    const provider = new OpenAiSpeechProvider({
+      baseUrl: "https://tts.example.com/v1",
+      model: "gpt-4o-mini-tts",
+      fetchImpl,
+      meter,
+    });
+
+    await provider.synthesizeSpeech({ text: "hi", voice: "alloy" });
+
+    expect(meter).toHaveBeenCalledTimes(1);
+    expect(meter).toHaveBeenCalledWith({
+      scope: "film-tts",
+      provider: "speech-api:gpt-4o-mini-tts",
+      model: "gpt-4o-mini-tts",
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      duration_ms: expect.any(Number),
+      retries: 0,
+      succeeded: true,
+    });
+  });
+
+  it("counts retry rounds in the single metered sample", async () => {
+    const meter = vi.fn();
+    let attempt = 0;
+    const fetchImpl = vi.fn(async () => {
+      attempt += 1;
+      if (attempt <= 2) return new Response("busy", { status: 429, headers: { "retry-after": "0" } });
+      return new Response(Buffer.from("recovered"), { status: 200 });
+    }) as typeof fetch;
+    const provider = new OpenAiSpeechProvider({ baseUrl: "https://tts.example.com/v1", model: "tts-1", fetchImpl, meter });
+
+    await provider.synthesizeSpeech({ text: "hi", voice: "alloy" });
+
+    expect(meter).toHaveBeenCalledTimes(1);
+    expect(meter).toHaveBeenCalledWith(expect.objectContaining({ scope: "film-tts", retries: 2, succeeded: true }));
+  });
+
+  it("meters a failed sample when the request fails closed", async () => {
+    const meter = vi.fn();
+    const fetchImpl = vi.fn(async () => new Response("denied", { status: 401 })) as typeof fetch;
+    const provider = new OpenAiSpeechProvider({ baseUrl: "https://tts.example.com/v1", model: "tts-1", fetchImpl, meter });
+
+    await expect(provider.synthesizeSpeech({ text: "hi", voice: "alloy" })).rejects.toThrow("401");
+
+    expect(meter).toHaveBeenCalledTimes(1);
+    expect(meter).toHaveBeenCalledWith(expect.objectContaining({ scope: "film-tts", retries: 0, succeeded: false }));
+  });
+
+  it("does not meter a sample when the signal was aborted before any request", async () => {
+    const meter = vi.fn();
+    const fetchImpl = vi.fn() as typeof fetch;
+    const provider = new OpenAiSpeechProvider({ baseUrl: "https://tts.example.com/v1", model: "tts-1", fetchImpl, meter });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      provider.synthesizeSpeech({ text: "hi", voice: "alloy", signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(meter).not.toHaveBeenCalled();
+  });
 });
 
 describe("FilmAudioMixer", () => {

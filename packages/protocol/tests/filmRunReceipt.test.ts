@@ -86,6 +86,15 @@ describe("filmRunReceipt", () => {
           retries: 0,
           failure_count: 0,
         },
+        "film-tts": {
+          sample_count: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          total_tokens: 0,
+          total_duration_ms: 0,
+          retries: 0,
+          failure_count: 0,
+        },
       },
     });
     // Deterministic: the same document always yields the same receipt.
@@ -130,6 +139,43 @@ describe("filmRunReceipt", () => {
     expect(receipt.usage["film-llm"].total_tokens).toBe(140);
     expect(receipt.usage["film-image"].total_duration_ms).toBe(1_200);
     expect(receipt.usage["film-video"].sample_count).toBe(0);
+    // Run documents persisted before speech metering existed carry no
+    // film-tts key; the schema backfills zeros instead of rejecting them.
+    expect(receipt.usage["film-tts"].sample_count).toBe(0);
+  });
+
+  it("projects metered speech synthesis usage onto the receipt", () => {
+    const zeros = {
+      sample_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      total_duration_ms: 0,
+      retries: 0,
+      failure_count: 0,
+    };
+    const receipt = projectFilmRunReceipt(
+      makeRun({
+        usage: {
+          "film-llm": zeros,
+          "film-image": zeros,
+          "film-video": zeros,
+          "film-tts": {
+            sample_count: 3,
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            total_duration_ms: 2_400,
+            retries: 1,
+            failure_count: 1,
+          },
+        },
+      }),
+    );
+    expect(receipt.usage["film-tts"].sample_count).toBe(3);
+    expect(receipt.usage["film-tts"].total_duration_ms).toBe(2_400);
+    expect(receipt.usage["film-tts"].failure_count).toBe(1);
+    expect(receipt.usage["film-llm"].sample_count).toBe(0);
   });
 
   it("reports the review gate and approval timestamps honestly", () => {

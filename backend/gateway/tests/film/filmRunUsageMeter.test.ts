@@ -61,6 +61,17 @@ describe("createFilmRunAttributingMeter", () => {
         succeeded: true,
       });
       meter({
+        scope: "film-tts",
+        provider: "speech-api:tts-1",
+        model: "tts-1",
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        duration_ms: 80,
+        retries: 1,
+        succeeded: true,
+      });
+      meter({
         scope: "prod-session",
         provider: "api",
         model: "other",
@@ -80,8 +91,11 @@ describe("createFilmRunAttributingMeter", () => {
       expect(run?.usage["film-llm"].total_tokens).toBe(14);
       expect(run?.usage["film-image"].total_duration_ms).toBe(250);
       expect(run?.usage["film-video"].sample_count).toBe(0);
+      expect(run?.usage["film-tts"].sample_count).toBe(1);
+      expect(run?.usage["film-tts"].total_duration_ms).toBe(80);
+      expect(run?.usage["film-tts"].retries).toBe(1);
     });
-    expect(downstream).toHaveBeenCalledTimes(3);
+    expect(downstream).toHaveBeenCalledTimes(4);
   });
 
   it("does not attribute samples outside an active film-run context", async () => {

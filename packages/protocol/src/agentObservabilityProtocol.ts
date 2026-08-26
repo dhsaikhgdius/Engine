@@ -372,16 +372,19 @@ export const unifiedProgressSchema = z
     created_at: z.string(),
     updated_at: z.string(),
     /**
-     * Durable per-scope film-run usage (`film-llm` / `film-image` / `film-video`).
-     * Only film_run entries may carry this; omitted when the run has no metered
-     * samples yet so Agents/UI do not invent a second meter. Shape matches
-     * `filmRunUsageSchema` without importing it (that module imports this file).
+     * Durable per-scope film-run usage (`film-llm` / `film-image` /
+     * `film-video` / `film-tts`). Only film_run entries may carry this;
+     * omitted when the run has no metered samples yet so Agents/UI do not
+     * invent a second meter. Shape matches `filmRunUsageSchema` without
+     * importing it (that module imports this file); `film-tts` defaults to
+     * zeros for entries projected before speech metering existed.
      */
     usage: z
       .strictObject({
         "film-llm": agentUsageSummarySchema,
         "film-image": agentUsageSummarySchema,
         "film-video": agentUsageSummarySchema,
+        "film-tts": agentUsageSummarySchema.default(() => ({ ...EMPTY_AGENT_USAGE_SUMMARY })),
       })
       .optional(),
   })
@@ -535,7 +538,8 @@ export function filmRunToUnifiedProgress(run: FilmRun): UnifiedProgress {
     usage &&
     (usage["film-llm"].sample_count > 0 ||
       usage["film-image"].sample_count > 0 ||
-      usage["film-video"].sample_count > 0),
+      usage["film-video"].sample_count > 0 ||
+      usage["film-tts"].sample_count > 0),
   );
   return unifiedProgressSchema.parse({
     contract: UNIFIED_PROGRESS_CONTRACT,
