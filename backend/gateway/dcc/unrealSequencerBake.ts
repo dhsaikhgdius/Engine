@@ -7,6 +7,7 @@ import {
   directorUnrealSequencerBakeSchema,
   type DirectorDccTransform,
   type DirectorUnrealBakedEntity,
+  type DirectorUnrealOmittedChannelDetail,
   type DirectorUnrealSequencerBake,
   type DirectorUnrealTransformSample,
 } from "@director/dcc-protocol";
@@ -112,10 +113,68 @@ function sampledFrames(frameStart: number, frameEnd: number, stride: number): nu
   return frames;
 }
 
-function omittedChannelsOf(entity: {
-  animation?: { keyframes: Array<{ poseValues?: Record<string, number> }>; motionBlocks?: unknown[] } | undefined;
-  characterRig?: unknown;
-}): DirectorUnrealBakedEntity["omittedChannels"] {
+/** Cap on control/clip names carried per omitted-channel detail (schema limit is 128). */
+const MAX_OMITTED_CONTROL_NAMES = 64;
+
+interface OmittableEntity {
+  animation?:
+    | {
+        keyframes: Array<{ poseValues?: Record<string, number> }>;
+        motionBlocks?: Array<{ id: string; clipId: string }>;
+      }
+    | undefined;
+  characterRig?: { controls: Record<string, number> } | undefined;
+}
+
+function cappedControls(names: Iterable<string>): { controls: string[]; overflow: number } {
+  const unique = [...new Set(names)].filter((name) => name.trim().length > 0).sort();
+  return {
+    controls: unique.slice(0, MAX_OMITTED_CONTROL_NAMES).map((name) => name.slice(0, 200)),
+    overflow: Math.max(0, unique.length - MAX_OMITTED_CONTROL_NAMES),
+  };
+}
+
+function overflowSuffix(overflow: number): string {
+  return overflow > 0 ? ` (${overflow} more not listed)` : "";
+}
+
+/**
+ * Structured warn-and-omit records for the channels the bake cannot carry.
+ * Each detail names the affected controls/clips so the frontend can list
+ * exactly what was omitted. Control Rig lossless round-trip stays planned.
+ */
+function omittedChannelDetailsOf(entity: OmittableEntity): DirectorUnrealOmittedChannelDetail[] {
+  const details: DirectorUnrealOmittedChannelDetail[] = [];
+  const poseControls = cappedControls(
+    (entity.animation?.keyframes ?? []).flatMap((keyframe) => Object.keys(keyframe.poseValues ?? {})),
+  );
+  if ((entity.animation?.keyframes ?? []).some((keyframe) => keyframe.poseValues)) {
+    details.push({
+      channel: "pose_values",
+      controls: poseControls.controls,
+      reason: `Semantic pose keyframes are not carried by the Sequencer bake; Control Rig transfer is planned${overflowSuffix(poseControls.overflow)}.`,
+    });
+  }
+  if (entity.animation?.motionBlocks?.length) {
+    const clips = cappedControls(entity.animation.motionBlocks.map((block) => block.clipId));
+    details.push({
+      channel: "motion_blocks",
+      controls: clips.controls,
+      reason: `Packaged motion clips are not part of the exchange package, so clip playback cannot be keyed host-side${overflowSuffix(clips.overflow)}.`,
+    });
+  }
+  if (entity.characterRig) {
+    const rigControls = cappedControls(Object.keys(entity.characterRig.controls));
+    details.push({
+      channel: "character_rig",
+      controls: rigControls.controls,
+      reason: `Character rig state is not carried by the Sequencer bake; the skeletal mesh imports in bind pose${overflowSuffix(rigControls.overflow)}.`,
+    });
+  }
+  return details;
+}
+
+function omittedChannelsOf(entity: OmittableEntity): DirectorUnrealBakedEntity["omittedChannels"] {
   const omitted: NonNullable<DirectorUnrealBakedEntity["omittedChannels"]> = [];
   if (entity.animation?.keyframes.some((keyframe) => keyframe.poseValues)) omitted.push("pose_values");
   if (entity.animation?.motionBlocks?.length) omitted.push("motion_blocks");
@@ -224,12 +283,14 @@ export function buildUnrealSequencerBake(
       continue;
     }
     const omittedChannels = omittedChannelsOf(object);
+    const omittedChannelDetails = omittedChannelDetailsOf(object);
     entities.push({
       directorId: object.id,
       entityType: "object",
       name: object.name,
       transformSamples: samples,
       ...(omittedChannels ? { omittedChannels } : {}),
+      ...(omittedChannelDetails.length > 0 ? { omittedChannelDetails } : {}),
       warnings: omissionWarnings(object.name, omittedChannels),
     });
   }

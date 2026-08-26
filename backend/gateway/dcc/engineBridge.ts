@@ -872,13 +872,15 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
 
     // Structured warn-and-omit: pose/rig channels the bake could not carry are
     // reported from the Gateway's own sidecar, so an outdated connector can
-    // never silently flatten them out of the result.
+    // never silently flatten them out of the result. `details` names the
+    // affected controls/clips per channel so the frontend can list them.
     const omittedAnimationChannels = (unrealBake?.bake.entities ?? [])
       .filter((entity) => entity.omittedChannels?.length)
       .map((entity) => ({
         directorId: entity.directorId,
         entityType: entity.entityType,
         channels: entity.omittedChannels!,
+        ...(entity.omittedChannelDetails?.length ? { details: entity.omittedChannelDetails } : {}),
       }));
     if (omittedAnimationChannels.length > 0) {
       sendWarnings.push(
