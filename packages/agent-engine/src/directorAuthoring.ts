@@ -92,6 +92,13 @@ import {
 import { getMannequinPosePreset, resolveCharacterPoseControls } from "@director/project-schema";
 import { getDirectorCharacterMotion, isDirectorCharacterMotionId } from "./characterMotionCatalog";
 import {
+  formatDirectorCameraCaptureId,
+  formatDirectorCameraCaptureName,
+  isValidDirectorCaptureDataUrl,
+  MAX_DIRECTOR_CAMERA_CAPTURES_PER_ACTION,
+  MAX_DIRECTOR_CAPTURE_DATA_URL_CHARS,
+} from "./directorCameraCaptures";
+import {
   createDefaultDirectorProduction,
   getDirectorProductionIssues,
   reconcileDirectorProduction,
@@ -822,9 +829,10 @@ export const directorAuthoringActionSchema = z
     }),
     strictAction("update_camera", { camera_id: id, patch: cameraUpdateSchema }),
     /**
-     * Append Stage camera capture evidence (PNG/JPEG data URLs) onto a camera
-     * shot — same bookkeeping the Camera panel / viewport capture toolbar use.
-     * Omitted camera_id resolves to the active camera, then the first camera.
+     * Append Stage camera capture evidence (PNG/JPEG/WebP data URLs) onto a
+     * camera shot — same bookkeeping the Camera panel / viewport capture
+     * toolbar use. Omitted camera_id resolves to the active camera, then the
+     * first camera. Payload limits match gateway Stage capture validation.
      */
     strictAction("add_camera_captures", {
       camera_id: id.optional(),
@@ -836,15 +844,15 @@ export const directorAuthoringActionSchema = z
             data_url: z
               .string()
               .trim()
-              .min(1)
-              .max(16_800_000)
-              .refine((value) => value.startsWith("data:image/"), {
-                message: "data_url must be a data:image/* URL",
+              .min(22)
+              .max(MAX_DIRECTOR_CAPTURE_DATA_URL_CHARS)
+              .refine(isValidDirectorCaptureDataUrl, {
+                message: "data_url must be data:image/png|jpeg|webp;base64,... with decoded size ≤ 12 MiB",
               }),
           }),
         )
         .min(1)
-        .max(16),
+        .max(MAX_DIRECTOR_CAMERA_CAPTURES_PER_ACTION),
     }),
     strictAction("delete_cameras", { camera_ids: z.array(id).min(1).max(64) }),
     strictAction("set_animation", {
@@ -2927,7 +2935,7 @@ export function applyDirectorAuthoringActions(
         const existingIds = new Set(existingCaptures.map((capture) => capture.id));
         const nextCaptures = item.captures.map((capture, indexOffset) => {
           const captureIndex = existingCaptures.length + indexOffset + 1;
-          const captureId = capture.id ?? `${camera.id}-capture-${String(captureIndex).padStart(2, "0")}`;
+          const captureId = capture.id ?? formatDirectorCameraCaptureId(camera.id, captureIndex);
           if (existingIds.has(captureId)) {
             throw new Error(`Camera capture "${captureId}" already exists on "${camera.id}".`);
           }
@@ -2935,7 +2943,7 @@ export function applyDirectorAuthoringActions(
           return {
             id: captureId,
             index: captureIndex,
-            name: capture.name ?? `${camera.name}-截图${String(captureIndex).padStart(2, "0")}`,
+            name: capture.name ?? formatDirectorCameraCaptureName(camera.name, captureIndex),
             dataUrl: capture.data_url,
           };
         });
