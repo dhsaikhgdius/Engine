@@ -309,6 +309,67 @@ describe("Director DCC exchange package", () => {
     expect(manifest.assets).toEqual([]);
   });
 
+  /** Adds one wood texture asset bound to the chair's baseColor texture slot. */
+  async function withBoundTexture(test: Awaited<ReturnType<typeof harness>>, fileName = "wood.png") {
+    await writeFile(resolve(test.workspaceRoot, "assets", "library", fileName), Buffer.from("png fixture bytes"));
+    test.project.assets.push({
+      id: "asset-wood",
+      kind: "prop",
+      sourceType: "image",
+      fileName,
+      url: `/assets/library/${fileName}`,
+    });
+    test.project.objects.find(({ id }) => id === "chair-1")!.material = {
+      baseColor: "#8b5a2b",
+      textures: { baseColorMapAssetId: "asset-wood" },
+    };
+  }
+
+  it("bundles referenced PBR texture images for the Unreal provider with pinned hashes", async () => {
+    const test = await harness();
+    await withBoundTexture(test);
+    const result = await test.packager.exportPackage(test.project, { provider: "unreal", formats: ["usda"] });
+
+    const texture = result.assets.find(({ assetRefId }) => assetRefId === "asset-wood");
+    expect(texture).toBeDefined();
+    expect(texture!.relativePath).toMatch(/^assets\/\d{3}-.*\.png$/);
+    expect(texture!.sha256).toBe(createHash("sha256").update(Buffer.from("png fixture bytes")).digest("hex"));
+    const manifest = directorDccExchangePackageManifestSchema.parse(
+      JSON.parse(await readFile(result.manifestPath, "utf8")),
+    );
+    expect(manifest.assets.map(({ assetRefId }) => assetRefId)).toEqual(
+      expect.arrayContaining(["asset-chair", "asset-wood"]),
+    );
+  });
+
+  it("keeps texture bundling Unreal-only so other providers' packages stay unchanged", async () => {
+    const test = await harness();
+    await withBoundTexture(test);
+    const result = await test.packager.exportPackage(test.project, { provider: "maya", formats: ["usda"] });
+    expect(result.assets.map(({ assetRefId }) => assetRefId)).toEqual(["asset-chair"]);
+  });
+
+  it("ignores unreferenced image assets and warns instead of bundling an unresolvable texture", async () => {
+    const unreferenced = await harness();
+    await withBoundTexture(unreferenced);
+    unreferenced.project.objects.find(({ id }) => id === "chair-1")!.material = { baseColor: "#8b5a2b" };
+    const unreferencedResult = await unreferenced.packager.exportPackage(unreferenced.project, {
+      provider: "unreal",
+      formats: ["usda"],
+    });
+    expect(unreferencedResult.assets.map(({ assetRefId }) => assetRefId)).toEqual(["asset-chair"]);
+
+    const missing = await harness();
+    await withBoundTexture(missing);
+    missing.project.assets.find(({ id }) => id === "asset-wood")!.url = "/assets/library/missing.png";
+    const missingResult = await missing.packager.exportPackage(missing.project, {
+      provider: "unreal",
+      formats: ["usda"],
+    });
+    expect(missingResult.assets.map(({ assetRefId }) => assetRefId)).toEqual(["asset-chair"]);
+    expect(missingResult.warnings.join(" ")).toMatch(/warn-and-omit/);
+  });
+
   it("enforces asset-count, per-file, and total-package byte budgets", async () => {
     const assetCount = await harness({ budgets: { maxAssets: 1 } });
     assetCount.project.assets.push({
@@ -326,7 +387,7 @@ describe("Director DCC exchange package", () => {
     });
     await expect(
       assetCount.packager.exportPackage(assetCount.project, { provider: "maya", formats: ["usda"] }),
-    ).rejects.toThrow(/2 model assets.*limit of 1/i);
+    ).rejects.toThrow(/2 model and texture assets.*limit of 1/i);
 
     const perFile = await harness({ budgets: { maxFileBytes: 512 * 1024 } });
     await writeFile(resolve(perFile.workspaceRoot, "assets", "library", "chair.glb"), Buffer.alloc(768 * 1024));
