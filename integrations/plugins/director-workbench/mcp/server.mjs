@@ -120121,6 +120121,10 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
     cascade: external_exports.boolean().optional(),
     force: external_exports.boolean().optional()
   }),
+  strictAction("duplicate_objects", {
+    object_ids: external_exports.array(id3).min(1).max(64).refine((values) => new Set(values).size === values.length, { message: "object_ids must be unique" }),
+    offset_m: external_exports.number().finite().min(-100).max(100).optional().describe("X/Z position offset in meters for every duplicate; defaults to 0.6.")
+  }),
   strictAction("add_light", { light: directorLightCreateSchema }),
   strictAction("update_light", {
     light_id: id3,

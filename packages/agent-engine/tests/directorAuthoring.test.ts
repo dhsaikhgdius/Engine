@@ -2436,3 +2436,190 @@ describe("character agent binding authoring", () => {
     expect(smuggled.success).toBe(false);
   });
 });
+
+describe("duplicate_objects authoring", () => {
+  function projectWithBox(boxId = "geo_box_1") {
+    return applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      {
+        action: "add_object",
+        id: boxId,
+        name: "Crate",
+        kind: "prop",
+        geometry_type: "box",
+        placement_mode: "grounded",
+        transform: { position: [1, 0, -2], rotation: [0, 0.4, 0], scale: [1, 2, 1] },
+      },
+    ]).project;
+  }
+
+  it("duplicates a prop with the sequential Stage id, offset position, and created ids", () => {
+    const project = projectWithBox();
+    const result = applyDirectorAuthoringActions(project, [
+      { action: "duplicate_objects", object_ids: ["geo_box_1"] },
+    ]);
+
+    const duplicate = result.project.objects.find((object) => object.id === "geo_box_copy_4");
+    expect(duplicate).toBeDefined();
+    expect(result.created.object_ids).toEqual(["geo_box_copy_4"]);
+    expect(duplicate?.name).toBe("Crate");
+    expect(duplicate?.transform.position).toEqual([1.6, 0, -1.4]);
+    expect(duplicate?.transform.rotation).toEqual([0, 0.4, 0]);
+    expect(result.project.objects.find((object) => object.id === "geo_box_1")?.transform.position).toEqual([1, 0, -2]);
+  });
+
+  it("honours an explicit offset_m", () => {
+    const project = projectWithBox();
+    const result = applyDirectorAuthoringActions(project, [
+      { action: "duplicate_objects", object_ids: ["geo_box_1"], offset_m: 1.2 },
+    ]);
+    const duplicate = result.created.object_ids.map((id) => result.project.objects.find((o) => o.id === id))[0];
+    expect(duplicate?.transform.position).toEqual([2.2, 0, -0.8]);
+  });
+
+  it("renames duplicated characters sequentially, resets native provisioning, and remaps crowd ids once", () => {
+    const project = createDefaultDirectorProject();
+    const source = project.objects.find((object) => object.id === "char_default_a")!;
+    const memberA = { ...structuredClone(source), id: "char_a", name: "角色02", crowdId: "crowd_1" };
+    const memberB = { ...structuredClone(source), id: "char_b", name: "角色03", crowdId: "crowd_1" };
+    delete memberA.nativeSource;
+    delete memberB.nativeSource;
+    project.objects.push(memberA, memberB);
+
+    const result = applyDirectorAuthoringActions(project, [
+      { action: "duplicate_objects", object_ids: ["char_default_a", "char_a", "char_b"] },
+    ]);
+
+    expect(result.created.object_ids).toEqual(["char_paste_4", "char_paste_5", "char_paste_6"]);
+    const duplicates = result.created.object_ids.map((id) => result.project.objects.find((o) => o.id === id)!);
+    expect(duplicates.map((object) => object.name)).toEqual(["角色04", "角色05", "角色06"]);
+    // char_default_a is Blender-native: the copy re-keys the native source
+    // unprovisioned, exactly like the Stage paste.
+    expect(duplicates[0].nativeSource).toEqual({ engine: "blender", objectId: "char_paste_4", provisioned: false });
+    // Both crowd members share one freshly allocated crowd id.
+    expect(duplicates[1].crowdId).toBe("crowd_2");
+    expect(duplicates[2].crowdId).toBe("crowd_2");
+    expect(duplicates[0].crowdId).toBeUndefined();
+  });
+
+  it("duplicates a camera rig with a new shot, reset captures, and viewport activation", () => {
+    const project = createDefaultDirectorProject();
+    project.cameras[0].captures = [{ id: "capture-1", index: 0, name: "Capture 1", dataUrl: "data:image/png;base64,x" }];
+    project.cameras[0].lastCaptureUrl = "data:image/png;base64,x";
+
+    const result = applyDirectorAuthoringActions(project, [
+      { action: "duplicate_objects", object_ids: ["cam_object_1"] },
+    ]);
+
+    expect(result.created.object_ids).toEqual(["cam_object_2"]);
+    expect(result.created.camera_ids).toEqual(["cam_2"]);
+    const duplicateCamera = result.project.cameras.find((camera) => camera.id === "cam_2")!;
+    const duplicateRig = result.project.objects.find((object) => object.id === "cam_object_2")!;
+    expect(duplicateCamera.name).toBe("机位02");
+    expect(duplicateRig.name).toBe("机位02");
+    expect(duplicateRig.linkedCameraId).toBe("cam_2");
+    expect(duplicateCamera.captures).toEqual([]);
+    expect(duplicateCamera.lastCaptureUrl).toBeNull();
+    const sourceCamera = project.cameras[0];
+    expect(duplicateCamera.transform.position).toEqual([
+      sourceCamera.transform.position[0] + 0.6,
+      sourceCamera.transform.position[1],
+      sourceCamera.transform.position[2] + 0.6,
+    ]);
+    // Manual targets shift with the rig; duplicating a camera activates it.
+    expect(duplicateCamera.target).toEqual([
+      sourceCamera.target[0] + 0.6,
+      sourceCamera.target[1],
+      sourceCamera.target[2] + 0.6,
+    ]);
+    expect(result.project.activeCameraId).toBe("cam_2");
+  });
+
+  it("reconnects duplicated children to duplicated parents and detaches lone copies", () => {
+    const base = applyDirectorAuthoringActions(projectWithBox("geo_box_parent"), [
+      {
+        action: "add_object",
+        id: "geo_box_child",
+        name: "Lid",
+        kind: "prop",
+        geometry_type: "box",
+        parent_id: "geo_box_parent",
+        transform: { position: [1, 1, -2], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    ]).project;
+
+    const together = applyDirectorAuthoringActions(base, [
+      { action: "duplicate_objects", object_ids: ["geo_box_parent", "geo_box_child"] },
+    ]);
+    const [parentCopyId, childCopyId] = together.created.object_ids;
+    expect(together.project.objects.find((object) => object.id === childCopyId)?.parentObjectId).toBe(parentCopyId);
+
+    const alone = applyDirectorAuthoringActions(base, [
+      { action: "duplicate_objects", object_ids: ["geo_box_child"] },
+    ]);
+    const lonelyCopy = alone.project.objects.find((object) => object.id === alone.created.object_ids[0]);
+    expect(lonelyCopy?.parentObjectId).toBeUndefined();
+    // The original child keeps its parent.
+    expect(alone.project.objects.find((object) => object.id === "geo_box_child")?.parentObjectId).toBe(
+      "geo_box_parent",
+    );
+  });
+
+  it("retargets a duplicated object-focused camera at the duplicated target and leaves existing cameras untouched", () => {
+    const project = createDefaultDirectorProject();
+    project.cameras[0].targetMode = "object";
+    project.cameras[0].targetObjectId = "char_default_a";
+    project.cameras[0].target = [0, 0.89, 0];
+
+    const result = applyDirectorAuthoringActions(project, [
+      { action: "duplicate_objects", object_ids: ["cam_object_1", "char_default_a"] },
+    ]);
+
+    const duplicateCamera = result.project.cameras.find((camera) => camera.id === "cam_2")!;
+    const duplicatedCharacterId = result.created.object_ids[1];
+    expect(duplicateCamera.targetObjectId).toBe(duplicatedCharacterId);
+    expect(duplicateCamera.target).toEqual([0.6, 0.89, 0.6]);
+    // The original camera still follows the original character.
+    expect(result.project.cameras[0].targetObjectId).toBe("char_default_a");
+    expect(result.project.cameras[0].target).toEqual([0, 0.89, 0]);
+  });
+
+  it("rejects unknown ids, shot-less camera objects, and Blender-native objects without a model asset", () => {
+    const project = createDefaultDirectorProject();
+    expect(() =>
+      applyDirectorAuthoringActions(project, [{ action: "duplicate_objects", object_ids: ["missing-object"] }]),
+    ).toThrow(/missing-object/);
+
+    const shotless = structuredClone(project);
+    shotless.objects.push({
+      id: "cam_object_9",
+      name: "断开机位",
+      kind: "camera",
+      visible: true,
+      locked: false,
+      linkedCameraId: "cam_missing",
+      transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+    });
+    expect(() =>
+      applyDirectorAuthoringActions(shotless, [{ action: "duplicate_objects", object_ids: ["cam_object_9"] }]),
+    ).toThrow(/no linked camera shot/);
+
+    const nativeWithoutAsset = structuredClone(project);
+    const nativeCharacter = nativeWithoutAsset.objects.find((object) => object.id === "char_default_a")!;
+    nativeCharacter.nativeSource = { engine: "blender", objectId: "char_default_a", provisioned: true };
+    delete nativeCharacter.assetRefId;
+    expect(() =>
+      applyDirectorAuthoringActions(nativeWithoutAsset, [
+        { action: "duplicate_objects", object_ids: ["char_default_a"] },
+      ]),
+    ).toThrow(/cannot be duplicated/);
+
+    // Failed batches stay atomic.
+    const before = structuredClone(project);
+    expect(() =>
+      applyDirectorAuthoringActions(project, [
+        { action: "duplicate_objects", object_ids: ["char_default_a", "missing-object"] },
+      ]),
+    ).toThrow(/missing-object/);
+    expect(project).toEqual(before);
+  });
+});

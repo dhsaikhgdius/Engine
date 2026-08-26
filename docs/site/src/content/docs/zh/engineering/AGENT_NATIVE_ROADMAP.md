@@ -91,7 +91,7 @@ flowchart LR
 
 - [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/) 覆盖 Stage `directorStore` 全部
   变更入口，含 mutator、文件、semantic action 与
-  `shared` / `ui-only` / `human-only-interactive` 状态（69 / 87 项目 mutator 已 shared，约 79%）。
+  `shared` / `ui-only` / `human-only-interactive` 状态（70 / 87 项目 mutator 已 shared，约 80%）。
 - `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 的 parity 测试断言
   store mutator 与直接 `applyDirectorAuthoringActions` 对删除、变换、相机 update/activate、
   角色 motion set/clear、体型、统一/人群缩放、人群变换/标签/配色、落地、场景设置、资产删除、
@@ -121,8 +121,9 @@ flowchart LR
 场景（设置、标注、测量、图层）、Storyboard、实体动画与资产删除的单次项目 mutator 已经经
 `dispatchDirectorAuthoringActions` 执行（每个 mutator 的精确状态与旧路径回退见
 [对等清单](/zh/engineering/ui-agent-parity-inventory/)）。Canvas/Video 离散 mutator（1e/1f）现已经
-`dispatchCreativeWorkspaceOperations` 走共享 Creative 契约执行。Timeline 音频、object list、
-全景/capture/资产目录写入、剪贴板粘贴、有意保持本地的新建流程，以及 Canvas/Video 的创建流程与
+`dispatchCreativeWorkspaceOperations` 走共享 Creative 契约执行。剪贴板粘贴现已编译为共享的
+`duplicate_objects` authoring action。Timeline 音频、object list、
+全景/capture/资产目录写入、有意保持本地的新建流程，以及 Canvas/Video 的创建流程与
 连续拖拽流仍直接 patch 状态，因此 M1 **尚未完成**。
 
 **目标：** UI 与 Agent 共享同一 mutation 路径，消除「双轨写入」。
@@ -409,7 +410,7 @@ flowchart LR
 
 | 指标                             | 当前（2026-08-26）                                    | 剩余 M3 完成后     | 剩余 M1 拖拽流完成后 |
 | -------------------------------- | ----------------------------------------------------- | ------------------ | -------------------- |
-| Parity coverage（top mutations） | top 编辑 mutation 已全部 shared；全部 Stage 项目 mutator 约 79%（69/87，见[对等清单](/zh/engineering/ui-agent-parity-inventory/)） | ≥85%               | ≥95%  |
+| Parity coverage（top mutations） | top 编辑 mutation 已全部 shared；全部 Stage 项目 mutator 约 80%（70/87，见[对等清单](/zh/engineering/ui-agent-parity-inventory/)） | ≥85%               | ≥95%  |
 | Human-only 能力（已文档化）      | 0 类必需（文件选择器仅作为本地文件的可选导入便捷入口；OBJ/STL 仍只导出） | 0 类必需           | 0 类  |
 | Gateway 入口 policy 一致         | 是（MCP / 本地 / 托管 / 原始 HTTP+CLI；role 限制 UI 已交付） | 是，含完整只读 mode | 是    |
 | In-product workspace             | **是（SQL instructions/skills/memory 已于 2026-08-25 交付）** | 是                 | 是    |

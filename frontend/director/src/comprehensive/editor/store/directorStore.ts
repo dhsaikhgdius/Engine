@@ -138,12 +138,17 @@ import {
 
 import { createDefaultDirectorProject as createCanonicalDefaultDirectorProject } from "@director/agent-engine/default-project";
 import { isDirectorCharacterMotionId } from "@director/agent-engine/character-motions";
-import type { DirectorAuthoringAction } from "@director/agent-engine/authoring";
+import {
+  DIRECTOR_DUPLICATE_POSITION_OFFSET_M,
+  getDirectorDuplicateObjectId,
+  type DirectorAuthoringAction,
+} from "@director/agent-engine/authoring";
 import {
   compileDirectorDeleteObjectActions,
   dispatchDirectorAuthoringActions,
 } from "../../../agent/dispatchDirectorAuthoringActions";
 import {
+  compileDirectorPasteClipboardActions,
   compileDirectorSceneUpdateAction,
   compileDirectorWorldSettingsAction,
 } from "../../../agent/compileDirectorUiAuthoringActions";
@@ -505,7 +510,9 @@ const CHARACTER_COLOR_PALETTE = [
 const LEGACY_AUTOMATIC_CHARACTER_BLUE = "#4f8ef7";
 const GEOMETRY_PRIMITIVE_COLOR = "#d7e7ff";
 const ADDED_MODEL_WORLD_SPACING = 1.25;
-const COPY_PASTE_POSITION_OFFSET = 0.6;
+// Shared with the Agent authoring engine so UI paste and duplicate_objects
+// land the same duplicate positions.
+const COPY_PASTE_POSITION_OFFSET = DIRECTOR_DUPLICATE_POSITION_OFFSET_M;
 const UNDO_STACK_LIMIT = 80;
 const LOCAL_MODEL_LIBRARY_STORAGE_KEY = "storyai-3d-director-local-model-library";
 const DIRECTOR_SCENE_STORAGE_KEY = "storyai-3d-director-desk-demo";
@@ -2078,37 +2085,9 @@ function deleteDirectorObjects(state: DirectorRuntimeState, objectIds: string[])
   };
 }
 
-function createObjectIdForDuplicate(existingObjects: DirectorObject[], source: DirectorObject) {
-  if (source.kind === "camera") {
-    return getNextSequentialId(
-      existingObjects.map((item) => item.id),
-      "cam_object_",
-      existingObjects.filter((item) => item.kind === "camera").length + 1,
-    );
-  }
-
-  if (source.kind === "character") {
-    return getNextSequentialId(
-      existingObjects.map((item) => item.id),
-      "char_paste_",
-      existingObjects.filter((item) => item.kind === "character").length + 1,
-    );
-  }
-
-  if (source.geometryType) {
-    return getNextSequentialId(
-      existingObjects.map((item) => item.id),
-      `geo_${source.geometryType}_copy_`,
-      existingObjects.length + 1,
-    );
-  }
-
-  return getNextSequentialId(
-    existingObjects.map((item) => item.id),
-    "obj_",
-    existingObjects.length + 1,
-  );
-}
+// Duplicate id allocation is shared with the Agent authoring engine
+// (duplicate_objects) so UI paste and Agent duplicates land identical ids.
+const createObjectIdForDuplicate = getDirectorDuplicateObjectId;
 
 function applyPositionOffset(position: [number, number, number], offset: number): [number, number, number] {
   return [position[0] + offset, position[1], position[2] + offset];
@@ -4934,11 +4913,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         const actions = compileCrowdTransformActions(
           crowdId,
           {
-            position: [
-              currentAnchor.position[0],
-              currentState.project.scene.groundHeight,
-              currentAnchor.position[2],
-            ],
+            position: [currentAnchor.position[0], currentState.project.scene.groundHeight, currentAnchor.position[2]],
           },
           { grounded: true },
         );
@@ -6261,7 +6236,55 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         clipboardPasteCount: 0,
       });
     },
-    pasteClipboardObjects: () => commitMutation((state) => pasteClipboardEntries(state)),
+    pasteClipboardObjects: () => {
+      const currentState = get() as DirectorRuntimeState;
+      if (currentState.clipboard.length === 0) return;
+      // One-shot pastes share the Agent authoring path via duplicate_objects.
+      // Stale clipboard snapshots (source edited or deleted since copy),
+      // Blender-native objects without a model asset, camera objects with a
+      // missing linked shot, and pastes interacting with object-focused
+      // cameras keep the legacy clipboard writer.
+      const action = canUseAuthoringPath()
+        ? compileDirectorPasteClipboardActions(
+            currentState.project,
+            currentState.clipboard,
+            currentState.clipboardPasteCount,
+          )
+        : null;
+      if (action) {
+        const pasteIteration = currentState.clipboardPasteCount + 1;
+        const receipt = dispatchDirectorAuthoringActions([action], {
+          idempotencyKey: `ui-paste:${pasteIteration}:${action.object_ids[0]}x${action.object_ids.length}`,
+        });
+        if (!receipt.ok) {
+          notifyDirector({
+            severity: "error",
+            title: "粘贴失败",
+            detail: receipt.error,
+          });
+          return;
+        }
+        // Selection, inspector mode, and the paste counter are UI-only state,
+        // applied outside the authored commit.
+        commitUiMutation((state) => {
+          const pastedObjectIds = receipt.created.object_ids;
+          const pastedCrowdIds = Array.from(
+            new Set(
+              pastedObjectIds
+                .map((objectId) => state.project.objects.find((item) => item.id === objectId)?.crowdId)
+                .filter((crowdId): crowdId is string => typeof crowdId === "string"),
+            ),
+          );
+          return {
+            ...state,
+            ...selectedObjectsPatch(pastedObjectIds, pastedCrowdIds.length === 1 ? pastedCrowdIds[0] : null),
+            clipboardPasteCount: pasteIteration,
+          };
+        });
+        return;
+      }
+      commitMutation((state) => pasteClipboardEntries(state));
+    },
     undo: () => {
       const currentState = get() as DirectorRuntimeState;
       if (currentState.historyBusy) return;

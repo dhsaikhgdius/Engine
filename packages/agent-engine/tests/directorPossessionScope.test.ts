@@ -213,6 +213,12 @@ describe("evaluateDirectorPossessionScope", () => {
     ]);
     expect(deletion).toMatchObject({ allowed: false, error: expect.stringContaining('"delete_objects"') });
 
+    // Duplication creates new, unpossessed objects; it stays stage-wide.
+    const duplication = evaluate({ op: "author", actions: [{ action: "duplicate_objects", object_ids: ["hero"] }] }, [
+      "hero",
+    ]);
+    expect(duplication).toMatchObject({ allowed: false, error: expect.stringContaining('"duplicate_objects"') });
+
     const startScene = evaluate({ op: "author", actions: [{ action: "start_scene" }] }, ["hero"]);
     expect(startScene).toMatchObject({ allowed: false, error: expect.stringContaining('"start_scene"') });
 
