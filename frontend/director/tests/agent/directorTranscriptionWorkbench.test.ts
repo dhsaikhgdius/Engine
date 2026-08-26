@@ -136,8 +136,11 @@ describe("Director transcription workbench", () => {
         getAsset: vi.fn(() => asset()),
         getBlob: vi.fn(async () => new Blob([new Uint8Array([1])], { type: "audio/wav" })),
         submitJob: vi.fn(async () => {
-          throw new MediaTranscriptionRequestError("No transcription provider is configured",
-            "transcription_not_configured", 503);
+          throw new MediaTranscriptionRequestError(
+            "No transcription provider is configured",
+            "transcription_not_configured",
+            503,
+          );
         }),
       },
     });
@@ -153,8 +156,11 @@ describe("Director transcription workbench", () => {
       {
         dependencies: {
           inspectJob: vi.fn(async () => {
-            throw new MediaTranscriptionRequestError("Transcription job does not exist",
-              "transcription_job_not_found", 404);
+            throw new MediaTranscriptionRequestError(
+              "Transcription job does not exist",
+              "transcription_job_not_found",
+              404,
+            );
           }),
         },
       },

@@ -223,7 +223,9 @@ describe("media transcription routes", () => {
     await handleMediaTranscriptionRoute(
       request("POST", new Uint8Array([1])),
       recorder.response,
-      new URL("http://director.test/api/transcription/jobs?source_media_id=m&source_sha256=x&file_name=f&idempotency_key=k-12345678"),
+      new URL(
+        "http://director.test/api/transcription/jobs?source_media_id=m&source_sha256=x&file_name=f&idempotency_key=k-12345678",
+      ),
       { ...deps, json: recorder.json },
     );
     await handleMediaTranscriptionRoute(

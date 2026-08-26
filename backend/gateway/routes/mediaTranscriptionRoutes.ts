@@ -238,7 +238,8 @@ export async function handleMediaTranscriptionRoute(
   if (request.method === "POST" && cancelId) {
     try {
       const job = await executor.cancel(cancelId);
-      if (!job) json(response, 404, { code: "transcription_job_not_found", message: "Transcription job does not exist" });
+      if (!job)
+        json(response, 404, { code: "transcription_job_not_found", message: "Transcription job does not exist" });
       else json(response, 200, { job: productionJobRecordSchema.parse(job) });
     } catch (error) {
       if (error instanceof ProductionJobIdempotencyConflictError) {
