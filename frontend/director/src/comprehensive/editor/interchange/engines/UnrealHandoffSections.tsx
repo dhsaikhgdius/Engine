@@ -367,9 +367,7 @@ export function UnrealLiveLinkSection() {
       )}
       <ul className="director-engine-handoff-notes">
         <li>{t("链路仅绑定 127.0.0.1、单向、带序号；帧只作用于编辑器视口，绝不写入工程")}</li>
-        <li>
-          {t("共享令牌 DIRECTOR_UNREAL_PREVIEW_TOKEN 由网关与引擎环境各自读取，从不经过浏览器")}
-        </li>
+        <li>{t("共享令牌 DIRECTOR_UNREAL_PREVIEW_TOKEN 由网关与引擎环境各自读取，从不经过浏览器")}</li>
         <li>{t("Remote Control 不是安全边界；此链路不经过也不依赖它")}</li>
       </ul>
     </div>
