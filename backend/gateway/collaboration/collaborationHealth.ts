@@ -25,6 +25,27 @@ export type CollaborationHealthInput = {
   liveRooms: readonly CollaborationHealthRoomRow[];
 };
 
+/**
+ * Machine-readable transport limits of the in-process Yjs hub. These are
+ * fixed deployment facts (not toggles): the gateway binds loopback, does not
+ * terminate TLS for collab WebSockets, does not shard rooms across nodes, and
+ * never maps OS/user accounts onto room members — invite capabilities are the
+ * only optional identity surface when room auth is required.
+ */
+export type CollaborationHealthTransportLimits = {
+  /** Gateway collab WS is intended for loopback / reverse-proxy frontends. */
+  loopback_binding: true;
+  /** This process does not terminate TLS for `/api/collab` WebSockets. */
+  tls_termination: false;
+  /** Rooms live in one gateway process; no multi-node room cluster. */
+  multi_node: false;
+  /**
+   * How members are identified: invite JWT capability when
+   * `mode === "invite-required"`, otherwise local-trust with no per-user id.
+   */
+  member_identity: "invite-capability" | "local-trust";
+};
+
 /** Public `/health.collaboration` payload. */
 export type CollaborationHealthStanza = {
   mode: string;
@@ -33,6 +54,8 @@ export type CollaborationHealthStanza = {
   invite_rate_limit_per_minute: number;
   active_rooms: number;
   retained_rooms: number;
+  /** Fixed Limited-boundary transport facts for operators and agents. */
+  transport: CollaborationHealthTransportLimits;
 };
 
 /**
@@ -53,5 +76,11 @@ export function buildCollaborationHealthStanza(input: CollaborationHealthInput):
     invite_rate_limit_per_minute: input.inviteRateLimitPerMinute,
     active_rooms: activeRooms,
     retained_rooms: retainedRooms,
+    transport: {
+      loopback_binding: true,
+      tls_termination: false,
+      multi_node: false,
+      member_identity: input.mode === "invite-required" ? "invite-capability" : "local-trust",
+    },
   };
 }
