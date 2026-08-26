@@ -5,6 +5,8 @@
  * DirectorCanvas owns the handlers; the workbench executor only publishes.
  */
 
+import type { GamePlaytestScriptInput } from "@director/protocol/game-slice";
+
 export type DirectorPlayerSessionCommand =
   | { type: "enter"; actor_id?: string }
   | { type: "exit" }
@@ -15,7 +17,14 @@ export type DirectorPlayerSessionCommand =
   | { type: "enter_vehicle"; object_id?: string }
   | { type: "exit_vehicle" }
   | { type: "record_start" }
-  | { type: "record_stop" };
+  | { type: "record_stop" }
+  /**
+   * Internal `director_game` playtest driver: enters Player Mode for the
+   * actor, runs the scripted input tape against the live motor, and returns
+   * a `director-game-playtest-trace-v1` in the receipt. Not a public
+   * workbench op — agents reach it through `director_game {op:"playtest"}`.
+   */
+  | { type: "play_script"; script: GamePlaytestScriptInput; actor_id?: string; slice_id?: string };
 
 export type DirectorPilotSessionCommand =
   | { type: "start"; camera_id?: string }
@@ -90,4 +99,16 @@ export function dispatchDirectorSessionCommand(
     }
     listeners.forEach((listener) => listener(envelope));
   });
+}
+
+/**
+ * Dispatch timeout for a `play_script` tape. The live driver consumes one
+ * tape frame per rendered frame at the script's fixed dt, so wall time can
+ * exceed the simulated duration on a slow tab; triple it and add grace for
+ * entering Player Mode.
+ */
+export function directorPlayerScriptTimeoutMs(script: GamePlaytestScriptInput): number {
+  const dt = script.dt ?? 1 / 30;
+  const frames = script.steps.reduce((total, step) => total + step.frames, 0);
+  return Math.ceil(frames * dt * 1000 * 3) + 8_000;
 }

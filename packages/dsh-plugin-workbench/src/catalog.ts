@@ -7,6 +7,8 @@ import {
 import { creativeWorkspaceAgentRequestSchema } from "@director/protocol/creative-workspace";
 import { blenderNativeToolRequestSchema } from "@director/protocol/blender-live";
 import { videoModelOperationSchema, videoProviderIdSchema } from "@director/protocol/video-generation";
+import { directorGameOperationSchema } from "@director/protocol/director-game";
+import { gameSliceGenreSchema, gameSliceIdSchema } from "@director/protocol/game-slice";
 
 type OperationUnionSchema = {
   options: ReadonlyArray<{ shape: { op: { value: string } } }>;
@@ -240,6 +242,30 @@ export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
     assetType: z.enum(["hdris", "textures", "models", "all"]).optional().describe('For op="polyhaven_search".'),
     uid: z.string().optional().describe("Sketchfab model uid for sketchfab_import."),
   }),
+  director_game: compactWireSchema(
+    directorGameOperationSchema,
+    'Operation. Use {"op":"capabilities"} or {"op":"describe","target":"plan"} when fields are unknown. Stage is the first playable runtime; engine export is director_dcc after a playable receipt.',
+  ).extend({
+    target: z.string().optional().describe('Required for op="describe", e.g. "plan" or "playtest".'),
+    slice_id: gameSliceIdSchema.optional().describe("Existing slice id for observe/bind/playtest/evaluate/export_slice."),
+    brief: z
+      .looseObject({ requirement: z.string().min(1), genre: gameSliceGenreSchema })
+      .optional()
+      .describe('Required for op="plan": requirement plus genre. Exact fields via describe target "plan".'),
+    bindings: z
+      .array(z.looseObject({ role_id: z.string().min(1) }))
+      .optional()
+      .describe('Required for op="bind": role_id plus object_id from the Stage scene.'),
+    script: z
+      .looseObject({ steps: z.array(z.looseObject({})).min(1) })
+      .optional()
+      .describe('Required for op="playtest": held-input tape. A compile is not a playtest.'),
+    trace: z.looseObject({}).optional().describe("Optional host-free playtest samples when no Stage tab is attached."),
+    provider: z
+      .enum(["godot", "unity", "unreal"])
+      .optional()
+      .describe('For op="export_slice": godot, unity, or unreal. "stage" is not an export provider.'),
+  }),
 } as const;
 
 /** Director-owned tools mounted onto DeepSeek Harness. Generic coding/web/job tools stay in DSH. */
@@ -275,6 +301,14 @@ export const DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
       'Operate Blender\'s native modeling and rig surface in the same Director project. Use this for unique architecture and set pieces that are not in the catalog; successful edits synchronize automatically, never via GLB re-import. White-box shells use apply create_blockout (presets floor/wall/room/corridor/stairs, metric metres, stable ids "<idPrefix>:1..n"); door/window holes use create_opening on the wall, never a darker box. Call scene when object IDs are unknown. Search CC0 assets with {"op":"polyhaven_search","assetType":"models","query":"chair"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Native stills are {"op":"capture"} or the alias {"op":"capture_render"}. Describe typed apply ops with {"op":"describe","target":"create_blockout"} when a field is unknown. invoke_operator covers most Blender RNA; execute_code runs Python when that is not enough. Missing scene epoch, revision, and intent id are filled by the gateway.',
     inputSchema: z.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native),
     dshParameters: dshToolParameters(z.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.blender_native)),
+  },
+  {
+    type: "function" as const,
+    name: "director_game",
+    description:
+      'Plan and playtest a typed game slice on the live Director Stage. Start with {"op":"capabilities"} or {"op":"describe","target":"plan"}; bind Stage object ids before playtest; a scripted input tape is playability evidence, not a compile. Engine export is director_dcc after status playable — do not dump engine source.',
+    inputSchema: z.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_game),
+    dshParameters: dshToolParameters(z.toJSONSchema(DIRECTOR_AGENT_WIRE_SCHEMAS.director_game)),
   },
 ] as const;
 

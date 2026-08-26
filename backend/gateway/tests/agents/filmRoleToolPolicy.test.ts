@@ -69,7 +69,14 @@ describe("film role tool policy", () => {
     expect(directorToolPolicyRejection(null, true, "director_workbench", { op: "author" })).toMatchObject({
       code: "plan_mode_blocked",
     });
-    expect(directorToolPolicyRejection(null, true, "director_workbench", { op: "observe" })).toBeNull();
+    expect(roleAllowsTool("stage-director", "director_game", { op: "plan" })).toBe(true);
+    expect(roleAllowsTool("visual-critic", "director_game", { op: "evaluate" })).toBe(true);
+    expect(roleAllowsTool("visual-critic", "director_game", { op: "bind" })).toBe(false);
+    expect(roleCanSeeTool("stage-director", "director_game")).toBe(true);
+    expect(directorToolPolicyRejection(null, true, "director_game", { op: "plan" })).toMatchObject({
+      code: "plan_mode_blocked",
+    });
+    expect(directorToolPolicyRejection(null, true, "director_game", { op: "capabilities" })).toBeNull();
     expect(filmRoleFromEnvironment(" production-designer ")).toBe("production-designer");
   });
 

@@ -1,0 +1,61 @@
+{
+  "contract": "director-game-slice-v1",
+  "tool": "director_game",
+  "runtime": {
+    "default": "stage",
+    "note": "The live Director Stage player is the first playable runtime. Engine export is a later handoff through director_dcc, never a substitute for a Stage playtest receipt."
+  },
+  "operations": [
+    "capabilities",
+    "describe",
+    "plan",
+    "observe",
+    "bind",
+    "author_loop",
+    "author_hud",
+    "playtest",
+    "evaluate",
+    "export_slice"
+  ],
+  "genres": ["exploration", "fps", "racing", "fighting", "rpg"],
+  "perspectives": ["first", "third", "top_down"],
+  "engine_targets": ["stage", "godot", "unity", "unreal"],
+  "verbs": [
+    "move",
+    "look",
+    "jump",
+    "sprint",
+    "dash",
+    "crouch",
+    "interact",
+    "attack",
+    "fire",
+    "reload",
+    "enter_vehicle",
+    "exit_vehicle",
+    "pause"
+  ],
+  "role_kinds": ["player", "enemy", "npc", "prop", "vehicle", "spawn", "objective", "hazard"],
+  "hud_widgets": ["health", "ammo", "score", "prompt", "minimap", "crosshair", "speedometer", "dialogue", "timer"],
+  "playability_checks": [
+    "on_ground",
+    "facing_matches_move",
+    "no_camera_clip",
+    "verb_exercised",
+    "interaction_in_range",
+    "hud_bound",
+    "objective_reachable",
+    "no_stuck"
+  ],
+  "status": ["draft", "bound", "playtested", "playable", "exported"],
+  "working_order": [
+    "capabilities or describe when vocabulary is unknown",
+    "plan a typed slice from the brief (Stage is the default runtime)",
+    "place catalog/Blender/generated meshes with director_workbench and blender_native",
+    "bind those object ids to slice roles",
+    "author_loop and author_hud as typed patches, never engine source dumps",
+    "playtest with a scripted input tape against the live Stage player",
+    "evaluate the trace; a compile or a screenshot is not playability evidence",
+    "export_slice through director_dcc only after a playable Stage receipt"
+  ]
+}

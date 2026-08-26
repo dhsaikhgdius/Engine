@@ -7,7 +7,11 @@ import {
   type DirectorWorldRoad,
 } from "@director/project-schema";
 import type { DirectorCharacterMotionState } from "../../src/comprehensive/editor/schema/directorProject";
-import { createInitialDirectorState, useDirectorStore } from "../../src/comprehensive/editor/store/directorStore";
+import {
+  createInitialDirectorState,
+  getCrowdAnchorTransform,
+  useDirectorStore,
+} from "../../src/comprehensive/editor/store/directorStore";
 import {
   compileDirectorDeleteObjectActions,
   dispatchDirectorAuthoringActions,
@@ -17,6 +21,7 @@ import {
   compileDirectorCameraUpdateAction,
   compileDirectorCharacterMotionAction,
   compileDirectorLightUpdateAction,
+  compileDirectorSceneUpdateAction,
 } from "../../src/agent/compileDirectorUiAuthoringActions";
 
 function resetDirectorStore() {
@@ -413,5 +418,283 @@ describe("Stage mutator parity with direct agent authoring", () => {
     expect((useDirectorStore.getState().project.lights ?? []).some((light) => light.id === "light_directional_1")).toBe(
       false,
     );
+  });
+
+  /** Same 6-decimal rounding the store's crowd transform math applies. */
+  function roundTuple(values: [number, number, number]): [number, number, number] {
+    return values.map((value) => Number(value.toFixed(6))) as [number, number, number];
+  }
+
+  function seedCrowd() {
+    const createdIds = useDirectorStore.getState().addCrowdCharacters({ rows: 1, columns: 2, spacing: 2 });
+    expect(createdIds.length).toBe(2);
+    // Land the locally-written crowd on the shared authoring landing point so
+    // the fixture starts from the same migration fixed point both paths use.
+    useDirectorStore.getState().applyAuthoredProject(useDirectorStore.getState().project);
+    const crowdId = useDirectorStore.getState().project.objects.find((object) => object.id === createdIds[0])?.crowdId;
+    if (!crowdId) throw new Error("crowd characters are missing a crowdId");
+    return crowdId;
+  }
+
+  function crowdMembers(crowdId: string) {
+    return useDirectorStore
+      .getState()
+      .project.objects.filter((object) => object.kind === "character" && object.crowdId === crowdId);
+  }
+
+  it("dropObjectToGround matches a direct update_object grounded apply", () => {
+    seedProp("drop-parity-box", [3, 2.5, -1]);
+
+    const agentRevision = agentRevisionFor([
+      {
+        action: "update_object",
+        object_id: "drop-parity-box",
+        patch: { transform: { position: [3, 0, -1] }, placement_mode: "grounded" },
+        force: true,
+      },
+    ]);
+
+    useDirectorStore.getState().dropObjectToGround("drop-parity-box");
+
+    expect(storeRevision()).toBe(agentRevision);
+    const object = useDirectorStore.getState().project.objects.find((item) => item.id === "drop-parity-box");
+    expect(object?.transform.position).toEqual([3, 0, -1]);
+    expect(object?.placementMode).toBe("grounded");
+  });
+
+  it("dropObjectToGround keeps the legacy writer inside a slider/gizmo undo batch", () => {
+    seedProp("drop-batch-box", [1, 4, 1]);
+
+    useDirectorStore.getState().beginUndoBatch();
+    useDirectorStore.getState().dropObjectToGround("drop-batch-box");
+    useDirectorStore.getState().endUndoBatch();
+
+    const object = useDirectorStore.getState().project.objects.find((item) => item.id === "drop-batch-box");
+    expect(object?.transform.position).toEqual([1, 0, 1]);
+    expect(object?.placementMode).toBe("grounded");
+  });
+
+  it("updateUniformScale matches a direct update_object scale apply", () => {
+    seedProp("scale-parity-box", [0, 0, 2]);
+
+    const agentRevision = agentRevisionFor([
+      {
+        action: "update_object",
+        object_id: "scale-parity-box",
+        patch: { transform: { scale: [2.5, 2.5, 2.5] } },
+        force: true,
+      },
+    ]);
+
+    useDirectorStore.getState().updateUniformScale("scale-parity-box", 2.5);
+
+    expect(storeRevision()).toBe(agentRevision);
+    const object = useDirectorStore.getState().project.objects.find((item) => item.id === "scale-parity-box");
+    expect(object?.transform.scale).toEqual([2.5, 2.5, 2.5]);
+  });
+
+  it("updateCharacterBodyType matches a direct update_object body_type apply", () => {
+    const agentRevision = agentRevisionFor([
+      { action: "update_object", object_id: "char_default_a", patch: { body_type: "broad" }, force: true },
+    ]);
+
+    useDirectorStore.getState().updateCharacterBodyType("char_default_a", "broad");
+
+    expect(storeRevision()).toBe(agentRevision);
+    const character = useDirectorStore.getState().project.objects.find((object) => object.id === "char_default_a");
+    expect(character?.bodyType).toBe("broad");
+  });
+
+  it("updateCrowdTransform matches a per-member update_object transform apply", () => {
+    const crowdId = seedCrowd();
+    const members = crowdMembers(crowdId);
+    const anchor = getCrowdAnchorTransform(useDirectorStore.getState().project.objects, crowdId);
+    if (!anchor) throw new Error("crowd anchor is missing");
+    const target: [number, number, number] = [4, anchor.position[1], -3];
+
+    const agentRevision = agentRevisionFor(
+      members.map((member) => ({
+        action: "update_object" as const,
+        object_id: member.id,
+        patch: {
+          transform: {
+            position: roundTuple([
+              target[0] + member.transform.position[0] - anchor.position[0],
+              target[1] + member.transform.position[1] - anchor.position[1],
+              target[2] + member.transform.position[2] - anchor.position[2],
+            ]),
+            rotation: roundTuple([...member.transform.rotation]),
+            scale: roundTuple([...member.transform.scale]),
+          },
+        },
+        force: true,
+      })),
+    );
+
+    useDirectorStore.getState().updateCrowdTransform(crowdId, { position: target });
+
+    expect(storeRevision()).toBe(agentRevision);
+    const movedAnchor = getCrowdAnchorTransform(useDirectorStore.getState().project.objects, crowdId);
+    expect(movedAnchor?.position).toEqual(target);
+  });
+
+  it("dropCrowdToGround matches a per-member grounded update_object apply", () => {
+    const crowdId = seedCrowd();
+    const raisedAnchor = getCrowdAnchorTransform(useDirectorStore.getState().project.objects, crowdId);
+    if (!raisedAnchor) throw new Error("crowd anchor is missing");
+    useDirectorStore
+      .getState()
+      .updateCrowdTransform(crowdId, { position: [raisedAnchor.position[0], 1.5, raisedAnchor.position[2]] });
+
+    const members = crowdMembers(crowdId);
+    const anchor = getCrowdAnchorTransform(useDirectorStore.getState().project.objects, crowdId);
+    if (!anchor) throw new Error("crowd anchor is missing");
+    const groundHeight = useDirectorStore.getState().project.scene.groundHeight;
+
+    const agentRevision = agentRevisionFor(
+      members.map((member) => ({
+        action: "update_object" as const,
+        object_id: member.id,
+        patch: {
+          transform: {
+            position: roundTuple([
+              member.transform.position[0],
+              groundHeight + member.transform.position[1] - anchor.position[1],
+              member.transform.position[2],
+            ]),
+            rotation: roundTuple([...member.transform.rotation]),
+            scale: roundTuple([...member.transform.scale]),
+          },
+          placement_mode: "grounded" as const,
+        },
+        force: true,
+      })),
+    );
+
+    useDirectorStore.getState().dropCrowdToGround(crowdId);
+
+    expect(storeRevision()).toBe(agentRevision);
+    crowdMembers(crowdId).forEach((member) => {
+      expect(member.transform.position[1]).toBe(groundHeight);
+      expect(member.placementMode).toBe("grounded");
+    });
+  });
+
+  it("updateCrowdUniformScale matches a per-member update_object scale apply", () => {
+    const crowdId = seedCrowd();
+    const members = crowdMembers(crowdId);
+    const anchor = getCrowdAnchorTransform(useDirectorStore.getState().project.objects, crowdId);
+    if (!anchor) throw new Error("crowd anchor is missing");
+
+    const agentRevision = agentRevisionFor(
+      members.map((member) => ({
+        action: "update_object" as const,
+        object_id: member.id,
+        patch: {
+          transform: {
+            position: roundTuple([
+              anchor.position[0] + (member.transform.position[0] - anchor.position[0]) * 2,
+              anchor.position[1] + (member.transform.position[1] - anchor.position[1]) * 2,
+              anchor.position[2] + (member.transform.position[2] - anchor.position[2]) * 2,
+            ]),
+            rotation: roundTuple([...member.transform.rotation]),
+            scale: roundTuple([
+              member.transform.scale[0] * 2,
+              member.transform.scale[1] * 2,
+              member.transform.scale[2] * 2,
+            ]),
+          },
+        },
+        force: true,
+      })),
+    );
+
+    useDirectorStore.getState().updateCrowdUniformScale(crowdId, 2);
+
+    expect(storeRevision()).toBe(agentRevision);
+    crowdMembers(crowdId).forEach((member) => {
+      expect(member.transform.scale).toEqual([2, 2, 2]);
+    });
+  });
+
+  it("updateCrowdLabel matches a per-member update_object crowd_label apply", () => {
+    const crowdId = seedCrowd();
+    const members = crowdMembers(crowdId);
+
+    const agentRevision = agentRevisionFor(
+      members.map((member) => ({
+        action: "update_object" as const,
+        object_id: member.id,
+        patch: { crowd_label: "围观群众" },
+        force: true,
+      })),
+    );
+
+    useDirectorStore.getState().updateCrowdLabel(crowdId, "围观群众");
+
+    expect(storeRevision()).toBe(agentRevision);
+    crowdMembers(crowdId).forEach((member) => {
+      expect(member.crowdLabel).toBe("围观群众");
+    });
+  });
+
+  it("updateCrowdColor matches a per-member update_object color apply", () => {
+    const crowdId = seedCrowd();
+    const members = crowdMembers(crowdId);
+
+    const agentRevision = agentRevisionFor(
+      members.map((member) => ({
+        action: "update_object" as const,
+        object_id: member.id,
+        patch: { color: "#ff8800" },
+        force: true,
+      })),
+    );
+
+    useDirectorStore.getState().updateCrowdColor(crowdId, "#ff8800");
+
+    expect(storeRevision()).toBe(agentRevision);
+    crowdMembers(crowdId).forEach((member) => {
+      expect(member.color).toBe("#ff8800");
+    });
+  });
+
+  it("updateScene matches a direct set_scene apply", () => {
+    const patch = { groundHeight: 0.5, showLabels: false, backgroundColor: "#101418" };
+    const action = compileDirectorSceneUpdateAction(patch);
+    expect(action).toEqual({ action: "set_scene", patch });
+    const agentRevision = agentRevisionFor([action!]);
+
+    useDirectorStore.getState().updateScene(patch);
+
+    expect(storeRevision()).toBe(agentRevision);
+    const scene = useDirectorStore.getState().project.scene;
+    expect(scene.groundHeight).toBe(0.5);
+    expect(scene.showLabels).toBe(false);
+    expect(scene.backgroundColor).toBe("#101418");
+  });
+
+  it("removeImportedAsset matches a direct remove_assets cascade apply", () => {
+    const assetId = useDirectorStore.getState().addImportedAsset({
+      kind: "prop",
+      sourceType: "model",
+      name: "Parity model",
+      fileName: "parity-model.glb",
+      url: "https://example.com/parity-model.glb",
+      assetSource: "local",
+    });
+    const seededObject = useDirectorStore
+      .getState()
+      .project.objects.find((object) => object.assetRefId === assetId);
+    expect(seededObject).toBeDefined();
+
+    const agentRevision = agentRevisionFor([{ action: "remove_assets", asset_ids: [assetId], cascade: true }]);
+
+    useDirectorStore.getState().removeImportedAsset(assetId);
+
+    expect(storeRevision()).toBe(agentRevision);
+    const project = useDirectorStore.getState().project;
+    expect(project.assets.some((asset) => asset.id === assetId)).toBe(false);
+    expect(project.objects.some((object) => object.assetRefId === assetId)).toBe(false);
   });
 });

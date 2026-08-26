@@ -65,7 +65,8 @@ async function walkFiles(root: string, relative: string, out: StoredArtifactObje
   try {
     entries = await readdir(join(root, relative), { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return;
     throw error;
   }
   for (const entry of entries) {
@@ -142,8 +143,14 @@ export class FilesystemArtifactStorage implements ArtifactStorageBackend {
   }
 
   async list(prefix = ""): Promise<StoredArtifactObject[]> {
+    // Walk only the deepest directory the prefix pins down instead of the
+    // whole root, so listing `production-jobs/` never scans unrelated
+    // gateway data. Complete path segments (everything before the last
+    // slash) are safe to descend into; the remainder stays a key filter.
+    const walkRoot = prefix.includes("/") ? prefix.slice(0, prefix.lastIndexOf("/")) : "";
+    if (walkRoot) assertArtifactStorageKey(walkRoot);
     const objects: StoredArtifactObject[] = [];
-    await walkFiles(this.rootDirectory, "", objects);
+    await walkFiles(this.rootDirectory, walkRoot, objects);
     return objects
       .filter((object) => object.key.startsWith(prefix))
       .sort((left, right) => left.key.localeCompare(right.key));
@@ -225,7 +232,19 @@ export class ObjectStorageArtifactStorage implements ArtifactStorageBackend {
 
   async list(prefix = ""): Promise<StoredArtifactObject[]> {
     const objects = await this.client.listObjects(prefix);
-    return [...objects].sort((left, right) => left.key.localeCompare(right.key));
+    // Injected clients are outside this repository's control; an unsafe key
+    // (traversal, absolute path, control characters) must never reach GC or
+    // route code, so it is dropped loudly instead of propagated.
+    const safe = objects.filter((object) => {
+      try {
+        assertArtifactStorageKey(object.key);
+        return true;
+      } catch {
+        console.warn(`Ignoring unsafe object-storage key from injected client: ${JSON.stringify(object.key)}`);
+        return false;
+      }
+    });
+    return safe.sort((left, right) => left.key.localeCompare(right.key));
   }
 }
 

@@ -9,7 +9,7 @@ This is the Milestone 0 inventory from the
 as `directorStore.ts` below), what semantic authoring action it maps to, and whether the UI and
 the Agent already produce the same project revision through one executor.
 
-Last verified: **2026-08-25**.
+Last verified: **2026-08-26**.
 
 ## Status legend
 
@@ -19,8 +19,9 @@ Last verified: **2026-08-25**.
   helpers live in `frontend/director/src/agent/compileDirectorUiAuthoringActions.ts`. All shared
   mutators fall back to the legacy direct writer inside slider/gizmo undo batches
   (`undoBatchDepth > 0`) and for the specific inexpressible patches noted per row.
-- **ui-only** — still writes the project through `commitMutation` / `withProjectPatch` only. The
-  Agent has no guarantee of an identical revision for the same intent yet.
+- **ui-only** — still writes the project through `commitMutation` / `withProjectPatch` only. Rows
+  marked *(deliberately local)* carry a documented divergence reason in the store and are not
+  migration candidates; the rest either lack a semantic action or await compilation.
 - **human-only-interactive** — intentionally not routed through authoring: per-frame interactive
   feel, DCC projections, runtime measurements, selection, history, and project lifecycle.
 
@@ -28,9 +29,13 @@ Last verified: **2026-08-25**.
 
 | Category | Count |
 | ------------------------------------ | ----- |
-| shared Stage project mutators | 35 |
-| ui-only Stage project mutators | 52 |
-| Coverage (shared / project mutators) | **35 / 87 ≈ 40%** |
+| shared Stage project mutators | 69 |
+| ui-only Stage project mutators | 18 |
+| Coverage (shared / project mutators) | **69 / 87 ≈ 79%** |
+
+Everything still ui-only either has no semantic action yet (timeline audio, object lists,
+panorama/capture/catalog writes, clipboard paste) or is deliberately local with a documented
+divergence reason in the store (snapshot cameras, preset/crowd/asset add flows).
 
 Parity is regression-tested in
 `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts`: the same
@@ -46,19 +51,19 @@ Parity is regression-tested in
 | `toggleObjectVisible` / `toggleObjectLocked` | `directorStore.ts` | `update_object` | shared (camera rigs keep the legacy writer) |
 | `toggleObjectInteraction` | `directorStore.ts` | `update_object` (via `updateObjectTransform`) | shared |
 | `setObjectAnimation` | `directorStore.ts` | `set_animation` | shared |
-| `updateObjectTransforms` (multi-select) | `directorStore.ts` | `update_object` batch (not yet compiled) | ui-only |
-| `batchUpdateObjects` / `resetObjectTransforms` | `directorStore.ts` | `update_object` batch (not yet compiled) | ui-only |
-| `alignObjects` / `distributeObjects` | `directorStore.ts` | `align_objects` / `update_object` batch (not yet compiled) | ui-only |
-| `isolateObjects` / `showAllObjects` | `directorStore.ts` | `update_object` batch (not yet compiled) | ui-only |
-| `setObjectPivot` | `directorStore.ts` | `set_object_pivot` (not yet compiled) | ui-only |
-| `dropObjectToGround` / `updateCrowdTransform` / `dropCrowdToGround` | `directorStore.ts` | `update_object` (not yet compiled) | ui-only |
-| `updateObjectName` / `updateCrowdLabel` | `directorStore.ts` | `update_object` (not yet compiled) | ui-only |
-| `updateObjectColor` / `updateCrowdColor` | `directorStore.ts` | `update_object` (not yet compiled) | ui-only |
-| `updateObjectMaterial` / `updateObjectMaterialTexture` | `directorStore.ts` | `update_object` material patch (not yet compiled) | ui-only |
-| `setObjectVehicleProfile` | `directorStore.ts` | `set_vehicle_profile` / `clear_vehicle_profile` (not yet compiled) | ui-only |
-| `updateObjectReferenceBindings` | `directorStore.ts` | no semantic action yet | ui-only |
-| `createCompositeObject` / `addObjectsToComposite` / `removeObjectsFromComposite` | `directorStore.ts` | `group_objects` / `ungroup_objects` (not yet compiled) | ui-only |
-| `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | no semantic action yet | ui-only |
+| `updateObjectTransforms` (multi-select) | `directorStore.ts` | `update_object` batch | shared (batches containing camera rigs, composite parents, or object-focused-camera targets keep the legacy writer wholesale) |
+| `batchUpdateObjects` / `resetObjectTransforms` | `directorStore.ts` | `update_object` batch | shared (composite-parent transform propagation, object-focused-camera refresh, and color/material/layer patches on provisioned native Blender objects keep the legacy writer) |
+| `alignObjects` / `distributeObjects` | `directorStore.ts` | `align_objects` / `distribute_objects` | shared (object-focused-camera targets keep the legacy writer) |
+| `isolateObjects` / `showAllObjects` | `directorStore.ts` | `isolate_objects` + `set_object_layer_state` / `show_all_objects` | shared (show-all with a hidden camera rig keeps the legacy reveal) |
+| `setObjectPivot` | `directorStore.ts` | `set_object_pivot` | shared |
+| `dropObjectToGround` / `updateCrowdTransform` / `dropCrowdToGround` | `directorStore.ts` | `update_object` transform / `placement_mode` patches (crowds fan out per member) | shared (composite parents, object-focused cameras, and grounded drops on provisioned native Blender objects keep the legacy writer) |
+| `updateObjectName` / `updateCrowdLabel` | `directorStore.ts` | `update_object` `name` / `crowd_label`; camera rigs rename through `update_camera` | shared (unstable-fov snapshot cameras, asset-less character renames, and mid-typing whitespace crowd labels keep the legacy writer) |
+| `updateObjectColor` / `updateCrowdColor` | `directorStore.ts` | `update_object` `color` (crowds fan out per member) | shared (camera rigs and provisioned native Blender objects/members keep the legacy writer) |
+| `updateObjectMaterial` / `updateObjectMaterialTexture` | `directorStore.ts` | `update_object` material patch, pre-merged to match the store's partial-merge semantics | shared (composite parents, camera rigs, and provisioned native Blender objects keep the legacy writer) |
+| `setObjectVehicleProfile` | `directorStore.ts` | `set_vehicle_profile` / `clear_vehicle_profile` | shared (only unlocked prop/scene objects are authorable; others keep the legacy writer) |
+| `updateObjectReferenceBindings` | `directorStore.ts` | `update_object` `reference_bindings` | shared (camera rigs and provisioned native Blender objects keep the legacy writer) |
+| `createCompositeObject` / `addObjectsToComposite` / `removeObjectsFromComposite` | `directorStore.ts` | `group_objects` / `update_object` `parent_id` patches | shared (provisioned native Blender children keep the legacy writer) |
+| `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | no semantic action; object lists are a UI selection helper, not composite groups | ui-only (deliberately local) |
 | `pasteClipboardObjects` | `directorStore.ts` | `add_object` batch (not yet compiled; documented gap) | ui-only |
 
 ## Cameras
@@ -67,7 +72,7 @@ Parity is regression-tested in
 | --- | --- | --- | --- |
 | `updateCamera` | `directorStore.ts` | `update_camera` (also syncs the linked rig object) | shared (captures/animation patches, rotated or scaled rig transforms, and frustum-depth close-ups keep the legacy writer) |
 | `setActiveCamera` | `directorStore.ts` | `set_active_camera` | shared |
-| `addCameraShot` | `directorStore.ts` | `add_camera` | shared |
+| `addCameraShot` | `directorStore.ts` | `add_camera` diverges: snapshot cameras keep the viewport's exact fov while `add_camera` derives fov from focal length, and sequential `cam_N` ids plus active-camera optics inheritance are not authoring concepts | ui-only (deliberately local) |
 | `setCameraAnimation` | `directorStore.ts` | `set_animation` | shared |
 | `addCameraCaptures` | `directorStore.ts` | no semantic action yet (capture evidence write) | ui-only |
 
@@ -80,8 +85,8 @@ Parity is regression-tested in
 | `setCharacterMotion` / `setCrowdCharacterMotion` | `directorStore.ts` | `set_character_motion` / `clear_character_motion` | shared (migration-only `authored` root motion keeps the legacy writer) |
 | `setCharacterIkEffector` / `setCrowdCharacterIkEffector` | `directorStore.ts` | `set_character_ik` | shared |
 | `clearCharacterIkEffector` / `clearCrowdCharacterIkEffector` | `directorStore.ts` | `clear_character_ik` | shared |
-| `updateCharacterBodyType` | `directorStore.ts` | `update_object` (not yet compiled; refreshes focused cameras) | ui-only |
-| `updateUniformScale` / `updateCrowdUniformScale` | `directorStore.ts` | `update_object` (not yet compiled) | ui-only |
+| `updateCharacterBodyType` | `directorStore.ts` | `update_object` `body_type` | shared (object-focused cameras keep the legacy writer for the UI focus-height refresh) |
+| `updateUniformScale` / `updateCrowdUniformScale` | `directorStore.ts` | `update_object` transform scale (crowds fan out per member) | shared (camera rigs, composite parents, and object-focused cameras keep the legacy writer) |
 
 ## Lights
 
@@ -95,7 +100,7 @@ Parity is regression-tested in
 
 | Mutator | File | Semantic action(s) | Status |
 | --- | --- | --- | --- |
-| `updateScene` | `directorStore.ts` | `set_scene` | shared |
+| `updateScene` | `directorStore.ts` | `set_scene` | shared (patches with keys `set_scene` cannot express keep the legacy writer) |
 | `updateWorldSettings` | `directorStore.ts` | `set_world_settings` | shared |
 | `upsertWorldEffect` | `directorStore.ts` | `add_world_effect` / `update_world_effect` | shared (locked entries and non-default add flags keep the legacy writer) |
 | `removeWorldEffects` | `directorStore.ts` | `remove_world_effects` | shared |
@@ -103,10 +108,10 @@ Parity is regression-tested in
 | `upsertWorldWildlifeGroup` / `removeWorldWildlifeGroups` | `directorStore.ts` | `add_world_wildlife_group` / `update_world_wildlife_group` / `remove_world_wildlife_groups` | shared (adds relying on the default flight band keep the legacy writer) |
 | `upsertWorldRoad` / `removeWorldRoads` | `directorStore.ts` | `add_world_road` / `update_world_road` / `remove_world_roads` | shared |
 | `updateStoryboard` | `directorStore.ts` | `set_storyboard` | shared |
-| `addSceneAnnotation` / `updateSceneAnnotation` / `removeSceneAnnotation` | `directorStore.ts` | `add_annotation` / `update_annotation` / `remove_annotations` (not yet compiled) | ui-only |
-| `addSceneMeasurement` / `updateSceneMeasurement` / `removeSceneMeasurement` | `directorStore.ts` | `add_measurement` / `update_measurement` / `remove_measurements` (not yet compiled) | ui-only |
-| `setObjectLayerState` | `directorStore.ts` | `set_object_layer_state` (not yet compiled) | ui-only |
-| `moveObjectLayer` | `directorStore.ts` | `set_scene` layer-order patch (not yet compiled) | ui-only |
+| `addSceneAnnotation` / `updateSceneAnnotation` / `removeSceneAnnotation` | `directorStore.ts` | `add_annotation` / `update_annotation` / `remove_annotations` | shared |
+| `addSceneMeasurement` / `updateSceneMeasurement` / `removeSceneMeasurement` | `directorStore.ts` | `add_measurement` / `update_measurement` / `remove_measurements` | shared |
+| `setObjectLayerState` | `directorStore.ts` | `set_object_layer_state` | shared (no-op state writes are skipped to keep the undo stack clean) |
+| `moveObjectLayer` | `directorStore.ts` | `reorder_object_layer` | shared |
 | `removePanoramaAsset` | `directorStore.ts` | no semantic action yet | ui-only |
 
 ## Timeline audio
@@ -120,8 +125,10 @@ Parity is regression-tested in
 | Mutator | File | Semantic action(s) | Status |
 | --- | --- | --- | --- |
 | `addImportedAsset` / `setAssetRealWorldSize` | `directorStore.ts` | no semantic action yet (asset catalog writes) | ui-only |
-| `removeImportedAsset` | `directorStore.ts` | `remove_assets` (not yet compiled) | ui-only |
-| `addObjectFromAsset` / `addPresetCharacter` / `addCrowdCharacters` / `addGeometryPrimitive` | `directorStore.ts` | `add_object` (not yet compiled; UI id/name/placement conventions) | ui-only |
+| `removeImportedAsset` | `directorStore.ts` | `remove_assets` with `cascade` | shared (removals whose cascade would also delete children, clear look targets, camera follow/path bindings, or material texture references keep the legacy writer, which leaves those untouched) |
+| `addObjectFromAsset` | `directorStore.ts` | `add_object` diverges: `createSceneObjectFromAsset` stamps Blender `nativeSource` provisioning markers and character rig defaults that `add_object` does not author | ui-only (deliberately local) |
+| `addPresetCharacter` / `addCrowdCharacters` | `directorStore.ts` | `add_object` diverges: preset adds keep per-add body types and a rotating color palette, and crowd grouping (`crowdId`) is UI-only state `add_object` cannot author | ui-only (deliberately local) |
+| `addGeometryPrimitive` | `directorStore.ts` | `add_object` with `geometry_type` (accepted in-process; only the public workbench agent wire rejects it) | shared |
 
 ## Human-only interactive surfaces
 

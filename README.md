@@ -161,8 +161,10 @@ npm run --silent stage -- director_workbench '{"op":"capabilities"}'
 
 Use `director_workbench` for Stage plus generation, transcription, and generated-3D jobs;
 `director_creative` for Canvas DAG, Video, interchange, and collaboration; and
-`director_dcc` for DCC handoff. Do not automate the UI by screen coordinates when a semantic
-operation exists.
+`director_dcc` for DCC handoff. The experimental `director_game` tool plans and playtests a
+typed game slice on the live Stage player, exporting through `director_dcc` — it does not
+generate engine-native game projects. Do not automate the UI by screen coordinates when a
+semantic operation exists.
 
 `npm run dsh` prepares the Director workbench overlay and launches the pinned DeepSeek Harness
 Web profile on `:3080`.

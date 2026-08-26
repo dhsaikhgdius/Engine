@@ -269,3 +269,26 @@
   opacity: 0.55;
   cursor: default;
 }
+
+.task-tray-storage {
+  padding-top: 6px;
+  border-top: 1px solid rgb(var(--border-rgb) / 0.1);
+}
+
+.task-tray-storage-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  padding: 0 3px;
+  font-size: 10px;
+}
+
+.task-tray-storage-rows > span:nth-child(odd) {
+  color: rgb(var(--text-muted-rgb));
+}
+
+.task-tray-storage-rows > span:nth-child(even) {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+}

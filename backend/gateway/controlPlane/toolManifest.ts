@@ -2,6 +2,7 @@ import { z } from "zod";
 import { directorWorkbenchOperationNames } from "@director/agent-engine";
 import { directorDccOperationSchema } from "@director/dcc-protocol";
 import { DIRECTOR_WORKBENCH_PLUGIN_TOOLS, operationNames } from "@director/dsh-plugin-workbench";
+import { directorGameOperationSchema } from "../../../packages/protocol/src/directorGameProtocol";
 import agentToolCategories from "../../../packages/protocol/src/agentTools.json";
 import { AGENT_TOOL_NAMES, STAGE_COMMAND_TOOL_NAMES } from "../../../packages/protocol/src/agentTools";
 import { creativeWorkspaceAgentRequestSchema } from "../../../packages/protocol/src/creativeWorkspaceProtocol";
@@ -68,6 +69,7 @@ const typedToolOperations: Record<string, readonly string[]> = {
   stage_video: operationNames(videoModelOperationSchema),
   blender_native: operationNames(blenderNativeToolRequestSchema),
   director_dcc: operationNames(directorDccOperationSchema),
+  director_game: operationNames(directorGameOperationSchema),
   director_film: operationNames(filmPipelineOperationSchema),
   director_production: operationNames(productionEvidenceRequestSchema),
 };
@@ -108,6 +110,14 @@ export function buildDirectorToolManifest(now: Date = new Date()): DirectorToolM
         "Discover and operate Director DCC providers (Blender, Maya, Unreal, and others): exchange packages, revision-guarded .blend export, and preview/apply import plans.",
       operations: [...typedToolOperations.director_dcc],
       http: toolsHttpBinding("director_dcc"),
+    },
+    {
+      name: "director_game",
+      surface: "both",
+      description:
+        "Plan and playtest a typed game slice on the live Director Stage. Capabilities and describe are the vocabulary; engine export is director_dcc after a playable receipt.",
+      operations: [...typedToolOperations.director_game],
+      http: toolsHttpBinding("director_game"),
     },
     {
       name: "director_film",

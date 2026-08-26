@@ -64,7 +64,7 @@ Sibling directories under `tools/`:
 
 | File | Purpose |
 |---|---|
-| `stage-cli.mjs` | Stage CLI: HTTP client for Director Gateway tools. Prefer `director_workbench`, `director_creative`, `director_dcc`, `stage_video`. Legacy compact: `stage_read`, `stage_scene`, `stage_object`, `stage_camera`, `stage_show`. `npm run stage -- --help` |
+| `stage-cli.mjs` | Stage CLI: HTTP client for Director Gateway tools. Prefer `director_workbench`, `director_creative`, `director_dcc`, `director_game`, `stage_video`. Legacy compact: `stage_read`, `stage_scene`, `stage_object`, `stage_camera`, `stage_show`. `npm run stage -- --help` |
 | `blender.mjs` | Blender launcher: locates Blender 4.2+, launches the WorldEngine Blender backend (`worldengine_backend.py`), supports `run` and `test` commands |
 
 ### Agent Integration

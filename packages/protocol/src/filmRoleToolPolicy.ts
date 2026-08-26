@@ -75,7 +75,11 @@ const STAGE_AUTHOR_TOOLS = new Set([
   "stage_show",
   "director_workbench",
   "blender_native",
+  "director_game",
 ]);
+/** Game-slice ops that only read or score; playtest still needs a bound actor but does not author the scene. */
+const READ_ONLY_GAME_OPERATIONS = new Set(["capabilities", "describe", "observe", "evaluate"]);
+const GAME_EVIDENCE_OPERATIONS = new Set(["capabilities", "describe", "observe", "evaluate", "playtest"]);
 
 /**
  * Returns whether a creative/Canvas operation is read-only.
@@ -143,6 +147,7 @@ export function isReadOnlyDirectorTool(tool: string, input: unknown) {
   if (tool === "director_creative") return isReadOnlyCreativeOperation(values);
   if (tool === "stage_video") return operation === "capabilities" || operation === "status";
   if (tool === "blender_native") return READ_ONLY_BLENDER_OPERATIONS.has(operation);
+  if (tool === "director_game") return READ_ONLY_GAME_OPERATIONS.has(operation);
   return false;
 }
 
@@ -185,7 +190,8 @@ export function roleAllowsTool(roleId: FilmRoleId | null, tool: string, input: u
       tool === "stage_read" ||
       (tool === "blender_native" && READ_ONLY_BLENDER_OPERATIONS.has(operation)) ||
       (tool === "director_workbench" && VISUAL_EVIDENCE_WORKBENCH_OPERATIONS.has(operation)) ||
-      (tool === "director_creative" && isReadOnlyCreativeOperation(values))
+      (tool === "director_creative" && isReadOnlyCreativeOperation(values)) ||
+      (tool === "director_game" && GAME_EVIDENCE_OPERATIONS.has(operation))
     );
   }
   if (roleId === "editor") return tool === "director_creative" || tool === "stage_read";
@@ -193,7 +199,8 @@ export function roleAllowsTool(roleId: FilmRoleId | null, tool: string, input: u
     tool === "stage_read" ||
     (tool === "blender_native" && READ_ONLY_BLENDER_OPERATIONS.has(operation)) ||
     (tool === "director_workbench" && READ_ONLY_WORKBENCH_OPERATIONS.has(operation)) ||
-    (tool === "director_creative" && isReadOnlyCreativeOperation(values))
+    (tool === "director_creative" && isReadOnlyCreativeOperation(values)) ||
+    (tool === "director_game" && READ_ONLY_GAME_OPERATIONS.has(operation))
   );
 }
 
