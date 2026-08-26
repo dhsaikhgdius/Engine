@@ -28,6 +28,10 @@ const DEFAULT_GATEWAY_URL := "http://127.0.0.1:8787"
 const MAX_ENTITIES_PER_FRAME := 512
 
 var session_id := ""
+## Per-session secret from the hello grant; sent with every frame and bye so
+## a session id leaked through the observable preview snapshot can never be
+## used by another client to inject frames or end the session.
+var session_token := ""
 var _sequence := 0
 
 
@@ -61,13 +65,16 @@ func hello_payload(scene_path: String = "") -> Dictionary:
 	return payload
 
 
-## Adopts the session id from the Gateway's hello result. Returns false when
-## the response does not carry a session grant.
+## Adopts the session id and per-session token from the Gateway's hello
+## result. Returns false when the response does not carry a full session
+## grant (both the id and the token are required to send frames).
 func accept_session(result: Dictionary) -> bool:
 	var granted := str(result.get("sessionId", ""))
-	if granted.is_empty():
+	var token := str(result.get("sessionToken", ""))
+	if granted.is_empty() or token.is_empty():
 		return false
 	session_id = granted
+	session_token = token
 	_sequence = 0
 	return true
 
@@ -107,6 +114,7 @@ func frame_payload(root: Node) -> Dictionary:
 	return {
 		"contract": LIVE_LINK_CONTRACT,
 		"sessionId": session_id,
+		"sessionToken": session_token,
 		"sequence": _sequence,
 		"atMs": Time.get_ticks_msec(),
 		"entities": entities,
@@ -119,10 +127,12 @@ func bye_payload(reason: String = "") -> Dictionary:
 	var payload := {
 		"contract": LIVE_LINK_CONTRACT,
 		"sessionId": session_id,
+		"sessionToken": session_token,
 	}
 	if not reason.is_empty():
 		payload["reason"] = reason
 	session_id = ""
+	session_token = ""
 	_sequence = 0
 	return payload
 

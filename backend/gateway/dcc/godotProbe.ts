@@ -57,6 +57,13 @@ export const GODOT_HEADLESS_ENTRY = "res://addons/director_bridge/director_headl
 export const GODOT_CONNECTOR_HEALTH_TIMEOUT_MS = 60_000;
 
 /**
+ * Maximum bytes for one candidate health JSON line. The genuine health line
+ * is under 200 bytes; a connector (or wrapper script) that floods stdout with
+ * an enormous JSON blob is treated as unhealthy instead of being parsed.
+ */
+export const GODOT_HEALTH_LINE_MAX_BYTES = 4_096;
+
+/**
  * Parses the major version out of a Godot version string.
  *
  * Accepts both the raw `godot --version` shape (`4.3.stable.official.77dcf97d8`)
@@ -128,7 +135,7 @@ function extractHealthLine(stdout: string): DirectorGodotConnectorHealth | null 
   const lines = stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line.startsWith("{") && line.endsWith("}"));
+    .filter((line) => line.startsWith("{") && line.endsWith("}") && line.length <= GODOT_HEALTH_LINE_MAX_BYTES);
   // Godot prints engine banners before script output; scan from the last line.
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     let parsed: unknown;

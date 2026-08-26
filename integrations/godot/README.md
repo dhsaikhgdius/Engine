@@ -27,7 +27,8 @@ so the boundary stays explicit and testable.
     (`light_rect_area_unsupported`, `light_ambient_duplicate`);
   - glTF PBR payload materials as `StandardMaterial3D`, Director PBR
     overrides applied on top; unsupported channels (e.g. transmission) and
-    custom `ShaderMaterial`s warn-and-omit;
+    custom `ShaderMaterial`s warn-and-omit with structured codes
+    (`material_channel_unsupported`, `material_custom_shader`);
   - embedded payload textures externalized to content-hashed
     `res://director/textures/` resources so the saved scene references
     relative hashed files;
@@ -44,11 +45,15 @@ so the boundary stays explicit and testable.
     performs the storyboard's camera cuts), with the raw shots additionally
     preserved as `director_shots` metadata; shots without a mappable camera
     warn-and-omit with structured codes (`shot_no_camera_binding`,
-    `shot_camera_not_imported`, `shot_target_not_camera`);
+    `shot_camera_not_imported`, `shot_target_not_camera`), and the Gateway
+    bake marks duplicated or clamped ranges with its own codes
+    (`shot_duplicate_id`, `shot_clamped_to_playback`, `shot_outside_playback`);
   - a `director-dcc-engine-report-v1` receipt with a Godot-specific `godot`
     block (track/key/shot-cut counts, light/skeleton/material/texture counts,
-    `worldEnvironmentAmbient`, `omittedLightCount`) that is read back from the
-    saved scene, plus an echoed canonical-space return package.
+    `worldEnvironmentAmbient`, `worldEnvironmentCount`, `omittedLightCount`).
+    Light counts are readback counts — re-scanned from the built scene tree,
+    never the import loop's intent, with a warning on any mismatch — plus an
+    echoed canonical-space return package.
 - **Export** (`--mode export`): reloads the Director scene and writes a
   `director-dcc-return-v1` package containing the canonical transforms of every
   `director_id`-tagged object/camera node that moved relative to the exchange
@@ -104,10 +109,15 @@ the Director Gateway's token-guarded live-link routes
 strictly outbound — Godot never opens a listening port and never exposes a
 scripting endpoint — and preview frames are never authoritative: durable
 changes still travel only through the reviewed `director-dcc-return-v1`
-package path. Stale or replayed sequence numbers are rejected by the Gateway,
-and a dropped connection (missed bye) is swept by the Gateway's idle timeout
-without touching the last committed Director revision. Configure the target
-with `DIRECTOR_GATEWAY_URL` and `DIRECTOR_GATEWAY_TOKEN`.
+package path. The hello grant carries a per-session token that every frame
+and bye must present; session ids are visible in the observable preview
+snapshot, so the id alone never lets a second client inject frames or end a
+session (`live_link_token_invalid`). Stale or replayed sequence numbers are
+rejected by the Gateway, entities dropped by the per-session cap are counted
+honestly in each ack (`droppedEntityCount`), and a dropped connection
+(missed bye) is swept by the Gateway's idle timeout without touching the
+last committed Director revision. Configure the target with
+`DIRECTOR_GATEWAY_URL` and `DIRECTOR_GATEWAY_TOKEN`.
 
 ## Capability honesty
 
@@ -118,13 +128,26 @@ negative scale and mirrored transforms, cameras with animated vertical fov,
 Gateway-baked transform animation on a rational timebase, storyboard shot
 ranges as `Camera3D.current` camera-cut tracks, skinned GLB skeletons in bind
 pose, `StandardMaterial3D` translation with hashed external textures,
-Omni/Spot/Directional lights plus a `WorldEnvironment` ambient bake, and the
-outbound-only live preview link (sequence, replay, and disconnect goldens in
+Omni/Spot/Directional lights plus a `WorldEnvironment` ambient bake with
+readback counts, and the outbound-only live preview link (session-token,
+sequence, replay, drop-count, and disconnect goldens in
 `backend/gateway/tests/dcc/godotLiveLink.test.ts`).
+
+The stress surface is pinned by dedicated tests: tampered or unpinned
+animation sidecars, malformed packages, and path escapes hard-fail on a real
+host (`godotHeadlessRoundtrip.test.ts`); oversized reports, forged return
+directories, and report identity mismatches hard-fail host-free
+(`godotEngineBridge.test.ts`); and
+`backend/gateway/tests/dcc/godotConnectorGoldens.test.ts` proves the addon
+declares no `class_name`, preloads only committed literal paths (fresh
+projects have no global class cache), keeps one connector version across
+`connector.json`/`plugin.cfg`/`director_package.gd`, and emits exactly the
+structured codes registered in `@director/dcc-protocol`
+(`directorGodotOmissionCodes.ts`).
 
 Still warn-and-omit, never silently flattened: rig pose channels and character
 motion clips (only world transforms are baked — the bake carries structured
-`omittedDetail` naming the affected pose controls and clips), rect-area
-lights, duplicate ambient sources, and custom shader translation. Every
-omission carries a structured code so agents can act on it instead of parsing
-prose.
+`omittedDetail` naming the affected pose controls and clips, with counts that
+stay authoritative past the 32-sample cap), rect-area lights, duplicate
+ambient sources, and custom shader translation. Every omission carries a
+structured code so agents can act on it instead of parsing prose.

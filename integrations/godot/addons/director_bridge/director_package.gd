@@ -11,7 +11,7 @@ const EXCHANGE_CONTRACT := "director-dcc-exchange-package-v1"
 const RETURN_CONTRACT := "director-dcc-return-v1"
 const REPORT_CONTRACT := "director-dcc-engine-report-v1"
 const PROVIDER := "godot"
-const CONNECTOR_VERSION := "0.3.0"
+const CONNECTOR_VERSION := "0.4.0"
 
 
 ## Loads an exchange package manifest, verifying the contract, the provider,

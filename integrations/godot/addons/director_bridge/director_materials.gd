@@ -25,6 +25,11 @@ const TEXTURE_SLOT_PROPERTIES := [
 
 const TEXTURE_DIRECTORY := "res://director/textures"
 
+## A custom ShaderMaterial cannot travel through the handoff.
+const OMIT_CUSTOM_SHADER := "material_custom_shader"
+## Director material channels without a StandardMaterial3D equivalent.
+const OMIT_CHANNEL_UNSUPPORTED := "material_channel_unsupported"
+
 
 ## Applies a Director PBR material dictionary onto every MeshInstance3D under
 ## `target` as a StandardMaterial3D override. Channels without a faithful
@@ -74,8 +79,11 @@ static func apply_director_material(
 		unsupported.append("textures (texture assets are not bundled in the exchange package)")
 	if not unsupported.is_empty():
 		warnings.append(
-			"%s: Director material channels %s have no StandardMaterial3D equivalent here; omitted (warn-and-omit)."
-			% [entity_label, ", ".join(unsupported)]
+			(
+				"%s: Director material channels %s have no StandardMaterial3D equivalent here; "
+				+ "omitted (warn-and-omit code: %s)."
+			)
+			% [entity_label, ", ".join(unsupported), OMIT_CHANNEL_UNSUPPORTED]
 		)
 
 	var applied := false
@@ -128,9 +136,10 @@ static func warn_on_custom_shaders(root: Node, warnings: Array) -> int:
 				warnings.append(
 					(
 						"Node %s uses a custom ShaderMaterial; Director translates StandardMaterial3D / "
-						+ "glTF PBR only, so the shader stays in Godot and does not travel back (warn-and-omit)."
+						+ "glTF PBR only, so the shader stays in Godot and does not travel back "
+						+ "(warn-and-omit code: %s)."
 					)
-					% mesh_instance.name
+					% [mesh_instance.name, OMIT_CUSTOM_SHADER]
 				)
 	return found
 

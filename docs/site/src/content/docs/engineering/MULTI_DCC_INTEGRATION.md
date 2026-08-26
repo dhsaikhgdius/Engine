@@ -620,12 +620,16 @@ Implemented Director boundary (see `integrations/godot/README.md`):
   structured codes;
 - the engine report carries a Godot-specific receipt (track/key/shot-cut
   counts, light/skeleton/material/texture counts, `worldEnvironmentAmbient`,
-  `omittedLightCount`) read back from the saved scene;
+  `worldEnvironmentCount`, `omittedLightCount`) whose light counts are read
+  back by re-scanning the saved scene tree, never taken from the import
+  loop's intent;
 - the editor plugin can stream an outbound-only preview live link
   (`director-godot-live-link-v1`): ephemeral sequence-numbered frames pushed
   to token-guarded Gateway routes, never authoritative, with stale/replayed
-  sequences rejected and dropped connections swept by an idle timeout —
-  verified by disconnect goldens in
+  sequences rejected, a per-session token required on every frame/bye (a
+  session id leaked through the preview snapshot authorizes nothing), honest
+  dropped-entity counts in every ack, and dropped connections swept by an
+  idle timeout — verified by adversarial goldens in
   `backend/gateway/tests/dcc/godotLiveLink.test.ts`;
 - `nativeReady` additionally requires the enabled addon entry in
   `project.godot` and a validated fixed-entry `--mode health` JSON line whose

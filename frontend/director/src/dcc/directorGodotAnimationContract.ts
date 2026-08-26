@@ -39,6 +39,11 @@ export const directorGodotImportReceiptSchema = z.strictObject({
   importedLightCount: z.number().int().nonnegative().max(100_000),
   /** Whether an ambient/hemisphere light was baked into a WorldEnvironment ambient term. */
   worldEnvironmentAmbient: z.boolean(),
+  /**
+   * WorldEnvironment nodes counted by re-scanning the built scene (readback,
+   * not the import loop's intent). At most one is ever built per import.
+   */
+  worldEnvironmentCount: z.number().int().nonnegative().max(100),
   /** Lights omitted with a structured warn-and-omit code (rect-area, duplicate ambient, …). */
   omittedLightCount: z.number().int().nonnegative().max(100_000),
   /** Director PBR materials applied to imported payload meshes. */

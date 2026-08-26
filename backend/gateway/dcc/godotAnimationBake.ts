@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   DIRECTOR_GODOT_ANIMATION_BAKE_CONTRACT,
+  DIRECTOR_GODOT_GATEWAY_OMISSION_CODES,
   directorTransformToCanonicalDcc,
   directorGodotAnimationBakeSchema,
   type DirectorDccTransform,
@@ -204,7 +205,9 @@ function bakedShotsOf(
   const ranges: DirectorGodotShotRange[] = [];
   for (const shot of shots) {
     if (seenIds.has(shot.id)) {
-      warnings.push(`Shot ${shot.id} appears more than once in the storyboard; later duplicates were skipped.`);
+      warnings.push(
+        `Shot ${shot.id} appears more than once in the storyboard; later duplicates were skipped (warn-and-omit code: ${DIRECTOR_GODOT_GATEWAY_OMISSION_CODES.shotDuplicateId}).`,
+      );
       continue;
     }
     seenIds.add(shot.id);
@@ -212,7 +215,7 @@ function bakedShotsOf(
     const end = Math.max(start, Math.round(shot.frameEnd));
     if (end < frameStart || start > frameEnd) {
       warnings.push(
-        `Shot ${shot.id} (${start}-${end}) lies outside the playback window ${frameStart}-${frameEnd}; it was omitted from the camera-cut track (warn-and-omit code: shot_outside_playback).`,
+        `Shot ${shot.id} (${start}-${end}) lies outside the playback window ${frameStart}-${frameEnd}; it was omitted from the camera-cut track (warn-and-omit code: ${DIRECTOR_GODOT_GATEWAY_OMISSION_CODES.shotOutsidePlayback}).`,
       );
       continue;
     }
@@ -220,12 +223,12 @@ function bakedShotsOf(
     const clampedEnd = Math.min(end, frameEnd);
     if (clampedStart !== start || clampedEnd !== end) {
       warnings.push(
-        `Shot ${shot.id} was clamped from ${start}-${end} into the playback window ${frameStart}-${frameEnd}.`,
+        `Shot ${shot.id} was clamped from ${start}-${end} into the playback window ${frameStart}-${frameEnd} (code: ${DIRECTOR_GODOT_GATEWAY_OMISSION_CODES.shotClampedToPlayback}).`,
       );
     }
     if (shot.cameraId && !cameraIds.has(shot.cameraId)) {
       warnings.push(
-        `Shot ${shot.id} references camera ${shot.cameraId} which is not in the project; the connector will omit its cut (warn-and-omit code: shot_camera_not_imported).`,
+        `Shot ${shot.id} references camera ${shot.cameraId} which is not in the project; the connector will omit its cut (warn-and-omit code: ${DIRECTOR_GODOT_GATEWAY_OMISSION_CODES.shotCameraNotImported}).`,
       );
     }
     ranges.push({

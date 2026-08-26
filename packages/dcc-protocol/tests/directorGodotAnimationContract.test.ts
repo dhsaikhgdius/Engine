@@ -7,6 +7,10 @@ import {
   directorGodotImportReceiptSchema,
   directorGodotTimecodeSchema,
 } from "../src/directorGodotAnimationContract";
+import {
+  DIRECTOR_GODOT_CONNECTOR_OMISSION_CODES,
+  DIRECTOR_GODOT_GATEWAY_OMISSION_CODES,
+} from "../src/directorGodotOmissionCodes";
 
 const REVISION = `director-project-revision:v1:sha256:${"a".repeat(64)}`;
 const PACKAGE_ID = "0f9f1c8e-8f4c-4c1e-b2ff-95a5f34f9e51";
@@ -152,6 +156,7 @@ describe("Godot import receipt and connector health", () => {
       importedSkeletonCount: 1,
       importedLightCount: 3,
       worldEnvironmentAmbient: true,
+      worldEnvironmentCount: 1,
       omittedLightCount: 1,
       appliedMaterialCount: 1,
       externalizedTextureCount: 2,
@@ -159,6 +164,7 @@ describe("Godot import receipt and connector health", () => {
     expect(receipt.displayRate).toBe("24000/1001");
     expect(receipt.mappedShotCount).toBe(2);
     expect(receipt.worldEnvironmentAmbient).toBe(true);
+    expect(receipt.worldEnvironmentCount).toBe(1);
   });
 
   it("accepts a static import (no animation keyed) and rejects malformed rates", () => {
@@ -175,6 +181,7 @@ describe("Godot import receipt and connector health", () => {
       importedSkeletonCount: 0,
       importedLightCount: 0,
       worldEnvironmentAmbient: false,
+      worldEnvironmentCount: 0,
       omittedLightCount: 0,
       appliedMaterialCount: 0,
       externalizedTextureCount: 0,
@@ -182,6 +189,23 @@ describe("Godot import receipt and connector health", () => {
     expect(directorGodotImportReceiptSchema.parse(staticReceipt).bakedKeyCount).toBe(0);
     expect(directorGodotImportReceiptSchema.safeParse({ ...staticReceipt, displayRate: "23.976" }).success).toBe(false);
     expect(directorGodotImportReceiptSchema.safeParse({ ...staticReceipt, bakedKeyCount: -1 }).success).toBe(false);
+  });
+
+  it("keeps the shared omission-code registries frozen, snake_case, and collision-free", () => {
+    expect(Object.isFrozen(DIRECTOR_GODOT_GATEWAY_OMISSION_CODES)).toBe(true);
+    expect(Object.isFrozen(DIRECTOR_GODOT_CONNECTOR_OMISSION_CODES)).toBe(true);
+    const gatewayCodes = Object.values(DIRECTOR_GODOT_GATEWAY_OMISSION_CODES);
+    const connectorCodes = Object.values(DIRECTOR_GODOT_CONNECTOR_OMISSION_CODES);
+    for (const code of [...gatewayCodes, ...connectorCodes]) {
+      expect(code).toMatch(/^[a-z][a-z0-9_]+$/);
+    }
+    expect(new Set(gatewayCodes).size).toBe(gatewayCodes.length);
+    expect(new Set(connectorCodes).size).toBe(connectorCodes.length);
+    // The bake's omitted-channel vocabulary is a subset of the registry, so
+    // schema and registry can never drift apart.
+    for (const channel of ["pose_values", "motion_blocks", "character_rig"]) {
+      expect(gatewayCodes).toContain(channel);
+    }
   });
 
   it("only accepts an ok Godot health line for provider godot", () => {

@@ -248,6 +248,15 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 
 	var externalized_textures := DirectorMaterials.externalize_textures(root, warnings)
 
+	# Receipt honesty: light counts are read back from the built scene tree,
+	# never taken from the import loop's intent. A mismatch is itself warned.
+	var light_readback := DirectorLights.readback_light_counts(root)
+	if int(light_readback["importedLightCount"]) != int(light_receipt["importedLightCount"]):
+		warnings.append(
+			"Light readback found %d Light3D nodes but the import loop reported %d; the receipt carries the readback."
+			% [int(light_readback["importedLightCount"]), int(light_receipt["importedLightCount"])]
+		)
+
 	_set_owner_recursive(root, root)
 	var packed := PackedScene.new()
 	packed.pack(root)
@@ -303,8 +312,9 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 		"mappedShotCount": int(animation_receipt.get("mappedShotCount", 0)),
 		"payloadAnimationPlayerCount": payload_animation_players,
 		"importedSkeletonCount": skeleton_count,
-		"importedLightCount": int(light_receipt["importedLightCount"]),
-		"worldEnvironmentAmbient": bool(light_receipt["worldEnvironmentAmbient"]),
+		"importedLightCount": int(light_readback["importedLightCount"]),
+		"worldEnvironmentAmbient": bool(light_readback["worldEnvironmentAmbient"]),
+		"worldEnvironmentCount": int(light_readback["worldEnvironmentCount"]),
 		"omittedLightCount": int(light_receipt["omittedLightCount"]),
 		"appliedMaterialCount": applied_material_count,
 		"externalizedTextureCount": externalized_textures,

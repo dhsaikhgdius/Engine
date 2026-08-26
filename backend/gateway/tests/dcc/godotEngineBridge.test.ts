@@ -6,8 +6,10 @@ import { dirname, resolve } from "node:path";
 import type { DirectorDccExchangePackageResult } from "@director/dcc-protocol";
 import {
   createDirectorDccEngineBridge,
+  DirectorDccEngineBridgeError,
   DIRECTOR_ENGINE_BINARY_ENV,
   DIRECTOR_ENGINE_PROJECT_ENV,
+  MAX_ENGINE_REPORT_BYTES,
 } from "../../dcc/engineBridge";
 import {
   checkGodotAddonEnabled,
@@ -164,6 +166,52 @@ describe("godotProbe helpers", () => {
     expect(crashed.ok).toBe(false);
     expect(crashed.detail).toMatch(/spawn failure fixture/);
   });
+
+  it("hard-fails a hypothetical Godot 5 host: the gate is 4.x exactly, not 4.x-or-newer", async () => {
+    const godot5 = await probeGodotConnectorHealth({
+      executable: "/usr/bin/godot5",
+      projectDirectory: "/projects/film",
+      expectedConnectorVersion: CONNECTOR_VERSION,
+      runProcess: async () => ({ stdout: `${healthLine({ hostVersion: "Godot 5.0.1" })}\n`, stderr: "" }),
+    });
+    expect(godot5.ok).toBe(false);
+    expect(godot5.detail).toMatch(/Godot 4\.x/);
+  });
+
+  it("survives corrupted health output: broken JSON lines are skipped, an earlier valid line still counts", async () => {
+    const recovered = await probeGodotConnectorHealth({
+      executable: "/usr/bin/godot4",
+      projectDirectory: "/projects/film",
+      expectedConnectorVersion: CONNECTOR_VERSION,
+      runProcess: async () => ({
+        stdout: `${healthLine()}\n{this is not: json}\n{"ok": "also-not-a-health-line"}\n`,
+        stderr: "",
+      }),
+    });
+    expect(recovered.ok).toBe(true);
+
+    const onlyBroken = await probeGodotConnectorHealth({
+      executable: "/usr/bin/godot4",
+      projectDirectory: "/projects/film",
+      expectedConnectorVersion: CONNECTOR_VERSION,
+      runProcess: async () => ({ stdout: '{"ok": tru\n{,}\n', stderr: "" }),
+    });
+    expect(onlyBroken.ok).toBe(false);
+    expect(onlyBroken.detail).toMatch(/did not print a valid health JSON line/);
+  });
+
+  it("refuses an absurdly oversized health JSON line instead of parsing it", async () => {
+    const padding = `"padding": "${"x".repeat(64 * 1024)}", `;
+    const oversized = `{${padding}"ok": true, "provider": "godot", "hostVersion": "Godot 4.3.0", "connectorVersion": "${CONNECTOR_VERSION}"}`;
+    const flooded = await probeGodotConnectorHealth({
+      executable: "/usr/bin/godot4",
+      projectDirectory: "/projects/film",
+      expectedConnectorVersion: CONNECTOR_VERSION,
+      runProcess: async () => ({ stdout: `${oversized}\n`, stderr: "" }),
+    });
+    expect(flooded.ok).toBe(false);
+    expect(flooded.detail).toMatch(/did not print a valid health JSON line/);
+  });
 });
 
 describe("engine bridge Godot readiness", () => {
@@ -290,6 +338,7 @@ describe("engine bridge Godot animation bake wiring", () => {
             importedSkeletonCount: 0,
             importedLightCount: 0,
             worldEnvironmentAmbient: false,
+            worldEnvironmentCount: 0,
             omittedLightCount: 0,
             appliedMaterialCount: 0,
             externalizedTextureCount: 0,
@@ -355,5 +404,190 @@ describe("engine bridge Godot animation bake wiring", () => {
 
     expect(result.report.godot?.animationLibrary).toBe("director");
     expect(result.report.godot?.displayRate).toBe("24000/1001");
+  });
+});
+
+describe("engine bridge Godot job stress (hostile or broken connector outputs)", () => {
+  /**
+   * Builds a ready Godot bridge whose fake connector run writes whatever the
+   * test dictates into the private job directory, so every hostile output
+   * shape can be exercised without a real host.
+   */
+  async function stressBridge(
+    writeJobFiles: (jobDirectory: string, reportPath: string, jobId: string) => Promise<void>,
+  ) {
+    const setup = await godotSetup();
+    const jobId = randomUUID();
+    const packageDirectory = resolve(setup.dataDirectory, "dcc-jobs", "exchange", "godot", jobId);
+    await mkdir(packageDirectory, { recursive: true });
+    const exchangeResult: DirectorDccExchangePackageResult = {
+      contract: "director-dcc-exchange-result-v1",
+      jobId,
+      provider: "godot",
+      packagePath: packageDirectory,
+      manifestPath: resolve(packageDirectory, "manifest.json"),
+      manifestSha256: "a".repeat(64),
+      packageDigest: "b".repeat(64),
+      sourceRevision: REVISION,
+      formats: [],
+      assets: [],
+      warnings: [],
+    };
+    const runProcess = vi.fn(async (_executable: string, args: string[]) => {
+      const reportPath = args[args.indexOf("--report") + 1]!;
+      await writeJobFiles(dirname(reportPath), reportPath, jobId);
+      return { stdout: "", stderr: "" };
+    });
+    const bridge = createDirectorDccEngineBridge({
+      workspaceRoot: repositoryRoot,
+      dataDirectory: setup.dataDirectory,
+      exchangePackager: { exportPackage: vi.fn().mockResolvedValue(exchangeResult) },
+      environment: setup.environment,
+      probeHostVersion: async () => "4.3.stable.official.77dcf97d8",
+      probeConnectorHealth: async () => ({ ok: true, detail: "fixture", health: null }),
+      runProcess,
+      healthTtlMs: 0,
+    });
+    return { bridge, jobId };
+  }
+
+  function okReport(jobId: string, overrides: Record<string, unknown> = {}) {
+    return {
+      ok: true,
+      contract: "director-dcc-engine-report-v1",
+      provider: "godot",
+      hostVersion: "4.3.stable.official.77dcf97d8",
+      connectorVersion: CONNECTOR_VERSION,
+      packageId: jobId,
+      sourceRevision: REVISION,
+      importedObjectCount: 0,
+      importedCameraCount: 0,
+      scenePath: null,
+      returnPackageDir: null,
+      warnings: [],
+      ...overrides,
+    };
+  }
+
+  async function expectBridgeError(
+    action: Promise<unknown>,
+    code: "engine_job_failed" | "engine_report_invalid",
+    pattern: RegExp,
+  ) {
+    const failure = await action.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(DirectorDccEngineBridgeError);
+    expect((failure as DirectorDccEngineBridgeError).code).toBe(code);
+    expect((failure as DirectorDccEngineBridgeError).message).toMatch(pattern);
+  }
+
+  it("hard-fails the job when the connector reports a tampered animation sidecar", async () => {
+    // This is the host-free mirror of the connector's SHA-256 refusal: the
+    // connector writes ok:false with the mismatch reason, and the bridge must
+    // surface it as a hard engine_job_failed, never as a degraded success.
+    const { bridge } = await stressBridge(async (_jobDirectory, reportPath) => {
+      await writeFile(
+        reportPath,
+        JSON.stringify({ ok: false, error: "Animation bake SHA-256 mismatch: expected ab12, found cd34." }),
+        "utf8",
+      );
+    });
+    await expectBridgeError(
+      bridge.send(createTestDirectorProject(), { provider: "godot" }),
+      "engine_job_failed",
+      /SHA-256 mismatch/,
+    );
+  });
+
+  it("rejects an oversized report.json unread", async () => {
+    const { bridge } = await stressBridge(async (_jobDirectory, reportPath) => {
+      await writeFile(reportPath, `{"ok": true, "padding": "${"x".repeat(MAX_ENGINE_REPORT_BYTES)}"}`, "utf8");
+    });
+    await expectBridgeError(
+      bridge.send(createTestDirectorProject(), { provider: "godot" }),
+      "engine_report_invalid",
+      /oversized report\.json/,
+    );
+  });
+
+  it("rejects unreadable and non-JSON reports", async () => {
+    const { bridge: missing } = await stressBridge(async () => {
+      // The connector wrote nothing at all.
+    });
+    await expectBridgeError(
+      missing.send(createTestDirectorProject(), { provider: "godot" }),
+      "engine_report_invalid",
+      /did not write a readable report\.json/,
+    );
+
+    const { bridge: garbled } = await stressBridge(async (_jobDirectory, reportPath) => {
+      await writeFile(reportPath, "this is not json {", "utf8");
+    });
+    await expectBridgeError(
+      garbled.send(createTestDirectorProject(), { provider: "godot" }),
+      "engine_report_invalid",
+      /did not write a readable report\.json/,
+    );
+  });
+
+  it("rejects a report whose identity does not match the exchange package", async () => {
+    const { bridge: wrongPackage } = await stressBridge(async (_jobDirectory, reportPath) => {
+      await writeFile(reportPath, JSON.stringify(okReport(randomUUID())), "utf8");
+    });
+    await expectBridgeError(
+      wrongPackage.send(createTestDirectorProject(), { provider: "godot" }),
+      "engine_report_invalid",
+      /does not match the exchange package/,
+    );
+
+    const { bridge: wrongRevision } = await stressBridge(async (_jobDirectory, reportPath, jobId) => {
+      await writeFile(
+        reportPath,
+        JSON.stringify(okReport(jobId, { sourceRevision: `director-project-revision:v1:sha256:${"e".repeat(64)}` })),
+        "utf8",
+      );
+    });
+    await expectBridgeError(
+      wrongRevision.send(createTestDirectorProject(), { provider: "godot" }),
+      "engine_report_invalid",
+      /different source revision/,
+    );
+  });
+
+  it("never resolves a return package directory that escapes the private job directory", async () => {
+    // A hostile connector claims its return package lives outside the job:
+    // the report schema itself rejects the traversal path outright.
+    const { bridge: escaping } = await stressBridge(async (jobDirectory, reportPath, jobId) => {
+      await mkdir(resolve(jobDirectory, "..", "escaped-return"), { recursive: true });
+      await writeFile(reportPath, JSON.stringify(okReport(jobId, { returnPackageDir: "../escaped-return" })), "utf8");
+    });
+    await expectBridgeError(
+      escaping.send(createTestDirectorProject(), { provider: "godot" }),
+      "engine_report_invalid",
+      /failed validation/,
+    );
+
+    const { bridge: absolute } = await stressBridge(async (_jobDirectory, reportPath, jobId) => {
+      await writeFile(reportPath, JSON.stringify(okReport(jobId, { returnPackageDir: "/tmp/escaped" })), "utf8");
+    });
+    await expectBridgeError(
+      absolute.send(createTestDirectorProject(), { provider: "godot" }),
+      "engine_report_invalid",
+      /failed validation/,
+    );
+
+    // Defense in depth: a schema-safe name that simply does not exist inside
+    // the job directory resolves to null instead of a dangling path.
+    const { bridge: missing } = await stressBridge(async (_jobDirectory, reportPath, jobId) => {
+      await writeFile(
+        reportPath,
+        JSON.stringify(okReport(jobId, { returnPackageDir: "return-that-never-was" })),
+        "utf8",
+      );
+    });
+    const result = await missing.send(createTestDirectorProject(), { provider: "godot" });
+    expect(result.returnPackagePath).toBeNull();
   });
 });

@@ -347,9 +347,13 @@ describe.skipIf(!hasGodot)("Godot headless roundtrip (set DIRECTOR_GODOT_BIN to 
 
     const receipt = report.godot!;
     expect(receipt).toBeDefined();
+    // Light counts are readback counts (re-scanned from the built scene tree),
+    // and exactly one WorldEnvironment must exist for the single ambient light.
     expect(receipt.importedLightCount).toBe(3);
     expect(receipt.worldEnvironmentAmbient).toBe(true);
+    expect(receipt.worldEnvironmentCount).toBe(1);
     expect(receipt.omittedLightCount).toBe(1);
+    expect(report.warnings.join("\n")).not.toMatch(/Light readback found/);
     expect(receipt.importedSkeletonCount).toBe(1);
     expect(receipt.appliedMaterialCount).toBe(1);
     expect(receipt.payloadAnimationPlayerCount).toBe(1);
@@ -456,5 +460,82 @@ describe.skipIf(!hasGodot)("Godot headless roundtrip (set DIRECTOR_GODOT_BIN to 
     const report = JSON.parse(await readFile(tamperedReport, "utf8")) as { ok: boolean; error: string };
     expect(report.ok).toBe(false);
     expect(report.error).toMatch(/SHA-256 mismatch/);
+  }, 240_000);
+
+  it("refuses an animation sidecar without a pinned hash", async () => {
+    const unpinnedReport = resolve(jobDirectory, "unpinned-report.json");
+    const failure = await runGodot(projectDirectory, [
+      "--mode",
+      "import",
+      "--package",
+      packageDirectory,
+      "--report",
+      unpinnedReport,
+      "--return-dir",
+      resolve(jobDirectory, "unpinned-return"),
+      "--animation",
+      bakePath,
+    ])
+      .then(() => null)
+      .catch((error: unknown) => error);
+    expect(failure).not.toBeNull();
+    const report = JSON.parse(await readFile(unpinnedReport, "utf8")) as { ok: boolean; error: string };
+    expect(report.ok).toBe(false);
+    expect(report.error).toMatch(/refusing an unpinned bake sidecar/);
+  }, 240_000);
+
+  it("hard-fails a package whose manifest is not JSON", async () => {
+    const malformedPackage = resolve(jobDirectory, "malformed-package");
+    await mkdir(malformedPackage, { recursive: true });
+    await writeFile(resolve(malformedPackage, "manifest.json"), "this is { not json", "utf8");
+    const malformedReport = resolve(jobDirectory, "malformed-report.json");
+    const failure = await runGodot(projectDirectory, [
+      "--mode",
+      "import",
+      "--package",
+      malformedPackage,
+      "--report",
+      malformedReport,
+      "--return-dir",
+      resolve(jobDirectory, "malformed-return"),
+    ])
+      .then(() => null)
+      .catch((error: unknown) => error);
+    expect(failure).not.toBeNull();
+    const report = JSON.parse(await readFile(malformedReport, "utf8")) as { ok: boolean; error: string };
+    expect(report.ok).toBe(false);
+    expect(report.error).toMatch(/not a JSON object/);
+  }, 240_000);
+
+  it("hard-fails a package whose asset path escapes the package root", async () => {
+    const escapingPackage = resolve(jobDirectory, "escaping-package");
+    await mkdir(resolve(escapingPackage, "assets"), { recursive: true });
+    const glbBytes = await readFile(resolve(packageDirectory, "assets", "box.glb"));
+    await writeFile(resolve(escapingPackage, "assets", "box.glb"), glbBytes);
+    const escapingProject = structuredClone(project);
+    await writeManifest(escapingPackage, escapingProject, glbBytes);
+    const manifest = JSON.parse(await readFile(resolve(escapingPackage, "manifest.json"), "utf8")) as {
+      assets: Array<{ relativePath: string }>;
+    };
+    // Tamper after schema validation, exactly what a hostile writer would do.
+    manifest.assets[0]!.relativePath = "../escape.glb";
+    await writeFile(resolve(escapingPackage, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+    const escapeReport = resolve(jobDirectory, "escape-report.json");
+    const failure = await runGodot(projectDirectory, [
+      "--mode",
+      "import",
+      "--package",
+      escapingPackage,
+      "--report",
+      escapeReport,
+      "--return-dir",
+      resolve(jobDirectory, "escape-return"),
+    ])
+      .then(() => null)
+      .catch((error: unknown) => error);
+    expect(failure).not.toBeNull();
+    const report = JSON.parse(await readFile(escapeReport, "utf8")) as { ok: boolean; error: string };
+    expect(report.ok).toBe(false);
+    expect(report.error).toMatch(/escapes the package root/);
   }, 240_000);
 });

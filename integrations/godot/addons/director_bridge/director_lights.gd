@@ -101,6 +101,30 @@ static func import_lights(root: Node3D, scene: Dictionary, lights: Array, warnin
 	}
 
 
+## Re-scans the built scene and counts what actually exists: Light3D nodes
+## carrying director metadata and WorldEnvironment nodes. The import receipt
+## uses these readback counts (not the import loop's intent) so the receipt
+## proves what was built. Returns {"importedLightCount",
+## "worldEnvironmentAmbient", "worldEnvironmentCount"}.
+static func readback_light_counts(root: Node) -> Dictionary:
+	var light_nodes := 0
+	var world_environments := 0
+	var queue: Array = [root]
+	while not queue.is_empty():
+		var node: Node = queue.pop_front()
+		for child in node.get_children():
+			queue.append(child)
+		if node is Light3D and str(node.get_meta("director_entity_type", "")) == "light":
+			light_nodes += 1
+		elif node is WorldEnvironment:
+			world_environments += 1
+	return {
+		"importedLightCount": light_nodes,
+		"worldEnvironmentAmbient": world_environments > 0,
+		"worldEnvironmentCount": world_environments,
+	}
+
+
 ## Bakes one ambient/hemisphere light into a WorldEnvironment ambient term.
 ## The node carries the source light's director_id so the mapping stays
 ## traceable; export never treats it as a transform-bearing entity.

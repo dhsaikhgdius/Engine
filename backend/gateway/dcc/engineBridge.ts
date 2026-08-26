@@ -105,6 +105,12 @@ const UNITY_IMPORT_METHOD = "Director.Bridge.Editor.DirectorBridgeCli.Import";
 const UNREAL_HEADLESS_ENTRY = "Plugins/DirectorBridge/Content/Python/director_headless.py";
 
 const MAX_PROCESS_OUTPUT = 256 * 1024;
+/**
+ * Maximum size of a connector-written report.json. A well-formed report stays
+ * far below this (the schema caps warnings and counts); an enormous file is a
+ * malfunctioning or hostile connector and is rejected before being parsed.
+ */
+export const MAX_ENGINE_REPORT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_JOB_TIMEOUT_MS = 900_000;
 const DEFAULT_VERSION_PROBE_TIMEOUT_MS = 30_000;
 const DEFAULT_HEALTH_TTL_MS = 15_000;
@@ -813,6 +819,23 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       );
     }
 
+    let reportSize: number;
+    try {
+      reportSize = (await stat(reportPath)).size;
+    } catch {
+      throw new DirectorDccEngineBridgeError(
+        "engine_report_invalid",
+        `${provider} connector did not write a readable report.json.`,
+        502,
+      );
+    }
+    if (reportSize > MAX_ENGINE_REPORT_BYTES) {
+      throw new DirectorDccEngineBridgeError(
+        "engine_report_invalid",
+        `${provider} connector wrote an oversized report.json (${reportSize} bytes > ${MAX_ENGINE_REPORT_BYTES}); the report was rejected unread.`,
+        502,
+      );
+    }
     let rawReport: unknown;
     try {
       rawReport = JSON.parse(await readFile(reportPath, "utf8")) as unknown;

@@ -21,6 +21,14 @@ export const DIRECTOR_GODOT_LIVE_LINK_PREVIEW_CONTRACT = "director-godot-live-li
 const nonEmpty = z.string().trim().min(1);
 
 /**
+ * The per-session bearer secret issued with the session grant. Every frame
+ * and bye must present it: session ids appear in the observable preview
+ * snapshot, so knowing an id alone must never allow a second client to
+ * inject frames into — or end — someone else's preview session.
+ */
+const sessionTokenSchema = z.string().min(24).max(128);
+
+/**
  * Session negotiation sent by the connector before any preview frame. The
  * Gateway answers with the session id plus its ordering/idle limits so the
  * connector never has to guess transport parameters.
@@ -42,6 +50,8 @@ export const directorGodotLiveLinkSessionSchema = z.strictObject({
   contract: z.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
   provider: z.literal("godot"),
   sessionId: z.string().uuid(),
+  /** Per-session secret that must accompany every frame and bye of this session. */
+  sessionToken: sessionTokenSchema,
   /** Milliseconds of silence after which the Gateway treats the session as disconnected. */
   idleTimeoutMs: z.number().int().positive().max(3_600_000),
   /** Maximum entities the Gateway accepts in one preview frame. */
@@ -84,6 +94,8 @@ export type DirectorGodotLiveLinkEntity = z.infer<typeof directorGodotLiveLinkEn
 export const directorGodotLiveLinkFrameSchema = z.strictObject({
   contract: z.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
   sessionId: z.string().uuid(),
+  /** The per-session secret issued with the session grant. */
+  sessionToken: sessionTokenSchema,
   /** Strictly increasing per-session sequence number (gaps are allowed, replays are not). */
   sequence: z.number().int().positive().max(1_000_000_000_000),
   /** Connector-side monotonic timestamp in milliseconds; informational only. */
@@ -94,12 +106,20 @@ export const directorGodotLiveLinkFrameSchema = z.strictObject({
 /** A validated live-link preview frame. */
 export type DirectorGodotLiveLinkFrame = z.infer<typeof directorGodotLiveLinkFrameSchema>;
 
-/** The Gateway's acknowledgement of an accepted preview frame. */
+/**
+ * The Gateway's acknowledgement of an accepted preview frame.
+ * `droppedEntityCount` is the honesty channel for the per-session entity cap:
+ * when a frame would push the session past its distinct-entity budget, unseen
+ * entities are dropped (previously seen ones keep updating) and the ack says
+ * exactly how many — the connector is never silently lied to about coverage.
+ */
 export const directorGodotLiveLinkFrameAckSchema = z.strictObject({
   contract: z.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
   sessionId: z.string().uuid(),
   sequence: z.number().int().positive().max(1_000_000_000_000),
   accepted: z.literal(true),
+  /** Entities in this frame dropped by the per-session distinct-entity cap. */
+  droppedEntityCount: z.number().int().nonnegative().max(512),
 });
 
 /** A validated frame acknowledgement. */
@@ -109,6 +129,8 @@ export type DirectorGodotLiveLinkFrameAck = z.infer<typeof directorGodotLiveLink
 export const directorGodotLiveLinkByeSchema = z.strictObject({
   contract: z.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
   sessionId: z.string().uuid(),
+  /** The per-session secret issued with the session grant. */
+  sessionToken: sessionTokenSchema,
   reason: z.string().max(500).optional(),
 });
 
@@ -173,6 +195,7 @@ export const directorGodotLiveLinkErrorCodeSchema = z.enum([
   "live_link_session_expired",
   "live_link_sequence_stale",
   "live_link_session_limit",
+  "live_link_token_invalid",
 ]);
 
 /** A machine-readable live-link error code. */

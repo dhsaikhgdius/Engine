@@ -1,7 +1,7 @@
 {
   "contract": "director-dcc-connector-v1",
   "provider": "godot",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "entryPoints": {
     "health": "addons/director_bridge/director_headless.gd",
     "import": "addons/director_bridge/director_headless.gd",

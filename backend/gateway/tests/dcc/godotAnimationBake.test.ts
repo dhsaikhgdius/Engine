@@ -257,11 +257,14 @@ describe("buildGodotAnimationBake", () => {
       { shotId: "shot-early", title: "Early", cameraDirectorId: "cam-missing", frameStart: 0, frameEnd: 10 },
       { shotId: "shot-late", title: "Late", cameraDirectorId: "cam-main", frameStart: 12, frameEnd: 24 },
     ]);
+    // Every shot omission/adjustment carries its structured code, never prose alone.
     const warningText = bake.warnings.join("\n");
     expect(warningText).toMatch(/shot-late was clamped/);
+    expect(warningText).toMatch(/code: shot_clamped_to_playback/);
     expect(warningText).toMatch(/shot_outside_playback/);
     expect(warningText).toMatch(/shot_camera_not_imported/);
     expect(warningText).toMatch(/shot-early appears more than once/);
+    expect(warningText).toMatch(/warn-and-omit code: shot_duplicate_id/);
   });
 
   it("omits the shots block entirely when the storyboard is empty", () => {
@@ -301,6 +304,118 @@ describe("buildGodotAnimationBake", () => {
     const bake = buildGodotAnimationBake(project, PACKAGE_ID, REVISION);
     expect(bake.playback).toEqual({ frameStart: 0, frameEnd: 24 });
     expect(bake.entities[0]!.transformSamples.at(-1)!.frame).toBe(24);
+  });
+
+  it("handles a negative playback start on the rational timebase without losing the window edges", () => {
+    const project = withTimeline(createTestDirectorProject(), 12);
+    project.scene.timeline!.frameStart = -12;
+    project.objects = [animatedObject("obj-anim", 4)];
+    project.cameras = [
+      {
+        id: "cam-main",
+        name: "Main",
+        fov: 40,
+        transform: { position: [0, 2, 8], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        targetMode: "manual",
+        target: [0, 1, 0],
+      },
+    ];
+    project.storyboard = {
+      version: 1,
+      title: "Negative board",
+      logline: "Pre-roll cut",
+      shots: [
+        {
+          id: "shot-preroll",
+          title: "Preroll",
+          cameraId: "cam-main",
+          frameStart: -30,
+          frameEnd: -4,
+          shotSize: "wide",
+          movement: "static",
+          action: "Clamps into the negative window edge.",
+        },
+      ],
+    };
+    const bake = buildGodotAnimationBake(project, PACKAGE_ID, REVISION);
+    expect(bake.playback).toEqual({ frameStart: -12, frameEnd: 12 });
+    const samples = bake.entities[0]!.transformSamples;
+    expect(samples[0]!.frame).toBe(-12);
+    expect(samples.at(-1)!.frame).toBe(12);
+    // Frames stay strictly increasing across the sign boundary.
+    for (let index = 1; index < samples.length; index += 1) {
+      expect(samples[index]!.frame).toBeGreaterThan(samples[index - 1]!.frame);
+    }
+    expect(bake.shots).toEqual([
+      { shotId: "shot-preroll", title: "Preroll", cameraDirectorId: "cam-main", frameStart: -12, frameEnd: -4 },
+    ]);
+    expect(bake.warnings.join("\n")).toMatch(/code: shot_clamped_to_playback/);
+  });
+
+  it("carries a drop-frame rational timebase untouched (29.97 DF never becomes a rounded float)", () => {
+    const project = createTestDirectorProject();
+    project.scene.timeline = {
+      version: 1,
+      fps: 29.97,
+      timebase: {
+        rate: { numerator: 30000, denominator: 1001 },
+        dropFrame: true,
+        startTimecode: "00:59:59;28",
+      },
+      frameStart: 0,
+      frameEnd: 30,
+      currentFrame: 0,
+      loop: false,
+    };
+    project.objects = [animatedObject("obj-anim", 4)];
+    const bake = buildGodotAnimationBake(project, PACKAGE_ID, REVISION);
+    expect(bake.timebase).toEqual({
+      rate: { numerator: 30000, denominator: 1001 },
+      dropFrame: true,
+      startTimecode: "00:59:59;28",
+    });
+    expect(directorGodotAnimationBakeSchema.parse(bake)).toEqual(bake);
+  });
+
+  it("caps omittedDetail samples at 32 while the counts stay authoritative", () => {
+    const project = withTimeline(createTestDirectorProject(), 24);
+    const object = animatedObject("obj-crowded", 4);
+    const poseValues = Object.fromEntries(
+      // 0..39 zero-padded so the sorted sample keeps a deterministic prefix.
+      Array.from({ length: 40 }, (_, index) => [`ctrl_${String(index).padStart(2, "0")}`, index / 40]),
+    );
+    object.animation.keyframes[0] = {
+      ...object.animation.keyframes[0]!,
+      poseValues,
+    } as (typeof object.animation.keyframes)[number];
+    (object.animation as { motionBlocks?: unknown[] }).motionBlocks = Array.from({ length: 40 }, (_, index) => ({
+      id: `clip-${String(index).padStart(2, "0")}`,
+      clipId: "mixamo-walk",
+      enabled: true,
+      loop: "repeat",
+      speed: 1,
+      weight: 1,
+      blendInS: 0.1,
+      blendOutS: 0.1,
+      rootMotion: "in-place",
+      frameStart: index,
+      frameEnd: index + 1,
+    }));
+    project.objects = [object];
+    const bake = buildGodotAnimationBake(project, PACKAGE_ID, REVISION);
+    const detail = bake.entities[0]!.omittedDetail!;
+    expect(detail.poseControlCount).toBe(40);
+    expect(detail.poseControls).toHaveLength(32);
+    expect(detail.poseControls[0]).toBe("ctrl_00");
+    expect(detail.poseControls.at(-1)).toBe("ctrl_31");
+    expect(detail.motionClipCount).toBe(40);
+    expect(detail.motionClips).toHaveLength(32);
+    expect(detail.motionClips.at(-1)).toEqual({ id: "clip-31", frameStart: 31, frameEnd: 32 });
+    // The capped detail still validates against the wire schema.
+    expect(directorGodotAnimationBakeSchema.parse(bake)).toEqual(bake);
+    const warningText = bake.entities[0]!.warnings.join("\n");
+    expect(warningText).toMatch(/40 pose controls affected/);
+    expect(warningText).toMatch(/40 clips affected/);
   });
 });
 
