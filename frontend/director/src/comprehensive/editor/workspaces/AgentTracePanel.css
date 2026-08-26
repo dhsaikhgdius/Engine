@@ -51,14 +51,31 @@
 }
 
 .director-agent-trace-panel-summary,
-.director-agent-trace-panel-usage {
+.director-agent-trace-panel-usage,
+.director-agent-trace-panel-film {
   padding: 0 14px 12px;
 }
 
-.director-agent-trace-panel-usage h3 {
+.director-agent-trace-panel-usage h3,
+.director-agent-trace-panel-film h3 {
   margin: 0 0 4px;
   font-size: 12px;
   font-weight: 650;
+}
+
+.director-agent-trace-panel-film-list,
+.director-agent-trace-panel-usage-scopes {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.director-agent-trace-panel-film-list li,
+.director-agent-trace-panel-usage-scopes li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 8px;
 }
 
 .director-agent-trace-panel-session {

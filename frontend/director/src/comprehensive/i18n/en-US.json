@@ -3629,5 +3629,7 @@
   "暂无可清扫对象": "Nothing to sweep",
   "存储健康信息请求失败": "Storage health request failed",
   "存储清扫计划请求失败": "Storage sweep plan request failed",
-  "存储清扫执行失败": "Storage sweep failed"
+  "存储清扫执行失败": "Storage sweep failed",
+  "电影管线进度": "Film pipeline progress",
+  "Film 规划 LLM": "Film planning LLM"
 }

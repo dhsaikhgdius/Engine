@@ -385,6 +385,10 @@ describe("engine bridge Godot animation bake wiring", () => {
         directorId: "obj-anim",
         entityType: "object",
         channels: expect.arrayContaining(["pose_values", "character_rig"]),
+        details: expect.arrayContaining([
+          expect.objectContaining({ channel: "pose_values", controls: ["arm.L"] }),
+          expect.objectContaining({ channel: "character_rig" }),
+        ]),
       },
     ]);
     expect(result.warnings.join("\n")).toMatch(/warn-and-omit/);
