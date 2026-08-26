@@ -5889,8 +5889,32 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           if (input.addToScene === false || input.kind === "panorama" || existingAsset.sourceType === "image") {
             return assetId;
           }
-          // Scene placement for an existing asset keeps the legacy writer
-          // (createSceneObjectFromAsset nativeSource / selection semantics).
+          if (existingAsset.kind !== "character") {
+            const nextObject = createSceneObjectFromAsset(existingAsset, state.project.objects);
+            const applied = dispatchUiAuthoring(
+              [
+                {
+                  action: "add_object",
+                  id: nextObject.id,
+                  name: nextObject.name,
+                  kind: nextObject.kind,
+                  asset_id: assetId,
+                  transform: nextObject.transform,
+                },
+              ],
+              `ui-import-place-existing:${assetId}`,
+              "导入失败",
+            );
+            if (applied) {
+              commitUiMutation((current) => ({
+                ...current,
+                ...selectedObjectsPatch([nextObject.id]),
+              }));
+            }
+            return assetId;
+          }
+          // Character scene placement for an existing asset keeps the legacy writer
+          // (empty pose controls vs add_object stand-preset expansion).
         } else if (input.kind === "panorama") {
           const applied = dispatchUiAuthoring(
             [
@@ -5915,9 +5939,37 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           );
           if (applied) persistLocalModelAsset(nextAsset);
           return assetId;
+        } else if (nextAsset.kind !== "character") {
+          // Non-character model imports that also place a scene object share
+          // upsert_asset + add_object (nativeSource stamped when asset_id is
+          // set). Character imports keep the legacy writer: createSceneObjectFromAsset
+          // uses empty pose controls while add_object expands the stand preset.
+          const nextObject = createSceneObjectFromAsset(nextAsset, state.project.objects);
+          const applied = dispatchUiAuthoring(
+            [
+              { action: "upsert_asset", asset: cloneJsonValue(nextAsset) },
+              {
+                action: "add_object",
+                id: nextObject.id,
+                name: nextObject.name,
+                kind: nextObject.kind,
+                asset_id: assetId,
+                transform: nextObject.transform,
+              },
+            ],
+            `ui-import-place:${assetId}`,
+            "导入失败",
+          );
+          if (applied) {
+            persistLocalModelAsset(nextAsset);
+            commitUiMutation((current) => ({
+              ...current,
+              ...selectedObjectsPatch([nextObject.id]),
+            }));
+          }
+          return assetId;
         }
-        // Model imports that also place a scene object keep the legacy writer
-        // until createSceneObjectFromAsset / add_object placement parity lands.
+        // Character model imports that also place a scene object keep the legacy writer.
       }
 
       commitMutation((state) => {

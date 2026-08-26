@@ -814,6 +814,38 @@ describe("Stage mutator parity with direct agent authoring", () => {
     expect(storeRevision()).toBe(agentRevision);
   });
 
+  it("addImportedAsset scene-placing prop matches upsert_asset plus add_object", () => {
+    const before = structuredClone(useDirectorStore.getState().project);
+    const assetId = useDirectorStore.getState().addImportedAsset({
+      kind: "prop",
+      sourceType: "model",
+      name: "Placed crate",
+      fileName: "crate.glb",
+      url: "https://example.com/crate.glb",
+      assetSource: "local",
+    });
+    const project = useDirectorStore.getState().project;
+    const asset = project.assets.find((item) => item.id === assetId)!;
+    const placed = project.objects.find((item) => item.assetRefId === assetId);
+    expect(placed).toBeTruthy();
+    expect(placed?.nativeSource).toEqual({ engine: "blender", objectId: placed!.id, provisioned: false });
+
+    const agentRevision = getDirectorProjectRevision(
+      applyDirectorAuthoringActions(before, [
+        { action: "upsert_asset", asset: structuredClone(asset) },
+        {
+          action: "add_object",
+          id: placed!.id,
+          name: placed!.name,
+          kind: "prop",
+          asset_id: assetId,
+          transform: structuredClone(placed!.transform),
+        },
+      ]).project,
+    );
+    expect(storeRevision()).toBe(agentRevision);
+  });
+
   it("removePanoramaAsset matches a direct remove_assets apply", () => {
     const panoramaId = useDirectorStore.getState().addImportedAsset({
       kind: "panorama",
