@@ -12,6 +12,7 @@ import {
   type DirectorBoardEdge,
   type DirectorBoardNode,
   type DirectorBoardNodeKind,
+  type DirectorBoardSection,
   type DirectorCreativeWorkspaceState,
   type DirectorCanvasPipelineRun,
   type DirectorEditClip,
@@ -191,6 +192,7 @@ function projectBoardNode(node: DirectorBoardNode) {
     title: node.title,
     body: node.body,
     media_id: node.mediaId,
+    section_id: node.sectionId ?? null,
     x: node.x,
     y: node.y,
     width: node.width,
@@ -229,6 +231,20 @@ function projectBoardNode(node: DirectorBoardNode) {
         error: output.error,
       })),
     },
+  };
+}
+
+function projectBoardSection(section: DirectorBoardSection) {
+  return {
+    id: section.id,
+    kind: section.kind,
+    title: section.title,
+    collapsed: section.collapsed,
+    x: section.x,
+    y: section.y,
+    width: section.width,
+    height: section.height,
+    accent: section.accent,
   };
 }
 
@@ -400,6 +416,7 @@ export function observeCreativeWorkspaceAgentSnapshot(
     board: {
       nodes: workspace.boardNodes.map(projectBoardNode),
       edges: workspace.boardEdges.map(projectBoardEdge),
+      sections: workspace.boardSections.map(projectBoardSection),
       dag: projectCanvasDag(workspace.boardNodes, workspace.boardEdges),
       pipeline_runs: workspace.boardPipelineRuns.map(projectCreativeWorkspacePipelineRun),
       viewport: { ...workspace.boardViewport },
@@ -449,6 +466,7 @@ export function observeCreativeWorkspaceAgentSnapshot(
     counts: {
       board_nodes: workspace.boardNodes.length,
       board_edges: workspace.boardEdges.length,
+      board_sections: workspace.boardSections.length,
       pipeline_runs: workspace.boardPipelineRuns.length,
       tracks: workspace.editTracks.length,
       clips: clipCount,
@@ -1280,6 +1298,106 @@ export function executeCreativeWorkspaceAgentOperation(
         context,
       );
     }
+    case "canvas.node.assign_section": {
+      const node = state.boardNodes.find((candidate) => candidate.id === operation.node_id);
+      if (!node) {
+        return semanticFailure(operation.op, "not_found", `Canvas node "${operation.node_id}" does not exist.`);
+      }
+      if (
+        operation.section_id !== null &&
+        !state.boardSections.some((section) => section.id === operation.section_id)
+      ) {
+        return semanticFailure(operation.op, "not_found", `Canvas section "${operation.section_id}" does not exist.`);
+      }
+      const previousSectionId = node.sectionId ?? null;
+      if (previousSectionId === operation.section_id) {
+        return success(
+          operation.op,
+          `Canvas node "${node.title}" already has the requested section assignment.`,
+          {
+            node: projectBoardNode(node),
+            previous_section_id: previousSectionId,
+            section_id: operation.section_id,
+            unchanged: true,
+          },
+          context,
+        );
+      }
+      state.assignBoardNodeSection(node.id, operation.section_id);
+      const updated = context.workspace.getState().boardNodes.find((candidate) => candidate.id === node.id)!;
+      return success(
+        operation.op,
+        operation.section_id
+          ? `Assigned canvas node "${node.title}" to section "${operation.section_id}".`
+          : `Cleared the section assignment for canvas node "${node.title}".`,
+        {
+          node: projectBoardNode(updated),
+          previous_section_id: previousSectionId,
+          section_id: operation.section_id,
+          unchanged: false,
+        },
+        context,
+      );
+    }
+    case "canvas.section.add": {
+      if (state.boardSections.length >= 32) {
+        return semanticFailure(
+          operation.op,
+          "capacity",
+          "The Canvas has reached its 32-section limit. Remove or consolidate sections before adding another.",
+        );
+      }
+      const section = state.addBoardSection({
+        kind: operation.kind,
+        title: operation.title,
+        x: operation.x,
+        y: operation.y,
+        width: operation.width,
+        height: operation.height,
+        accent: operation.accent,
+        collapsed: operation.collapsed,
+      });
+      if (!section) {
+        return semanticFailure(operation.op, "capacity", "The Canvas cannot accept another section.");
+      }
+      return success(
+        operation.op,
+        `Added canvas section "${section.title}".`,
+        { section: projectBoardSection(section) },
+        context,
+      );
+    }
+    case "canvas.section.update": {
+      const section = state.boardSections.find((candidate) => candidate.id === operation.section_id);
+      if (!section) {
+        return semanticFailure(operation.op, "not_found", `Canvas section "${operation.section_id}" does not exist.`);
+      }
+      state.updateBoardSection(section.id, {
+        ...(operation.patch.kind === undefined ? {} : { kind: operation.patch.kind }),
+        ...(operation.patch.title === undefined ? {} : { title: operation.patch.title }),
+        ...(operation.patch.x === undefined ? {} : { x: operation.patch.x }),
+        ...(operation.patch.y === undefined ? {} : { y: operation.patch.y }),
+        ...(operation.patch.width === undefined ? {} : { width: operation.patch.width }),
+        ...(operation.patch.height === undefined ? {} : { height: operation.patch.height }),
+        ...(operation.patch.accent === undefined ? {} : { accent: operation.patch.accent }),
+        ...(operation.patch.collapsed === undefined ? {} : { collapsed: operation.patch.collapsed }),
+      });
+      const updated = context.workspace.getState().boardSections.find((candidate) => candidate.id === section.id)!;
+      return success(
+        operation.op,
+        `Updated canvas section "${updated.title}".`,
+        { section: projectBoardSection(updated) },
+        context,
+      );
+    }
+    case "canvas.section.remove": {
+      const section = state.boardSections.find((candidate) => candidate.id === operation.section_id);
+      if (!section) {
+        return semanticFailure(operation.op, "not_found", `Canvas section "${operation.section_id}" does not exist.`);
+      }
+      state.removeBoardSection(section.id);
+      return success(operation.op, `Removed canvas section "${section.title}".`, { removed_id: section.id }, context);
+    }
     case "canvas.edge.add": {
       const source = state.boardNodes.find((node) => node.id === operation.source_node_id);
       const target = state.boardNodes.find((node) => node.id === operation.target_node_id);
@@ -1904,6 +2022,7 @@ const BATCH_REFERENCE_FIELDS = [
   "parent_id",
   "source_node_id",
   "target_node_id",
+  "section_id",
 ] as const;
 
 function resolveBatchOperationReferences(

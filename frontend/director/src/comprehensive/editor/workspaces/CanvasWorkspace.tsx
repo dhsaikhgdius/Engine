@@ -216,17 +216,15 @@ export function CanvasWorkspace() {
   const workspacePrefs = useDirectorCreativeWorkspaceStore((state) => state.workspacePrefs);
   const viewport = useDirectorCreativeWorkspaceStore((state) => state.boardViewport);
   const selectedNodeId = useDirectorCreativeWorkspaceStore((state) => state.selectedBoardNodeId);
-  // Node/edge/layout/z-order authoring, import cataloging, undo/redo, and media
+  // Node/edge/layout/z-order/section authoring, import cataloging, undo/redo, and media
   // relink dispatch through the shared agent contract
   // (dispatchCreativeWorkspaceOperations / dispatchCreativeWorkspaceMediaRelink);
-  // only drag-batch intermediate samples, view state, and section bookkeeping
-  // (no semantic ops yet) keep direct store mutators.
+  // only drag-batch intermediate samples and view state (no semantic ops yet)
+  // keep direct store mutators. Section assignment at pointer-up is discrete.
   const updateBoardNode = useDirectorCreativeWorkspaceStore((state) => state.updateBoardNode);
   const selectBoardNode = useDirectorCreativeWorkspaceStore((state) => state.selectBoardNode);
   const setBoardViewport = useDirectorCreativeWorkspaceStore((state) => state.setBoardViewport);
-  const addBoardSection = useDirectorCreativeWorkspaceStore((state) => state.addBoardSection);
   const applyScriptCanvasPlan = useDirectorCreativeWorkspaceStore((state) => state.applyScriptCanvasPlan);
-  const assignBoardNodeSection = useDirectorCreativeWorkspaceStore((state) => state.assignBoardNodeSection);
   const beginHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.beginHistoryBatch);
   const endHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.endHistoryBatch);
   const canUndo = useDirectorCreativeWorkspaceStore((state) => state.canUndo);
@@ -582,7 +580,15 @@ export function CanvasWorkspace() {
       (bounds?.left ?? 0) + (bounds?.width ?? 800) / 2,
       (bounds?.top ?? 0) + (bounds?.height ?? 600) / 2,
     );
-    addBoardSection({ x: point.x - 360, y: point.y - 210, title: t("新分区") });
+    dispatchCanvas(
+      {
+        op: "canvas.section.add",
+        x: point.x - 360,
+        y: point.y - 210,
+        title: t("新分区"),
+      },
+      t("添加分区失败"),
+    );
   }
 
   async function importMediaFiles(files: File[], dropPoint?: { x: number; y: number }) {
@@ -717,9 +723,13 @@ export function CanvasWorkspace() {
       endHistoryBatch();
       const current = useDirectorCreativeWorkspaceStore.getState().boardNodes.find((item) => item.id === node.id);
       if (current) {
-        assignBoardNodeSection(
-          node.id,
-          resolveSectionForNode(current, useDirectorCreativeWorkspaceStore.getState().boardSections),
+        dispatchCanvas(
+          {
+            op: "canvas.node.assign_section",
+            node_id: node.id,
+            section_id: resolveSectionForNode(current, useDirectorCreativeWorkspaceStore.getState().boardSections),
+          },
+          t("分区分配失败"),
         );
       }
     });
