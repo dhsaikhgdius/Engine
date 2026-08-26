@@ -120234,6 +120234,22 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
     delete_group: external_exports.boolean().default(true),
     force: external_exports.boolean().optional()
   }),
+  strictAction("create_object_list", {
+    list_id: id3,
+    label: name3,
+    object_ids: objectIds
+  }),
+  strictAction("add_objects_to_object_list", {
+    list_id: id3,
+    object_ids: objectIds
+  }),
+  strictAction("remove_objects_from_object_lists", {
+    object_ids: objectIds
+  }),
+  strictAction("rename_object_list", {
+    list_id: id3,
+    label: name3
+  }),
   strictAction("add_annotation", { annotation: directorSceneAnnotationSchema }),
   strictAction("update_annotation", { annotation_id: id3, patch: annotationUpdateSchema }),
   strictAction("remove_annotations", { annotation_ids: external_exports.array(id3).min(1).max(512) }),
@@ -136628,6 +136644,13 @@ var directorDccOmittedOpticsSchema = external_exports.strictObject({
   field: external_exports.literal("sensorFormat").optional(),
   reason: nonEmpty3.max(600)
 });
+var directorDccOmittedAdditionSchema = external_exports.strictObject({
+  directorId: nonEmpty3.max(200),
+  name: nonEmpty3.max(240),
+  meshFile: safeRelativePath2,
+  code: external_exports.enum(["opt_in_required", "duplicate_director_id", "skip_requested"]),
+  reason: nonEmpty3.max(1e3)
+});
 var directorVec3Schema3 = external_exports.tuple([external_exports.number().finite(), external_exports.number().finite(), external_exports.number().finite()]);
 var directorDccImportPlanLightPatchSchema = external_exports.strictObject({
   color: hexColor.optional(),
@@ -136710,7 +136733,21 @@ var directorDccImportPlanSchema = external_exports.strictObject({
    * (`sensor_format` today). Optional for older plans; when present, length
    * must equal omittedOpticsCount.
    */
-  omittedOptics: external_exports.array(directorDccOmittedOpticsSchema).max(1024).optional()
+  omittedOptics: external_exports.array(directorDccOmittedOpticsSchema).max(1024).optional(),
+  /**
+   * Count of `object_addition` changes the plan leaves unimported. Optional
+   * for plans built before typed omittedAdditions; when omittedAdditions is
+   * present, length must equal this count.
+   */
+  omittedAdditionsCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed records for new DCC objects the plan does not import — awaiting
+   * the `include_new_objects` opt-in, colliding with a live stable ID, or
+   * excluded on request. Optional for older plans; when present, length
+   * must equal omittedAdditionsCount. The cap matches the manifest
+   * `changes` cap so a fully additive package still parses.
+   */
+  omittedAdditions: external_exports.array(directorDccOmittedAdditionSchema).max(2e4).optional()
 }).superRefine((plan, context) => {
   if (plan.ready && plan.conflicts.length > 0) {
     context.addIssue({ code: "custom", path: ["ready"], message: "ready plans cannot contain conflicts" });
@@ -136727,6 +136764,21 @@ var directorDccImportPlanSchema = external_exports.strictObject({
         code: "custom",
         path: ["omittedOptics"],
         message: "omittedOptics length must equal omittedOpticsCount"
+      });
+    }
+  }
+  if (plan.omittedAdditions !== void 0) {
+    if (plan.omittedAdditionsCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedAdditionsCount"],
+        message: "omittedAdditionsCount is required when omittedAdditions is present"
+      });
+    } else if (plan.omittedAdditions.length !== plan.omittedAdditionsCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedAdditions"],
+        message: "omittedAdditions length must equal omittedAdditionsCount"
       });
     }
   }
@@ -138061,6 +138113,18 @@ var directorGodotOmittedMaterialSchema = external_exports.strictObject({
   code: directorGodotOmittedMaterialCodeSchema,
   reason: external_exports.string().trim().min(1).max(600)
 });
+var directorGodotOmittedShotCodeSchema = external_exports.enum([
+  "shot_no_camera_binding",
+  "shot_camera_not_imported",
+  "shot_target_not_camera"
+]);
+var directorGodotOmittedShotSchema = external_exports.strictObject({
+  shotId: external_exports.string().trim().min(1).max(200),
+  code: directorGodotOmittedShotCodeSchema,
+  /** Bound camera id when known; null when the shot has no camera binding. */
+  cameraDirectorId: external_exports.string().trim().min(1).max(200).nullable(),
+  reason: external_exports.string().trim().min(1).max(600)
+});
 var directorGodotImportReceiptSchema = external_exports.strictObject({
   /** `res://` path of the AnimationPlayer's owning scene, when animation was keyed. */
   animationPlayerPath: external_exports.string().trim().min(1).max(1024).nullable(),
@@ -138078,6 +138142,16 @@ var directorGodotImportReceiptSchema = external_exports.strictObject({
   shotCutTrackCount: external_exports.number().int().nonnegative().max(1e5),
   /** Storyboard shots that produced a camera-cut key (unmappable shots warn-and-omit). */
   mappedShotCount: external_exports.number().int().nonnegative().max(1e5),
+  /**
+   * Unmappable storyboard shot count. Always present on connector ≥0.3.2;
+   * older receipts omit the field and Agents fall back to free-text warnings.
+   */
+  omittedShotCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed shot omit records. Optional for older connectors; when present,
+   * length must equal omittedShotCount.
+   */
+  omittedShots: external_exports.array(directorGodotOmittedShotSchema).max(1024).optional(),
   /** glTF payload animations preserved from GLB assets (AnimationPlayer count). */
   payloadAnimationPlayerCount: external_exports.number().int().nonnegative().max(1e5),
   /** Skinned payloads whose Skeleton3D was found, tagged, and left in bind pose. */
@@ -138129,6 +138203,21 @@ var directorGodotImportReceiptSchema = external_exports.strictObject({
         code: "custom",
         path: ["omittedMaterials"],
         message: "omittedMaterials length must equal omittedMaterialCount"
+      });
+    }
+  }
+  if (receipt.omittedShots !== void 0) {
+    if (receipt.omittedShotCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedShotCount"],
+        message: "omittedShotCount is required when omittedShots is present"
+      });
+    } else if (receipt.omittedShots.length !== receipt.omittedShotCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedShots"],
+        message: "omittedShots length must equal omittedShotCount"
       });
     }
   }
