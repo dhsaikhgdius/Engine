@@ -16,7 +16,11 @@ import type { ArtifactStorageBackend, StoredArtifactObject } from "./artifactSto
  *
  * Every hook is injectable — clock, retention, legal hold, and the storage
  * backend itself — and sweeping defaults to a dry run, so the GC is fully
- * testable and can never delete silently.
+ * testable and can never delete silently. Because a reviewed plan is
+ * executed later, {@link revalidateArtifactGcSweep} re-checks it against
+ * live job records and object freshness just before deletion, so a key that
+ * became reachable or was rewritten after planning is skipped with a typed
+ * code instead of deleted.
  */
 
 /** Storage prefix that owns durable job artifacts. */
@@ -141,6 +145,84 @@ export async function planArtifactStorageGc(options: ArtifactGcPlanOptions): Pro
   };
 }
 
+/** Why one planned-sweep key was skipped instead of deleted. */
+export type ArtifactGcSweepSkipCode =
+  | "became-reachable"
+  | "modified-since-plan"
+  | "already-absent"
+  | "delete-failed";
+
+/** One planned-sweep key that was not deleted, with the typed evidence. */
+export interface ArtifactGcSweepSkip {
+  key: string;
+  code: ArtifactGcSweepSkipCode;
+  reason: string;
+}
+
+/** Options for {@link revalidateArtifactGcSweep}. */
+export interface ArtifactGcSweepRevalidationOptions {
+  /** The backend the plan was computed against. */
+  storage: ArtifactStorageBackend;
+  /** Every durable job record *at sweep time*; drives fresh reachability. */
+  jobs: readonly ProductionJobRecord[];
+  /** The reviewed plan about to be executed. */
+  plan: ArtifactGcPlan;
+  /** Keys whose terminal retention window has passed at sweep time. */
+  retentionExpiredKeys?: ReadonlySet<string> | ReadonlyMap<string, unknown>;
+}
+
+/**
+ * Revalidates a reviewed plan against the live system just before execution.
+ *
+ * Planning and sweeping are separated by a human review window, and the
+ * world keeps moving in between: a new or retried job can make a
+ * planned-sweep key reachable again (a re-referenced content-addressed
+ * staged input, a job record that gained artifacts), and a content-addressed
+ * object can be rewritten under the same key after the plan enumerated the
+ * old bytes. Executing the stale plan verbatim would delete bytes the GC
+ * contract promises to keep, so such keys are pruned into typed skips
+ * (`became-reachable`, `modified-since-plan`) instead of deleted.
+ *
+ * @param options - Storage, fresh job records, the reviewed plan, and the
+ *   sweep-time retention-expired keys.
+ * @returns The executable subset of the plan plus the blocked skips.
+ */
+export async function revalidateArtifactGcSweep(
+  options: ArtifactGcSweepRevalidationOptions,
+): Promise<{ executable: ArtifactGcPlan; blocked: ArtifactGcSweepSkip[] }> {
+  const reachable = collectReachableArtifactKeys(options.jobs);
+  const plannedAtMs = new Date(options.plan.plannedAt).getTime();
+  const blocked: ArtifactGcSweepSkip[] = [];
+  const blockedKeys = new Set<string>();
+  for (const entry of options.plan.entries) {
+    if (entry.action !== "sweep") continue;
+    if (reachable.has(entry.key) && !(options.retentionExpiredKeys?.has(entry.key) ?? false)) {
+      blocked.push({
+        key: entry.key,
+        code: "became-reachable",
+        reason:
+          "A live job record references this key now; deleting it would lose bytes a retry or reconciliation needs.",
+      });
+      blockedKeys.add(entry.key);
+      continue;
+    }
+    const head = await options.storage.head(entry.key);
+    if (head && new Date(head.modifiedAt).getTime() > plannedAtMs) {
+      blocked.push({
+        key: entry.key,
+        code: "modified-since-plan",
+        reason: `The object was rewritten at ${head.modifiedAt}, after the plan was computed at ${options.plan.plannedAt}; the reviewed plan no longer describes these bytes.`,
+      });
+      blockedKeys.add(entry.key);
+    }
+  }
+  if (!blocked.length) return { executable: options.plan, blocked };
+  return {
+    executable: { ...options.plan, entries: options.plan.entries.filter((entry) => !blockedKeys.has(entry.key)) },
+    blocked,
+  };
+}
+
 /** Result of executing (or dry-running) a GC plan. */
 export interface ArtifactGcSweepResult {
   dryRun: boolean;
@@ -150,6 +232,8 @@ export interface ArtifactGcSweepResult {
   reclaimedBytes: number;
   /** Keys whose deletion failed or that no longer existed. */
   skippedKeys: string[];
+  /** Typed evidence for every skipped key. */
+  skipped: ArtifactGcSweepSkip[];
 }
 
 /**
@@ -174,10 +258,11 @@ export async function sweepArtifactStorageGc(
       deletedKeys: [],
       reclaimedBytes: sweepEntries.reduce((total, entry) => total + entry.bytes, 0),
       skippedKeys: [],
+      skipped: [],
     };
   }
   const deletedKeys: string[] = [];
-  const skippedKeys: string[] = [];
+  const skipped: ArtifactGcSweepSkip[] = [];
   let reclaimedBytes = 0;
   for (const entry of sweepEntries) {
     try {
@@ -185,11 +270,19 @@ export async function sweepArtifactStorageGc(
         deletedKeys.push(entry.key);
         reclaimedBytes += entry.bytes;
       } else {
-        skippedKeys.push(entry.key);
+        skipped.push({
+          key: entry.key,
+          code: "already-absent",
+          reason: "The object no longer existed when the sweep reached it.",
+        });
       }
-    } catch {
-      skippedKeys.push(entry.key);
+    } catch (error) {
+      skipped.push({
+        key: entry.key,
+        code: "delete-failed",
+        reason: error instanceof Error ? error.message : String(error),
+      });
     }
   }
-  return { dryRun: false, deletedKeys, reclaimedBytes, skippedKeys };
+  return { dryRun: false, deletedKeys, reclaimedBytes, skippedKeys: skipped.map((skip) => skip.key), skipped };
 }

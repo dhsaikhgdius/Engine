@@ -340,6 +340,130 @@ describe("storage ops routes", () => {
     expect(invalid.status).toBe(400);
   });
 
+  it("revalidates the reviewed plan at sweep time: a staged input a new job references is skipped, not deleted", async () => {
+    const nowMs = Date.parse(NOW) + 7 * DAY_MS;
+    const context = await harness({ nowMs: () => nowMs });
+    const bytes = new TextEncoder().encode("0123456789");
+    const restagedSha = "f".repeat(64);
+    const restagedKey = `media-transcode-inputs/${restagedSha}.bin`;
+    const orphanKey = `media-transcode-inputs/${"a".repeat(64)}.bin`;
+    await context.storage.put(restagedKey, bytes);
+    await context.storage.put(orphanKey, bytes);
+
+    // At plan time nothing references either staged input: both are sweepable.
+    const plan = (
+      (await context.call("POST", "/api/storage/gc/plan")).write!.body as {
+        plan: { planId: string; sweep: { count: number } };
+      }
+    ).plan;
+    expect(plan.sweep.count).toBe(2);
+
+    // During the review window a queued transcode job re-references one input.
+    await context.putJob(
+      jobRecord("job-late", "queued", "media.transcode", {
+        sourceMediaId: `media-input:sha256:${restagedSha}`,
+        targetMimeType: "video/mp4",
+      } as ProductionJobInput),
+    );
+
+    const sweep = (await context.call("POST", "/api/storage/gc/sweep", { planId: plan.planId, confirm: plan.planId }))
+      .write!;
+    expect(sweep).toMatchObject({
+      status: 200,
+      body: {
+        result: {
+          replayed: false,
+          deletedCount: 1,
+          reclaimedBytes: 10,
+          skippedCount: 1,
+          deletedKeys: [orphanKey],
+          skippedKeys: [restagedKey],
+          skipped: [{ key: restagedKey, code: "became-reachable" }],
+          skippedByReason: { becameReachable: 1, modifiedSincePlan: 0, alreadyAbsent: 0, deleteFailed: 0 },
+          byReason: { unreachable: 1, retentionExpired: 0 },
+        },
+      },
+    });
+    // The re-referenced bytes survive for the retry; only the true orphan is gone.
+    expect(await context.storage.get(restagedKey)).not.toBeNull();
+    expect(await context.storage.get(orphanKey)).toBeNull();
+
+    // Replay returns the recorded skips without re-deleting.
+    const replay = (await context.call("POST", "/api/storage/gc/sweep", { planId: plan.planId, confirm: plan.planId }))
+      .write!;
+    expect(replay).toMatchObject({
+      status: 200,
+      body: { result: { replayed: true, skippedByReason: { becameReachable: 1 } } },
+    });
+
+    // The audit and health surface carry the typed skip counts durably.
+    const health = (await context.call("GET", "/api/storage/health")).write!;
+    expect(health.body).toMatchObject({
+      health: {
+        recentSweeps: [
+          {
+            planId: plan.planId,
+            deletedCount: 1,
+            skippedCount: 1,
+            skippedByReason: { becameReachable: 1, modifiedSincePlan: 0, alreadyAbsent: 0, deleteFailed: 0 },
+          },
+        ],
+      },
+    });
+  });
+
+  it("skips objects rewritten after planning with a typed modified-since-plan code", async () => {
+    const nowMs = Date.parse(NOW) + 7 * DAY_MS;
+    const context = await harness({ backend: "object-storage", nowMs: () => nowMs });
+    const key = "production-jobs/job-gone/attempts/job-gone-attempt-1/orphan.mp4";
+    await context.storage.put(key, new TextEncoder().encode("0123456789"));
+
+    const plan = ((await context.call("POST", "/api/storage/gc/plan")).write!.body as { plan: { planId: string } })
+      .plan;
+    // The object is rewritten under the same key after the plan was reviewed.
+    context.objectFake!.objects.get(key)!.modifiedAt = new Date(nowMs + 1000).toISOString();
+
+    const sweep = (await context.call("POST", "/api/storage/gc/sweep", { planId: plan.planId, confirm: plan.planId }))
+      .write!;
+    expect(sweep).toMatchObject({
+      status: 200,
+      body: {
+        result: {
+          deletedCount: 0,
+          skippedCount: 1,
+          skipped: [{ key, code: "modified-since-plan" }],
+          skippedByReason: { becameReachable: 0, modifiedSincePlan: 1, alreadyAbsent: 0, deleteFailed: 0 },
+        },
+      },
+    });
+    expect(await context.storage.get(key)).not.toBeNull();
+  });
+
+  it("keeps audit entries recorded before skip reasons were tracked readable", async () => {
+    const context = await harness();
+    await writeJsonAtomic(join(context.dir, "storage-gc-audit.json"), {
+      version: 1,
+      entries: [
+        {
+          planId: "legacy-plan",
+          plannedAt: NOW,
+          sweptAt: NOW,
+          examined: 1,
+          plannedSweepCount: 1,
+          plannedSweepBytes: 10,
+          deletedCount: 1,
+          reclaimedBytes: 10,
+          skippedCount: 0,
+          byReason: { unreachable: 1, retentionExpired: 0 },
+        },
+      ],
+    });
+    const health = await context.service.health();
+    expect(health.recentSweeps).toHaveLength(1);
+    expect(health.recentSweeps[0]!.planId).toBe("legacy-plan");
+    expect(health.recentSweeps[0]!.skippedByReason).toBeUndefined();
+  });
+
   it("keeps job → ArtifactVersion registration idempotent after retention sweeps the bytes", async () => {
     const nowMs = Date.parse(NOW) + 7 * DAY_MS;
     const context = await harness({

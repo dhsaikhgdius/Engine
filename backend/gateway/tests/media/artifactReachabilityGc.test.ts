@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -11,10 +11,11 @@ import {
   type ProductionJobRecord,
   type ProductionJobStatus,
 } from "../../../../packages/protocol/src/productionJobProtocol";
-import { FilesystemArtifactStorage } from "../../media/artifactStorage";
+import { FilesystemArtifactStorage, type ArtifactStorageBackend } from "../../media/artifactStorage";
 import {
   collectReachableArtifactKeys,
   planArtifactStorageGc,
+  revalidateArtifactGcSweep,
   sweepArtifactStorageGc,
 } from "../../media/artifactReachabilityGc";
 
@@ -261,6 +262,95 @@ describe("artifactReachabilityGc", () => {
 
     // Replaying the same plan skips the already-deleted object instead of failing.
     const replay = await sweepArtifactStorageGc(storage, plan, { dryRun: false });
-    expect(replay).toMatchObject({ deletedKeys: [], skippedKeys: [plan.entries[0]!.key] });
+    expect(replay).toMatchObject({
+      deletedKeys: [],
+      skippedKeys: [plan.entries[0]!.key],
+      skipped: [{ key: plan.entries[0]!.key, code: "already-absent", reason: expect.stringContaining("no longer") }],
+    });
+  });
+
+  it("revalidates a stale plan: keys that became reachable or were rewritten are blocked with typed skips", async () => {
+    const storage = await createStorage();
+    const bytes = new TextEncoder().encode("bytes");
+    const stagedKey = `media-transcode-inputs/${STAGED_SHA}.bin`;
+    const rewrittenKey = "production-jobs/job-gone/attempts/job-gone-attempt-1/orphan.mp4";
+    const sweepableKey = `media-transcode-inputs/${"d".repeat(64)}.bin`;
+    await storage.put(stagedKey, bytes);
+    await storage.put(rewrittenKey, bytes);
+    await storage.put(sweepableKey, bytes);
+
+    // With no job records every object is unreachable: all three plan as sweep.
+    const plan = await planArtifactStorageGc({
+      storage,
+      jobs: [],
+      now: () => Date.now() + 60 * 60_000,
+      minimumAgeMs: 1,
+    });
+    expect(plan.entries.filter((entry) => entry.action === "sweep")).toHaveLength(3);
+
+    // During the review window a queued job re-references the staged input…
+    const jobsNow = [
+      job("job-late", "queued", "media.transcode", {
+        sourceMediaId: `media-input:sha256:${STAGED_SHA}`,
+        targetMimeType: "video/mp4",
+      } as ProductionJobInput),
+    ];
+    // …and the orphan artifact is rewritten under the same key after planning.
+    await storage.put(rewrittenKey, new TextEncoder().encode("rewritten"));
+    const afterPlan = new Date(Date.parse(plan.plannedAt) + 60_000);
+    await utimes(storage.absolutePath(rewrittenKey), afterPlan, afterPlan);
+
+    const { executable, blocked } = await revalidateArtifactGcSweep({ storage, jobs: jobsNow, plan });
+    expect(blocked).toHaveLength(2);
+    expect(blocked).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: stagedKey, code: "became-reachable" }),
+        expect.objectContaining({ key: rewrittenKey, code: "modified-since-plan" }),
+      ]),
+    );
+
+    const result = await sweepArtifactStorageGc(storage, executable, { dryRun: false });
+    expect(result.deletedKeys).toEqual([sweepableKey]);
+    expect(await storage.get(stagedKey)).not.toBeNull();
+    expect(await storage.get(rewrittenKey)).not.toBeNull();
+
+    // A key that is reachable but retention-expired at sweep time stays sweepable.
+    const expiredStill = await revalidateArtifactGcSweep({
+      storage,
+      jobs: jobsNow,
+      plan,
+      retentionExpiredKeys: new Set([stagedKey]),
+    });
+    expect(expiredStill.blocked.map((skip) => skip.key)).not.toContain(stagedKey);
+  });
+
+  it("records delete failures as typed skips with the backend's reason", async () => {
+    const storage = await createStorage();
+    const key = "production-jobs/job-gone/attempts/job-gone-attempt-1/orphan.mp4";
+    await storage.put(key, new TextEncoder().encode("orphan"));
+    const plan = await planArtifactStorageGc({
+      storage,
+      jobs: [],
+      now: () => Date.now() + 60 * 60_000,
+      minimumAgeMs: 1,
+    });
+
+    const failing: ArtifactStorageBackend = {
+      kind: storage.kind,
+      put: (putKey, bytes) => storage.put(putKey, bytes),
+      get: (getKey) => storage.get(getKey),
+      head: (headKey) => storage.head(headKey),
+      list: (prefix) => storage.list(prefix),
+      delete: async () => {
+        throw new Error("EACCES: permission denied");
+      },
+    };
+    const result = await sweepArtifactStorageGc(failing, plan, { dryRun: false });
+    expect(result).toMatchObject({
+      deletedKeys: [],
+      skippedKeys: [key],
+      skipped: [{ key, code: "delete-failed", reason: "EACCES: permission denied" }],
+    });
+    expect(await storage.get(key)).not.toBeNull();
   });
 });

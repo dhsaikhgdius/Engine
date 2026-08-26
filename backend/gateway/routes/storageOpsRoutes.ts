@@ -37,7 +37,11 @@ function truncated<T>(values: readonly T[]) {
  * - `POST /api/storage/gc/plan` — computes and retains a reviewable dry-run
  *   plan; nothing is deleted.
  * - `POST /api/storage/gc/sweep` — executes exactly one retained plan; the
- *   caller must echo the plan id as `confirm`. Idempotent on replay.
+ *   caller must echo the plan id as `confirm`. Idempotent on replay. The
+ *   plan is revalidated against live job records and object freshness just
+ *   before deletion; every skipped key carries a typed code
+ *   (`became-reachable`, `modified-since-plan`, `already-absent`,
+ *   `delete-failed`) plus `skippedByReason` counts.
  */
 export async function handleStorageOpsRoute(
   request: IncomingMessage,
@@ -74,14 +78,17 @@ export async function handleStorageOpsRoute(
     try {
       const outcome = await service.sweep(parsed.data);
       const deleted = truncated(outcome.deletedKeys);
-      const skipped = truncated(outcome.skippedKeys);
+      const skippedKeys = truncated(outcome.skippedKeys);
+      const skipped = truncated(outcome.skipped);
       json(response, 200, {
         result: {
           ...outcome,
           deletedKeys: deleted.values,
           deletedKeysTruncated: deleted.truncated,
-          skippedKeys: skipped.values,
-          skippedKeysTruncated: skipped.truncated,
+          skippedKeys: skippedKeys.values,
+          skippedKeysTruncated: skippedKeys.truncated,
+          skipped: skipped.values,
+          skippedTruncated: skipped.truncated,
         },
       });
     } catch (error) {
