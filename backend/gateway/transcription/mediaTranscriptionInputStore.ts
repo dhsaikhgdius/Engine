@@ -7,6 +7,18 @@ function assertSha256(value: string) {
   return value;
 }
 
+/** Thrown when the content-addressed source bytes are no longer cached on the gateway. */
+export class MediaTranscriptionSourceMissingError extends Error {
+  readonly code = "transcription_source_missing";
+
+  constructor() {
+    // Never include the filesystem path: this message reaches HTTP clients
+    // and durable job records.
+    super("Transcription source bytes are no longer cached on the gateway; upload the source media again");
+    this.name = "MediaTranscriptionSourceMissingError";
+  }
+}
+
 /** Content-addressed source cache keeps transcription retries independent of browser lifetime. */
 export class MediaTranscriptionInputStore {
   constructor(
@@ -35,7 +47,13 @@ export class MediaTranscriptionInputStore {
   }
 
   async get(sha256: string) {
-    const bytes = await readFile(this.path(sha256));
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(this.path(sha256));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new MediaTranscriptionSourceMissingError();
+      throw error;
+    }
     if (bytes.byteLength > this.maxInputBytes)
       throw new Error("Cached transcription source exceeds the configured limit");
     const actual = createHash("sha256").update(bytes).digest("hex");

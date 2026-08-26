@@ -8,7 +8,10 @@ import {
 
 const INVITE_TOKEN_PREFIX = "dcr1";
 const DEFAULT_INVITE_TTL_SECONDS = 24 * 60 * 60;
-const MAX_INVITE_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+/** The longest lifetime an invite can be minted with; also bounds how long a room-scope revocation cutoff stays relevant. */
+export const MAX_COLLABORATION_INVITE_TTL_SECONDS = 30 * 24 * 60 * 60;
+const MAX_INVITE_TTL_SECONDS = MAX_COLLABORATION_INVITE_TTL_SECONDS;
 
 /**
  * The room scope of an invite: an exact room id, or a prefix capability such
