@@ -173,6 +173,38 @@ export const directorBlendSceneImportSelectionSchema = z.strictObject({
   cameraSourceIds: z.array(nonEmpty.max(240)).max(512),
 });
 
+/** Typed warn-and-omit codes for Blender scene data an import plan leaves behind. */
+export const DIRECTOR_BLEND_SCENE_OMITTED_CODES = [
+  "unsupported_object",
+  "hierarchy_flattened",
+  "animation_actions",
+  "camera_roll_lens_shift",
+] as const;
+
+/**
+ * Typed warn-and-omit record for Blender scene data the import plan leaves
+ * behind. Free-text `warnings` stay for humans; agents should read this array
+ * (mirrors the DCC return plan `omittedOptics` / `omittedAdditions`).
+ *
+ * - `unsupported_object`: the extractor skipped a datablock it cannot export (`kind` carries the Blender type).
+ * - `hierarchy_flattened`: the scene imports as one flattened Director scene object; per-object edits need the stable-ID round trip.
+ * - `animation_actions`: Blender actions stay embedded in the GLB and are not mapped onto Director's editable timeline.
+ * - `camera_roll_lens_shift`: camera roll and lens shift cannot be expressed by Director's target-based camera model.
+ */
+export const directorBlendSceneOmittedSchema = z.strictObject({
+  sourceId: nonEmpty.max(240),
+  /** Blender datablock kind for `unsupported_object` records. */
+  kind: nonEmpty.max(120).optional(),
+  code: z.enum(DIRECTOR_BLEND_SCENE_OMITTED_CODES),
+  reason: nonEmpty.max(2_000),
+});
+
+/** A validated Blender scene import omitted record. */
+export type DirectorBlendSceneOmitted = z.infer<typeof directorBlendSceneOmittedSchema>;
+
+/** A typed warn-and-omit code on a Blender scene import plan. */
+export type DirectorBlendSceneOmittedCode = DirectorBlendSceneOmitted["code"];
+
 /**
  * Blender scene import plan schema.
  *
@@ -201,6 +233,18 @@ export const directorBlendSceneImportPlanSchema = z
       )
       .max(2_000),
     warnings: z.array(z.string().max(2_000)).max(20_000),
+    /**
+     * Count of typed omitted records. Optional for plans persisted before
+     * typed omits; when omitted is present, length must equal this count.
+     */
+    omittedCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Typed warn-and-omit records for Blender scene data the plan leaves
+     * behind. Optional for older stored plans; when present, length must
+     * equal omittedCount. The cap covers the manifest `unsupported` cap plus
+     * per-camera and per-scene records.
+     */
+    omitted: z.array(directorBlendSceneOmittedSchema).max(21_000).optional(),
   })
   .superRefine((plan, context) => {
     if (plan.ready && plan.conflicts.length > 0) {
@@ -212,6 +256,21 @@ export const directorBlendSceneImportPlanSchema = z
         path: ["selection", "cameraSourceIds"],
         message: "camera selection must be unique",
       });
+    }
+    if (plan.omitted !== undefined) {
+      if (plan.omittedCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedCount"],
+          message: "omittedCount is required when omitted is present",
+        });
+      } else if (plan.omitted.length !== plan.omittedCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omitted"],
+          message: "omitted length must equal omittedCount",
+        });
+      }
     }
   });
 

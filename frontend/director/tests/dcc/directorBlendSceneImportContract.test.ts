@@ -121,4 +121,46 @@ describe("Blender scene import contracts", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("pairs typed omitted records with their count and rejects unknown codes", () => {
+    const targetRevision = getDirectorProjectRevision(createDefaultDirectorProject());
+    const plan = {
+      contract: DIRECTOR_BLEND_SCENE_IMPORT_PLAN_CONTRACT,
+      planId: "blend-job/default",
+      ready: true,
+      packageId: "blend-scene-a",
+      packageDir: "blend-job/package",
+      manifestHash: hash,
+      targetRevision,
+      selection: { includeScene: false, cameraSourceIds: ["camera-main"] },
+      operations: [],
+      conflicts: [],
+      warnings: [],
+    };
+    const omitted = [
+      {
+        sourceId: "Key",
+        kind: "light",
+        code: "unsupported_object" as const,
+        reason: "Director v1 does not import Blender lights.",
+      },
+      {
+        sourceId: "camera-main",
+        code: "camera_roll_lens_shift" as const,
+        reason: "Blender camera roll and lens shift on Main are not represented.",
+      },
+    ];
+
+    expect(directorBlendSceneImportPlanSchema.safeParse(plan).success).toBe(true);
+    expect(directorBlendSceneImportPlanSchema.safeParse({ ...plan, omittedCount: 2, omitted }).success).toBe(true);
+    expect(directorBlendSceneImportPlanSchema.safeParse({ ...plan, omitted }).success).toBe(false);
+    expect(directorBlendSceneImportPlanSchema.safeParse({ ...plan, omittedCount: 1, omitted }).success).toBe(false);
+    expect(
+      directorBlendSceneImportPlanSchema.safeParse({
+        ...plan,
+        omittedCount: 1,
+        omitted: [{ sourceId: "scene", code: "free_text_only", reason: "unknown code" }],
+      }).success,
+    ).toBe(false);
+  });
 });

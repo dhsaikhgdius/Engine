@@ -24,6 +24,7 @@ import {
   type DirectorBlendSceneImportPlanV1,
   type DirectorBlendSceneImportSelection,
   type DirectorBlendSceneManifestV1,
+  type DirectorBlendSceneOmitted,
 } from "@director/dcc-protocol";
 import { blenderPointToDirector } from "@director/dcc-protocol";
 import { writeJsonAtomic } from "../atomicJsonFile";
@@ -829,6 +830,14 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
       ...manifest.warnings,
       ...manifest.unsupported.map((item) => `${item.kind} ${item.name}: ${item.reason}`),
     ];
+    // Free-text warnings stay for humans; every dropped claim also lands here
+    // as a typed record (mirrors the DCC return plan omittedOptics/omittedAdditions).
+    const omitted: DirectorBlendSceneOmitted[] = manifest.unsupported.map((item) => ({
+      sourceId: item.name,
+      kind: item.kind,
+      code: "unsupported_object",
+      reason: item.reason,
+    }));
     const packageKey = manifest.source.sha256.slice(0, 20);
     const assetId = `blend-scene-asset-${packageKey}`;
     const objectId = `blend-scene-object-${packageKey}`;
@@ -878,6 +887,11 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
             conflicts.push({ sourceId: "scene", code: "id_collision", reason: `Director ID ${id} already exists.` });
           }
         }
+        if (manifest.scene.objectCount > 1) {
+          const reason = `The ${manifest.scene.objectCount} Blender objects import as one flattened Director scene object; per-object editing requires the Director-Blender stable-ID round trip.`;
+          warnings.push(reason);
+          omitted.push({ sourceId: "scene", code: "hierarchy_flattened", reason });
+        }
       }
     }
     for (const camera of manifest.cameras) {
@@ -901,14 +915,14 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
           `Camera ${camera.name} uses ${operation.focalLengthMm} mm in Director to preserve Blender's vertical field of view with the nearest supported sensor gate.`,
         );
       }
+      const rollReason = `Blender camera roll and lens shift on ${camera.name} are not represented by Director's target-based camera model.`;
+      warnings.push(rollReason);
+      omitted.push({ sourceId: camera.sourceId, code: "camera_roll_lens_shift", reason: rollReason });
     }
     if (manifest.scene.actionCount > 0) {
-      warnings.push(
-        `${manifest.scene.actionCount} Blender action(s) remain embedded in the GLB; Director v1 imports the scene at the current frame and does not map them onto its editable timeline.`,
-      );
-    }
-    if (selection.cameraSourceIds.length) {
-      warnings.push("Blender camera roll and lens shift are not represented by Director's target-based camera model.");
+      const reason = `${manifest.scene.actionCount} Blender action(s) remain embedded in the GLB; Director v1 imports the scene at the current frame and does not map them onto its editable timeline.`;
+      warnings.push(reason);
+      omitted.push({ sourceId: "scene", code: "animation_actions", reason });
     }
     const selectionHash = sha256(JSON.stringify(selection)).slice(0, 16);
     const jobId = validated.packageDir.split("/")[0]!;
@@ -924,6 +938,7 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
       operations,
       conflicts,
       warnings,
+      ...(omitted.length > 0 ? { omittedCount: omitted.length, omitted } : {}),
     });
   }
 

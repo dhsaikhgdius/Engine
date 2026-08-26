@@ -100,6 +100,12 @@ function blendPlan(
   cameraSourceIds = ["camera-a", "camera-b"],
   includeScene = true,
   warnings: string[] = [],
+  omitted: Array<{
+    sourceId: string;
+    kind?: string;
+    code: "unsupported_object" | "hierarchy_flattened" | "animation_actions" | "camera_roll_lens_shift";
+    reason: string;
+  }> = [],
 ) {
   return {
     contract: "director-blend-scene-import-plan-v1" as const,
@@ -113,6 +119,7 @@ function blendPlan(
     operations: [],
     conflicts: ready ? [] : [{ sourceId: "scene", code: "id_collision" as const, reason: "当前场景已有同名稳定 ID。" }],
     warnings,
+    ...(omitted.length ? { omittedCount: omitted.length, omitted } : {}),
   };
 }
 
@@ -615,7 +622,17 @@ it("routes engine return previews through the selected connector provider", asyn
 it("uploads a Blender scene, rebuilds camera selection, and applies the reviewed plan", async () => {
   const user = userEvent.setup();
   const manifest = blendManifest();
-  const initialPlan = blendPlan();
+  const initialPlan = blendPlan(
+    true,
+    ["camera-a", "camera-b"],
+    true,
+    [],
+    [
+      { sourceId: "Area Light", kind: "LIGHT", code: "unsupported_object", reason: "灯光尚未导入" },
+      { sourceId: "scene", code: "animation_actions", reason: "1 个动作仍嵌在 GLB 中，未映射到时间线" },
+      { sourceId: "camera-a", code: "camera_roll_lens_shift", reason: "Camera A 的滚转与移轴未导入" },
+    ],
+  );
   const noCameraPlan = blendPlan(true, []);
   const upload = vi.spyOn(dccSceneImportClient, "uploadDirectorBlendScene").mockResolvedValue({
     jobId: "blend-job-ui",
@@ -651,6 +668,13 @@ it("uploads a Blender scene, rebuilds camera selection, and applies the reviewed
   expect(screen.getByText("导入相机 · 已选 2 / 2")).toBeInTheDocument();
   expect(screen.getByText("Area Light：灯光尚未导入")).toBeInTheDocument();
   expect(screen.getByText("约束将被忽略")).toBeInTheDocument();
+  expect(screen.getByText(/3 项结构化省略/)).toBeInTheDocument();
+  const omittedList = screen.getByRole("list", { name: "Blender 导入省略" });
+  expect(within(omittedList).getAllByRole("listitem")).toHaveLength(3);
+  expect(within(omittedList).getByText("animation_actions")).toBeInTheDocument();
+  expect(within(omittedList).getByText(/动作未映射时间线/)).toBeInTheDocument();
+  expect(within(omittedList).getByText(/相机滚转\/移轴未导入/)).toBeInTheDocument();
+  expect(within(omittedList).getByText("camera-a")).toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: "不导入相机" }));
   await waitFor(() =>
@@ -660,6 +684,7 @@ it("uploads a Blender scene, rebuilds camera selection, and applies the reviewed
     }),
   );
   expect(screen.getByText("导入相机 · 已选 0 / 2")).toBeInTheDocument();
+  expect(screen.queryByRole("list", { name: "Blender 导入省略" })).toBeNull();
 
   await user.click(screen.getByRole("button", { name: "刷新预览" }));
   await waitFor(() => expect(preview).toHaveBeenNthCalledWith(3, "blend-package-ui/package", noCameraPlan.selection));

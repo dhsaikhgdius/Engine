@@ -358,6 +358,48 @@ describe("Blender scene import service", () => {
     );
   });
 
+  it("stamps typed omitted records for unsupported datablocks, flattening, actions, and camera roll", async () => {
+    const harness = await createHarness();
+    const upload = await ingest(harness);
+
+    expect(upload.plan.omitted).toEqual([
+      {
+        sourceId: "Key",
+        kind: "light",
+        code: "unsupported_object",
+        reason: "Director v1 does not import Blender lights.",
+      },
+      { sourceId: "scene", code: "hierarchy_flattened", reason: expect.stringContaining("one flattened Director") },
+      {
+        sourceId: "camera-main",
+        code: "camera_roll_lens_shift",
+        reason: expect.stringContaining("roll and lens shift"),
+      },
+      {
+        sourceId: "camera-detail",
+        code: "camera_roll_lens_shift",
+        reason: expect.stringContaining("roll and lens shift"),
+      },
+      { sourceId: "scene", code: "animation_actions", reason: expect.stringContaining("current frame") },
+    ]);
+    expect(upload.plan.omittedCount).toBe(upload.plan.omitted?.length);
+    // Every typed record keeps a matching free-text warning for humans.
+    for (const record of upload.plan.omitted ?? []) {
+      expect(upload.plan.warnings.some((warning) => warning.includes(record.reason))).toBe(true);
+    }
+
+    const cameraOnly = await harness.importer.buildImportPlan(upload.packagePath, harness.project, {
+      includeScene: false,
+      cameraSourceIds: ["camera-detail"],
+    });
+    expect(cameraOnly.omitted?.map((record) => `${record.code}:${record.sourceId}`)).toEqual([
+      "unsupported_object:Key",
+      "camera_roll_lens_shift:camera-detail",
+      "animation_actions:scene",
+    ]);
+    expect(cameraOnly.omittedCount).toBe(3);
+  });
+
   it("builds a ready camera-only plan when the Blender scene has no renderable geometry", async () => {
     const harness = await createHarness({ includeScene: false });
     const upload = await ingest(harness);
