@@ -23,7 +23,7 @@ import {
   type AtmosphereSolution,
 } from "./atmosphere";
 import { ATMOSPHERE_SKY_FRAGMENT_SHADER, ATMOSPHERE_SKY_VERTEX_SHADER } from "./atmosphereSkyShaders";
-import { evaluateSkyWeatherMood } from "./skyWeather";
+import { resolveSkyWeatherMood } from "./skyWeather";
 import { evaluateSkyAtmosphere, evaluateSkyLighting, evaluateSunDiscState, getSolarDirectionForHours } from "./solar";
 
 const SKY_BOX_EXTENT = 4200;
@@ -130,14 +130,16 @@ export function AtmosphereSky({ context }: { context: LivingWorldFrameContext })
     // The visible disc/halo follow the same weather-and-twilight gate as the
     // key light: overcast keeps no hard disc, storms crush it to a smudge,
     // and below civil-twilight depth both terms drop to exactly zero.
-    const sunDisc = evaluateSunDiscState(settings, seconds);
+    const sunDisc = evaluateSunDiscState(settings, seconds, climate);
     material.uniforms.discOpacity.value = sunDisc.discOpacity;
     material.uniforms.glowOpacity.value = sunDisc.glowOpacity;
     // Shader clouds follow the preset-floored effective cover: an overcast
-    // or storm sky closes its deck even at a low authored cover slider.
-    const mood = evaluateSkyWeatherMood(settings.weather);
+    // or storm sky closes its deck even at a low authored cover slider. The
+    // evaluated climate blends the mood across an evolving transition.
+    const mood = resolveSkyWeatherMood(climate.weather, climate);
     material.uniforms.cloudAmount.value = atmosphereSkyCloudAmount(mood.effectiveCloudCover);
-    material.uniforms.cloudDarken.value = mood.cloudShaderDarkening;    material.uniforms.time.value = seconds;
+    material.uniforms.cloudDarken.value = mood.cloudShaderDarkening;
+    material.uniforms.time.value = seconds;
     const windRadians = (settings.wind.directionDegrees * Math.PI) / 180;
     windDir.set(Math.sin(windRadians), Math.cos(windRadians));
     if (scene.environment !== lutTexture) scene.environment = lutTexture;

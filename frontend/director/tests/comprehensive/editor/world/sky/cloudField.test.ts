@@ -5,6 +5,7 @@ import type {
   DirectorWorldWind,
 } from "../../../../../src/comprehensive/editor/schema/directorProject";
 import {
+  countSkyCloudQuadsForCover,
   createSkyCloudPlacements,
   getSkyCloudClusterCount,
   getSkyCloudDriftRadians,
@@ -77,6 +78,19 @@ describe("cloud cover to cluster count", () => {
     expect(getSkyCloudClusterCount(0.05)).toBe(0);
     expect(getSkyCloudClusterCount(0.06)).toBe(1);
     expect(createSkyCloudPlacements(7, 0)).toEqual([]);
+  });
+
+  it("the visible prefix of a full-cover build is byte-identical to a direct per-cover build", () => {
+    const seed = 20_260_813;
+    const full = createSkyCloudPlacements(seed, 1);
+    for (let cover = 0; cover <= 1.0001; cover += 0.05) {
+      const direct = createSkyCloudPlacements(seed, cover);
+      const count = countSkyCloudQuadsForCover(full, cover);
+      expect(count, `cover ${cover}`).toBe(direct.length);
+      expect(full.slice(0, count), `cover ${cover}`).toEqual(direct);
+    }
+    expect(countSkyCloudQuadsForCover(full, Number.NaN)).toBe(0);
+    expect(countSkyCloudQuadsForCover(full, 2)).toBe(full.length);
   });
 
   it("grows monotonically with cover", () => {

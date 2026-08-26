@@ -163,9 +163,12 @@ function WaterBodySurface({ body, context }: { body: DirectorWorldWaterBody; con
         material.uniforms.uEnvMap.value = probe.getTexture();
         // Agitated surfaces (storm churn, strong wind) break the mirror up:
         // the probe blend recedes toward the weather-dimmed procedural sky.
+        // The evaluated climate weather is the input, so an evolving storm
+        // dims the mirror as it rolls in; static mode reads the authored
+        // block by reference (bit-exact legacy).
         material.uniforms.uEnvBlend.value =
           probe.getEnvBlend() *
-          computeWaterEnvBlendScale(Math.hypot(context.windVector[0], context.windVector[2]), context.settings.weather);
+          computeWaterEnvBlendScale(Math.hypot(context.windVector[0], context.windVector[2]), context.climate.weather);
       }
       const heightMap = heightMapRef.current;
       if (heightMap !== null) {

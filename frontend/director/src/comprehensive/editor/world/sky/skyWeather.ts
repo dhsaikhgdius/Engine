@@ -1,4 +1,5 @@
 import type { DirectorWorldWeather } from "../../schema/directorProject";
+import type { WorldClimateState } from "../worldClimate";
 
 /**
  * Weather → sky-appearance mapping shared by the whole sky layer.
@@ -147,5 +148,36 @@ export function evaluateSkyWeatherMood(weather: DirectorWorldWeather): SkyWeathe
     cloudOpacityScale: lerp(opacityRange[0], opacityRange[1], intensity),
     cloudSizeScale: lerp(sizeRange[0], sizeRange[1], intensity),
     cloudShaderDarkening: lerp(darkenRange[0], darkenRange[1], intensity),
+  };
+}
+
+/** Lerp whose endpoints are bit-exact, so ramp ends land on the pure moods. */
+const exactLerp = (from: number, to: number, t: number): number => {
+  if (t <= 0) return from;
+  if (t >= 1) return to;
+  return from + (to - from) * t;
+};
+
+/**
+ * Sky weather mood under an optional evaluated climate — the single blend
+ * implementation for every sky consumer (solar model, dome shader, billboard
+ * clouds). Without a climate, or in `static` evolution mode, the weather
+ * block is evaluated directly (bit-exact legacy path); an evolving climate
+ * blends the mood outputs across the active preset transition so weather
+ * ramps never pop the key light, ambient, effective cover, or stars.
+ */
+export function resolveSkyWeatherMood(weather: DirectorWorldWeather, climate?: WorldClimateState): SkyWeatherMood {
+  if (!climate?.evolving || climate.fromPreset === climate.toPreset) return evaluateSkyWeatherMood(weather);
+  const from = evaluateSkyWeatherMood({ ...weather, preset: climate.fromPreset });
+  const to = evaluateSkyWeatherMood({ ...weather, preset: climate.toPreset });
+  const t = clamp01(climate.blend);
+  return {
+    directTransmission: exactLerp(from.directTransmission, to.directTransmission, t),
+    ambientScale: exactLerp(from.ambientScale, to.ambientScale, t),
+    effectiveCloudCover: exactLerp(from.effectiveCloudCover, to.effectiveCloudCover, t),
+    starVisibility: exactLerp(from.starVisibility, to.starVisibility, t),
+    cloudOpacityScale: exactLerp(from.cloudOpacityScale, to.cloudOpacityScale, t),
+    cloudSizeScale: exactLerp(from.cloudSizeScale, to.cloudSizeScale, t),
+    cloudShaderDarkening: exactLerp(from.cloudShaderDarkening, to.cloudShaderDarkening, t),
   };
 }

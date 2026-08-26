@@ -22,6 +22,7 @@ import {
   compileDirectorCharacterMotionAction,
   compileDirectorLightUpdateAction,
   compileDirectorSceneUpdateAction,
+  compileDirectorWorldSettingsAction,
 } from "../../src/agent/compileDirectorUiAuthoringActions";
 
 function resetDirectorStore() {
@@ -672,6 +673,55 @@ describe("Stage mutator parity with direct agent authoring", () => {
     expect(scene.groundHeight).toBe(0.5);
     expect(scene.showLabels).toBe(false);
     expect(scene.backgroundColor).toBe("#101418");
+  });
+
+  it("updateWorldSettings weather-evolution edits match a direct set_world_settings apply", () => {
+    const patch = { weather: { evolution: { mode: "cycle" as const, periodSeconds: 240 } } };
+    const action = compileDirectorWorldSettingsAction(patch);
+    expect(action).toEqual({
+      action: "set_world_settings",
+      settings: { weather: { evolution: { mode: "cycle", period_seconds: 240 } } },
+    });
+    const agentRevision = agentRevisionFor([action!]);
+
+    useDirectorStore.getState().updateWorldSettings(patch);
+
+    expect(storeRevision()).toBe(agentRevision);
+    expect(useDirectorStore.getState().project.world?.settings.weather.evolution).toEqual({
+      mode: "cycle",
+      periodSeconds: 240,
+    });
+  });
+
+  it("updateWorldSettings mixed patches match a direct set_world_settings apply", () => {
+    const patch = {
+      enabled: true,
+      seed: 1234,
+      wind: { speedMps: 7.5, gustiness: 0.4 },
+      timeOfDay: { mode: "cycle" as const, cycleMinutes: 12 },
+      weather: { preset: "storm" as const, intensity: 0.9 },
+    };
+    const action = compileDirectorWorldSettingsAction(patch);
+    expect(action).toEqual({
+      action: "set_world_settings",
+      settings: {
+        enabled: true,
+        seed: 1234,
+        wind: { speed_mps: 7.5, gustiness: 0.4 },
+        time_of_day: { mode: "cycle", cycle_minutes: 12 },
+        weather: { preset: "storm", intensity: 0.9 },
+      },
+    });
+    const agentRevision = agentRevisionFor([action!]);
+
+    useDirectorStore.getState().updateWorldSettings(patch);
+
+    expect(storeRevision()).toBe(agentRevision);
+    const settings = useDirectorStore.getState().project.world?.settings;
+    expect(settings?.enabled).toBe(true);
+    expect(settings?.seed).toBe(1234);
+    expect(settings?.wind.speedMps).toBe(7.5);
+    expect(settings?.weather.preset).toBe("storm");
   });
 
   it("removeImportedAsset matches a direct remove_assets cascade apply", () => {

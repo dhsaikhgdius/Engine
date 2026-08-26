@@ -27,6 +27,9 @@ async function temporaryUnrealSetup() {
   await mkdir(dirname(executable), { recursive: true });
   await writeFile(executable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   const projectDirectory = resolve(root, "project");
+  // Health's version-honesty check reads VersionName from the installed
+  // .uplugin and requires it to equal the workspace connector manifest.
+  const installedUplugin = JSON.stringify({ VersionName: await connectorVersion() });
   for (const file of [
     "Project.uproject",
     "Plugins/DirectorBridge/DirectorBridge.uplugin",
@@ -34,7 +37,7 @@ async function temporaryUnrealSetup() {
   ]) {
     const path = resolve(projectDirectory, file);
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, "fixture", "utf8");
+    await writeFile(path, file.endsWith(".uplugin") ? installedUplugin : "fixture", "utf8");
   }
   const environment: NodeJS.ProcessEnv = {
     PATH: "",

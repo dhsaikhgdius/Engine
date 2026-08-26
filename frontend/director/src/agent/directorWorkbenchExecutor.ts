@@ -13,7 +13,10 @@ import { safeParseDirectorProject } from "@director/project-schema";
 import { directorUiStateSchema } from "@director/protocol/workbench-ui";
 import type { DirectorStore, DirectorUiState } from "../comprehensive/editor/store/directorStore";
 import { applyDirectorPageEvent } from "../comprehensive/editor/assistant/pageStateBridge";
-import { dispatchDirectorSessionCommand } from "./directorSessionCommandBus";
+import {
+  dispatchDirectorSessionCommand,
+  directorPlayerScriptTimeoutMs,
+} from "./directorSessionCommandBus";
 import { useTimelineRuntimeStore } from "../comprehensive/editor/runtime/timelineRuntimeStore";
 import type {
   DirectorAuditIssueInput,
@@ -1752,6 +1755,7 @@ function executeDirectorWorkbenchOperationCore(
         };
       case "player":
       case "pilot":
+      case "game_playtest":
         return {
           success: false,
           error: `${operation.op} requires a live Stage session; dispatch it through executeDirectorSessionWorkbenchOperation.`,
@@ -1883,11 +1887,35 @@ export async function executeDirectorSessionWorkbenchOperation(
     return { success: false, error: parsed.error, result: { code: "invalid_request" } };
   }
   const operation = parsed.operation;
-  if (operation.op !== "player" && operation.op !== "pilot") {
+  if (operation.op !== "player" && operation.op !== "pilot" && operation.op !== "game_playtest") {
     return {
       success: false,
-      error: `executeDirectorSessionWorkbenchOperation only accepts player/pilot (got ${operation.op}).`,
+      error: `executeDirectorSessionWorkbenchOperation only accepts player/pilot/game_playtest (got ${operation.op}).`,
     };
+  }
+  if (operation.op === "game_playtest") {
+    const receipt = await dispatchDirectorSessionCommand(
+      {
+        surface: "player",
+        command: {
+          type: "play_script",
+          script: operation.script,
+          ...(operation.actor_id ? { actor_id: operation.actor_id } : {}),
+          ...(operation.slice_id ? { slice_id: operation.slice_id } : {}),
+        },
+      },
+      directorPlayerScriptTimeoutMs(operation.script),
+    );
+    return receipt.ok
+      ? {
+          success: true,
+          result: {
+            surface: "player",
+            action: "play_script",
+            ...(receipt.result ?? {}),
+          },
+        }
+      : { success: false, error: receipt.error ?? "game_playtest session command failed" };
   }
   if (operation.op === "player") {
     const command =

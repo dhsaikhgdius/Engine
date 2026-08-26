@@ -5,8 +5,9 @@
  * Every compiler is total over the inputs the UI actually produces; when a
  * legacy patch carries semantics the authoring contract cannot express yet
  * (camera captures, light type resets, rotated camera rigs, "authored" root
- * motion), the compiler returns null / "legacy" and the store keeps the
- * historical commitMutation path for that call only.
+ * motion), the compiler returns null and the store keeps the historical
+ * commitMutation path for that call only. World collection upserts compile
+ * inline in directorStore (they need live capacity/lock/asset checks).
  */
 
 import type { DirectorAuthoringAction } from "@director/agent-engine/authoring";
@@ -18,10 +19,6 @@ import type {
   DirectorLightType,
   DirectorProject,
   DirectorTransform,
-  DirectorWorldEffect,
-  DirectorWorldRoad,
-  DirectorWorldWaterBody,
-  DirectorWorldWildlifeGroup,
   SceneSettings,
 } from "../comprehensive/editor/schema/directorProject";
 import {
@@ -52,13 +49,6 @@ export type DirectorCameraShotPatch = Partial<DirectorCameraShot> & {
   transform?: DirectorTransform;
   target?: [number, number, number];
 };
-
-/** Tri-state result for upsert compilers: dispatch, skip (no change), or keep the legacy writer. */
-export type DirectorUiUpsertCompilation =
-  { kind: "dispatch"; action: DirectorAuthoringAction } | { kind: "noop" } | { kind: "legacy" };
-
-const LEGACY: DirectorUiUpsertCompilation = { kind: "legacy" };
-const NOOP: DirectorUiUpsertCompilation = { kind: "noop" };
 
 function jsonEqual(left: unknown, right: unknown) {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
@@ -332,7 +322,11 @@ export function compileDirectorLightUpdateAction(
   } as DirectorAuthoringAction;
 }
 
-/** Compile a world settings patch into a set_world_settings authoring action. */
+/**
+ * Compile a world settings patch into a set_world_settings authoring action.
+ * The store's updateWorldSettings routes every expressible patch through this
+ * compiler; `null` (an effectively empty patch) keeps the local merge.
+ */
 export function compileDirectorWorldSettingsAction(patch: DirectorWorldSettingsPatch): SetWorldSettingsAction | null {
   const settings: SetWorldSettingsAction["settings"] = {};
   if (patch.enabled !== undefined) settings.enabled = patch.enabled;
@@ -359,268 +353,23 @@ export function compileDirectorWorldSettingsAction(patch: DirectorWorldSettingsP
     if (patch.weather.intensity !== undefined) weather.intensity = patch.weather.intensity;
     if (patch.weather.wetness !== undefined) weather.wetness = patch.weather.wetness;
     if (patch.weather.cloudCover !== undefined) weather.cloud_cover = patch.weather.cloudCover;
+    if (patch.weather.evolution !== undefined) {
+      // The panel always supplies both fields; the authoring reducer keeps the
+      // previous period when period_seconds is omitted and treats null as
+      // removal (the UI expresses "off" as mode "static" instead).
+      weather.evolution = patch.weather.evolution
+        ? {
+            mode: patch.weather.evolution.mode,
+            ...(patch.weather.evolution.periodSeconds !== undefined
+              ? { period_seconds: patch.weather.evolution.periodSeconds }
+              : {}),
+          }
+        : null;
+    }
     if (Object.keys(weather).length) settings.weather = weather;
   }
   if (!Object.keys(settings).length) return null;
   return { action: "set_world_settings", settings };
-}
-
-/**
- * Guards shared by every world upsert compiler: adds must match the defaults
- * authoring stamps on new entries, and updates on locked entries can only be
- * the unlock patch itself.
- */
-function guardWorldEntryUpsert(
-  existing: { locked: boolean } | undefined,
-  entry: { visible: boolean; locked: boolean },
-  patch: Record<string, unknown>,
-): DirectorUiUpsertCompilation | null {
-  if (!existing) {
-    if (!entry.visible || entry.locked) return LEGACY;
-    return null;
-  }
-  if (!Object.keys(patch).length) return NOOP;
-  if (existing.locked) {
-    const unlockOnly = Object.keys(patch).length === 1 && patch.locked === false;
-    if (!unlockOnly) return LEGACY;
-  }
-  return null;
-}
-
-export function compileDirectorWorldEffectUpsertAction(
-  existing: DirectorWorldEffect | undefined,
-  effect: DirectorWorldEffect,
-): DirectorUiUpsertCompilation {
-  if (!existing) {
-    const guard = guardWorldEntryUpsert(existing, effect, {});
-    if (guard) return guard;
-    return {
-      kind: "dispatch",
-      action: {
-        action: "add_world_effect",
-        id: effect.id,
-        name: effect.name,
-        kind: effect.kind,
-        anchor: { object_id: effect.anchor.objectId ?? null, position: [...effect.anchor.position] },
-        shape: structuredClone(effect.shape),
-        intensity: effect.intensity,
-        size_scale: effect.sizeScale,
-        speed_scale: effect.speedScale,
-        ...(effect.colorTint !== undefined ? { color_tint: effect.colorTint } : {}),
-        wind_influence: effect.windInfluence,
-        seed_offset: effect.seedOffset,
-        ...(effect.propagation
-          ? {
-              propagation: {
-                enabled: effect.propagation.enabled,
-                radius_m: effect.propagation.radiusM,
-                spread_rate: effect.propagation.spreadRate,
-              },
-            }
-          : {}),
-      },
-    };
-  }
-  if (!jsonEqual(existing.createdAt, effect.createdAt)) return LEGACY;
-  const patch: Record<string, unknown> = {};
-  if (existing.name !== effect.name) patch.name = effect.name;
-  if (existing.kind !== effect.kind) patch.kind = effect.kind;
-  if (!jsonEqual(existing.anchor, effect.anchor)) {
-    patch.anchor = { object_id: effect.anchor.objectId ?? null, position: [...effect.anchor.position] };
-  }
-  if (!jsonEqual(existing.shape, effect.shape)) patch.shape = structuredClone(effect.shape);
-  if (existing.intensity !== effect.intensity) patch.intensity = effect.intensity;
-  if (existing.sizeScale !== effect.sizeScale) patch.size_scale = effect.sizeScale;
-  if (existing.speedScale !== effect.speedScale) patch.speed_scale = effect.speedScale;
-  if (!jsonEqual(existing.colorTint, effect.colorTint)) patch.color_tint = effect.colorTint ?? null;
-  if (existing.windInfluence !== effect.windInfluence) patch.wind_influence = effect.windInfluence;
-  if (existing.seedOffset !== effect.seedOffset) patch.seed_offset = effect.seedOffset;
-  if (!jsonEqual(existing.propagation, effect.propagation)) {
-    patch.propagation = effect.propagation
-      ? {
-          enabled: effect.propagation.enabled,
-          radius_m: effect.propagation.radiusM,
-          spread_rate: effect.propagation.spreadRate,
-        }
-      : null;
-  }
-  if (existing.visible !== effect.visible) patch.visible = effect.visible;
-  if (existing.locked !== effect.locked) patch.locked = effect.locked;
-  const guard = guardWorldEntryUpsert(existing, effect, patch);
-  if (guard) return guard;
-  return {
-    kind: "dispatch",
-    action: { action: "update_world_effect", effect_id: effect.id, patch } as DirectorAuthoringAction,
-  };
-}
-
-function compileWorldRiverInput(river: NonNullable<DirectorWorldWaterBody["river"]>) {
-  return {
-    points: river.points.map((point) => [...point] as [number, number, number]),
-    width_m: river.widthM,
-    ...(river.widthProfile ? { width_profile: [...river.widthProfile] } : {}),
-  };
-}
-
-export function compileDirectorWorldWaterBodyUpsertAction(
-  existing: DirectorWorldWaterBody | undefined,
-  body: DirectorWorldWaterBody,
-): DirectorUiUpsertCompilation {
-  if (!existing) {
-    const guard = guardWorldEntryUpsert(existing, body, {});
-    if (guard) return guard;
-    return {
-      kind: "dispatch",
-      action: {
-        action: "add_world_water_body",
-        id: body.id,
-        name: body.name,
-        surface: {
-          center: [...body.surface.center],
-          size_x: body.surface.sizeX,
-          size_z: body.surface.sizeZ,
-          rotation_degrees: body.surface.rotationDegrees,
-        },
-        ...(body.river ? { river: compileWorldRiverInput(body.river) } : {}),
-        wave_amplitude: body.waveAmplitude,
-        wave_length_m: body.waveLengthM,
-        flow_direction_degrees: body.flowDirectionDegrees,
-        flow_speed_mps: body.flowSpeedMps,
-        color_shallow: body.colorShallow,
-        color_deep: body.colorDeep,
-        opacity: body.opacity,
-        foam_intensity: body.foamIntensity,
-      },
-    };
-  }
-  const patch: Record<string, unknown> = {};
-  if (existing.name !== body.name) patch.name = body.name;
-  if (!jsonEqual(existing.surface, body.surface)) {
-    patch.surface = {
-      center: [...body.surface.center],
-      size_x: body.surface.sizeX,
-      size_z: body.surface.sizeZ,
-      rotation_degrees: body.surface.rotationDegrees,
-    };
-  }
-  if (!jsonEqual(existing.river, body.river)) {
-    patch.river = body.river ? compileWorldRiverInput(body.river) : null;
-  }
-  if (existing.waveAmplitude !== body.waveAmplitude) patch.wave_amplitude = body.waveAmplitude;
-  if (existing.waveLengthM !== body.waveLengthM) patch.wave_length_m = body.waveLengthM;
-  if (existing.flowDirectionDegrees !== body.flowDirectionDegrees)
-    patch.flow_direction_degrees = body.flowDirectionDegrees;
-  if (existing.flowSpeedMps !== body.flowSpeedMps) patch.flow_speed_mps = body.flowSpeedMps;
-  if (existing.colorShallow !== body.colorShallow) patch.color_shallow = body.colorShallow;
-  if (existing.colorDeep !== body.colorDeep) patch.color_deep = body.colorDeep;
-  if (existing.opacity !== body.opacity) patch.opacity = body.opacity;
-  if (existing.foamIntensity !== body.foamIntensity) patch.foam_intensity = body.foamIntensity;
-  if (existing.visible !== body.visible) patch.visible = body.visible;
-  if (existing.locked !== body.locked) patch.locked = body.locked;
-  const guard = guardWorldEntryUpsert(existing, body, patch);
-  if (guard) return guard;
-  return {
-    kind: "dispatch",
-    action: { action: "update_world_water_body", body_id: body.id, patch } as DirectorAuthoringAction,
-  };
-}
-
-/** Species whose absent altitude would gain the authoring default band on add. */
-const WORLD_WILDLIFE_ALTITUDE_DEFAULT_SPECIES = new Set(["birds", "butterflies"]);
-
-export function compileDirectorWorldWildlifeUpsertAction(
-  existing: DirectorWorldWildlifeGroup | undefined,
-  group: DirectorWorldWildlifeGroup,
-): DirectorUiUpsertCompilation {
-  if (!existing) {
-    const guard = guardWorldEntryUpsert(existing, group, {});
-    if (guard) return guard;
-    // add_world_wildlife_group backfills the default flight band when altitude
-    // is omitted; keep such entries on the legacy writer to avoid drift.
-    if (!group.altitude && WORLD_WILDLIFE_ALTITUDE_DEFAULT_SPECIES.has(group.species)) return LEGACY;
-    return {
-      kind: "dispatch",
-      action: {
-        action: "add_world_wildlife_group",
-        id: group.id,
-        name: group.name,
-        species: group.species,
-        count: group.count,
-        area: { center: [...group.area.center], radius: group.area.radius },
-        ...(group.altitude ? { altitude: { min_m: group.altitude.minM, max_m: group.altitude.maxM } } : {}),
-        speed_scale: group.speedScale,
-        size_scale: group.sizeScale,
-        ...(group.assetId ? { asset_id: group.assetId } : {}),
-        seed_offset: group.seedOffset,
-      },
-    };
-  }
-  const patch: Record<string, unknown> = {};
-  if (existing.name !== group.name) patch.name = group.name;
-  if (existing.species !== group.species) patch.species = group.species;
-  if (existing.count !== group.count) patch.count = group.count;
-  if (!jsonEqual(existing.area, group.area)) {
-    patch.area = { center: [...group.area.center], radius: group.area.radius };
-  }
-  if (!jsonEqual(existing.altitude, group.altitude)) {
-    patch.altitude = group.altitude ? { min_m: group.altitude.minM, max_m: group.altitude.maxM } : null;
-  }
-  if (existing.speedScale !== group.speedScale) patch.speed_scale = group.speedScale;
-  if (existing.sizeScale !== group.sizeScale) patch.size_scale = group.sizeScale;
-  if (!jsonEqual(existing.assetId, group.assetId)) patch.asset_id = group.assetId ?? null;
-  if (existing.seedOffset !== group.seedOffset) patch.seed_offset = group.seedOffset;
-  if (existing.visible !== group.visible) patch.visible = group.visible;
-  if (existing.locked !== group.locked) patch.locked = group.locked;
-  const guard = guardWorldEntryUpsert(existing, group, patch);
-  if (guard) return guard;
-  return {
-    kind: "dispatch",
-    action: { action: "update_world_wildlife_group", group_id: group.id, patch } as DirectorAuthoringAction,
-  };
-}
-
-export function compileDirectorWorldRoadUpsertAction(
-  existing: DirectorWorldRoad | undefined,
-  road: DirectorWorldRoad,
-): DirectorUiUpsertCompilation {
-  if (!existing) {
-    const guard = guardWorldEntryUpsert(existing, road, {});
-    if (guard) return guard;
-    return {
-      kind: "dispatch",
-      action: {
-        action: "add_world_road",
-        id: road.id,
-        name: road.name,
-        points: road.points.map((point) => [...point] as [number, number, number]),
-        width_m: road.widthM,
-        loop: road.loop,
-        vehicle_count: road.vehicleCount,
-        speed_kph: road.speedKph,
-        show_surface: road.showSurface,
-        seed_offset: road.seedOffset,
-      },
-    };
-  }
-  const patch: Record<string, unknown> = {};
-  if (existing.name !== road.name) patch.name = road.name;
-  if (!jsonEqual(existing.points, road.points)) {
-    patch.points = road.points.map((point) => [...point] as [number, number, number]);
-  }
-  if (existing.widthM !== road.widthM) patch.width_m = road.widthM;
-  if (existing.loop !== road.loop) patch.loop = road.loop;
-  if (existing.vehicleCount !== road.vehicleCount) patch.vehicle_count = road.vehicleCount;
-  if (existing.speedKph !== road.speedKph) patch.speed_kph = road.speedKph;
-  if (existing.showSurface !== road.showSurface) patch.show_surface = road.showSurface;
-  if (existing.seedOffset !== road.seedOffset) patch.seed_offset = road.seedOffset;
-  if (existing.visible !== road.visible) patch.visible = road.visible;
-  if (existing.locked !== road.locked) patch.locked = road.locked;
-  const guard = guardWorldEntryUpsert(existing, road, patch);
-  if (guard) return guard;
-  return {
-    kind: "dispatch",
-    action: { action: "update_world_road", road_id: road.id, patch } as DirectorAuthoringAction,
-  };
 }
 
 const SCENE_NULLABLE_KEYS = new Set(["timeline", "clippingPlanes", "objectLayers", "annotations", "measurements"]);

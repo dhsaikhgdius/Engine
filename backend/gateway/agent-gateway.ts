@@ -121,6 +121,7 @@ import { handleMultiAgentRunRoute } from "./routes/multiAgentRunRoutes";
 import { createFilmPipeline } from "./film/createFilmPipeline";
 import { handleFilmPipelineRoute } from "./routes/filmPipelineRoutes";
 import { createDirectorGame } from "./game/createDirectorGame";
+import { createLiveStagePlaytestRunner } from "./game/liveStagePlaytest";
 import { handleGameRoute } from "./routes/gameRoutes";
 import { createVideoGenerationService } from "./video/createVideoGenerationService";
 import { handleControlPlaneRoute } from "./routes/controlPlaneRoutes";
@@ -354,10 +355,21 @@ const productionRunOrchestrator = new ProductionRunOrchestrator(
   multiAgentRunStore,
   controlPlaneConfig.agents.roleProfiles,
 );
-// Host-free director_game runtime: the shared reducer plus the durable slice
-// store. The live-Stage playtest tape driver is intentionally not wired yet,
-// so playtest without an explicit trace returns game_playtest_needs_stage.
-const directorGame = createDirectorGame(dataDirectory);
+// director_game runtime: durable slice store + playtest that prefers a live
+// Stage tab (`game_playtest`) and falls back to the host-free kinematic runner.
+const directorGame = createDirectorGame(dataDirectory, {
+  runPlaytest: createLiveStagePlaytestRunner({
+    requestWorkbenchCommand: async (input, timeoutMs) => {
+      const remote = await requestWorkbenchCommand(input, timeoutMs);
+      if (!remote) return null;
+      return {
+        success: remote.response.success,
+        ...(remote.response.result !== undefined ? { result: remote.response.result } : {}),
+        ...(remote.response.error ? { error: remote.response.error } : {}),
+      };
+    },
+  }),
+});
 const filmPipeline = createFilmPipeline(controlPlaneConfig, dataDirectory, {
   workbenchExecute: async (input) => {
     const parsed = parseDirectorWorkbenchInput(input);
@@ -1174,6 +1186,9 @@ function defaultWorkbenchCommandTimeoutMs(input: DirectorWorkbenchOperation) {
   if (input.op === "capture") return 60_000;
   // compare may render up to two stage viewports and download plan artifacts.
   if (input.op === "compare") return 30_000;
+  // Live game playtest timeout is overridden by the caller (script length);
+  // keep a generous default if invoked without an override.
+  if (input.op === "game_playtest") return 60_000;
   return 8_000;
 }
 

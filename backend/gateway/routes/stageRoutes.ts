@@ -795,6 +795,24 @@ export async function handleStageRoute(
       else respond(response, 400, { scene, success: false, error: described.error });
       return true;
     }
+    if (initialParse.success && initialParse.operation.op === "game_playtest") {
+      respond(response, 400, {
+        scene,
+        success: false,
+        code: "game_playtest_via_director_game",
+        error:
+          'game_playtest is an internal Gateway→Stage transport. Call director_game {"op":"playtest"} so the slice bind/evaluate loop owns the receipt.',
+        corrective_call: {
+          tool: "director_game",
+          input: {
+            op: "playtest",
+            slice_id: initialParse.operation.slice_id ?? "<bound slice id>",
+            script: initialParse.operation.script,
+          },
+        },
+      });
+      return true;
+    }
     const sessionLocked = !usesExactTargetLock(targetToken, targetScheduler);
     let sessionLease: DirectorAgentTargetLease | undefined;
     if (sessionLocked) {

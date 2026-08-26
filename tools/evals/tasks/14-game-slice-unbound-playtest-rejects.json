@@ -1,0 +1,37 @@
+{
+  "name": "game-slice-unbound-playtest-rejects",
+  "description": "director_game playtest before binding the player role must reject with game_player_unbound and a corrective bind call. Placement and bind are required before any playability receipt.",
+  "steps": [
+    {
+      "label": "plan without bind",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-unbound-01",
+        "brief": {
+          "requirement": "Explore the courtyard.",
+          "genre": "exploration"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.status"]
+      }
+    },
+    {
+      "label": "playtest rejects while unbound",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-unbound-01",
+        "script": {
+          "steps": [{ "frames": 10, "input": { "forward": true } }]
+        }
+      },
+      "expect": {
+        "success": false,
+        "error_includes": "bound player"
+      }
+    }
+  ]
+}
