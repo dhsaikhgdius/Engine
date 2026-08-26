@@ -315,39 +315,76 @@ function sortAssets(assets: CreativeMediaAsset[]): CreativeMediaAsset[] {
   });
 }
 
-function fallbackHash(bytes: Uint8Array): string {
-  let hash = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  const mask = 0xffffffffffffffffn;
-  for (const byte of bytes) {
-    hash ^= BigInt(byte);
-    hash = (hash * prime) & mask;
-  }
-  return `fnv1a64:${hash.toString(16).padStart(16, "0")}`;
+/** Soft import guidance threshold; hashing still proceeds above this size. */
+export const CREATIVE_MEDIA_LARGE_IMPORT_BYTES = 64 * 1024 * 1024;
+/** Chunk size for streaming blob reads during content hashing. */
+export const CREATIVE_MEDIA_HASH_CHUNK_BYTES = 1024 * 1024;
+
+function fallbackHashBlobSyncChunks(blob: Blob, chunkBytes: number): Promise<string> {
+  return (async () => {
+    let hash = 0xcbf29ce484222325n;
+    const prime = 0x100000001b3n;
+    const mask = 0xffffffffffffffffn;
+    let offset = 0;
+    while (offset < blob.size) {
+      const end = Math.min(offset + chunkBytes, blob.size);
+      const chunk = new Uint8Array(await blob.slice(offset, end).arrayBuffer());
+      for (const byte of chunk) {
+        hash ^= BigInt(byte);
+        hash = (hash * prime) & mask;
+      }
+      offset = end;
+      // Yield so large imports do not monopolize the main thread.
+      await Promise.resolve();
+    }
+    return `fnv1a64:${hash.toString(16).padStart(16, "0")}`;
+  })();
+}
+
+function digestToSha256Hex(digest: ArrayBuffer): string {
+  const bytes = new Uint8Array(digest);
+  const hexadecimal = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `sha256:${hexadecimal}`;
 }
 
 /**
  * Computes a content-addressed hash for a blob.
  *
- * Uses SHA-256 when available via Web Crypto, falling back to FNV-1a-64
- * for environments where crypto.subtle is unavailable or throws.
+ * Uses SHA-256 when available via Web Crypto. Large blobs are read in chunks
+ * and only assembled for the digest call so callers can interleave other work
+ * between slices; the FNV-1a-64 fallback hashes chunk-by-chunk without retaining
+ * the full byte array.
  *
  * @param blob - The blob to hash.
  * @returns A prefixed hash string like "sha256:..." or "fnv1a64:...".
  */
 export async function hashCreativeMediaBlob(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const chunkBytes = CREATIVE_MEDIA_HASH_CHUNK_BYTES;
   try {
     const subtle = globalThis.crypto?.subtle;
     if (subtle) {
-      const digest = new Uint8Array(await subtle.digest("SHA-256", bytes));
-      const hexadecimal = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
-      return `sha256:${hexadecimal}`;
+      if (blob.size <= chunkBytes) {
+        const digest = await subtle.digest("SHA-256", await blob.arrayBuffer());
+        return digestToSha256Hex(digest);
+      }
+      // Chunked read keeps peak temporary buffers to one slice at a time until
+      // the final contiguous view required by SubtleCrypto.digest.
+      const assembled = new Uint8Array(blob.size);
+      let offset = 0;
+      while (offset < blob.size) {
+        const end = Math.min(offset + chunkBytes, blob.size);
+        const chunk = new Uint8Array(await blob.slice(offset, end).arrayBuffer());
+        assembled.set(chunk, offset);
+        offset = end;
+        await Promise.resolve();
+      }
+      const digest = await subtle.digest("SHA-256", assembled);
+      return digestToSha256Hex(digest);
     }
   } catch {
     // Older webviews may expose crypto.subtle but reject digest operations.
   }
-  return fallbackHash(bytes);
+  return fallbackHashBlobSyncChunks(blob, chunkBytes);
 }
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -626,9 +663,10 @@ export function createPersistentCreativeMediaLibrary(
   let lifecycleGeneration = 0;
   let operationQueue: Promise<void> = Promise.resolve();
   let objectUrlWarning: string | null = null;
+  let largeImportWarning: string | null = null;
 
   function runtimeWarning(): string | null {
-    return [backend.warning, objectUrlWarning].filter(Boolean).join(" · ") || null;
+    return [backend.warning, objectUrlWarning, largeImportWarning].filter(Boolean).join(" · ") || null;
   }
 
   function updateRuntimeFlags(): void {
@@ -718,6 +756,10 @@ export function createPersistentCreativeMediaLibrary(
         if (original.proxyOf) throw new Error("不能为代理媒体继续关联代理");
         if (original.kind !== kind) throw new Error("代理媒体类型必须与原始素材一致");
       }
+      largeImportWarning =
+        blob.size >= CREATIVE_MEDIA_LARGE_IMPORT_BYTES
+          ? `导入素材约 ${Math.max(1, Math.round(blob.size / (1024 * 1024)))} MB，内容哈希按分块读取；建议优先生成代理媒体以降低后续编辑压力。`
+          : null;
       const digest = await hashBlob(blob);
       const contentId = `creative-media:${kind}:${digest}`;
       const id = proxyOf ? `${contentId}:proxy-of:${encodeURIComponent(proxyOf)}` : contentId;

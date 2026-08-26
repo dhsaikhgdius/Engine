@@ -319,6 +319,10 @@
   { "pattern": "^(.+)已完成全部阶段。$", "replacement": "$1 completed all stages." },
   { "pattern": "^(.+)失败，未返回具体原因。$", "replacement": "$1 failed without a specific reason." },
   { "pattern": "^Film run 请求失败（HTTP (\\d+)）$", "replacement": "Film run request failed (HTTP $1)" },
+  {
+    "pattern": "^导入素材约 (\\d+) MB，内容哈希按分块读取；建议优先生成代理媒体以降低后续编辑压力。$",
+    "replacement": "Imported media is about $1 MB; content hashing reads in chunks. Prefer generating proxy media to reduce later editing cost."
+  },
   { "pattern": "^(.+) · (.+) 滑杆$", "handler": "compositeSlider" },
   { "pattern": "^(.+) · (.+)$", "handler": "composite" },
   { "pattern": "^(.+)：(.+)$", "replacement": "$1: $2" }
