@@ -359,12 +359,12 @@ describe("storage ops routes", () => {
     expect(plan.sweep.count).toBe(2);
 
     // During the review window a queued transcode job re-references one input.
-    await context.putJob(
-      jobRecord("job-late", "queued", "media.transcode", {
-        sourceMediaId: `media-input:sha256:${restagedSha}`,
-        targetMimeType: "video/mp4",
-      } as ProductionJobInput),
-    );
+    await context.jobs.enqueue({
+      kind: "media.transcode",
+      input: { sourceMediaId: `media-input:sha256:${restagedSha}`, targetMimeType: "video/mp4" },
+      idempotencyKey: "media.transcode:job-late",
+      createId: () => "job-late",
+    });
 
     const sweep = (await context.call("POST", "/api/storage/gc/sweep", { planId: plan.planId, confirm: plan.planId }))
       .write!;

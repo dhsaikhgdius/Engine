@@ -349,30 +349,34 @@ receipt 的 `artifacts.timelineExport` 携带与 `timelinePath` 一同落盘的�
 存储健康执行两项实时检查而非默认后端健康：`capacity` 容量测量（文件系统后端经 `statfs` 实测；
 不可测时为 typed `capacity_unsupported`/`capacity_probe_failed` 省略）与报告确切失败步骤的
 put→verify→delete `writeProbe`。清扫是破坏性操作：`POST /api/storage/gc/sweep` 必须以 `confirm`
-回显所审阅的计划 id，且重放幂等。
+回显所审阅的计划 id，且重放幂等。由于审阅窗口内系统仍在变化，清扫在删除前会对照最新 job 记录与
+对象新鲜度重新校验计划：计划内又被 job 引用的 key（例如重新暂存的内容寻址输入）或计划之后被改写
+的对象会被跳过而非删除。每个被跳过的 key 都带 typed code——`became-reachable`、
+`modified-since-plan`、`already-absent` 或携带后端原因的 `delete-failed`——清扫结果、持久化审计
+日志与健康报告的 `recentSweeps` 均上报 `skippedByReason` 计数。
 
 优先使用结构化工具而不是直接 `PUT /api/stage`：Workbench 操作会参与 revision、idempotency、精确
 target、quality、asset、audit 和 evidence contract。
 
 ## 护栏与恢复
 
-| HTTP/code                       | 恢复方式                                                                               |
-| ------------------------------- | -------------------------------------------------------------------------------------- |
-| `401 gateway_unauthorized`      | 重新 bootstrap，并使用新的 process token 重试一次。                                    |
-| `403 origin_denied`             | 使用已配置的 loopback origin，或加入精确可信 origin；不要关闭 origin 检查。            |
-| `428 target_required`           | Observe 目标 workspace，并携带其 `target_token`。                                      |
-| `409 target_unavailable`        | 重新连接同一个 tab/scope 并 observe；不要重定向写入。                                  |
-| `409 target_mismatch`           | 丢弃响应并获取新的 target lease。                                                      |
-| `409 stale_project_revision`    | Observe、合并当前状态，使用最新 revision 与新 idempotency key 创建新意图。             |
-| `409 stale_production_revision` | 重新 observe production、合并 manifest，再用新 key 提交新意图。                        |
-| `409 idempotency_key_conflict`  | 保留旧回执；不同输入使用新 key。                                                       |
-| `409 idempotency_replay_stale`  | 旧 mutation 已成功但项目继续前进；observe 后只把剩余工作表达为新意图。                 |
-| `409 outcome_unknown`           | 先 observe/diff；效果不存在时，只能用 `agent_boundary` 中的注入 revision 与 key 重试。 |
-| `403 possession_scope_violation` | 该 session 处于人物占有（possess）中，只能改写被占有人物；`replace_project`、`reconstruction.apply` 等全场写入会被拒绝。读取类型化 `possession` 块（被占有 id、违规 operation、reason）后重新定位目标，或解除绑定。 |
-| `400 possession_target_ambiguous` | 该 session 占有多个人物，省略的人物目标无法自动填充。读取 `possession.omitted_targets`，显式指定一个被占有 id。 |
-| `504 command_timeout`           | 不要声称成功；保持 target 可见，必要时 observe，再重试读取/证据操作。                  |
-| `profile_unavailable`           | 选择可用且 provider 匹配的 Profile，并检查 credential。                                |
-| `profile_capability_mismatch`   | 选择具有 tools 的 Profile；Visual Critic 还必须具有 vision。                           |
+| HTTP/code                         | 恢复方式                                                                                                                                                                                                            |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `401 gateway_unauthorized`        | 重新 bootstrap，并使用新的 process token 重试一次。                                                                                                                                                                 |
+| `403 origin_denied`               | 使用已配置的 loopback origin，或加入精确可信 origin；不要关闭 origin 检查。                                                                                                                                         |
+| `428 target_required`             | Observe 目标 workspace，并携带其 `target_token`。                                                                                                                                                                   |
+| `409 target_unavailable`          | 重新连接同一个 tab/scope 并 observe；不要重定向写入。                                                                                                                                                               |
+| `409 target_mismatch`             | 丢弃响应并获取新的 target lease。                                                                                                                                                                                   |
+| `409 stale_project_revision`      | Observe、合并当前状态，使用最新 revision 与新 idempotency key 创建新意图。                                                                                                                                          |
+| `409 stale_production_revision`   | 重新 observe production、合并 manifest，再用新 key 提交新意图。                                                                                                                                                     |
+| `409 idempotency_key_conflict`    | 保留旧回执；不同输入使用新 key。                                                                                                                                                                                    |
+| `409 idempotency_replay_stale`    | 旧 mutation 已成功但项目继续前进；observe 后只把剩余工作表达为新意图。                                                                                                                                              |
+| `409 outcome_unknown`             | 先 observe/diff；效果不存在时，只能用 `agent_boundary` 中的注入 revision 与 key 重试。                                                                                                                              |
+| `403 possession_scope_violation`  | 该 session 处于人物占有（possess）中，只能改写被占有人物；`replace_project`、`reconstruction.apply` 等全场写入会被拒绝。读取类型化 `possession` 块（被占有 id、违规 operation、reason）后重新定位目标，或解除绑定。 |
+| `400 possession_target_ambiguous` | 该 session 占有多个人物，省略的人物目标无法自动填充。读取 `possession.omitted_targets`，显式指定一个被占有 id。                                                                                                     |
+| `504 command_timeout`             | 不要声称成功；保持 target 可见，必要时 observe，再重试读取/证据操作。                                                                                                                                               |
+| `profile_unavailable`             | 选择可用且 provider 匹配的 Profile，并检查 credential。                                                                                                                                                             |
+| `profile_capability_mismatch`     | 选择具有 tools 的 Profile；Visual Critic 还必须具有 vision。                                                                                                                                                        |
 
 不要仅为绕过冲突而使用 `unconditional:true`。HTTP 成功状态也不能证明视觉质量；必须检查无辅助线的
 clean frame 与 audit/delivery 回执。

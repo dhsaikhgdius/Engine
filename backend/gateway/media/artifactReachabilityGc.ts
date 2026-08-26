@@ -146,11 +146,7 @@ export async function planArtifactStorageGc(options: ArtifactGcPlanOptions): Pro
 }
 
 /** Why one planned-sweep key was skipped instead of deleted. */
-export type ArtifactGcSweepSkipCode =
-  | "became-reachable"
-  | "modified-since-plan"
-  | "already-absent"
-  | "delete-failed";
+export type ArtifactGcSweepSkipCode = "became-reachable" | "modified-since-plan" | "already-absent" | "delete-failed";
 
 /** One planned-sweep key that was not deleted, with the typed evidence. */
 export interface ArtifactGcSweepSkip {
