@@ -773,6 +773,47 @@ describe("Stage mutator parity with direct agent authoring", () => {
     expect(project.objects.some((object) => object.assetRefId === assetId)).toBe(false);
   });
 
+  it("addImportedAsset catalog-only matches a direct upsert_asset apply", () => {
+    const before = structuredClone(useDirectorStore.getState().project);
+    const assetId = useDirectorStore.getState().addImportedAsset({
+      kind: "prop",
+      sourceType: "model",
+      name: "Catalog only",
+      fileName: "catalog-only.glb",
+      url: "https://example.com/catalog-only.glb",
+      assetSource: "local",
+      addToScene: false,
+    });
+    const asset = useDirectorStore.getState().project.assets.find((item) => item.id === assetId)!;
+    expect(useDirectorStore.getState().project.objects.some((object) => object.assetRefId === assetId)).toBe(false);
+
+    const agentRevision = getDirectorProjectRevision(
+      applyDirectorAuthoringActions(before, [{ action: "upsert_asset", asset: structuredClone(asset) }]).project,
+    );
+    expect(storeRevision()).toBe(agentRevision);
+  });
+
+  it("addImportedAsset panorama matches upsert_asset plus set_panorama_asset", () => {
+    const before = structuredClone(useDirectorStore.getState().project);
+    const panoramaId = useDirectorStore.getState().addImportedAsset({
+      kind: "panorama",
+      sourceType: "image",
+      name: "Parity sky",
+      fileName: "parity-sky.jpg",
+      url: "https://example.com/parity-sky.jpg",
+    });
+    const asset = useDirectorStore.getState().project.assets.find((item) => item.id === panoramaId)!;
+    expect(useDirectorStore.getState().project.panoramaAssetId).toBe(panoramaId);
+
+    const agentRevision = getDirectorProjectRevision(
+      applyDirectorAuthoringActions(before, [
+        { action: "upsert_asset", asset: structuredClone(asset) },
+        { action: "set_panorama_asset", asset_id: panoramaId },
+      ]).project,
+    );
+    expect(storeRevision()).toBe(agentRevision);
+  });
+
   it("removePanoramaAsset matches a direct remove_assets apply", () => {
     const panoramaId = useDirectorStore.getState().addImportedAsset({
       kind: "panorama",

@@ -585,6 +585,14 @@ export const directorAuthoringActionSchema = z
       asset_ids: z.array(id).min(1).max(128),
       cascade: z.boolean().optional(),
     }),
+    /**
+     * Activate or clear the Stage environment panorama. The asset must already
+     * exist in `project.assets` (typically via a prior `upsert_asset`) and be a
+     * panorama image. `null` clears `panoramaAssetId` without deleting the asset.
+     */
+    strictAction("set_panorama_asset", {
+      asset_id: id.nullable(),
+    }),
     strictAction("add_object", {
       id,
       name,
@@ -2118,6 +2126,21 @@ export function applyDirectorAuthoringActions(
         project.assets = project.assets.filter((asset) => !requested.has(asset.id));
         if (project.panoramaAssetId && requested.has(project.panoramaAssetId)) project.panoramaAssetId = null;
         item.asset_ids.forEach((value) => addUnique(result.deleted.asset_ids, value));
+        break;
+      }
+      case "set_panorama_asset": {
+        if (item.asset_id === null) {
+          project.panoramaAssetId = null;
+          break;
+        }
+        const asset = requireAsset(project, item.asset_id);
+        if (asset.kind !== "panorama" || asset.sourceType !== "image") {
+          throw new Error(
+            `Asset "${item.asset_id}" cannot be the Stage panorama (expected kind=panorama, sourceType=image).`,
+          );
+        }
+        project.panoramaAssetId = item.asset_id;
+        addUnique(result.updated.asset_ids, item.asset_id);
         break;
       }
       case "add_object": {
