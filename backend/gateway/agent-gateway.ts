@@ -69,6 +69,7 @@ import {
 } from "./gatewayAuth";
 import { BoundedTextBuffer } from "./boundedTextBuffer";
 import { reportPlannerFailure, reportPlannerInvalidOutput, reportPlannerOutputLimit } from "./plannerFailure";
+import { reportGatewayInternalFailure } from "./gatewayHttpError";
 import { SPAWN_IN_OWN_PROCESS_GROUP, terminateChildProcess } from "./processTermination";
 import { RefSessionRegistry } from "./refSessions";
 import {
@@ -2365,7 +2366,8 @@ const server = createServer(async (request, response) => {
       response.once("finish", () => request.destroy());
       return json(response, error.status, { error: error.message });
     }
-    return json(response, 500, { error: error instanceof Error ? error.message : String(error) });
+    const reported = reportGatewayInternalFailure(error);
+    return json(response, 500, { error: reported.publicMessage, code: reported.code, incidentId: reported.incidentId });
   }
 });
 
