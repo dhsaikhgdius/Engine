@@ -5,13 +5,16 @@ import {
   createFilmRunRequestSchema,
   FILM_PIPELINE_PUBLIC_ERROR_CODES,
   FILM_RUN_PHASE_RECEIPT_LIMIT,
+  FILM_TIMELINE_OMITTED_SHOT_LIMIT,
   filmRunProgress,
   filmRunSchema,
+  filmTimelineExportReceiptSchema,
   groupShotsIntoCameras,
   openFilmRunPhaseReceipt,
   shotSpecSchema,
   validateCameraPlan,
   type FilmRunPhaseReceipt,
+  type FilmTimelineOmittedShot,
   type ShotSpec,
 } from "../src/filmPipelineProtocol";
 
@@ -91,7 +94,56 @@ describe("filmPipelineProtocol", () => {
     // Pre-hardening documents parse with honest defaults for the new fields.
     expect(run.errorCode).toBeNull();
     expect(run.phaseReceipts).toEqual([]);
+    expect(run.timelineExport).toBeNull();
     expect(filmRunSchema.parse(JSON.parse(JSON.stringify(run)))).toEqual(run);
+  });
+
+  it("enforces the timeline export receipt accounting invariants", () => {
+    const omitted: FilmTimelineOmittedShot = {
+      sceneIdx: 0,
+      shotIdx: 1,
+      code: "clip_missing",
+      reason: "clip bytes were missing at export time",
+    };
+    expect(
+      filmTimelineExportReceiptSchema.safeParse({
+        shotCount: 3,
+        clipCount: 2,
+        omittedShotCount: 1,
+        omittedShots: [omitted],
+      }).success,
+    ).toBe(true);
+    // Every planned shot is either a clip or a typed omission — no third bucket.
+    expect(
+      filmTimelineExportReceiptSchema.safeParse({
+        shotCount: 3,
+        clipCount: 2,
+        omittedShotCount: 0,
+        omittedShots: [],
+      }).success,
+    ).toBe(false);
+    // The typed records must match the count while it fits inside the window.
+    expect(
+      filmTimelineExportReceiptSchema.safeParse({
+        shotCount: 3,
+        clipCount: 2,
+        omittedShotCount: 1,
+        omittedShots: [],
+      }).success,
+    ).toBe(false);
+    // Past the bounded window, the exact count survives with truncated records.
+    const overflowCount = FILM_TIMELINE_OMITTED_SHOT_LIMIT + 5;
+    expect(
+      filmTimelineExportReceiptSchema.safeParse({
+        shotCount: overflowCount + 1,
+        clipCount: 1,
+        omittedShotCount: overflowCount,
+        omittedShots: Array.from({ length: FILM_TIMELINE_OMITTED_SHOT_LIMIT }, (_, index) => ({
+          ...omitted,
+          shotIdx: index,
+        })),
+      }).success,
+    ).toBe(true);
   });
 
   it("freezes the public film HTTP error codes", () => {

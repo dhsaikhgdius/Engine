@@ -327,6 +327,100 @@ describe("evaluateDirectorPossessionScope", () => {
       error: expect.stringContaining('"production.delete_scene"'),
     });
   });
+
+  it("rejects reconstruction.apply under possession while keeping the other reconstruction commands", () => {
+    // apply appends or replaces scene objects stage-wide, exactly like
+    // replace_project; a possessed session must not rewrite the stage with it.
+    const apply = evaluate({ op: "reconstruction", command: { action: "apply", job_id: "recon-1", mode: "replace" } }, [
+      "hero",
+    ]);
+    expect(apply).toMatchObject({
+      allowed: false,
+      error: expect.stringContaining('"reconstruction.apply"'),
+      rejection: {
+        session_id: SESSION,
+        possessed_object_ids: ["hero"],
+        operation: "reconstruction.apply",
+        reason: "stage_wide_mutation",
+      },
+    });
+
+    expect(evaluate({ op: "reconstruction", command: { action: "list" } }, ["hero"])).toEqual({ allowed: true });
+    expect(evaluate({ op: "reconstruction", command: { action: "get", job_id: "recon-1" } }, ["hero"])).toEqual({
+      allowed: true,
+    });
+    expect(evaluate({ op: "reconstruction", command: { action: "plan", job_id: "recon-1" } }, ["hero"])).toEqual({
+      allowed: true,
+    });
+    expect(
+      evaluate({ op: "reconstruction", command: { action: "submit", source_media_id: "media-1" } }, ["hero"]),
+    ).toEqual({ allowed: true });
+    expect(evaluate({ op: "reconstruction", command: { action: "compare", job_id: "recon-1" } }, ["hero"])).toEqual({
+      allowed: true,
+    });
+    expect(
+      evaluate({ op: "reconstruction", command: { action: "apply", job_id: "recon-1", mode: "append" } }, []),
+    ).toEqual({ allowed: true });
+  });
+
+  it("carries a typed rejection naming the operation, reason, and offending target", () => {
+    const stageWide = evaluate({ op: "undo" }, ["hero"]);
+    expect(stageWide).toMatchObject({
+      rejection: {
+        session_id: SESSION,
+        possessed_object_ids: ["hero"],
+        operation: "undo",
+        reason: "stage_wide_mutation",
+      },
+    });
+
+    const unscopedAction = evaluate({ op: "author", actions: [{ action: "start_scene" }] }, ["hero"]);
+    expect(unscopedAction).toMatchObject({
+      rejection: { operation: "author", reason: "unscoped_author_action", action: "start_scene" },
+    });
+
+    const outsideTarget = evaluate(
+      { op: "author", actions: [{ action: "set_character_motion", object_id: "villain", clip_id: "walk" }] },
+      ["hero"],
+    );
+    expect(outsideTarget).toMatchObject({
+      rejection: {
+        operation: "author",
+        reason: "target_not_possessed",
+        action: "set_character_motion",
+        target_id: "villain",
+      },
+    });
+
+    const omittedActor = evaluate({ op: "player", action: "enter" }, ["hero"]);
+    expect(omittedActor).toMatchObject({
+      rejection: { operation: "player.enter", reason: "actor_id_omitted" },
+    });
+
+    const outsideActor = evaluate({ op: "player", action: "teleport", actor_id: "villain", position: [1, 0, 2] }, [
+      "hero",
+    ]);
+    expect(outsideActor).toMatchObject({
+      rejection: { operation: "player.teleport", reason: "target_not_possessed", target_id: "villain" },
+    });
+
+    const inactivePlayer = evaluate({ op: "player", action: "record_start" }, ["hero"]);
+    expect(inactivePlayer).toMatchObject({
+      rejection: { operation: "player.record_start", reason: "live_player_inactive" },
+    });
+
+    const outsideLiveActor = evaluate({ op: "player", action: "exit" }, ["hero"], {
+      livePlayer: { playerMode: true, playerActorId: "villain" },
+    });
+    expect(outsideLiveActor).toMatchObject({
+      rejection: { operation: "player.exit", reason: "target_not_possessed", target_id: "villain" },
+    });
+
+    const waypoint = evaluate({ op: "pilot", action: "record_waypoint" }, ["hero"]);
+    expect(waypoint).toMatchObject({
+      rejection: { operation: "pilot.record_waypoint", reason: "stage_wide_mutation" },
+    });
+  });
 });
 
 describe("findDirectorAuthorCharacterTargetGaps", () => {

@@ -792,6 +792,14 @@ describe("stage routes", () => {
         success: false,
         code: "possession_scope_violation",
         error: expect.stringContaining('"villain"'),
+        possession: {
+          session_id: "dsh-possessed",
+          possessed_object_ids: ["hero"],
+          operation: "author",
+          reason: "target_not_possessed",
+          action: "set_character_motion",
+          target_id: "villain",
+        },
       }),
     );
 
@@ -1053,6 +1061,113 @@ describe("stage routes", () => {
     );
   });
 
+  it("rejects reconstruction.apply under possession with a typed payload while keeping submissions", async () => {
+    const possessedCharacters = [
+      {
+        id: "hero",
+        kind: "character",
+        agent_binding: { session_id: "dsh-possessed", profile_id: null, role_id: null, mode: "possess" },
+      },
+    ];
+    const bindingProbe = {
+      client: {},
+      target: TARGET,
+      response: { success: true, result: { characters: possessedCharacters } },
+    };
+
+    // apply appends or replaces scene objects stage-wide, so the possessed
+    // session is rejected before any dispatch.
+    const apply = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "reconstruction", command: { action: "apply", job_id: "recon-1", mode: "replace" } },
+    });
+    apply.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(bindingProbe);
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      apply.dependencies,
+    );
+    expect(apply.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(apply.dependencies.requestWorkbenchCommand).toHaveBeenCalledWith(
+      { op: "observe", fields: ["characters"] },
+      undefined,
+      TARGET.token,
+    );
+    expect(apply.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({
+        success: false,
+        code: "possession_scope_violation",
+        error: expect.stringContaining("reconstruction.apply"),
+        possession: {
+          session_id: "dsh-possessed",
+          possessed_object_ids: ["hero"],
+          operation: "reconstruction.apply",
+          reason: "stage_wide_mutation",
+        },
+      }),
+    );
+
+    // Durable reconstruction submissions stay available to possessed sessions:
+    // no binding probe, direct dispatch.
+    const submit = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "reconstruction", command: { action: "submit", source_media_id: "media-1" } },
+    });
+    submit.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue({
+      client: {},
+      target: TARGET,
+      response: { success: true, result: { job: { id: "recon-2", status: "queued" } } },
+    });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      submit.dependencies,
+    );
+    expect(submit.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(submit.dependencies.requestWorkbenchCommand).mock.calls[0]?.[0]).toMatchObject({
+      op: "reconstruction",
+      command: { action: "submit", source_media_id: "media-1" },
+    });
+    expect(submit.json).toHaveBeenLastCalledWith(expect.anything(), 200, expect.objectContaining({ success: true }));
+
+    // An unpossessed session still applies reconstruction plans stage-wide.
+    const unpossessed = createDependencies({
+      session_id: "dsh-free-director",
+      target_token: TARGET.token,
+      input: { op: "reconstruction", command: { action: "apply", job_id: "recon-1", mode: "append" } },
+    });
+    unpossessed.dependencies.requestWorkbenchCommand = vi
+      .fn()
+      .mockResolvedValueOnce(bindingProbe)
+      .mockResolvedValueOnce({
+        client: {},
+        target: TARGET,
+        response: { success: true, result: { applied: true } },
+      });
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      unpossessed.dependencies,
+    );
+    expect(unpossessed.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(unpossessed.dependencies.requestWorkbenchCommand).mock.calls[1]?.[0]).toMatchObject({
+      op: "reconstruction",
+      command: { action: "apply", job_id: "recon-1", mode: "append" },
+    });
+    expect(unpossessed.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      200,
+      expect.objectContaining({ success: true }),
+    );
+  });
+
   it("fills the omitted object target when the session possesses exactly one character", async () => {
     const { dependencies, json } = createDependencies({
       session_id: "dsh-possessed",
@@ -1156,6 +1271,11 @@ describe("stage routes", () => {
     expect(String(body.error)).toContain('"hero"');
     expect(String(body.error)).toContain('"sidekick"');
     expect(String(body.error)).toContain("set_character_motion");
+    expect(body.possession).toEqual({
+      session_id: "dsh-possessed",
+      possessed_object_ids: ["hero", "sidekick"],
+      omitted_targets: [{ index: 0, action: "set_character_motion", field: "object_id" }],
+    });
   });
 
   it("keeps the original validation error when an unpossessed session omits an object target", async () => {

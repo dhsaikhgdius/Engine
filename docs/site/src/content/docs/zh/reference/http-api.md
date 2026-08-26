@@ -331,7 +331,9 @@ Film 路由在列表响应上显式上报管线配置状态（`pipeline: {config
 public code（`film_pipeline_unconfigured`、`invalid_request`、`invalid_run_id`、`run_not_found`），
 并在 status、receipt 与动作响应上附带归一化的 `director-film-run-receipt-v1`（阶段收据、稳定错误
 码、产物路径及读取时实测的按产物 `storagePresence`——`present`/`absent`，未声明路径为 null）。
-provider 未配置时 cancel 仍然可用。
+receipt 的 `artifacts.timelineExport` 携带与 `timelinePath` 一同落盘的类型化 OTIO 导出收据：
+计划/导出镜头计数与逐镜头 `omittedShots[]`（代码 `clip_missing`），部分交接是类型化事实而非静默
+跳过；早于类型化导出收据的 run 保持 null。provider 未配置时 cancel 仍然可用。
 
 可观测性路由返回经 redaction 的执行回执、模型用量聚合，以及生产任务、multi-agent run 与 film run
 共用的统一 progress；`/traces/sessions` 列出紧凑的逐 session 聚合，`/progress` 附带按 state/kind
@@ -361,6 +363,8 @@ target、quality、asset、audit 和 evidence contract。
 | `409 idempotency_key_conflict`  | 保留旧回执；不同输入使用新 key。                                                       |
 | `409 idempotency_replay_stale`  | 旧 mutation 已成功但项目继续前进；observe 后只把剩余工作表达为新意图。                 |
 | `409 outcome_unknown`           | 先 observe/diff；效果不存在时，只能用 `agent_boundary` 中的注入 revision 与 key 重试。 |
+| `403 possession_scope_violation` | 该 session 处于人物占有（possess）中，只能改写被占有人物；`replace_project`、`reconstruction.apply` 等全场写入会被拒绝。读取类型化 `possession` 块（被占有 id、违规 operation、reason）后重新定位目标，或解除绑定。 |
+| `400 possession_target_ambiguous` | 该 session 占有多个人物，省略的人物目标无法自动填充。读取 `possession.omitted_targets`，显式指定一个被占有 id。 |
 | `504 command_timeout`           | 不要声称成功；保持 target 可见，必要时 observe，再重试读取/证据操作。                  |
 | `profile_unavailable`           | 选择可用且 provider 匹配的 Profile，并检查 credential。                                |
 | `profile_capability_mismatch`   | 选择具有 tools 的 Profile；Visual Critic 还必须具有 vision。                           |

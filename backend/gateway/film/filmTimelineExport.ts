@@ -1,7 +1,13 @@
 import { spawn } from "node:child_process";
 import { access, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { FilmRun } from "../../../packages/protocol/src/filmPipelineProtocol";
+import {
+  FILM_TIMELINE_OMITTED_SHOT_LIMIT,
+  filmTimelineExportReceiptSchema,
+  type FilmRun,
+  type FilmTimelineExportReceipt,
+  type FilmTimelineOmittedShot,
+} from "../../../packages/protocol/src/filmPipelineProtocol";
 import {
   buildFilmTimelineOtio,
   FILM_TIMELINE_OTIO_CONTRACT_V2,
@@ -229,12 +235,23 @@ async function resolveShotAudio(input: {
   return null;
 }
 
+/** Result of one timeline export: the written path plus the typed export receipt. */
+export type FilmTimelineExportResult = {
+  /** Absolute path of the written `timeline.otio`. */
+  outputPath: string;
+  /** Typed export receipt: planned/exported counts plus per-shot omissions. */
+  receipt: FilmTimelineExportReceipt;
+};
+
 /**
  * Probes every shot video and writes the timeline to
  * <runDirectory>/timeline.otio. Serialization is plain JSON.stringify over
  * the builder's fixed key order, so identical inputs stay byte-identical.
  * Audio warnings go to onWarning (console.warn by default) — audio issues
  * degrade the affected shots to video-only instead of failing the export.
+ * Planned shots whose rendered clip is missing are dropped from the timeline
+ * and recorded as typed `omittedShots` on the returned receipt, so a partial
+ * editorial handoff never masquerades as a complete one.
  */
 export async function exportFilmTimeline(input: {
   run: FilmRun;
@@ -242,10 +259,11 @@ export async function exportFilmTimeline(input: {
   probe: (videoPath: string) => Promise<ProbedMediaInfo>;
   onWarning?: (message: string) => void;
   signal?: AbortSignal;
-}): Promise<string> {
+}): Promise<FilmTimelineExportResult> {
   const { run, runDirectory, probe, signal } = input;
   const warn = input.onWarning ?? ((message: string) => console.warn(`[film-timeline-export] ${message}`));
   const clips: ClipMediaInfo[] = [];
+  const omittedShots: FilmTimelineOmittedShot[] = [];
   let shotCount = 0;
   for (const scene of [...run.scenes].sort((left, right) => left.idx - right.idx)) {
     if (!scene.shotSpecs) {
@@ -256,8 +274,17 @@ export async function exportFilmTimeline(input: {
       shotCount += 1;
       const relativePath = shotVideoRelativePath(scene.idx, spec.idx);
       const absolutePath = join(runDirectory, relativePath);
-      // A missing clip only drops that shot; the rest of the film still exports.
-      if (!(await pathExists(absolutePath))) continue;
+      // A missing clip only drops that shot; the omission becomes a typed
+      // receipt record instead of a silent skip.
+      if (!(await pathExists(absolutePath))) {
+        omittedShots.push({
+          sceneIdx: scene.idx,
+          shotIdx: spec.idx,
+          code: "clip_missing",
+          reason: `Rendered clip ${relativePath} was missing from the run directory at export time`,
+        });
+        continue;
+      }
       const info = await probe(absolutePath);
       const clip: ClipMediaInfo = {
         sceneIdx: scene.idx,
@@ -290,5 +317,11 @@ export async function exportFilmTimeline(input: {
   const timeline = buildFilmTimelineOtio({ run, clips });
   const outputPath = join(runDirectory, "timeline.otio");
   await writeFile(outputPath, `${JSON.stringify(timeline, null, 2)}\n`, { encoding: "utf8", signal });
-  return outputPath;
+  const receipt = filmTimelineExportReceiptSchema.parse({
+    shotCount,
+    clipCount: clips.length,
+    omittedShotCount: omittedShots.length,
+    omittedShots: omittedShots.slice(0, FILM_TIMELINE_OMITTED_SHOT_LIMIT),
+  });
+  return { outputPath, receipt };
 }
