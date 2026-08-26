@@ -291,9 +291,18 @@ describe("media transcription routes", () => {
       sourceSha256: sha256,
     });
     // A different job already owns the key the retry will try to reuse.
+    // Build a fresh typed transcribe input (do not spread `failed.input` — the store
+    // types that field as the full job-input union, which rejects overrides like sourceMediaId).
     await deps.store.enqueue({
       kind: "media.transcribe",
-      input: { ...failed.input, sourceMediaId: "creative-media:audio:other" },
+      input: {
+        sourceMediaId: "creative-media:audio:other",
+        sourceSha256: sha256,
+        sourceMimeType: "audio/wav",
+        sourceFileName: "retry.wav",
+        durationSec: 1,
+        model: "whisper-test",
+      },
       idempotencyKey: "conflict-reused-key",
       provider: "openai-compatible",
       sourceRevisions: { source: sha256 },
