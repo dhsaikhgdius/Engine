@@ -365,6 +365,31 @@ export const directorUnrealOmittedSkeletalSchema = z.strictObject({
 export type DirectorUnrealOmittedSkeletal = z.infer<typeof directorUnrealOmittedSkeletalSchema>;
 
 /**
+ * Structured warn-and-omit codes the Unreal camera-cut path stamps into
+ * reports. Mappable storyboard shots become MovieSceneCameraCutTrack
+ * sections; these codes cover the shots that could not produce a cut
+ * (mirroring the Godot and Unity shot mapper vocabulary so agents read one
+ * code set across engines).
+ */
+export const directorUnrealOmittedShotCodeSchema = z.enum([
+  "shot_no_camera_binding",
+  "shot_camera_not_imported",
+  "shot_target_not_camera",
+]);
+
+/** One typed Unreal shot omission (agents read this instead of scraping warnings). */
+export const directorUnrealOmittedShotSchema = z.strictObject({
+  shotId: z.string().trim().min(1).max(200),
+  code: directorUnrealOmittedShotCodeSchema,
+  /** Bound camera id when known; null when the shot has no camera binding. */
+  cameraDirectorId: z.string().trim().min(1).max(200).nullable(),
+  reason: z.string().trim().min(1).max(600),
+});
+
+/** A validated Unreal omitted-shot record. */
+export type DirectorUnrealOmittedShot = z.infer<typeof directorUnrealOmittedShotSchema>;
+
+/**
  * The receipt an engine connector writes after a headless import run. The
  * gateway schema-validates this file; a malformed or `ok:false` report fails
  * the job with structured diagnostics.
@@ -425,6 +450,18 @@ export const directorDccEngineReportSchema = z
     omittedLightCount: z.number().int().nonnegative().max(100_000).optional(),
     /** Unreal-only: Director lights the connector declined to spawn (warn-and-omit). */
     omittedLights: z.array(directorUnrealOmittedLightSchema).max(1_024).optional(),
+    /**
+     * Unreal-only: storyboard shot warn-and-omit count. Optional for
+     * connectors before 0.4.3, which dropped unmappable shots silently; when
+     * omittedShots is present, length must equal this count.
+     */
+    omittedShotCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Unreal-only: typed shot omit records (`shot_no_camera_binding`,
+     * `shot_camera_not_imported`, `shot_target_not_camera`). Optional for
+     * older connectors; when present, length must equal omittedShotCount.
+     */
+    omittedShots: z.array(directorUnrealOmittedShotSchema).max(1_024).optional(),
     /** Unreal-only: pose/rig channels the bake omitted, echoed from the verified sidecar. */
     omittedAnimationChannels: z.array(directorUnrealOmittedAnimationChannelsSchema).max(2_048).optional(),
     /** Unity connector details; only the unity provider may write this block. */
@@ -489,6 +526,21 @@ export const directorDccEngineReportSchema = z
           code: "custom",
           path: ["omittedLights"],
           message: "omittedLights length must equal omittedLightCount",
+        });
+      }
+    }
+    if (report.omittedShots !== undefined) {
+      if (report.omittedShotCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedShotCount"],
+          message: "omittedShotCount is required when omittedShots is present",
+        });
+      } else if (report.omittedShots.length !== report.omittedShotCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedShots"],
+          message: "omittedShots length must equal omittedShotCount",
         });
       }
     }

@@ -320,6 +320,16 @@ it("sends clean_frame for Unreal and renders the skipped receipt with its reason
               "Object prop-glass: Director material channels transmission have no faithful Director parent mapping; omitted (warn-and-omit code: unsupported_channels).",
           },
         ],
+        omittedShotCount: 1,
+        omittedShots: [
+          {
+            shotId: "shot-orphan",
+            code: "shot_no_camera_binding",
+            cameraDirectorId: null,
+            reason:
+              "Shot shot-orphan has no camera binding; no camera cut section was added (warn-and-omit code: shot_no_camera_binding).",
+          },
+        ],
       },
       cleanFrame: {
         contract: "director-unreal-clean-frame-v1",
@@ -351,9 +361,15 @@ it("sends clean_frame for Unreal and renders the skipped receipt with its reason
   expect(sequencer).toHaveTextContent("1200");
   expect(sequencer).toHaveTextContent("省略材质");
   expect(sequencer).toHaveTextContent("1");
+  expect(sequencer).toHaveTextContent("省略镜头");
   const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
   expect(within(omittedMaterials).getByText("prop-glass")).toBeInTheDocument();
   expect(omittedMaterials).toHaveTextContent("不支持的材质通道");
+  // Typed shot omissions render with the shared Godot/Unity code labels.
+  const omittedShots = screen.getByRole("list", { name: "结构化省略镜头" });
+  expect(within(omittedShots).getByText("shot-orphan")).toBeInTheDocument();
+  expect(omittedShots).toHaveTextContent("镜头缺少相机绑定");
+  expect(omittedShots).toHaveTextContent("no camera cut section was added");
   // Structured omitted channels stay visible instead of being flattened away.
   const omitted = screen.getByRole("list", { name: "省略的动画通道" });
   expect(within(omitted).getByText("obj-hero")).toBeInTheDocument();
