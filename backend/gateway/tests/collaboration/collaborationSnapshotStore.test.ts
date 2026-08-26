@@ -166,7 +166,7 @@ describe("CollaborationSnapshotStore", () => {
     expect(await store.loadSnapshot("archive-me")).not.toBeNull();
 
     const outcome = await store.archiveRoom("archive-me");
-    expect(outcome.archived).toBe(true);
+    if (!outcome.archived) throw new Error("expected the archive to succeed");
     expect(outcome.archivedAs).toBeTruthy();
     expect(await store.loadSnapshot("archive-me")).toBeNull();
     expect(await store.listRooms()).toEqual([]);
