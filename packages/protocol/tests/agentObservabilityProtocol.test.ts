@@ -304,6 +304,43 @@ describe("unified progress adapters", () => {
     expect(progress.state).toBe("running");
     expect(progress.progress).toBeCloseTo(5 / 7);
     expect(progress.message).toBe("开始渲染第 2 镜");
+    expect(progress.usage).toBeUndefined();
+  });
+
+  it("projects durable film-run usage onto unified progress when samples exist", () => {
+    const empty = {
+      sample_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      total_duration_ms: 0,
+      retries: 0,
+      failure_count: 0,
+    };
+    const run = {
+      version: 1,
+      id: "film-run-usage",
+      workflow: "idea-to-film",
+      status: "running",
+      phase: "render",
+      events: [],
+      createdAt: "2026-08-25T10:00:00.000Z",
+      updatedAt: "2026-08-25T10:05:00.000Z",
+      usage: {
+        "film-llm": { ...empty, sample_count: 2, total_tokens: 120, total_duration_ms: 800 },
+        "film-image": empty,
+        "film-video": { ...empty, sample_count: 1, total_duration_ms: 12_000 },
+      },
+    } as unknown as FilmRun;
+    const progress = filmRunToUnifiedProgress(run);
+    expect(progress.usage?.["film-llm"].total_tokens).toBe(120);
+    expect(progress.usage?.["film-video"].sample_count).toBe(1);
+    expect(
+      filmRunToUnifiedProgress({
+        ...run,
+        usage: { "film-llm": empty, "film-image": empty, "film-video": empty },
+      } as unknown as FilmRun).usage,
+    ).toBeUndefined();
   });
 
   it("shares intra-phase film progress with the receipt helper during render", () => {

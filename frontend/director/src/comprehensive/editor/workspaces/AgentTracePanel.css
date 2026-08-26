@@ -78,6 +78,16 @@
   margin: 0 0 8px;
 }
 
+.director-agent-trace-panel-film-usage {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.director-agent-trace-panel-film-usage li {
+  margin: 0 0 2px;
+}
+
 .director-agent-trace-panel-session {
   margin: 0 0 2px;
   overflow: hidden;

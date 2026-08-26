@@ -354,23 +354,46 @@ export type UnifiedProgressKind = z.infer<typeof unifiedProgressKindSchema>;
  * fields are adapted into this shape; the source records keep their own richer
  * status machines untouched.
  */
-export const unifiedProgressSchema = z.strictObject({
-  contract: z.literal(UNIFIED_PROGRESS_CONTRACT),
-  kind: unifiedProgressKindSchema,
-  /** Source record id (job id, run id). */
-  id: nonEmptyText(200),
-  /** Short human-readable label (job kind, objective excerpt, workflow). */
-  label: nonEmptyText(200),
-  state: unifiedProgressStateSchema,
-  /** Fractional completion in [0, 1]; null when the source reports no numeric progress. */
-  progress: z.number().min(0).max(1).nullable(),
-  /** Latest human-readable status message from the source record, when any. */
-  message: z.string().max(2_000).nullable(),
-  /** Source-native status string preserved verbatim for drill-down. */
-  source_status: nonEmptyText(80),
-  created_at: z.string(),
-  updated_at: z.string(),
-});
+export const unifiedProgressSchema = z
+  .strictObject({
+    contract: z.literal(UNIFIED_PROGRESS_CONTRACT),
+    kind: unifiedProgressKindSchema,
+    /** Source record id (job id, run id). */
+    id: nonEmptyText(200),
+    /** Short human-readable label (job kind, objective excerpt, workflow). */
+    label: nonEmptyText(200),
+    state: unifiedProgressStateSchema,
+    /** Fractional completion in [0, 1]; null when the source reports no numeric progress. */
+    progress: z.number().min(0).max(1).nullable(),
+    /** Latest human-readable status message from the source record, when any. */
+    message: z.string().max(2_000).nullable(),
+    /** Source-native status string preserved verbatim for drill-down. */
+    source_status: nonEmptyText(80),
+    created_at: z.string(),
+    updated_at: z.string(),
+    /**
+     * Durable per-scope film-run usage (`film-llm` / `film-image` / `film-video`).
+     * Only film_run entries may carry this; omitted when the run has no metered
+     * samples yet so Agents/UI do not invent a second meter. Shape matches
+     * `filmRunUsageSchema` without importing it (that module imports this file).
+     */
+    usage: z
+      .strictObject({
+        "film-llm": agentUsageSummarySchema,
+        "film-image": agentUsageSummarySchema,
+        "film-video": agentUsageSummarySchema,
+      })
+      .optional(),
+  })
+  .superRefine((entry, context) => {
+    if (entry.usage !== undefined && entry.kind !== "film_run") {
+      context.addIssue({
+        code: "custom",
+        path: ["usage"],
+        message: "usage is only valid on film_run unified progress entries",
+      });
+    }
+  });
 /** One unified progress entry. */
 export type UnifiedProgress = z.infer<typeof unifiedProgressSchema>;
 
@@ -507,6 +530,13 @@ export function filmRunToUnifiedProgress(run: FilmRun): UnifiedProgress {
             : run.status === "failed"
               ? "failed"
               : "cancelled";
+  const usage = run.usage;
+  const hasUsage = Boolean(
+    usage &&
+    (usage["film-llm"].sample_count > 0 ||
+      usage["film-image"].sample_count > 0 ||
+      usage["film-video"].sample_count > 0),
+  );
   return unifiedProgressSchema.parse({
     contract: UNIFIED_PROGRESS_CONTRACT,
     kind: "film_run",
@@ -520,5 +550,6 @@ export function filmRunToUnifiedProgress(run: FilmRun): UnifiedProgress {
     source_status: run.status,
     created_at: run.createdAt,
     updated_at: run.updatedAt,
+    ...(hasUsage && usage ? { usage } : {}),
   });
 }
