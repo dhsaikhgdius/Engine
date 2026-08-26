@@ -124,13 +124,17 @@ export type CollaborationRoomRouteDependencies = {
  *
  * Routes:
  * - `GET /api/collab/rooms` — merged live + durable room status (member
- *   counts, snapshot age, quarantine counts, auth mode, empty-room TTL, and
- *   invite mint/revoke rate-limit policy).
+ *   counts, snapshot age, quarantine counts, auth mode, empty-room TTL,
+ *   invite mint/revoke rate-limit policy, and whether invite revocations are
+ *   durable).
  * - `GET /api/collab/rooms/quarantine?room=<id>` — the bounded quarantine
  *   index for one room (ids, hashes, sizes, reasons).
  * - `POST /api/collab/rooms/close` — explicitly close a live room; with
  *   `archive: true` also move its durable history aside so future joins
- *   start empty.
+ *   start empty. When the room has no durable history the response reports
+ *   `archived: false` with `archive_reason: "no_durable_history"`; a real
+ *   filesystem failure returns 500 `archive_failed` (the history is still in
+ *   place) instead of a 200 that overclaims the archive.
  *
  * @returns True if the route was handled, false otherwise.
  */
@@ -173,6 +177,7 @@ export async function handleCollaborationRoomRoute(
       invite_revocations: {
         revoked_tokens: revocations.counts().revokedTokens,
         room_cutoffs: revocations.counts().roomCutoffs,
+        durable: revocations.persistenceEnabled,
       },
       rooms,
     });
@@ -217,14 +222,32 @@ export async function handleCollaborationRoomRoute(
     }
     const closed = hub.closeRoom(parsed.data.room);
     let archived: boolean | null = null;
+    let archiveReason: "no_durable_history" | undefined;
     if (parsed.data.archive && snapshotStore) {
-      archived = (await snapshotStore.archiveRoom(parsed.data.room)).archived;
+      const outcome = await snapshotStore.archiveRoom(parsed.data.room);
+      if (!outcome.archived && outcome.reason === "archive_failed") {
+        // The close already happened; report it while refusing to claim the
+        // history was moved when the filesystem said otherwise.
+        json(response, 500, {
+          error: "协作房间历史归档失败，房间已关闭但历史仍在原位",
+          code: "archive_failed",
+          room: parsed.data.room,
+          closed: closed.closed,
+          disconnected_peers: closed.disconnectedPeers,
+          archived: false,
+          archive_error_code: outcome.code,
+        });
+        return true;
+      }
+      archived = outcome.archived;
+      if (!outcome.archived) archiveReason = outcome.reason;
     }
     json(response, 200, {
       room: parsed.data.room,
       closed: closed.closed,
       disconnected_peers: closed.disconnectedPeers,
       archived,
+      ...(archiveReason ? { archive_reason: archiveReason } : {}),
     });
     return true;
   }

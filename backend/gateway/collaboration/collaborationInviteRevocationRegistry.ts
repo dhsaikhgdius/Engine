@@ -21,8 +21,17 @@ const persistedStateSchema = z.object({
 
 /** The result of revoking one exact invite token. */
 export type CollaborationInviteTokenRevocation =
-  | { revoked: true; jti: string; room: string; expiresAt: string }
+  | { revoked: true; jti: string; room: string; expiresAt: string; persisted: boolean }
   | { revoked: false; reason: "malformed_token" | "not_revocable" | "already_expired" };
+
+/** The result of revoking a room scope's older invites. */
+export type CollaborationRoomScopeRevocation = {
+  revoked: true;
+  room: string;
+  cutoff: string;
+  /** True only when the revocation reached the durable registry file. */
+  persisted: boolean;
+};
 
 /**
  * In-memory invite revocation registry with optional JSON persistence.
@@ -41,7 +50,10 @@ export type CollaborationInviteTokenRevocation =
  * When a persist path is provided every mutation is flushed with an atomic
  * write, so revocations survive gateway restarts alongside room snapshots.
  * Without a path the registry is process-local, matching the default invite
- * secret that also rotates on restart.
+ * secret that also rotates on restart. Every revocation outcome reports
+ * whether it reached the durable file (`persisted`), so callers never claim
+ * restart-surviving revocation when the registry is process-local or the
+ * flush failed.
  */
 export class CollaborationInviteRevocationRegistry implements CollaborationInviteRevocations {
   private readonly revokedTokens = new Map<string, number>();
@@ -63,6 +75,11 @@ export class CollaborationInviteRevocationRegistry implements CollaborationInvit
     this.maxRevokedTokens = Math.max(1, options.maxRevokedTokens ?? DEFAULT_MAX_REVOKED_TOKENS);
     this.maxRoomCutoffs = Math.max(1, options.maxRoomCutoffs ?? DEFAULT_MAX_ROOM_CUTOFFS);
     this.now = options.now ?? Date.now;
+  }
+
+  /** True when the registry is configured with a durable persistence file. */
+  get persistenceEnabled(): boolean {
+    return this.persistPath !== null;
   }
 
   /** Loads the persisted revocation state, pruning entries that already expired. */
@@ -99,8 +116,14 @@ export class CollaborationInviteRevocationRegistry implements CollaborationInvit
       if (oldest === undefined) break;
       this.revokedTokens.delete(oldest);
     }
-    await this.persist();
-    return { revoked: true, jti: payload.jti, room: payload.room, expiresAt: new Date(payload.exp).toISOString() };
+    const persisted = await this.persist();
+    return {
+      revoked: true,
+      jti: payload.jti,
+      room: payload.room,
+      expiresAt: new Date(payload.exp).toISOString(),
+      persisted,
+    };
   }
 
   /**
@@ -108,7 +131,7 @@ export class CollaborationInviteRevocationRegistry implements CollaborationInvit
    * Invites minted after this call stay valid, so an operator can rotate a
    * leaked invite without locking the room forever.
    */
-  async revokeRoomScope(scope: string) {
+  async revokeRoomScope(scope: string): Promise<CollaborationRoomScopeRevocation> {
     const cutoff = this.now();
     this.prune();
     // Delete-before-set refreshes the scope's insertion position, so bounded
@@ -120,8 +143,8 @@ export class CollaborationInviteRevocationRegistry implements CollaborationInvit
       if (oldest === undefined) break;
       this.roomCutoffs.delete(oldest);
     }
-    await this.persist();
-    return { revoked: true as const, room: scope, cutoff: new Date(cutoff).toISOString() };
+    const persisted = await this.persist();
+    return { revoked: true, room: scope, cutoff: new Date(cutoff).toISOString(), persisted };
   }
 
   /** Consulted by the room authorizer after signature, expiry, and scope checks pass. */
@@ -153,15 +176,21 @@ export class CollaborationInviteRevocationRegistry implements CollaborationInvit
     }
   }
 
-  private async persist() {
-    if (!this.persistPath) return;
+  /**
+   * Flushes the registry to its durable file, reporting whether the flush
+   * landed. The in-memory registry stays authoritative for this process
+   * either way; `false` means the revocation will not survive a restart.
+   */
+  private async persist(): Promise<boolean> {
+    if (!this.persistPath) return false;
     try {
       await writeJsonAtomic(this.persistPath, {
         revoked_tokens: [...this.revokedTokens].map(([jti, exp]) => ({ jti, exp })),
         room_cutoffs: [...this.roomCutoffs].map(([scope, cutoff]) => ({ scope, cutoff })),
       });
+      return true;
     } catch {
-      // Persistence is best-effort; the in-memory registry stays authoritative.
+      return false;
     }
   }
 }

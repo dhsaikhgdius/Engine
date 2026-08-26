@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -174,8 +174,43 @@ describe("CollaborationSnapshotStore", () => {
     const { readdirSync } = await import("node:fs");
     expect(readdirSync(resolve(directory, "collaboration-rooms-archive"))).toHaveLength(1);
 
-    // Archiving a room that has no durable history reports a non-archival.
-    expect(await store.archiveRoom("never-existed")).toEqual({ archived: false, archivedAs: null });
+    // Archiving a room that has no durable history reports the benign no-op
+    // distinctly from a filesystem failure.
+    expect(await store.archiveRoom("never-existed")).toEqual({ archived: false, reason: "no_durable_history" });
+  });
+
+  it("reports archive_failed with an errno code when the history cannot be moved", async () => {
+    const { directory, store } = tempStore({ compactAfterUpdates: 1 });
+    await store.appendUpdate(
+      "stuck-room",
+      docUpdate((doc) => doc.getMap("scene").set("title", "still here")),
+    );
+    // A file squatting on the archive directory path makes mkdir fail, so the
+    // rename can never happen and the history must be reported as still there.
+    writeFileSync(resolve(directory, "collaboration-rooms-archive"), "not a directory");
+
+    const outcome = await store.archiveRoom("stuck-room");
+    expect(outcome.archived).toBe(false);
+    if (outcome.archived || outcome.reason !== "archive_failed") throw new Error("expected archive_failed");
+    expect(outcome.code).toMatch(/^[A-Z]+$/);
+    // No path leaks through the outcome, and the history is intact.
+    expect(JSON.stringify(outcome)).not.toContain(directory);
+    expect(await store.loadSnapshot("stuck-room")).not.toBeNull();
+  });
+
+  it("drops malformed quarantine index entries instead of serving them", async () => {
+    const { directory, store } = tempStore();
+    await store.appendUpdate("tampered-room", new Uint8Array([9, 9, 9, 200, 201]));
+    const [valid] = await store.listQuarantined("tampered-room");
+
+    // Simulate on-disk tampering: keep the valid record, add junk entries.
+    const roomDirectory = resolve(directory, "collaboration-rooms", Buffer.from("tampered-room").toString("base64url"));
+    writeFileSync(
+      resolve(roomDirectory, "quarantine-index.json"),
+      JSON.stringify([valid, { id: "", sha256: "nope" }, "garbage", 42]),
+    );
+
+    expect(await store.listQuarantined("tampered-room")).toEqual([valid]);
   });
 });
 
