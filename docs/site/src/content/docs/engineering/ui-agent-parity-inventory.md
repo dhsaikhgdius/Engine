@@ -29,14 +29,13 @@ Last verified: **2026-08-26**.
 
 | Category                             | Count             |
 | ------------------------------------ | ----------------- |
-| shared Stage project mutators        | 79                |
-| ui-only Stage project mutators       | 8                 |
-| Coverage (shared / project mutators) | **79 / 87 ≈ 91%** |
+| shared Stage project mutators        | 80                |
+| ui-only Stage project mutators       | 7                 |
+| Coverage (shared / project mutators) | **80 / 87 ≈ 92%** |
 
 Everything still ui-only either has no semantic action yet (object lists)
 or is deliberately local with a documented divergence reason in the store
-(snapshot cameras, preset/crowd/asset add flows, and model imports that also
-place a scene object).
+(snapshot cameras and preset/crowd character adds).
 
 Parity is regression-tested in
 `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts`: the same
@@ -125,10 +124,10 @@ Parity is regression-tested in
 
 | Mutator                                     | File               | Semantic action(s)                                                                                                                                                  | Status                                                                                                                                                                                           |
 | ------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `addImportedAsset`                          | `directorStore.ts` | `upsert_asset`; panoramas also `set_panorama_asset`; non-character scene placement also `add_object`                                                                | shared (catalog-only, panorama, and non-character model placement; character scene placement keeps the legacy writer — empty pose controls vs `add_object` stand-preset expansion)              |
+| `addImportedAsset`                          | `directorStore.ts` | `upsert_asset`; panoramas also `set_panorama_asset`; model scene placement also `add_object` (characters pass `placement_mode` / `body_type` / `color`)             | shared (catalog-only, panorama, and model placement including Mixamo characters; authoring rejection falls through to the legacy writer)                                                         |
 | `setAssetRealWorldSize`                     | `directorStore.ts` | `upsert_asset` with the patched `realWorldSizeM` / `sizeSource`                                                                                                     | shared (clearing to `null` keeps the legacy writer so migrate's estimated 2 m backfill does not refill the Prop inspector)                                                                       |
 | `removeImportedAsset`                       | `directorStore.ts` | `remove_assets` with `cascade`                                                                                                                                      | shared (removals whose cascade would also delete children, clear look targets, camera follow/path bindings, or material texture references keep the legacy writer, which leaves those untouched) |
-| `addObjectFromAsset`                        | `directorStore.ts` | `add_object` diverges: `createSceneObjectFromAsset` stamps Blender `nativeSource` provisioning markers and character rig defaults that `add_object` does not author | ui-only (deliberately local)                                                                                                                                                                     |
+| `addObjectFromAsset`                        | `directorStore.ts` | `add_object` (characters also pass `placement_mode` / `body_type` / `color`; `nativeSource` stamped when `asset_id` is set)                                         | shared                                                                                                                                                                                           |
 | `addPresetCharacter` / `addCrowdCharacters` | `directorStore.ts` | `add_object` diverges: preset adds keep per-add body types and a rotating color palette, and crowd grouping (`crowdId`) is UI-only state `add_object` cannot author | ui-only (deliberately local)                                                                                                                                                                     |
 | `addGeometryPrimitive`                      | `directorStore.ts` | `add_object` with `geometry_type` (accepted in-process; only the public workbench agent wire rejects it)                                                            | shared                                                                                                                                                                                           |
 

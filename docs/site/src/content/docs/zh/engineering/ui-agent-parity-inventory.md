@@ -26,12 +26,12 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 
 | 类别                            | 数量              |
 | ------------------------------- | ----------------- |
-| shared Stage 项目 mutator       | 79                |
-| ui-only Stage 项目 mutator      | 8                 |
-| 覆盖率（shared / 项目 mutator） | **79 / 87 ≈ 91%** |
+| shared Stage 项目 mutator       | 80                |
+| ui-only Stage 项目 mutator      | 7                 |
+| 覆盖率（shared / 项目 mutator） | **80 / 87 ≈ 92%** |
 
 仍为 ui-only 的入口，要么尚无 semantic action（object list），
-要么在 store 中带注释、有意保持本地写入（快照相机、预置/人群/资产新建流程，以及角色模型落场景）。
+要么在 store 中带注释、有意保持本地写入（快照相机、预置/人群角色新建）。
 
 对等性由
 `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 回归保护：同一份
@@ -118,14 +118,14 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 
 ## 资产与新建流程
 
-| Mutator                                     | 文件               | Semantic action                                                                                                                                      | 状态                                                                                                                      |
-| ------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `addImportedAsset`                          | `directorStore.ts` | `upsert_asset`；全景另加 `set_panorama_asset`；非角色落场景另加 `add_object`                                                                          | shared（目录-only、全景与非角色模型落场景；角色落场景仍走旧写入——`createSceneObjectFromAsset` 空 pose controls 与 `add_object` stand 预设展开不一致） |
-| `setAssetRealWorldSize`                     | `directorStore.ts` | `upsert_asset` 写入补丁后的 `realWorldSizeM` / `sizeSource`                                                                                          | shared（清空为 `null` 仍走旧写入，避免 migrate 的 2 m 估计回填把道具检查器再次填满）                                      |
-| `removeImportedAsset`                       | `directorStore.ts` | `remove_assets`（`cascade`）                                                                                                                         | shared（当级联还会删除子对象、清除 look target、相机 follow/path 绑定或材质纹理引用时，仍走保持这些引用不动的旧写入）     |
-| `addObjectFromAsset`                        | `directorStore.ts` | 与 `add_object` 存在分歧：`createSceneObjectFromAsset` 会打上 Blender `nativeSource` provisioning 标记与角色 rig 默认值，`add_object` 不 author 这些 | ui-only（有意保持本地）                                                                                                   |
-| `addPresetCharacter` / `addCrowdCharacters` | `directorStore.ts` | 与 `add_object` 存在分歧：预置新增保留每次的体型与轮换配色，人群分组（`crowdId`）是 `add_object` 无法 author 的 UI 状态                              | ui-only（有意保持本地）                                                                                                   |
-| `addGeometryPrimitive`                      | `directorStore.ts` | `add_object` 带 `geometry_type`（进程内 authoring 接受；仅公开 workbench agent wire 拒绝）                                                           | shared                                                                                                                    |
+| Mutator                                     | 文件               | Semantic action                                                                                                               | 状态                                                                                                                  |
+| ------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `addImportedAsset`                          | `directorStore.ts` | `upsert_asset`；全景另加 `set_panorama_asset`；模型落场景另加 `add_object`（角色带 `placement_mode` / `body_type` / `color`） | shared（目录-only、全景与模型落场景含 Mixamo 角色；authoring 拒绝时回退旧写入）                                       |
+| `setAssetRealWorldSize`                     | `directorStore.ts` | `upsert_asset` 写入补丁后的 `realWorldSizeM` / `sizeSource`                                                                   | shared（清空为 `null` 仍走旧写入，避免 migrate 的 2 m 估计回填把道具检查器再次填满）                                  |
+| `removeImportedAsset`                       | `directorStore.ts` | `remove_assets`（`cascade`）                                                                                                  | shared（当级联还会删除子对象、清除 look target、相机 follow/path 绑定或材质纹理引用时，仍走保持这些引用不动的旧写入） |
+| `addObjectFromAsset`                        | `directorStore.ts` | `add_object`（角色另带 `placement_mode` / `body_type` / `color`；`asset_id` 时打上 `nativeSource`）                           | shared                                                                                                                |
+| `addPresetCharacter` / `addCrowdCharacters` | `directorStore.ts` | 与 `add_object` 存在分歧：预置新增保留每次的体型与轮换配色，人群分组（`crowdId`）是 `add_object` 无法 author 的 UI 状态       | ui-only（有意保持本地）                                                                                               |
+| `addGeometryPrimitive`                      | `directorStore.ts` | `add_object` 带 `geometry_type`（进程内 authoring 接受；仅公开 workbench agent wire 拒绝）                                    | shared                                                                                                                |
 
 ## Human-only 交互面
 
