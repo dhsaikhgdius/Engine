@@ -354,7 +354,11 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
     expect(result.report.omittedShotCount).toBe(2);
     expect(result.report.omittedShots).toEqual([
       expect.objectContaining({ shotId: "shot-orphan", code: "shot_no_camera_binding", cameraDirectorId: null }),
-      expect.objectContaining({ shotId: "shot-ghost", code: "shot_camera_not_imported", cameraDirectorId: "cam-ghost" }),
+      expect.objectContaining({
+        shotId: "shot-ghost",
+        code: "shot_camera_not_imported",
+        cameraDirectorId: "cam-ghost",
+      }),
     ]);
   });
 

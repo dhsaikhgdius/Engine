@@ -143,7 +143,9 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
               </span>
             </li>
           ))}
-          {omittedShots.length > 6 ? <li className="director-engine-handoff-more">+{omittedShots.length - 6}</li> : null}
+          {omittedShots.length > 6 ? (
+            <li className="director-engine-handoff-more">+{omittedShots.length - 6}</li>
+          ) : null}
         </ul>
       ) : null}
       {omittedMaterials.length ? (
