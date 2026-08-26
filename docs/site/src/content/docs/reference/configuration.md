@@ -42,7 +42,9 @@ but cannot write.
 Invites can be revoked through `POST /api/collab/invites/revoke` with exactly one of `token`
 (revokes that invite by its `jti`) or `room` (a scope cutoff: every invite for that scope minted
 no later than the revocation instant is denied, including legacy invites without a `jti`).
-Revocations persist across restarts only when `DIRECTOR_COLLAB_PERSISTENCE=1`.
+A revocation also ends live sessions: peers already joined with the revoked invite are ejected
+with a permanent `unauthorized` error, and the response reports `disconnected_peers` and
+`disconnected_rooms`. Revocations persist across restarts only when `DIRECTOR_COLLAB_PERSISTENCE=1`.
 
 Room lifecycle and operations (all behind the master gateway token, returning counts, hashes, and
 timestamps only — never document content, invite tokens, or filesystem paths):

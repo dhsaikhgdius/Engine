@@ -54,7 +54,10 @@ report durability honestly: `persistence_enabled` says whether a durable revocat
 configured (`DIRECTOR_COLLAB_PERSISTENCE=1`) and `persisted` says whether this revocation reached
 it. Without persistence a revocation is process-local and dies with the gateway — if
 `DIRECTOR_COLLAB_INVITE_SECRET` is stable, the "revoked" invite works again after a restart, so
-treat `persisted: false` as an action item, not a footnote. For day-2 operations,
+treat `persisted: false` as an action item, not a footnote. Revocation also ends live sessions,
+not just future joins: peers already connected with the revoked invite are ejected with a
+permanent `unauthorized` error, and the revoke response reports `disconnected_peers` /
+`disconnected_rooms` so the live blast radius is visible. For day-2 operations,
 `GET /api/collab/rooms` reports member counts, snapshot age, quarantine counts, the auth mode, and
 whether revocations are durable (`invite_revocations.durable`);
 `GET /api/collab/rooms/quarantine?room=…` lists a room's quarantined corrupt updates (entries are

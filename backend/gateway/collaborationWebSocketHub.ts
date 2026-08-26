@@ -9,7 +9,12 @@ import {
   type DirectorCollaborationGatewayServerMessage,
   type DirectorCollaborationRoomRole,
 } from "../../packages/protocol/src/directorCollaborationGatewayProtocol";
-import type { CollaborationRoomAuthorizer, CollaborationRoomDenialReason } from "./collaborationRoomAuth";
+import type {
+  CollaborationInviteRevocations,
+  CollaborationInviteRevocationSubject,
+  CollaborationRoomAuthorizer,
+  CollaborationRoomDenialReason,
+} from "./collaborationRoomAuth";
 
 const MAX_ROOMS = 256;
 const MAX_PEERS_PER_ROOM = 64;
@@ -30,6 +35,8 @@ type ClientMembership = {
   roomId: string;
   awarenessClientId: number;
   role: DirectorCollaborationRoomRole;
+  /** The revocation subject of the invite that admitted this peer; null in local trust mode. */
+  inviteSubject: CollaborationInviteRevocationSubject | null;
 };
 
 /**
@@ -232,6 +239,35 @@ export class DirectorCollaborationWebSocketHub {
     room.clients.clear();
     this.destroyRoom(roomId, room);
     return { closed: true, disconnectedPeers: peers.length };
+  }
+
+  /**
+   * Ejects every live peer whose join invite is now revoked, mirroring the
+   * denial a rejoin attempt would receive. The invite revocation route calls
+   * this right after registering a revocation so revoking a leaked invite
+   * ends live sessions instead of only blocking future joins. Peers admitted
+   * in local trust mode carry no invite and are never ejected. Each ejected
+   * peer receives a permanent `unauthorized` error before losing membership,
+   * so compliant clients stop reconnecting.
+   */
+  enforceInviteRevocations(revocations: CollaborationInviteRevocations): {
+    disconnectedPeers: number;
+    rooms: string[];
+  } {
+    const revokedPeers: { client: WebSocket; membership: ClientMembership }[] = [];
+    for (const [client, membership] of this.memberships) {
+      if (!membership.inviteSubject) continue;
+      if (revocations.isRevoked(membership.inviteSubject, membership.roomId)) {
+        revokedPeers.push({ client, membership });
+      }
+    }
+    const rooms = new Set<string>();
+    for (const { client, membership } of revokedPeers) {
+      rooms.add(membership.roomId);
+      this.error(client, "unauthorized", DENIAL_MESSAGES.revoked, membership.roomId);
+      this.disconnect(client);
+    }
+    return { disconnectedPeers: revokedPeers.length, rooms: [...rooms].sort() };
   }
 
   /** Returns whether the input is a valid collaboration client message. */
@@ -464,6 +500,7 @@ export class DirectorCollaborationWebSocketHub {
     const current = this.memberships.get(client);
     if (current?.roomId === roomId && current.awarenessClientId === awarenessClientId) {
       current.role = authorization.role;
+      current.inviteSubject = authorization.subject ?? null;
       send(client, { type: "collab.ready", room: roomId, role: authorization.role });
       return;
     }
@@ -509,7 +546,12 @@ export class DirectorCollaborationWebSocketHub {
 
     room.clients.add(client);
     room.lastActivityAt = this.now();
-    this.memberships.set(client, { roomId, awarenessClientId, role: authorization.role });
+    this.memberships.set(client, {
+      roomId,
+      awarenessClientId,
+      role: authorization.role,
+      inviteSubject: authorization.subject ?? null,
+    });
     send(client, { type: "collab.ready", room: roomId, role: authorization.role });
 
     const serverDocument = payloadMessage("collab.document-update", roomId, Y.encodeStateAsUpdate(room.doc));

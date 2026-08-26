@@ -453,6 +453,122 @@ describe("DirectorCollaborationWebSocketHub room authorization", () => {
     hub.destroy();
   });
 
+  it("ejects only the live peers whose invite was revoked by token, mirroring the rejoin denial", async () => {
+    const revocations = new CollaborationInviteRevocationRegistry();
+    const hub = new DirectorCollaborationWebSocketHub({
+      authorizer: createCollaborationRoomAuthorizer({ secret: SECRET, mode: "required", revocations }),
+    });
+    const revokedInvite = mintCollaborationInviteToken({ secret: SECRET, room: "secure-room", role: "editor" });
+    const survivingInvite = mintCollaborationInviteToken({ secret: SECRET, room: "secure-room", role: "editor" });
+    const revokedPeer = socket();
+    const survivor = socket();
+    hub.handle(revokedPeer, {
+      type: "collab.join",
+      room: "secure-room",
+      awareness_client_id: 71,
+      invite_token: revokedInvite.token,
+    });
+    hub.handle(survivor, {
+      type: "collab.join",
+      room: "secure-room",
+      awareness_client_id: 72,
+      invite_token: survivingInvite.token,
+    });
+    revokedPeer.sent.length = 0;
+
+    await revocations.revokeToken(revokedInvite.token);
+    expect(hub.enforceInviteRevocations(revocations)).toEqual({ disconnectedPeers: 1, rooms: ["secure-room"] });
+    expect(messages(revokedPeer).at(-1)).toMatchObject({
+      type: "collab.error",
+      code: "unauthorized",
+      room: "secure-room",
+      message: "The collaboration invite token has been revoked.",
+    });
+    expect(hub.peerCount("secure-room")).toBe(1);
+
+    // The ejected peer lost its membership and must present a fresh invite.
+    const doc = new Y.Doc();
+    doc.getMap("scene").set("late", true);
+    hub.handle(revokedPeer, binaryMessage("collab.document-update", "secure-room", Y.encodeStateAsUpdate(doc)));
+    expect(messages(revokedPeer).at(-1)).toMatchObject({ type: "collab.error", code: "join_required" });
+
+    // Enforcement is idempotent and never touches the surviving invite's peer.
+    expect(hub.enforceInviteRevocations(revocations)).toEqual({ disconnectedPeers: 0, rooms: [] });
+    expect(hub.peerCount("secure-room")).toBe(1);
+    doc.destroy();
+    hub.destroy();
+  });
+
+  it("scope revocation ejects older-invite peers across matching rooms while fresh invites stay live", async () => {
+    const clock = { value: 1_700_000_000_000 };
+    const now = () => clock.value;
+    const revocations = new CollaborationInviteRevocationRegistry({ now });
+    const hub = new DirectorCollaborationWebSocketHub({
+      authorizer: createCollaborationRoomAuthorizer({ secret: SECRET, mode: "required", revocations, now }),
+      now,
+    });
+    const oldInvite = mintCollaborationInviteToken({ secret: SECRET, room: "project-a/*", role: "editor", now });
+    const otherProjectInvite = mintCollaborationInviteToken({
+      secret: SECRET,
+      room: "project-b/scene-1",
+      role: "editor",
+      now,
+    });
+    const oldScene1 = socket();
+    const oldScene2 = socket();
+    const otherProject = socket();
+    hub.handle(oldScene1, {
+      type: "collab.join",
+      room: "project-a/scene-1",
+      awareness_client_id: 73,
+      invite_token: oldInvite.token,
+    });
+    hub.handle(oldScene2, {
+      type: "collab.join",
+      room: "project-a/scene-2",
+      awareness_client_id: 74,
+      invite_token: oldInvite.token,
+    });
+    hub.handle(otherProject, {
+      type: "collab.join",
+      room: "project-b/scene-1",
+      awareness_client_id: 75,
+      invite_token: otherProjectInvite.token,
+    });
+
+    clock.value += 1_000;
+    await revocations.revokeRoomScope("project-a/*");
+    clock.value += 1_000;
+    const freshInvite = mintCollaborationInviteToken({ secret: SECRET, room: "project-a/*", role: "editor", now });
+    const freshPeer = socket();
+    hub.handle(freshPeer, {
+      type: "collab.join",
+      room: "project-a/scene-1",
+      awareness_client_id: 76,
+      invite_token: freshInvite.token,
+    });
+
+    expect(hub.enforceInviteRevocations(revocations)).toEqual({
+      disconnectedPeers: 2,
+      rooms: ["project-a/scene-1", "project-a/scene-2"],
+    });
+    expect(hub.peerCount("project-a/scene-1")).toBe(1);
+    expect(hub.peerCount("project-a/scene-2")).toBe(0);
+    expect(hub.peerCount("project-b/scene-1")).toBe(1);
+    hub.destroy();
+  });
+
+  it("never ejects local-trust memberships, which carry no invite subject", async () => {
+    const revocations = new CollaborationInviteRevocationRegistry();
+    const hub = new DirectorCollaborationWebSocketHub();
+    const peer = socket();
+    hub.handle(peer, { type: "collab.join", room: "trusted-room", awareness_client_id: 77 });
+    await revocations.revokeRoomScope("trusted-room");
+    expect(hub.enforceInviteRevocations(revocations)).toEqual({ disconnectedPeers: 0, rooms: [] });
+    expect(hub.peerCount("trusted-room")).toBe(1);
+    hub.destroy();
+  });
+
   it("admits a valid invite, reports the granted role, and gates writes by capability", () => {
     const hub = inviteRequiredHub();
     const editor = socket();

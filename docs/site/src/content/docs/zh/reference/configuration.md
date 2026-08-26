@@ -38,7 +38,9 @@ Gateway 拒绝非 loopback 绑定。原生 CLI/MCP 客户端会自动 bootstrap 
 
 邀请可以通过 `POST /api/collab/invites/revoke` 吊销，参数为 `token`（按 `jti` 吊销该邀请）或
 `room`（按范围设置吊销截止点：该范围内不晚于吊销时刻铸造的所有邀请都被拒绝，包括没有 `jti` 的
-旧版邀请），二者恰好提供一个。只有在 `DIRECTOR_COLLAB_PERSISTENCE=1` 时吊销记录才跨重启存活。
+旧版邀请），二者恰好提供一个。吊销同时会结束在线会话：已用该邀请加入的成员会收到永久性
+`unauthorized` 错误并被踢出，响应中的 `disconnected_peers` 与 `disconnected_rooms` 如实报告
+影响范围。只有在 `DIRECTOR_COLLAB_PERSISTENCE=1` 时吊销记录才跨重启存活。
 
 房间生命周期与运维（全部位于 master gateway token 之后，只返回计数、哈希与时间戳——绝不返回
 文档内容、邀请 token 或文件系统路径）：

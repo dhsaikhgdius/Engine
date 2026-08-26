@@ -59,7 +59,17 @@ export type CollaborationRoomDenialReason =
 
 /** The result of authorizing one join attempt against one room. */
 export type CollaborationRoomAuthorization =
-  { ok: true; role: DirectorCollaborationRoomRole } | { ok: false; reason: CollaborationRoomDenialReason };
+  | {
+      ok: true;
+      role: DirectorCollaborationRoomRole;
+      /**
+       * The verified invite's revocation subject, so the hub can re-check a
+       * live membership when its invite is revoked later. Absent in local
+       * trust mode, where no invite backs the membership.
+       */
+      subject?: CollaborationInviteRevocationSubject;
+    }
+  | { ok: false; reason: CollaborationRoomDenialReason };
 
 /**
  * Room-level join authorizer consumed by the collaboration hub.
@@ -174,7 +184,16 @@ export function verifyCollaborationInviteToken(input: {
   if (payload.exp <= (input.now?.() ?? Date.now())) return { ok: false, reason: "expired" };
   if (!collaborationRoomScopeMatches(input.roomId, payload.room)) return { ok: false, reason: "room_mismatch" };
   if (input.revocations?.isRevoked(payload, input.roomId)) return { ok: false, reason: "revoked" };
-  return { ok: true, role: payload.role };
+  return {
+    ok: true,
+    role: payload.role,
+    subject: {
+      room: payload.room,
+      exp: payload.exp,
+      ...(payload.jti !== undefined ? { jti: payload.jti } : {}),
+      ...(payload.iat !== undefined ? { iat: payload.iat } : {}),
+    },
+  };
 }
 
 /** Returns whether the configured mode string enables invite-required room auth. */
