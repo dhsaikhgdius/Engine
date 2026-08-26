@@ -10,6 +10,7 @@ import {
   createDirectorPreviewSecret,
   DIRECTOR_CORS_ALLOWED_REQUEST_HEADERS,
   directorAllowedOrigins,
+  directorBootstrapRequestAllowed,
   directorGatewayRequestAuthorized,
   directorGatewayTokenMatches,
   requestDirectorGatewayToken,
@@ -20,10 +21,14 @@ import {
 describe("Director gateway authorization boundary", () => {
   const originalUiPort = process.env.DIRECTOR_UI_PORT;
   const originalGatewayPort = process.env.STAGE_GATEWAY_PORT;
+  const originalAllowWeak = process.env.DIRECTOR_ALLOW_WEAK_GATEWAY_TOKEN;
+  const originalAllowAnonymousBootstrap = process.env.DIRECTOR_ALLOW_ANONYMOUS_BOOTSTRAP;
 
   beforeEach(() => {
     delete process.env.DIRECTOR_UI_PORT;
     delete process.env.STAGE_GATEWAY_PORT;
+    delete process.env.DIRECTOR_ALLOW_WEAK_GATEWAY_TOKEN;
+    delete process.env.DIRECTOR_ALLOW_ANONYMOUS_BOOTSTRAP;
   });
 
   afterEach(() => {
@@ -32,16 +37,18 @@ describe("Director gateway authorization boundary", () => {
     else process.env.DIRECTOR_UI_PORT = originalUiPort;
     if (originalGatewayPort === undefined) delete process.env.STAGE_GATEWAY_PORT;
     else process.env.STAGE_GATEWAY_PORT = originalGatewayPort;
+    if (originalAllowWeak === undefined) delete process.env.DIRECTOR_ALLOW_WEAK_GATEWAY_TOKEN;
+    else process.env.DIRECTOR_ALLOW_WEAK_GATEWAY_TOKEN = originalAllowWeak;
+    if (originalAllowAnonymousBootstrap === undefined) delete process.env.DIRECTOR_ALLOW_ANONYMOUS_BOOTSTRAP;
+    else process.env.DIRECTOR_ALLOW_ANONYMOUS_BOOTSTRAP = originalAllowAnonymousBootstrap;
   });
 
-  it("uses a configured or random process secret and only warns about short tokens", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("uses a configured or random process secret and rejects short tokens unless opted in", () => {
     expect(createDirectorGatewaySecret("x".repeat(32))).toBe("x".repeat(32));
     expect(createDirectorGatewaySecret("")).toHaveLength(43);
-    expect(warn).not.toHaveBeenCalled();
+    expect(() => createDirectorGatewaySecret("too-short")).toThrow(/24 characters/);
+    process.env.DIRECTOR_ALLOW_WEAK_GATEWAY_TOKEN = "1";
     expect(createDirectorGatewaySecret("too-short")).toBe("too-short");
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("24 characters"));
   });
 
   it("allows only the local Director browser origins by default", () => {
@@ -161,5 +168,25 @@ describe("Director gateway authorization boundary", () => {
         previewSecret,
       ),
     ).toBe(false);
+  });
+
+  it("allows bootstrap only for trusted origins, existing tokens, or explicit anonymous opt-in", () => {
+    const gatewaySecret = "gateway-secret-value-that-is-long";
+    const anonymous = { method: "POST", headers: {} } as IncomingMessage;
+    const browser = {
+      method: "POST",
+      headers: { origin: "http://127.0.0.1:5175" },
+    } as IncomingMessage;
+    const authenticated = {
+      method: "POST",
+      headers: { "x-director-browser-token": gatewaySecret },
+    } as IncomingMessage;
+
+    expect(directorBootstrapRequestAllowed(anonymous, gatewaySecret)).toBe(false);
+    expect(directorBootstrapRequestAllowed(browser, gatewaySecret)).toBe(true);
+    expect(directorBootstrapRequestAllowed(authenticated, gatewaySecret)).toBe(true);
+
+    process.env.DIRECTOR_ALLOW_ANONYMOUS_BOOTSTRAP = "1";
+    expect(directorBootstrapRequestAllowed(anonymous, gatewaySecret)).toBe(true);
   });
 });

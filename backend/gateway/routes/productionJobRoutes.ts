@@ -262,6 +262,29 @@ function routeJobId(pathname: string, suffix = "") {
   return match ? decodeURIComponent(match[1]!) : null;
 }
 
+/**
+ * Re-dispatches locally runnable jobs that were left queued by a previous
+ * gateway process. Safe to call on startup after stores are loaded.
+ */
+export async function resumeQueuedProductionJobs(dependencies: ProductionJobRouteDependencies) {
+  await failQueuedJobsWithoutLocalExecutor(dependencies);
+  const jobs = await dependencies.store.list();
+  for (const job of jobs) {
+    if (job.status !== "queued") continue;
+    if (job.kind === "canvas.image") {
+      void runJob(dependencies, job.id);
+      continue;
+    }
+    if ((job.kind === "media.transcode" || job.kind === "media.proxy") && dependencies.mediaTranscode) {
+      void runJob(dependencies, job.id);
+      continue;
+    }
+    if (job.kind === "scene.reconstruct" && dependencies.captureReconstruction) {
+      void runJob(dependencies, job.id);
+    }
+  }
+}
+
 async function enqueueJob(
   request: IncomingMessage,
   response: ServerResponse,

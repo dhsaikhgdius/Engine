@@ -9,6 +9,10 @@ import {
   type StoredAgentApiProvider,
 } from "../agents/agentApiProviderStore";
 import { fetchAgentApiModelsRequestSchema, fetchHostedAgentModels } from "../agents/agentApiModels";
+import {
+  assertAllowedOutboundProviderUrl,
+  assertStoredProviderBaseUrlMatches,
+} from "../agents/outboundUrlPolicy";
 import type { HostedAgentProfileConfig } from "../controlPlane/controlPlaneConfig";
 import { ModelDriverHttpError, ModelDriverResponseError } from "@director/model-provider/runtime";
 
@@ -100,9 +104,16 @@ export async function handleAgentApiProviderRoute(
       json(response, 400, { error: "拉取模型参数无效", code: "invalid_request" });
       return true;
     }
-    const apiKey =
-      parsed.data.apiKey?.trim() || (parsed.data.providerId ? store.getApiKey(parsed.data.providerId) : undefined);
     try {
+      assertAllowedOutboundProviderUrl(parsed.data.baseUrl);
+      const storedProvider = parsed.data.providerId
+        ? store.list().find((provider) => provider.id === parsed.data.providerId)
+        : undefined;
+      if (storedProvider) {
+        assertStoredProviderBaseUrlMatches(storedProvider.baseUrl, parsed.data.baseUrl);
+      }
+      const apiKey =
+        parsed.data.apiKey?.trim() || (parsed.data.providerId ? store.getApiKey(parsed.data.providerId) : undefined);
       const models = await fetchModels({
         driver: parsed.data.driver,
         baseUrl: parsed.data.baseUrl,
@@ -110,7 +121,10 @@ export async function handleAgentApiProviderRoute(
       });
       json(response, 200, { models });
     } catch (error) {
-      json(response, 502, { error: publicError(error), code: "models_unavailable" });
+      json(response, error instanceof Error && /baseUrl|private|metadata|HTTP/i.test(error.message) ? 400 : 502, {
+        error: publicError(error),
+        code: error instanceof Error && /baseUrl|private|metadata|HTTP/i.test(error.message) ? "invalid_request" : "models_unavailable",
+      });
     }
     return true;
   }

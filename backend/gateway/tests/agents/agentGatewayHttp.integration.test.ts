@@ -283,9 +283,9 @@ process.exit(17);
     });
 
     const anonymous = await fetch(`${baseUrl}/te-man/director/agent/bootstrap`, { method: "POST" });
-    expect(anonymous.status).toBe(200);
+    expect(anonymous.status).toBe(403);
     await expect(anonymous.json()).resolves.toMatchObject({
-      browserToken: GATEWAY_TOKEN,
+      code: "bootstrap_denied",
     });
 
     for (const origin of ["http://127.0.0.1:5175"]) {

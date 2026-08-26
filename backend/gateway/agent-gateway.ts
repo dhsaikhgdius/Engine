@@ -67,6 +67,7 @@ import {
   requestDirectorGatewayToken,
   requiresDirectorGatewayAuth,
   trustedDirectorOrigin,
+  directorBootstrapRequestAllowed,
 } from "./gatewayAuth";
 import { BoundedTextBuffer } from "./boundedTextBuffer";
 import { reportPlannerFailure, reportPlannerInvalidOutput, reportPlannerOutputLimit } from "./plannerFailure";
@@ -127,7 +128,7 @@ import { createLiveStagePlaytestRunner } from "./game/liveStagePlaytest";
 import { handleGameRoute } from "./routes/gameRoutes";
 import { createVideoGenerationService } from "./video/createVideoGenerationService";
 import { handleControlPlaneRoute } from "./routes/controlPlaneRoutes";
-import { handleProductionJobRoute } from "./routes/productionJobRoutes";
+import { handleProductionJobRoute, resumeQueuedProductionJobs } from "./routes/productionJobRoutes";
 import { ProductionJobStore } from "./jobs/productionJobStore";
 import { ProductionArtifactStore } from "./artifacts/productionArtifactStore";
 import { handleProductionArtifactRoute } from "./routes/productionArtifactRoutes";
@@ -229,6 +230,30 @@ const workbenchIdentityTokens = new Map<string, string>();
  * @param identity - The identity fields from a browser `hello` message.
  * @returns A NUL-delimited composite key for the {@link workbenchIdentityTokens} map.
  */
+function releaseWorkbenchClient(client: WebSocket) {
+  const registration = workbenchClients.get(client);
+  workbenchClients.delete(client);
+  if (!registration) return;
+  const identityKey = workbenchIdentityKey({
+    client_id: registration.clientId,
+    instance_id: registration.instanceId,
+    scene_id: registration.sceneId,
+    creative_scope_id: registration.creativeScopeId,
+    contract_version: registration.contractVersion,
+  });
+  for (const peerRegistration of workbenchClients.values()) {
+    const peerKey = workbenchIdentityKey({
+      client_id: peerRegistration.clientId,
+      instance_id: peerRegistration.instanceId,
+      scene_id: peerRegistration.sceneId,
+      creative_scope_id: peerRegistration.creativeScopeId,
+      contract_version: peerRegistration.contractVersion,
+    });
+    if (peerKey === identityKey) return;
+  }
+  workbenchIdentityTokens.delete(identityKey);
+}
+
 function workbenchIdentityKey(identity: {
   client_id: string;
   instance_id: string;
@@ -272,7 +297,12 @@ type PlannedAgentTargets = { workbench?: string; creative?: string };
 type PlannedAgentTargetLease = { targets: PlannedAgentTargets; expiresAt: number };
 const plannedAgentTargets = new Map<string, PlannedAgentTargetLease>();
 let previewMimeType: StageCapturePayload["mimeType"] = "image/png";
-const terminalSessions = new TerminalSessionManager(root);
+const terminalSessions = new TerminalSessionManager(root, (() => {
+  const environment = { ...process.env };
+  delete environment.DIRECTOR_GATEWAY_TOKEN;
+  delete environment.DIRECTOR_COLLAB_INVITE_SECRET;
+  return environment;
+})());
 // Team-readiness collaboration boundary: room auth defaults to local trust,
 // persistence defaults to in-memory, and empty rooms are destroyed
 // immediately; each is opt-in via environment (see createCollaborationRuntime).
@@ -2035,6 +2065,20 @@ const server = createServer(async (request, response) => {
       headers(response, 204);
       return response.end();
     }
+    const generatedAssetPath =
+      url.pathname.startsWith("/dcc-import/") ||
+      url.pathname.startsWith("/generated-3d/") ||
+      url.pathname.startsWith("/native-models/");
+    if (
+      generatedAssetPath &&
+      !origin &&
+      !directorGatewayRequestAuthorized(request, url, gatewaySecret, previewSecret)
+    ) {
+      return json(response, 401, {
+        error: "Director gateway authorization is required for generated asset reads without a browser Origin.",
+        code: "gateway_unauthorized",
+      });
+    }
     if (await handleGeneratedAssetRoute(request, response, url, generatedAssetRoot)) return;
     if (
       requiresDirectorGatewayAuth(request, url) &&
@@ -2266,6 +2310,12 @@ const server = createServer(async (request, response) => {
     )
       return;
     if (request.method === "POST" && url.pathname === "/te-man/director/agent/bootstrap") {
+      if (!directorBootstrapRequestAllowed(request, gatewaySecret, allowedBrowserOrigins)) {
+        return json(response, 403, {
+          error: "Anonymous bootstrap is disabled. Send a trusted Origin header or configure DIRECTOR_ALLOW_ANONYMOUS_BOOTSTRAP=1.",
+          code: "bootstrap_denied",
+        });
+      }
       return json(
         response,
         200,
@@ -2456,7 +2506,14 @@ const server = createServer(async (request, response) => {
 
 const webSockets = new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 * 1024 });
 server.on("upgrade", (request, socket, head) => {
-  const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
+  let url: URL;
+  try {
+    url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
+  } catch {
+    socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
   if (url.pathname !== "/ws") return socket.destroy();
   const origin = typeof request.headers.origin === "string" ? request.headers.origin : undefined;
   if (
@@ -2580,23 +2637,44 @@ webSockets.on("connection", (client) => {
     collaborationHub.disconnect(client);
     terminalSessions.close(client);
     cancelTargetWaiters(client);
-    workbenchClients.delete(client);
+    releaseWorkbenchClient(client);
     clients.delete(client);
   });
   client.on("error", () => {
     collaborationHub.disconnect(client);
     terminalSessions.close(client);
     cancelTargetWaiters(client);
-    workbenchClients.delete(client);
+    releaseWorkbenchClient(client);
     clients.delete(client);
   });
 });
 
+process.on("unhandledRejection", (reason) => {
+  console.error("Director gateway unhandled rejection", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Director gateway uncaught exception", error);
+});
+
 registerBuiltinProviders();
+
+const productionJobRouteDependencies = {
+  readBody: body,
+  json,
+  store: productionJobStore,
+  createJobId: () => `canvas-job-${crypto.randomUUID()}`,
+  mediaTranscode: mediaTranscodeRuntime.executor,
+  mediaInputs: mediaTranscodeRuntime.inputs,
+  captureReconstruction: captureReconstructionRuntime.executor,
+  artifactVersions: productionArtifactStore,
+  onBackgroundError: (error: unknown) => console.error("Production job executor failed", error),
+} as const;
 
 server.listen(port, host, () => {
   console.log(`Director Stage gateway ready at http://${host}:${port}`);
   void reconcileOutcomeUnknownJobs(productionJobStore, [comfyGenerationRuntime.executor, generated3dRuntime.executor]);
+  void resumeQueuedProductionJobs(productionJobRouteDependencies);
 });
 
 server.on("close", () => {

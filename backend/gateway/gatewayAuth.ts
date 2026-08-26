@@ -32,21 +32,52 @@ function defaultBrowserOrigins() {
   return origins;
 }
 
+function directorWeakGatewayTokenAllowed() {
+  return process.env.DIRECTOR_ALLOW_WEAK_GATEWAY_TOKEN?.trim() === "1";
+}
+
+/**
+ * Returns whether anonymous bootstrap (requests without an `Origin` header and
+ * without an existing gateway token) may receive the master gateway secret.
+ * Disabled by default; set `DIRECTOR_ALLOW_ANONYMOUS_BOOTSTRAP=1` to opt in.
+ */
+export function directorAnonymousBootstrapAllowed() {
+  return process.env.DIRECTOR_ALLOW_ANONYMOUS_BOOTSTRAP?.trim() === "1";
+}
+
 /**
  * Returns the gateway secret, preferring the configured environment variable.
  * When no explicit token is set, generates a random 32-byte base64url token.
- * Short explicit tokens emit a warning but are accepted for local development.
+ * Short explicit tokens are rejected unless `DIRECTOR_ALLOW_WEAK_GATEWAY_TOKEN=1`.
  *
  * @param configured - Optional pre-configured token (defaults to `DIRECTOR_GATEWAY_TOKEN`).
  */
 export function createDirectorGatewaySecret(configured = process.env.DIRECTOR_GATEWAY_TOKEN) {
   const explicit = configured?.trim();
-  if (explicit && explicit.length < 24) {
-    console.warn(
-      "DIRECTOR_GATEWAY_TOKEN is shorter than the recommended 24 characters; accepting it because the local bootstrap endpoint already issues tokens to any local process.",
+  if (explicit && explicit.length < 24 && !directorWeakGatewayTokenAllowed()) {
+    throw new Error(
+      "DIRECTOR_GATEWAY_TOKEN is shorter than the required 24 characters. Set DIRECTOR_ALLOW_WEAK_GATEWAY_TOKEN=1 for local development only.",
     );
   }
   return explicit || randomBytes(32).toString("base64url");
+}
+
+/**
+ * Returns whether a bootstrap request may receive the master gateway secret.
+ * Trusted browser origins and requests that already present the gateway token
+ * are always allowed; anonymous no-Origin clients require an explicit opt-in.
+ */
+export function directorBootstrapRequestAllowed(
+  request: IncomingMessage,
+  gatewaySecret: string,
+  allowedOrigins = directorAllowedOrigins(),
+) {
+  const origin = typeof request.headers.origin === "string" ? request.headers.origin : undefined;
+  if (origin) return trustedDirectorOrigin(origin, allowedOrigins);
+  if (directorGatewayTokenMatches(requestDirectorGatewayToken(request, new URL("http://local/")), gatewaySecret)) {
+    return true;
+  }
+  return directorAnonymousBootstrapAllowed();
 }
 
 /** Generates a random 32-byte base64url preview capability token. */
@@ -90,10 +121,11 @@ export function trustedDirectorOrigin(origin: string | undefined, allowed = dire
  * @param request - The incoming HTTP request.
  * @param url - The parsed request URL.
  */
-export function requestDirectorGatewayToken(request: IncomingMessage, url: URL) {
+export function requestDirectorGatewayToken(request: IncomingMessage, url?: URL) {
   const header = request.headers["x-director-browser-token"];
   const fromHeader = Array.isArray(header) ? header[0] : header;
-  return fromHeader?.trim() || url.searchParams.get("browser_token")?.trim() || "";
+  const fromQuery = url?.searchParams.get("browser_token")?.trim() || "";
+  return fromHeader?.trim() || fromQuery;
 }
 
 /**
