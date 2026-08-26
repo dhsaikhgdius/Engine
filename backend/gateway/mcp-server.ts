@@ -24,6 +24,7 @@ import {
   mcpToolStructuredOutputSchema,
 } from "./mcpToolResponse";
 import { directorDccOperationSchema } from "@director/dcc-protocol";
+import { directorGameOperationSchema } from "../../packages/protocol/src/directorGameProtocol";
 import { blenderNativeToolRequestSchema } from "../../packages/protocol/src/blenderLiveProtocol";
 import {
   productionEvidenceRequestSchema,
@@ -174,9 +175,19 @@ const wireSchemas = {
     directorDccOperationSchema,
     "Operation. Call discover first to see provider readiness, formats, and capability maturity.",
   ),
+  director_game: compactWireSchema(
+    directorGameOperationSchema,
+    'Operation. Use {"op":"capabilities"} or {"op":"describe","target":"plan"} when fields are unknown. Stage is the first playable runtime.',
+  ),
 };
 
 const directorDccOutputSchema = z.strictObject({
+  ok: z.boolean(),
+  result: z.unknown().nullable(),
+  error: z.string().nullable(),
+});
+
+const directorGameOutputSchema = z.strictObject({
   ok: z.boolean(),
   result: z.unknown().nullable(),
   error: z.string().nullable(),
@@ -689,6 +700,62 @@ registerVisibleTool("director_dcc", () => {
             {
               type: "text" as const,
               text: `Director DCC gateway is unavailable at ${gatewayUrl}. Start it with "npm run gateway" or "npm run dev". ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+});
+
+registerVisibleTool("director_game", () => {
+  server.registerTool(
+    "director_game",
+    {
+      title: "Director Game Slice",
+      description:
+        'Plan and playtest a typed game slice on the live Director Stage. Call {"op":"capabilities"} or {"op":"describe","target":"plan"} when fields are unknown. Bind Stage object ids, then playtest with a scripted input tape. Engine export is director_dcc after status playable; do not dump engine source.',
+      inputSchema: wireSchemas.director_game,
+      outputSchema: directorGameOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const rejection = await policyRejectedToolResponse("director_game", input);
+      if (rejection) return rejection;
+      try {
+        const parsedInput = parseToolInput(directorGameOperationSchema, input, "director_game");
+        const response = await authenticatedGatewayFetch("/api/tools/director_game", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ input: parsedInput, session_id: sessionId }),
+        });
+        const payload = (await response.json()) as unknown;
+        const parsedPayload = z
+          .looseObject({ success: z.boolean(), result: z.unknown().optional(), error: z.string().optional() })
+          .safeParse(payload);
+        if (!parsedPayload.success) throw new Error("Gateway returned malformed director_game JSON.");
+        const structuredContent = {
+          ok: parsedPayload.data.success,
+          result: parsedPayload.data.result ?? null,
+          error: parsedPayload.data.error ?? null,
+        };
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(structuredContent, null, 2) }],
+          structuredContent,
+          isError: !structuredContent.ok,
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Director game gateway is unavailable at ${gatewayUrl}. Start it with "npm run gateway" or "npm run dev". ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
           isError: true,
