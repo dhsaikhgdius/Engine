@@ -41215,6 +41215,9 @@ var canvasDagLayoutSchema = strictOperation("canvas.dag.layout", {
   layer_gap: boundedNumber(40, 1200).optional(),
   node_gap: boundedNumber(20, 800).optional()
 });
+var canvasScriptApplyPlanSchema = strictOperation("canvas.script.apply_plan", {
+  fountain_text: external_exports.string().trim().min(1).max(5e5)
+});
 var creativeWorkspaceCanvasProductionConfigPatchSchema = external_exports.strictObject({
   workflow_id: external_exports.string().trim().min(1).max(160).nullable().optional(),
   node_ids: external_exports.array(external_exports.string().trim().min(1).max(80)).max(32).refine((values) => new Set(values).size === values.length, "node_ids must be unique").optional(),
@@ -41447,6 +41450,7 @@ var creativeWorkspaceAgentOperationSchema = external_exports.discriminatedUnion(
   canvasEdgeAddSchema,
   canvasEdgeRemoveSchema,
   canvasDagLayoutSchema,
+  canvasScriptApplyPlanSchema,
   canvasProductionConfigureSchema,
   editClipAddSchema,
   editClipUpdateSchema,
@@ -121937,6 +121941,8 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
       max_zoom: external_exports.literal(1.35)
     }),
     viewport_contract: external_exports.string(),
+    script_operation: external_exports.literal("canvas.script.apply_plan"),
+    script_contract: external_exports.string(),
     execution_boundary: external_exports.string()
   }),
   preview: external_exports.strictObject({
@@ -136628,6 +136634,13 @@ var directorDccOmittedOpticsSchema = external_exports.strictObject({
   field: external_exports.literal("sensorFormat").optional(),
   reason: nonEmpty3.max(600)
 });
+var directorDccOmittedAdditionSchema = external_exports.strictObject({
+  directorId: nonEmpty3.max(200),
+  name: nonEmpty3.max(240),
+  meshFile: safeRelativePath2,
+  code: external_exports.enum(["opt_in_required", "duplicate_director_id", "skip_requested"]),
+  reason: nonEmpty3.max(1e3)
+});
 var directorVec3Schema3 = external_exports.tuple([external_exports.number().finite(), external_exports.number().finite(), external_exports.number().finite()]);
 var directorDccImportPlanLightPatchSchema = external_exports.strictObject({
   color: hexColor.optional(),
@@ -136710,7 +136723,21 @@ var directorDccImportPlanSchema = external_exports.strictObject({
    * (`sensor_format` today). Optional for older plans; when present, length
    * must equal omittedOpticsCount.
    */
-  omittedOptics: external_exports.array(directorDccOmittedOpticsSchema).max(1024).optional()
+  omittedOptics: external_exports.array(directorDccOmittedOpticsSchema).max(1024).optional(),
+  /**
+   * Count of `object_addition` changes the plan leaves unimported. Optional
+   * for plans built before typed omittedAdditions; when omittedAdditions is
+   * present, length must equal this count.
+   */
+  omittedAdditionsCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed records for new DCC objects the plan does not import — awaiting
+   * the `include_new_objects` opt-in, colliding with a live stable ID, or
+   * excluded on request. Optional for older plans; when present, length
+   * must equal omittedAdditionsCount. The cap matches the manifest
+   * `changes` cap so a fully additive package still parses.
+   */
+  omittedAdditions: external_exports.array(directorDccOmittedAdditionSchema).max(2e4).optional()
 }).superRefine((plan, context) => {
   if (plan.ready && plan.conflicts.length > 0) {
     context.addIssue({ code: "custom", path: ["ready"], message: "ready plans cannot contain conflicts" });
@@ -136727,6 +136754,21 @@ var directorDccImportPlanSchema = external_exports.strictObject({
         code: "custom",
         path: ["omittedOptics"],
         message: "omittedOptics length must equal omittedOpticsCount"
+      });
+    }
+  }
+  if (plan.omittedAdditions !== void 0) {
+    if (plan.omittedAdditionsCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedAdditionsCount"],
+        message: "omittedAdditionsCount is required when omittedAdditions is present"
+      });
+    } else if (plan.omittedAdditions.length !== plan.omittedAdditionsCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedAdditions"],
+        message: "omittedAdditions length must equal omittedAdditionsCount"
       });
     }
   }

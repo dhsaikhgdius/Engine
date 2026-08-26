@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { buildScriptToCanvasPlan } from "../comprehensive/editor/assistant/scriptToProductionPipeline";
 import { analyzeDirectorCanvasDag, wouldCreateDirectorCanvasCycle } from "../comprehensive/editor/workspaces/canvasDag";
 import {
   CANVAS_BOARD_FIT_DEFAULT_PADDING,
@@ -1542,6 +1543,52 @@ export function executeCreativeWorkspaceAgentOperation(
         operation.op,
         `Laid out ${current.boardNodes.length} Canvas nodes in dependency order.`,
         { dag: projectCanvasDag(current.boardNodes, current.boardEdges) },
+        context,
+      );
+    }
+    case "canvas.script.apply_plan": {
+      const capacity = 240 - state.boardNodes.length;
+      if (capacity <= 0) {
+        return semanticFailure(
+          operation.op,
+          "capacity",
+          "The Canvas has reached its 240-node limit; the script plan would add no nodes. Remove or consolidate nodes before importing a script.",
+        );
+      }
+      const plan = buildScriptToCanvasPlan(operation.fountain_text);
+      const truncatedNodes = plan.nodes.slice(capacity);
+      const replacedSectionIds = state.boardSections.map((section) => section.id);
+      const nodeIdsBefore = new Set(state.boardNodes.map((node) => node.id));
+      state.applyScriptCanvasPlan(plan);
+      const after = context.workspace.getState();
+      const addedNodes = after.boardNodes.filter((node) => !nodeIdsBefore.has(node.id));
+      const omitted = [
+        ...plan.omitted,
+        ...truncatedNodes.map((node) => ({
+          code: "board_capacity",
+          subject: `node:${node.beatId}`,
+          reason: `Canvas board reached its 240-node limit; shot "${node.title}" was not added (warn-and-omit code: board_capacity).`,
+        })),
+      ];
+      const summary =
+        `Applied the Fountain script plan: ${addedNodes.length} storyboard node(s) across ` +
+        `${after.boardSections.length} workflow section(s), replacing ${replacedSectionIds.length} previous section(s).`;
+      return success(
+        operation.op,
+        omitted.length ? `${summary} ${omitted.length} item(s) were omitted; see result.omitted.` : summary,
+        {
+          storyboard_shots: plan.storyboardShotCount,
+          nodes_added: addedNodes.length,
+          nodes: addedNodes.map((node) => ({
+            id: node.id,
+            title: node.title,
+            section_id: node.sectionId ?? null,
+          })),
+          sections: after.boardSections.map(projectBoardSection),
+          replaced_section_ids: replacedSectionIds,
+          omitted,
+          warnings: plan.warnings,
+        },
         context,
       );
     }

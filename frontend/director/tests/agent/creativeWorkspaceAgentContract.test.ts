@@ -81,6 +81,22 @@ const VIDEO_PROXY_ASSET: CreativeMediaAsset = {
   objectUrl: "blob:take-proxy-preview",
 };
 
+/** Two scene headings (→ two shots) plus one dialogue block the importer omits. */
+const FOUNTAIN_SCRIPT = [
+  "Title: 剧组黎明",
+  "",
+  "INT. STUDIO - DAY",
+  "",
+  "The director frames the opening shot.",
+  "",
+  "ANNA",
+  "We roll at dawn.",
+  "",
+  "EXT. RIVER - DUSK",
+  "",
+  "The crew moves to the river bank.",
+].join("\n");
+
 function mediaState(assets: readonly CreativeMediaAsset[] = MEDIA_ASSETS): PersistentCreativeMediaState {
   return {
     status: "ready",
@@ -533,6 +549,97 @@ describe("creative workspace agent operation contract", () => {
     );
     expect(removed.result).toEqual({ removed_id: imageId });
     expect(useDirectorCreativeWorkspaceStore.getState().boardNodes.some((node) => node.id === imageId)).toBe(false);
+  });
+
+  it("applies a Fountain script plan with replaced sections and typed importer omissions", () => {
+    const runtime = context();
+    const legacyNode = expectSuccess(
+      executeCreativeWorkspaceAgentOperation(
+        { op: "canvas.node.add", kind: "note", title: "旧节点", x: 0, y: 0 },
+        runtime,
+      ),
+    );
+    const legacyNodeId = (legacyNode.result.node as { id: string }).id;
+    const legacySection = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "canvas.section.add", title: "旧分区", x: 20, y: 20 }, runtime),
+    );
+    const legacySectionId = (legacySection.result.section as { id: string }).id;
+
+    const applied = expectSuccess(
+      executeCreativeWorkspaceAgentOperation(
+        { op: "canvas.script.apply_plan", fountain_text: FOUNTAIN_SCRIPT },
+        runtime,
+      ),
+    );
+    expect(applied.result).toMatchObject({
+      storyboard_shots: 2,
+      nodes_added: 2,
+      replaced_section_ids: [legacySectionId],
+    });
+    const sections = applied.result.sections as Array<{ id: string; kind: string }>;
+    expect(sections.map((section) => section.kind)).toEqual(["character", "scene", "generation", "final"]);
+    expect(sections.some((section) => section.id === legacySectionId)).toBe(false);
+    const addedNodes = applied.result.nodes as Array<{ id: string; title: string; section_id: string | null }>;
+    expect(addedNodes).toHaveLength(2);
+    expect(addedNodes.map((node) => node.title)).toEqual(["INT. STUDIO - DAY", "EXT. RIVER - DUSK"]);
+    // The Fountain importer's typed omissions surface on the receipt.
+    expect(applied.result.omitted).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "character_dialogue", subject: "ANNA" })]),
+    );
+    // Node append semantics: the pre-existing node survives the import.
+    expect(applied.snapshot.counts).toMatchObject({ board_nodes: 3, board_sections: 4 });
+    expect(applied.snapshot.board.nodes.some((node) => node.id === legacyNodeId)).toBe(true);
+
+    // One atomic undo entry restores the replaced section list.
+    expectSuccess(executeCreativeWorkspaceAgentOperation({ op: "workspace.undo" }, runtime));
+    const restored = useDirectorCreativeWorkspaceStore.getState();
+    expect(restored.boardSections.map((section) => section.id)).toEqual([legacySectionId]);
+    expect(restored.boardNodes.map((node) => node.id)).toEqual([legacyNodeId]);
+  });
+
+  it("reports board-capacity truncation as typed omitted instead of silently dropping shots", () => {
+    const runtime = context();
+    for (let index = 0; index < 239; index += 1) {
+      const added = useDirectorCreativeWorkspaceStore
+        .getState()
+        .addBoardNode({ kind: "note", title: `filler-${index}`, x: index, y: 0 });
+      expect(added).not.toBeNull();
+    }
+
+    const truncated = expectSuccess(
+      executeCreativeWorkspaceAgentOperation(
+        { op: "canvas.script.apply_plan", fountain_text: FOUNTAIN_SCRIPT },
+        runtime,
+      ),
+    );
+    expect(truncated.result).toMatchObject({ storyboard_shots: 2, nodes_added: 1 });
+    expect(truncated.result.omitted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "board_capacity", subject: expect.stringMatching(/^node:/) }),
+      ]),
+    );
+    expect(truncated.message).toContain("omitted");
+    expect(truncated.snapshot.counts.board_nodes).toBe(240);
+
+    // A full board rejects before any mutation: sections stay untouched.
+    const sectionIdsBefore = useDirectorCreativeWorkspaceStore.getState().boardSections.map((section) => section.id);
+    const rejected = expectFailure(
+      executeCreativeWorkspaceAgentOperation(
+        { op: "canvas.script.apply_plan", fountain_text: FOUNTAIN_SCRIPT },
+        runtime,
+      ),
+      "capacity",
+    );
+    expect(rejected.error).toContain("240");
+    expect(useDirectorCreativeWorkspaceStore.getState().boardSections.map((section) => section.id)).toEqual(
+      sectionIdsBefore,
+    );
+  });
+
+  it("rejects empty Fountain text for canvas.script.apply_plan as invalid input", () => {
+    expect(parseCreativeWorkspaceAgentOperation({ op: "canvas.script.apply_plan", fountain_text: "  " })).toMatchObject(
+      { success: false, code: "invalid_input" },
+    );
   });
 
   it("adds, edits, moves, splits, seeks, and removes timeline clips", () => {
