@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 
@@ -23,6 +23,16 @@ export interface StoredArtifactObject {
   modifiedAt: string;
 }
 
+/** A live capacity measurement of the volume backing a storage backend. */
+export interface ArtifactStorageCapacity {
+  /** Total size of the backing volume in bytes. */
+  totalBytes: number;
+  /** Bytes not allocated on the volume. */
+  freeBytes: number;
+  /** Bytes available to this (unprivileged) process; ≤ freeBytes. */
+  availableBytes: number;
+}
+
 /** Uniform byte-storage contract shared by the filesystem and object-storage backends. */
 export interface ArtifactStorageBackend {
   /** Which backend family serves this store. */
@@ -37,6 +47,12 @@ export interface ArtifactStorageBackend {
   delete(key: string): Promise<boolean>;
   /** Lists objects whose key starts with the given prefix, sorted by key. */
   list(prefix?: string): Promise<StoredArtifactObject[]>;
+  /**
+   * Measures live capacity of the backing volume. Backends without an
+   * enumerable capacity (S3-compatible object storage) leave this undefined
+   * so health reporting states the omission instead of inventing a number.
+   */
+  capacity?(): Promise<ArtifactStorageCapacity>;
 }
 
 /**
@@ -154,6 +170,21 @@ export class FilesystemArtifactStorage implements ArtifactStorageBackend {
     return objects
       .filter((object) => object.key.startsWith(prefix))
       .sort((left, right) => left.key.localeCompare(right.key));
+  }
+
+  /**
+   * Measures the volume that owns the storage root via `statfs`. The root
+   * directory is created first so a fresh gateway measures the filesystem
+   * its data directory will actually live on.
+   */
+  async capacity(): Promise<ArtifactStorageCapacity> {
+    await mkdir(this.rootDirectory, { recursive: true });
+    const stats = await statfs(this.rootDirectory);
+    return {
+      totalBytes: stats.bsize * stats.blocks,
+      freeBytes: stats.bsize * stats.bfree,
+      availableBytes: stats.bsize * stats.bavail,
+    };
   }
 
   /**

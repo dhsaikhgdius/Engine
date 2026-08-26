@@ -20,9 +20,10 @@ import { resolveArtifactRetentionPolicy } from "../../media/artifactRetentionPol
 import {
   FilesystemArtifactStorage,
   ObjectStorageArtifactStorage,
+  type ArtifactStorageBackend,
   type ObjectStorageClient,
 } from "../../media/artifactStorage";
-import { StorageOpsService } from "../../media/storageOpsService";
+import { STORAGE_WRITE_PROBE_PREFIX, StorageOpsService, type StorageHealthReport } from "../../media/storageOpsService";
 import { handleStorageOpsRoute, type StorageOpsRouteDependencies } from "../../routes/storageOpsRoutes";
 
 const NOW = "2026-08-25T12:00:00.000Z";
@@ -175,7 +176,7 @@ describe("storage ops routes", () => {
     const putJob = async (record: ProductionJobRecord) => {
       await writeJsonAtomic(join(dir, "production-jobs", record.id, "job.json"), record);
     };
-    return { dir, storage, jobs, service, call, putJob };
+    return { dir, storage, jobs, service, call, putJob, objectFake };
   }
 
   it("ignores unrelated routes", async () => {
@@ -214,9 +215,24 @@ describe("storage ops routes", () => {
           // Everything is younger than the 24 h minimum age: nothing sweepable yet.
           sweepCandidates: { count: 0, bytes: 0, byReason: { unreachable: 0, retentionExpired: 0 } },
           recentSweeps: [],
+          // The filesystem backend was actually exercised, not assumed healthy.
+          capacity: { status: "measured" },
+          writeProbe: { status: "ok" },
         },
       },
     });
+
+    const health = (write!.body as { health: StorageHealthReport }).health;
+    if (health.capacity.status !== "measured") throw new Error("expected a measured capacity");
+    expect(health.capacity.totalBytes).toBeGreaterThan(0);
+    expect(health.capacity.freeBytes).toBeLessThanOrEqual(health.capacity.totalBytes);
+    expect(health.capacity.availableBytes).toBeLessThanOrEqual(health.capacity.freeBytes);
+    expect(health.capacity.usedRatio).toBeGreaterThanOrEqual(0);
+    expect(health.capacity.usedRatio).toBeLessThanOrEqual(1);
+    // The write probe cleaned up after itself: no probe objects survive and
+    // none leak into the usage the same report enumerates.
+    expect(await context.storage.list(STORAGE_WRITE_PROBE_PREFIX)).toEqual([]);
+    expect(health.usage.total.objects).toBe(3);
   });
 
   it("plans a dry run, requires the echoed plan id to sweep, and records an audit entry", async () => {
@@ -353,6 +369,80 @@ describe("storage ops routes", () => {
     expect(replayed[0]!.version.content.sha256).toBe("c".repeat(64));
   });
 
+  async function serviceOver(storage: ArtifactStorageBackend) {
+    const dir = await mkdtemp(join(tmpdir(), "director-storage-ops-probe-"));
+    tempDirs.push(dir);
+    return new StorageOpsService({
+      storage,
+      jobs: new ProductionJobStore(dir),
+      retention: resolveArtifactRetentionPolicy({}),
+      dataDirectory: dir,
+    });
+  }
+
+  it("reports the exact write-probe step that failed instead of implying a writable backend", async () => {
+    const cases: Array<{
+      code: "put_failed" | "verify_failed" | "delete_failed";
+      reason: RegExp;
+      decorate: (client: ObjectStorageClient) => ObjectStorageClient;
+    }> = [
+      {
+        code: "put_failed",
+        reason: /read-only/,
+        decorate: (client) => ({
+          ...client,
+          putObject: async () => {
+            throw new Error("bucket is read-only");
+          },
+        }),
+      },
+      {
+        code: "verify_failed",
+        reason: /not readable/,
+        decorate: (client) => ({ ...client, headObject: async () => null }),
+      },
+      {
+        code: "delete_failed",
+        reason: /could not be deleted/,
+        decorate: (client) => ({ ...client, deleteObject: async () => false }),
+      },
+    ];
+    for (const { code, reason, decorate } of cases) {
+      const service = await serviceOver(new ObjectStorageArtifactStorage(decorate(fakeObjectStorageClient().client)));
+      const health = await service.health();
+      expect(health.writeProbe, code).toMatchObject({ status: "failed", code });
+      if (health.writeProbe.status !== "failed") throw new Error("expected a failed write probe");
+      expect(health.writeProbe.reason, code).toMatch(reason);
+      // A failed probe never breaks the rest of the report.
+      expect(health.contract).toBe("director-storage-health-v1");
+    }
+  });
+
+  it("reports a typed capacity omission when the live measurement itself fails", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "director-storage-ops-capacity-"));
+    tempDirs.push(dir);
+    const filesystem = new FilesystemArtifactStorage(dir);
+    const failing: ArtifactStorageBackend = {
+      kind: "filesystem",
+      put: (key, bytes) => filesystem.put(key, bytes),
+      get: (key) => filesystem.get(key),
+      head: (key) => filesystem.head(key),
+      delete: (key) => filesystem.delete(key),
+      list: (prefix) => filesystem.list(prefix),
+      capacity: async () => {
+        throw new Error("statfs unavailable in this sandbox");
+      },
+    };
+    const service = await serviceOver(failing);
+    const health = await service.health();
+    expect(health.capacity).toEqual({
+      status: "unavailable",
+      code: "capacity_probe_failed",
+      reason: "statfs unavailable in this sandbox",
+    });
+    expect(health.writeProbe).toMatchObject({ status: "ok" });
+  });
+
   it("runs health/plan/sweep against an injected object-storage backend", async () => {
     const nowMs = Date.parse(NOW) + 7 * DAY_MS;
     const context = await harness({
@@ -376,9 +466,17 @@ describe("storage ops routes", () => {
             stagedMediaInputs: { objects: 1, bytes: 10 },
           },
           sweepCandidates: { count: 2, byReason: { unreachable: 1, retentionExpired: 1 } },
+          // Object storage has no enumerable capacity: a typed omission, not
+          // an invented number. The write probe still exercised the client.
+          capacity: { status: "unavailable", code: "capacity_unsupported" },
+          writeProbe: { status: "ok" },
         },
       },
     });
+    // The probe round trip left no objects behind in the injected client.
+    expect([...context.objectFake!.objects.keys()].filter((key) => key.startsWith(STORAGE_WRITE_PROBE_PREFIX))).toEqual(
+      [],
+    );
 
     const plan = ((await context.call("POST", "/api/storage/gc/plan")).write!.body as { plan: { planId: string } })
       .plan;
