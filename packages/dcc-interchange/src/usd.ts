@@ -51,6 +51,27 @@ export interface ImportDirectorUsdOptions {
   baseProject?: DirectorProject;
 }
 
+/**
+ * Structured warn-and-omit codes for USD/USDZ → Stage import. Agents read
+ * `omitted[]` on interchange import plans/receipts; free-text warnings stay for humans.
+ * Codes match the shared glTF interchange omit vocabulary.
+ */
+export const DIRECTOR_USD_OMITTED_CODES = [
+  "embedded_manifest_invalid",
+  "duplicate_stable_id",
+  "empty_project_no_metadata",
+] as const;
+
+/** One USD omit code. */
+export type DirectorUsdOmittedCode = (typeof DIRECTOR_USD_OMITTED_CODES)[number];
+
+/** One structured USD import omission. */
+export interface DirectorUsdOmitted {
+  code: DirectorUsdOmittedCode;
+  subject: string;
+  reason: string;
+}
+
 function quoted(value: string) {
   return JSON.stringify(value);
 }
@@ -190,13 +211,18 @@ export function exportDirectorProjectToUsda(project: DirectorProject, options: E
 /** `.usd` ASCII alias; binary USDC remains the responsibility of an OpenUSD host bridge. */
 export const exportDirectorProjectToUsd = exportDirectorProjectToUsda;
 
-function extractManifest(source: string) {
+function tryParseEmbeddedManifest(source: string):
+  | {
+      project: DirectorProject;
+    }
+  | { error: string }
+  | null {
   const match = source.match(/\bstring\s+directorManifestBase64\s*=\s*"([A-Za-z0-9+/=]+)"/);
   if (!match) return null;
   try {
-    return parseDirectorInterchangeManifest(JSON.parse(decodeUtf8Base64(match[1])) as unknown);
+    return { project: parseDirectorInterchangeManifest(JSON.parse(decodeUtf8Base64(match[1])) as unknown).project };
   } catch (error) {
-    throw new Error(`USD Director manifest is invalid: ${error instanceof Error ? error.message : String(error)}`);
+    return { error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -269,9 +295,26 @@ export function importDirectorProjectFromUsda(
   if (handedness && handedness !== DIRECTOR_INTERCHANGE_COORDINATE_SYSTEM.handedness) {
     throw new Error("USD bridge requires a right-handed coordinate system");
   }
-  const manifest = extractManifest(source);
-  const project = structuredClone(manifest?.project ?? options.baseProject ?? createEmptyDirectorInterchangeProject());
   const warnings: string[] = [];
+  const omitted: DirectorUsdOmitted[] = [];
+  const pushOmit = (code: DirectorUsdOmittedCode, subject: string, reason: string) => {
+    omitted.push({ code, subject, reason });
+  };
+  const embedded = tryParseEmbeddedManifest(source);
+  let embeddedProject: DirectorProject | null = null;
+  if (embedded && "error" in embedded) {
+    pushOmit(
+      "embedded_manifest_invalid",
+      "directorManifestBase64",
+      `Embedded Director project was ignored: ${embedded.error}`,
+    );
+    warnings.push(
+      `Embedded Director project was ignored: ${embedded.error} (warn-and-omit code: embedded_manifest_invalid).`,
+    );
+  } else if (embedded) {
+    embeddedProject = embedded.project;
+  }
+  const project = structuredClone(embeddedProject ?? options.baseProject ?? createEmptyDirectorInterchangeProject());
   const importedIds = new Set<string>();
 
   parseDirectorPrims(source).forEach(({ type, primName, block }) => {
@@ -281,7 +324,8 @@ export function importDirectorProjectFromUsda(
     const entityType = parseString(block, "directorEntityType");
     if (adapter !== DIRECTOR_USD_ADAPTER || contract !== DIRECTOR_INTERCHANGE_CONTRACT || !id) return;
     if (importedIds.has(id)) {
-      warnings.push(`Duplicate USD stable ID ${id} was ignored.`);
+      pushOmit("duplicate_stable_id", id, `Duplicate USD stable ID ${id} was ignored.`);
+      warnings.push(`Duplicate USD stable ID ${id} was ignored (warn-and-omit code: duplicate_stable_id).`);
       return;
     }
     importedIds.add(id);
@@ -355,14 +399,21 @@ export function importDirectorProjectFromUsda(
       }
     }
   });
-  if (!manifest && !options.baseProject && importedIds.size === 0) {
-    warnings.push("USD contains no Director stable-ID prims; an empty project was created.");
+  if (!embeddedProject && !options.baseProject && importedIds.size === 0) {
+    pushOmit(
+      "empty_project_no_metadata",
+      "scene",
+      "USD contains no Director stable-ID prims; an empty project was created.",
+    );
+    warnings.push(
+      "USD contains no Director stable-ID prims; an empty project was created (warn-and-omit code: empty_project_no_metadata).",
+    );
   }
   if (!project.activeCameraId || !project.cameras.some((camera) => camera.id === project.activeCameraId)) {
     project.activeCameraId = project.cameras[0]?.id ?? null;
   }
   assertDirectorInterchangeCharacterAssets(project);
-  return { project, warnings };
+  return { project, warnings, omitted } satisfies DirectorInterchangeImportResult;
 }
 
 export const importDirectorProjectFromUsd = importDirectorProjectFromUsda;
@@ -566,6 +617,8 @@ export async function importDirectorProjectFromUsdz(
   const root = zip.file(DIRECTOR_USDZ_ROOT_PATH) ?? entries.find((entry) => entry.name.toLowerCase().endsWith(".usda"));
   if (!root) throw new Error("USDZ archive contains no USDA root layer");
   let baseProject = options.baseProject;
+  const sidecarOmitted: DirectorUsdOmitted[] = [];
+  const sidecarWarnings: string[] = [];
   const manifestEntry = zip.file(DIRECTOR_USDZ_MANIFEST_PATH);
   if (manifestEntry) {
     const value = await manifestEntry.async("string");
@@ -575,9 +628,22 @@ export async function importDirectorProjectFromUsdz(
     try {
       baseProject = parseDirectorInterchangeManifest(JSON.parse(value) as unknown).project;
     } catch (error) {
-      throw new Error(`USDZ Director manifest is invalid: ${error instanceof Error ? error.message : String(error)}`);
+      const detail = error instanceof Error ? error.message : String(error);
+      sidecarOmitted.push({
+        code: "embedded_manifest_invalid",
+        subject: DIRECTOR_USDZ_MANIFEST_PATH,
+        reason: `USDZ Director manifest was ignored: ${detail}`,
+      });
+      sidecarWarnings.push(
+        `USDZ Director manifest was ignored: ${detail} (warn-and-omit code: embedded_manifest_invalid).`,
+      );
     }
   }
   const usda = await root.async("string");
-  return importDirectorProjectFromUsda(usda, { ...options, baseProject });
+  const imported = importDirectorProjectFromUsda(usda, { ...options, baseProject });
+  return {
+    ...imported,
+    warnings: [...sidecarWarnings, ...imported.warnings],
+    omitted: [...sidecarOmitted, ...(imported.omitted ?? [])],
+  } satisfies DirectorInterchangeImportResult;
 }

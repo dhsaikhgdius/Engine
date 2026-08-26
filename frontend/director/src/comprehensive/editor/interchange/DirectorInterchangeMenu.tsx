@@ -46,6 +46,8 @@ import type { DirectorCreativeOtioOmitted } from "./creativeOtio";
 import type { DirectorFountainOmitted } from "./fountain";
 import type { DirectorGltfOmitted } from "./gltf";
 import { DIRECTOR_GLTF_OMITTED_CODES } from "./gltf";
+import type { DirectorUsdOmitted } from "./usd";
+import { DIRECTOR_USD_OMITTED_CODES } from "./usd";
 import type { DirectorMeshExportReport } from "./mesh";
 import "./DirectorInterchangeMenu.css";
 
@@ -72,6 +74,12 @@ const FOUNTAIN_OMIT_LABELS: Record<string, string> = {
 };
 
 const GLTF_OMIT_LABELS: Record<(typeof DIRECTOR_GLTF_OMITTED_CODES)[number], string> = {
+  embedded_manifest_invalid: "嵌入工程清单无效",
+  duplicate_stable_id: "重复稳定 ID 已忽略",
+  empty_project_no_metadata: "无 Director 元数据",
+};
+
+const USD_OMIT_LABELS: Record<(typeof DIRECTOR_USD_OMITTED_CODES)[number], string> = {
   embedded_manifest_invalid: "嵌入工程清单无效",
   duplicate_stable_id: "重复稳定 ID 已忽略",
   empty_project_no_metadata: "无 Director 元数据",
@@ -178,6 +186,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   const [creativeOtioOmitted, setCreativeOtioOmitted] = useState<DirectorCreativeOtioOmitted[]>([]);
   const [fountainOmitted, setFountainOmitted] = useState<DirectorFountainOmitted[]>([]);
   const [gltfOmitted, setGltfOmitted] = useState<DirectorGltfOmitted[]>([]);
+  const [usdOmitted, setUsdOmitted] = useState<DirectorUsdOmitted[]>([]);
   const [blendPackageDir, setBlendPackageDir] = useState("");
   const [blendManifest, setBlendManifest] = useState<DirectorBlendSceneManifestV1 | null>(null);
   const [blendPlan, setBlendPlan] = useState<DirectorBlendSceneImportPlanV1 | null>(null);
@@ -230,6 +239,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
     setCreativeOtioOmitted([]);
     setFountainOmitted([]);
     setGltfOmitted([]);
+    setUsdOmitted([]);
     try {
       const interchange = await import("./index");
       const project = useDirectorStore.getState().project;
@@ -310,6 +320,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
     setCreativeOtioOmitted([]);
     setFountainOmitted([]);
     setGltfOmitted([]);
+    setUsdOmitted([]);
     try {
       const extension = extensionOf(file);
       if (extension === "json") {
@@ -371,8 +382,22 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
         );
       } else if (extension === "usd" || extension === "usda") {
         result = interchange.importDirectorProjectFromUsda(await file.text(), { baseProject });
+        setUsdOmitted(
+          Array.isArray(result.omitted)
+            ? (result.omitted as DirectorUsdOmitted[]).filter((entry) =>
+                (DIRECTOR_USD_OMITTED_CODES as readonly string[]).includes(entry.code),
+              )
+            : [],
+        );
       } else if (extension === "usdz") {
         result = await interchange.importDirectorProjectFromUsdz(await sourceBytes(), { baseProject });
+        setUsdOmitted(
+          Array.isArray(result.omitted)
+            ? (result.omitted as DirectorUsdOmitted[]).filter((entry) =>
+                (DIRECTOR_USD_OMITTED_CODES as readonly string[]).includes(entry.code),
+              )
+            : [],
+        );
       } else {
         throw new Error(t("不支持的交换格式"));
       }
@@ -757,6 +782,30 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                     ))}
                     {gltfOmitted.length > 8 ? (
                       <li className="director-interchange-more">+{gltfOmitted.length - 8}</li>
+                    ) : null}
+                  </ul>
+                </section>
+              ) : null}
+              {usdOmitted.length ? (
+                <section aria-label={t("USD 导入省略")} className="director-mesh-export-report">
+                  <div>
+                    <strong>{t("USD 导入省略")}</strong>
+                    <span>
+                      {usdOmitted.length} {t("项结构化省略")}
+                    </span>
+                  </div>
+                  <ul aria-label={t("结构化省略")} className="director-interchange-list is-warning">
+                    {usdOmitted.slice(0, 8).map((entry) => (
+                      <li key={`${entry.code}:${entry.subject}:${entry.reason}`}>
+                        <code>{entry.code}</code>
+                        {` · ${t(USD_OMIT_LABELS[entry.code] ?? entry.code)} · `}
+                        <span data-i18n-user-content title={entry.reason}>
+                          {entry.subject}
+                        </span>
+                      </li>
+                    ))}
+                    {usdOmitted.length > 8 ? (
+                      <li className="director-interchange-more">+{usdOmitted.length - 8}</li>
                     ) : null}
                   </ul>
                 </section>
