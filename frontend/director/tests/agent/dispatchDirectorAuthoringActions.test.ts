@@ -890,6 +890,110 @@ describe("Stage mutator parity with direct agent authoring", () => {
     expect(storeRevision()).toBe(agentRevision);
   });
 
+  it("addImportedAsset scene-placing Mixamo character matches upsert_asset plus add_object", () => {
+    // Default project already seeds mixamo:x-bot; place an additional instance
+    // of an existing catalog character (no upsert) for revision parity.
+    const before = structuredClone(useDirectorStore.getState().project);
+    expect(before.assets.some((asset) => asset.id === "mixamo:x-bot")).toBe(true);
+    const assetId = useDirectorStore.getState().addImportedAsset({
+      id: "mixamo:x-bot",
+      kind: "character",
+      sourceType: "model",
+      name: "X Bot",
+      fileName: "x-bot.glb",
+      url: "/mixamo-characters/models/x-bot.glb",
+      assetSource: "library",
+    });
+    expect(assetId).toBe("mixamo:x-bot");
+    const project = useDirectorStore.getState().project;
+    const placed = project.objects.filter((item) => item.assetRefId === assetId).at(-1);
+    expect(placed).toMatchObject({
+      kind: "character",
+      bodyType: "mannequin",
+      color: "#d19a3a",
+      placementMode: "grounded",
+      characterSource: "asset",
+      characterRig: { rigType: "mixamo", posePresetId: "stand", controls: {} },
+      nativeSource: { engine: "blender", objectId: placed!.id, provisioned: false },
+    });
+
+    const agentRevision = getDirectorProjectRevision(
+      applyDirectorAuthoringActions(before, [
+        {
+          action: "add_object",
+          id: placed!.id,
+          name: placed!.name,
+          kind: "character",
+          asset_id: assetId,
+          transform: structuredClone(placed!.transform),
+          placement_mode: "grounded",
+          body_type: "mannequin",
+          color: "#d19a3a",
+        },
+      ]).project,
+    );
+    expect(storeRevision()).toBe(agentRevision);
+  });
+
+  it("addObjectFromAsset matches a direct add_object apply for props and characters", () => {
+    const propId = useDirectorStore.getState().addImportedAsset({
+      kind: "prop",
+      sourceType: "model",
+      name: "Shelf prop",
+      fileName: "shelf.glb",
+      url: "https://example.com/shelf.glb",
+      assetSource: "local",
+      addToScene: false,
+    });
+
+    const beforeProp = structuredClone(useDirectorStore.getState().project);
+    const propObjectId = useDirectorStore.getState().addObjectFromAsset(propId);
+    expect(propObjectId).toBeTruthy();
+    const propPlaced = useDirectorStore.getState().project.objects.find((item) => item.id === propObjectId)!;
+    expect(
+      getDirectorProjectRevision(
+        applyDirectorAuthoringActions(beforeProp, [
+          {
+            action: "add_object",
+            id: propPlaced.id,
+            name: propPlaced.name,
+            kind: "prop",
+            asset_id: propId,
+            transform: structuredClone(propPlaced.transform),
+          },
+        ]).project,
+      ),
+    ).toBe(storeRevision());
+
+    const beforeCharacter = structuredClone(useDirectorStore.getState().project);
+    const characterObjectId = useDirectorStore.getState().addObjectFromAsset("mixamo:x-bot");
+    expect(characterObjectId).toBeTruthy();
+    const characterPlaced = useDirectorStore.getState().project.objects.find((item) => item.id === characterObjectId)!;
+    expect(characterPlaced).toMatchObject({
+      bodyType: "mannequin",
+      color: "#d19a3a",
+      placementMode: "grounded",
+      nativeSource: { engine: "blender", objectId: characterPlaced.id, provisioned: false },
+    });
+    expect(
+      getDirectorProjectRevision(
+        applyDirectorAuthoringActions(beforeCharacter, [
+          {
+            action: "add_object",
+            id: characterPlaced.id,
+            name: characterPlaced.name,
+            kind: "character",
+            asset_id: "mixamo:x-bot",
+            transform: structuredClone(characterPlaced.transform),
+            placement_mode: "grounded",
+            body_type: "mannequin",
+            color: "#d19a3a",
+          },
+        ]).project,
+      ),
+    ).toBe(storeRevision());
+  });
+
   it("removePanoramaAsset matches a direct remove_assets apply", () => {
     const panoramaId = useDirectorStore.getState().addImportedAsset({
       kind: "panorama",

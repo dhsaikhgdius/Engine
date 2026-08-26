@@ -62,16 +62,16 @@ Target: raise the self-assessment score from **4/5 → 4.5/5**.
 
 ## Phase overview
 
-| Phase  | Theme                      | Status          | Main outputs                                                                                 | Depends on              |
-| ------ | -------------------------- | --------------- | -------------------------------------------------------------------------------------------- | ----------------------- |
-| **M0** | Baseline & metrics         | **Partial**     | Stage inventory + parity tests + Feature Status row shipped; generator and `stage_*` map open | —                       |
+| Phase  | Theme                      | Status          | Main outputs                                                                                                                                                                         | Depends on              |
+| ------ | -------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| **M0** | Baseline & metrics         | **Partial**     | Stage inventory + parity tests + Feature Status row shipped; generator and `stage_*` map open                                                                                        | —                       |
 | **M1** | Shared action registry     | **Partial**     | Stage one-shot mutators share `applyDirectorAuthoringActions`; Canvas/Video discrete mutators (1e/1f) share `dispatchCreativeWorkspaceOperations`; creation/gizmo/trim drag leftover | M0                      |
-| **M2** | Remove human-only surfaces | **Implemented** | Interchange export + import (`plan-import`/`import`) and full collab comment/version writes shipped as JSON; human file picker remains an optional local-file convenience | M1 (partially parallel) |
-| **M3** | Unified gateway governance | **Partial** | Policy, unified audit, and confirmation boundaries now guard raw HTTP/CLI; role-gated UI shipped; read-only mode open | M1                      |
-| **M4** | In-product workspace       | **Shipped** | SQL-backed instructions / skills / memory, Settings editor, bundle export/import             | M3                      |
-| **M5** | Observability              | **Partial** | Session traces, cost/latency metering, unified progress + `/api/agent/*` shipped; eval hooks open | M3                      |
-| **M6** | Team readiness             | Planned     | Collaboration auth, multi-agent enhancements                                                 | M3, M5                  |
-| **M7** | Ecosystem protocols        | **Implemented** | Tool manifest, A2A go/no-go concluded in ADR 0004 (runtime no-go; discovery-only card served), cross-app receipt recipe. A2A runtime not shipped | M2, M3                  |
+| **M2** | Remove human-only surfaces | **Implemented** | Interchange export + import (`plan-import`/`import`) and full collab comment/version writes shipped as JSON; human file picker remains an optional local-file convenience            | M1 (partially parallel) |
+| **M3** | Unified gateway governance | **Partial**     | Policy, unified audit, and confirmation boundaries now guard raw HTTP/CLI; role-gated UI shipped; read-only mode open                                                                | M1                      |
+| **M4** | In-product workspace       | **Shipped**     | SQL-backed instructions / skills / memory, Settings editor, bundle export/import                                                                                                     | M3                      |
+| **M5** | Observability              | **Partial**     | Session traces, cost/latency metering, unified progress + `/api/agent/*` shipped; eval hooks open                                                                                    | M3                      |
+| **M6** | Team readiness             | Planned         | Collaboration auth, multi-agent enhancements                                                                                                                                         | M3, M5                  |
+| **M7** | Ecosystem protocols        | **Implemented** | Tool manifest, A2A go/no-go concluded in ADR 0004 (runtime no-go; discovery-only card served), cross-app receipt recipe. A2A runtime not shipped                                     | M2, M3                  |
 
 ```mermaid
 flowchart LR
@@ -154,14 +154,14 @@ and Canvas/Video creation flows and continuous drag streams still patch state di
 
 #### 1.2 Migrate UI mutations in batches
 
-| Batch  | Scope                   | Typical actions                                        | Status                                            |
-| ------ | ----------------------- | ------------------------------------------------------ | ------------------------------------------------- |
-| **1a** | Object CRUD, transforms | `add_object`, `update_object`, `delete_objects`        | Shared for delete/one-shot and multi-select transforms/toggles/edits and geometry primitives; asset/preset/crowd add flows stay deliberately local |
-| **1b** | Cameras and shots       | `add_camera`, `update_camera`, `set_active_camera`     | Shared                                            |
-| **1c** | Characters and motion   | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | Shared                          |
-| **1d** | Timeline / coverage     | `add_coverage_shot`, `add_performance_take`, timeline audio | Storyboard + entity animation shared; timeline audio shared |
-| **1e** | Canvas nodes / edges    | `canvas.node.*` / `canvas.edge.*` / `canvas.dag.layout` via `dispatchCreativeWorkspaceOperations` | **Shipped** |
-| **1f** | Video tracks / clips    | `edit.clip.*` / `edit.track.*` / `edit.settings.update` via `dispatchCreativeWorkspaceOperations` | **Shipped** |
+| Batch  | Scope                   | Typical actions                                                                                   | Status                                                                                                                                             |
+| ------ | ----------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1a** | Object CRUD, transforms | `add_object`, `update_object`, `delete_objects`                                                   | Shared for delete/one-shot and multi-select transforms/toggles/edits and geometry primitives; asset/preset/crowd add flows stay deliberately local |
+| **1b** | Cameras and shots       | `add_camera`, `update_camera`, `set_active_camera`                                                | Shared                                                                                                                                             |
+| **1c** | Characters and motion   | `set_character_motion`, `set_character_pose_controls`, `set_character_ik`                         | Shared                                                                                                                                             |
+| **1d** | Timeline / coverage     | `add_coverage_shot`, `add_performance_take`, timeline audio                                       | Storyboard + entity animation shared; timeline audio shared                                                                                        |
+| **1e** | Canvas nodes / edges    | `canvas.node.*` / `canvas.edge.*` / `canvas.dag.layout` via `dispatchCreativeWorkspaceOperations` | **Shipped**                                                                                                                                        |
+| **1f** | Video tracks / clips    | `edit.clip.*` / `edit.track.*` / `edit.settings.update` via `dispatchCreativeWorkspaceOperations` | **Shipped**                                                                                                                                        |
 
 #### 1.3 Semantic equivalents for interactive controls
 
@@ -202,13 +202,13 @@ and Canvas/Video creation flows and continuous drag streams still patch state di
 
 `director_creative` exposes the full JSON surface:
 
-| Surface                        | Actions                                                                                                                                                             | Evidence                                                                                                                                                                                                                             |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Interchange export             | `capabilities`, `plan-export`, `export`                                                                                                                              | `packages/protocol/src/creativeWorkspaceProtocol.ts`, Creative Agent tests, [Interchange](/pipelines/interchange/)                                                                                                                   |
-| Interchange import             | `plan-import` (source `inline`, Gallery `media_id`, or `workspace_path`), then `import` (`plan_id` + `expected_guard_fingerprint` + `confirm:true`)                  | same protocol, `frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts`, `frontend/director/tests/agent/creativeWorkspaceAgentContract.test.ts`                                                                          |
-| Collaboration comments         | `observe`, `list-comments`, `add-comment`, `resolve-comment`, `reopen-comment`, `update-comment`, `delete-comment` (fingerprint guard + idempotency; delete confirms) | same protocol, `frontend/director/tests/agent/creativeWorkspaceSemanticOperations.test.ts` (resolve-comment)                                                                                                                          |
-| Collaboration versions         | `list-versions`, `compare`, `create-version`, `restore-version`, `delete-version` (restore/delete require `confirm:true`)                                            | same protocol + semantic-operation tests (create-version, restore-version)                                                                                                                                                           |
-| Gallery / media mutations      | `gallery.media.*`, `media.proxy.attach`, and related execute ops                                                                                                     | Feature Status Gallery **Implemented**; persistent media **Limited**                                                                                                                                                                 |
+| Surface                   | Actions                                                                                                                                                               | Evidence                                                                                                                                                    |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Interchange export        | `capabilities`, `plan-export`, `export`                                                                                                                               | `packages/protocol/src/creativeWorkspaceProtocol.ts`, Creative Agent tests, [Interchange](/pipelines/interchange/)                                          |
+| Interchange import        | `plan-import` (source `inline`, Gallery `media_id`, or `workspace_path`), then `import` (`plan_id` + `expected_guard_fingerprint` + `confirm:true`)                   | same protocol, `frontend/director/src/agent/creativeWorkspaceSemanticOperations.ts`, `frontend/director/tests/agent/creativeWorkspaceAgentContract.test.ts` |
+| Collaboration comments    | `observe`, `list-comments`, `add-comment`, `resolve-comment`, `reopen-comment`, `update-comment`, `delete-comment` (fingerprint guard + idempotency; delete confirms) | same protocol, `frontend/director/tests/agent/creativeWorkspaceSemanticOperations.test.ts` (resolve-comment)                                                |
+| Collaboration versions    | `list-versions`, `compare`, `create-version`, `restore-version`, `delete-version` (restore/delete require `confirm:true`)                                             | same protocol + semantic-operation tests (create-version, restore-version)                                                                                  |
+| Gallery / media mutations | `gallery.media.*`, `media.proxy.attach`, and related execute ops                                                                                                      | Feature Status Gallery **Implemented**; persistent media **Limited**                                                                                        |
 
 The browser file picker remains available as an optional convenience for local files a human already
 has open; it is no longer the only import path and no longer blocks agent automation. Format
@@ -238,11 +238,11 @@ media bytes still never enter Yjs.
 
 Role policy lives in `backend/gateway/agents/filmRoleToolPolicy.ts` (not a separate `gatewayToolPolicy.ts`). MCP, the Multi-Agent production runner, and the raw gateway HTTP tool boundary share it:
 
-| Surface               | Binding                                                                          |
-| --------------------- | -------------------------------------------------------------------------------- |
-| MCP                   | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                          |
-| Multi-Agent runs      | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` and its run routes   |
-| Raw HTTP / CLI        | `backend/gateway/agents/httpToolGovernance.ts` on every `/api/tools/*` route (`x-director-film-role` header, then `DIRECTOR_FILM_ROLE`, plus `DIRECTOR_PLAN_MODE`; covers the Stage CLI and the DSH plugin, which POST to the same routes) |
+| Surface          | Binding                                                                                                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| MCP              | `DIRECTOR_FILM_ROLE` in `backend/gateway/mcp-server.ts`                                                                                                                                                                                    |
+| Multi-Agent runs | `backend/gateway/multiAgent/hostedProductionAgentRunner.ts` and its run routes                                                                                                                                                             |
+| Raw HTTP / CLI   | `backend/gateway/agents/httpToolGovernance.ts` on every `/api/tools/*` route (`x-director-film-role` header, then `DIRECTOR_FILM_ROLE`, plus `DIRECTOR_PLAN_MODE`; covers the Stage CLI and the DSH plugin, which POST to the same routes) |
 
 ### Remaining
 
@@ -428,13 +428,13 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 ## Success metrics
 
-| Metric                          | Today (2026-08-26)                                                        | After remaining M3         | After remaining M1 drag leftover |
-| ------------------------------- | ------------------------------------------------------------------------- | -------------------------- | -------------------------------- |
-| Parity coverage (top mutations) | all top edit mutations shared; ~86% of all Stage project mutators (75/87, see the [parity inventory](/engineering/ui-agent-parity-inventory/)) | ≥85%                       | ≥95%     |
-| Documented human-only classes   | 0 required (file picker stays an optional local-file import convenience; OBJ/STL export-only) | 0 required                 | 0        |
-| Consistent gateway policy       | Yes (MCP / local / hosted / raw HTTP+CLI; role-gated UI shipped)           | Yes, including full read-only mode | Yes      |
-| In-product workspace            | **Yes (SQL-backed instructions/skills/memory shipped 2026-08-25)**         | Yes                        | Yes      |
-| Agent-native self-score         | 4.1 (M2 JSON gaps closed; HTTP governance, tool manifest, and M4 workspace shipped; UI parity partial) | 4.2                        | 4.5      |
+| Metric                          | Today (2026-08-26)                                                                                                                             | After remaining M3                 | After remaining M1 drag leftover |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------- |
+| Parity coverage (top mutations) | all top edit mutations shared; ~92% of all Stage project mutators (80/87, see the [parity inventory](/engineering/ui-agent-parity-inventory/)) | ≥85%                               | ≥95%                             |
+| Documented human-only classes   | 0 required (file picker stays an optional local-file import convenience; OBJ/STL export-only)                                                  | 0 required                         | 0                                |
+| Consistent gateway policy       | Yes (MCP / local / hosted / raw HTTP+CLI; role-gated UI shipped)                                                                               | Yes, including full read-only mode | Yes                              |
+| In-product workspace            | **Yes (SQL-backed instructions/skills/memory shipped 2026-08-25)**                                                                             | Yes                                | Yes                              |
+| Agent-native self-score         | 4.1 (M2 JSON gaps closed; HTTP governance, tool manifest, and M4 workspace shipped; UI parity partial)                                         | 4.2                                | 4.5                              |
 
 ---
 

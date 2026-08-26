@@ -1395,8 +1395,13 @@ function createSceneObjectFromAsset(asset: DirectorAssetRef, existingObjects: Di
     assetRefId: asset.id,
     ...(asset.kind === "character"
       ? {
+          // Match add_object character defaults (mannequin / previz ochre /
+          // grounded). Stand pose controls are {} both here and after
+          // getMannequinPosePreset("stand") expansion.
           characterSource: "asset" as const,
           placementMode: "grounded" as const,
+          bodyType: DEFAULT_CHARACTER_BODY_TYPE,
+          color: DIRECTOR_PREVIZ_PALETTE.human,
           characterRig: {
             rigType: "mixamo" as const,
             posePresetId: "stand",
@@ -1407,6 +1412,46 @@ function createSceneObjectFromAsset(asset: DirectorAssetRef, existingObjects: Di
     transform: createTransform([0, 0, 0]),
     nativeSource: { engine: "blender", objectId: nextObjectId, provisioned: false },
   } satisfies DirectorObject;
+}
+
+/** Compile createSceneObjectFromAsset output into the shared add_object action. */
+function compileAddObjectFromAssetAction(
+  nextObject: DirectorObject,
+  assetId: string,
+): Extract<DirectorAuthoringAction, { action: "add_object" }> {
+  return {
+    action: "add_object",
+    id: nextObject.id,
+    name: nextObject.name,
+    kind: nextObject.kind,
+    asset_id: assetId,
+    transform: nextObject.transform,
+    ...(nextObject.kind === "character"
+      ? {
+          placement_mode: "grounded" as const,
+          body_type: nextObject.bodyType ?? DEFAULT_CHARACTER_BODY_TYPE,
+          color: nextObject.color ?? DIRECTOR_PREVIZ_PALETTE.human,
+        }
+      : {}),
+  };
+}
+
+/**
+ * Packaged catalog assets may already live in the project with Mixamo UI
+ * characterMetadata key order while Agent catalog clones use a different key
+ * order. Treat them as the same identity when catalog id/url/fileName match.
+ */
+function sameImportedAssetIdentity(existingAsset: DirectorAssetRef, nextAsset: DirectorAssetRef): boolean {
+  if (JSON.stringify(existingAsset) === JSON.stringify(nextAsset)) return true;
+  if (!getDirectorAgentCatalogAsset(nextAsset.id)) return false;
+  return (
+    existingAsset.id === nextAsset.id &&
+    existingAsset.url === nextAsset.url &&
+    existingAsset.fileName === nextAsset.fileName &&
+    existingAsset.sourceType === nextAsset.sourceType &&
+    existingAsset.kind === nextAsset.kind &&
+    (existingAsset.assetSource ?? "local") === (nextAsset.assetSource ?? "local")
+  );
 }
 
 function selectedObjectsPatch(
@@ -5839,13 +5884,10 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         if (claimsPackagedCharacter && !catalogItem) {
           throw new Error(`人物资产不是 Mixamo 目录中的真实条目：${input.id ?? input.url}`);
         }
-        if (catalogItem) return createMixamoCharacterAssetRef(catalogItem);
 
-        // Packaged Flick / Mixamo / director-character library drops must reuse the
-        // exact Agent catalog identity. upsert_asset rejects library/packaged URLs
-        // whose id is not getDirectorAgentCatalogAsset(id); synthesizing asset_N
-        // here would make the authoring path fail while the legacy writer still
-        // accepted sequential ids.
+        // Prefer the Agent catalog identity so upsert_asset passes exact
+        // characterMetadata (JSON key order included). Mixamo UI refs that only
+        // differ by rig field order would otherwise fail authoring and fall back.
         const agentCatalogItem = input.id ? getDirectorAgentCatalogAsset(input.id) : null;
         if (agentCatalogItem) {
           const catalogAsset = cloneJsonValue(agentCatalogItem.asset);
@@ -5855,6 +5897,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             ...(input.projectionMode !== undefined ? { projectionMode: input.projectionMode } : {}),
           } satisfies DirectorAssetRef;
         }
+        if (catalogItem) return createMixamoCharacterAssetRef(catalogItem);
 
         const generatedAssetId = getNextSequentialId(
           state.project.assets.map((item) => item.id),
@@ -5900,26 +5943,17 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         assetId = nextAsset.id;
         const existingAsset = state.project.assets.find((asset) => asset.id === assetId);
         if (existingAsset) {
-          if (JSON.stringify(existingAsset) !== JSON.stringify(nextAsset)) {
+          if (!sameImportedAssetIdentity(existingAsset, nextAsset)) {
             throw new Error(`资产 ID "${assetId}" 已存在，但内容与真实目录资产不一致。`);
           }
           // Catalog-only / panorama re-imports are no-ops when the asset matches.
           if (input.addToScene === false || input.kind === "panorama" || existingAsset.sourceType === "image") {
             return assetId;
           }
-          if (existingAsset.kind !== "character") {
+          {
             const nextObject = createSceneObjectFromAsset(existingAsset, state.project.objects);
             const applied = dispatchUiAuthoring(
-              [
-                {
-                  action: "add_object",
-                  id: nextObject.id,
-                  name: nextObject.name,
-                  kind: nextObject.kind,
-                  asset_id: assetId,
-                  transform: nextObject.transform,
-                },
-              ],
+              [compileAddObjectFromAssetAction(nextObject, assetId)],
               `ui-import-place-existing:${assetId}`,
               "导入失败",
             );
@@ -5932,8 +5966,6 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             }
             // Fall through to the legacy writer when authoring rejects the place.
           }
-          // Character scene placement for an existing asset keeps the legacy writer
-          // (empty pose controls vs add_object stand-preset expansion).
         } else if (input.kind === "panorama") {
           const applied = dispatchUiAuthoring(
             [
@@ -5960,23 +5992,15 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             persistLocalModelAsset(nextAsset);
             return assetId;
           }
-        } else if (nextAsset.kind !== "character") {
-          // Non-character model imports that also place a scene object share
-          // upsert_asset + add_object (nativeSource stamped when asset_id is
-          // set). Character imports keep the legacy writer: createSceneObjectFromAsset
-          // uses empty pose controls while add_object expands the stand preset.
+        } else {
+          // Model imports that also place a scene object share upsert_asset +
+          // add_object (nativeSource stamped when asset_id is set; characters
+          // also pass placement_mode/body_type/color to match add_object defaults).
           const nextObject = createSceneObjectFromAsset(nextAsset, state.project.objects);
           const applied = dispatchUiAuthoring(
             [
               { action: "upsert_asset", asset: cloneJsonValue(nextAsset) },
-              {
-                action: "add_object",
-                id: nextObject.id,
-                name: nextObject.name,
-                kind: nextObject.kind,
-                asset_id: assetId,
-                transform: nextObject.transform,
-              },
+              compileAddObjectFromAssetAction(nextObject, assetId),
             ],
             `ui-import-place:${assetId}`,
             "导入失败",
@@ -5990,8 +6014,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             return assetId;
           }
         }
-        // Character model imports that also place a scene object keep the legacy writer.
-        // Authoring failures above also fall through here.
+        // Authoring failures above fall through to the legacy writer.
       }
 
       commitMutation((state) => {
@@ -5999,7 +6022,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         assetId = nextAsset.id;
         const existingAsset = state.project.assets.find((asset) => asset.id === assetId);
         if (existingAsset) {
-          if (JSON.stringify(existingAsset) !== JSON.stringify(nextAsset)) {
+          if (!sameImportedAssetIdentity(existingAsset, nextAsset)) {
             throw new Error(`资产 ID "${assetId}" 已存在，但内容与真实目录资产不一致。`);
           }
           if (input.addToScene === false || input.kind === "panorama" || existingAsset.sourceType === "image")
@@ -6067,21 +6090,39 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         });
       });
     },
-    // human-only: no authoring twin. createSceneObjectFromAsset stamps the
-    // Blender nativeSource provisioning marker and character rig defaults that
-    // add_object does not author; migrateDirectorProject backfills them only on
-    // load, so runtime asset drops keep the local construction.
+    // Shares add_object (nativeSource when asset_id is set; characters also
+    // pass placement_mode/body_type/color). Preset/crowd adds stay local.
     addObjectFromAsset: (assetId) => {
       let nextObjectId: string | null = null;
+      const state = get() as DirectorRuntimeState;
+      const asset = state.project.assets.find((item) => item.id === assetId);
+      if (!asset || asset.sourceType !== "model" || asset.kind === "panorama") return null;
 
-      commitMutation((state) => {
-        const asset = state.project.assets.find((item) => item.id === assetId);
-        if (!asset || asset.sourceType !== "model" || asset.kind === "panorama") return state;
-
+      if (canUseAuthoringPath()) {
         const nextObject = createSceneObjectFromAsset(asset, state.project.objects);
+        const applied = dispatchUiAuthoring(
+          [compileAddObjectFromAssetAction(nextObject, assetId)],
+          `ui-object-from-asset:${assetId}`,
+          "添加失败",
+        );
+        if (applied) {
+          nextObjectId = nextObject.id;
+          commitUiMutation((current) => ({
+            ...current,
+            ...selectedObjectsPatch([nextObject.id]),
+          }));
+          return nextObjectId;
+        }
+      }
+
+      commitMutation((current) => {
+        const currentAsset = current.project.assets.find((item) => item.id === assetId);
+        if (!currentAsset || currentAsset.sourceType !== "model" || currentAsset.kind === "panorama") return current;
+
+        const nextObject = createSceneObjectFromAsset(currentAsset, current.project.objects);
         nextObjectId = nextObject.id;
 
-        return appendSelectedObject(state, nextObject);
+        return appendSelectedObject(current, nextObject);
       });
 
       return nextObjectId;
