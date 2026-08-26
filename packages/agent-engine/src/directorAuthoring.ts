@@ -821,6 +821,31 @@ export const directorAuthoringActionSchema = z
       activate: z.boolean().optional(),
     }),
     strictAction("update_camera", { camera_id: id, patch: cameraUpdateSchema }),
+    /**
+     * Append Stage camera capture evidence (PNG/JPEG data URLs) onto a camera
+     * shot — same bookkeeping the Camera panel / viewport capture toolbar use.
+     * Omitted camera_id resolves to the active camera, then the first camera.
+     */
+    strictAction("add_camera_captures", {
+      camera_id: id.optional(),
+      captures: z
+        .array(
+          z.strictObject({
+            id: id.optional(),
+            name: name.optional(),
+            data_url: z
+              .string()
+              .trim()
+              .min(1)
+              .max(16_800_000)
+              .refine((value) => value.startsWith("data:image/"), {
+                message: "data_url must be a data:image/* URL",
+              }),
+          }),
+        )
+        .min(1)
+        .max(16),
+    }),
     strictAction("delete_cameras", { camera_ids: z.array(id).min(1).max(64) }),
     strictAction("set_animation", {
       target_type: directorAnimationEntityTypeSchema,
@@ -2890,6 +2915,33 @@ export function applyDirectorAuthoringActions(
         );
         addUnique(result.updated.camera_ids, camera.id);
         if (rig) addUnique(result.updated.object_ids, rig.id);
+        break;
+      }
+      case "add_camera_captures": {
+        const cameraId = item.camera_id ?? project.activeCameraId ?? project.cameras[0]?.id ?? null;
+        if (!cameraId) {
+          throw new Error("No camera is available to receive capture evidence.");
+        }
+        const camera = requireCamera(project, cameraId);
+        const existingCaptures = camera.captures ?? [];
+        const existingIds = new Set(existingCaptures.map((capture) => capture.id));
+        const nextCaptures = item.captures.map((capture, indexOffset) => {
+          const captureIndex = existingCaptures.length + indexOffset + 1;
+          const captureId = capture.id ?? `${camera.id}-capture-${String(captureIndex).padStart(2, "0")}`;
+          if (existingIds.has(captureId)) {
+            throw new Error(`Camera capture "${captureId}" already exists on "${camera.id}".`);
+          }
+          existingIds.add(captureId);
+          return {
+            id: captureId,
+            index: captureIndex,
+            name: capture.name ?? `${camera.name}-截图${String(captureIndex).padStart(2, "0")}`,
+            dataUrl: capture.data_url,
+          };
+        });
+        camera.captures = [...existingCaptures, ...nextCaptures];
+        camera.lastCaptureUrl = nextCaptures[nextCaptures.length - 1]?.dataUrl ?? camera.lastCaptureUrl ?? null;
+        addUnique(result.updated.camera_ids, camera.id);
         break;
       }
       case "delete_cameras": {
