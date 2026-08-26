@@ -27,6 +27,7 @@ Gateway 拒绝非 loopback 绑定。原生 CLI/MCP 客户端会自动 bootstrap 
 | `DIRECTOR_COLLAB_INVITE_SECRET`          | 进程 gateway secret | 邀请 token 的稳定 HMAC secret；设置后邀请可跨 gateway 重启存活                 |
 | `DIRECTOR_COLLAB_PERSISTENCE`            | 未设置（内存）      | 设为 `1` 时在磁盘持久化 Yjs 房间快照（压缩 + 损坏更新隔离）及邀请吊销列表      |
 | `DIRECTOR_COLLAB_EMPTY_ROOM_TTL_SECONDS` | 未设置（0）         | 最后一名成员离开后，空房间内存文档的保留宽限期（上限 24 小时；0 表示立即销毁） |
+| `DIRECTOR_COLLAB_INVITE_RATE_LIMIT_PER_MINUTE` | 未设置（0 / 关闭） | 可选的邀请签发+吊销 HTTP 滑动窗口上限（按客户端键）；超额返回 `invite_rate_limited` 与 `Retry-After` |
 | `VITE_DIRECTOR_COLLAB_INVITE_TOKEN`      | 未设置              | 前端构建/环境提供的邀请 token，浏览器 transport 会附加到 `collab.join`         |
 
 本地信任模式（默认）下，每个已通过升级鉴权的 socket 都以 editor 身份加入，与引入鉴权前的行为一致。
@@ -43,7 +44,10 @@ Gateway 拒绝非 loopback 绑定。原生 CLI/MCP 客户端会自动 bootstrap 
 文档内容、邀请 token 或文件系统路径）：
 
 - `GET /api/collab/rooms` — 合并的实时 + 持久房间状态：成员/editor/viewer 计数、快照字节数与
-  年龄、待压缩更新数、隔离区计数、鉴权模式以及吊销计数。
+  年龄、待压缩更新数、隔离区计数、鉴权模式、空房间 TTL、邀请速率限制策略以及吊销计数。
+  未鉴权的 `GET /health` 也会暴露红acted 的 `collaboration` stanza（`mode`、`persistence`、
+  `empty_room_ttl_seconds`、`invite_rate_limit_per_minute`、`active_rooms`、`retained_rooms`），
+  便于运维在不调用已鉴权 collab 路由的情况下确认团队模式标志。
 - `GET /api/collab/rooms/quarantine?room=<id>` — 单个房间的有界损坏更新隔离索引
   （id、SHA-256 哈希、大小、原因）。
 - `POST /api/collab/rooms/close` — `{room, archive?}`：成员收到 `room_closed` 错误，待压缩更新

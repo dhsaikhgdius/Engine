@@ -77,11 +77,14 @@ run 接受串行 `roles` 列表，或由节点和 `dependsOn` 边组成的显式
 npm run build            # typecheck + chunk 预算 + 便携 MCP 插件
 npm test                 # 完整 vitest 套件
 curl "$GATEWAY_URL/health"
+# → {"ok":true,...,"collaboration":{"mode":"invite-required","persistence":true,...}}
 curl -H "X-Director-Browser-Token: $DIRECTOR_GATEWAY_TOKEN" "$GATEWAY_URL/api/collab/auth"
 # → {"mode":"invite-required"}
 ```
 
 此时未认证的 `collab.join` 必须收到 code 为 `unauthorized` 的 `collab.error`。
+启用团队鉴权时确认 `/health` 上 `collaboration.mode === "invite-required"`；邀请 capability
+token 与自声明的 awareness 身份不是按用户账号体系。
 
 ## 明确不在范围内
 
