@@ -71,6 +71,12 @@ neither `undefined` nor `null`. Steps with `expect.success: false` pass when the
 reports the expected failure, regardless of HTTP status. The runner is generic — add a task
 by dropping a new JSON file into `tasks/`.
 
+A step may impersonate a specific agent session with `session_id` (e.g. the possessing
+session of a character binding) to exercise possession scoping. Steps marked
+`gateway_fills_target: true` deliberately omit their character target so the gateway
+possession preflight fills it before validation; the task-schema test asserts those inputs
+really are incomplete.
+
 ## Task inventory
 
 | Path                                             | Purpose                                                                                                              |
@@ -82,7 +88,7 @@ by dropping a new JSON file into `tasks/`.
 | `tasks/05-bounded-large-scene-observation.json`  | Add a multi-object block and verify bounded spatial and hierarchy observations                                       |
 | `tasks/06-creative-workspaces-atomic-batch.json` | Exercise Canvas, Video Editor, and Gallery in one undoable Creative batch                                            |
 | `tasks/07-video-and-native-capabilities.json`    | Verify Video provider discovery and Blender native-kernel status through public tools                                |
-| `tasks/08-character-agent-possession.json`       | Place a catalog character, bind an Agent, drive it with motion/pose, verify the echoed binding, then unbind          |
+| `tasks/08-character-agent-possession.json`       | Bind an Agent to a character, drive it from the possessing session (with target fill-in), verify possession rejects out-of-scope author/player/pilot writes, then unbind |
 | `tasks/08-whitebox-blockout-workflow.json`       | White-box blockout workflow golden                                                                                   |
 | `tasks/08-world-systems-observation.json`        | Author Living World weather/wind plus one effect, then verify the `world` observation projection                     |
 | `tasks/09-dcc-discover-and-handoff.json`         | Verify the DCC provider catalog, Blender handoff readiness, and the unknown-provider failure taxonomy                |

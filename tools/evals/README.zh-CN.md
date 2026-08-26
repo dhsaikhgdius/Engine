@@ -67,6 +67,10 @@ npm run eval:reference
 `expect.success: false` 的步骤在校验边界按预期报错时通过,与 HTTP 状态码无关。
 运行器是通用的——只需将新 JSON 文件放入 `tasks/` 即可添加任务。
 
+步骤可通过 `session_id` 冒充特定 Agent 会话（例如角色绑定的占有会话）以验证
+possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角色目标,
+由网关 possession 预检在校验前补全,任务 schema 测试会断言该输入确实不完整。
+
 ## 任务清单
 
 | 路径                                             | 中文用途                                                                 |
@@ -78,7 +82,7 @@ npm run eval:reference
 | `tasks/05-bounded-large-scene-observation.json`  | 添加多对象街区并验证有界空间查询与层级观察                               |
 | `tasks/06-creative-workspaces-atomic-batch.json` | 在一个可撤销批次中覆盖 Canvas、Video Editor 与 Gallery                   |
 | `tasks/07-video-and-native-capabilities.json`    | 通过公开工具验证视频 Provider 发现与 Blender 原生内核状态                |
-| `tasks/08-character-agent-possession.json`       | 放置 catalog 人物,绑定 Agent 并用动作/Pose 驱动,校验回显的绑定后解绑     |
+| `tasks/08-character-agent-possession.json`       | 绑定 Agent 并以占有会话驱动角色（含目标补全）,校验越权 author/player/pilot 均被拒绝后解绑 |
 | `tasks/08-whitebox-blockout-workflow.json`       | 白盒 blockout 工作流黄金任务                                             |
 | `tasks/08-world-systems-observation.json`        | 设置 Living World 天气/风并添加一个效果,验证 `world` 观察投影            |
 | `tasks/09-dcc-discover-and-handoff.json`         | 验证 DCC Provider 目录、Blender 交接就绪状态与未知 Provider 失败分类      |
