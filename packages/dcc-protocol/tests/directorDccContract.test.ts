@@ -175,7 +175,22 @@ describe("Director DCC scene contract", () => {
 
     expect(
       directorDccOperationSchema.parse({ op: "receive_from_engine", provider: "unity", package_dir: "job-1/return" }),
-    ).toEqual({ op: "receive_from_engine", provider: "unity", package_dir: "job-1/return", dry_run: true });
+    ).toEqual({
+      op: "receive_from_engine",
+      provider: "unity",
+      package_dir: "job-1/return",
+      dry_run: true,
+      // Additions stay reviewable skips unless the caller opts in explicitly.
+      include_new_objects: false,
+    });
+    expect(
+      directorDccOperationSchema.parse({
+        op: "receive_from_engine",
+        provider: "unity",
+        package_dir: "job-1/return",
+        include_new_objects: true,
+      }),
+    ).toMatchObject({ include_new_objects: true });
     expect(
       directorDccOperationSchema.safeParse({ op: "receive_from_engine", provider: "houdini", package_dir: "x" })
         .success,

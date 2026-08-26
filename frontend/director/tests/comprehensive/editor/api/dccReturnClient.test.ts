@@ -34,6 +34,10 @@ it("returns a conflict-bearing preview instead of hiding the import plan", async
         result: {
           ready: false,
           dry_run: true,
+          // The live gateway always echoes the addition opt-in on this route;
+          // the client schema must accept it (a strict schema without it made
+          // every real preview throw despite HTTP 200).
+          include_new_objects: false,
           summary: { operation_count: 0, skipped_count: 0, conflict_count: 1, warning_count: 0 },
           plan: {
             ...plan,
@@ -80,6 +84,7 @@ it("previews engine return packages through receive_from_engine with the provide
           ready: true,
           provider: "unreal",
           dry_run: true,
+          include_new_objects: false,
           summary: { operation_count: 1, skipped_count: 0, conflict_count: 0, warning_count: 0 },
           plan,
         },
@@ -92,6 +97,37 @@ it("previews engine return packages through receive_from_engine with the provide
   const init = transport.fetch.mock.calls[0]![1] as RequestInit;
   expect(JSON.parse(String(init.body))).toEqual({
     input: { op: "receive_from_engine", provider: "unreal", package_dir: "job-ue/return-package", dry_run: true },
+  });
+});
+
+it("passes the reviewed addition opt-in through to receive_from_engine", async () => {
+  transport.fetch.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        success: true,
+        result: {
+          ready: true,
+          provider: "godot",
+          dry_run: true,
+          include_new_objects: true,
+          summary: { operation_count: 1, skipped_count: 0, conflict_count: 0, warning_count: 0 },
+          plan,
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  );
+  const preview = await previewDirectorDccReturnPackage("job-godot/return", "godot", { includeNewObjects: true });
+  expect(preview.include_new_objects).toBe(true);
+  const init = transport.fetch.mock.calls[0]![1] as RequestInit;
+  expect(JSON.parse(String(init.body))).toEqual({
+    input: {
+      op: "receive_from_engine",
+      provider: "godot",
+      package_dir: "job-godot/return",
+      dry_run: true,
+      include_new_objects: true,
+    },
   });
 });
 

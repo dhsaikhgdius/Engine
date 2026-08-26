@@ -268,6 +268,28 @@ describe("Godot live-link routes", () => {
     const missingHub = await route("POST", "/api/dcc/live-link/godot/hello", undefined, hello());
     expect(missingHub.writes[0]).toMatchObject({ status: 503, body: { code: "live_link_unavailable" } });
   });
+
+  it("has no import path into project mutation or authoring dispatch (source guard)", () => {
+    const source = readFileSync(resolve(repositoryRoot, "backend", "gateway", "dcc", "godotLiveLink.ts"), "utf8");
+    const importedModules = [...source.matchAll(/from\s+"([^"]+)"/g)].map((match) => match[1]!);
+    // The hub may only track preview frames and validate payloads; authoring
+    // surfaces (project schema mutators, agent-engine operations, return
+    // importers) must stay unreachable from live-link frames — the link is
+    // never authoritative for project state.
+    expect(importedModules.length).toBeGreaterThan(0);
+    for (const module of importedModules) {
+      expect(["node:crypto", "@director/dcc-protocol"]).toContain(module);
+    }
+    for (const forbidden of [
+      "@director/project-schema",
+      "@director/agent-engine",
+      "applyAuthoring",
+      "blenderReturnImport",
+      "authoringDispatch",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
+  });
 });
 
 describe("Godot connector live-link source contract (outbound only)", () => {

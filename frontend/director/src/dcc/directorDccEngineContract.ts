@@ -275,9 +275,11 @@ export const directorDccEngineSendResultSchema = z.strictObject({
   /** Absolute path of the echoed return package directory, when produced. */
   returnPackagePath: z.string().nullable(),
   /**
-   * Unreal-only: pose/rig channels the Gateway bake omitted (warn-and-omit),
+   * Pose/rig channels the Gateway animation bake omitted (warn-and-omit) for
+   * the bake-sidecar providers (Unreal Sequencer and Godot animation bakes),
    * computed from the Gateway's own sidecar so an outdated connector can never
-   * silently flatten them out of the result.
+   * silently flatten them out of the result. Unity bakes inside the connector
+   * and reports its omissions through `report.unity.omittedChannels` instead.
    */
   omittedAnimationChannels: z.array(directorUnrealOmittedAnimationChannelsSchema).max(2_048).optional(),
   /** Unreal-only: the optional clean-frame render receipt (rendered or skipped with reason). */

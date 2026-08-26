@@ -41109,7 +41109,10 @@ var editClipPatchFields = {
   position_x: boundedNumber(-MAX_CLIP_POSITION_PX, MAX_CLIP_POSITION_PX).optional(),
   position_y: boundedNumber(-MAX_CLIP_POSITION_PX, MAX_CLIP_POSITION_PX).optional(),
   rotation_deg: boundedNumber(-MAX_CLIP_ROTATION_DEG, MAX_CLIP_ROTATION_DEG).optional(),
-  fit: creativeWorkspaceFitSchema.optional()
+  fit: creativeWorkspaceFitSchema.optional(),
+  // Cross-dissolve duration into this clip from its same-track predecessor.
+  // Values above 0 require an adjacent predecessor clip at execution time.
+  transition_in_sec: boundedNumber(0, MAX_CLIP_DURATION_SEC).optional()
 };
 var editClipAddOptionalFields = {
   source_duration_sec: editClipPatchFields.source_duration_sec,
@@ -41209,7 +41212,12 @@ var editClipSplitSchema = strictOperation("edit.clip.split", {
   clip_id: creativeWorkspaceIdSchema,
   at_sec: boundedNumber(0, MAX_TIMELINE_SEC)
 });
-var editClipRemoveSchema = strictOperation("edit.clip.remove", { clip_id: creativeWorkspaceIdSchema });
+var editClipRemoveSchema = strictOperation("edit.clip.remove", {
+  clip_id: creativeWorkspaceIdSchema,
+  // When true, later clips on the same track ripple earlier to close the gap
+  // (the Video Editor's ripple delete). Defaults to a plain lift delete.
+  ripple: external_exports.boolean().optional()
+});
 var rangeTrackIdsSchema = external_exports.array(creativeWorkspaceIdSchema).min(1).max(12).refine((ids) => new Set(ids).size === ids.length, "track_ids must be unique");
 var editRangeRemoveSchema = strictOperation("edit.range.remove", {
   from_sec: boundedNumber(0, MAX_TIMELINE_SEC),
@@ -43622,11 +43630,11 @@ var Quaternion = class {
    * @param {Quaternion} quaternion - The quaternion to copy.
    * @return {Quaternion} A reference to this quaternion.
    */
-  copy(quaternion2) {
-    this._x = quaternion2.x;
-    this._y = quaternion2.y;
-    this._z = quaternion2.z;
-    this._w = quaternion2.w;
+  copy(quaternion3) {
+    this._x = quaternion3.x;
+    this._y = quaternion3.y;
+    this._z = quaternion3.z;
+    this._w = quaternion3.w;
     this._onChangeCallback();
     return this;
   }
@@ -43990,8 +43998,8 @@ var Quaternion = class {
    * @param {Quaternion} quaternion - The quaternion to test for equality.
    * @return {boolean} Whether this quaternion is equal with the given one.
    */
-  equals(quaternion2) {
-    return quaternion2._x === this._x && quaternion2._y === this._y && quaternion2._z === this._z && quaternion2._w === this._w;
+  equals(quaternion3) {
+    return quaternion3._x === this._x && quaternion3._y === this._y && quaternion3._z === this._z && quaternion3._w === this._w;
   }
   /**
    * Sets this quaternion's components from the given array.
@@ -45493,31 +45501,31 @@ function createColorManagement() {
      * - https://www.russellcottrell.com/photo/matrixCalculator.htm
      */
     spaces: {},
-    convert: function(color5, sourceColorSpace, targetColorSpace) {
+    convert: function(color6, sourceColorSpace, targetColorSpace) {
       if (this.enabled === false || sourceColorSpace === targetColorSpace || !sourceColorSpace || !targetColorSpace) {
-        return color5;
+        return color6;
       }
       if (this.spaces[sourceColorSpace].transfer === SRGBTransfer) {
-        color5.r = SRGBToLinear(color5.r);
-        color5.g = SRGBToLinear(color5.g);
-        color5.b = SRGBToLinear(color5.b);
+        color6.r = SRGBToLinear(color6.r);
+        color6.g = SRGBToLinear(color6.g);
+        color6.b = SRGBToLinear(color6.b);
       }
       if (this.spaces[sourceColorSpace].primaries !== this.spaces[targetColorSpace].primaries) {
-        color5.applyMatrix3(this.spaces[sourceColorSpace].toXYZ);
-        color5.applyMatrix3(this.spaces[targetColorSpace].fromXYZ);
+        color6.applyMatrix3(this.spaces[sourceColorSpace].toXYZ);
+        color6.applyMatrix3(this.spaces[targetColorSpace].fromXYZ);
       }
       if (this.spaces[targetColorSpace].transfer === SRGBTransfer) {
-        color5.r = LinearToSRGB(color5.r);
-        color5.g = LinearToSRGB(color5.g);
-        color5.b = LinearToSRGB(color5.b);
+        color6.r = LinearToSRGB(color6.r);
+        color6.g = LinearToSRGB(color6.g);
+        color6.b = LinearToSRGB(color6.b);
       }
-      return color5;
+      return color6;
     },
-    workingToColorSpace: function(color5, targetColorSpace) {
-      return this.convert(color5, this.workingColorSpace, targetColorSpace);
+    workingToColorSpace: function(color6, targetColorSpace) {
+      return this.convert(color6, this.workingColorSpace, targetColorSpace);
     },
-    colorSpaceToWorking: function(color5, sourceColorSpace) {
-      return this.convert(color5, sourceColorSpace, this.workingColorSpace);
+    colorSpaceToWorking: function(color6, sourceColorSpace) {
+      return this.convert(color6, sourceColorSpace, this.workingColorSpace);
     },
     getPrimaries: function(colorSpace) {
       return this.spaces[colorSpace].primaries;
@@ -45546,13 +45554,13 @@ function createColorManagement() {
       return this.spaces[colorSpace].workingColorSpaceConfig.unpackColorSpace;
     },
     // Deprecated
-    fromWorkingColorSpace: function(color5, targetColorSpace) {
+    fromWorkingColorSpace: function(color6, targetColorSpace) {
       warnOnce("ColorManagement: .fromWorkingColorSpace() has been renamed to .workingToColorSpace().");
-      return ColorManagement2.workingToColorSpace(color5, targetColorSpace);
+      return ColorManagement2.workingToColorSpace(color6, targetColorSpace);
     },
-    toWorkingColorSpace: function(color5, sourceColorSpace) {
+    toWorkingColorSpace: function(color6, sourceColorSpace) {
       warnOnce("ColorManagement: .toWorkingColorSpace() has been renamed to .colorSpaceToWorking().");
-      return ColorManagement2.colorSpaceToWorking(color5, sourceColorSpace);
+      return ColorManagement2.colorSpaceToWorking(color6, sourceColorSpace);
     }
   };
   const REC709_PRIMARIES = [0.64, 0.33, 0.3, 0.6, 0.15, 0.06];
@@ -47695,9 +47703,9 @@ var Matrix4 = class _Matrix4 {
    * @param {Vector3} scale - The scale vector.
    * @return {Matrix4} A reference to this matrix.
    */
-  compose(position, quaternion2, scale) {
+  compose(position, quaternion3, scale) {
     const te = this.elements;
-    const x = quaternion2._x, y = quaternion2._y, z2 = quaternion2._z, w = quaternion2._w;
+    const x = quaternion3._x, y = quaternion3._y, z2 = quaternion3._z, w = quaternion3._w;
     const x2 = x + x, y2 = y + y, z22 = z2 + z2;
     const xx = x * x2, xy = x * y2, xz = x * z22;
     const yy = y * y2, yz = y * z22, zz = z2 * z22;
@@ -47734,7 +47742,7 @@ var Matrix4 = class _Matrix4 {
    * @param {Vector3} scale - The scale vector.
    * @return {Matrix4} A reference to this matrix.
    */
-  decompose(position, quaternion2, scale) {
+  decompose(position, quaternion3, scale) {
     const te = this.elements;
     position.x = te[12];
     position.y = te[13];
@@ -47742,7 +47750,7 @@ var Matrix4 = class _Matrix4 {
     const det = this.determinant();
     if (det === 0) {
       scale.set(1, 1, 1);
-      quaternion2.identity();
+      quaternion3.identity();
       return this;
     }
     let sx = _v1$7.set(te[0], te[1], te[2]).length();
@@ -47762,7 +47770,7 @@ var Matrix4 = class _Matrix4 {
     _m1$2.elements[8] *= invSZ;
     _m1$2.elements[9] *= invSZ;
     _m1$2.elements[10] *= invSZ;
-    quaternion2.setFromRotationMatrix(_m1$2);
+    quaternion3.setFromRotationMatrix(_m1$2);
     scale.x = sx;
     scale.y = sy;
     scale.z = sz;
@@ -48320,16 +48328,16 @@ var Object3D = class _Object3D extends EventDispatcher {
     this.up = _Object3D.DEFAULT_UP.clone();
     const position = new Vector3();
     const rotation = new Euler();
-    const quaternion2 = new Quaternion();
+    const quaternion3 = new Quaternion();
     const scale = new Vector3(1, 1, 1);
     function onRotationChange() {
-      quaternion2.setFromEuler(rotation, false);
+      quaternion3.setFromEuler(rotation, false);
     }
     function onQuaternionChange() {
-      rotation.setFromQuaternion(quaternion2, void 0, false);
+      rotation.setFromQuaternion(quaternion3, void 0, false);
     }
     rotation._onChange(onRotationChange);
-    quaternion2._onChange(onQuaternionChange);
+    quaternion3._onChange(onQuaternionChange);
     Object.defineProperties(this, {
       /**
        * Represents the object's local position.
@@ -48364,7 +48372,7 @@ var Object3D = class _Object3D extends EventDispatcher {
       quaternion: {
         configurable: true,
         enumerable: true,
-        value: quaternion2
+        value: quaternion3
       },
       /**
        * Represents the object's local scale.
@@ -49518,39 +49526,39 @@ var Color = class {
     }
     let m;
     if (m = /^(\w+)\(([^\)]*)\)/.exec(style)) {
-      let color5;
+      let color6;
       const name4 = m[1];
       const components = m[2];
       switch (name4) {
         case "rgb":
         case "rgba":
-          if (color5 = /^\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*(\d*\.?\d+)\s*)?$/.exec(components)) {
-            handleAlpha(color5[4]);
+          if (color6 = /^\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*(\d*\.?\d+)\s*)?$/.exec(components)) {
+            handleAlpha(color6[4]);
             return this.setRGB(
-              Math.min(255, parseInt(color5[1], 10)) / 255,
-              Math.min(255, parseInt(color5[2], 10)) / 255,
-              Math.min(255, parseInt(color5[3], 10)) / 255,
+              Math.min(255, parseInt(color6[1], 10)) / 255,
+              Math.min(255, parseInt(color6[2], 10)) / 255,
+              Math.min(255, parseInt(color6[3], 10)) / 255,
               colorSpace
             );
           }
-          if (color5 = /^\s*(\d+)\%\s*,\s*(\d+)\%\s*,\s*(\d+)\%\s*(?:,\s*(\d*\.?\d+)\s*)?$/.exec(components)) {
-            handleAlpha(color5[4]);
+          if (color6 = /^\s*(\d+)\%\s*,\s*(\d+)\%\s*,\s*(\d+)\%\s*(?:,\s*(\d*\.?\d+)\s*)?$/.exec(components)) {
+            handleAlpha(color6[4]);
             return this.setRGB(
-              Math.min(100, parseInt(color5[1], 10)) / 100,
-              Math.min(100, parseInt(color5[2], 10)) / 100,
-              Math.min(100, parseInt(color5[3], 10)) / 100,
+              Math.min(100, parseInt(color6[1], 10)) / 100,
+              Math.min(100, parseInt(color6[2], 10)) / 100,
+              Math.min(100, parseInt(color6[3], 10)) / 100,
               colorSpace
             );
           }
           break;
         case "hsl":
         case "hsla":
-          if (color5 = /^\s*(\d*\.?\d+)\s*,\s*(\d*\.?\d+)\%\s*,\s*(\d*\.?\d+)\%\s*(?:,\s*(\d*\.?\d+)\s*)?$/.exec(components)) {
-            handleAlpha(color5[4]);
+          if (color6 = /^\s*(\d*\.?\d+)\s*,\s*(\d*\.?\d+)\%\s*,\s*(\d*\.?\d+)\%\s*(?:,\s*(\d*\.?\d+)\s*)?$/.exec(components)) {
+            handleAlpha(color6[4]);
             return this.setHSL(
-              parseFloat(color5[1]) / 360,
-              parseFloat(color5[2]) / 100,
-              parseFloat(color5[3]) / 100,
+              parseFloat(color6[1]) / 360,
+              parseFloat(color6[2]) / 100,
+              parseFloat(color6[3]) / 100,
               colorSpace
             );
           }
@@ -49614,10 +49622,10 @@ var Color = class {
    * @param {Color} color - The color to copy.
    * @return {Color} A reference to this color.
    */
-  copy(color5) {
-    this.r = color5.r;
-    this.g = color5.g;
-    this.b = color5.b;
+  copy(color6) {
+    this.r = color6.r;
+    this.g = color6.g;
+    this.b = color6.b;
     return this;
   }
   /**
@@ -49627,10 +49635,10 @@ var Color = class {
    * @param {Color} color - The color to copy/convert.
    * @return {Color} A reference to this color.
    */
-  copySRGBToLinear(color5) {
-    this.r = SRGBToLinear(color5.r);
-    this.g = SRGBToLinear(color5.g);
-    this.b = SRGBToLinear(color5.b);
+  copySRGBToLinear(color6) {
+    this.r = SRGBToLinear(color6.r);
+    this.g = SRGBToLinear(color6.g);
+    this.b = SRGBToLinear(color6.b);
     return this;
   }
   /**
@@ -49640,10 +49648,10 @@ var Color = class {
    * @param {Color} color - The color to copy/convert.
    * @return {Color} A reference to this color.
    */
-  copyLinearToSRGB(color5) {
-    this.r = LinearToSRGB(color5.r);
-    this.g = LinearToSRGB(color5.g);
-    this.b = LinearToSRGB(color5.b);
+  copyLinearToSRGB(color6) {
+    this.r = LinearToSRGB(color6.r);
+    this.g = LinearToSRGB(color6.g);
+    this.b = LinearToSRGB(color6.b);
     return this;
   }
   /**
@@ -49770,10 +49778,10 @@ var Color = class {
    * @param {Color} color - The color to add.
    * @return {Color} A reference to this color.
    */
-  add(color5) {
-    this.r += color5.r;
-    this.g += color5.g;
-    this.b += color5.b;
+  add(color6) {
+    this.r += color6.r;
+    this.g += color6.g;
+    this.b += color6.b;
     return this;
   }
   /**
@@ -49807,10 +49815,10 @@ var Color = class {
    * @param {Color} color - The color to subtract.
    * @return {Color} A reference to this color.
    */
-  sub(color5) {
-    this.r = Math.max(0, this.r - color5.r);
-    this.g = Math.max(0, this.g - color5.g);
-    this.b = Math.max(0, this.b - color5.b);
+  sub(color6) {
+    this.r = Math.max(0, this.r - color6.r);
+    this.g = Math.max(0, this.g - color6.g);
+    this.b = Math.max(0, this.b - color6.b);
     return this;
   }
   /**
@@ -49819,10 +49827,10 @@ var Color = class {
    * @param {Color} color - The color to multiply.
    * @return {Color} A reference to this color.
    */
-  multiply(color5) {
-    this.r *= color5.r;
-    this.g *= color5.g;
-    this.b *= color5.b;
+  multiply(color6) {
+    this.r *= color6.r;
+    this.g *= color6.g;
+    this.b *= color6.b;
     return this;
   }
   /**
@@ -49846,10 +49854,10 @@ var Color = class {
    * @param {number} alpha - The interpolation factor in the closed interval `[0,1]`.
    * @return {Color} A reference to this color.
    */
-  lerp(color5, alpha) {
-    this.r += (color5.r - this.r) * alpha;
-    this.g += (color5.g - this.g) * alpha;
-    this.b += (color5.b - this.b) * alpha;
+  lerp(color6, alpha) {
+    this.r += (color6.r - this.r) * alpha;
+    this.g += (color6.g - this.g) * alpha;
+    this.b += (color6.b - this.b) * alpha;
     return this;
   }
   /**
@@ -49879,9 +49887,9 @@ var Color = class {
    * @param {number} alpha - The interpolation factor in the closed interval `[0,1]`.
    * @return {Color} A reference to this color.
    */
-  lerpHSL(color5, alpha) {
+  lerpHSL(color6, alpha) {
     this.getHSL(_hslA);
-    color5.getHSL(_hslB);
+    color6.getHSL(_hslB);
     const h = lerp(_hslA.h, _hslB.h, alpha);
     const s = lerp(_hslA.s, _hslB.s, alpha);
     const l = lerp(_hslA.l, _hslB.l, alpha);
@@ -53391,6 +53399,85 @@ var generated3dPromotionSchema = external_exports.strictObject({
   receipt: generated3dReceiptSchema
 });
 
+// packages/project-schema/src/productionGraph/productionGraphProtocol.json
+var productionGraphProtocol_default = {
+  nodeKinds: {
+    production: true,
+    scene: true,
+    asset: true,
+    object: true,
+    camera: true,
+    shot: true,
+    take: true,
+    coverage: true,
+    artifact: true,
+    job: true,
+    review: true,
+    approval: true
+  },
+  edgeKinds: {
+    contains: true,
+    uses: true,
+    derived_from: true,
+    renders: true,
+    references: true,
+    promoted_to: true,
+    reviewed_by: true
+  },
+  integrityIssueCodes: {
+    schema: true,
+    "duplicate-node": true,
+    "duplicate-edge-id": true,
+    "duplicate-edge": true,
+    "node-id-mismatch": true,
+    "edge-id-mismatch": true,
+    "dangling-edge-source": true,
+    "dangling-edge-target": true,
+    "invalid-edge-relation": true,
+    "invalid-frame-range": true,
+    "missing-production-node": true,
+    "multiple-production-nodes": true,
+    "production-id-mismatch": true
+  }
+};
+
+// packages/project-schema/src/productionGraph/productionGraphIdentityMap.ts
+var productionGraphIdentityNodeKinds = protocolKeys(productionGraphProtocol_default.nodeKinds);
+var productionGraphIdentityNodeKindSchema = external_exports.enum(productionGraphIdentityNodeKinds);
+var PRODUCTION_GRAPH_IDENTITY_MAP_CONTRACT = "director-production-graph-identities-v1";
+var productionGraphIdentityEntrySchema = external_exports.strictObject({
+  kind: productionGraphIdentityNodeKindSchema,
+  sourceId: external_exports.string().min(1).max(1024),
+  graphNodeId: external_exports.string().min(3).max(1024)
+}).readonly();
+var productionGraphIdentityMapSchema = external_exports.strictObject({
+  contract: external_exports.literal(PRODUCTION_GRAPH_IDENTITY_MAP_CONTRACT),
+  entries: external_exports.array(productionGraphIdentityEntrySchema).max(1e5),
+  fingerprint: external_exports.string().regex(/^production-graph-identities:v1:sha256:[a-f0-9]{64}$/)
+}).superRefine((value, context) => {
+  const bySource = /* @__PURE__ */ new Set();
+  const byNode = /* @__PURE__ */ new Set();
+  value.entries.forEach((entry, index) => {
+    const sourceKey = `${entry.kind}:${entry.sourceId}`;
+    if (bySource.has(sourceKey)) {
+      context.addIssue({
+        code: "custom",
+        path: ["entries", index],
+        message: `Duplicate source identity ${sourceKey}.`
+      });
+    }
+    if (byNode.has(entry.graphNodeId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["entries", index, "graphNodeId"],
+        message: `Duplicate graph node identity ${entry.graphNodeId}.`
+      });
+    }
+    bySource.add(sourceKey);
+    byNode.add(entry.graphNodeId);
+  });
+}).readonly();
+
 // packages/protocol/src/worldSystemsProtocol.ts
 var DIRECTOR_WORLD_PROTOCOL_VERSION = 1;
 var DIRECTOR_WORLD_MAX_EFFECTS = 64;
@@ -54296,6 +54383,7 @@ var directorProjectBaseSchema = external_exports.strictObject({
   referenceReconstructions: external_exports.array(referenceSceneReconstructionPlanSchema).max(64).optional(),
   proceduralRecipes: external_exports.array(directorProceduralRecipeSchema).max(128).optional(),
   world: directorWorldSchema.optional(),
+  productionGraphIdentities: productionGraphIdentityMapSchema.optional(),
   activeCameraId: external_exports.string().nullable(),
   panoramaAssetId: external_exports.string().nullable()
 });
@@ -54429,6 +54517,139 @@ var directorProjectSchema = directorProjectBaseSchema.superRefine((project, cont
   addDirectorProjectStructuralIssues(project, context);
   addDirectorProjectReferenceIssues(project, context);
 });
+
+// packages/project-schema/src/directorProjectRevision.ts
+var DIRECTOR_PROJECT_REVISION_PATTERN = /^director-project-revision:v1:sha256:[0-9a-f]{64}$/;
+var SHA256_INITIAL_STATE = [
+  1779033703,
+  3144134277,
+  1013904242,
+  2773480762,
+  1359893119,
+  2600822924,
+  528734635,
+  1541459225
+];
+var SHA256_ROUND_CONSTANTS = [
+  1116352408,
+  1899447441,
+  3049323471,
+  3921009573,
+  961987163,
+  1508970993,
+  2453635748,
+  2870763221,
+  3624381080,
+  310598401,
+  607225278,
+  1426881987,
+  1925078388,
+  2162078206,
+  2614888103,
+  3248222580,
+  3835390401,
+  4022224774,
+  264347078,
+  604807628,
+  770255983,
+  1249150122,
+  1555081692,
+  1996064986,
+  2554220882,
+  2821834349,
+  2952996808,
+  3210313671,
+  3336571891,
+  3584528711,
+  113926993,
+  338241895,
+  666307205,
+  773529912,
+  1294757372,
+  1396182291,
+  1695183700,
+  1986661051,
+  2177026350,
+  2456956037,
+  2730485921,
+  2820302411,
+  3259730800,
+  3345764771,
+  3516065817,
+  3600352804,
+  4094571909,
+  275423344,
+  430227734,
+  506948616,
+  659060556,
+  883997877,
+  958139571,
+  1322822218,
+  1537002063,
+  1747873779,
+  1955562222,
+  2024104815,
+  2227730452,
+  2361852424,
+  2428436474,
+  2756734187,
+  3204031479,
+  3329325298
+];
+function rotateRight(value, count) {
+  return value >>> count | value << 32 - count;
+}
+function sha256HexSync(value) {
+  const input = new TextEncoder().encode(value);
+  const paddedLength = Math.ceil((input.byteLength + 9) / 64) * 64;
+  const message = new Uint8Array(paddedLength);
+  message.set(input);
+  message[input.byteLength] = 128;
+  const view = new DataView(message.buffer);
+  const bitLength = input.byteLength * 8;
+  view.setUint32(paddedLength - 8, Math.floor(bitLength / 4294967296), false);
+  view.setUint32(paddedLength - 4, bitLength >>> 0, false);
+  const state = Uint32Array.from(SHA256_INITIAL_STATE);
+  const schedule = new Uint32Array(64);
+  for (let blockOffset = 0; blockOffset < paddedLength; blockOffset += 64) {
+    for (let index = 0; index < 16; index += 1) {
+      schedule[index] = view.getUint32(blockOffset + index * 4, false);
+    }
+    for (let index = 16; index < 64; index += 1) {
+      const previous15 = schedule[index - 15];
+      const previous2 = schedule[index - 2];
+      const sigma0 = rotateRight(previous15, 7) ^ rotateRight(previous15, 18) ^ previous15 >>> 3;
+      const sigma1 = rotateRight(previous2, 17) ^ rotateRight(previous2, 19) ^ previous2 >>> 10;
+      schedule[index] = schedule[index - 16] + sigma0 + schedule[index - 7] + sigma1 >>> 0;
+    }
+    let [a, b, c, d, e, f, g, h] = state;
+    for (let index = 0; index < 64; index += 1) {
+      const bigSigma1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+      const choose = e & f ^ ~e & g;
+      const temporary1 = h + bigSigma1 + choose + SHA256_ROUND_CONSTANTS[index] + schedule[index] >>> 0;
+      const bigSigma0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+      const majority = a & b ^ a & c ^ b & c;
+      const temporary2 = bigSigma0 + majority >>> 0;
+      h = g;
+      g = f;
+      f = e;
+      e = d + temporary1 >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = temporary1 + temporary2 >>> 0;
+    }
+    state[0] = state[0] + a >>> 0;
+    state[1] = state[1] + b >>> 0;
+    state[2] = state[2] + c >>> 0;
+    state[3] = state[3] + d >>> 0;
+    state[4] = state[4] + e >>> 0;
+    state[5] = state[5] + f >>> 0;
+    state[6] = state[6] + g >>> 0;
+    state[7] = state[7] + h >>> 0;
+  }
+  return Array.from(state, (part) => part.toString(16).padStart(8, "0")).join("");
+}
 
 // packages/project-schema/src/frameRate.ts
 var DIRECTOR_COMMON_FRAME_RATES = Object.freeze({
@@ -54904,6 +55125,1462 @@ var VIEW_OFFSETS = {
 var TWO_PI = Math.PI * 2;
 var DEG_PER_RAD = 180 / Math.PI;
 
+// packages/protocol/src/productionJobKinds.json
+var productionJobKinds_default = {
+  statuses: {
+    queued: true,
+    running: true,
+    succeeded: true,
+    failed: true,
+    cancelled: true,
+    outcome_unknown: true,
+    reconciling: true
+  },
+  kinds: {
+    "canvas.image": true,
+    "canvas.video": true,
+    "image.generate": true,
+    "video.generate": true,
+    "model.generate": true,
+    "audio.generate": true,
+    "media.proxy": true,
+    "media.transcribe": true,
+    "media.transcode": true,
+    "scene.reconstruct": true,
+    "dcc.export": true,
+    "dcc.import": true,
+    "episode.package": true
+  }
+};
+
+// packages/protocol/src/mediaTranscriptionProtocol.ts
+var boundedText2 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var directorMediaTranscriptSegmentSchema = external_exports.strictObject({
+  startSec: external_exports.number().finite().nonnegative(),
+  endSec: external_exports.number().finite().positive(),
+  text: boundedText2(8e3),
+  speaker: external_exports.string().trim().min(1).max(160).nullable().default(null),
+  confidence: external_exports.number().finite().min(0).max(1).nullable().default(null)
+}).refine((segment) => segment.endSec > segment.startSec, {
+  message: "Transcript segment endSec must be greater than startSec",
+  path: ["endSec"]
+});
+var directorMediaTranscriptSchema = external_exports.strictObject({
+  version: external_exports.literal(1),
+  jobId: boundedText2(240),
+  sourceMediaId: boundedText2(512),
+  sourceSha256: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  provider: boundedText2(200),
+  model: boundedText2(240),
+  language: external_exports.string().trim().min(1).max(80).nullable(),
+  durationSec: external_exports.number().finite().positive().max(24 * 60 * 60).nullable(),
+  text: external_exports.string().max(1e6),
+  segments: external_exports.array(directorMediaTranscriptSegmentSchema).max(2e4),
+  createdAt: external_exports.string().datetime()
+}).superRefine((transcript, context) => {
+  let previousStart = -1;
+  transcript.segments.forEach((segment, index) => {
+    if (segment.startSec < previousStart) {
+      context.addIssue({
+        code: "custom",
+        path: ["segments", index, "startSec"],
+        message: "Transcript segments must be ordered by startSec"
+      });
+    }
+    if (transcript.durationSec !== null && segment.endSec > transcript.durationSec + 0.05) {
+      context.addIssue({
+        code: "custom",
+        path: ["segments", index, "endSec"],
+        message: "Transcript segment exceeds the source duration"
+      });
+    }
+    previousStart = segment.startSec;
+  });
+});
+var mediaTranscriptionJobInputSchema = external_exports.strictObject({
+  sourceMediaId: boundedText2(512),
+  sourceSha256: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  sourceMimeType: boundedText2(200),
+  sourceFileName: boundedText2(255),
+  durationSec: external_exports.number().finite().positive().max(24 * 60 * 60).nullable().default(null),
+  model: boundedText2(240),
+  language: external_exports.string().trim().min(1).max(80).optional()
+});
+var mediaTranscriptionCapabilitiesSchema = external_exports.strictObject({
+  version: external_exports.literal(1),
+  configured: external_exports.boolean(),
+  provider: external_exports.literal("openai-compatible"),
+  model: boundedText2(240),
+  endpointHost: external_exports.string().max(500).nullable(),
+  maxInputBytes: external_exports.number().int().positive(),
+  supportsSegments: external_exports.literal(true),
+  supportsVtt: external_exports.literal(true),
+  supportsLongMedia: external_exports.literal(true),
+  longMediaStrategy: external_exports.literal("adaptive-chunking"),
+  chunkThresholdSec: external_exports.number().int().positive(),
+  chunkDurationSec: external_exports.number().int().positive(),
+  chunkConcurrency: external_exports.number().int().min(1).max(4)
+});
+
+// packages/protocol/src/captureReconstructionProtocol.ts
+var CAPTURE_RECONSTRUCTION_CONTRACT = "director.capture-reconstruction/v1";
+var CAPTURE_RECONSTRUCTION_MAX_WALLS = 64;
+var CAPTURE_RECONSTRUCTION_MAX_OBJECTS = 64;
+var CAPTURE_RECONSTRUCTION_MAX_KEY_VIEWS = 12;
+var CAPTURE_RECONSTRUCTION_MAX_PLAN_OBJECTS = 320;
+var finite6 = external_exports.number().finite();
+var boundedText3 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var color4 = external_exports.string().regex(/^#[0-9a-f]{6}$/i, "must be a six-digit hex color");
+var metres = (minimum, maximum) => finite6.min(minimum).max(maximum);
+var vec36 = (minimum, maximum) => external_exports.tuple([metres(minimum, maximum), metres(minimum, maximum), metres(minimum, maximum)]);
+var vec2 = (minimum, maximum) => external_exports.tuple([metres(minimum, maximum), metres(minimum, maximum)]);
+var safeFileNameSchema = external_exports.string().trim().min(1).max(240).refine((value) => value !== "." && value !== ".." && !value.includes("/") && !value.includes("\\"), {
+  message: "file name must be a single safe path segment"
+});
+var stagedCaptureSourceIdSchema = external_exports.string().trim().min(1).max(512).regex(/^(?:[A-Za-z0-9._-]+:)*sha256:[a-f0-9]{64}$/, "sourceMediaId must reference a staged sha256 media input");
+var captureSourceKindSchema = external_exports.enum(["rgbd-bundle", "rgb-video"]);
+var captureReconstructionJobInputSchema = external_exports.strictObject({
+  sourceMediaId: stagedCaptureSourceIdSchema,
+  sourceKind: captureSourceKindSchema,
+  fileName: safeFileNameSchema,
+  /** Maximum number of key views to extract from the capture. */
+  maxKeyViews: external_exports.number().int().min(1).max(CAPTURE_RECONSTRUCTION_MAX_KEY_VIEWS).default(6),
+  /** Maximum number of objects to detect in the scene. */
+  maxObjects: external_exports.number().int().min(1).max(CAPTURE_RECONSTRUCTION_MAX_OBJECTS).default(24),
+  /** Grid resolution for spatial analysis; higher values give finer detail at the cost of performance. */
+  gridResolution: external_exports.number().int().min(64).max(512).default(192),
+  prompt: external_exports.string().trim().max(2e3).default("")
+});
+var captureReconstructionProvidersSchema = external_exports.strictObject({
+  /** Where camera poses came from. `none` marks the degraded RGB-only path. */
+  poses: external_exports.enum(["bundle", "estimated", "none"]),
+  /** Where per-frame depth came from. */
+  depth: external_exports.enum(["sensor", "model", "none"]),
+  /** How object labels were assigned. */
+  semantics: external_exports.enum(["heuristic", "none"])
+});
+var captureReconstructionMetricsSchema = external_exports.strictObject({
+  frameCount: external_exports.number().int().nonnegative(),
+  keyViewCount: external_exports.number().int().nonnegative(),
+  floorAreaM2: finite6.min(0).max(1e5),
+  wallCount: external_exports.number().int().nonnegative(),
+  objectCount: external_exports.number().int().nonnegative(),
+  /** Share of sampled depth pixels that survived range and validity checks. */
+  depthCoverage: finite6.min(0).max(1)
+});
+var captureWallOpeningSchema = external_exports.strictObject({
+  id: boundedText3(120),
+  kind: external_exports.enum(["door", "window"]),
+  /** Distance of the opening centre from the wall start, along the wall. */
+  centerM: metres(0, 1e3),
+  widthM: metres(0.2, 8),
+  /** Bottom edge above the floor; doors are expected to start at 0. */
+  bottomM: metres(0, 4),
+  heightM: metres(0.2, 6)
+});
+var captureWallSchema = external_exports.strictObject({
+  id: boundedText3(120),
+  /** Start point of the wall in plan space (x, z), metres. */
+  start: vec2(-1e3, 1e3),
+  /** End point of the wall in plan space (x, z), metres. */
+  end: vec2(-1e3, 1e3),
+  heightM: metres(0.5, 12),
+  thicknessM: metres(0.02, 1),
+  color: color4,
+  openings: external_exports.array(captureWallOpeningSchema).max(8)
+});
+var captureDetectedObjectSchema = external_exports.strictObject({
+  id: boundedText3(120),
+  label: boundedText3(120),
+  /** Floor-pivot position (bottom centre) in plan space, Y up, metres. */
+  position: vec36(-1e3, 1e3),
+  rotationYDeg: finite6.min(-360).max(360),
+  /** Width / height / depth in metres. */
+  size: external_exports.tuple([metres(0.02, 30), metres(0.02, 30), metres(0.02, 30)]),
+  color: color4,
+  /** Detection confidence; higher values indicate more reliable detections. */
+  confidence: finite6.min(0).max(1),
+  support: external_exports.enum(["floor", "unknown"])
+});
+var captureKeyViewSchema = external_exports.strictObject({
+  id: boundedText3(120),
+  fileName: safeFileNameSchema,
+  /** Camera position in plan space, Y up, metres. */
+  position: vec36(-1e3, 1e3),
+  target: vec36(-1e3, 1e3),
+  fovYDeg: finite6.min(20).max(120),
+  width: external_exports.number().int().min(16).max(8192),
+  height: external_exports.number().int().min(16).max(8192)
+});
+var captureReconstructionReportSchema = external_exports.strictObject({
+  contract: external_exports.literal(CAPTURE_RECONSTRUCTION_CONTRACT),
+  status: external_exports.enum(["ready", "degraded"]),
+  sourceKind: captureSourceKindSchema,
+  providers: captureReconstructionProvidersSchema,
+  warnings: external_exports.array(boundedText3(400)).max(24),
+  metrics: captureReconstructionMetricsSchema,
+  floor: external_exports.strictObject({
+    /** Counter-clockwise polygon on the ground plane (x, z), metres. */
+    polygon: external_exports.array(vec2(-1e3, 1e3)).min(3).max(64)
+  }).nullable(),
+  walls: external_exports.array(captureWallSchema).max(CAPTURE_RECONSTRUCTION_MAX_WALLS),
+  objects: external_exports.array(captureDetectedObjectSchema).max(CAPTURE_RECONSTRUCTION_MAX_OBJECTS),
+  keyViews: external_exports.array(captureKeyViewSchema).max(CAPTURE_RECONSTRUCTION_MAX_KEY_VIEWS),
+  mesh: external_exports.strictObject({
+    fileName: safeFileNameSchema,
+    vertexCount: external_exports.number().int().nonnegative(),
+    faceCount: external_exports.number().int().nonnegative()
+  }).nullable()
+});
+var capturePlanMaterialSchema = external_exports.strictObject({
+  baseColor: color4,
+  metalness: finite6.min(0).max(1),
+  roughness: finite6.min(0).max(1),
+  emissiveColor: color4,
+  emissiveIntensity: finite6.min(0).max(20),
+  opacity: finite6.min(0.05).max(1)
+});
+var capturePlanTransformSchema = external_exports.strictObject({
+  position: vec36(-1e3, 1e3),
+  rotation: vec36(-Math.PI * 2, Math.PI * 2),
+  scale: external_exports.tuple([metres(0.01, 1e3), metres(0.01, 1e3), metres(0.01, 1e3)])
+});
+var capturePlanInteractionSchema = external_exports.strictObject({
+  prompt: boundedText3(120),
+  radiusM: metres(0.25, 20),
+  closedTransform: capturePlanTransformSchema,
+  openTransform: capturePlanTransformSchema
+});
+var capturePlanObjectRoleSchema = external_exports.enum(["floor", "wall", "door", "window", "item", "shell"]);
+var capturePlanObjectSchema = external_exports.strictObject({
+  id: boundedText3(200),
+  enabled: external_exports.boolean(),
+  name: boundedText3(120),
+  role: capturePlanObjectRoleSchema,
+  geometryType: external_exports.enum(["box", "sphere", "cylinder", "torus", "cone", "pyramid"]),
+  transform: capturePlanTransformSchema,
+  material: capturePlanMaterialSchema,
+  interaction: capturePlanInteractionSchema.optional(),
+  confidence: finite6.min(0).max(1),
+  rationale: boundedText3(400)
+});
+var capturePlanCameraSchema = external_exports.strictObject({
+  id: boundedText3(200),
+  viewId: boundedText3(120),
+  name: boundedText3(120),
+  position: vec36(-1e3, 1e3),
+  target: vec36(-1e3, 1e3),
+  fovYDeg: finite6.min(20).max(120),
+  width: external_exports.number().int().min(16).max(8192),
+  height: external_exports.number().int().min(16).max(8192),
+  /** Production-job artifact id of the matching capture keyframe. */
+  keyframeArtifactId: boundedText3(240)
+});
+var captureReconstructionPlanSchema = external_exports.strictObject({
+  version: external_exports.literal(1),
+  id: boundedText3(200),
+  jobId: boundedText3(240),
+  createdAt: external_exports.string().datetime({ offset: true }),
+  status: external_exports.enum(["draft", "applied"]),
+  source: external_exports.strictObject({
+    kind: captureSourceKindSchema,
+    fileName: safeFileNameSchema,
+    sha256: external_exports.string().regex(/^[a-f0-9]{64}$/)
+  }),
+  analysis: external_exports.strictObject({
+    status: external_exports.enum(["ready", "degraded"]),
+    providers: captureReconstructionProvidersSchema,
+    warnings: external_exports.array(boundedText3(400)).max(24),
+    metrics: captureReconstructionMetricsSchema,
+    prompt: external_exports.string().trim().max(2e3)
+  }),
+  objects: external_exports.array(capturePlanObjectSchema).min(1).max(CAPTURE_RECONSTRUCTION_MAX_PLAN_OBJECTS),
+  cameras: external_exports.array(capturePlanCameraSchema).max(CAPTURE_RECONSTRUCTION_MAX_KEY_VIEWS),
+  shell: external_exports.strictObject({
+    artifactId: boundedText3(240),
+    fileName: safeFileNameSchema,
+    sizeM: vec36(0.01, 1e3)
+  }).nullable(),
+  application: external_exports.strictObject({
+    appliedAt: external_exports.string().datetime({ offset: true }),
+    objectIds: external_exports.array(boundedText3(200)).max(CAPTURE_RECONSTRUCTION_MAX_PLAN_OBJECTS),
+    cameraIds: external_exports.array(boundedText3(200)).max(CAPTURE_RECONSTRUCTION_MAX_KEY_VIEWS),
+    shellObjectId: boundedText3(200).nullable()
+  }).optional()
+});
+var captureReconstructionPlanResponseSchema = external_exports.strictObject({
+  plan: captureReconstructionPlanSchema
+});
+var captureCompareScoreSchema = external_exports.strictObject({
+  /** Mean structural similarity over the luminance grid, -1..1. */
+  ssim: finite6.min(-1).max(1),
+  /** 1 - mean absolute luminance difference, 0..1. */
+  luminanceSimilarity: finite6.min(0).max(1),
+  /** Edge-density agreement, 0..1. */
+  edgeSimilarity: finite6.min(0).max(1),
+  /** Weighted blend of the components, 0..1; the authoring-loop target. */
+  composite: finite6.min(0).max(1)
+});
+var captureCompareResultSchema = external_exports.strictObject({
+  viewId: boundedText3(120),
+  cameraId: boundedText3(200),
+  score: captureCompareScoreSchema,
+  grid: external_exports.strictObject({
+    rows: external_exports.number().int().min(1).max(16),
+    cols: external_exports.number().int().min(1).max(16),
+    /** Worst cells first; each names a region that disagrees with the capture. */
+    worst: external_exports.array(
+      external_exports.strictObject({
+        row: external_exports.number().int().min(0).max(15),
+        col: external_exports.number().int().min(0).max(15),
+        ssim: finite6.min(-1).max(1)
+      })
+    ).max(8)
+  }),
+  capturedAt: external_exports.string().datetime({ offset: true })
+});
+
+// packages/protocol/src/stableJson.ts
+function stringifyStableJson(value, compareKeys) {
+  if (Array.isArray(value)) return `[${value.map((entry) => stringifyStableJson(entry, compareKeys)).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value).filter(([, entry]) => entry !== void 0).sort(([left], [right]) => compareKeys(left, right)).map(([key, entry]) => `${JSON.stringify(key)}:${stringifyStableJson(entry, compareKeys)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+function stableLexicalJson(value) {
+  return stringifyStableJson(value, (left, right) => left < right ? -1 : left > right ? 1 : 0);
+}
+
+// packages/protocol/src/episodeProtocol.ts
+var EPISODE_MANIFEST_CONTRACT = "director-episode-manifest-v1";
+var EPISODE_ACTION_TRACK_CONTRACT = "director-episode-action-track-v1";
+var EPISODE_CAPTIONS_CONTRACT = "director-episode-captions-v1";
+var idSchema2 = external_exports.string().trim().min(1).max(240);
+var sha256Schema = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var finite7 = external_exports.number().finite();
+var vector2 = external_exports.tuple([finite7, finite7]);
+var vector3 = external_exports.tuple([finite7, finite7, finite7]);
+var quaternion = external_exports.tuple([finite7, finite7, finite7, finite7]);
+var MAX_FRAME_COUNT = 1048576;
+var frameIndexSchema = external_exports.number().int().nonnegative().max(MAX_FRAME_COUNT);
+var episodeFrameRateSchema = external_exports.strictObject({
+  numerator: external_exports.number().int().positive().max(1e6),
+  denominator: external_exports.number().int().positive().max(1e6)
+});
+var SMPTE_TIMECODE_PATTERN = /^\d{2}:\d{2}:\d{2}[:;]\d{2}$/;
+var episodeTimebaseSchema = external_exports.strictObject({
+  frameRate: episodeFrameRateSchema,
+  frameCount: external_exports.number().int().positive().max(MAX_FRAME_COUNT),
+  startTimecode: external_exports.string().regex(SMPTE_TIMECODE_PATTERN).optional()
+});
+var episodeSceneRevisionSchema = external_exports.union([external_exports.string().trim().min(1).max(240), external_exports.number().int().nonnegative()]);
+var episodeRendererSchema = external_exports.strictObject({
+  /** Open backend identifier, e.g. "three-webgl" or "blender-cycles". */
+  backendId: external_exports.string().trim().min(1).max(160),
+  version: external_exports.string().trim().min(1).max(240),
+  resolution: external_exports.strictObject({
+    width: external_exports.number().int().positive().max(16384),
+    height: external_exports.number().int().positive().max(16384)
+  }),
+  /** Open color space name, e.g. "srgb" or "acescg". */
+  colorSpace: external_exports.string().trim().min(1).max(80)
+});
+var episodeAssetRefSchema = external_exports.strictObject({
+  assetId: idSchema2,
+  sha256: sha256Schema,
+  /** SPDX identifier or free-form license note; required before dataset release. */
+  license: external_exports.string().trim().min(1).max(240).optional()
+});
+var episodeProvenanceSchema = external_exports.strictObject({
+  /** Git commit hash or release version of the generation code. */
+  codeVersion: external_exports.string().trim().min(1).max(240),
+  /** Fingerprint of the full generation configuration (scenario, sampler, backend settings). */
+  configHash: external_exports.string().trim().min(16).max(512),
+  assets: external_exports.array(episodeAssetRefSchema).max(4096).default([])
+}).superRefine((value, context) => {
+  if (new Set(value.assets.map((asset) => asset.assetId)).size !== value.assets.length) {
+    context.addIssue({ code: "custom", path: ["assets"], message: "asset assetIds must be unique" });
+  }
+});
+var episodeArtifactKindSchema = external_exports.enum(["video", "action-track", "captions", "render-pass", "metadata"]);
+var episodeRelativePathSchema = external_exports.string().trim().min(1).max(2048).refine(
+  (value) => !value.startsWith("/") && !value.includes("\\") && !value.includes("\0") && value.split("/").every((segment) => segment !== "" && segment !== "." && segment !== ".."),
+  { message: "path must be a normalized episode-relative path without traversal segments" }
+);
+var episodeArtifactRefSchema = external_exports.strictObject({
+  path: episodeRelativePathSchema,
+  kind: episodeArtifactKindSchema,
+  sha256: sha256Schema,
+  bytes: external_exports.number().int().nonnegative()
+});
+var episodeQualityResultSchema = external_exports.strictObject({
+  gateId: idSchema2,
+  passed: external_exports.boolean(),
+  detail: external_exports.string().trim().max(4e3).optional()
+});
+var episodeManifestSchema = external_exports.strictObject({
+  contract: external_exports.literal(EPISODE_MANIFEST_CONTRACT),
+  id: idSchema2,
+  datasetId: idSchema2.optional(),
+  projectId: idSchema2,
+  sceneRevision: episodeSceneRevisionSchema,
+  seed: external_exports.number().int(),
+  timebase: episodeTimebaseSchema,
+  renderer: episodeRendererSchema,
+  provenance: episodeProvenanceSchema,
+  artifacts: external_exports.array(episodeArtifactRefSchema).min(1).max(256),
+  /** Open-ended quality-gate results; gates are defined by the pipeline, not this contract. */
+  quality: external_exports.array(episodeQualityResultSchema).max(256).optional()
+}).superRefine((value, context) => {
+  if (new Set(value.artifacts.map((artifact) => artifact.path)).size !== value.artifacts.length) {
+    context.addIssue({ code: "custom", path: ["artifacts"], message: "artifact paths must be unique" });
+  }
+  const gateIds = (value.quality ?? []).map((result) => result.gateId);
+  if (new Set(gateIds).size !== gateIds.length) {
+    context.addIssue({ code: "custom", path: ["quality"], message: "quality gateIds must be unique" });
+  }
+});
+var episodeRawControlSchema = external_exports.strictObject({
+  /** Key-code dictionary, e.g. KeyboardEvent.code values plus mouse-button aliases. */
+  keys: external_exports.array(external_exports.string().trim().min(1).max(64)).max(256),
+  /** Column-major per-frame storage: one multi-hot row per frame, row[i] mirrors keys[i]. */
+  pressed: external_exports.array(external_exports.array(external_exports.union([external_exports.literal(0), external_exports.literal(1)]))).max(MAX_FRAME_COUNT),
+  /** Pointer movement accumulated within each frame, in CSS pixels. */
+  pointerDelta: external_exports.array(vector2).max(MAX_FRAME_COUNT).optional(),
+  /** Analog axes (sticks, triggers); one sample per frame per axis. */
+  axes: external_exports.array(
+    external_exports.strictObject({
+      id: external_exports.string().trim().min(1).max(64),
+      values: external_exports.array(finite7).max(MAX_FRAME_COUNT)
+    })
+  ).max(32).optional()
+}).superRefine((value, context) => {
+  if (new Set(value.keys).size !== value.keys.length) {
+    context.addIssue({ code: "custom", path: ["keys"], message: "keys must be unique" });
+  }
+  const mismatch = value.pressed.findIndex((row) => row.length !== value.keys.length);
+  if (mismatch !== -1) {
+    context.addIssue({
+      code: "custom",
+      path: ["pressed", mismatch],
+      message: `pressed[${mismatch}] must have exactly one flag per key (${value.keys.length})`
+    });
+  }
+  const axisIds = (value.axes ?? []).map((axis2) => axis2.id);
+  if (new Set(axisIds).size !== axisIds.length) {
+    context.addIssue({ code: "custom", path: ["axes"], message: "axis ids must be unique" });
+  }
+});
+var episodeCameraIntrinsicsSchema = external_exports.strictObject({
+  focalLengthMm: finite7.positive().max(1e3).optional(),
+  /** Vertical field of view (three.js PerspectiveCamera convention). */
+  fovDegrees: finite7.positive().lt(180).optional(),
+  sensorWidthMm: finite7.positive().max(1e3).optional(),
+  sensorHeightMm: finite7.positive().max(1e3).optional(),
+  /** Normalized image coordinates, origin top-left; defaults to the image center when absent. */
+  principalPoint: external_exports.strictObject({ x: finite7, y: finite7 }).optional()
+}).superRefine((value, context) => {
+  if (value.focalLengthMm === void 0 === (value.fovDegrees === void 0)) {
+    context.addIssue({
+      code: "custom",
+      message: "exactly one of focalLengthMm or fovDegrees must be provided"
+    });
+  }
+});
+var episodeCameraPoseSchema = external_exports.strictObject({
+  intrinsics: episodeCameraIntrinsicsSchema,
+  /** World-space camera positions in meters (right-handed Y-up; camera forward is -Z). */
+  positions: external_exports.array(vector3).max(MAX_FRAME_COUNT),
+  /** Unit quaternions as [x, y, z, w]. */
+  rotations: external_exports.array(quaternion).max(MAX_FRAME_COUNT)
+});
+var episodeSemanticEventSchema = external_exports.strictObject({
+  frame: frameIndexSchema,
+  /** Open event vocabulary, e.g. "object-picked" or "camera-cut". */
+  type: external_exports.string().trim().min(1).max(160),
+  subjectId: idSchema2.optional(),
+  objectId: idSchema2.optional(),
+  payload: external_exports.json().optional()
+});
+var episodeActionTrackSchema = external_exports.strictObject({
+  contract: external_exports.literal(EPISODE_ACTION_TRACK_CONTRACT),
+  rawControl: episodeRawControlSchema.optional(),
+  cameraPose: episodeCameraPoseSchema.optional(),
+  /** Sorted by frame ascending; multiple events may share a frame. */
+  semanticEvents: external_exports.array(episodeSemanticEventSchema).max(MAX_FRAME_COUNT).optional()
+}).superRefine((value, context) => {
+  if (!value.rawControl && !value.cameraPose && !value.semanticEvents) {
+    context.addIssue({
+      code: "custom",
+      message: "an action track must include at least one layer (rawControl, cameraPose or semanticEvents)"
+    });
+  }
+});
+var episodeCaptionGeneratorSchema = external_exports.strictObject({
+  method: external_exports.enum(["deterministic-composed", "vlm-polished", "vlm-generated", "human"]),
+  model: external_exports.string().trim().min(1).max(240).optional()
+});
+var languageTagSchema = external_exports.string().min(2).max(56).regex(/^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/);
+var captionLayerBaseFields = {
+  language: languageTagSchema,
+  generator: episodeCaptionGeneratorSchema
+};
+var episodeCaptionTextLayerSchema = external_exports.strictObject({
+  ...captionLayerBaseFields,
+  text: external_exports.string().trim().min(1).max(16e3)
+});
+var episodeDenseCaptionEntrySchema = external_exports.strictObject({
+  frameStart: frameIndexSchema,
+  /** Inclusive; a single-frame caption has frameStart === frameEnd. */
+  frameEnd: frameIndexSchema,
+  caption: external_exports.string().trim().min(1).max(4e3)
+});
+var episodeDenseCaptionLayerSchema = external_exports.strictObject({
+  ...captionLayerBaseFields,
+  /** Sorted by frameStart ascending; overlapping windows are allowed. */
+  entries: external_exports.array(episodeDenseCaptionEntrySchema).max(1e5)
+});
+var episodeCaptionsSchema = external_exports.strictObject({
+  contract: external_exports.literal(EPISODE_CAPTIONS_CONTRACT),
+  /** Full narration interleaving environment, camera motion and temporal progression. */
+  narrative: episodeCaptionTextLayerSchema.optional(),
+  /** Static environment and aesthetics only — deliberately motion-free so scene description decouples from action control. */
+  sceneStatic: episodeCaptionTextLayerSchema.optional(),
+  denseTemporal: episodeDenseCaptionLayerSchema.optional()
+}).superRefine((value, context) => {
+  if (!value.narrative && !value.sceneStatic && !value.denseTemporal) {
+    context.addIssue({
+      code: "custom",
+      message: "captions must include at least one layer (narrative, sceneStatic or denseTemporal)"
+    });
+  }
+});
+var episodePackageSourceMediaIdSchema = external_exports.string().trim().min(1).max(512).regex(/^(?:[A-Za-z0-9._-]+:)*sha256:[a-f0-9]{64}$/, "sourceVideoMediaId must reference a staged sha256 media input");
+var episodePackageJobInputSchema = external_exports.strictObject({
+  episodeId: idSchema2,
+  projectId: idSchema2,
+  datasetId: idSchema2.optional(),
+  sceneRevision: episodeSceneRevisionSchema,
+  seed: external_exports.number().int(),
+  sourceVideoMediaId: episodePackageSourceMediaIdSchema,
+  timebase: episodeTimebaseSchema,
+  renderer: episodeRendererSchema,
+  provenance: episodeProvenanceSchema,
+  actionTrack: episodeActionTrackSchema,
+  captions: episodeCaptionsSchema,
+  /** Optional raw session log, stored as a provenance artifact (not training input). */
+  sessionRecord: external_exports.json().optional(),
+  quality: external_exports.array(episodeQualityResultSchema).max(256).optional()
+});
+
+// packages/protocol/src/productionJobProtocol.ts
+var PRODUCTION_JOB_CONTRACT_VERSION = 1;
+var PRODUCTION_JOB_STATUSES = protocolKeys(productionJobKinds_default.statuses);
+var PRODUCTION_JOB_KINDS = protocolKeys(productionJobKinds_default.kinds);
+var CANVAS_JOB_KINDS = ["canvas.image", "canvas.video"];
+var productionJobStatusSchema = external_exports.enum(PRODUCTION_JOB_STATUSES);
+var productionJobKindSchema = external_exports.enum(PRODUCTION_JOB_KINDS);
+var canvasJobKindSchema = external_exports.enum(CANVAS_JOB_KINDS);
+var dimensionsSchema = {
+  width: external_exports.number().int().min(64).max(8192).default(1024),
+  height: external_exports.number().int().min(64).max(8192).default(576)
+};
+var canvasJobInputSchema = external_exports.strictObject({
+  nodeId: external_exports.string().min(1),
+  prompt: external_exports.string().trim().min(1).max(4e3),
+  negativePrompt: external_exports.string().trim().max(4e3).optional(),
+  ...dimensionsSchema
+});
+var canvasVideoJobInputSchema = canvasJobInputSchema.extend({
+  durationSeconds: external_exports.number().positive().max(600).optional(),
+  fps: external_exports.number().positive().max(240).optional()
+});
+var comfyJobRoutingSchema = {
+  nodeId: external_exports.string().trim().min(1).max(80).default("comfy-default"),
+  seed: external_exports.number().int().min(0).max(2147483647).default(0),
+  parameters: comfyGenerationParametersSchema.default({}),
+  inputImages: external_exports.array(comfyGenerationInputImageSchema).max(64).default([]),
+  sourceArtifactIds: external_exports.array(external_exports.string().min(1)).max(64).default([]),
+  sourceContext: comfyGenerationSourceContextSchema.default({ source: "manual", metadata: {} }),
+  promptProvenance: comfyPromptProvenanceSchema.default({ source: "manual", editedAfterCompile: false })
+};
+var imageGenerationJobInputSchema = external_exports.strictObject({
+  prompt: external_exports.string().trim().min(1).max(12e3),
+  negativePrompt: external_exports.string().trim().max(12e3).optional(),
+  ...dimensionsSchema,
+  workflowId: external_exports.string().trim().min(1).max(160).default("comfy-workflow-configured-image"),
+  ...comfyJobRoutingSchema
+});
+var videoGenerationJobInputSchema = external_exports.strictObject({
+  prompt: external_exports.string().trim().min(1).max(12e3),
+  negativePrompt: external_exports.string().trim().max(12e3).optional(),
+  ...dimensionsSchema,
+  workflowId: external_exports.string().trim().min(1).max(160).default("comfy-workflow-configured-video"),
+  durationSeconds: external_exports.number().positive().max(600).default(5),
+  fps: external_exports.number().positive().max(240).default(24),
+  ...comfyJobRoutingSchema
+});
+var audioGenerationJobInputSchema = external_exports.strictObject({
+  prompt: external_exports.string().trim().min(1).max(12e3),
+  negativePrompt: external_exports.string().trim().max(12e3).optional(),
+  mode: external_exports.enum(["sound-effect", "music", "speech"]).default("sound-effect"),
+  durationSeconds: external_exports.number().positive().max(3600).default(10),
+  sampleRate: external_exports.number().int().min(8e3).max(192e3).default(48e3),
+  voice: external_exports.string().trim().min(1).max(240).optional(),
+  language: external_exports.string().trim().min(1).max(80).optional(),
+  workflowId: external_exports.string().trim().min(1).max(160).default("comfy-workflow-configured-audio"),
+  ...comfyJobRoutingSchema
+});
+var mediaProxyJobInputSchema = external_exports.strictObject({
+  sourceMediaId: external_exports.string().min(1),
+  maxWidth: external_exports.number().int().min(64).max(8192).default(1280),
+  maxHeight: external_exports.number().int().min(64).max(8192).default(720),
+  codec: external_exports.string().trim().min(1).max(100).default("h264")
+});
+var mediaTranscodeJobInputSchema = external_exports.strictObject({
+  sourceMediaId: external_exports.string().min(1),
+  targetMimeType: external_exports.string().trim().min(1).max(200),
+  codec: external_exports.string().trim().min(1).max(100).optional(),
+  container: external_exports.string().trim().min(1).max(50).optional()
+});
+var dccFormatSchema = external_exports.enum(["gltf", "glb", "usd", "usda", "usdc", "usdz", "blend"]);
+var dccExportJobInputSchema = external_exports.strictObject({
+  projectId: external_exports.string().min(1),
+  format: dccFormatSchema,
+  objectIds: external_exports.array(external_exports.string().min(1)).default([])
+});
+var dccImportJobInputSchema = external_exports.strictObject({
+  sourceArtifactId: external_exports.string().min(1),
+  format: dccFormatSchema.optional(),
+  mergeMode: external_exports.enum(["create", "merge", "replace"]).default("create"),
+  targetProjectId: external_exports.string().min(1).optional()
+});
+var productionJobSpecs = [
+  strictKind("canvas.image", { input: canvasJobInputSchema }),
+  strictKind("canvas.video", { input: canvasVideoJobInputSchema }),
+  strictKind("image.generate", { input: imageGenerationJobInputSchema }),
+  strictKind("video.generate", { input: videoGenerationJobInputSchema }),
+  strictKind("model.generate", { input: generated3dJobInputSchema }),
+  strictKind("audio.generate", { input: audioGenerationJobInputSchema }),
+  strictKind("media.proxy", { input: mediaProxyJobInputSchema }),
+  strictKind("media.transcribe", { input: mediaTranscriptionJobInputSchema }),
+  strictKind("media.transcode", { input: mediaTranscodeJobInputSchema }),
+  strictKind("scene.reconstruct", { input: captureReconstructionJobInputSchema }),
+  strictKind("dcc.export", { input: dccExportJobInputSchema }),
+  strictKind("dcc.import", { input: dccImportJobInputSchema }),
+  strictKind("episode.package", { input: episodePackageJobInputSchema })
+];
+var productionJobSpecSchema = external_exports.discriminatedUnion("kind", productionJobSpecs);
+var sourceRevisionsSchema = external_exports.record(
+  external_exports.string().min(1),
+  external_exports.union([external_exports.string().min(1), external_exports.number().int().nonnegative()])
+);
+var productionJobErrorSchema = external_exports.strictObject({
+  code: external_exports.string().trim().min(1).max(200),
+  message: external_exports.string().trim().min(1).max(12e3),
+  retryable: external_exports.boolean(),
+  details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+});
+var safeFileNameSchema2 = external_exports.string().trim().min(1).max(255).refine((value) => value !== "." && value !== ".." && !value.includes("/") && !value.includes("\\"), {
+  message: "Artifact fileName must be a single safe path segment"
+});
+var productionJobArtifactSchema = external_exports.strictObject({
+  id: external_exports.string().min(1),
+  attemptId: external_exports.string().min(1),
+  role: external_exports.string().trim().min(1).max(100).default("primary"),
+  mimeType: external_exports.string().min(1),
+  fileName: safeFileNameSchema2,
+  sha256: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  bytes: external_exports.number().int().nonnegative(),
+  createdAt: external_exports.string().datetime()
+});
+var productionJobAttemptSchema = external_exports.strictObject({
+  id: external_exports.string().min(1),
+  number: external_exports.number().int().positive(),
+  status: productionJobStatusSchema,
+  provider: external_exports.string().trim().min(1).max(200),
+  externalId: external_exports.string().trim().min(1).max(500).optional(),
+  /** Ordered provider phases; externalId remains the immutable first task for compatibility. */
+  externalIds: external_exports.array(external_exports.string().trim().min(1).max(500)).min(1).max(16).optional(),
+  inputFingerprint: external_exports.string().min(1),
+  idempotencyKey: external_exports.string().min(1),
+  sourceRevisions: sourceRevisionsSchema,
+  timestamps: external_exports.strictObject({
+    createdAt: external_exports.string().datetime(),
+    startedAt: external_exports.string().datetime().optional(),
+    outcomeUnknownAt: external_exports.string().datetime().optional(),
+    reconciliationStartedAt: external_exports.string().datetime().optional(),
+    finishedAt: external_exports.string().datetime().optional()
+  }),
+  error: productionJobErrorSchema.optional(),
+  artifacts: external_exports.array(productionJobArtifactSchema)
+});
+var enqueueMetadataShape = {
+  contractVersion: external_exports.literal(PRODUCTION_JOB_CONTRACT_VERSION).default(PRODUCTION_JOB_CONTRACT_VERSION),
+  idempotencyKey: external_exports.string().trim().min(1).max(200),
+  provider: external_exports.string().trim().min(1).max(200).default("director.local"),
+  externalId: external_exports.string().trim().min(1).max(500).optional(),
+  sourceRevisions: sourceRevisionsSchema.default({})
+};
+var enqueueProductionJobRequestSchema = external_exports.discriminatedUnion("kind", [
+  productionJobSpecs[0].extend(enqueueMetadataShape),
+  productionJobSpecs[1].extend(enqueueMetadataShape),
+  productionJobSpecs[2].extend(enqueueMetadataShape),
+  productionJobSpecs[3].extend(enqueueMetadataShape),
+  productionJobSpecs[4].extend(enqueueMetadataShape),
+  productionJobSpecs[5].extend(enqueueMetadataShape),
+  productionJobSpecs[6].extend(enqueueMetadataShape),
+  productionJobSpecs[7].extend(enqueueMetadataShape),
+  productionJobSpecs[8].extend(enqueueMetadataShape),
+  productionJobSpecs[9].extend(enqueueMetadataShape),
+  productionJobSpecs[10].extend(enqueueMetadataShape),
+  productionJobSpecs[11].extend(enqueueMetadataShape),
+  productionJobSpecs[12].extend(enqueueMetadataShape)
+]);
+var enqueueCanvasJobRequestSchema = external_exports.discriminatedUnion("kind", [
+  productionJobSpecs[0].extend(enqueueMetadataShape),
+  productionJobSpecs[1].extend(enqueueMetadataShape)
+]);
+var recordMetadataShape = {
+  contractVersion: external_exports.literal(PRODUCTION_JOB_CONTRACT_VERSION),
+  id: external_exports.string().min(1),
+  status: productionJobStatusSchema,
+  progress: external_exports.number().min(0).max(1),
+  inputFingerprint: external_exports.string().min(1),
+  idempotencyKey: external_exports.string().min(1),
+  attempts: external_exports.array(productionJobAttemptSchema).min(1),
+  createdAt: external_exports.string().datetime(),
+  updatedAt: external_exports.string().datetime(),
+  message: external_exports.string().optional(),
+  artifacts: external_exports.array(productionJobArtifactSchema),
+  // Singular artifact and string error are retained for the current Canvas bridge.
+  artifact: productionJobArtifactSchema.optional(),
+  error: external_exports.string().optional()
+};
+var productionJobRecordSchema = external_exports.discriminatedUnion("kind", [
+  productionJobSpecs[0].extend(recordMetadataShape),
+  productionJobSpecs[1].extend(recordMetadataShape),
+  productionJobSpecs[2].extend(recordMetadataShape),
+  productionJobSpecs[3].extend(recordMetadataShape),
+  productionJobSpecs[4].extend(recordMetadataShape),
+  productionJobSpecs[5].extend(recordMetadataShape),
+  productionJobSpecs[6].extend(recordMetadataShape),
+  productionJobSpecs[7].extend(recordMetadataShape),
+  productionJobSpecs[8].extend(recordMetadataShape),
+  productionJobSpecs[9].extend(recordMetadataShape),
+  productionJobSpecs[10].extend(recordMetadataShape),
+  productionJobSpecs[11].extend(recordMetadataShape),
+  productionJobSpecs[12].extend(recordMetadataShape)
+]).superRefine((job, context) => {
+  const current = job.attempts.at(-1);
+  if (current?.status !== job.status) {
+    context.addIssue({
+      code: "custom",
+      path: ["attempts", job.attempts.length - 1, "status"],
+      message: "The latest attempt status must match the job status"
+    });
+  }
+  const attemptIds = /* @__PURE__ */ new Set();
+  for (let index = 0; index < job.attempts.length; index += 1) {
+    const attempt = job.attempts[index];
+    if (attemptIds.has(attempt.id)) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index, "id"],
+        message: "Attempt IDs must be unique within a job"
+      });
+    }
+    attemptIds.add(attempt.id);
+    if (attempt.number !== index + 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index, "number"],
+        message: "Attempt numbers must be contiguous and one-based"
+      });
+    }
+    if (attempt.externalIds && attempt.externalId !== attempt.externalIds[0]) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index, "externalIds"],
+        message: "externalIds must begin with the immutable externalId"
+      });
+    }
+    if (attempt.externalIds && new Set(attempt.externalIds).size !== attempt.externalIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index, "externalIds"],
+        message: "externalIds must be unique and ordered"
+      });
+    }
+    if (attempt.inputFingerprint !== job.inputFingerprint || attempt.idempotencyKey !== job.idempotencyKey) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index],
+        message: "Every attempt must freeze the logical job fingerprint and idempotency key"
+      });
+    }
+    if (index < job.attempts.length - 1 && !isTerminalProductionJobStatus(attempt.status)) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index, "status"],
+        message: "Historical attempts must be terminal"
+      });
+    }
+    if (attempt.status === "running" && !attempt.timestamps.startedAt) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index, "timestamps", "startedAt"],
+        message: "A running attempt must record when execution started"
+      });
+    }
+    if ((attempt.status === "outcome_unknown" || attempt.status === "reconciling") && !attempt.timestamps.outcomeUnknownAt) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index, "timestamps", "outcomeUnknownAt"],
+        message: "An uncertain attempt must record when its outcome became unknown"
+      });
+    }
+    if (attempt.status === "reconciling" && !attempt.timestamps.reconciliationStartedAt) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index, "timestamps", "reconciliationStartedAt"],
+        message: "A reconciling attempt must record when reconciliation started"
+      });
+    }
+    if (isTerminalProductionJobStatus(attempt.status) && !attempt.timestamps.finishedAt) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index, "timestamps", "finishedAt"],
+        message: "A terminal attempt must record when it finished"
+      });
+    }
+    if (!isTerminalProductionJobStatus(attempt.status) && attempt.timestamps.finishedAt) {
+      context.addIssue({
+        code: "custom",
+        path: ["attempts", index, "timestamps", "finishedAt"],
+        message: "A non-terminal attempt cannot have a finished timestamp"
+      });
+    }
+    for (const artifact of attempt.artifacts) {
+      if (artifact.attemptId !== attempt.id) {
+        context.addIssue({
+          code: "custom",
+          path: ["attempts", index, "artifacts"],
+          message: "Attempt artifacts must reference their owning attempt"
+        });
+      }
+    }
+  }
+  const artifactIds = new Set(job.artifacts.map((artifact) => artifact.id));
+  if (artifactIds.size !== job.artifacts.length) {
+    context.addIssue({ code: "custom", path: ["artifacts"], message: "Artifact IDs must be unique" });
+  }
+  for (const artifact of job.artifacts) {
+    if (!attemptIds.has(artifact.attemptId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["artifacts"],
+        message: "Every artifact must reference an attempt in this job"
+      });
+    }
+  }
+  const attemptArtifacts = job.attempts.flatMap((attempt) => attempt.artifacts);
+  if (attemptArtifacts.length !== job.artifacts.length || attemptArtifacts.some((artifact, index) => JSON.stringify(artifact) !== JSON.stringify(job.artifacts[index]))) {
+    context.addIssue({
+      code: "custom",
+      path: ["artifacts"],
+      message: "Job artifacts must be the ordered, immutable projection of attempt artifacts"
+    });
+  }
+  const promotedArtifact = job.artifact ? job.artifacts.find((artifact) => artifact.id === job.artifact?.id) : void 0;
+  if (job.artifact && (!promotedArtifact || JSON.stringify(promotedArtifact) !== JSON.stringify(job.artifact))) {
+    context.addIssue({
+      code: "custom",
+      path: ["artifact"],
+      message: "The compatibility artifact must exactly reference an immutable artifact in the job history"
+    });
+  }
+});
+var TERMINAL = /* @__PURE__ */ new Set(["succeeded", "failed", "cancelled"]);
+function isTerminalProductionJobStatus(status) {
+  return TERMINAL.has(status);
+}
+
+// packages/protocol/src/productionArtifactProtocol.ts
+var PRODUCTION_ARTIFACT_VERSION_CONTRACT = "director-artifact-version-v1";
+var PRODUCTION_ARTIFACT_PROMOTION_CONTRACT = "director-artifact-promotion-v1";
+var PRODUCTION_APPROVAL_CONTRACT = "director-production-approval-v1";
+var idSchema3 = external_exports.string().trim().min(1).max(240);
+var nameSchema2 = external_exports.string().trim().min(1).max(512);
+var sha256Schema2 = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var fingerprintSchema = external_exports.string().trim().min(16).max(512);
+var isoDateSchema = external_exports.string().datetime({ offset: true });
+var fileNameSchema = external_exports.string().trim().min(1).max(512).refine((value) => value !== "." && value !== ".." && !/[\\/\0]/u.test(value), {
+  message: "fileName must be a safe base name without path separators"
+});
+function deepFreeze(value) {
+  if (value !== null && typeof value === "object") {
+    for (const nested of Object.values(value)) deepFreeze(nested);
+    Object.freeze(value);
+  }
+  return value;
+}
+var productionArtifactKindSchema = external_exports.enum([
+  "image",
+  "video",
+  "audio",
+  "model",
+  "document",
+  "archive",
+  "other"
+]);
+var productionArtifactContentSchema = external_exports.strictObject({
+  sha256: sha256Schema2,
+  bytes: external_exports.number().int().nonnegative(),
+  mimeType: external_exports.string().trim().min(1).max(240),
+  fileName: fileNameSchema
+}).readonly();
+var providerSnapshotSchema = external_exports.strictObject({
+  provider: external_exports.string().trim().min(1).max(160),
+  model: external_exports.string().trim().min(1).max(240).optional(),
+  configurationFingerprint: fingerprintSchema.optional(),
+  seed: external_exports.number().int().safe().nullable().optional()
+}).readonly();
+var productionArtifactProvenanceSchema = external_exports.discriminatedUnion("kind", [
+  strictKind("job", {
+    jobId: idSchema3,
+    attemptId: idSchema3,
+    inputFingerprint: fingerprintSchema,
+    provider: providerSnapshotSchema.optional()
+  }),
+  strictKind("capture", {
+    projectRevision: fingerprintSchema,
+    sceneId: idSchema3,
+    cameraId: idSchema3,
+    frame: external_exports.number().int().nonnegative()
+  }),
+  external_exports.strictObject({
+    kind: external_exports.enum(["import", "dcc-return"]),
+    receiptId: idSchema3,
+    sourceFingerprint: fingerprintSchema,
+    adapter: external_exports.string().trim().min(1).max(160)
+  }),
+  strictKind("upload", { sourceFingerprint: fingerprintSchema })
+]);
+var productionArtifactMediaMetadataSchema = external_exports.strictObject({
+  width: external_exports.number().int().positive().optional(),
+  height: external_exports.number().int().positive().optional(),
+  durationUs: external_exports.number().int().nonnegative().optional(),
+  frameCount: external_exports.number().int().nonnegative().optional(),
+  frameRate: external_exports.strictObject({
+    numerator: external_exports.number().int().positive(),
+    denominator: external_exports.number().int().positive()
+  }).optional(),
+  channels: external_exports.number().int().positive().optional(),
+  sampleRate: external_exports.number().int().positive().optional()
+}).readonly();
+var productionArtifactVersionFields = {
+  contract: external_exports.literal(PRODUCTION_ARTIFACT_VERSION_CONTRACT),
+  versionId: idSchema3,
+  artifactId: idSchema3,
+  ordinal: external_exports.number().int().positive(),
+  immutable: external_exports.literal(true),
+  kind: productionArtifactKindSchema,
+  name: nameSchema2,
+  content: productionArtifactContentSchema,
+  provenance: productionArtifactProvenanceSchema,
+  sourceVersionIds: external_exports.array(idSchema3).max(128).default([]),
+  metadata: productionArtifactMediaMetadataSchema.optional(),
+  createdAt: isoDateSchema,
+  createdBy: idSchema3
+};
+function validateArtifactLineage(value, context) {
+  if (new Set(value.sourceVersionIds).size !== value.sourceVersionIds.length) {
+    context.addIssue({ code: "custom", path: ["sourceVersionIds"], message: "sourceVersionIds must be unique" });
+  }
+  if (value.sourceVersionIds.includes(value.versionId)) {
+    context.addIssue({
+      code: "custom",
+      path: ["sourceVersionIds"],
+      message: "an artifact version cannot derive from itself"
+    });
+  }
+}
+var productionArtifactVersionInputSchema = external_exports.strictObject(productionArtifactVersionFields).superRefine(validateArtifactLineage).readonly();
+var productionArtifactVersionSchema = external_exports.strictObject({
+  ...productionArtifactVersionFields,
+  recordFingerprint: external_exports.string().regex(/^artifact-version:v1:sha256:[0-9a-f]{64}$/)
+}).superRefine((value, context) => {
+  validateArtifactLineage(value, context);
+  const sortedSources = [...value.sourceVersionIds].sort();
+  if (sortedSources.some((sourceVersionId, index) => sourceVersionId !== value.sourceVersionIds[index])) {
+    context.addIssue({
+      code: "custom",
+      path: ["sourceVersionIds"],
+      message: "sourceVersionIds must use canonical sorted order"
+    });
+  }
+  const { recordFingerprint: _recordFingerprint, ...input } = value;
+  if (value.recordFingerprint !== getProductionArtifactVersionFingerprint(input)) {
+    context.addIssue({
+      code: "custom",
+      path: ["recordFingerprint"],
+      message: "recordFingerprint does not match the immutable artifact version record"
+    });
+  }
+}).readonly().transform(deepFreeze);
+var productionPromotionTargetSchema = external_exports.strictObject({
+  workspace: external_exports.enum(["canvas", "stage", "video", "delivery"]),
+  ownerId: idSchema3,
+  slot: external_exports.string().trim().min(1).max(160)
+}).readonly();
+var productionArtifactPromotionFields = {
+  contract: external_exports.literal(PRODUCTION_ARTIFACT_PROMOTION_CONTRACT),
+  promotionId: idSchema3,
+  target: productionPromotionTargetSchema,
+  artifactId: idSchema3,
+  versionId: idSchema3,
+  artifactFingerprint: external_exports.string().regex(/^artifact-version:v1:sha256:[0-9a-f]{64}$/),
+  previousVersionId: idSchema3.nullable(),
+  approvalIds: external_exports.array(idSchema3).max(64).default([]),
+  promotedAt: isoDateSchema,
+  promotedBy: idSchema3
+};
+var productionArtifactPromotionSchema = external_exports.strictObject({
+  ...productionArtifactPromotionFields,
+  recordFingerprint: external_exports.string().regex(/^artifact-promotion:v1:sha256:[0-9a-f]{64}$/)
+}).superRefine((value, context) => {
+  if (new Set(value.approvalIds).size !== value.approvalIds.length) {
+    context.addIssue({ code: "custom", path: ["approvalIds"], message: "approvalIds must be unique" });
+  }
+  const sortedApprovalIds = [...value.approvalIds].sort();
+  if (sortedApprovalIds.some((approvalId, index) => approvalId !== value.approvalIds[index])) {
+    context.addIssue({ code: "custom", path: ["approvalIds"], message: "approvalIds must use canonical order" });
+  }
+  const { recordFingerprint: _recordFingerprint, ...input } = value;
+  if (value.recordFingerprint !== getProductionArtifactPromotionFingerprint(input)) {
+    context.addIssue({
+      code: "custom",
+      path: ["recordFingerprint"],
+      message: "recordFingerprint does not match the immutable promotion record"
+    });
+  }
+}).readonly().transform(deepFreeze);
+var productionApprovalFingerprintKindSchema = external_exports.enum(["project", "creative", "artifact", "package", "schema"]);
+var plainSha256FingerprintSchema = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
+var productionApprovalFingerprintSchema = external_exports.discriminatedUnion("kind", [
+  strictKind("project", { value: external_exports.string().regex(/^director-project-revision:v1:sha256:[0-9a-f]{64}$/) }),
+  strictKind("creative", { value: plainSha256FingerprintSchema }),
+  strictKind("artifact", { value: external_exports.string().regex(/^artifact-version:v1:sha256:[0-9a-f]{64}$/) }),
+  strictKind("package", { value: plainSha256FingerprintSchema }),
+  strictKind("schema", { value: plainSha256FingerprintSchema })
+]);
+function validateUniqueFingerprintKinds(value, context) {
+  const kinds = value.map((fingerprint) => fingerprint.kind);
+  if (new Set(kinds).size !== kinds.length) {
+    context.addIssue({ code: "custom", message: "fingerprint kinds must be unique" });
+  }
+}
+var productionApprovalFingerprintSetSchema = external_exports.array(productionApprovalFingerprintSchema).max(16).superRefine(validateUniqueFingerprintKinds).readonly();
+var productionArtifactPromotionRequestFields = {
+  promotionId: idSchema3,
+  target: productionPromotionTargetSchema,
+  versionId: idSchema3,
+  expectedPreviousVersionId: idSchema3.nullable(),
+  approvalIds: external_exports.array(idSchema3).max(64).superRefine((value, context) => {
+    if (new Set(value).size !== value.length)
+      context.addIssue({ code: "custom", message: "approvalIds must be unique" });
+  }).default([]),
+  observedFingerprints: productionApprovalFingerprintSetSchema.default([]),
+  promotedBy: idSchema3,
+  requireCurrentApproval: external_exports.boolean().default(false)
+};
+var productionArtifactPromotionRequestSchema = external_exports.strictObject(productionArtifactPromotionRequestFields);
+var storedProductionArtifactPromotionInputSchema = external_exports.strictObject({
+  ...productionArtifactPromotionRequestFields,
+  promotedAt: isoDateSchema
+});
+var productionApprovalScopeSchema = external_exports.discriminatedUnion("kind", [
+  strictKind("shot", { shotId: idSchema3 }),
+  strictKind("artifact-version", { versionId: idSchema3 }),
+  strictKind("edit-range", {
+    sequenceId: idSchema3,
+    startUs: external_exports.number().int().nonnegative(),
+    endUs: external_exports.number().int().positive()
+  }).refine((value) => value.endUs > value.startUs, {
+    message: "endUs must be greater than startUs",
+    path: ["endUs"]
+  }),
+  strictKind("delivery", { deliveryId: idSchema3 })
+]);
+var productionApprovalFields = {
+  contract: external_exports.literal(PRODUCTION_APPROVAL_CONTRACT),
+  approvalId: idSchema3,
+  scope: productionApprovalScopeSchema,
+  decision: external_exports.enum(["approved", "rejected"]),
+  fingerprints: external_exports.array(productionApprovalFingerprintSchema).min(1).max(16).superRefine(validateUniqueFingerprintKinds),
+  reviewerId: idSchema3,
+  reviewerName: nameSchema2.optional(),
+  checklist: external_exports.array(
+    external_exports.strictObject({
+      id: idSchema3,
+      passed: external_exports.boolean(),
+      note: external_exports.string().trim().max(2e3).optional()
+    })
+  ).max(100).default([]),
+  note: external_exports.string().trim().max(8e3).optional(),
+  decidedAt: isoDateSchema,
+  supersedesApprovalId: idSchema3.optional()
+};
+function validateProductionApproval(value, context) {
+  const fingerprintKinds = value.fingerprints.map((fingerprint) => fingerprint.kind);
+  const sortedFingerprintKinds = [...fingerprintKinds].sort();
+  if (sortedFingerprintKinds.some((kind, index) => kind !== fingerprintKinds[index])) {
+    context.addIssue({ code: "custom", path: ["fingerprints"], message: "fingerprints must use canonical order" });
+  }
+  const checklistIds = value.checklist.map((item) => item.id);
+  if (new Set(checklistIds).size !== checklistIds.length) {
+    context.addIssue({ code: "custom", path: ["checklist"], message: "checklist ids must be unique" });
+  }
+  if (value.supersedesApprovalId === value.approvalId) {
+    context.addIssue({
+      code: "custom",
+      path: ["supersedesApprovalId"],
+      message: "an approval cannot supersede itself"
+    });
+  }
+}
+var productionApprovalInputSchema = external_exports.strictObject(productionApprovalFields).superRefine((value, context) => {
+  const checklistIds = value.checklist.map((item) => item.id);
+  if (new Set(checklistIds).size !== checklistIds.length) {
+    context.addIssue({ code: "custom", path: ["checklist"], message: "checklist ids must be unique" });
+  }
+  if (value.supersedesApprovalId === value.approvalId) {
+    context.addIssue({
+      code: "custom",
+      path: ["supersedesApprovalId"],
+      message: "an approval cannot supersede itself"
+    });
+  }
+}).readonly();
+var productionApprovalSchema = external_exports.strictObject({
+  ...productionApprovalFields,
+  recordFingerprint: external_exports.string().regex(/^production-approval:v1:sha256:[0-9a-f]{64}$/)
+}).superRefine((value, context) => {
+  validateProductionApproval(value, context);
+  const { recordFingerprint: _recordFingerprint, ...input } = value;
+  if (value.recordFingerprint !== getProductionApprovalFingerprint(input)) {
+    context.addIssue({
+      code: "custom",
+      path: ["recordFingerprint"],
+      message: "recordFingerprint does not match the immutable approval record"
+    });
+  }
+}).readonly().transform(deepFreeze);
+var productionEvidenceRequestSchema = external_exports.discriminatedUnion("op", [
+  strictOperation("capabilities", {}),
+  strictOperation("list_versions", { artifact_id: idSchema3.optional() }),
+  strictOperation("get_version", { version_id: idSchema3 }),
+  strictOperation("put_version", { version: productionArtifactVersionInputSchema }),
+  strictOperation("put_approval", { approval: productionApprovalInputSchema }),
+  strictOperation("promote", {
+    promotion_id: idSchema3,
+    target: productionPromotionTargetSchema,
+    version_id: idSchema3,
+    expected_previous_version_id: idSchema3.nullable(),
+    approval_ids: external_exports.array(idSchema3).max(64).superRefine((value, context) => {
+      if (new Set(value).size !== value.length) {
+        context.addIssue({ code: "custom", message: "approval_ids must be unique" });
+      }
+    }).default([]),
+    observed_fingerprints: productionApprovalFingerprintSetSchema.default([]),
+    promoted_by: idSchema3,
+    require_current_approval: external_exports.boolean().default(false)
+  }),
+  strictOperation("current_promotion", { target: productionPromotionTargetSchema })
+]);
+function getProductionArtifactVersionFingerprint(input) {
+  const parsed = productionArtifactVersionInputSchema.parse(input);
+  const normalized = { ...parsed, sourceVersionIds: [...parsed.sourceVersionIds].sort() };
+  return `artifact-version:v1:sha256:${sha256HexSync(stableLexicalJson(normalized))}`;
+}
+function getProductionApprovalFingerprint(input) {
+  const parsed = productionApprovalInputSchema.parse(input);
+  const normalized = {
+    ...parsed,
+    fingerprints: [...parsed.fingerprints].sort((left, right) => left.kind.localeCompare(right.kind))
+  };
+  return `production-approval:v1:sha256:${sha256HexSync(stableLexicalJson(normalized))}`;
+}
+function getProductionArtifactPromotionFingerprint(input) {
+  return `artifact-promotion:v1:sha256:${sha256HexSync(stableLexicalJson(input))}`;
+}
+
+// packages/project-schema/src/productionGraph/productionGraphSchema.ts
+var PRODUCTION_GRAPH_NODE_KINDS = protocolKeys(productionGraphProtocol_default.nodeKinds);
+var PRODUCTION_GRAPH_EDGE_KINDS = protocolKeys(productionGraphProtocol_default.edgeKinds);
+var PRODUCTION_GRAPH_SCHEMA = "director.production-graph";
+var PRODUCTION_GRAPH_SCHEMA_VERSION = 1;
+var namespacedIdPattern = /^[a-z][a-z0-9-]*:[A-Za-z0-9._~%-]+$/;
+var edgeIdPattern = /^edge:[a-z][a-z0-9_-]*:sha256:[a-f0-9]{64}$/;
+var graphIdSchema = external_exports.string().min(3).max(1024).regex(namespacedIdPattern);
+var edgeIdSchema = external_exports.string().max(1024).regex(edgeIdPattern);
+var displayNameSchema = external_exports.string().min(1).max(1024);
+var finiteFrameSchema = external_exports.number().int().finite();
+var optionalSha256Schema = external_exports.string().regex(/^[a-f0-9]{64}$/).optional();
+function nodeIdSchema(namespace) {
+  return graphIdSchema.refine((value) => value.startsWith(`${namespace}:`), {
+    message: `Expected a ${namespace}: namespaced node id.`
+  });
+}
+var productionNodeSchema = strictKind("production", {
+  id: nodeIdSchema("production"),
+  name: displayNameSchema,
+  source: strictKind("director-project", {
+    version: external_exports.literal(1),
+    sourceProductionId: external_exports.string().min(1),
+    revision: external_exports.string().regex(/^director-project-revision:v1:sha256:[a-f0-9]{64}$/)
+  }).readonly()
+});
+var sceneNodeSchema = strictKind("scene", {
+  id: nodeIdSchema("scene"),
+  name: displayNameSchema,
+  sourceSceneId: external_exports.string().min(1),
+  sourceRevision: external_exports.string().regex(/^director-project-revision:v1:sha256:[a-f0-9]{64}$/)
+});
+var assetNodeSchema = strictKind("asset", {
+  id: nodeIdSchema("asset"),
+  name: displayNameSchema,
+  sourceAssetId: external_exports.string().min(1),
+  assetKind: directorAssetKindSchema,
+  sourceType: directorAssetSourceTypeSchema,
+  assetSource: external_exports.enum(["local", "library", "remote", "generated"]).optional(),
+  fileName: external_exports.string().min(1)
+});
+var objectNodeSchema = strictKind("object", {
+  id: nodeIdSchema("object"),
+  name: displayNameSchema,
+  sourceObjectId: external_exports.string().min(1),
+  objectKind: directorObjectKindSchema,
+  visible: external_exports.boolean(),
+  assetRefId: external_exports.string().min(1).optional()
+});
+var cameraNodeSchema = strictKind("camera", {
+  id: nodeIdSchema("camera"),
+  name: displayNameSchema,
+  sourceCameraId: external_exports.string().min(1),
+  focalLengthMm: external_exports.number().finite().positive().optional(),
+  aspectRatio: directorCameraAspectRatioSchema.optional(),
+  targetObjectId: external_exports.string().min(1).nullable().optional()
+});
+var shotNodeSchema = strictKind("shot", {
+  id: nodeIdSchema("shot"),
+  name: displayNameSchema,
+  sourceShotId: external_exports.string().min(1),
+  source: external_exports.literal("storyboard"),
+  scriptBeatId: external_exports.string().optional(),
+  cameraId: external_exports.string().nullable(),
+  frameStart: finiteFrameSchema,
+  frameEnd: finiteFrameSchema
+});
+var takeNodeSchema = strictKind("take", {
+  id: nodeIdSchema("take"),
+  name: displayNameSchema,
+  sourceTakeId: external_exports.string().min(1),
+  frameStart: finiteFrameSchema,
+  frameEnd: finiteFrameSchema
+});
+var coverageNodeSchema = strictKind("coverage", {
+  id: nodeIdSchema("coverage"),
+  name: displayNameSchema,
+  sourceCoverageId: external_exports.string().min(1),
+  sourceSequenceId: external_exports.string().min(1),
+  cameraId: external_exports.string().min(1),
+  takeId: external_exports.string().min(1),
+  storyboardShotId: external_exports.string().min(1).optional(),
+  frameStart: finiteFrameSchema,
+  frameEnd: finiteFrameSchema
+});
+var artifactNodeSchema = strictKind("artifact", {
+  id: nodeIdSchema("artifact"),
+  name: displayNameSchema,
+  artifactKind: productionArtifactKindSchema,
+  version: external_exports.number().int().positive(),
+  immutable: external_exports.literal(true),
+  mimeType: external_exports.string().min(1).optional(),
+  uri: external_exports.string().min(1).optional(),
+  sha256: optionalSha256Schema,
+  bytes: external_exports.number().int().nonnegative().optional()
+});
+var jobNodeSchema = strictKind("job", {
+  id: nodeIdSchema("job"),
+  name: displayNameSchema,
+  jobType: external_exports.string().min(1),
+  status: productionJobStatusSchema,
+  inputFingerprint: external_exports.string().min(1).optional(),
+  attempt: external_exports.number().int().positive().default(1)
+});
+var reviewNodeSchema = strictKind("review", {
+  id: nodeIdSchema("review"),
+  name: displayNameSchema,
+  status: external_exports.enum(["open", "changes_requested", "approved", "rejected", "resolved"]),
+  reviewerId: external_exports.string().min(1).optional(),
+  comment: external_exports.string().optional(),
+  createdAt: external_exports.string().min(1).optional()
+});
+var approvalNodeSchema = strictKind("approval", {
+  id: nodeIdSchema("approval"),
+  name: displayNameSchema,
+  status: external_exports.enum(["pending", "approved", "rejected", "revoked"]),
+  approverId: external_exports.string().min(1).optional(),
+  decidedAt: external_exports.string().min(1).optional()
+});
+var productionGraphNodeSchema = external_exports.discriminatedUnion("kind", [
+  productionNodeSchema,
+  sceneNodeSchema,
+  assetNodeSchema,
+  objectNodeSchema,
+  cameraNodeSchema,
+  shotNodeSchema,
+  takeNodeSchema,
+  coverageNodeSchema,
+  artifactNodeSchema,
+  jobNodeSchema,
+  reviewNodeSchema,
+  approvalNodeSchema
+]).readonly();
+function edgeSchema(kind) {
+  return strictKind(kind, {
+    id: edgeIdSchema,
+    from: graphIdSchema,
+    to: graphIdSchema,
+    role: external_exports.string().min(1).max(128).optional()
+  });
+}
+var productionGraphEdgeSchema = external_exports.discriminatedUnion("kind", [
+  edgeSchema("contains"),
+  edgeSchema("uses"),
+  edgeSchema("derived_from"),
+  edgeSchema("renders"),
+  edgeSchema("references"),
+  edgeSchema("promoted_to"),
+  edgeSchema("reviewed_by")
+]).readonly();
+var productionGraphSchema = external_exports.strictObject({
+  schema: external_exports.literal(PRODUCTION_GRAPH_SCHEMA),
+  version: external_exports.literal(PRODUCTION_GRAPH_SCHEMA_VERSION),
+  productionId: nodeIdSchema("production"),
+  nodes: external_exports.array(productionGraphNodeSchema).readonly(),
+  edges: external_exports.array(productionGraphEdgeSchema).readonly()
+}).readonly();
+var productionGraphFingerprintSchema = external_exports.string().regex(/^production-graph:v1:sha256:[a-f0-9]{64}$/);
+
+// packages/project-schema/src/productionGraph/productionGraph.ts
+var nodeKindOrder = new Map(
+  PRODUCTION_GRAPH_NODE_KINDS.map((kind, index) => [kind, index])
+);
+var edgeKindOrder = new Map(
+  PRODUCTION_GRAPH_EDGE_KINDS.map((kind, index) => [kind, index])
+);
+
+// packages/project-schema/src/productionGraph/productionGraphRelations.json
+var productionGraphRelations_default = {
+  contains: [
+    ["production", "scene"],
+    ["production", "asset"],
+    ["production", "take"],
+    ["production", "coverage"],
+    ["production", "artifact"],
+    ["production", "job"],
+    ["production", "review"],
+    ["production", "approval"],
+    ["scene", "object"],
+    ["scene", "camera"],
+    ["scene", "shot"]
+  ],
+  uses: [
+    ["scene", "asset"],
+    ["object", "asset"],
+    ["shot", "camera"],
+    ["take", "object"],
+    ["coverage", "camera"],
+    ["coverage", "take"],
+    ["job", "asset"],
+    ["job", "object"],
+    ["job", "camera"],
+    ["job", "shot"],
+    ["job", "take"],
+    ["job", "coverage"]
+  ],
+  derived_from: [
+    ["artifact", "asset"],
+    ["artifact", "object"],
+    ["artifact", "shot"],
+    ["artifact", "take"],
+    ["artifact", "coverage"],
+    ["artifact", "artifact"],
+    ["job", "job"]
+  ],
+  renders: [["job", "artifact"]],
+  references: [
+    ["scene", "asset"],
+    ["scene", "camera"],
+    ["object", "object"],
+    ["object", "camera"],
+    ["camera", "object"],
+    ["coverage", "shot"],
+    ["review", "artifact"],
+    ["review", "job"],
+    ["review", "shot"],
+    ["review", "coverage"],
+    ["approval", "review"],
+    ["approval", "artifact"]
+  ],
+  promoted_to: [["artifact", "artifact"]],
+  reviewed_by: [
+    ["artifact", "review"],
+    ["job", "review"],
+    ["shot", "review"],
+    ["take", "review"],
+    ["coverage", "review"]
+  ]
+};
+
+// packages/project-schema/src/productionGraph/productionGraphIntegrity.ts
+var PRODUCTION_GRAPH_INTEGRITY_ISSUE_CODES = Object.keys(
+  productionGraphProtocol_default.integrityIssueCodes
+);
+var nodeKinds = new Set(PRODUCTION_GRAPH_NODE_KINDS);
+if (PRODUCTION_GRAPH_EDGE_KINDS.some(
+  (kind) => !productionGraphRelations_default[kind]?.every(([from, to]) => nodeKinds.has(from) && nodeKinds.has(to))
+)) {
+  throw new Error("Production graph relation data does not match the shared graph protocol.");
+}
+
+// packages/project-schema/src/productionGraph/productionGraphMigration.ts
+var PRODUCTION_GRAPH_IDENTITY_MIGRATION_RECEIPT_CONTRACT = "director-production-graph-identity-migration-v1";
+var migrationConflictSchema = external_exports.strictObject({
+  kind: productionGraphIdentityNodeKindSchema,
+  sourceId: external_exports.string().min(1),
+  expectedGraphNodeId: external_exports.string().min(1),
+  existingGraphNodeId: external_exports.string().min(1)
+}).readonly();
+var productionGraphIdentityMigrationReceiptSchema = external_exports.strictObject({
+  contract: external_exports.literal(PRODUCTION_GRAPH_IDENTITY_MIGRATION_RECEIPT_CONTRACT),
+  receiptId: external_exports.string().regex(/^production-graph-migration:v1:sha256:[a-f0-9]{64}$/),
+  status: external_exports.enum(["noop", "applied", "conflict"]),
+  sourceProjectRevision: external_exports.string().regex(/^director-project-revision:v1:sha256:[a-f0-9]{64}$/),
+  graphFingerprint: external_exports.string().regex(/^production-graph:v1:sha256:[a-f0-9]{64}$/),
+  beforeFingerprint: external_exports.string().regex(/^production-graph-identities:v1:sha256:[a-f0-9]{64}$/).nullable(),
+  afterFingerprint: external_exports.string().regex(/^production-graph-identities:v1:sha256:[a-f0-9]{64}$/).nullable(),
+  added: external_exports.array(productionGraphIdentityEntrySchema),
+  preservedCount: external_exports.number().int().nonnegative(),
+  stalePreservedCount: external_exports.number().int().nonnegative(),
+  conflicts: external_exports.array(migrationConflictSchema),
+  migratedAt: external_exports.string().datetime({ offset: true })
+}).readonly();
+
 // packages/protocol/src/directorWorkbenchUiProtocol.ts
 var VIEWPORT_ASPECT_RATIO_OPTIONS = [
   { id: "auto", label: "\u81EA\u52A8", value: null },
@@ -55107,24 +56784,24 @@ function assertBlenderOperationManifestCoverage(schemaOperationNames) {
 
 // packages/protocol/src/blenderLiveProtocol.ts
 var BLENDER_LIVE_CONTRACT = "worldengine-blender-live-v1";
-var finite6 = external_exports.number().finite();
+var finite8 = external_exports.number().finite();
 var identifier = external_exports.string().trim().min(1).max(160);
-var vec2 = external_exports.tuple([finite6, finite6]);
-var vec36 = external_exports.tuple([finite6, finite6, finite6]);
-var localBounds = external_exports.strictObject({ min: vec36, max: vec36 }).refine(
+var vec22 = external_exports.tuple([finite8, finite8]);
+var vec37 = external_exports.tuple([finite8, finite8, finite8]);
+var localBounds = external_exports.strictObject({ min: vec37, max: vec37 }).refine(
   (bounds) => bounds.max.every((value, axis2) => value >= bounds.min[axis2]) && bounds.max.some((value, axis2) => value > bounds.min[axis2]),
   { message: "local bounds max must not precede min and at least one axis must have extent" }
 );
-var rgb = external_exports.tuple([finite6.min(0).max(1), finite6.min(0).max(1), finite6.min(0).max(1)]);
+var rgb = external_exports.tuple([finite8.min(0).max(1), finite8.min(0).max(1), finite8.min(0).max(1)]);
 var sceneEpoch = external_exports.string().uuid();
 var blenderTransformSchema = external_exports.strictObject({
-  position: vec36.optional(),
-  rotation: vec36.optional(),
-  scale: vec36.optional()
+  position: vec37.optional(),
+  rotation: vec37.optional(),
+  scale: vec37.optional()
 });
 var blenderPlacementTransformSchema = external_exports.strictObject({
-  position: vec36.optional(),
-  rotation: vec36.optional()
+  position: vec37.optional(),
+  rotation: vec37.optional()
 });
 var primitiveSchema = external_exports.enum([
   "cube",
@@ -55148,13 +56825,13 @@ var actionName = external_exports.string().trim().min(1).max(240);
 var motionId = external_exports.string().regex(/^[a-z0-9-]+$/);
 var nlaName = external_exports.string().trim().min(1).max(240);
 var nlaBlendMode = external_exports.enum(["REPLACE", "ADD", "COMBINE"]);
-var quaternion = external_exports.tuple([finite6, finite6, finite6, finite6]);
+var quaternion2 = external_exports.tuple([finite8, finite8, finite8, finite8]);
 var sceneFrame = external_exports.number().int().min(-1048574).max(1048574);
 var poseChannelSchema = external_exports.enum(["LOCATION", "ROTATION", "SCALE"]);
 var poseBoneLocalTransformSchema = external_exports.strictObject({
-  location: vec36.optional(),
-  rotationQuaternion: quaternion.optional(),
-  scale: vec36.optional()
+  location: vec37.optional(),
+  rotationQuaternion: quaternion2.optional(),
+  scale: vec37.optional()
 }).refine(
   (value) => value.location !== void 0 || value.rotationQuaternion !== void 0 || value.scale !== void 0,
   "At least one local pose transform channel is required"
@@ -55209,14 +56886,14 @@ var blenderGeometryNodeTypeSchema = external_exports.enum([
 ]);
 var blenderGeometryNodePropertiesSchema = external_exports.record(
   external_exports.string().min(1).max(240),
-  external_exports.union([external_exports.string().max(240), external_exports.boolean(), finite6])
+  external_exports.union([external_exports.string().max(240), external_exports.boolean(), finite8])
 );
 var blenderMaterialNodeInputValueSchema = external_exports.union([
-  finite6,
+  finite8,
   external_exports.boolean(),
-  vec2,
-  vec36,
-  external_exports.tuple([finite6, finite6, finite6, finite6])
+  vec22,
+  vec37,
+  external_exports.tuple([finite8, finite8, finite8, finite8])
 ]);
 var materialNodeEndpointSchema = external_exports.strictObject({
   nodeRef: identifier,
@@ -55226,7 +56903,7 @@ var geometryNodeEndpointSchema = external_exports.strictObject({
   nodeRef: identifier,
   socketRef: external_exports.string().trim().min(1).max(240)
 });
-var curvePoints = external_exports.array(vec36).min(2).max(4096);
+var curvePoints = external_exports.array(vec37).min(2).max(4096);
 var curveType = external_exports.enum(["POLY", "BEZIER"]);
 var textAlignX = external_exports.enum(["LEFT", "CENTER", "RIGHT"]);
 var textAlignY = external_exports.enum(["TOP_BASELINE", "CENTER", "BOTTOM"]);
@@ -55269,17 +56946,17 @@ var spatialQueryExcludeIds = external_exports.array(identifier).max(64);
 var spatialQuerySchema = external_exports.discriminatedUnion("kind", [
   external_exports.strictObject({
     kind: external_exports.literal("RAYCAST"),
-    origin: vec36,
-    direction: vec36.refine(
+    origin: vec37,
+    direction: vec37.refine(
       (value) => value.some((component) => component !== 0),
       "direction must be a non-zero vector"
     ),
-    maxDistance: finite6.positive().max(1e5).default(1e3),
+    maxDistance: finite8.positive().max(1e5).default(1e3),
     excludeIds: spatialQueryExcludeIds.optional()
   }),
   external_exports.strictObject({
     kind: external_exports.literal("CLOSEST_POINT"),
-    point: vec36,
+    point: vec37,
     targetId: identifier
   }),
   external_exports.strictObject({
@@ -55311,7 +56988,7 @@ var agentOperationSchemas = [
     kind: external_exports.enum(["prop", "character", "scene"]),
     normalization: external_exports.enum(["auto", "preserve"]).default("auto"),
     grounded: external_exports.boolean().default(false),
-    targetHeightM: finite6.positive().max(1e4).optional(),
+    targetHeightM: finite8.positive().max(1e4).optional(),
     transform: blenderTransformSchema.optional()
   }),
   external_exports.strictObject({
@@ -55322,7 +56999,7 @@ var agentOperationSchemas = [
     name: external_exports.string().trim().min(1).max(240).optional(),
     // Dimensions are the sole metric size; scale here used to overwrite them.
     transform: blenderPlacementTransformSchema.optional(),
-    dimensions: vec36.optional(),
+    dimensions: vec37.optional(),
     grounded: external_exports.boolean().optional(),
     // Sphere/cylinder/cone family only; for ico_sphere segments selects the
     // subdivision level. The kernel wire parser enforces per-primitive rules.
@@ -55336,7 +57013,7 @@ var agentOperationSchemas = [
     curveType: curveType.default("POLY"),
     points: curvePoints,
     cyclic: external_exports.boolean().default(false),
-    bevelDepth: finite6.nonnegative().default(0),
+    bevelDepth: finite8.nonnegative().default(0),
     bevelResolution: external_exports.number().int().min(0).max(32).default(0),
     transform: blenderTransformSchema.optional()
   }),
@@ -55346,7 +57023,7 @@ var agentOperationSchemas = [
     curveType: curveType.default("POLY"),
     points: curvePoints,
     cyclic: external_exports.boolean().optional(),
-    bevelDepth: finite6.nonnegative().optional(),
+    bevelDepth: finite8.nonnegative().optional(),
     bevelResolution: external_exports.number().int().min(0).max(32).optional()
   }),
   external_exports.strictObject({
@@ -55354,9 +57031,9 @@ var agentOperationSchemas = [
     id: identifier,
     name: external_exports.string().trim().min(1).max(240).optional(),
     text: external_exports.string().max(16384),
-    size: finite6.positive().default(1),
-    extrude: finite6.nonnegative().default(0),
-    bevelDepth: finite6.nonnegative().default(0),
+    size: finite8.positive().default(1),
+    extrude: finite8.nonnegative().default(0),
+    bevelDepth: finite8.nonnegative().default(0),
     alignX: textAlignX.default("LEFT"),
     alignY: textAlignY.default("TOP_BASELINE"),
     transform: blenderTransformSchema.optional()
@@ -55365,9 +57042,9 @@ var agentOperationSchemas = [
     op: external_exports.literal("set_text_data"),
     id: identifier,
     text: external_exports.string().max(16384),
-    size: finite6.positive().optional(),
-    extrude: finite6.nonnegative().optional(),
-    bevelDepth: finite6.nonnegative().optional(),
+    size: finite8.positive().optional(),
+    extrude: finite8.nonnegative().optional(),
+    bevelDepth: finite8.nonnegative().optional(),
     alignX: textAlignX.optional(),
     alignY: textAlignY.optional()
   }),
@@ -55401,24 +57078,24 @@ var agentOperationSchemas = [
     op: external_exports.literal("create_camera"),
     id: identifier,
     name: external_exports.string().trim().min(1).max(240).optional(),
-    position: vec36,
-    target: vec36,
-    focalLengthMm: finite6.positive().min(1).max(1e3).default(35),
-    sensorWidthMm: finite6.positive().min(1).max(100).default(36)
+    position: vec37,
+    target: vec37,
+    focalLengthMm: finite8.positive().min(1).max(1e3).default(35),
+    sensorWidthMm: finite8.positive().min(1).max(100).default(36)
   }),
   external_exports.strictObject({
     op: external_exports.literal("set_camera_data"),
     id: identifier,
     projectionType: external_exports.enum(["PERSPECTIVE", "ORTHOGRAPHIC"]),
-    focalLengthMm: finite6.positive().min(1).max(1e3),
+    focalLengthMm: finite8.positive().min(1).max(1e3),
     sensorFit: external_exports.enum(["AUTO", "HORIZONTAL", "VERTICAL"]),
-    sensorWidthMm: finite6.positive().min(1).max(100),
-    sensorHeightMm: finite6.positive().min(1).max(100),
-    shiftX: finite6,
-    shiftY: finite6,
-    clipStart: finite6.positive(),
-    clipEnd: finite6.positive(),
-    orthographicScale: finite6.positive()
+    sensorWidthMm: finite8.positive().min(1).max(100),
+    sensorHeightMm: finite8.positive().min(1).max(100),
+    shiftX: finite8,
+    shiftY: finite8,
+    clipStart: finite8.positive(),
+    clipEnd: finite8.positive(),
+    orthographicScale: finite8.positive()
   }).refine((camera) => camera.clipEnd > camera.clipStart, {
     path: ["clipEnd"],
     message: "clipEnd must be greater than clipStart"
@@ -55430,26 +57107,26 @@ var agentOperationSchemas = [
   external_exports.strictObject({
     op: external_exports.literal("set_world_environment"),
     color: rgb.optional(),
-    strength: finite6.nonnegative().max(1e3).optional()
+    strength: finite8.nonnegative().max(1e3).optional()
   }),
   external_exports.strictObject({
     op: external_exports.literal("create_light"),
     id: identifier,
     kind: lightKindSchema.default("area"),
     name: external_exports.string().trim().min(1).max(240).optional(),
-    position: vec36,
-    target: vec36.default([0, 1.5, 0]),
-    color: vec36.default([1, 0.94, 0.86]),
-    energy: finite6.nonnegative().default(1e3),
-    size: finite6.positive().default(4)
+    position: vec37,
+    target: vec37.default([0, 1.5, 0]),
+    color: vec37.default([1, 0.94, 0.86]),
+    energy: finite8.nonnegative().default(1e3),
+    size: finite8.positive().default(4)
   }),
   external_exports.strictObject({
     op: external_exports.literal("set_light_data"),
     id: identifier,
     kind: lightKindSchema,
     color: rgb,
-    energy: finite6.nonnegative(),
-    size: finite6.nonnegative()
+    energy: finite8.nonnegative(),
+    size: finite8.nonnegative()
   }),
   external_exports.strictObject({
     op: external_exports.literal("create_opening"),
@@ -55459,10 +57136,10 @@ var agentOperationSchemas = [
     ),
     kind: openingKindSchema.default("door"),
     name: external_exports.string().trim().min(1).max(240).optional(),
-    width: finite6.positive().default(0.9).describe("Opening width in metres."),
-    height: finite6.positive().default(2.1).describe("Opening height in metres."),
-    sillHeight: finite6.nonnegative().default(0).describe("Bottom of the opening above the wall base in metres. Doors keep 0; windows are typically 0.9-1.1."),
-    offset: finite6.default(0).describe("Horizontal offset from the wall centre in metres.")
+    width: finite8.positive().default(0.9).describe("Opening width in metres."),
+    height: finite8.positive().default(2.1).describe("Opening height in metres."),
+    sillHeight: finite8.nonnegative().default(0).describe("Bottom of the opening above the wall base in metres. Doors keep 0; windows are typically 0.9-1.1."),
+    offset: finite8.default(0).describe("Horizontal offset from the wall centre in metres.")
   }),
   external_exports.strictObject({
     op: external_exports.literal("move_to_collection"),
@@ -55480,7 +57157,7 @@ var agentOperationSchemas = [
     id: identifier,
     targetId: identifier,
     kind: constraintKindSchema,
-    influence: finite6.min(0).max(1).default(1)
+    influence: finite8.min(0).max(1).default(1)
   }),
   external_exports.strictObject({
     op: external_exports.literal("remove_constraint"),
@@ -55495,11 +57172,11 @@ var agentOperationSchemas = [
     idPrefix: identifier.describe(
       'Created objects get stable ids "<idPrefix>:1..n" (room: 1 floor, then north/south/east/west walls). Use one as the batch probe.'
     ),
-    origin: vec36.default([0, 0, 0]).describe("Floor-level origin in metres (Director Y-up)."),
-    width: finite6.positive().min(0.05).max(1e4).default(8).describe("Metres. Stairs preset: flight width."),
-    depth: finite6.positive().min(0.05).max(1e4).default(6).describe("Metres. Corridor preset: length. Stairs preset: total run."),
-    height: finite6.positive().min(0.05).max(1e4).default(3).describe("Metres. Stairs preset: total rise."),
-    wallThickness: finite6.positive().min(0.01).max(10).default(0.18).describe("Wall and floor slab thickness in metres."),
+    origin: vec37.default([0, 0, 0]).describe("Floor-level origin in metres (Director Y-up)."),
+    width: finite8.positive().min(0.05).max(1e4).default(8).describe("Metres. Stairs preset: flight width."),
+    depth: finite8.positive().min(0.05).max(1e4).default(6).describe("Metres. Corridor preset: length. Stairs preset: total run."),
+    height: finite8.positive().min(0.05).max(1e4).default(3).describe("Metres. Stairs preset: total rise."),
+    wallThickness: finite8.positive().min(0.01).max(10).default(0.18).describe("Wall and floor slab thickness in metres."),
     stepCount: external_exports.number().int().min(1).max(256).default(12).describe("Step count for the stairs preset.")
   }),
   external_exports.strictObject({
@@ -55536,9 +57213,9 @@ var agentOperationSchemas = [
     faceScope: external_exports.enum(["PRESERVE", "ALL", "SELECTED"]).default("ALL"),
     parameters: external_exports.strictObject({
       baseColor: rgb.optional(),
-      roughness: finite6.min(0).max(1).optional(),
-      metallic: finite6.min(0).max(1).optional(),
-      alpha: finite6.min(0).max(1).optional()
+      roughness: finite8.min(0).max(1).optional(),
+      metallic: finite8.min(0).max(1).optional(),
+      alpha: finite8.min(0).max(1).optional()
     }).default({})
   }),
   external_exports.strictObject({
@@ -55554,7 +57231,7 @@ var agentOperationSchemas = [
     materialName,
     nodeRef: identifier,
     nodeType: blenderMaterialNodeTypeSchema,
-    location: vec2.optional(),
+    location: vec22.optional(),
     label: external_exports.string().trim().max(240).optional()
   }),
   external_exports.strictObject({
@@ -55596,7 +57273,7 @@ var agentOperationSchemas = [
     modifierName: geometryModifierName,
     nodeRef: identifier,
     nodeType: blenderGeometryNodeTypeSchema,
-    location: vec2.optional(),
+    location: vec22.optional(),
     label: external_exports.string().trim().max(240).optional(),
     nodeProperties: blenderGeometryNodePropertiesSchema.optional()
   }),
@@ -55649,8 +57326,8 @@ var agentOperationSchemas = [
     bones: external_exports.array(
       external_exports.strictObject({
         boneRef: identifier,
-        rotationOffsetQuaternion: quaternion,
-        locationOffset: vec36.optional()
+        rotationOffsetQuaternion: quaternion2,
+        locationOffset: vec37.optional()
       })
     ).min(1).max(128)
   }),
@@ -55706,9 +57383,9 @@ var agentOperationSchemas = [
     actionName,
     startFrame: sceneFrame,
     blendMode: nlaBlendMode.default("REPLACE"),
-    influence: finite6.min(0).max(1).default(1),
-    repeat: finite6.positive().max(1e3).default(1),
-    scale: finite6.positive().max(10).default(1)
+    influence: finite8.min(0).max(1).default(1),
+    repeat: finite8.positive().max(1e3).default(1),
+    scale: finite8.positive().max(10).default(1)
   }),
   external_exports.strictObject({
     op: external_exports.literal("update_nla_strip"),
@@ -55716,9 +57393,9 @@ var agentOperationSchemas = [
     trackName: nlaName,
     stripName: nlaName,
     blendMode: nlaBlendMode.optional(),
-    influence: finite6.min(0).max(1).optional(),
-    repeat: finite6.positive().max(1e3).optional(),
-    scale: finite6.positive().max(10).optional()
+    influence: finite8.min(0).max(1).optional(),
+    repeat: finite8.positive().max(1e3).optional(),
+    scale: finite8.positive().max(10).optional()
   }),
   external_exports.strictObject({
     op: external_exports.literal("remove_nla_strip"),
@@ -55756,7 +57433,7 @@ var agentOperationSchemas = [
     resolution: external_exports.enum(["1k", "2k", "4k"]).default("1k"),
     fileFormat: external_exports.string().trim().min(1).max(40).optional(),
     objectId: identifier.optional(),
-    targetHeightM: finite6.positive().max(1e4).optional()
+    targetHeightM: finite8.positive().max(1e4).optional()
   }),
   external_exports.strictObject({
     op: external_exports.literal("sketchfab_search"),
@@ -55767,7 +57444,7 @@ var agentOperationSchemas = [
     op: external_exports.literal("sketchfab_import"),
     uid: external_exports.string().trim().regex(/^[A-Za-z0-9_-]{8,64}$/, "uid must be a Sketchfab model id"),
     objectId: identifier.optional(),
-    targetSizeM: finite6.positive().max(50).default(1)
+    targetSizeM: finite8.positive().max(50).default(1)
   }),
   external_exports.strictObject({ op: external_exports.literal("undo_scene") }),
   external_exports.strictObject({ op: external_exports.literal("redo_scene") }),
@@ -55833,7 +57510,7 @@ var agentOperationSchemas = [
     id: identifier,
     modifierName: geometryModifierName,
     inputRef: external_exports.string().trim().min(1).max(240),
-    value: external_exports.union([finite6, external_exports.boolean()])
+    value: external_exports.union([finite8, external_exports.boolean()])
   }),
   external_exports.strictObject({
     op: external_exports.literal("assign_geometry_node_group"),
@@ -55946,6 +57623,12 @@ var blenderNativeToolRequestSchema = external_exports.discriminatedUnion("op", [
     queries: spatialQueriesSchema
   }),
   external_exports.strictObject({
+    /** Poll the preview-only live-link delta feed. Never authoritative. */
+    op: external_exports.literal("live_link"),
+    sceneEpoch: sceneEpoch.optional(),
+    since: external_exports.number().int().nonnegative().optional()
+  }),
+  external_exports.strictObject({
     op: external_exports.literal("polyhaven_search"),
     assetType: external_exports.enum(["hdris", "textures", "models", "all"]).default("models"),
     categories: external_exports.string().trim().min(1).max(240).optional(),
@@ -55978,6 +57661,7 @@ var blenderNativeReadOperationNames = [
   "capture",
   "capture_render",
   "query",
+  "live_link",
   "polyhaven_search",
   "sketchfab_search"
 ];
@@ -55987,15 +57671,15 @@ var blenderObjectSchema = external_exports.strictObject({
   name: external_exports.string(),
   type: external_exports.string(),
   kind: external_exports.string().default("object"),
-  position: vec36,
-  rotation: vec36,
-  scale: vec36,
+  position: vec37,
+  rotation: vec37,
+  scale: vec37,
   localTransform: external_exports.strictObject({
-    position: vec36,
-    rotation: vec36,
-    scale: vec36
+    position: vec37,
+    rotation: vec37,
+    scale: vec37
   }),
-  dimensions: vec36,
+  dimensions: vec37,
   localBounds: localBounds.nullable().optional(),
   visible: external_exports.boolean(),
   collections: external_exports.array(external_exports.string()),
@@ -56006,7 +57690,7 @@ var blenderObjectSchema = external_exports.strictObject({
       name: external_exports.string(),
       kind: external_exports.string(),
       targetId: identifier.nullable(),
-      influence: finite6.min(0).max(1),
+      influence: finite8.min(0).max(1),
       enabled: external_exports.boolean()
     })
   ).default([])
@@ -56014,30 +57698,35 @@ var blenderObjectSchema = external_exports.strictObject({
 var blenderCameraSchema = external_exports.strictObject({
   id: identifier,
   name: external_exports.string(),
-  position: vec36,
-  rotation: vec36,
+  position: vec37,
+  rotation: vec37,
   projectionType: external_exports.enum(["PERSPECTIVE", "ORTHOGRAPHIC"]),
-  focalLengthMm: finite6.positive(),
+  focalLengthMm: finite8.positive(),
   sensorFit: external_exports.enum(["AUTO", "HORIZONTAL", "VERTICAL"]),
-  sensorWidthMm: finite6.positive(),
-  sensorHeightMm: finite6.positive(),
-  shiftX: finite6,
-  shiftY: finite6,
-  clipStart: finite6.positive(),
-  clipEnd: finite6.positive(),
-  orthographicScale: finite6.positive(),
+  sensorWidthMm: finite8.positive(),
+  sensorHeightMm: finite8.positive(),
+  shiftX: finite8,
+  shiftY: finite8,
+  clipStart: finite8.positive(),
+  clipEnd: finite8.positive(),
+  orthographicScale: finite8.positive(),
   active: external_exports.boolean()
 });
 var blenderLightSchema = external_exports.strictObject({
   id: identifier,
   name: external_exports.string(),
   kind: lightKindSchema,
-  position: vec36,
-  rotation: vec36,
-  color: vec36,
-  energy: finite6.nonnegative(),
-  size: finite6.nonnegative(),
+  position: vec37,
+  rotation: vec37,
+  color: vec37,
+  energy: finite8.nonnegative(),
+  size: finite8.nonnegative(),
   visible: external_exports.boolean()
+});
+var blenderLiveLinkHealthSchema = external_exports.strictObject({
+  seq: external_exports.number().int().nonnegative(),
+  bufferedFrames: external_exports.number().int().nonnegative(),
+  capacity: external_exports.number().int().positive()
 });
 var blenderLiveHealthSchema = external_exports.strictObject({
   ok: external_exports.literal(true),
@@ -56047,7 +57736,9 @@ var blenderLiveHealthSchema = external_exports.strictObject({
   blenderVersion: external_exports.string(),
   revision: external_exports.number().int().nonnegative(),
   contentRevision: external_exports.number().int().nonnegative().optional(),
-  busy: external_exports.boolean()
+  busy: external_exports.boolean(),
+  /** Preview-only live-link delta feed state; optional for older kernels without the feed. */
+  liveLink: blenderLiveLinkHealthSchema.optional()
 });
 var blenderLiveStatusSchema = external_exports.discriminatedUnion("available", [
   blenderLiveHealthSchema.extend({ available: external_exports.literal(true) }),
@@ -56109,7 +57800,7 @@ var blenderMaterialGraphSchema = external_exports.strictObject({
       nodeType: blenderMaterialNodeTypeSchema.or(external_exports.literal("CUSTOM")),
       blenderType: external_exports.string(),
       activeOutput: external_exports.boolean(),
-      location: vec2,
+      location: vec22,
       inputs: external_exports.array(materialNodeSocketInspectionSchema),
       outputs: external_exports.array(materialNodeSocketInspectionSchema)
     })
@@ -56140,7 +57831,7 @@ var blenderGeometryGraphSchema = external_exports.strictObject({
       label: external_exports.string(),
       nodeType: blenderGeometryNodeTypeSchema.or(external_exports.literal("CUSTOM")),
       blenderType: external_exports.string(),
-      location: vec2,
+      location: vec22,
       inputs: external_exports.array(materialNodeSocketInspectionSchema),
       outputs: external_exports.array(materialNodeSocketInspectionSchema),
       properties: blenderGeometryNodePropertiesSchema.optional()
@@ -56154,30 +57845,30 @@ var blenderGeometryGraphSchema = external_exports.strictObject({
   )
 });
 var blenderBoneTransformSchema = external_exports.strictObject({
-  location: vec36,
-  rotationQuaternion: quaternion,
-  scale: vec36
+  location: vec37,
+  rotationQuaternion: quaternion2,
+  scale: vec37
 });
 var blenderActionSummarySchema = external_exports.strictObject({
   actionName: external_exports.string(),
   active: external_exports.boolean(),
-  frameRange: external_exports.tuple([finite6, finite6]),
+  frameRange: external_exports.tuple([finite8, finite8]),
   fCurveCount: external_exports.number().int().nonnegative(),
   keyframeCount: external_exports.number().int().nonnegative(),
-  keyedFrames: external_exports.array(finite6)
+  keyedFrames: external_exports.array(finite8)
 });
 var blenderObjectInspectionSchema = external_exports.looseObject({
   id: identifier,
   name: external_exports.string(),
   type: external_exports.string(),
   mode: blenderMode,
-  dimensions: vec36,
-  position: vec36.optional(),
+  dimensions: vec37,
+  position: vec37.optional(),
   evaluatedBounds: external_exports.strictObject({
-    min: vec36,
-    max: vec36,
-    center: vec36,
-    size: vec36
+    min: vec37,
+    max: vec37,
+    center: vec37,
+    size: vec37
   }),
   selection: external_exports.strictObject({
     selected: external_exports.boolean(),
@@ -56204,28 +57895,28 @@ var blenderObjectInspectionSchema = external_exports.looseObject({
         active: external_exports.boolean(),
         activeRender: external_exports.boolean(),
         loopCount: external_exports.number().int().nonnegative(),
-        coordinateBounds: external_exports.strictObject({ min: vec2, max: vec2 })
+        coordinateBounds: external_exports.strictObject({ min: vec22, max: vec22 })
       })
     ).default([]),
     colorAttributes: external_exports.array(external_exports.string()),
     shapeKeys: external_exports.array(external_exports.string())
   }).optional(),
   curve: external_exports.strictObject({
-    bevelDepth: finite6.nonnegative(),
+    bevelDepth: finite8.nonnegative(),
     bevelResolution: external_exports.number().int().nonnegative(),
     splines: external_exports.array(
       external_exports.strictObject({
         type: curveType.or(external_exports.string()),
         cyclic: external_exports.boolean(),
-        points: external_exports.array(vec36)
+        points: external_exports.array(vec37)
       })
     )
   }).optional(),
   text: external_exports.strictObject({
     text: external_exports.string(),
-    size: finite6.positive(),
-    extrude: finite6.nonnegative(),
-    bevelDepth: finite6.nonnegative(),
+    size: finite8.positive(),
+    extrude: finite8.nonnegative(),
+    bevelDepth: finite8.nonnegative(),
     alignX: external_exports.string(),
     alignY: external_exports.string()
   }).optional(),
@@ -56238,9 +57929,9 @@ var blenderObjectInspectionSchema = external_exports.looseObject({
       nodeTypes: compactCountMap,
       principled: external_exports.strictObject({
         baseColor: rgb,
-        roughness: finite6.min(0).max(1),
-        metallic: finite6.min(0).max(1),
-        alpha: finite6.min(0).max(1)
+        roughness: finite8.min(0).max(1),
+        metallic: finite8.min(0).max(1),
+        alpha: finite8.min(0).max(1)
       }).nullable().default(null)
     })
   ).default([]),
@@ -56297,14 +57988,14 @@ var blenderObjectInspectionSchema = external_exports.looseObject({
           external_exports.strictObject({
             name: external_exports.string(),
             actionName: external_exports.string().nullable(),
-            frameStart: finite6,
-            frameEnd: finite6,
-            actionFrameStart: finite6,
-            actionFrameEnd: finite6,
+            frameStart: finite8,
+            frameEnd: finite8,
+            actionFrameStart: finite8,
+            actionFrameEnd: finite8,
             blendMode: nlaBlendMode,
-            influence: finite6.min(0).max(1),
-            repeat: finite6.positive(),
-            scale: finite6.positive()
+            influence: finite8.min(0).max(1),
+            repeat: finite8.positive(),
+            scale: finite8.positive()
           })
         )
       })
@@ -117704,7 +119395,7 @@ var directorKernelOwnershipSchema = external_exports.strictObject({
 // packages/agent-engine/src/directorAuthoring.ts
 var id3 = external_exports.string().trim().min(1).max(200);
 var name3 = external_exports.string().trim().min(1).max(240);
-var color4 = external_exports.string().trim().min(1).max(80);
+var color5 = external_exports.string().trim().min(1).max(80);
 var objectKind = external_exports.enum(DIRECTOR_ASSET_KINDS);
 var bodyType2 = external_exports.enum(CHARACTER_BODY_TYPES);
 var geometryType = external_exports.enum(GEOMETRY_PRIMITIVE_TYPES);
@@ -117771,7 +119462,7 @@ var scenePatchSchema = external_exports.strictObject({
   scale: external_exports.number().finite().positive().optional(),
   position: directorVec3Schema.optional(),
   rotation: directorVec3Schema.optional(),
-  backgroundColor: color4.optional(),
+  backgroundColor: color5.optional(),
   panoramaYaw: external_exports.number().finite().optional(),
   panoramaRadius: external_exports.number().finite().positive().optional(),
   showLabels: external_exports.boolean().optional(),
@@ -117796,7 +119487,7 @@ var objectUpdateSchema = external_exports.strictObject({
   transform: partialTransformSchema.optional(),
   body_type: bodyType2.nullable().optional(),
   character_source: external_exports.literal("asset").optional(),
-  color: color4.nullable().optional(),
+  color: color5.nullable().optional(),
   material: directorPbrMaterialSchema.nullable().optional(),
   pose_preset_id: posePresetId.nullable().optional(),
   asset_id: id3.nullable().optional(),
@@ -118032,7 +119723,7 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
     transform: directorTransformSchema.optional(),
     body_type: bodyType2.optional(),
     character_source: external_exports.literal("asset").optional(),
-    color: color4.optional(),
+    color: color5.optional(),
     material: directorPbrMaterialSchema.optional(),
     pose_preset_id: posePresetId.optional(),
     asset_id: id3.optional(),
@@ -118400,18 +120091,6 @@ function catalogAssetIdentityError(asset) {
   return differs ? `Library asset "${asset.id}" does not exactly match its catalog id, url, fileName, sourceType, or characterMetadata. Reuse those fields from catalog item.asset unchanged; name and projectionMode may be customized.` : null;
 }
 
-// packages/protocol/src/stableJson.ts
-function stringifyStableJson(value, compareKeys) {
-  if (Array.isArray(value)) return `[${value.map((entry) => stringifyStableJson(entry, compareKeys)).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value).filter(([, entry]) => entry !== void 0).sort(([left], [right]) => compareKeys(left, right)).map(([key, entry]) => `${JSON.stringify(key)}:${stringifyStableJson(entry, compareKeys)}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-function stableLexicalJson(value) {
-  return stringifyStableJson(value, (left, right) => left < right ? -1 : left > right ? 1 : 0);
-}
-
 // packages/agent-engine/src/directorAutomation.ts
 var DIRECTOR_AUTOMATION_MAX_MACROS = 128;
 var DIRECTOR_AUTOMATION_MAX_MEMORIES = 256;
@@ -118637,7 +120316,8 @@ var directorWorkbenchObserveFieldSchema = external_exports.enum([
   "production",
   "world",
   "counts",
-  "graph_issues"
+  "graph_issues",
+  "production_graph"
 ]);
 var directorWorkbenchCatalogIdSchema = external_exports.enum([
   "assets",
@@ -119063,7 +120743,7 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
   }),
   strictOperation("observe", {
     detail: external_exports.enum(["summary", "full"]).optional(),
-    fields: external_exports.array(directorWorkbenchObserveFieldSchema).min(1).max(12).optional(),
+    fields: external_exports.array(directorWorkbenchObserveFieldSchema).min(1).max(16).optional(),
     since_revision: directorProjectRevisionSchema.optional(),
     since_turn: nonEmptyText3(200).optional(),
     since_audit: nonEmptyText3(200).optional(),
@@ -119534,6 +121214,8 @@ var projectedEditClipSchema = external_exports.strictObject({
   volume: creativeWorkspaceFiniteNumberSchema.min(0).max(1),
   fade_in_sec: creativeWorkspaceFiniteNumberSchema.nonnegative(),
   fade_out_sec: creativeWorkspaceFiniteNumberSchema.nonnegative(),
+  // Defaulted so snapshots serialized before transitions were projected keep validating.
+  transition_in_sec: creativeWorkspaceFiniteNumberSchema.nonnegative().default(0),
   scale: creativeWorkspaceFiniteNumberSchema.positive(),
   position_x: creativeWorkspaceFiniteNumberSchema,
   position_y: creativeWorkspaceFiniteNumberSchema,
@@ -120223,6 +121905,7 @@ var observedPossessionCharacterSchema = external_exports.looseObject({
   id: external_exports.string(),
   agent_binding: external_exports.looseObject({
     session_id: external_exports.string().nullable().optional(),
+    profile_id: external_exports.string().nullable().optional(),
     mode: external_exports.string().optional()
   }).nullable().optional()
 });
@@ -120267,7 +121950,7 @@ var productionRunStatusSchema = external_exports.enum([
   "interrupted"
 ]);
 var productionNodeStatusSchema = external_exports.enum(["pending", "running", "succeeded", "failed", "cancelled", "stale"]);
-var productionArtifactKindSchema = external_exports.enum([
+var productionArtifactKindSchema2 = external_exports.enum([
   "role-report",
   "creative-brief",
   "screenplay",
@@ -120286,7 +121969,7 @@ var productionArtifactKindSchema = external_exports.enum([
 ]);
 var productionArtifactSchema = external_exports.object({
   id: nonEmptyText8(160),
-  kind: productionArtifactKindSchema,
+  kind: productionArtifactKindSchema2,
   roleId: filmRoleIdSchema,
   payload: external_exports.unknown(),
   createdAt: external_exports.string()
@@ -120985,139 +122668,6 @@ function createMcpToolResponse(execution, tool = "director_workbench") {
     });
   }
   return { content, structuredContent, isError: !execution.success };
-}
-
-// frontend/director/src/comprehensive/editor/schema/directorProjectRevision.ts
-var DIRECTOR_PROJECT_REVISION_PATTERN = /^director-project-revision:v1:sha256:[0-9a-f]{64}$/;
-var SHA256_INITIAL_STATE = [
-  1779033703,
-  3144134277,
-  1013904242,
-  2773480762,
-  1359893119,
-  2600822924,
-  528734635,
-  1541459225
-];
-var SHA256_ROUND_CONSTANTS = [
-  1116352408,
-  1899447441,
-  3049323471,
-  3921009573,
-  961987163,
-  1508970993,
-  2453635748,
-  2870763221,
-  3624381080,
-  310598401,
-  607225278,
-  1426881987,
-  1925078388,
-  2162078206,
-  2614888103,
-  3248222580,
-  3835390401,
-  4022224774,
-  264347078,
-  604807628,
-  770255983,
-  1249150122,
-  1555081692,
-  1996064986,
-  2554220882,
-  2821834349,
-  2952996808,
-  3210313671,
-  3336571891,
-  3584528711,
-  113926993,
-  338241895,
-  666307205,
-  773529912,
-  1294757372,
-  1396182291,
-  1695183700,
-  1986661051,
-  2177026350,
-  2456956037,
-  2730485921,
-  2820302411,
-  3259730800,
-  3345764771,
-  3516065817,
-  3600352804,
-  4094571909,
-  275423344,
-  430227734,
-  506948616,
-  659060556,
-  883997877,
-  958139571,
-  1322822218,
-  1537002063,
-  1747873779,
-  1955562222,
-  2024104815,
-  2227730452,
-  2361852424,
-  2428436474,
-  2756734187,
-  3204031479,
-  3329325298
-];
-function rotateRight(value, count) {
-  return value >>> count | value << 32 - count;
-}
-function sha256HexSync(value) {
-  const input = new TextEncoder().encode(value);
-  const paddedLength = Math.ceil((input.byteLength + 9) / 64) * 64;
-  const message = new Uint8Array(paddedLength);
-  message.set(input);
-  message[input.byteLength] = 128;
-  const view = new DataView(message.buffer);
-  const bitLength = input.byteLength * 8;
-  view.setUint32(paddedLength - 8, Math.floor(bitLength / 4294967296), false);
-  view.setUint32(paddedLength - 4, bitLength >>> 0, false);
-  const state = Uint32Array.from(SHA256_INITIAL_STATE);
-  const schedule = new Uint32Array(64);
-  for (let blockOffset = 0; blockOffset < paddedLength; blockOffset += 64) {
-    for (let index = 0; index < 16; index += 1) {
-      schedule[index] = view.getUint32(blockOffset + index * 4, false);
-    }
-    for (let index = 16; index < 64; index += 1) {
-      const previous15 = schedule[index - 15];
-      const previous2 = schedule[index - 2];
-      const sigma0 = rotateRight(previous15, 7) ^ rotateRight(previous15, 18) ^ previous15 >>> 3;
-      const sigma1 = rotateRight(previous2, 17) ^ rotateRight(previous2, 19) ^ previous2 >>> 10;
-      schedule[index] = schedule[index - 16] + sigma0 + schedule[index - 7] + sigma1 >>> 0;
-    }
-    let [a, b, c, d, e, f, g, h] = state;
-    for (let index = 0; index < 64; index += 1) {
-      const bigSigma1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
-      const choose = e & f ^ ~e & g;
-      const temporary1 = h + bigSigma1 + choose + SHA256_ROUND_CONSTANTS[index] + schedule[index] >>> 0;
-      const bigSigma0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
-      const majority = a & b ^ a & c ^ b & c;
-      const temporary2 = bigSigma0 + majority >>> 0;
-      h = g;
-      g = f;
-      f = e;
-      e = d + temporary1 >>> 0;
-      d = c;
-      c = b;
-      b = a;
-      a = temporary1 + temporary2 >>> 0;
-    }
-    state[0] = state[0] + a >>> 0;
-    state[1] = state[1] + b >>> 0;
-    state[2] = state[2] + c >>> 0;
-    state[3] = state[3] + d >>> 0;
-    state[4] = state[4] + e >>> 0;
-    state[5] = state[5] + f >>> 0;
-    state[6] = state[6] + g >>> 0;
-    state[7] = state[7] + h >>> 0;
-  }
-  return Array.from(state, (part) => part.toString(16).padStart(8, "0")).join("");
 }
 
 // frontend/director/src/comprehensive/editor/schema/directorProduction.ts
@@ -122340,6 +123890,7 @@ var directorProjectBaseSchema2 = external_exports.strictObject({
   referenceReconstructions: external_exports.array(referenceSceneReconstructionPlanSchema).max(64).optional(),
   proceduralRecipes: external_exports.array(directorProceduralRecipeSchema).max(128).optional(),
   world: directorWorldSchema.optional(),
+  productionGraphIdentities: productionGraphIdentityMapSchema.optional(),
   activeCameraId: external_exports.string().nullable(),
   panoramaAssetId: external_exports.string().nullable()
 });
@@ -122514,7 +124065,7 @@ var directorDccTransformSchema = external_exports.strictObject({
 var DIRECTOR_BLEND_SCENE_CONTRACT = "director-blend-scene-v1";
 var DIRECTOR_BLEND_SCENE_IMPORT_PLAN_CONTRACT = "director-blend-scene-import-plan-v1";
 var nonEmpty2 = external_exports.string().trim().min(1);
-var finite7 = external_exports.number().finite();
+var finite9 = external_exports.number().finite();
 var sha2563 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
 var safeRelativePath = external_exports.string().trim().min(1).max(1024).refine((value) => !value.startsWith("/") && !value.startsWith("\\") && !/^[A-Za-z]:/.test(value), {
   message: "path must be relative"
@@ -122525,16 +124076,16 @@ var blendCameraSchema = external_exports.strictObject({
   sourceId: nonEmpty2.max(240),
   name: nonEmpty2.max(240),
   transform: directorDccTransformSchema,
-  focalLengthMm: finite7.min(1).max(2e3),
-  sensorWidthMm: finite7.positive().max(1e3),
-  sensorHeightMm: finite7.positive().max(1e3),
+  focalLengthMm: finite9.min(1).max(2e3),
+  sensorWidthMm: finite9.positive().max(1e3),
+  sensorHeightMm: finite9.positive().max(1e3),
   sensorFit: external_exports.enum(["auto", "horizontal", "vertical"]),
-  renderAspectRatio: finite7.positive().max(20),
-  verticalFovDegrees: finite7.positive().max(179),
-  apertureFStop: finite7.positive().max(256),
-  focusDistanceM: finite7.positive().max(1e6),
-  nearClipM: finite7.positive().max(1e5),
-  farClipM: finite7.positive().max(1e7)
+  renderAspectRatio: finite9.positive().max(20),
+  verticalFovDegrees: finite9.positive().max(179),
+  apertureFStop: finite9.positive().max(256),
+  focusDistanceM: finite9.positive().max(1e6),
+  nearClipM: finite9.positive().max(1e5),
+  farClipM: finite9.positive().max(1e7)
 });
 var directorBlendSceneManifestSchema = external_exports.strictObject({
   schemaVersion: external_exports.literal(1),
@@ -122554,10 +124105,10 @@ var directorBlendSceneManifestSchema = external_exports.strictObject({
     linearMap: external_exports.literal("(x,y,z)->(x,z,-y)")
   }),
   timeline: external_exports.strictObject({
-    frameStart: finite7,
-    frameEnd: finite7,
-    currentFrame: finite7,
-    fps: finite7.positive().max(1e3),
+    frameStart: finite9,
+    frameEnd: finite9,
+    currentFrame: finite9,
+    fps: finite9.positive().max(1e3),
     timebase: external_exports.strictObject({
       rate: external_exports.strictObject({
         numerator: external_exports.number().int().positive().max(1e6),
@@ -122635,14 +124186,14 @@ var importOperationSchema = external_exports.discriminatedUnion("op", [
     cameraId: nonEmpty2.max(240),
     objectId: nonEmpty2.max(240),
     name: nonEmpty2.max(240),
-    position: external_exports.tuple([finite7, finite7, finite7]),
-    target: external_exports.tuple([finite7, finite7, finite7]),
-    focalLengthMm: finite7.min(12).max(200),
+    position: external_exports.tuple([finite9, finite9, finite9]),
+    target: external_exports.tuple([finite9, finite9, finite9]),
+    focalLengthMm: finite9.min(12).max(200),
     sensorFormat: external_exports.enum(["super16", "super35", "fullFrame", "imax65"]),
-    apertureFStop: finite7.min(0.7).max(64),
-    focusDistanceM: finite7.min(0.01).max(1e4),
-    nearClipM: finite7.min(1e-3).max(100),
-    farClipM: finite7.min(1).max(1e6),
+    apertureFStop: finite9.min(0.7).max(64),
+    focusDistanceM: finite9.min(0.01).max(1e4),
+    nearClipM: finite9.min(1e-3).max(100),
+    farClipM: finite9.min(1).max(1e6),
     aspectRatio: directorCameraAspectRatioSchema
   }),
   strictOperation("skip", { sourceId: nonEmpty2.max(240), reason: nonEmpty2.max(2e3) }),
@@ -133923,6 +135474,396 @@ MIXAMO_CHARACTER_CATALOG2.forEach((item) => {
   });
 });
 
+// frontend/director/src/comprehensive/editor/presets/mannequinPosePresets.json
+var mannequinPosePresets_default2 = [
+  {
+    id: "stand",
+    label: "\u7AD9\u7ACB",
+    controls: {}
+  },
+  {
+    id: "t-pose",
+    label: "T\u578B",
+    controls: {
+      "leftShoulder.spread": -70,
+      "rightShoulder.spread": 70,
+      "leftShoulder.pitch": 15,
+      "rightShoulder.pitch": 15,
+      "leftElbow.bend": 10,
+      "rightElbow.bend": 10
+    }
+  },
+  {
+    id: "walk",
+    label: "\u884C\u8D70",
+    controls: {
+      "leftShoulder.pitch": 20,
+      "rightShoulder.pitch": -20,
+      "leftHip.pitch": -20,
+      "rightHip.pitch": 20,
+      "leftKnee.bend": 12,
+      "rightKnee.bend": 4
+    }
+  },
+  {
+    id: "run",
+    label: "\u8DD1\u6B65",
+    controls: {
+      "leftShoulder.pitch": 42,
+      "rightShoulder.pitch": -42,
+      "leftHip.pitch": -35,
+      "rightHip.pitch": 40,
+      "leftKnee.bend": 28,
+      "rightKnee.bend": 18
+    }
+  },
+  {
+    id: "sit",
+    label: "\u5750\u59FF",
+    controls: {
+      "torso.pitch": -10,
+      "leftHip.pitch": 80,
+      "rightHip.pitch": 80,
+      "leftKnee.bend": 90,
+      "rightKnee.bend": 90
+    }
+  },
+  {
+    id: "crouch",
+    label: "\u8E72\u4E0B",
+    controls: {
+      "body.offsetY": -0.43,
+      "body.pitch": -26,
+      "torso.pitch": -24,
+      "head.pitch": 22,
+      "leftHip.pitch": 92,
+      "rightHip.pitch": 92,
+      "leftKnee.bend": 112,
+      "rightKnee.bend": 112,
+      "leftShoulder.pitch": 52,
+      "rightShoulder.pitch": 50,
+      "leftShoulder.spread": -10,
+      "rightShoulder.spread": 10,
+      "leftElbow.bend": 80,
+      "rightElbow.bend": 76
+    }
+  },
+  {
+    id: "kneel-one",
+    label: "\u5355\u819D\u8DEA",
+    controls: {
+      "body.offsetY": -0.42,
+      "body.pitch": -16,
+      "torso.pitch": -10,
+      "head.pitch": 12,
+      "leftHip.pitch": 68,
+      "leftKnee.bend": 86,
+      "leftFoot.pitch": 20,
+      "rightHip.pitch": -15,
+      "rightKnee.bend": 80,
+      "rightFoot.pitch": 60,
+      "leftShoulder.pitch": 5,
+      "leftShoulder.spread": 10,
+      "leftShoulder.twist": -10,
+      "leftElbow.bend": 30,
+      "rightShoulder.pitch": -18,
+      "rightShoulder.spread": 10,
+      "rightElbow.bend": 18
+    }
+  },
+  {
+    id: "kneel-two",
+    label: "\u53CC\u819D\u8DEA",
+    controls: {
+      "body.offsetY": -0.4,
+      "body.pitch": 2,
+      "torso.pitch": 8,
+      "head.pitch": -2,
+      "leftShoulder.pitch": -10,
+      "rightShoulder.pitch": -10,
+      "leftShoulder.spread": -5,
+      "rightShoulder.spread": 5,
+      "leftElbow.bend": 8,
+      "rightElbow.bend": 8,
+      "leftHip.pitch": -8,
+      "rightHip.pitch": -8,
+      "leftKnee.bend": 126,
+      "rightKnee.bend": 126,
+      "leftFoot.pitch": -20,
+      "rightFoot.pitch": -20
+    }
+  },
+  {
+    id: "hands-on-hips",
+    label: "\u53C9\u8170",
+    controls: {
+      "leftShoulder.pitch": -36,
+      "rightShoulder.pitch": -36,
+      "leftShoulder.spread": 0,
+      "rightShoulder.spread": 0,
+      "leftShoulder.twist": 80,
+      "rightShoulder.twist": -80,
+      "leftElbow.bend": 86,
+      "rightElbow.bend": 86,
+      "leftHand.roll": -35,
+      "rightHand.roll": 35
+    }
+  },
+  {
+    id: "lean",
+    label: "\u501A\u9760",
+    controls: {
+      "body.roll": -10,
+      "leftHip.spread": -8,
+      "rightHip.spread": 8,
+      "head.roll": 6
+    }
+  },
+  {
+    id: "bow",
+    label: "\u97A0\u8EAC",
+    controls: {
+      "body.pitch": -46,
+      "torso.pitch": -10,
+      "head.pitch": 20,
+      "leftHip.pitch": 49,
+      "rightHip.pitch": 49,
+      "leftShoulder.pitch": 5,
+      "rightShoulder.pitch": 5,
+      "leftShoulder.spread": 10,
+      "rightShoulder.spread": -10,
+      "leftElbow.bend": 12,
+      "rightElbow.bend": 12
+    }
+  },
+  {
+    id: "think",
+    label: "\u601D\u8003",
+    controls: {
+      "rightShoulder.pitch": 8,
+      "rightShoulder.spread": 0,
+      "rightShoulder.twist": -40,
+      "rightElbow.bend": 90,
+      "rightHand.roll": -40,
+      "rightHand.pitch": 15,
+      "rightHand.twist": -10,
+      "leftShoulder.pitch": 8,
+      "leftShoulder.spread": 0,
+      "leftShoulder.twist": 40,
+      "leftElbow.bend": 90
+    }
+  },
+  {
+    id: "fight",
+    label: "\u683C\u6597",
+    controls: {
+      "body.yaw": -10,
+      "body.pitch": 5,
+      "torso.yaw": 8,
+      "head.yaw": 8,
+      "leftShoulder.pitch": 48,
+      "leftShoulder.spread": -16,
+      "leftShoulder.twist": 22,
+      "rightShoulder.pitch": 30,
+      "rightShoulder.spread": 0,
+      "rightShoulder.twist": -22,
+      "leftElbow.bend": 86,
+      "rightElbow.bend": 84,
+      "leftHip.spread": -18,
+      "rightHip.spread": 22,
+      "leftHip.pitch": 4,
+      "rightHip.pitch": -6,
+      "leftKnee.bend": 12,
+      "rightKnee.bend": 18
+    }
+  },
+  {
+    id: "kick",
+    label: "\u8E22\u7403",
+    controls: {
+      "leftHip.pitch": -8,
+      "rightHip.pitch": 58,
+      "rightKnee.bend": 35,
+      "leftShoulder.pitch": 18,
+      "rightShoulder.pitch": -24
+    }
+  },
+  {
+    id: "throw",
+    label: "\u6295\u63B7",
+    controls: {
+      "body.offsetY": -0.12,
+      "body.pitch": 5,
+      "body.yaw": 14,
+      "torso.yaw": -10,
+      "head.yaw": 8,
+      "rightShoulder.pitch": 76,
+      "rightShoulder.spread": -14,
+      "rightShoulder.twist": 28,
+      "rightElbow.bend": 86,
+      "rightHand.roll": 18,
+      "rightHand.pitch": -12,
+      "leftShoulder.pitch": 34,
+      "leftShoulder.spread": 10,
+      "leftShoulder.twist": 8,
+      "leftElbow.bend": 54,
+      "leftHand.pitch": -10,
+      "leftHip.spread": -12,
+      "rightHip.spread": 18,
+      "leftHip.pitch": 24,
+      "rightHip.pitch": -10,
+      "leftKnee.bend": 30,
+      "rightKnee.bend": 14,
+      "leftFoot.pitch": -8,
+      "rightFoot.roll": 6
+    }
+  },
+  {
+    id: "push",
+    label: "\u63A8\u8FDB",
+    controls: {
+      "body.offsetY": -0.16,
+      "body.pitch": 5,
+      "body.yaw": 38,
+      "torso.pitch": -4,
+      "head.pitch": 6,
+      "leftShoulder.pitch": 92,
+      "rightShoulder.pitch": 92,
+      "leftShoulder.spread": -11,
+      "rightShoulder.spread": 11,
+      "leftShoulder.twist": 6,
+      "rightShoulder.twist": -6,
+      "leftElbow.bend": 6,
+      "rightElbow.bend": 6,
+      "leftHand.pitch": -14,
+      "rightHand.pitch": -14,
+      "leftHip.spread": -12,
+      "rightHip.spread": 14,
+      "leftHip.pitch": 38,
+      "rightHip.pitch": -20,
+      "leftKnee.bend": 42,
+      "rightKnee.bend": 20,
+      "leftFoot.pitch": -6,
+      "rightFoot.roll": 8
+    }
+  },
+  {
+    id: "wave",
+    label: "\u62DB\u624B",
+    controls: {
+      "rightShoulder.pitch": 60,
+      "rightShoulder.spread": 0,
+      "rightShoulder.twist": 30,
+      "rightElbow.bend": 90,
+      "rightHand.roll": -20,
+      "rightHand.pitch": 12,
+      "rightHand.twist": 10,
+      "leftShoulder.pitch": -10,
+      "leftShoulder.spread": 8,
+      "leftElbow.bend": 18,
+      "leftHand.pitch": -8
+    }
+  },
+  {
+    id: "reach",
+    label: "\u4F38\u624B",
+    controls: {
+      "rightShoulder.pitch": 50,
+      "rightElbow.bend": 12,
+      "body.pitch": 0
+    }
+  },
+  {
+    id: "cross-arms",
+    label: "\u62B1\u81C2",
+    controls: {
+      "leftShoulder.pitch": 50,
+      "leftShoulder.spread": -55,
+      "leftShoulder.twist": 75,
+      "leftElbow.bend": 50,
+      "leftHand.roll": 0,
+      "leftHand.pitch": -10,
+      "rightShoulder.pitch": 90,
+      "rightShoulder.spread": 55,
+      "rightShoulder.twist": -45,
+      "rightElbow.bend": 50,
+      "rightHand.roll": 18,
+      "rightHand.pitch": -10
+    }
+  },
+  {
+    id: "phone",
+    label: "\u770B\u624B\u673A",
+    controls: {
+      "head.pitch": 18,
+      "rightShoulder.pitch": 34,
+      "rightShoulder.spread": -4,
+      "rightShoulder.twist": -12,
+      "rightElbow.bend": 82,
+      "rightHand.roll": -12,
+      "rightHand.pitch": 14,
+      "rightHand.twist": -8,
+      "leftShoulder.pitch": -10,
+      "leftShoulder.spread": 8,
+      "leftElbow.bend": 16,
+      "leftHand.pitch": -8
+    }
+  },
+  {
+    id: "punch",
+    label: "\u51FA\u62F3",
+    controls: {
+      "body.pitch": 8,
+      "body.yaw": 12,
+      "torso.yaw": -10,
+      "rightShoulder.pitch": 90,
+      "rightShoulder.spread": 5,
+      "rightShoulder.twist": -8,
+      "rightElbow.bend": 12,
+      "leftShoulder.pitch": 42,
+      "leftShoulder.spread": -12,
+      "leftElbow.bend": 86,
+      "leftHip.pitch": 18,
+      "rightHip.pitch": -12,
+      "leftKnee.bend": 24,
+      "rightKnee.bend": 12
+    }
+  },
+  {
+    id: "block",
+    label: "\u683C\u6321",
+    controls: {
+      "body.pitch": -5,
+      "torso.yaw": 10,
+      "leftShoulder.pitch": 68,
+      "leftShoulder.spread": -18,
+      "leftShoulder.twist": 16,
+      "leftElbow.bend": 112,
+      "rightShoulder.pitch": 56,
+      "rightShoulder.spread": 14,
+      "rightShoulder.twist": -12,
+      "rightElbow.bend": 104,
+      "leftHip.pitch": -8,
+      "rightHip.pitch": 12,
+      "leftKnee.bend": 18,
+      "rightKnee.bend": 22
+    }
+  }
+];
+
+// frontend/director/src/comprehensive/editor/presets/mannequinPosePresets.ts
+var poseIds2 = new Set(POSE_PRESET_IDS2);
+var controlKeys2 = new Set(CHARACTER_POSE_CONTROL_KEYS2);
+if (mannequinPosePresets_default2.length !== poseIds2.size || mannequinPosePresets_default2.some(
+  (preset) => !poseIds2.delete(preset.id) || Object.keys(preset.controls).some((key) => !controlKeys2.has(key))
+)) {
+  throw new Error("Mannequin pose preset data does not match the shared pose protocol.");
+}
+var MANNEQUIN_POSE_PRESETS2 = mannequinPosePresets_default2;
+var MANNEQUIN_POSE_PRESET_BY_ID2 = new Map(
+  MANNEQUIN_POSE_PRESETS2.map((preset) => [preset.id, preset])
+);
+
 // frontend/director/src/comprehensive/editor/timeline/frameRate.ts
 var DIRECTOR_COMMON_FRAME_RATES2 = Object.freeze({
   /** 23.976 fps (24000/1001). */
@@ -133984,6 +135925,27 @@ var safeRelativePath2 = external_exports.string().trim().min(1).max(1024).refine
 }).refine((value) => !value.includes("\\"), { message: "path must use forward slashes" }).refine((value) => value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."), {
   message: "path cannot contain empty, dot, or parent segments"
 });
+var hexColor = external_exports.string().regex(/^#[0-9a-fA-F]{6}$/, "expected #RRGGBB hex color");
+var wireVec3 = directorDccVec3Schema;
+var finiteWire = directorDccFiniteSchema;
+var directorDccReturnCameraOpticsSchema = external_exports.strictObject({
+  focalLengthMm: finiteWire.positive().max(1e4).optional(),
+  apertureFStop: finiteWire.positive().max(1e3).optional(),
+  focusDistanceM: finiteWire.positive().max(1e6).optional(),
+  nearClipM: finiteWire.positive().max(1e6).optional(),
+  farClipM: finiteWire.positive().max(1e8).optional(),
+  sensorFormat: external_exports.enum(DIRECTOR_CAMERA_SENSOR_FORMATS4).optional()
+}).refine((value) => Object.keys(value).length > 0, { message: "camera optics update cannot be empty" });
+var directorDccReturnLightPropertiesSchema = external_exports.strictObject({
+  position: wireVec3.optional(),
+  target: wireVec3.optional(),
+  color: hexColor.optional(),
+  intensity: finiteWire.min(0).max(100).optional()
+}).refine((value) => Object.keys(value).length > 0, { message: "light update cannot be empty" });
+var poseControlKeySchema = external_exports.enum(CHARACTER_POSE_CONTROL_KEYS2);
+var directorDccReturnPoseControlsSchema = external_exports.partialRecord(poseControlKeySchema, external_exports.number().finite()).refine((controls) => Object.keys(controls).length > 0, { message: "pose update cannot be empty" }).refine((controls) => Object.keys(controls).length <= CHARACTER_POSE_CONTROL_KEYS2.length, {
+  message: "pose update exceeds the portable control set"
+});
 var directorDccReturnChangeSchema = external_exports.discriminatedUnion("kind", [
   strictKind("mesh_replacement", {
     directorId: nonEmpty3.max(200),
@@ -133992,10 +135954,44 @@ var directorDccReturnChangeSchema = external_exports.discriminatedUnion("kind", 
     transform: directorDccTransformSchema.optional(),
     assetLabel: external_exports.string().trim().min(1).max(240).optional()
   }),
+  strictKind("object_addition", {
+    directorId: nonEmpty3.max(200),
+    entityType: external_exports.literal("object"),
+    name: external_exports.string().trim().min(1).max(240),
+    meshFile: safeRelativePath2,
+    transform: directorDccTransformSchema,
+    assetLabel: external_exports.string().trim().min(1).max(240).optional()
+  }),
   strictKind("transform_update", {
     directorId: nonEmpty3.max(200),
     entityType: directorAnimationEntityTypeSchema2,
     transform: directorDccTransformSchema
+  }),
+  strictKind("camera_update", {
+    directorId: nonEmpty3.max(200),
+    entityType: external_exports.literal("camera"),
+    transform: directorDccTransformSchema.optional(),
+    optics: directorDccReturnCameraOpticsSchema.optional()
+  }).superRefine((change, context) => {
+    if (!change.transform && !change.optics) {
+      context.addIssue({
+        code: "custom",
+        path: ["optics"],
+        message: "camera_update must carry a transform, optics, or both"
+      });
+    }
+  }),
+  strictKind("light_update", {
+    directorId: nonEmpty3.max(200),
+    entityType: external_exports.literal("light"),
+    properties: directorDccReturnLightPropertiesSchema
+  }),
+  strictKind("pose_update", {
+    directorId: nonEmpty3.max(200),
+    entityType: external_exports.literal("object"),
+    controls: directorDccReturnPoseControlsSchema,
+    /** Character root motion sampled together with the pose, if the root moved. */
+    transform: directorDccTransformSchema.optional()
   })
 ]);
 var directorDccBlenderReturnCoordinateSystemSchema = external_exports.strictObject({
@@ -134075,7 +136071,7 @@ var directorDccReturnManifestSchema = external_exports.strictObject({
       });
     }
     seen.add(key);
-    if (change.kind === "mesh_replacement" && manifest.fileHashes[change.meshFile] === void 0) {
+    if ((change.kind === "mesh_replacement" || change.kind === "object_addition") && manifest.fileHashes[change.meshFile] === void 0) {
       context.addIssue({
         code: "custom",
         path: ["changes", index, "meshFile"],
@@ -134084,11 +136080,41 @@ var directorDccReturnManifestSchema = external_exports.strictObject({
     }
   });
 });
+var opticsLimit = (key) => external_exports.number().finite().min(DIRECTOR_CAMERA_OPTICS_LIMITS2[key].min).max(DIRECTOR_CAMERA_OPTICS_LIMITS2[key].max);
+var directorDccImportPlanCameraOpticsSchema = external_exports.strictObject({
+  focal_length_mm: external_exports.number().finite().min(12).max(200).optional(),
+  aperture_f_stop: opticsLimit("apertureFStop").optional(),
+  focus_distance_m: opticsLimit("focusDistanceM").optional(),
+  near_clip_m: opticsLimit("nearClipM").optional(),
+  far_clip_m: opticsLimit("farClipM").optional(),
+  sensor_format: external_exports.enum(DIRECTOR_CAMERA_SENSOR_FORMATS4).optional()
+}).refine((value) => Object.keys(value).length > 0, { message: "camera optics patch cannot be empty" });
+var directorVec3Schema3 = external_exports.tuple([external_exports.number().finite(), external_exports.number().finite(), external_exports.number().finite()]);
+var directorDccImportPlanLightPatchSchema = external_exports.strictObject({
+  color: hexColor.optional(),
+  intensity: external_exports.number().finite().min(0).max(100).optional(),
+  position: directorVec3Schema3.optional(),
+  target: directorVec3Schema3.optional()
+}).refine((value) => Object.keys(value).length > 0, { message: "light patch cannot be empty" });
 var importPlanOperationSchema = external_exports.discriminatedUnion("op", [
   strictOperation("update_transform", {
     entityType: directorAnimationEntityTypeSchema2,
     objectId: nonEmpty3.max(200),
     transform: directorTransformSchema2
+  }),
+  strictOperation("update_camera_optics", {
+    objectId: nonEmpty3.max(200),
+    optics: directorDccImportPlanCameraOpticsSchema
+  }),
+  strictOperation("update_light", {
+    lightId: nonEmpty3.max(200),
+    patch: directorDccImportPlanLightPatchSchema
+  }),
+  strictOperation("set_character_pose", {
+    objectId: nonEmpty3.max(200),
+    controls: external_exports.array(external_exports.strictObject({ control: external_exports.enum(CHARACTER_POSE_CONTROL_KEYS2), value: external_exports.number().finite() })).min(1).max(CHARACTER_POSE_CONTROL_KEYS2.length).refine((entries) => new Set(entries.map((entry) => entry.control)).size === entries.length, {
+      message: "pose controls must be unique"
+    })
   }),
   strictOperation("link_refined_asset", {
     objectId: nonEmpty3.max(200),
@@ -134101,6 +136127,9 @@ var importPlanOperationSchema = external_exports.discriminatedUnion("op", [
     objectId: nonEmpty3.max(200),
     name: nonEmpty3.max(240),
     assetId: nonEmpty3.max(240),
+    assetLabel: nonEmpty3.max(240),
+    glbPath: safeRelativePath2,
+    hash: sha2564,
     transform: directorTransformSchema2
   }),
   strictOperation("skip", {
@@ -134121,7 +136150,12 @@ var directorDccImportPlanSchema = external_exports.strictObject({
   conflicts: external_exports.array(
     external_exports.strictObject({
       directorId: nonEmpty3.max(200),
-      code: external_exports.enum(["stale_source_revision", "unknown_director_id", "entity_type_mismatch"]),
+      code: external_exports.enum([
+        "stale_source_revision",
+        "unknown_director_id",
+        "entity_type_mismatch",
+        "duplicate_director_id"
+      ]),
       reason: nonEmpty3.max(2e3)
     })
   ).max(2e4),
@@ -134138,8 +136172,357 @@ var directorDccReturnReportSchema = external_exports.strictObject({
   manifestPath: nonEmpty3.max(2048),
   changeCount: external_exports.number().int().nonnegative(),
   meshCount: external_exports.number().int().nonnegative(),
+  /** Number of camera_update changes; optional on pre-optics exporters. */
+  cameraCount: external_exports.number().int().nonnegative().optional(),
+  /** Number of light_update changes; optional on pre-optics exporters. */
+  lightCount: external_exports.number().int().nonnegative().optional(),
+  /** Number of pose_update changes; optional on pre-optics exporters. */
+  poseCount: external_exports.number().int().nonnegative().optional(),
+  /** Number of object_addition changes; optional on pre-addition exporters. */
+  additionCount: external_exports.number().int().nonnegative().optional(),
   warnings: external_exports.array(external_exports.string().max(2e3)),
   blenderVersion: nonEmpty3.max(200)
+});
+
+// packages/dcc-protocol/src/directorEngineSceneImportContract.ts
+var DIRECTOR_ENGINE_SCENE_CONTRACT = "director-engine-scene-v1";
+var DIRECTOR_ENGINE_SCENE_IMPORT_PLAN_CONTRACT = "director-engine-scene-import-plan-v1";
+var directorEngineSceneProviderSchema = external_exports.enum(["unreal", "unity"]);
+var nonEmpty4 = external_exports.string().trim().min(1);
+var finite10 = external_exports.number().finite();
+var sha2565 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
+var hexColor2 = external_exports.string().regex(/^#[0-9a-fA-F]{6}$/, "expected #rrggbb hex color");
+var safeRelativePath3 = external_exports.string().trim().min(1).max(1024).refine((value) => !value.startsWith("/") && !value.startsWith("\\") && !/^[A-Za-z]:/.test(value), {
+  message: "path must be relative"
+}).refine((value) => !value.includes("\\"), { message: "path must use forward slashes" }).refine((value) => value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."), {
+  message: "path cannot contain empty, dot, or parent segments"
+});
+var DIRECTOR_ENGINE_COORDINATE_SYSTEMS = Object.freeze({
+  unreal: {
+    source: "left-handed-z-up-x-forward-centimeter",
+    destination: "right-handed-y-up-negative-z-forward",
+    unit: "meter",
+    linearMap: "(x,y,z)->(y,z,-x)*0.01"
+  },
+  unity: {
+    source: "left-handed-y-up-z-forward-meter",
+    destination: "right-handed-y-up-negative-z-forward",
+    unit: "meter",
+    linearMap: "(x,y,z)->(-x,y,z)"
+  }
+});
+var engineCoordinateSystemSchema = external_exports.strictObject({
+  source: external_exports.enum([DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.source, DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.source]),
+  destination: external_exports.literal("right-handed-y-up-negative-z-forward"),
+  unit: external_exports.literal("meter"),
+  linearMap: external_exports.enum([
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unreal.linearMap,
+    DIRECTOR_ENGINE_COORDINATE_SYSTEMS.unity.linearMap
+  ])
+});
+var directorEngineSceneNodeKindSchema = external_exports.enum(["mesh", "skinned-mesh", "camera", "light", "group", "other"]);
+var engineNodeSchema = external_exports.strictObject({
+  sourceId: nonEmpty4.max(240),
+  name: nonEmpty4.max(240),
+  parentSourceId: nonEmpty4.max(240).optional(),
+  kind: directorEngineSceneNodeKindSchema,
+  /** Director-space TRS (meters, Y-up, XYZ Euler radians). */
+  transform: directorTransformSchema2
+});
+var engineCameraSchema = external_exports.strictObject({
+  sourceId: nonEmpty4.max(240),
+  name: nonEmpty4.max(240),
+  /** Director-space world position in meters. */
+  position: directorDccVec3Schema,
+  /** Director-space world look target in meters. */
+  lookTarget: directorDccVec3Schema,
+  verticalFovDegrees: finite10.positive().max(179),
+  sensorWidthMm: finite10.positive().max(1e3).optional(),
+  sensorHeightMm: finite10.positive().max(1e3).optional(),
+  apertureFStop: finite10.positive().max(256).optional(),
+  focusDistanceM: finite10.positive().max(1e6).optional(),
+  nearClipM: finite10.positive().max(1e5),
+  farClipM: finite10.positive().max(1e7),
+  renderAspectRatio: finite10.positive().max(20)
+}).superRefine((camera, context) => {
+  if (camera.farClipM <= camera.nearClipM) {
+    context.addIssue({ code: "custom", path: ["farClipM"], message: "far clip must exceed near clip" });
+  }
+  const [px, py, pz] = camera.position;
+  const [tx, ty, tz] = camera.lookTarget;
+  if (Math.hypot(tx - px, ty - py, tz - pz) < 1e-6) {
+    context.addIssue({
+      code: "custom",
+      path: ["lookTarget"],
+      message: "camera look target cannot coincide with its position"
+    });
+  }
+});
+var engineLightTypeSchema = external_exports.enum(DIRECTOR_LIGHT_TYPES2);
+var engineLightSchema = external_exports.strictObject({
+  sourceId: nonEmpty4.max(240),
+  name: nonEmpty4.max(240),
+  type: engineLightTypeSchema,
+  color: hexColor2,
+  /** Director-normalized intensity (0..100); exporters document their mapping. */
+  intensity: finite10.min(0).max(100),
+  /** Director-space world position in meters (omitted for ambient light). */
+  position: directorDccVec3Schema.optional(),
+  /** Director-space world aim point for directional / spot / rect-area lights. */
+  target: directorDccVec3Schema.optional(),
+  rangeM: finite10.positive().max(1e6).optional(),
+  angleDegrees: finite10.positive().max(179).optional(),
+  penumbra: finite10.min(0).max(1).optional(),
+  widthM: finite10.positive().max(1e6).optional(),
+  heightM: finite10.positive().max(1e6).optional(),
+  castShadow: external_exports.boolean().optional()
+}).superRefine((light, context) => {
+  if (light.type !== "ambient" && light.type !== "hemisphere" && !light.position) {
+    context.addIssue({
+      code: "custom",
+      path: ["position"],
+      message: `${light.type} lights must carry a world position`
+    });
+  }
+  if ((light.type === "directional" || light.type === "spot" || light.type === "rect-area") && !light.target) {
+    context.addIssue({
+      code: "custom",
+      path: ["target"],
+      message: `${light.type} lights must carry an aim target`
+    });
+  }
+  if (light.type === "spot" && light.angleDegrees === void 0) {
+    context.addIssue({ code: "custom", path: ["angleDegrees"], message: "spot lights must carry a cone angle" });
+  }
+  if (light.type === "rect-area" && (light.widthM === void 0 || light.heightM === void 0)) {
+    context.addIssue({
+      code: "custom",
+      path: ["widthM"],
+      message: "rect-area lights must carry width and height"
+    });
+  }
+});
+var directorEngineSceneManifestSchema = external_exports.strictObject({
+  schemaVersion: external_exports.literal(1),
+  contract: external_exports.literal(DIRECTOR_ENGINE_SCENE_CONTRACT),
+  packageId: nonEmpty4.max(240),
+  provider: directorEngineSceneProviderSchema,
+  exportedAt: external_exports.string().datetime({ offset: true }),
+  engineVersion: nonEmpty4.max(200),
+  exporter: external_exports.strictObject({
+    name: nonEmpty4.max(120),
+    version: nonEmpty4.max(60)
+  }),
+  source: external_exports.strictObject({
+    projectName: nonEmpty4.max(240),
+    sceneName: nonEmpty4.max(240)
+  }),
+  coordinateSystem: engineCoordinateSystemSchema,
+  timeline: external_exports.strictObject({
+    frameStart: finite10,
+    frameEnd: finite10,
+    currentFrame: finite10,
+    fps: finite10.positive().max(1e3)
+  }),
+  scene: external_exports.strictObject({
+    name: nonEmpty4.max(240),
+    bundleFile: safeRelativePath3.nullable(),
+    nodeCount: external_exports.number().int().nonnegative().max(1e6),
+    meshCount: external_exports.number().int().nonnegative().max(1e6),
+    skinnedMeshCount: external_exports.number().int().nonnegative().max(1e6),
+    materialCount: external_exports.number().int().nonnegative().max(1e6),
+    animationClipCount: external_exports.number().int().nonnegative().max(1e6)
+  }),
+  nodes: external_exports.array(engineNodeSchema).max(2e4),
+  cameras: external_exports.array(engineCameraSchema).max(512),
+  lights: external_exports.array(engineLightSchema).max(1024),
+  animationClips: external_exports.array(
+    external_exports.strictObject({
+      name: nonEmpty4.max(240),
+      durationSeconds: finite10.nonnegative().max(1e6).optional()
+    })
+  ).max(512),
+  unsupported: external_exports.array(
+    external_exports.strictObject({
+      kind: nonEmpty4.max(120),
+      name: nonEmpty4.max(240),
+      reason: nonEmpty4.max(2e3)
+    })
+  ).max(2e4),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4),
+  fileHashes: external_exports.record(safeRelativePath3, sha2565)
+}).superRefine((manifest, context) => {
+  const expected = DIRECTOR_ENGINE_COORDINATE_SYSTEMS[manifest.provider];
+  if (manifest.coordinateSystem.source !== expected.source) {
+    context.addIssue({
+      code: "custom",
+      path: ["coordinateSystem", "source"],
+      message: `${manifest.provider} packages must declare the ${expected.source} source convention`
+    });
+  }
+  if (manifest.coordinateSystem.linearMap !== expected.linearMap) {
+    context.addIssue({
+      code: "custom",
+      path: ["coordinateSystem", "linearMap"],
+      message: `${manifest.provider} packages must declare the ${expected.linearMap} linear map`
+    });
+  }
+  if (manifest.scene.bundleFile && manifest.fileHashes[manifest.scene.bundleFile] === void 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["scene", "bundleFile"],
+      message: "scene bundle must have a manifest SHA-256 entry"
+    });
+  }
+  if ((manifest.scene.meshCount > 0 || manifest.scene.skinnedMeshCount > 0) && !manifest.scene.bundleFile) {
+    context.addIssue({
+      code: "custom",
+      path: ["scene", "bundleFile"],
+      message: "a scene with renderable geometry must provide a GLB bundle"
+    });
+  }
+  if (manifest.nodes.length > manifest.scene.nodeCount) {
+    context.addIssue({
+      code: "custom",
+      path: ["scene", "nodeCount"],
+      message: "nodeCount cannot be smaller than the recorded hierarchy snapshot"
+    });
+  }
+  const nodeIds = /* @__PURE__ */ new Set();
+  manifest.nodes.forEach((node, index) => {
+    if (nodeIds.has(node.sourceId)) {
+      context.addIssue({ code: "custom", path: ["nodes", index, "sourceId"], message: "duplicate node sourceId" });
+    }
+    nodeIds.add(node.sourceId);
+    if (node.parentSourceId === node.sourceId) {
+      context.addIssue({
+        code: "custom",
+        path: ["nodes", index, "parentSourceId"],
+        message: "a node cannot parent itself"
+      });
+    }
+  });
+  manifest.nodes.forEach((node, index) => {
+    if (node.parentSourceId && !nodeIds.has(node.parentSourceId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["nodes", index, "parentSourceId"],
+        message: `parent ${node.parentSourceId} is not in the hierarchy snapshot`
+      });
+    }
+  });
+  const cameraIds = /* @__PURE__ */ new Set();
+  manifest.cameras.forEach((camera, index) => {
+    if (cameraIds.has(camera.sourceId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["cameras", index, "sourceId"],
+        message: "duplicate camera sourceId"
+      });
+    }
+    cameraIds.add(camera.sourceId);
+  });
+  const lightIds = /* @__PURE__ */ new Set();
+  manifest.lights.forEach((light, index) => {
+    if (lightIds.has(light.sourceId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["lights", index, "sourceId"],
+        message: "duplicate light sourceId"
+      });
+    }
+    lightIds.add(light.sourceId);
+  });
+});
+var importOperationSchema2 = external_exports.discriminatedUnion("op", [
+  strictOperation("create_scene_asset", {
+    assetId: nonEmpty4.max(240),
+    label: nonEmpty4.max(240),
+    glbPath: safeRelativePath3,
+    hash: sha2565
+  }),
+  strictOperation("create_scene_object", {
+    objectId: nonEmpty4.max(240),
+    name: nonEmpty4.max(240),
+    assetId: nonEmpty4.max(240),
+    transform: directorTransformSchema2
+  }),
+  strictOperation("create_camera", {
+    sourceId: nonEmpty4.max(240),
+    cameraId: nonEmpty4.max(240),
+    objectId: nonEmpty4.max(240),
+    name: nonEmpty4.max(240),
+    position: external_exports.tuple([finite10, finite10, finite10]),
+    target: external_exports.tuple([finite10, finite10, finite10]),
+    focalLengthMm: finite10.min(12).max(200),
+    sensorFormat: external_exports.enum(["super16", "super35", "fullFrame", "imax65"]),
+    apertureFStop: finite10.min(0.7).max(64),
+    focusDistanceM: finite10.min(0.01).max(1e4),
+    nearClipM: finite10.min(1e-3).max(100),
+    farClipM: finite10.min(1).max(1e6),
+    aspectRatio: directorCameraAspectRatioSchema
+  }),
+  strictOperation("create_light", {
+    sourceId: nonEmpty4.max(240),
+    lightId: nonEmpty4.max(200),
+    name: nonEmpty4.max(240),
+    type: engineLightTypeSchema,
+    color: hexColor2,
+    intensity: finite10.min(0).max(100),
+    position: external_exports.tuple([finite10, finite10, finite10]).optional(),
+    target: external_exports.tuple([finite10, finite10, finite10]).optional(),
+    distance: finite10.min(0).max(1e6).optional(),
+    angle: finite10.min(1e-3).max(Math.PI / 2).optional(),
+    penumbra: finite10.min(0).max(1).optional(),
+    width: finite10.positive().max(1e6).optional(),
+    height: finite10.positive().max(1e6).optional(),
+    castShadow: external_exports.boolean().optional()
+  }),
+  strictOperation("skip", { sourceId: nonEmpty4.max(240), reason: nonEmpty4.max(2e3) }),
+  strictOperation("warn", { message: nonEmpty4.max(2e3) })
+]);
+var directorEngineSceneImportSelectionSchema = external_exports.strictObject({
+  includeScene: external_exports.boolean(),
+  cameraSourceIds: external_exports.array(nonEmpty4.max(240)).max(512),
+  lightSourceIds: external_exports.array(nonEmpty4.max(240)).max(1024)
+});
+var directorEngineSceneImportPlanSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_ENGINE_SCENE_IMPORT_PLAN_CONTRACT),
+  planId: safeRelativePath3,
+  ready: external_exports.boolean(),
+  provider: directorEngineSceneProviderSchema,
+  packageId: nonEmpty4.max(240),
+  packageDir: safeRelativePath3,
+  manifestHash: sha2565,
+  targetRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+  selection: directorEngineSceneImportSelectionSchema,
+  operations: external_exports.array(importOperationSchema2).max(4e3),
+  conflicts: external_exports.array(
+    external_exports.strictObject({
+      sourceId: nonEmpty4.max(240),
+      code: external_exports.enum(["id_collision", "empty_selection", "unsupported_scene"]),
+      reason: nonEmpty4.max(2e3)
+    })
+  ).max(4e3),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4)
+}).superRefine((plan, context) => {
+  if (plan.ready && plan.conflicts.length > 0) {
+    context.addIssue({ code: "custom", path: ["ready"], message: "ready plans cannot contain conflicts" });
+  }
+  if (new Set(plan.selection.cameraSourceIds).size !== plan.selection.cameraSourceIds.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["selection", "cameraSourceIds"],
+      message: "camera selection must be unique"
+    });
+  }
+  if (new Set(plan.selection.lightSourceIds).size !== plan.selection.lightSourceIds.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["selection", "lightSourceIds"],
+      message: "light selection must be unique"
+    });
+  }
 });
 
 // packages/dcc-protocol/src/directorDccProviderContract.ts
@@ -134364,37 +136747,41 @@ function exchangeProvider(id4, label, category, preferredFormat, exchangeFormats
     connectorDirectory: `integrations/${id4}`
   });
 }
-function engineProvider(id4, label, preferredFormat, exchangeFormats) {
-  return directorDccProviderDescriptorSchema.parse({
-    id: id4,
-    label,
-    category: "engine",
-    integration: "engine-headless",
-    preferredFormat,
-    exchangeFormats,
-    capabilities: [
-      // Scene layout and cameras still travel through the portable package;
-      // the connector performs the host-side import but the format carries them.
-      { id: "scene", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
-      { id: "camera", level: "exchange", layer: "exchange-format", formats: exchangeFormats },
-      // Animation, skeletons, and materials stay planned until a version-tested
-      // acceptance suite validates the host-side work end to end.
-      { id: "animation", level: "planned", layer: "connector" },
-      { id: "skeleton", level: "planned", layer: "connector" },
-      { id: "materials", level: "planned", layer: "connector" },
-      // The Director manifest and connector preserve stable director:id
-      // metadata on both directions of the handoff.
-      { id: "stable_ids", level: "native", layer: "director-manifest" },
-      // Headless import/return round trip is performed by the Director-authored
-      // connector; runtime availability is still gated by nativeReady.
-      { id: "roundtrip", level: "native", layer: "connector" },
-      { id: "headless", level: "native", layer: "connector" },
-      // No live preview transport ships yet; see MULTI_DCC_INTEGRATION.md.
-      { id: "live_link", level: "planned", layer: "connector" }
-    ],
-    connectorDirectory: `integrations/${id4}`
-  });
-}
+var UNREAL_PROVIDER_DESCRIPTOR = directorDccProviderDescriptorSchema.parse({
+  id: "unreal",
+  label: "Unreal Engine",
+  category: "engine",
+  integration: "engine-headless",
+  preferredFormat: "usda",
+  exchangeFormats: ["usda", "glb"],
+  capabilities: [
+    // Scene layout and cameras still travel through the portable package;
+    // the connector performs the host-side import but the format carries them.
+    { id: "scene", level: "exchange", layer: "exchange-format", formats: ["usda", "glb"] },
+    { id: "camera", level: "exchange", layer: "exchange-format", formats: ["usda", "glb"] },
+    // Time-sampled transform and camera animation is baked by the Gateway
+    // (canonical evaluators) and keyed into LevelSequence tracks by the
+    // connector. Control-Rig-style pose channels stay warn-and-omit.
+    { id: "animation", level: "native", layer: "connector" },
+    // Skinned GLB payloads import as skeletal meshes in bind pose with
+    // director_id tags; non-skinned character payloads warn-and-omit.
+    { id: "skeleton", level: "native", layer: "connector" },
+    // Director PBR parameters map to material instances on the parent
+    // DirectorPbr materials; unsupported channels warn-and-omit.
+    { id: "materials", level: "native", layer: "connector" },
+    { id: "stable_ids", level: "native", layer: "director-manifest" },
+    { id: "roundtrip", level: "native", layer: "connector" },
+    { id: "headless", level: "native", layer: "connector" },
+    // Preview-only live link: the Gateway loopback transport
+    // (backend/gateway/dcc/unrealLivePreview.ts) and the connector session
+    // (director_livelink.py) both carry tested disconnect/reorder/duplicate
+    // semantics, and neither side can turn a live frame into a project
+    // mutation. The durable scene channel remains the hash-verified
+    // exchange/return package.
+    { id: "live_link", level: "native", layer: "connector" }
+  ],
+  connectorDirectory: "integrations/unreal"
+});
 function unityEngineProvider() {
   const exchangeFormats = ["glb", "usda"];
   return directorDccProviderDescriptorSchema.parse({
@@ -134434,6 +136821,46 @@ function unityEngineProvider() {
     connectorDirectory: "integrations/unity"
   });
 }
+var GODOT_PROVIDER_DESCRIPTOR = directorDccProviderDescriptorSchema.parse({
+  id: "godot",
+  label: "Godot",
+  category: "engine",
+  integration: "engine-headless",
+  preferredFormat: "glb",
+  exchangeFormats: ["glb"],
+  capabilities: [
+    // Scene layout and cameras still travel through the portable package;
+    // the connector performs the host-side import but the format carries them.
+    { id: "scene", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+    { id: "camera", level: "exchange", layer: "exchange-format", formats: ["glb"] },
+    // Time-sampled transform and camera-fov animation is baked by the Gateway
+    // (canonical evaluators) into a hash-pinned sidecar and keyed by the
+    // connector into an AnimationPlayer/AnimationLibrary on director_id nodes.
+    // Rig pose channels stay warn-and-omit.
+    { id: "animation", level: "native", layer: "connector" },
+    // Skinned GLB payloads import through GLTFDocument as Skeleton3D + skin in
+    // bind pose with director_id tags; characters without a skeleton
+    // warn-and-omit.
+    { id: "skeleton", level: "native", layer: "connector" },
+    // glTF PBR payload materials become StandardMaterial3D with textures
+    // externalized to hashed res:// resources; Director PBR overrides map onto
+    // StandardMaterial3D. Custom shaders warn-and-omit.
+    { id: "materials", level: "native", layer: "connector" },
+    { id: "stable_ids", level: "native", layer: "director-manifest" },
+    { id: "roundtrip", level: "native", layer: "connector" },
+    { id: "headless", level: "native", layer: "connector" },
+    // Outbound-only preview transport (director-godot-live-link-v1): the
+    // editor plugin pushes sequence-numbered ephemeral frames to the Gateway's
+    // token-guarded live-link routes; Godot never listens on a port. Preview
+    // state is never authoritative — a disconnect (missed bye or idle
+    // timeout) always leaves the last committed Director revision intact,
+    // verified by the sequence/replay/disconnect goldens in
+    // backend/gateway/tests/dcc/godotLiveLink.test.ts. Durable changes still
+    // travel only through the reviewed return-package path.
+    { id: "live_link", level: "native", layer: "connector" }
+  ],
+  connectorDirectory: "integrations/godot"
+});
 var DIRECTOR_DCC_PROVIDERS = Object.freeze([
   directorDccProviderDescriptorSchema.parse({
     id: "blender",
@@ -134451,30 +136878,34 @@ var DIRECTOR_DCC_PROVIDERS = Object.freeze([
       { id: "stable_ids", level: "native", layer: "director-manifest" },
       { id: "roundtrip", level: "native", layer: "connector" },
       { id: "headless", level: "native", layer: "connector" },
-      { id: "live_link", level: "planned", layer: "connector" }
+      // Preview-only delta feed from the native live kernel (sequence numbers,
+      // replay protection, resync on epoch change/eviction). Never
+      // authoritative: committed Director state only changes through the
+      // revision-guarded live command batches or the reviewed return import.
+      { id: "live_link", level: "native", layer: "connector" }
     ],
     connectorDirectory: "integrations/blender"
   }),
   exchangeProvider("maya", "Autodesk Maya", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("unreal", "Unreal Engine", "usda", ["usda", "glb"]),
+  UNREAL_PROVIDER_DESCRIPTOR,
   exchangeProvider("houdini", "SideFX Houdini", "dcc", "usda", ["usda", "glb"]),
   exchangeProvider("cinema4d", "Cinema 4D", "dcc", "usda", ["usda", "glb"]),
   unityEngineProvider(),
   exchangeProvider("3dsmax", "Autodesk 3ds Max", "dcc", "usda", ["usda", "glb"]),
-  engineProvider("godot", "Godot", "glb", ["glb"])
+  GODOT_PROVIDER_DESCRIPTOR
 ]);
 
 // packages/dcc-protocol/src/directorDccContract.ts
 var DIRECTOR_DCC_SCENE_CONTRACT = "director-dcc-scene-v1";
-var finite8 = directorDccFiniteSchema;
-var vec37 = directorDccVec3Schema;
+var finite11 = directorDccFiniteSchema;
+var vec38 = directorDccVec3Schema;
 var directorDccAnimationKeyframeSchema = external_exports.strictObject({
-  frame: finite8,
+  frame: finite11,
   interpolation: external_exports.enum(["step", "linear", "smooth"]),
   transform: directorDccTransformSchema.optional(),
-  lookTarget: vec37.optional(),
-  poseValues: external_exports.record(external_exports.string(), finite8).optional(),
-  focalLengthMm: finite8.positive().optional()
+  lookTarget: vec38.optional(),
+  poseValues: external_exports.record(external_exports.string(), finite11).optional(),
+  focalLengthMm: finite11.positive().optional()
 });
 var directorDccAssetSchema = external_exports.strictObject({
   id: external_exports.string(),
@@ -134496,7 +136927,14 @@ var directorDccObjectSchema = external_exports.strictObject({
   sourcePath: external_exports.string().optional(),
   parentObjectId: external_exports.string().optional(),
   transform: directorDccTransformSchema,
-  animation: external_exports.array(directorDccAnimationKeyframeSchema)
+  animation: external_exports.array(directorDccAnimationKeyframeSchema),
+  /**
+   * The character's resolved portable pose-control values at export time
+   * (preset merged with overrides). The Blender bridge stamps these as
+   * editable per-control custom properties so a reviewed return can carry
+   * a `pose_update` back to the same Director character binding.
+   */
+  poseControls: external_exports.record(external_exports.string(), finite11).optional()
 }).superRefine((object3, context) => {
   if (object3.kind === "character" && !object3.assetRefId) {
     context.addIssue({
@@ -134510,19 +136948,46 @@ var directorDccCameraSchema = external_exports.strictObject({
   id: external_exports.string(),
   name: external_exports.string(),
   transform: directorDccTransformSchema,
-  target: vec37,
-  focalLengthMm: finite8.positive(),
-  sensorWidthMm: finite8.positive(),
-  sensorHeightMm: finite8.positive(),
-  apertureFStop: finite8.positive(),
-  focusDistanceM: finite8.positive(),
-  shutterAngle: finite8.min(0).max(360),
-  iso: finite8.positive(),
-  nearClipM: finite8.positive(),
-  farClipM: finite8.positive(),
-  anamorphicSqueeze: finite8.min(1).max(2.5),
+  target: vec38,
+  focalLengthMm: finite11.positive(),
+  sensorWidthMm: finite11.positive(),
+  sensorHeightMm: finite11.positive(),
+  /** Director sensor gate id; optional so pre-optics-return packages still parse. */
+  sensorFormat: external_exports.enum(DIRECTOR_CAMERA_SENSOR_FORMATS4).optional(),
+  apertureFStop: finite11.positive(),
+  focusDistanceM: finite11.positive(),
+  shutterAngle: finite11.min(0).max(360),
+  iso: finite11.positive(),
+  nearClipM: finite11.positive(),
+  farClipM: finite11.positive(),
+  anamorphicSqueeze: finite11.min(1).max(2.5),
   aspectRatio: directorCameraAspectRatioSchema,
   animation: external_exports.array(directorDccAnimationKeyframeSchema)
+});
+var DIRECTOR_DCC_EXPORTABLE_LIGHT_TYPES = ["directional", "point", "spot", "rect-area"];
+var directorDccLightSchema = external_exports.strictObject({
+  id: external_exports.string(),
+  name: external_exports.string(),
+  type: external_exports.enum(DIRECTOR_DCC_EXPORTABLE_LIGHT_TYPES),
+  /** Wire-space world position (Blender Z-up for Blender packages). */
+  position: vec38,
+  /** Wire-space world point the light is aimed at (directional/spot/rect-area). */
+  target: vec38.optional(),
+  color: external_exports.string(),
+  /** Director light intensity (0-100). */
+  intensity: finite11.min(0).max(100),
+  /** Precomputed Blender energy: intensity × wattsPerIntensity. */
+  energy: finite11.nonnegative(),
+  /** The deterministic factor used to invert energy back to Director intensity. */
+  wattsPerIntensity: finite11.positive(),
+  /** Spot half-angle in radians (Director convention; Blender spot_size is 2×). */
+  angleRad: finite11.positive().max(Math.PI / 2).optional(),
+  penumbra: finite11.min(0).max(1).optional(),
+  /** Rect-area gate in metres. */
+  widthM: finite11.positive().optional(),
+  heightM: finite11.positive().optional(),
+  castShadow: external_exports.boolean(),
+  visible: external_exports.boolean()
 });
 var directorDccScenePackageSchema = external_exports.strictObject({
   schemaVersion: external_exports.literal(1),
@@ -134536,7 +137001,7 @@ var directorDccScenePackageSchema = external_exports.strictObject({
     linearMap: external_exports.literal("(x,y,z)->(x,-z,y)")
   }),
   timeline: external_exports.strictObject({
-    fps: finite8.positive(),
+    fps: finite11.positive(),
     timebase: external_exports.strictObject({
       rate: external_exports.strictObject({
         numerator: external_exports.number().int().positive().max(1e6),
@@ -134545,19 +137010,21 @@ var directorDccScenePackageSchema = external_exports.strictObject({
       dropFrame: external_exports.boolean(),
       startTimecode: external_exports.string().regex(/^\d{2}:\d{2}:\d{2}[:;]\d{2}$/)
     }).optional(),
-    frameStart: finite8,
-    frameEnd: finite8,
-    currentFrame: finite8
+    frameStart: finite11,
+    frameEnd: finite11,
+    currentFrame: finite11
   }),
   scene: external_exports.strictObject({
     backgroundColor: external_exports.string(),
     showGround: external_exports.boolean(),
-    groundHeight: finite8,
-    groundOpacity: finite8.min(0).max(1)
+    groundHeight: finite11,
+    groundOpacity: finite11.min(0).max(1)
   }),
   assets: external_exports.array(directorDccAssetSchema),
   objects: external_exports.array(directorDccObjectSchema),
   cameras: external_exports.array(directorDccCameraSchema),
+  /** Director lights with a Blender-mappable type; optional so older packages parse. */
+  lights: external_exports.array(directorDccLightSchema).optional(),
   activeCameraId: external_exports.string().nullable(),
   warnings: external_exports.array(external_exports.string())
 }).superRefine((scenePackage, context) => {
@@ -134594,16 +137061,32 @@ var directorDccOperationSchema = external_exports.discriminatedUnion("op", [
     provider: directorDccEngineIdSchema,
     formats: external_exports.array(directorDccPortableExchangeFormatSchema).min(1).max(2).optional(),
     camera_id: external_exports.string().trim().min(1).max(160).optional(),
-    frame: external_exports.number().finite().nonnegative().optional()
+    frame: external_exports.number().finite().nonnegative().optional(),
+    /** Unreal-only: also render one clean still (no gizmos/labels) and attach its receipt. */
+    clean_frame: external_exports.boolean().optional()
   }),
   strictOperation("receive_from_engine", {
     provider: directorDccEngineIdSchema,
     package_dir: external_exports.string().trim().min(1).max(2048),
-    dry_run: external_exports.boolean().optional().default(true)
+    dry_run: external_exports.boolean().optional().default(true),
+    /**
+     * Opt in to planning `object_addition` changes (engine objects stamped
+     * with a fresh director_id after the export snapshot). Off by default:
+     * Director never auto-imports new engine objects without review. The
+     * Director-authored connectors emit transform-only returns today, so this
+     * only matters for hand-authored or third-party return packages.
+     */
+    include_new_objects: external_exports.boolean().optional().default(false)
   }),
   strictOperation("import_return_package", {
     package_dir: external_exports.string().trim().min(1).max(2048),
-    dry_run: external_exports.boolean().optional().default(true)
+    dry_run: external_exports.boolean().optional().default(true),
+    /**
+     * Opt in to planning `object_addition` changes (objects that gained a
+     * fresh director_id in the DCC after the export snapshot). Off by
+     * default: Director never auto-imports new DCC objects without review.
+     */
+    include_new_objects: external_exports.boolean().optional().default(false)
   }),
   strictOperation("apply_import_plan", {
     plan: directorDccImportPlanSchema,
@@ -134623,19 +137106,392 @@ var directorDccOperationSchema = external_exports.discriminatedUnion("op", [
     ),
     expected_revision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
     idempotency_key: external_exports.string().trim().min(1).max(240)
+  }),
+  strictOperation("preview_engine_scene_import", {
+    provider: directorEngineSceneProviderSchema,
+    package_dir: external_exports.string().trim().min(1).max(2048),
+    selection: directorEngineSceneImportSelectionSchema.optional()
+  }),
+  strictOperation("apply_engine_scene_import", {
+    plan_id: external_exports.string().trim().min(1).max(512).refine(
+      (value) => !value.startsWith("/") && !value.includes("\\") && value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
+      { message: "plan_id must be a safe relative identifier" }
+    ),
+    expected_revision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+    idempotency_key: external_exports.string().trim().min(1).max(240)
+  }),
+  strictOperation("extract_engine_scene", {
+    provider: directorEngineSceneProviderSchema,
+    project_dir: external_exports.string().trim().min(1).max(2048),
+    scene: external_exports.string().trim().min(1).max(512).optional()
   })
 ]);
 var DIRECTOR_TO_BLENDER_BASIS = new Matrix4().set(1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1);
 var BLENDER_TO_DIRECTOR_BASIS = DIRECTOR_TO_BLENDER_BASIS.clone().invert();
+
+// packages/dcc-protocol/src/directorUnrealCleanFrameContract.ts
+var DIRECTOR_UNREAL_CLEAN_FRAME_CONTRACT = "director-unreal-clean-frame-v1";
+var nonEmpty5 = external_exports.string().trim().min(1);
+var sha256Schema3 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
+var safeRelativePathSchema = external_exports.string().trim().min(1).max(1024).refine(
+  (path) => !path.startsWith("/") && !path.includes("\\") && !/^[A-Za-z]:/.test(path) && path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
+  { message: "path must be a safe relative path" }
+);
+var directorUnrealCleanFrameRenderedSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_UNREAL_CLEAN_FRAME_CONTRACT),
+  provider: external_exports.literal("unreal"),
+  status: external_exports.literal("rendered"),
+  /** The exchange package (job) this frame belongs to. */
+  packageId: nonEmpty5.max(240),
+  sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+  /** Content path of the imported Director level the frame was rendered from. */
+  levelPath: nonEmpty5.max(1024),
+  /** The Director camera the frame was rendered through, or null for the first tagged camera. */
+  cameraDirectorId: external_exports.string().trim().min(1).max(200).nullable(),
+  /** The Director timeline frame the still represents. */
+  frame: external_exports.number().int().min(-1e6).max(75e9),
+  width: external_exports.number().int().positive().max(16384),
+  height: external_exports.number().int().positive().max(16384),
+  /** Image path relative to the receipt file, inside the private job directory. */
+  imagePath: safeRelativePathSchema,
+  /** SHA-256 of the exact image bytes on disk; the Gateway re-hashes before accepting. */
+  imageSha256: sha256Schema3,
+  /**
+   * The render path that guarantees a clean frame: an offscreen high-resolution
+   * screenshot never composites editor gizmos, actor labels, or helper widgets.
+   */
+  method: external_exports.literal("offscreen_high_res_screenshot"),
+  hostVersion: nonEmpty5.max(200),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e3)
+});
+var directorUnrealCleanFrameSkippedSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_UNREAL_CLEAN_FRAME_CONTRACT),
+  provider: external_exports.literal("unreal"),
+  status: external_exports.literal("skipped"),
+  skipReason: nonEmpty5.max(2e3),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e3)
+});
+var directorUnrealCleanFrameReceiptSchema = external_exports.discriminatedUnion("status", [
+  directorUnrealCleanFrameRenderedSchema,
+  directorUnrealCleanFrameSkippedSchema
+]);
+
+// packages/dcc-protocol/src/directorUnrealSequencerContract.ts
+var DIRECTOR_UNREAL_SEQUENCER_BAKE_CONTRACT = "director-unreal-sequencer-bake-v1";
+var nonEmpty6 = external_exports.string().trim().min(1);
+var directorUnrealTimecodeSchema = external_exports.string().regex(/^\d{2}:\d{2}:\d{2}[:;]\d{2}$/);
+var directorUnrealRationalRateSchema = external_exports.strictObject({
+  numerator: external_exports.number().int().positive().max(1e6),
+  denominator: external_exports.number().int().positive().max(1e6)
+});
+var directorUnrealSequencerTimebaseSchema = external_exports.strictObject({
+  rate: directorUnrealRationalRateSchema,
+  dropFrame: external_exports.boolean(),
+  startTimecode: directorUnrealTimecodeSchema
+});
+var directorUnrealTransformSampleSchema = external_exports.strictObject({
+  frame: external_exports.number().int().min(-1e6).max(75e9),
+  transform: directorDccTransformSchema
+});
+var directorUnrealFocalLengthSampleSchema = external_exports.strictObject({
+  frame: external_exports.number().int().min(-1e6).max(75e9),
+  focalLengthMm: external_exports.number().finite().positive().max(1e4)
+});
+function strictlyIncreasingFrames(samples) {
+  for (let index = 1; index < samples.length; index += 1) {
+    if (samples[index].frame <= samples[index - 1].frame) return index;
+  }
+  return -1;
+}
+var directorUnrealBakedEntitySchema = external_exports.strictObject({
+  directorId: nonEmpty6.max(200),
+  entityType: external_exports.enum(["object", "camera"]),
+  name: external_exports.string().max(240),
+  transformSamples: external_exports.array(directorUnrealTransformSampleSchema).min(1).max(1e5),
+  /** Camera-only: per-frame focal length derived from Director's vertical fov keys. */
+  focalLengthSamples: external_exports.array(directorUnrealFocalLengthSampleSchema).max(1e5).optional(),
+  /** Camera-only: physical filmback the focal lengths were derived against. */
+  filmback: external_exports.strictObject({
+    sensorWidthMm: external_exports.number().finite().positive().max(1e3),
+    sensorHeightMm: external_exports.number().finite().positive().max(1e3)
+  }).optional(),
+  /** Channels present in the source animation that the bake could not carry (warn-and-omit). */
+  omittedChannels: external_exports.array(external_exports.enum(["pose_values", "motion_blocks", "character_rig"])).max(8).optional(),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(200)
+}).superRefine((entity, context) => {
+  const badTransformIndex = strictlyIncreasingFrames(entity.transformSamples);
+  if (badTransformIndex >= 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["transformSamples", badTransformIndex, "frame"],
+      message: "transform sample frames must be strictly increasing"
+    });
+  }
+  const badFocalIndex = strictlyIncreasingFrames(entity.focalLengthSamples ?? []);
+  if (badFocalIndex >= 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["focalLengthSamples", badFocalIndex, "frame"],
+      message: "focal length sample frames must be strictly increasing"
+    });
+  }
+  if (entity.entityType !== "camera" && (entity.focalLengthSamples?.length || entity.filmback)) {
+    context.addIssue({
+      code: "custom",
+      path: ["entityType"],
+      message: "focal length samples and filmback are camera-only channels"
+    });
+  }
+});
+var directorUnrealSequencerBakeSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_UNREAL_SEQUENCER_BAKE_CONTRACT),
+  schemaVersion: external_exports.literal(1),
+  packageId: external_exports.string().uuid(),
+  provider: external_exports.literal("unreal"),
+  sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+  /** Transforms are canonical Director-space; the connector owns the basis change. */
+  coordinateSystem: directorDccCanonicalReturnCoordinateSystemSchema,
+  timebase: directorUnrealSequencerTimebaseSchema,
+  playback: external_exports.strictObject({
+    frameStart: external_exports.number().int().min(-1e6).max(75e9),
+    frameEnd: external_exports.number().int().min(-1e6).max(75e9)
+  }).refine((playback) => playback.frameEnd >= playback.frameStart, {
+    message: "frameEnd must be at or after frameStart",
+    path: ["frameEnd"]
+  }),
+  /** Sampling stride in frames; 1 unless the sample budget forced downsampling. */
+  frameStride: external_exports.number().int().positive().max(1e3),
+  entities: external_exports.array(directorUnrealBakedEntitySchema).max(2048),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e3)
+}).superRefine((bake, context) => {
+  const seen = /* @__PURE__ */ new Set();
+  bake.entities.forEach((entity, index) => {
+    if (seen.has(entity.directorId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["entities", index, "directorId"],
+        message: `duplicate baked entity ${entity.directorId}`
+      });
+    }
+    seen.add(entity.directorId);
+  });
+});
+var rationalRateStringSchema = external_exports.string().regex(/^[1-9]\d{0,6}\/[1-9]\d{0,6}$/);
+var directorUnrealSequencerReceiptSchema = external_exports.strictObject({
+  /** Content path of the LevelSequence asset (for example `/Game/Director/Sequences/...`). */
+  sequencePath: nonEmpty6.max(1024),
+  /** Rational display rate applied to the sequence, e.g. `24000/1001`. */
+  displayRate: rationalRateStringSchema,
+  /** Rational tick resolution applied to the sequence, e.g. `24000/1`. */
+  tickResolution: rationalRateStringSchema,
+  dropFrame: external_exports.boolean(),
+  startTimecode: directorUnrealTimecodeSchema,
+  /** The start timecode converted to a frame offset at the display rate. */
+  startFrameOffset: external_exports.number().int().min(-1e9).max(1e9),
+  playbackStart: external_exports.number().int().min(-1e9).max(1e9),
+  playbackEnd: external_exports.number().int().min(-1e9).max(1e9),
+  cameraCutCount: external_exports.number().int().nonnegative().max(1e5),
+  transformTrackCount: external_exports.number().int().nonnegative().max(1e5),
+  focalLengthTrackCount: external_exports.number().int().nonnegative().max(1e5),
+  bakedKeyCount: external_exports.number().int().nonnegative().max(1e8)
+});
+
+// packages/dcc-protocol/src/directorGodotAnimationContract.ts
+var DIRECTOR_GODOT_ANIMATION_BAKE_CONTRACT = "director-godot-animation-bake-v1";
+var nonEmpty7 = external_exports.string().trim().min(1);
+var directorGodotRationalRateSchema = external_exports.strictObject({
+  numerator: external_exports.number().int().positive().max(1e6),
+  denominator: external_exports.number().int().positive().max(1e6)
+});
+var directorGodotTimecodeSchema = external_exports.string().regex(/^\d{2}:\d{2}:\d{2}[:;]\d{2}$/);
+var directorGodotAnimationTimebaseSchema = external_exports.strictObject({
+  rate: directorGodotRationalRateSchema,
+  dropFrame: external_exports.boolean(),
+  startTimecode: directorGodotTimecodeSchema
+});
+var directorGodotTransformSampleSchema = external_exports.strictObject({
+  frame: external_exports.number().int().min(-1e6).max(75e9),
+  transform: directorDccTransformSchema
+});
+var directorGodotFovSampleSchema = external_exports.strictObject({
+  frame: external_exports.number().int().min(-1e6).max(75e9),
+  fovDeg: external_exports.number().finite().gt(0).lt(180)
+});
+function strictlyIncreasingFrames2(samples) {
+  for (let index = 1; index < samples.length; index += 1) {
+    if (samples[index].frame <= samples[index - 1].frame) return index;
+  }
+  return -1;
+}
+var directorGodotShotRangeSchema = external_exports.strictObject({
+  shotId: nonEmpty7.max(200),
+  title: external_exports.string().max(240),
+  /** Director camera id bound to the shot, or null when the shot has no camera. */
+  cameraDirectorId: nonEmpty7.max(200).nullable(),
+  frameStart: external_exports.number().int().min(-1e6).max(75e9),
+  frameEnd: external_exports.number().int().min(-1e6).max(75e9)
+}).refine((shot) => shot.frameEnd >= shot.frameStart, {
+  message: "frameEnd must be at or after frameStart",
+  path: ["frameEnd"]
+});
+var directorGodotOmittedChannelDetailSchema = external_exports.strictObject({
+  /** Total distinct rig pose control names present in authored keyframes. */
+  poseControlCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Sorted sample of omitted pose control names (capped at 32). */
+  poseControls: external_exports.array(nonEmpty7.max(160)).max(32),
+  /** Total character motion clips authored on the entity. */
+  motionClipCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Sample of omitted motion clip ranges (capped at 32). */
+  motionClips: external_exports.array(
+    external_exports.strictObject({
+      id: nonEmpty7.max(120),
+      frameStart: external_exports.number().int().min(-1e6).max(1e6),
+      frameEnd: external_exports.number().int().min(-1e6).max(1e6)
+    })
+  ).max(32)
+});
+var directorGodotBakedEntitySchema = external_exports.strictObject({
+  directorId: nonEmpty7.max(200),
+  entityType: external_exports.enum(["object", "camera"]),
+  name: external_exports.string().max(240),
+  transformSamples: external_exports.array(directorGodotTransformSampleSchema).min(1).max(1e5),
+  /** Camera-only: per-frame vertical fov keys for the Godot `Camera3D.fov` property track. */
+  fovSamples: external_exports.array(directorGodotFovSampleSchema).max(1e5).optional(),
+  /** Channels present in the source animation that the bake could not carry (warn-and-omit). */
+  omittedChannels: external_exports.array(external_exports.enum(["pose_values", "motion_blocks", "character_rig"])).max(8).optional(),
+  /** Structured detail (control names, clip ranges) behind `omittedChannels`. */
+  omittedDetail: directorGodotOmittedChannelDetailSchema.optional(),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(200)
+}).superRefine((entity, context) => {
+  const badTransformIndex = strictlyIncreasingFrames2(entity.transformSamples);
+  if (badTransformIndex >= 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["transformSamples", badTransformIndex, "frame"],
+      message: "transform sample frames must be strictly increasing"
+    });
+  }
+  const badFovIndex = strictlyIncreasingFrames2(entity.fovSamples ?? []);
+  if (badFovIndex >= 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["fovSamples", badFovIndex, "frame"],
+      message: "fov sample frames must be strictly increasing"
+    });
+  }
+  if (entity.entityType !== "camera" && entity.fovSamples?.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["entityType"],
+      message: "fov samples are a camera-only channel"
+    });
+  }
+});
+var directorGodotAnimationBakeSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_GODOT_ANIMATION_BAKE_CONTRACT),
+  schemaVersion: external_exports.literal(1),
+  packageId: external_exports.string().uuid(),
+  provider: external_exports.literal("godot"),
+  sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
+  /** Transforms are canonical Director-space; Godot's basis is the identity map. */
+  coordinateSystem: directorDccCanonicalReturnCoordinateSystemSchema,
+  timebase: directorGodotAnimationTimebaseSchema,
+  playback: external_exports.strictObject({
+    frameStart: external_exports.number().int().min(-1e6).max(75e9),
+    frameEnd: external_exports.number().int().min(-1e6).max(75e9)
+  }).refine((playback) => playback.frameEnd >= playback.frameStart, {
+    message: "frameEnd must be at or after frameStart",
+    path: ["frameEnd"]
+  }),
+  /** Sampling stride in frames; 1 unless the sample budget forced downsampling. */
+  frameStride: external_exports.number().int().positive().max(1e3),
+  entities: external_exports.array(directorGodotBakedEntitySchema).max(2048),
+  /**
+   * Storyboard shot ranges clamped into the playback window and sorted by
+   * `frameStart`, for the connector's `Camera3D.current` camera-cut track.
+   */
+  shots: external_exports.array(directorGodotShotRangeSchema).max(512).optional(),
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e3)
+}).superRefine((bake, context) => {
+  const seen = /* @__PURE__ */ new Set();
+  bake.entities.forEach((entity, index) => {
+    if (seen.has(entity.directorId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["entities", index, "directorId"],
+        message: `duplicate baked entity ${entity.directorId}`
+      });
+    }
+    seen.add(entity.directorId);
+  });
+  const seenShots = /* @__PURE__ */ new Set();
+  (bake.shots ?? []).forEach((shot, index) => {
+    if (seenShots.has(shot.shotId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["shots", index, "shotId"],
+        message: `duplicate shot ${shot.shotId}`
+      });
+    }
+    seenShots.add(shot.shotId);
+    const previous = bake.shots[index - 1];
+    if (previous && shot.frameStart < previous.frameStart) {
+      context.addIssue({
+        code: "custom",
+        path: ["shots", index, "frameStart"],
+        message: "shots must be sorted by frameStart"
+      });
+    }
+  });
+});
+var rationalRateStringSchema2 = external_exports.string().regex(/^[1-9]\d{0,6}\/[1-9]\d{0,6}$/);
+var directorGodotImportReceiptSchema = external_exports.strictObject({
+  /** `res://` path of the AnimationPlayer's owning scene, when animation was keyed. */
+  animationPlayerPath: external_exports.string().trim().min(1).max(1024).nullable(),
+  /** Name of the AnimationLibrary that holds the Director timeline animation. */
+  animationLibrary: external_exports.string().trim().max(120).nullable(),
+  /** Rational display rate applied when converting frames to seconds, e.g. `24000/1001`. */
+  displayRate: rationalRateStringSchema2.nullable(),
+  /** Total animation keys written across all tracks. */
+  bakedKeyCount: external_exports.number().int().nonnegative().max(1e8),
+  /** Number of transform (position/rotation/scale) track triples keyed on director_id nodes. */
+  transformTrackCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Number of camera fov property tracks keyed. */
+  fovTrackCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Discrete `Camera3D.current` camera-cut value tracks keyed from storyboard shots. */
+  shotCutTrackCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Storyboard shots that produced a camera-cut key (unmappable shots warn-and-omit). */
+  mappedShotCount: external_exports.number().int().nonnegative().max(1e5),
+  /** glTF payload animations preserved from GLB assets (AnimationPlayer count). */
+  payloadAnimationPlayerCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Skinned payloads whose Skeleton3D was found, tagged, and left in bind pose. */
+  importedSkeletonCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Lights imported as OmniLight3D/SpotLight3D/DirectionalLight3D nodes. */
+  importedLightCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Whether an ambient/hemisphere light was baked into a WorldEnvironment ambient term. */
+  worldEnvironmentAmbient: external_exports.boolean(),
+  /** Lights omitted with a structured warn-and-omit code (rect-area, duplicate ambient, …). */
+  omittedLightCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Director PBR materials applied to imported payload meshes. */
+  appliedMaterialCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Payload textures externalized to hashed `res://director/textures/` resources. */
+  externalizedTextureCount: external_exports.number().int().nonnegative().max(1e5)
+});
+var directorGodotConnectorHealthSchema = external_exports.strictObject({
+  ok: external_exports.literal(true),
+  provider: external_exports.literal("godot"),
+  hostVersion: external_exports.string().trim().min(1).max(200),
+  connectorVersion: nonEmpty7.max(60)
+});
 
 // packages/dcc-protocol/src/directorDccEngineContract.ts
 var DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT = "director-dcc-connector-v1";
 var DIRECTOR_DCC_ENGINE_REPORT_CONTRACT = "director-dcc-engine-report-v1";
 var DIRECTOR_DCC_ENGINE_HEALTH_CONTRACT = "director-dcc-engine-health-v1";
 var DIRECTOR_DCC_ENGINE_SEND_CONTRACT = "director-dcc-engine-send-v1";
-var nonEmpty4 = external_exports.string().trim().min(1);
-var sha256Schema = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
-var safeRelativePathSchema = external_exports.string().trim().min(1).max(1024).refine(
+var nonEmpty8 = external_exports.string().trim().min(1);
+var sha256Schema4 = external_exports.string().regex(/^[0-9a-f]{64}$/, "expected lowercase SHA-256 hex");
+var safeRelativePathSchema2 = external_exports.string().trim().min(1).max(1024).refine(
   (path) => !path.startsWith("/") && !path.includes("\\") && !/^[A-Za-z]:/.test(path) && path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
   { message: "path must be a safe relative path" }
 );
@@ -134643,23 +137499,23 @@ var directorDccConnectorManifestSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT),
   provider: directorDccEngineIdSchema,
   /** Version of the Director-authored connector source. */
-  version: nonEmpty4.max(60),
+  version: nonEmpty8.max(60),
   /** Fixed entry points relative to the connector directory. */
   entryPoints: external_exports.strictObject({
-    health: safeRelativePathSchema,
-    import: safeRelativePathSchema,
-    export: safeRelativePathSchema
+    health: safeRelativePathSchema2,
+    import: safeRelativePathSchema2,
+    export: safeRelativePathSchema2
   }),
   /** Human-readable host requirement, e.g. "Unreal Engine 5.3+". */
-  hostRequirement: nonEmpty4.max(200)
+  hostRequirement: nonEmpty8.max(200)
 });
 var directorDccUnityOmittedChannelIdSchema = external_exports.enum(["poseValues", "motionBlocks", "motion", "ik"]);
 var directorDccUnityOmittedChannelSchema = external_exports.strictObject({
   /** The Director entity whose channel was omitted. */
-  directorId: nonEmpty4.max(240),
+  directorId: nonEmpty8.max(240),
   channel: directorDccUnityOmittedChannelIdSchema,
   /** Human-readable reason (why it could not bake, and what to do instead). */
-  reason: nonEmpty4.max(600)
+  reason: nonEmpty8.max(600)
 });
 var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
   /** Project-relative Timeline asset path, or null when no shots/animation mapped. */
@@ -134691,30 +137547,52 @@ var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
    */
   omittedChannels: external_exports.array(directorDccUnityOmittedChannelSchema).max(4096).optional()
 });
+var directorUnrealOmittedAnimationChannelsSchema = external_exports.strictObject({
+  directorId: external_exports.string().trim().min(1).max(200),
+  entityType: external_exports.enum(["object", "camera"]),
+  channels: external_exports.array(external_exports.enum(["pose_values", "motion_blocks", "character_rig"])).min(1).max(8)
+});
 var directorDccEngineReportSchema = external_exports.strictObject({
   ok: external_exports.literal(true),
   contract: external_exports.literal(DIRECTOR_DCC_ENGINE_REPORT_CONTRACT),
   provider: directorDccEngineIdSchema,
-  hostVersion: nonEmpty4.max(200),
-  connectorVersion: nonEmpty4.max(60),
+  hostVersion: nonEmpty8.max(200),
+  connectorVersion: nonEmpty8.max(60),
   /** The exchange package id this run consumed. */
-  packageId: nonEmpty4.max(240),
+  packageId: nonEmpty8.max(240),
   sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
   importedObjectCount: external_exports.number().int().nonnegative(),
   importedCameraCount: external_exports.number().int().nonnegative(),
   /** Host-side scene path (e.g. `/Game/Director/...`, `Assets/Director/...`, `res://director/...`). */
   scenePath: external_exports.string().trim().min(1).max(1024).nullable(),
   /** Relative directory of an echoed return package when the connector produced one. */
-  returnPackageDir: safeRelativePathSchema.nullable(),
+  returnPackageDir: safeRelativePathSchema2.nullable(),
   warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4),
+  /** Unreal-only: Sequencer receipt read back from the authored LevelSequence. */
+  sequencer: directorUnrealSequencerReceiptSchema.optional(),
+  /** Unreal-only: number of skinned GLB payloads imported as skeletal meshes. */
+  importedSkeletalMeshCount: external_exports.number().int().nonnegative().optional(),
+  /** Unreal-only: number of Director PBR materials applied as material instances. */
+  appliedMaterialCount: external_exports.number().int().nonnegative().optional(),
+  /** Unreal-only: pose/rig channels the bake omitted, echoed from the verified sidecar. */
+  omittedAnimationChannels: external_exports.array(directorUnrealOmittedAnimationChannelsSchema).max(2048).optional(),
   /** Unity connector details; only the unity provider may write this block. */
-  unity: directorDccUnityEngineReportDetailsSchema.optional()
+  unity: directorDccUnityEngineReportDetailsSchema.optional(),
+  /** Godot-only: import receipt read back from the saved scene and animation resources. */
+  godot: directorGodotImportReceiptSchema.optional()
 }).superRefine((report, context) => {
   if (report.unity && report.provider !== "unity") {
     context.addIssue({
       code: "custom",
       path: ["unity"],
       message: "only unity connector reports may carry the unity details block"
+    });
+  }
+  if (report.godot && report.provider !== "godot") {
+    context.addIssue({
+      code: "custom",
+      path: ["godot"],
+      message: "only godot connector reports may carry the godot details block"
     });
   }
 });
@@ -134724,7 +137602,11 @@ var directorDccEngineHealthCheckIdSchema = external_exports.enum([
   "connector_manifest",
   "connector_entry",
   "engine_project",
-  "project_connector"
+  "project_connector",
+  /** The engine project has the Director connector enabled (Godot: `[editor_plugins]`). */
+  "project_plugin_enabled",
+  /** The fixed connector entry answered a `--mode health` probe with valid JSON. */
+  "connector_health"
 ]);
 var directorDccEngineHealthSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_DCC_ENGINE_HEALTH_CONTRACT),
@@ -134734,7 +137616,7 @@ var directorDccEngineHealthSchema = external_exports.strictObject({
   hostVersion: external_exports.string().nullable(),
   connectorVersion: external_exports.string().nullable(),
   /** Workspace-relative connector source directory. */
-  connectorDirectory: nonEmpty4.max(240),
+  connectorDirectory: nonEmpty8.max(240),
   /** The configured engine project path, or null when not configured. */
   projectPath: external_exports.string().nullable(),
   checks: external_exports.array(
@@ -134758,22 +137640,32 @@ var directorDccEngineSendResultSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_DCC_ENGINE_SEND_CONTRACT),
   jobId: external_exports.string().uuid(),
   provider: directorDccEngineIdSchema,
-  packagePath: nonEmpty4.max(2048),
-  manifestPath: nonEmpty4.max(2048),
-  manifestSha256: sha256Schema,
-  packageDigest: sha256Schema,
+  packagePath: nonEmpty8.max(2048),
+  manifestPath: nonEmpty8.max(2048),
+  manifestSha256: sha256Schema4,
+  packageDigest: sha256Schema4,
   sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
-  reportPath: nonEmpty4.max(2048),
+  reportPath: nonEmpty8.max(2048),
   report: directorDccEngineReportSchema,
   /** Absolute path of the echoed return package directory, when produced. */
   returnPackagePath: external_exports.string().nullable(),
+  /**
+   * Pose/rig channels the Gateway animation bake omitted (warn-and-omit) for
+   * the bake-sidecar providers (Unreal Sequencer and Godot animation bakes),
+   * computed from the Gateway's own sidecar so an outdated connector can never
+   * silently flatten them out of the result. Unity bakes inside the connector
+   * and reports its omissions through `report.unity.omittedChannels` instead.
+   */
+  omittedAnimationChannels: external_exports.array(directorUnrealOmittedAnimationChannelsSchema).max(2048).optional(),
+  /** Unreal-only: the optional clean-frame render receipt (rendered or skipped with reason). */
+  cleanFrame: directorUnrealCleanFrameReceiptSchema.optional(),
   warnings: external_exports.array(external_exports.string().max(2e3))
 });
 
 // packages/dcc-protocol/src/directorDccExchangePackageContract.ts
 var DIRECTOR_DCC_EXCHANGE_PACKAGE_CONTRACT = "director-dcc-exchange-package-v1";
 var DIRECTOR_DCC_EXCHANGE_RESULT_CONTRACT = "director-dcc-exchange-result-v1";
-var sha256Schema2 = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var sha256Schema5 = external_exports.string().regex(/^[0-9a-f]{64}$/);
 var exchangeMimeTypeByFormat = {
   glb: "model/gltf-binary",
   usda: "model/vnd.usda"
@@ -134786,7 +137678,7 @@ function duplicateEntries(values) {
     return [];
   });
 }
-var safeRelativePathSchema2 = external_exports.string().trim().min(1).max(1024).refine(
+var safeRelativePathSchema3 = external_exports.string().trim().min(1).max(1024).refine(
   (path) => !path.startsWith("/") && !path.includes("\\") && path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
   { message: "path must be a safe package-relative path" }
 );
@@ -134795,15 +137687,15 @@ var directorDccExchangeArtifactSchema = external_exports.strictObject({
   fileName: external_exports.string().trim().min(1).max(240),
   path: external_exports.string().trim().min(1).max(2048),
   mimeType: external_exports.enum(["model/gltf-binary", "model/vnd.usda"]),
-  sha256: sha256Schema2,
+  sha256: sha256Schema5,
   byteLength: external_exports.number().int().nonnegative()
 });
 var directorDccExchangeAssetSchema = external_exports.strictObject({
   assetRefId: external_exports.string().trim().min(1).max(240),
   fileName: external_exports.string().trim().min(1).max(240),
   path: external_exports.string().trim().min(1).max(2048),
-  relativePath: safeRelativePathSchema2,
-  sha256: sha256Schema2,
+  relativePath: safeRelativePathSchema3,
+  sha256: sha256Schema5,
   byteLength: external_exports.number().int().nonnegative()
 });
 var directorDccExchangePackageManifestSchema = external_exports.strictObject({
@@ -134823,16 +137715,16 @@ var directorDccExchangePackageManifestSchema = external_exports.strictObject({
   formats: external_exports.array(
     external_exports.strictObject({
       format: directorDccPortableExchangeFormatSchema,
-      relativePath: safeRelativePathSchema2,
-      sha256: sha256Schema2,
+      relativePath: safeRelativePathSchema3,
+      sha256: sha256Schema5,
       byteLength: external_exports.number().int().nonnegative()
     })
   ),
   assets: external_exports.array(
     external_exports.strictObject({
       assetRefId: external_exports.string().trim().min(1).max(240),
-      relativePath: safeRelativePathSchema2,
-      sha256: sha256Schema2,
+      relativePath: safeRelativePathSchema3,
+      sha256: sha256Schema5,
       byteLength: external_exports.number().int().nonnegative()
     })
   ),
@@ -134956,8 +137848,8 @@ var directorDccExchangePackageResultSchema = external_exports.strictObject({
   provider: directorDccProviderIdSchema,
   packagePath: external_exports.string().trim().min(1).max(2048),
   manifestPath: external_exports.string().trim().min(1).max(2048),
-  manifestSha256: sha256Schema2,
-  packageDigest: sha256Schema2,
+  manifestSha256: sha256Schema5,
+  packageDigest: sha256Schema5,
   sourceRevision: external_exports.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
   formats: external_exports.array(directorDccExchangeArtifactSchema),
   assets: external_exports.array(directorDccExchangeAssetSchema),
@@ -135020,319 +137912,154 @@ var directorDccExchangePackageResultSchema = external_exports.strictObject({
   });
 });
 
-// packages/protocol/src/productionArtifactProtocol.ts
-var PRODUCTION_ARTIFACT_VERSION_CONTRACT = "director-artifact-version-v1";
-var PRODUCTION_ARTIFACT_PROMOTION_CONTRACT = "director-artifact-promotion-v1";
-var PRODUCTION_APPROVAL_CONTRACT = "director-production-approval-v1";
-var idSchema2 = external_exports.string().trim().min(1).max(240);
-var nameSchema2 = external_exports.string().trim().min(1).max(512);
-var sha256Schema3 = external_exports.string().regex(/^[0-9a-f]{64}$/);
-var fingerprintSchema = external_exports.string().trim().min(16).max(512);
-var isoDateSchema = external_exports.string().datetime({ offset: true });
-var fileNameSchema = external_exports.string().trim().min(1).max(512).refine((value) => value !== "." && value !== ".." && !/[\\/\0]/u.test(value), {
-  message: "fileName must be a safe base name without path separators"
+// packages/dcc-protocol/src/directorUnrealLivePreviewContract.ts
+var DIRECTOR_UNREAL_LIVE_PREVIEW_PROTOCOL = "director-unreal-live-preview-v1";
+var DIRECTOR_UNREAL_LIVE_PREVIEW_SESSION_CONTRACT = "director-unreal-live-preview-session-v1";
+var DIRECTOR_UNREAL_LIVE_PREVIEW_MAX_LINE_BYTES = 64 * 1024;
+var nonEmpty9 = external_exports.string().trim().min(1);
+var directorUnrealLivePreviewHelloSchema = external_exports.strictObject({
+  type: external_exports.literal("hello"),
+  protocol: external_exports.literal(DIRECTOR_UNREAL_LIVE_PREVIEW_PROTOCOL),
+  token: nonEmpty9.max(512)
 });
-function deepFreeze(value) {
-  if (value !== null && typeof value === "object") {
-    for (const nested of Object.values(value)) deepFreeze(nested);
-    Object.freeze(value);
-  }
-  return value;
-}
-var productionArtifactKindSchema2 = external_exports.enum([
-  "image",
-  "video",
-  "audio",
-  "model",
-  "document",
-  "archive",
-  "other"
-]);
-var productionArtifactContentSchema = external_exports.strictObject({
-  sha256: sha256Schema3,
-  bytes: external_exports.number().int().nonnegative(),
-  mimeType: external_exports.string().trim().min(1).max(240),
-  fileName: fileNameSchema
-}).readonly();
-var providerSnapshotSchema = external_exports.strictObject({
-  provider: external_exports.string().trim().min(1).max(160),
-  model: external_exports.string().trim().min(1).max(240).optional(),
-  configurationFingerprint: fingerprintSchema.optional(),
-  seed: external_exports.number().int().safe().nullable().optional()
-}).readonly();
-var productionArtifactProvenanceSchema = external_exports.discriminatedUnion("kind", [
-  strictKind("job", {
-    jobId: idSchema2,
-    attemptId: idSchema2,
-    inputFingerprint: fingerprintSchema,
-    provider: providerSnapshotSchema.optional()
-  }),
-  strictKind("capture", {
-    projectRevision: fingerprintSchema,
-    sceneId: idSchema2,
-    cameraId: idSchema2,
-    frame: external_exports.number().int().nonnegative()
-  }),
-  external_exports.strictObject({
-    kind: external_exports.enum(["import", "dcc-return"]),
-    receiptId: idSchema2,
-    sourceFingerprint: fingerprintSchema,
-    adapter: external_exports.string().trim().min(1).max(160)
-  }),
-  strictKind("upload", { sourceFingerprint: fingerprintSchema })
-]);
-var productionArtifactMediaMetadataSchema = external_exports.strictObject({
-  width: external_exports.number().int().positive().optional(),
-  height: external_exports.number().int().positive().optional(),
-  durationUs: external_exports.number().int().nonnegative().optional(),
-  frameCount: external_exports.number().int().nonnegative().optional(),
-  frameRate: external_exports.strictObject({
-    numerator: external_exports.number().int().positive(),
-    denominator: external_exports.number().int().positive()
-  }).optional(),
-  channels: external_exports.number().int().positive().optional(),
-  sampleRate: external_exports.number().int().positive().optional()
-}).readonly();
-var productionArtifactVersionFields = {
-  contract: external_exports.literal(PRODUCTION_ARTIFACT_VERSION_CONTRACT),
-  versionId: idSchema2,
-  artifactId: idSchema2,
-  ordinal: external_exports.number().int().positive(),
-  immutable: external_exports.literal(true),
-  kind: productionArtifactKindSchema2,
-  name: nameSchema2,
-  content: productionArtifactContentSchema,
-  provenance: productionArtifactProvenanceSchema,
-  sourceVersionIds: external_exports.array(idSchema2).max(128).default([]),
-  metadata: productionArtifactMediaMetadataSchema.optional(),
-  createdAt: isoDateSchema,
-  createdBy: idSchema2
-};
-function validateArtifactLineage(value, context) {
-  if (new Set(value.sourceVersionIds).size !== value.sourceVersionIds.length) {
-    context.addIssue({ code: "custom", path: ["sourceVersionIds"], message: "sourceVersionIds must be unique" });
-  }
-  if (value.sourceVersionIds.includes(value.versionId)) {
-    context.addIssue({
-      code: "custom",
-      path: ["sourceVersionIds"],
-      message: "an artifact version cannot derive from itself"
-    });
-  }
-}
-var productionArtifactVersionInputSchema = external_exports.strictObject(productionArtifactVersionFields).superRefine(validateArtifactLineage).readonly();
-var productionArtifactVersionSchema = external_exports.strictObject({
-  ...productionArtifactVersionFields,
-  recordFingerprint: external_exports.string().regex(/^artifact-version:v1:sha256:[0-9a-f]{64}$/)
-}).superRefine((value, context) => {
-  validateArtifactLineage(value, context);
-  const sortedSources = [...value.sourceVersionIds].sort();
-  if (sortedSources.some((sourceVersionId, index) => sourceVersionId !== value.sourceVersionIds[index])) {
-    context.addIssue({
-      code: "custom",
-      path: ["sourceVersionIds"],
-      message: "sourceVersionIds must use canonical sorted order"
-    });
-  }
-  const { recordFingerprint: _recordFingerprint, ...input } = value;
-  if (value.recordFingerprint !== getProductionArtifactVersionFingerprint(input)) {
-    context.addIssue({
-      code: "custom",
-      path: ["recordFingerprint"],
-      message: "recordFingerprint does not match the immutable artifact version record"
-    });
-  }
-}).readonly().transform(deepFreeze);
-var productionPromotionTargetSchema = external_exports.strictObject({
-  workspace: external_exports.enum(["canvas", "stage", "video", "delivery"]),
-  ownerId: idSchema2,
-  slot: external_exports.string().trim().min(1).max(160)
-}).readonly();
-var productionArtifactPromotionFields = {
-  contract: external_exports.literal(PRODUCTION_ARTIFACT_PROMOTION_CONTRACT),
-  promotionId: idSchema2,
-  target: productionPromotionTargetSchema,
-  artifactId: idSchema2,
-  versionId: idSchema2,
-  artifactFingerprint: external_exports.string().regex(/^artifact-version:v1:sha256:[0-9a-f]{64}$/),
-  previousVersionId: idSchema2.nullable(),
-  approvalIds: external_exports.array(idSchema2).max(64).default([]),
-  promotedAt: isoDateSchema,
-  promotedBy: idSchema2
-};
-var productionArtifactPromotionSchema = external_exports.strictObject({
-  ...productionArtifactPromotionFields,
-  recordFingerprint: external_exports.string().regex(/^artifact-promotion:v1:sha256:[0-9a-f]{64}$/)
-}).superRefine((value, context) => {
-  if (new Set(value.approvalIds).size !== value.approvalIds.length) {
-    context.addIssue({ code: "custom", path: ["approvalIds"], message: "approvalIds must be unique" });
-  }
-  const sortedApprovalIds = [...value.approvalIds].sort();
-  if (sortedApprovalIds.some((approvalId, index) => approvalId !== value.approvalIds[index])) {
-    context.addIssue({ code: "custom", path: ["approvalIds"], message: "approvalIds must use canonical order" });
-  }
-  const { recordFingerprint: _recordFingerprint, ...input } = value;
-  if (value.recordFingerprint !== getProductionArtifactPromotionFingerprint(input)) {
-    context.addIssue({
-      code: "custom",
-      path: ["recordFingerprint"],
-      message: "recordFingerprint does not match the immutable promotion record"
-    });
-  }
-}).readonly().transform(deepFreeze);
-var productionApprovalFingerprintKindSchema = external_exports.enum(["project", "creative", "artifact", "package", "schema"]);
-var plainSha256FingerprintSchema = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/);
-var productionApprovalFingerprintSchema = external_exports.discriminatedUnion("kind", [
-  strictKind("project", { value: external_exports.string().regex(/^director-project-revision:v1:sha256:[0-9a-f]{64}$/) }),
-  strictKind("creative", { value: plainSha256FingerprintSchema }),
-  strictKind("artifact", { value: external_exports.string().regex(/^artifact-version:v1:sha256:[0-9a-f]{64}$/) }),
-  strictKind("package", { value: plainSha256FingerprintSchema }),
-  strictKind("schema", { value: plainSha256FingerprintSchema })
-]);
-function validateUniqueFingerprintKinds(value, context) {
-  const kinds = value.map((fingerprint) => fingerprint.kind);
-  if (new Set(kinds).size !== kinds.length) {
-    context.addIssue({ code: "custom", message: "fingerprint kinds must be unique" });
-  }
-}
-var productionApprovalFingerprintSetSchema = external_exports.array(productionApprovalFingerprintSchema).max(16).superRefine(validateUniqueFingerprintKinds).readonly();
-var productionArtifactPromotionRequestFields = {
-  promotionId: idSchema2,
-  target: productionPromotionTargetSchema,
-  versionId: idSchema2,
-  expectedPreviousVersionId: idSchema2.nullable(),
-  approvalIds: external_exports.array(idSchema2).max(64).superRefine((value, context) => {
-    if (new Set(value).size !== value.length)
-      context.addIssue({ code: "custom", message: "approvalIds must be unique" });
-  }).default([]),
-  observedFingerprints: productionApprovalFingerprintSetSchema.default([]),
-  promotedBy: idSchema2,
-  requireCurrentApproval: external_exports.boolean().default(false)
-};
-var productionArtifactPromotionRequestSchema = external_exports.strictObject(productionArtifactPromotionRequestFields);
-var storedProductionArtifactPromotionInputSchema = external_exports.strictObject({
-  ...productionArtifactPromotionRequestFields,
-  promotedAt: isoDateSchema
+var directorUnrealLivePreviewFrameSchema = external_exports.strictObject({
+  type: external_exports.literal("camera_frame"),
+  /** Monotonically increasing per-session sequence number; stale values are dropped. */
+  seq: external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  transform: directorDccTransformSchema,
+  /** Optional preview optics; must be a positive focal length in millimetres. */
+  focalLengthMm: external_exports.number().finite().positive().max(1e4).optional()
 });
-var productionApprovalScopeSchema = external_exports.discriminatedUnion("kind", [
-  strictKind("shot", { shotId: idSchema2 }),
-  strictKind("artifact-version", { versionId: idSchema2 }),
-  strictKind("edit-range", {
-    sequenceId: idSchema2,
-    startUs: external_exports.number().int().nonnegative(),
-    endUs: external_exports.number().int().positive()
-  }).refine((value) => value.endUs > value.startUs, {
-    message: "endUs must be greater than startUs",
-    path: ["endUs"]
-  }),
-  strictKind("delivery", { deliveryId: idSchema2 })
+var directorUnrealLivePreviewByeSchema = external_exports.strictObject({ type: external_exports.literal("bye") });
+var directorUnrealLivePreviewClientMessageSchema = external_exports.discriminatedUnion("type", [
+  directorUnrealLivePreviewHelloSchema,
+  directorUnrealLivePreviewFrameSchema,
+  directorUnrealLivePreviewByeSchema
 ]);
-var productionApprovalFields = {
-  contract: external_exports.literal(PRODUCTION_APPROVAL_CONTRACT),
-  approvalId: idSchema2,
-  scope: productionApprovalScopeSchema,
-  decision: external_exports.enum(["approved", "rejected"]),
-  fingerprints: external_exports.array(productionApprovalFingerprintSchema).min(1).max(16).superRefine(validateUniqueFingerprintKinds),
-  reviewerId: idSchema2,
-  reviewerName: nameSchema2.optional(),
-  checklist: external_exports.array(
+var directorUnrealLivePreviewFrameInputSchema = directorUnrealLivePreviewFrameSchema.omit({ type: true });
+var directorUnrealLivePreviewDisconnectReasonSchema = external_exports.enum([
+  "client_close",
+  "peer_close",
+  "socket_error",
+  "stale_timeout"
+]);
+var directorUnrealLivePreviewSessionSummarySchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_UNREAL_LIVE_PREVIEW_SESSION_CONTRACT),
+  provider: external_exports.literal("unreal"),
+  protocol: external_exports.literal(DIRECTOR_UNREAL_LIVE_PREVIEW_PROTOCOL),
+  /** Frames accepted and written to the loopback socket. */
+  forwardedFrameCount: external_exports.number().int().nonnegative(),
+  /** Frames dropped before the socket (stale seq, duplicate seq, malformed body). */
+  droppedFrameCount: external_exports.number().int().nonnegative(),
+  /** Inbound bytes ignored: the preview channel is strictly one-way. */
+  ignoredInboundByteCount: external_exports.number().int().nonnegative(),
+  closed: external_exports.boolean(),
+  disconnectReason: directorUnrealLivePreviewDisconnectReasonSchema.nullable(),
+  /** Optional human-readable detail for socket errors. */
+  disconnectDetail: external_exports.string().max(2e3).nullable()
+});
+
+// packages/dcc-protocol/src/directorGodotLiveLinkContract.ts
+var DIRECTOR_GODOT_LIVE_LINK_CONTRACT = "director-godot-live-link-v1";
+var DIRECTOR_GODOT_LIVE_LINK_PREVIEW_CONTRACT = "director-godot-live-link-preview-v1";
+var nonEmpty10 = external_exports.string().trim().min(1);
+var directorGodotLiveLinkHelloSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
+  provider: external_exports.literal("godot"),
+  connectorVersion: nonEmpty10.max(60),
+  hostVersion: nonEmpty10.max(200),
+  /** `res://` path of the scene being previewed, when known. */
+  scenePath: external_exports.string().trim().min(1).max(1024).optional()
+});
+var directorGodotLiveLinkSessionSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
+  provider: external_exports.literal("godot"),
+  sessionId: external_exports.string().uuid(),
+  /** Milliseconds of silence after which the Gateway treats the session as disconnected. */
+  idleTimeoutMs: external_exports.number().int().positive().max(36e5),
+  /** Maximum entities the Gateway accepts in one preview frame. */
+  maxEntitiesPerFrame: external_exports.number().int().positive().max(2048)
+});
+var liveLinkEntityShape = {
+  directorId: nonEmpty10.max(200),
+  entityType: external_exports.enum(["object", "camera"]),
+  /** Canonical Director-space world transform (Godot's basis is the identity map). */
+  transform: directorDccTransformSchema,
+  /** Camera-only: vertical field of view in degrees. */
+  fovDeg: external_exports.number().finite().gt(0).lt(180).optional()
+};
+function cameraOnlyFov(entity, context) {
+  if (entity.entityType !== "camera" && entity.fovDeg !== void 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["fovDeg"],
+      message: "fovDeg is a camera-only channel"
+    });
+  }
+}
+var directorGodotLiveLinkEntitySchema = external_exports.strictObject(liveLinkEntityShape).superRefine(cameraOnlyFov);
+var directorGodotLiveLinkFrameSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
+  sessionId: external_exports.string().uuid(),
+  /** Strictly increasing per-session sequence number (gaps are allowed, replays are not). */
+  sequence: external_exports.number().int().positive().max(1e12),
+  /** Connector-side monotonic timestamp in milliseconds; informational only. */
+  atMs: external_exports.number().int().nonnegative().max(1e14).optional(),
+  entities: external_exports.array(directorGodotLiveLinkEntitySchema).min(1).max(512)
+});
+var directorGodotLiveLinkFrameAckSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
+  sessionId: external_exports.string().uuid(),
+  sequence: external_exports.number().int().positive().max(1e12),
+  accepted: external_exports.literal(true)
+});
+var directorGodotLiveLinkByeSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
+  sessionId: external_exports.string().uuid(),
+  reason: external_exports.string().max(500).optional()
+});
+var directorGodotLiveLinkByeResultSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_GODOT_LIVE_LINK_CONTRACT),
+  sessionId: external_exports.string().uuid(),
+  ended: external_exports.boolean()
+});
+var directorGodotLiveLinkPreviewSchema = external_exports.strictObject({
+  contract: external_exports.literal(DIRECTOR_GODOT_LIVE_LINK_PREVIEW_CONTRACT),
+  provider: external_exports.literal("godot"),
+  authoritative: external_exports.literal(false),
+  sessions: external_exports.array(
     external_exports.strictObject({
-      id: idSchema2,
-      passed: external_exports.boolean(),
-      note: external_exports.string().trim().max(2e3).optional()
+      sessionId: external_exports.string().uuid(),
+      connectorVersion: nonEmpty10.max(60),
+      hostVersion: nonEmpty10.max(200),
+      scenePath: external_exports.string().max(1024).nullable(),
+      startedAtMs: external_exports.number().int().nonnegative(),
+      lastSeenAtMs: external_exports.number().int().nonnegative(),
+      /** Last accepted sequence number; 0 before the first frame. */
+      lastSequence: external_exports.number().int().nonnegative().max(1e12),
+      /** Accepted preview frames since hello. */
+      frameCount: external_exports.number().int().nonnegative(),
+      entities: external_exports.array(
+        external_exports.strictObject({
+          ...liveLinkEntityShape,
+          /** Sequence number of the frame that last updated this entity. */
+          atSequence: external_exports.number().int().positive().max(1e12)
+        }).superRefine(cameraOnlyFov)
+      ).max(2048)
     })
-  ).max(100).default([]),
-  note: external_exports.string().trim().max(8e3).optional(),
-  decidedAt: isoDateSchema,
-  supersedesApprovalId: idSchema2.optional()
-};
-function validateProductionApproval(value, context) {
-  const fingerprintKinds = value.fingerprints.map((fingerprint) => fingerprint.kind);
-  const sortedFingerprintKinds = [...fingerprintKinds].sort();
-  if (sortedFingerprintKinds.some((kind, index) => kind !== fingerprintKinds[index])) {
-    context.addIssue({ code: "custom", path: ["fingerprints"], message: "fingerprints must use canonical order" });
-  }
-  const checklistIds = value.checklist.map((item) => item.id);
-  if (new Set(checklistIds).size !== checklistIds.length) {
-    context.addIssue({ code: "custom", path: ["checklist"], message: "checklist ids must be unique" });
-  }
-  if (value.supersedesApprovalId === value.approvalId) {
-    context.addIssue({
-      code: "custom",
-      path: ["supersedesApprovalId"],
-      message: "an approval cannot supersede itself"
-    });
-  }
-}
-var productionApprovalInputSchema = external_exports.strictObject(productionApprovalFields).superRefine((value, context) => {
-  const checklistIds = value.checklist.map((item) => item.id);
-  if (new Set(checklistIds).size !== checklistIds.length) {
-    context.addIssue({ code: "custom", path: ["checklist"], message: "checklist ids must be unique" });
-  }
-  if (value.supersedesApprovalId === value.approvalId) {
-    context.addIssue({
-      code: "custom",
-      path: ["supersedesApprovalId"],
-      message: "an approval cannot supersede itself"
-    });
-  }
-}).readonly();
-var productionApprovalSchema = external_exports.strictObject({
-  ...productionApprovalFields,
-  recordFingerprint: external_exports.string().regex(/^production-approval:v1:sha256:[0-9a-f]{64}$/)
-}).superRefine((value, context) => {
-  validateProductionApproval(value, context);
-  const { recordFingerprint: _recordFingerprint, ...input } = value;
-  if (value.recordFingerprint !== getProductionApprovalFingerprint(input)) {
-    context.addIssue({
-      code: "custom",
-      path: ["recordFingerprint"],
-      message: "recordFingerprint does not match the immutable approval record"
-    });
-  }
-}).readonly().transform(deepFreeze);
-var productionEvidenceRequestSchema = external_exports.discriminatedUnion("op", [
-  strictOperation("capabilities", {}),
-  strictOperation("list_versions", { artifact_id: idSchema2.optional() }),
-  strictOperation("get_version", { version_id: idSchema2 }),
-  strictOperation("put_version", { version: productionArtifactVersionInputSchema }),
-  strictOperation("put_approval", { approval: productionApprovalInputSchema }),
-  strictOperation("promote", {
-    promotion_id: idSchema2,
-    target: productionPromotionTargetSchema,
-    version_id: idSchema2,
-    expected_previous_version_id: idSchema2.nullable(),
-    approval_ids: external_exports.array(idSchema2).max(64).superRefine((value, context) => {
-      if (new Set(value).size !== value.length) {
-        context.addIssue({ code: "custom", message: "approval_ids must be unique" });
-      }
-    }).default([]),
-    observed_fingerprints: productionApprovalFingerprintSetSchema.default([]),
-    promoted_by: idSchema2,
-    require_current_approval: external_exports.boolean().default(false)
-  }),
-  strictOperation("current_promotion", { target: productionPromotionTargetSchema })
+  ).max(8)
+});
+var directorGodotLiveLinkErrorCodeSchema = external_exports.enum([
+  "live_link_invalid",
+  "live_link_session_unknown",
+  "live_link_session_expired",
+  "live_link_sequence_stale",
+  "live_link_session_limit"
 ]);
-function getProductionArtifactVersionFingerprint(input) {
-  const parsed = productionArtifactVersionInputSchema.parse(input);
-  const normalized = { ...parsed, sourceVersionIds: [...parsed.sourceVersionIds].sort() };
-  return `artifact-version:v1:sha256:${sha256HexSync(stableLexicalJson(normalized))}`;
-}
-function getProductionApprovalFingerprint(input) {
-  const parsed = productionApprovalInputSchema.parse(input);
-  const normalized = {
-    ...parsed,
-    fingerprints: [...parsed.fingerprints].sort((left, right) => left.kind.localeCompare(right.kind))
-  };
-  return `production-approval:v1:sha256:${sha256HexSync(stableLexicalJson(normalized))}`;
-}
-function getProductionArtifactPromotionFingerprint(input) {
-  return `artifact-promotion:v1:sha256:${sha256HexSync(stableLexicalJson(input))}`;
-}
 
 // packages/protocol/src/filmPipelineProtocol.ts
 var nonEmptyText9 = (maximum) => external_exports.string().trim().min(1).max(maximum);
-var boundedText2 = (maximum) => external_exports.string().trim().max(maximum);
+var boundedText4 = (maximum) => external_exports.string().trim().max(maximum);
 var shotIndex = external_exports.number().int().min(0).max(4096);
 var filmRunIdSchema = external_exports.string().regex(/^film-[a-z0-9-]{8,64}$/i);
 var filmCharacterSchema = external_exports.strictObject({
@@ -135342,16 +138069,16 @@ var filmCharacterSchema = external_exports.strictObject({
   /** Off-screen voices are never sent to the portrait generator. */
   isVisible: external_exports.boolean(),
   /** Facial features, body shape and other rarely-changing traits. */
-  staticFeatures: boundedText2(4e3).default(""),
+  staticFeatures: boundedText4(4e3).default(""),
   /** Clothing, accessories and other scene-variable traits. */
-  dynamicFeatures: boundedText2(4e3).nullable().default(null)
+  dynamicFeatures: boundedText4(4e3).nullable().default(null)
 });
 var shotBriefSchema = external_exports.strictObject({
   idx: shotIndex,
   /** Shots sharing one physical camera setup share a camIdx. */
   camIdx: shotIndex,
   visualDesc: nonEmptyText9(8e3),
-  audioDesc: boundedText2(4e3).default("")
+  audioDesc: boundedText4(4e3).default("")
 });
 var shotVariationSchema = external_exports.enum(["small", "medium", "large"]);
 var shotSpecSchema = external_exports.strictObject({
@@ -135360,24 +138087,24 @@ var shotSpecSchema = external_exports.strictObject({
   visualDesc: nonEmptyText9(8e3),
   /** medium/large shots additionally require a generated last frame. */
   variationType: shotVariationSchema,
-  variationReason: boundedText2(4e3).default(""),
+  variationReason: boundedText4(4e3).default(""),
   /** First-frame still description; a pure snapshot without ongoing motion. */
   ffDesc: nonEmptyText9(8e3),
   ffVisCharIdxs: external_exports.array(shotIndex).max(64).default([]),
-  lfDesc: boundedText2(8e3).default(""),
+  lfDesc: boundedText4(8e3).default(""),
   lfVisCharIdxs: external_exports.array(shotIndex).max(64).default([]),
   /** Camera and subject motion connecting first and last frame, plus dialogue. */
   motionDesc: nonEmptyText9(8e3),
-  audioDesc: boundedText2(4e3).default("")
+  audioDesc: boundedText4(4e3).default("")
 });
 var cameraPlanNodeSchema = external_exports.strictObject({
   idx: shotIndex,
   activeShotIdxs: external_exports.array(shotIndex).min(1).max(512),
   parentCamIdx: shotIndex.nullable().default(null),
   parentShotIdx: shotIndex.nullable().default(null),
-  reason: boundedText2(4e3).nullable().default(null),
+  reason: boundedText4(4e3).nullable().default(null),
   isParentFullyCoversChild: external_exports.boolean().nullable().default(null),
-  missingInfo: boundedText2(4e3).nullable().default(null)
+  missingInfo: boundedText4(4e3).nullable().default(null)
 });
 var portraitViewSchema = external_exports.enum(["front", "side", "back"]);
 var portraitEntrySchema = external_exports.strictObject({
@@ -135394,7 +138121,7 @@ var stageReferenceSchema = external_exports.strictObject({
   sceneIdx: shotIndex,
   shotIdx: shotIndex,
   imagePath: nonEmptyText9(2048),
-  note: boundedText2(2e3).default(
+  note: boundedText4(2e3).default(
     "White-box stage capture: composition, camera angle and spatial blocking are authoritative. Replace mannequin characters and untextured geometry with the final styled characters and environment while preserving the layout."
   )
 });
@@ -135402,7 +138129,7 @@ var characterReferenceSchema = external_exports.strictObject({
   name: nonEmptyText9(240),
   view: portraitViewSchema.default("front"),
   imagePath: nonEmptyText9(2048),
-  note: boundedText2(2e3).default("")
+  note: boundedText4(2e3).default("")
 });
 var filmWorkflowSchema = external_exports.enum(["idea-to-film", "script-to-film"]);
 var filmRunStatusSchema = external_exports.enum([
@@ -135439,7 +138166,7 @@ var filmRunInputSchema = external_exports.strictObject({
   script: nonEmptyText9(12e4).optional(),
   /** Pre-split scene scripts skip scene segmentation entirely. */
   sceneScripts: external_exports.array(nonEmptyText9(64e3)).min(1).max(64).optional(),
-  userRequirement: boundedText2(8e3).default(""),
+  userRequirement: boundedText4(8e3).default(""),
   style: nonEmptyText9(500).default("cinematic, photorealistic film still, motivated lighting"),
   aspectRatio: external_exports.enum(["16:9", "9:16", "2.39:1", "1:1"]).default("16:9"),
   /** Pause after planning so a human or agent can review artifacts. */
@@ -135499,7 +138226,7 @@ var filmPipelineOperationSchema = external_exports.discriminatedUnion("op", [
   strictOperation("approve", { id: filmRunIdSchema })
 ]);
 
-// backend/gateway/agents/filmRoleToolPolicy.ts
+// packages/protocol/src/filmRoleToolPolicy.ts
 var WORKSPACE_TOOLS = /* @__PURE__ */ new Set(["read", "write", "edit", "glob", "grep", "bash", "todo_write"]);
 var WEB_TOOLS = /* @__PURE__ */ new Set(["web_search", "web_fetch"]);
 function isDirectorWorkspaceTool(tool) {
@@ -135517,8 +138244,7 @@ var READ_ONLY_WORKBENCH_OPERATIONS = /* @__PURE__ */ new Set([
   "diff",
   "trace",
   "shot_ir",
-  "compare",
-  "describe_camera_move"
+  "compare"
 ]);
 var VISUAL_EVIDENCE_WORKBENCH_OPERATIONS = /* @__PURE__ */ new Set([
   "capabilities",
@@ -135763,19 +138489,7 @@ var directorWorkbenchWireSchema = compactWireSchema(
   object_id: external_exports.string().optional().describe("Object id for inspect or a single-object author action."),
   id: external_exports.string().optional(),
   camera_id: external_exports.string().optional(),
-  frame: external_exports.number().int().optional(),
-  target: external_exports.string().optional().describe('Required for op="describe". Examples: capture, author.add_object, author.evidence.'),
-  name_pattern: external_exports.string().optional().describe('query_objects substring of object name or id. Chinese queries such as "\u95E8" match "\u6728\u95E8".'),
-  kind: external_exports.string().optional().describe("query_objects kind: character, scene, prop, camera, panorama."),
-  entity: external_exports.string().optional().describe('Required for op="inspect": object, light, camera, asset, catalog_asset, \u2026'),
-  since_revision: external_exports.string().optional().describe("observe: return persisted changes since this project_revision."),
-  object_mode: external_exports.string().optional().describe('observe objects as "hierarchy" when parent-child structure matters.'),
-  max_objects: external_exports.number().int().optional().describe("observe hierarchy bound (default 200)."),
-  max_changes: external_exports.number().int().optional().describe("observe.since_revision per-collection change bound."),
-  evidence: external_exports.looseObject({}).optional().describe(
-    "author visual proof object (not true). Default 640x360 camera frame. describe author.evidence for fields."
-  ),
-  query: external_exports.string().optional().describe("Optional catalog search text when op is catalog.")
+  frame: external_exports.number().int().optional()
 });
 var directorCreativeWireSchema = compactWireSchema(
   creativeWorkspaceAgentRequestSchema,
@@ -135867,6 +138581,9 @@ var DIRECTOR_WORKBENCH_PLUGIN_TOOL_NAMES = DIRECTOR_WORKBENCH_PLUGIN_TOOLS.map((
 // packages/dsh-plugin-workbench/src/gatewayClient.ts
 var gatewayBootstrapSchema = external_exports.looseObject({ browserToken: external_exports.string().min(24) });
 
+// packages/dsh-plugin-workbench/src/workspacePrompt.ts
+var workspacePromptResponseSchema = external_exports.looseObject({ prompt: external_exports.string() });
+
 // packages/dsh-plugin-workbench/src/toolPolicy.ts
 var BLENDER_NATIVE_TOOL_TIMEOUT_MS = 3e5;
 var DIRECTOR_TOOL_TIMEOUT_MS = 7e4;
@@ -135923,6 +138640,9 @@ async function authenticatedGatewayFetch(path, init, retryUnauthorized = true) {
   const token = await getGatewayAuthToken();
   const headers = new Headers(init.headers);
   headers.set("x-director-browser-token", token);
+  headers.set("x-director-tool-source", "mcp");
+  if (filmRoleId) headers.set("x-director-film-role", filmRoleId);
+  headers.set("x-director-trace-source", "mcp");
   let response;
   try {
     response = await fetch(`${gatewayUrl}${path}`, { ...init, headers });
@@ -136000,9 +138720,10 @@ var descriptions = {
     'describe returns the exact JSON Schema of one operation or author action on demand (target "<op>" or "author.<action>").',
     "Use catalog or a selective observe only when you need current IDs or state, then send one direct authoring operation.",
     "Reuse catalog IDs and URLs exactly. Do not assemble scenes from geometry_type primitives; instance catalog meshes, model with blender_native (create_blockout shells, create_opening doors/windows), or generate with generated_3d.",
-    "After an edit, one targeted inspect is enough when confirmation is useful. Use audit, correct, trace, capture, or deliver only when the user asks for diagnosis or an output artifact."
+    "After an edit, one targeted inspect is enough when confirmation is useful. Use audit, correct, trace, capture, or deliver only when the user asks for diagnosis or an output artifact.",
+    "deliver is a publish operation: request a single-use token from POST /api/agent/confirm-token and pass it as confirm_token next to op, or the gateway returns confirm_required."
   ].join(" "),
-  director_creative: `Control the live Director Canvas, multimodal generation graph, Video Editor, interchange export, and collaboration comments. Use capabilities or observe when current IDs are needed, then execute one direct operation or batch. Pipeline actions are start, status, and cancel; interchange uses plan-export followed by export. Preview and audit are optional diagnostics, not required steps. Edit operations: ${creativeWorkspaceAgentOperationNames.join(", ")}.`,
+  director_creative: `Control the live Director Canvas, multimodal generation graph, Video Editor, interchange export, and collaboration comments. Use capabilities or observe when current IDs are needed, then execute one direct operation or batch. Pipeline actions are start, status, and cancel; interchange uses plan-export followed by export. Preview and audit are optional diagnostics, not required steps. Destructive/publish requests (interchange export/import, collaboration restore-version/delete-version/delete-comment, gallery purge) need the protocol confirm:true field or a single-use confirm_token from POST /api/agent/confirm-token passed next to op. Edit operations: ${creativeWorkspaceAgentOperationNames.join(", ")}.`,
   stage_video: "Discover providers and prepare, submit, inspect, or cancel durable image-to-video jobs from the current validated 3D white-box scene. Ops: capabilities, prepare, render, submit, status, cancel. LTX-2.3 uses the isolated Python GPU worker; ComfyUI remains an optional workflow provider; minimax-h3 renders through the hosted MiniMax H3 multimodal API.",
   blender_native: `Operate Blender's native modeling and rig surface. Use typed apply directly; call scene when object IDs are unknown. White-box shells use create_blockout (presets floor/wall/room/corridor/stairs, metres); door/window holes use create_opening. Search CC0 assets with {"op":"polyhaven_search"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Describe typed apply ops with {"op":"describe","target":"create_blockout"} when a field is unknown. catalog/describe with operator discover Blender RNA for invoke_operator. execute_code runs Python when a typed op or operator is not enough. Native stills use {"op":"capture"} or {"op":"capture_render"}. Do not quit Blender. Missing scene epoch, revision, and intent id are filled by the gateway. inspect and capture are optional checks. status, scene, catalog, describe, inspect, capture, capture_render, polyhaven_search, and sketchfab_search are read-only.`
 };
@@ -136025,13 +138746,17 @@ var boundTargetToken = configuredTargetToken ?? configuredTarget?.token;
 var toolMemory = createAgentToolSessionMemory();
 async function callGateway(tool, input) {
   const prepared = injectCachedWorkbenchRevision(tool, input, toolMemory);
-  const effectiveInput = prepared.input;
+  const preparedRecord = prepared.input && typeof prepared.input === "object" && !Array.isArray(prepared.input) ? prepared.input : null;
+  const rawConfirmToken = preparedRecord?.confirm_token;
+  const confirmToken = typeof rawConfirmToken === "string" && rawConfirmToken.trim() ? rawConfirmToken : void 0;
+  const effectiveInput = confirmToken && preparedRecord ? Object.fromEntries(Object.entries(preparedRecord).filter(([key]) => key !== "confirm_token")) : prepared.input;
   const response = await authenticatedGatewayFetch(`/api/tools/${tool}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       input: effectiveInput,
       session_id: sessionId,
+      ...confirmToken ? { confirm_token: confirmToken } : {},
       ...boundTargetToken ? { target_token: boundTargetToken } : {}
     }),
     signal: AbortSignal.timeout(dynamicToolTimeoutMs(tool, effectiveInput))
@@ -136187,7 +138912,8 @@ async function callProductionEvidence(input) {
         "artifact versions and approvals are immutable",
         "promotion is append-only and optimistic-concurrency guarded",
         "promotion_id is required and binds exact retries to one immutable promotion request",
-        "fingerprint-bound approvals become stale when observed evidence changes"
+        "fingerprint-bound approvals become stale when observed evidence changes",
+        "new approvals must bind a live director-project-revision fingerprint"
       ]
     };
   }

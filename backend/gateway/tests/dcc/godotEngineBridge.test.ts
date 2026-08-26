@@ -238,109 +238,123 @@ describe("engine bridge Godot readiness", () => {
   });
 });
 
+async function createGodotSendHarness() {
+  const setup = await godotSetup();
+  const jobId = randomUUID();
+  const packageDirectory = resolve(setup.dataDirectory, "dcc-jobs", "exchange", "godot", jobId);
+  await mkdir(packageDirectory, { recursive: true });
+  const exchangeResult: DirectorDccExchangePackageResult = {
+    contract: "director-dcc-exchange-result-v1",
+    jobId,
+    provider: "godot",
+    packagePath: packageDirectory,
+    manifestPath: resolve(packageDirectory, "manifest.json"),
+    manifestSha256: "a".repeat(64),
+    packageDigest: "b".repeat(64),
+    sourceRevision: REVISION,
+    formats: [],
+    assets: [],
+    warnings: [],
+  };
+  const observedArguments: string[][] = [];
+  const runProcess = vi.fn(async (_executable: string, args: string[]) => {
+    observedArguments.push(args);
+    const reportPath = args[args.indexOf("--report") + 1]!;
+    await mkdir(resolve(dirname(reportPath), "return"), { recursive: true });
+    await writeFile(
+      reportPath,
+      JSON.stringify({
+        ok: true,
+        contract: "director-dcc-engine-report-v1",
+        provider: "godot",
+        hostVersion: "4.3.stable.official.77dcf97d8",
+        connectorVersion: CONNECTOR_VERSION,
+        packageId: jobId,
+        sourceRevision: REVISION,
+        importedObjectCount: 1,
+        importedCameraCount: 0,
+        scenePath: "res://director/scenes/fixture.tscn",
+        returnPackageDir: "return",
+        warnings: [],
+        godot: {
+          animationPlayerPath: "res://director/scenes/fixture.tscn",
+          animationLibrary: "director",
+          displayRate: "24000/1001",
+          bakedKeyCount: 75,
+          transformTrackCount: 1,
+          fovTrackCount: 0,
+          shotCutTrackCount: 0,
+          mappedShotCount: 0,
+          payloadAnimationPlayerCount: 0,
+          importedSkeletonCount: 0,
+          importedLightCount: 0,
+          worldEnvironmentAmbient: false,
+          omittedLightCount: 0,
+          appliedMaterialCount: 0,
+          externalizedTextureCount: 0,
+        },
+      }),
+      "utf8",
+    );
+    return { stdout: "", stderr: "" };
+  });
+  const bridge = createDirectorDccEngineBridge({
+    workspaceRoot: repositoryRoot,
+    dataDirectory: setup.dataDirectory,
+    exchangePackager: { exportPackage: vi.fn().mockResolvedValue(exchangeResult) },
+    environment: setup.environment,
+    probeHostVersion: async () => "4.3.stable.official.77dcf97d8",
+    probeConnectorHealth: async () => ({ ok: true, detail: "fixture", health: null }),
+    runProcess,
+    healthTtlMs: 0,
+  });
+  return { bridge, observedArguments };
+}
+
+function animatedGodotProject(options: { rigged?: boolean } = {}) {
+  const project = createTestDirectorProject();
+  project.scene.timeline = {
+    version: 1,
+    fps: 23.976,
+    timebase: {
+      rate: { numerator: 24000, denominator: 1001 },
+      dropFrame: false,
+      startTimecode: "00:00:00:00",
+    },
+    frameStart: 0,
+    frameEnd: 24,
+    currentFrame: 0,
+    loop: false,
+  };
+  project.objects = [
+    {
+      id: "obj-anim",
+      name: "Prop",
+      kind: options.rigged ? "character" : "prop",
+      visible: true,
+      locked: false,
+      transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      ...(options.rigged ? { characterRig: { rigType: "mannequin", posePresetId: null, controls: {} } } : {}),
+      animation: {
+        version: 1,
+        keyframes: [
+          { frame: 0, transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+          {
+            frame: 24,
+            transform: { position: [2, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            ...(options.rigged ? { poseValues: { "arm.L": 0.5 } } : {}),
+          },
+        ],
+      },
+    },
+  ];
+  return project;
+}
+
 describe("engine bridge Godot animation bake wiring", () => {
   it("hash-pins the bake sidecar into the fixed import argv and merges bake warnings", async () => {
-    const setup = await godotSetup();
-    const jobId = randomUUID();
-    const packageDirectory = resolve(setup.dataDirectory, "dcc-jobs", "exchange", "godot", jobId);
-    await mkdir(packageDirectory, { recursive: true });
-    const exchangeResult: DirectorDccExchangePackageResult = {
-      contract: "director-dcc-exchange-result-v1",
-      jobId,
-      provider: "godot",
-      packagePath: packageDirectory,
-      manifestPath: resolve(packageDirectory, "manifest.json"),
-      manifestSha256: "a".repeat(64),
-      packageDigest: "b".repeat(64),
-      sourceRevision: REVISION,
-      formats: [],
-      assets: [],
-      warnings: [],
-    };
-    const observedArguments: string[][] = [];
-    const runProcess = vi.fn(async (_executable: string, args: string[]) => {
-      observedArguments.push(args);
-      const reportPath = args[args.indexOf("--report") + 1]!;
-      await mkdir(resolve(dirname(reportPath), "return"), { recursive: true });
-      await writeFile(
-        reportPath,
-        JSON.stringify({
-          ok: true,
-          contract: "director-dcc-engine-report-v1",
-          provider: "godot",
-          hostVersion: "4.3.stable.official.77dcf97d8",
-          connectorVersion: CONNECTOR_VERSION,
-          packageId: jobId,
-          sourceRevision: REVISION,
-          importedObjectCount: 1,
-          importedCameraCount: 0,
-          scenePath: "res://director/scenes/fixture.tscn",
-          returnPackageDir: "return",
-          warnings: [],
-          godot: {
-            animationPlayerPath: "res://director/scenes/fixture.tscn",
-            animationLibrary: "director",
-            displayRate: "24000/1001",
-            bakedKeyCount: 75,
-            transformTrackCount: 1,
-            fovTrackCount: 0,
-            shotCutTrackCount: 0,
-            mappedShotCount: 0,
-            payloadAnimationPlayerCount: 0,
-            importedSkeletonCount: 0,
-            importedLightCount: 0,
-            worldEnvironmentAmbient: false,
-            omittedLightCount: 0,
-            appliedMaterialCount: 0,
-            externalizedTextureCount: 0,
-          },
-        }),
-        "utf8",
-      );
-      return { stdout: "", stderr: "" };
-    });
-    const bridge = createDirectorDccEngineBridge({
-      workspaceRoot: repositoryRoot,
-      dataDirectory: setup.dataDirectory,
-      exchangePackager: { exportPackage: vi.fn().mockResolvedValue(exchangeResult) },
-      environment: setup.environment,
-      probeHostVersion: async () => "4.3.stable.official.77dcf97d8",
-      probeConnectorHealth: async () => ({ ok: true, detail: "fixture", health: null }),
-      runProcess,
-      healthTtlMs: 0,
-    });
-
-    const project = createTestDirectorProject();
-    project.scene.timeline = {
-      version: 1,
-      fps: 23.976,
-      timebase: {
-        rate: { numerator: 24000, denominator: 1001 },
-        dropFrame: false,
-        startTimecode: "00:00:00:00",
-      },
-      frameStart: 0,
-      frameEnd: 24,
-      currentFrame: 0,
-      loop: false,
-    };
-    project.objects = [
-      {
-        id: "obj-anim",
-        name: "Prop",
-        kind: "prop",
-        visible: true,
-        locked: false,
-        transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
-        animation: {
-          version: 1,
-          keyframes: [
-            { frame: 0, transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } },
-            { frame: 24, transform: { position: [2, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } },
-          ],
-        },
-      },
-    ];
+    const { bridge, observedArguments } = await createGodotSendHarness();
+    const project = animatedGodotProject();
 
     const result = await bridge.send(project, { provider: "godot" });
     expect(observedArguments).toHaveLength(1);
@@ -355,5 +369,24 @@ describe("engine bridge Godot animation bake wiring", () => {
 
     expect(result.report.godot?.animationLibrary).toBe("director");
     expect(result.report.godot?.displayRate).toBe("24000/1001");
+    expect(result.omittedAnimationChannels).toBeUndefined();
+  });
+
+  it("surfaces rigged-character pose omissions as structured data from the Gateway's own bake", async () => {
+    const { bridge } = await createGodotSendHarness();
+    const project = animatedGodotProject({ rigged: true });
+
+    const result = await bridge.send(project, { provider: "godot" });
+    // The Godot bake sidecar records the omission per entity; the send result
+    // must surface it exactly like the Unreal path (a Godot-only silent drop
+    // here is the regression this test pins down).
+    expect(result.omittedAnimationChannels).toEqual([
+      {
+        directorId: "obj-anim",
+        entityType: "object",
+        channels: expect.arrayContaining(["pose_values", "character_rig"]),
+      },
+    ]);
+    expect(result.warnings.join("\n")).toMatch(/warn-and-omit/);
   });
 });

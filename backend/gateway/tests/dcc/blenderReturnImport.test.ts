@@ -82,6 +82,8 @@ interface FixtureOptions {
   tableChange?: boolean;
   /** Add an object_addition change (a new Blender object with a fresh director_id). */
   addition?: boolean;
+  /** Add a second object_addition change so skip/opt-in intent can diverge per object. */
+  secondAddition?: boolean;
   /** Use a directorId for the addition that already exists in the live project. */
   additionIdCollision?: boolean;
   /** Director-side edits applied to the live project after the export. */
@@ -131,6 +133,7 @@ async function fixture(options: FixtureOptions = {}) {
     });
   }
   const additionMesh = new TextEncoder().encode("fresh blender lamp glb fixture");
+  const secondAdditionMesh = new TextEncoder().encode("fresh blender shade glb fixture");
   if (options.addition) {
     await writeFile(resolve(packageDirectory, "meshes", "lamp-new.glb"), additionMesh);
     changes.push({
@@ -141,6 +144,18 @@ async function fixture(options: FixtureOptions = {}) {
       meshFile: "meshes/lamp-new.glb",
       transform: directorTransformToBlender({ position: [0, 1, -2], rotation: [0, 0, 0], scale: [1, 1, 1] }, world),
       assetLabel: "Desk Lamp (Blender)",
+    });
+  }
+  if (options.secondAddition) {
+    await writeFile(resolve(packageDirectory, "meshes", "shade-new.glb"), secondAdditionMesh);
+    changes.push({
+      kind: "object_addition",
+      directorId: "shade-new",
+      entityType: "object",
+      name: "Lamp Shade",
+      meshFile: "meshes/shade-new.glb",
+      transform: directorTransformToBlender({ position: [0, 1.4, -2], rotation: [0, 0, 0], scale: [1, 1, 1] }, world),
+      assetLabel: "Lamp Shade (Blender)",
     });
   }
   const manifest: DirectorDccReturnManifestV1 = {
@@ -162,6 +177,7 @@ async function fixture(options: FixtureOptions = {}) {
     fileHashes: {
       "meshes/chair.glb": options.badHash ? "f".repeat(64) : digest(mesh),
       ...(options.addition ? { "meshes/lamp-new.glb": digest(additionMesh) } : {}),
+      ...(options.secondAddition ? { "meshes/shade-new.glb": digest(secondAdditionMesh) } : {}),
     },
   };
   await writeFile(resolve(packageDirectory, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
@@ -439,8 +455,8 @@ describe("Blender return import", () => {
       "addition-apply-1",
       applyAuthoring,
     );
-    const additionAsset = result.copiedAssets.find((asset) =>
-      asset.hash === setup.manifest.fileHashes["meshes/lamp-new.glb"],
+    const additionAsset = result.copiedAssets.find(
+      (asset) => asset.hash === setup.manifest.fileHashes["meshes/lamp-new.glb"],
     );
     expect(additionAsset).toBeDefined();
     expect(
@@ -459,11 +475,14 @@ describe("Blender return import", () => {
         id: "lamp-new",
         name: "Desk Lamp",
         kind: "prop",
-        transform: expect.objectContaining({ position: [expect.closeTo(0, 6), expect.closeTo(1, 6), expect.closeTo(-2, 6)] }),
+        transform: expect.objectContaining({
+          position: [expect.closeTo(0, 6), expect.closeTo(1, 6), expect.closeTo(-2, 6)],
+        }),
       }),
     );
     const upsertIndex = operation.actions.findIndex(
-      (action) => action.action === "upsert_asset" && (action.asset as { name?: string }).name === "Desk Lamp (Blender)",
+      (action) =>
+        action.action === "upsert_asset" && (action.asset as { name?: string }).name === "Desk Lamp (Blender)",
     );
     const addIndex = operation.actions.findIndex((action) => action.action === "add_object");
     expect(upsertIndex).toBeGreaterThanOrEqual(0);
@@ -483,6 +502,86 @@ describe("Blender return import", () => {
     );
     const optedOutOperation = applyOptedOut.mock.calls[0]![0] as { actions: Array<Record<string, unknown>> };
     expect(optedOutOperation.actions).not.toContainEqual(expect.objectContaining({ action: "add_object" }));
+  });
+
+  it("honours per-object intent: one addition skipped on request while another is opted in", async () => {
+    const setup = await fixture({ addition: true, secondAddition: true });
+    const plan = await setup.importer.buildImportPlan("job-1/return-package", setup.project, {
+      includeNewObjects: true,
+      skipDirectorIds: ["lamp-new"],
+    });
+    expect(plan.ready).toBe(true);
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.operations).toContainEqual(
+      expect.objectContaining({
+        op: "skip",
+        directorId: "lamp-new",
+        reason: expect.stringContaining("skip_director_ids"),
+      }),
+    );
+    expect(plan.operations).toContainEqual(expect.objectContaining({ op: "create_prop", objectId: "shade-new" }));
+    expect(plan.operations).not.toContainEqual(expect.objectContaining({ op: "create_prop", objectId: "lamp-new" }));
+  });
+
+  it("keeps mixed skip/opt-in addition intent across the server-side rebuild on apply", async () => {
+    const setup = await fixture({ addition: true, secondAddition: true });
+    const plan = await setup.importer.buildImportPlan("job-1/return-package", setup.project, {
+      includeNewObjects: true,
+      skipDirectorIds: ["lamp-new"],
+    });
+    const applyAuthoring = vi.fn().mockResolvedValue({ success: true });
+    const result = await setup.importer.applyImportPlan(
+      plan,
+      setup.project,
+      getDirectorProjectRevision(setup.project),
+      "addition-mixed-1",
+      applyAuthoring,
+    );
+    const operation = applyAuthoring.mock.calls[0]![0] as { actions: Array<Record<string, unknown>> };
+    const additions = operation.actions.filter((action) => action.action === "add_object");
+    expect(additions).toEqual([expect.objectContaining({ id: "shade-new", name: "Lamp Shade" })]);
+    // Only the opted-in mesh is copied into the immutable import directory.
+    const copiedHashes = result.copiedAssets.map((asset) => asset.hash);
+    expect(copiedHashes).toContain(setup.manifest.fileHashes["meshes/shade-new.glb"]);
+    expect(copiedHashes).not.toContain(setup.manifest.fileHashes["meshes/lamp-new.glb"]);
+  });
+
+  it("ignores tampered operation payloads: the applied actions come from the server-side rebuild", async () => {
+    const setup = await fixture({ addition: true });
+    const plan = await setup.importer.buildImportPlan("job-1/return-package", setup.project, {
+      includeNewObjects: true,
+    });
+    // A client resubmits the plan with edited operation payloads (a teleported
+    // transform and a forged hash). The plan only locks identity and intent, so
+    // the rebuild against the validated package must win over these edits.
+    const tampered = structuredClone(plan);
+    for (const operation of tampered.operations) {
+      if (operation.op === "create_prop") {
+        operation.transform = { position: [999, 999, 999], rotation: [0, 0, 0], scale: [1, 1, 1] };
+        operation.hash = "e".repeat(64);
+      }
+      if (operation.op === "update_transform") {
+        operation.transform = { position: [-999, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] };
+      }
+    }
+    const applyAuthoring = vi.fn().mockResolvedValue({ success: true });
+    const result = await setup.importer.applyImportPlan(
+      tampered,
+      setup.project,
+      getDirectorProjectRevision(setup.project),
+      "tampered-1",
+      applyAuthoring,
+    );
+    const operation = applyAuthoring.mock.calls[0]![0] as { actions: Array<Record<string, unknown>> };
+    const addObject = operation.actions.find((action) => action.action === "add_object") as {
+      transform: { position: [number, number, number] };
+    };
+    expect(addObject.transform.position[0]).toBeCloseTo(0, 6);
+    expect(addObject.transform.position[1]).toBeCloseTo(1, 6);
+    expect(addObject.transform.position[2]).toBeCloseTo(-2, 6);
+    // The copied asset carries the manifest hash, not the forged one.
+    expect(result.copiedAssets.map((asset) => asset.hash)).toContain(setup.manifest.fileHashes["meshes/lamp-new.glb"]);
+    expect(result.copiedAssets.map((asset) => asset.hash)).not.toContain("e".repeat(64));
   });
 
   it("applies a plan whose JSON key order differs from the server serialization", async () => {

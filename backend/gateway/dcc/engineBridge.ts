@@ -871,9 +871,11 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     const sendWarnings: string[] = [];
 
     // Structured warn-and-omit: pose/rig channels the bake could not carry are
-    // reported from the Gateway's own sidecar, so an outdated connector can
-    // never silently flatten them out of the result.
-    const omittedAnimationChannels = (unrealBake?.bake.entities ?? [])
+    // reported from the Gateway's own sidecar (Unreal Sequencer and Godot
+    // animation bakes alike), so an outdated connector can never silently
+    // flatten them out of the result.
+    const bakedEntities = unrealBake?.bake.entities ?? godotBake?.bake.entities ?? [];
+    const omittedAnimationChannels = bakedEntities
       .filter((entity) => entity.omittedChannels?.length)
       .map((entity) => ({
         directorId: entity.directorId,
@@ -882,7 +884,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
       }));
     if (omittedAnimationChannels.length > 0) {
       sendWarnings.push(
-        `${omittedAnimationChannels.length} baked entity/entities carry pose or rig channels the Sequencer bake cannot transfer; only world transforms were baked (warn-and-omit, see omittedAnimationChannels).`,
+        `${omittedAnimationChannels.length} baked entity/entities carry pose or rig channels the ${provider} animation bake cannot transfer; only world transforms were baked (warn-and-omit, see omittedAnimationChannels).`,
       );
     }
 

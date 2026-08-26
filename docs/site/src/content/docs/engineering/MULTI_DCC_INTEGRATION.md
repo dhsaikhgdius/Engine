@@ -675,7 +675,8 @@ The `director_dcc` tool implements this workflow today with:
   fixed Director-authored connector entry point (rejected with structured
   diagnostics when the connector is not `nativeReady`);
 - `receive_from_engine` — validate an engine return package and build a
-  read-only import plan (`skip_director_ids` supported);
+  read-only import plan (`skip_director_ids` and the reviewed
+  `include_new_objects` opt-in supported);
 - `import_return_package` / `apply_import_plan` — the same plan/apply path for
   Blender and engine returns, guarded by the exact expected revision and an
   idempotency key; and

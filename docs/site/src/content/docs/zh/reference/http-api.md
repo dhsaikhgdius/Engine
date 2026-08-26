@@ -291,7 +291,8 @@ curl -fsS -X POST "$BASE/api/tools/director_dcc" \
   }}')" | jq
 ```
 
-`receive_from_engine` 接受与 `import_return_package` 相同的可选 `skip_director_ids` 列表。Apply
+`receive_from_engine` 接受与 `import_return_package` 相同的可选 `skip_director_ids` 列表和
+`include_new_objects` 选择加入；未选择加入时，引擎 `object_addition` 条目保持为可审阅的 skip。Apply
 受 revision 保护且幂等；冲突返回 `409` 以及只读计划。
 
 ## 分析参考图片

@@ -765,6 +765,7 @@ describe("DCC engine handoff routes", () => {
     });
     expect(godotImporter.buildImportPlan).toHaveBeenCalledWith("job-9/return", project, {
       skipDirectorIds: ["chair"],
+      includeNewObjects: false,
     });
     expect(json).toHaveBeenCalledWith(
       expect.anything(),
@@ -773,8 +774,52 @@ describe("DCC engine handoff routes", () => {
         success: true,
         result: expect.objectContaining({
           provider: "godot",
+          include_new_objects: false,
           summary: expect.objectContaining({ skipped_count: 1 }),
         }),
+      }),
+    );
+  });
+
+  it("threads the reviewed addition opt-in through receive_from_engine and echoes it back", async () => {
+    const json = vi.fn();
+    const plan = {
+      contract: "director-dcc-import-plan-v1",
+      ready: true,
+      packageId: "godot-return-2",
+      packageDir: "job-9/return",
+      manifestHash: "a".repeat(64),
+      sourceRevision: BLEND_REVISION,
+      targetRevision: BLEND_REVISION,
+      operations: [],
+      conflicts: [],
+      warnings: [],
+    };
+    const godotImporter = { buildImportPlan: vi.fn().mockResolvedValue(plan) } as unknown as BlenderReturnImporter;
+    const project = createTestDirectorProject();
+    await handleDccRoute(request("POST"), response(), new URL("http://test/api/tools/director_dcc"), {
+      readBody: vi.fn().mockResolvedValue({
+        input: {
+          op: "receive_from_engine",
+          provider: "godot",
+          package_dir: "job-9/return",
+          include_new_objects: true,
+        },
+      }),
+      json,
+      getProject: vi.fn().mockResolvedValue(project),
+      blender: blenderStub,
+      engineReturnImporters: { godot: godotImporter },
+    });
+    expect(godotImporter.buildImportPlan).toHaveBeenCalledWith("job-9/return", project, {
+      includeNewObjects: true,
+    });
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      200,
+      expect.objectContaining({
+        success: true,
+        result: expect.objectContaining({ provider: "godot", include_new_objects: true }),
       }),
     );
   });
