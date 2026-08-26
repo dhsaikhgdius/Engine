@@ -17,12 +17,42 @@ import { registerProductionJobArtifactVersions } from "../../artifacts/productio
 import { ProductionArtifactStore } from "../../artifacts/productionArtifactStore";
 import { ProductionJobStore } from "../../jobs/productionJobStore";
 import { resolveArtifactRetentionPolicy } from "../../media/artifactRetentionPolicy";
-import { FilesystemArtifactStorage } from "../../media/artifactStorage";
+import {
+  FilesystemArtifactStorage,
+  ObjectStorageArtifactStorage,
+  type ObjectStorageClient,
+} from "../../media/artifactStorage";
 import { StorageOpsService } from "../../media/storageOpsService";
 import { handleStorageOpsRoute, type StorageOpsRouteDependencies } from "../../routes/storageOpsRoutes";
 
 const NOW = "2026-08-25T12:00:00.000Z";
 const DAY_MS = 24 * 60 * 60_000;
+
+/** In-memory S3-compatible client for object-storage GC path tests. */
+function fakeObjectStorageClient(clock: () => string = () => new Date().toISOString()) {
+  const objects = new Map<string, { bytes: Uint8Array; modifiedAt: string }>();
+  const client: ObjectStorageClient = {
+    async putObject(key, bytes) {
+      objects.set(key, { bytes, modifiedAt: clock() });
+    },
+    async getObject(key) {
+      return objects.get(key)?.bytes ?? null;
+    },
+    async headObject(key) {
+      const object = objects.get(key);
+      return object ? { bytes: object.bytes.byteLength, modifiedAt: object.modifiedAt } : null;
+    },
+    async deleteObject(key) {
+      return objects.delete(key);
+    },
+    async listObjects(prefix) {
+      return [...objects.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, object]) => ({ key, bytes: object.bytes.byteLength, modifiedAt: object.modifiedAt }));
+    },
+  };
+  return { client, objects };
+}
 
 function jobRecord(
   id: string,
@@ -92,10 +122,25 @@ describe("storage ops routes", () => {
     tempDirs.length = 0;
   });
 
-  async function harness(options: { retentionJson?: string; nowMs?: () => number; planTtlMs?: number } = {}) {
+  async function harness(
+    options: {
+      retentionJson?: string;
+      nowMs?: () => number;
+      planTtlMs?: number;
+      backend?: "filesystem" | "object-storage";
+    } = {},
+  ) {
     const dir = await mkdtemp(join(tmpdir(), "director-storage-ops-"));
     tempDirs.push(dir);
-    const storage = new FilesystemArtifactStorage(dir);
+    const objectFake =
+      options.backend === "object-storage"
+        ? // Stamp objects at the fixture epoch so plan clocks can advance age deterministically.
+          fakeObjectStorageClient(() => NOW)
+        : null;
+    const storage =
+      options.backend === "object-storage"
+        ? new ObjectStorageArtifactStorage(objectFake!.client)
+        : new FilesystemArtifactStorage(dir);
     const jobs = new ProductionJobStore(dir);
     const retention = resolveArtifactRetentionPolicy(
       options.retentionJson ? { DIRECTOR_ARTIFACT_RETENTION_JSON: options.retentionJson } : {},
@@ -306,5 +351,45 @@ describe("storage ops routes", () => {
     const replayed = await registerProductionJobArtifactVersions(artifactStore, record);
     expect(replayed.map((registration) => registration.replayed)).toEqual([true]);
     expect(replayed[0]!.version.content.sha256).toBe("c".repeat(64));
+  });
+
+  it("runs health/plan/sweep against an injected object-storage backend", async () => {
+    const nowMs = Date.parse(NOW) + 7 * DAY_MS;
+    const context = await harness({
+      backend: "object-storage",
+      retentionJson: JSON.stringify({ rules: [{ jobKinds: ["media.proxy"], retainDays: 3 }] }),
+      nowMs: () => nowMs,
+    });
+    const bytes = new TextEncoder().encode("0123456789");
+    await context.putJob(jobRecord("job-remote", "succeeded", "media.proxy", proxyInput, "proxy.mp4"));
+    await context.storage.put("production-jobs/job-remote/attempts/job-remote-attempt-1/proxy.mp4", bytes);
+    await context.storage.put(`media-transcode-inputs/${"e".repeat(64)}.bin`, bytes);
+
+    const health = (await context.call("GET", "/api/storage/health")).write!;
+    expect(health).toMatchObject({
+      status: 200,
+      body: {
+        health: {
+          backend: "object-storage",
+          usage: {
+            jobArtifacts: { objects: 1, bytes: 10 },
+            stagedMediaInputs: { objects: 1, bytes: 10 },
+          },
+          sweepCandidates: { count: 2, byReason: { unreachable: 1, retentionExpired: 1 } },
+        },
+      },
+    });
+
+    const plan = ((await context.call("POST", "/api/storage/gc/plan")).write!.body as { plan: { planId: string } })
+      .plan;
+    const sweep = (await context.call("POST", "/api/storage/gc/sweep", { planId: plan.planId, confirm: plan.planId }))
+      .write!;
+    expect(sweep).toMatchObject({
+      status: 200,
+      body: { result: { deletedCount: 2, reclaimedBytes: 20, replayed: false } },
+    });
+    expect(await context.storage.get("production-jobs/job-remote/attempts/job-remote-attempt-1/proxy.mp4")).toBeNull();
+    expect(await context.storage.get(`media-transcode-inputs/${"e".repeat(64)}.bin`)).toBeNull();
+    expect(await context.jobs.get("job-remote")).not.toBeNull();
   });
 });
