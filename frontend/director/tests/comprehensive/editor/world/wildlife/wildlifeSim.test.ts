@@ -499,8 +499,8 @@ describe("wildlife weather and wind response", () => {
       }),
     };
     expect(wildlifeSimConfigKey(group, WORLD_SEED, GROUND_HEIGHT, windier)).toBe(calmKey);
-    // Wetness/cloud-cover (and turbulence) are not consumed: evolution
-    // systems may drift them mid-shot without resetting herds.
+    // Wetness/cloud-cover (and wind turbulence, which only flocks consume)
+    // never reset herds: evolution systems may drift them mid-shot.
     const wetter: WildlifeSimEnvironment = {
       settings: makeSettings({
         wind: { ...WILDLIFE_CALM_ENVIRONMENT.settings.wind, turbulence: 0.9 },

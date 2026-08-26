@@ -1,11 +1,39 @@
 import { describe, expect, it } from "vitest";
 import type { DirectorWorldWeather } from "../../../../../src/comprehensive/editor/schema/directorProject";
-import { evaluateSkyWeatherMood } from "../../../../../src/comprehensive/editor/world/sky/skyWeather";
+import { evaluateSkyWeatherMood, resolveSkyWeatherMood } from "../../../../../src/comprehensive/editor/world/sky/skyWeather";
+import type { WorldClimateState } from "../../../../../src/comprehensive/editor/world/worldClimate";
 
 const PRESETS = ["clear", "overcast", "rain", "snow", "storm"] as const;
 
 function weather(overrides: Partial<DirectorWorldWeather> = {}): DirectorWorldWeather {
   return { preset: "clear", intensity: 0.5, wetness: 0.2, cloudCover: 0.3, ...overrides };
+}
+
+/** Synthetic evolving climate mid-transition between two presets. */
+function blendClimate(
+  fromPreset: (typeof PRESETS)[number],
+  toPreset: (typeof PRESETS)[number],
+  blend: number,
+  block: DirectorWorldWeather,
+): WorldClimateState {
+  return {
+    evolving: true,
+    fromPreset,
+    toPreset,
+    blend,
+    preset: blend >= 0.5 ? toPreset : fromPreset,
+    intensity: block.intensity,
+    cloudCover: block.cloudCover,
+    wetness: block.wetness,
+    rainPresence: 0,
+    snowPresence: 0,
+    rainLevel: 0,
+    snowLevel: 0,
+    windGain: 1,
+    stormFactor: 0,
+    hours: 14,
+    weather: block,
+  };
 }
 
 describe("evaluateSkyWeatherMood", () => {
@@ -88,5 +116,30 @@ describe("evaluateSkyWeatherMood", () => {
     // The authored slider still wins when it is higher than the floor.
     const authored = evaluateSkyWeatherMood(weather({ preset: "overcast", cloudCover: 0.99, intensity: 0 }));
     expect(authored.effectiveCloudCover).toBeCloseTo(0.99, 10);
+  });
+});
+
+describe("resolveSkyWeatherMood", () => {
+  it("without a climate, or while holding one node, it equals the direct evaluation exactly", () => {
+    for (const preset of PRESETS) {
+      const block = weather({ preset, intensity: 0.7 });
+      expect(resolveSkyWeatherMood(block)).toEqual(evaluateSkyWeatherMood(block));
+      expect(resolveSkyWeatherMood(block, blendClimate(preset, preset, 0.3, block))).toEqual(
+        evaluateSkyWeatherMood(block),
+      );
+    }
+  });
+
+  it("blends every mood channel linearly between the from/to preset moods", () => {
+    const block = weather({ preset: "storm", intensity: 0.8, cloudCover: 0.4 });
+    const from = evaluateSkyWeatherMood({ ...block, preset: "clear" });
+    const to = evaluateSkyWeatherMood({ ...block, preset: "storm" });
+    const mid = resolveSkyWeatherMood(block, blendClimate("clear", "storm", 0.25, block));
+    for (const channel of Object.keys(from) as Array<keyof typeof from>) {
+      expect(mid[channel], channel).toBeCloseTo(from[channel] + (to[channel] - from[channel]) * 0.25, 12);
+    }
+    // Endpoints land exactly on the pure evaluations.
+    expect(resolveSkyWeatherMood(block, blendClimate("clear", "storm", 0, block))).toEqual(from);
+    expect(resolveSkyWeatherMood(block, blendClimate("clear", "storm", 1, block))).toEqual(to);
   });
 });

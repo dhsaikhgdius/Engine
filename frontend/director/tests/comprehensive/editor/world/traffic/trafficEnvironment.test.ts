@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
-import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
+import { beforeEach, describe, expect, it } from "vitest";
+import type {
+  DirectorWorldSettings,
+  DirectorWorldWeather,
+} from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import {
+  computeClimateRoadSurfaceAppearance,
   computeRoadSurfaceAppearance,
   computeTrafficHeadlightFactor,
   TRAFFIC_HEADLIGHT_DAWN_END_HOURS,
@@ -9,6 +13,10 @@ import {
   TRAFFIC_HEADLIGHT_DUSK_START_HOURS,
   trafficWeatherSpeedScale,
 } from "../../../../../src/comprehensive/editor/world/traffic/trafficEnvironment";
+import {
+  evaluateWorldClimate,
+  resetWorldClimateCaches,
+} from "../../../../../src/comprehensive/editor/world/worldClimate";
 
 function weather(overrides: Partial<DirectorWorldWeather> = {}): DirectorWorldWeather {
   return {
@@ -19,6 +27,20 @@ function weather(overrides: Partial<DirectorWorldWeather> = {}): DirectorWorldWe
     ...overrides,
   };
 }
+
+function makeSettings(overrides: Partial<DirectorWorldWeather> = {}): DirectorWorldSettings {
+  return {
+    enabled: true,
+    seed: 20_260_813,
+    wind: { directionDegrees: 45, speedMps: 2.5, gustiness: 0.35, turbulence: 0.3 },
+    timeOfDay: { mode: "fixed", hours: 14, cycleMinutes: 12, drivesSky: false },
+    weather: weather(overrides),
+  };
+}
+
+beforeEach(() => {
+  resetWorldClimateCaches();
+});
 
 describe("traffic weather speed scale", () => {
   it("keeps the authored limit on clear and overcast days", () => {
@@ -87,5 +109,31 @@ describe("road surface appearance", () => {
     expect(snow.snowMix).toBeGreaterThan(0.5);
     const authored = computeRoadSurfaceAppearance(weather({ wetness: 0.5 }));
     expect(authored.colorScale).toBeCloseTo(1 - 0.45 * 0.5, 10);
+  });
+
+  it("climate appearance reproduces the legacy authored appearance exactly in static mode", () => {
+    for (const preset of ["clear", "overcast", "rain", "snow", "storm"] as const) {
+      for (const intensity of [0, 0.25, 0.6, 1]) {
+        for (const wetness of [0, 0.4, 1]) {
+          const settings = makeSettings({ preset, intensity, wetness });
+          const climate = evaluateWorldClimate(settings, 25);
+          expect(computeClimateRoadSurfaceAppearance(climate)).toEqual(
+            computeRoadSurfaceAppearance(settings.weather),
+          );
+        }
+      }
+    }
+  });
+
+  it("climate appearance ramps continuously through an evolving cycle", () => {
+    const settings = makeSettings({ preset: "clear", intensity: 1, evolution: { mode: "cycle", periodSeconds: 120 } });
+    let previous = computeClimateRoadSurfaceAppearance(evaluateWorldClimate(settings, 0));
+    for (let t = 0.5; t <= 900; t += 0.5) {
+      const appearance = computeClimateRoadSurfaceAppearance(evaluateWorldClimate(settings, t));
+      expect(Math.abs(appearance.colorScale - previous.colorScale)).toBeLessThan(0.03);
+      expect(Math.abs(appearance.roughness - previous.roughness)).toBeLessThan(0.04);
+      expect(Math.abs(appearance.snowMix - previous.snowMix)).toBeLessThan(0.03);
+      previous = appearance;
+    }
   });
 });

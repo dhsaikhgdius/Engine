@@ -165,6 +165,15 @@ describe("environment determinism", () => {
     expect(wildlifeSimConfigKey(birds, WORLD_SEED, GROUND_HEIGHT, { settings })).not.toBe(
       wildlifeSimConfigKey(birds, WORLD_SEED, GROUND_HEIGHT, { settings: windier }),
     );
+    // Turbulence feeds the flock wind evaluator (flutter band + meander), so
+    // a turbulence-only edit must reset birds — but never fish.
+    const turbulent = makeSettings({ wind: { directionDegrees: 90, speedMps: 0, gustiness: 0, turbulence: 0.9 } });
+    expect(wildlifeSimConfigKey(birds, WORLD_SEED, GROUND_HEIGHT, { settings })).not.toBe(
+      wildlifeSimConfigKey(birds, WORLD_SEED, GROUND_HEIGHT, { settings: turbulent }),
+    );
+    expect(wildlifeSimConfigKey(group, WORLD_SEED, GROUND_HEIGHT, { settings })).toBe(
+      wildlifeSimConfigKey(group, WORLD_SEED, GROUND_HEIGHT, { settings: turbulent }),
+    );
     // No environment matches an empty environment fragment.
     expect(wildlifeSimConfigKey(group, WORLD_SEED, GROUND_HEIGHT)).toBe(
       wildlifeSimConfigKey(group, WORLD_SEED, GROUND_HEIGHT, { settings }),

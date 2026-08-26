@@ -115,6 +115,15 @@ describe("propagation gating", () => {
     expect(
       firePropagationConfigKey(makeFireEffect(), { ...settings, weather: { ...settings.weather, wetness: 0.5 } }, []),
     ).not.toBe(base);
+    // Every wind field the evaluator reads must invalidate the key —
+    // turbulence drives the flutter band and heading meander.
+    expect(
+      firePropagationConfigKey(
+        makeFireEffect(),
+        { ...settings, wind: { ...settings.wind, turbulence: settings.wind.turbulence + 0.5 } },
+        [],
+      ),
+    ).not.toBe(base);
     const rect: FireWaterRect = { centerX: 4, centerZ: 0, sizeX: 4, sizeZ: 4, rotationDegrees: 0 };
     expect(firePropagationConfigKey(makeFireEffect(), settings, [rect])).not.toBe(base);
   });

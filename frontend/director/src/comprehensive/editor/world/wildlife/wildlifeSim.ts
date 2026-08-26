@@ -217,8 +217,10 @@ function wildlifeEnvironmentKey(species: WorldWildlifeSpecies, environment?: Wil
     parts.push(`wx:${weather.preset},${weather.intensity},${evolution}`);
   }
   if (archetype === "flock") {
+    // Every field the wind evaluator reads: turbulence drives the flutter
+    // band and heading meander, so an edit must invalidate the sim too.
     const wind = environment.settings.wind;
-    parts.push(`wind:${wind.directionDegrees},${wind.speedMps},${wind.gustiness}`);
+    parts.push(`wind:${wind.directionDegrees},${wind.speedMps},${wind.gustiness},${wind.turbulence}`);
   }
   if (archetype === "school" && environment.waterRects && environment.waterRects.length > 0) {
     parts.push(

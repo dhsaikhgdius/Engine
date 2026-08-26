@@ -153,5 +153,26 @@ describe("isDirectorWorldAmbientActive", () => {
       locked: false,
     });
     expect(isDirectorWorldAmbientActive(withWildlife)).toBe(true);
+
+    // Ambient traffic advances with worldSeconds: a roads-only world must
+    // upgrade the frameloop and run the clock, or paused traffic freezes.
+    const withRoad = staticWorld();
+    withRoad.roads.push({
+      id: "road_1",
+      name: "环路",
+      points: [
+        [-40, 0, 0],
+        [40, 0, 0],
+      ],
+      widthM: 7,
+      loop: false,
+      vehicleCount: 6,
+      speedKph: 50,
+      showSurface: true,
+      seedOffset: 0,
+      visible: true,
+      locked: false,
+    });
+    expect(isDirectorWorldAmbientActive(withRoad)).toBe(true);
   });
 });

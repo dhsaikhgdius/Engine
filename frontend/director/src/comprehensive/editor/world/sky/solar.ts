@@ -9,7 +9,7 @@ import {
   solveAtmosphere,
   type AtmosphereSolution,
 } from "./atmosphere";
-import { evaluateSkyWeatherMood, type SkyWeatherMood } from "./skyWeather";
+import { resolveSkyWeatherMood } from "./skyWeather";
 
 /**
  * Pure solar/sky lighting model for the Living World sky layer.
@@ -150,31 +150,9 @@ function presetScalar(
   return blendWorldPresetScalar(table, climate);
 }
 
-/**
- * Sky weather mood under an optional climate: static evaluates the weather
- * block directly (bit-exact legacy path), an evolving climate blends the
- * mood outputs across the active preset transition so weather ramps never
- * pop the key light, ambient, effective cover, or stars.
- */
-function skyWeatherMoodFor(weather: DirectorWorldWeather, climate?: WorldClimateState): SkyWeatherMood {
-  if (!climate?.evolving || climate.fromPreset === climate.toPreset) return evaluateSkyWeatherMood(weather);
-  const from = evaluateSkyWeatherMood({ ...weather, preset: climate.fromPreset });
-  const to = evaluateSkyWeatherMood({ ...weather, preset: climate.toPreset });
-  const t = clamp01(climate.blend);
-  return {
-    directTransmission: lerp(from.directTransmission, to.directTransmission, t),
-    ambientScale: lerp(from.ambientScale, to.ambientScale, t),
-    effectiveCloudCover: lerp(from.effectiveCloudCover, to.effectiveCloudCover, t),
-    starVisibility: lerp(from.starVisibility, to.starVisibility, t),
-    cloudOpacityScale: lerp(from.cloudOpacityScale, to.cloudOpacityScale, t),
-    cloudSizeScale: lerp(from.cloudSizeScale, to.cloudSizeScale, t),
-    cloudShaderDarkening: lerp(from.cloudShaderDarkening, to.cloudShaderDarkening, t),
-  };
-}
-
 /** Fraction of direct key light surviving cloud cover, weather preset, and intensity. */
 function getDirectWeatherTransmission(weather: DirectorWorldWeather, climate?: WorldClimateState): number {
-  return skyWeatherMoodFor(weather, climate).directTransmission;
+  return resolveSkyWeatherMood(weather, climate).directTransmission;
 }
 
 const SUN_COLOR_NOON: readonly [number, number, number] = [1, 0.975, 0.93];
@@ -277,7 +255,7 @@ export function evaluateSkyLighting(
   const hours = evaluateWorldTimeOfDayHours(settings.timeOfDay, worldSeconds);
   const arc = getSkySolarArc(hours);
   const weather = climate ? climate.weather : settings.weather;
-  const mood = skyWeatherMoodFor(weather, climate);
+  const mood = resolveSkyWeatherMood(weather, climate);
   const cloudCover = mood.effectiveCloudCover;
   const atmosphere = evaluateAtmosphereForSky(settings, worldSeconds, climate);
   // 0 at deep night, 1 in full daylight, easing through twilight.
