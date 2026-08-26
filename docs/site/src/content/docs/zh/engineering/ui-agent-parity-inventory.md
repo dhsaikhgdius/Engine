@@ -155,8 +155,9 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 
 当前已共享：
 
-- Canvas 节点/边/布局创作（`canvas.node.*`、`canvas.edge.*`、`canvas.dag.layout`）、素材导入
-  入册（`gallery.media.update`）以及撤销/重做按钮（`workspace.undo` / `workspace.redo`）。
+- Canvas 节点/边/布局/分区创作（`canvas.node.*`、`canvas.section.*`、`canvas.node.assign_section`、
+  `canvas.edge.*`、`canvas.dag.layout`）、素材导入入册（`gallery.media.update`）以及撤销/重做按钮
+  （`workspace.undo` / `workspace.redo`）。观察面暴露 `board.sections` 与 `node.section_id`。
 - Video 剪辑检查器编辑、分割、删除（含 ripple）、交叉溶解、键盘离散淡变步进、“+”按钮加入首个
   空闲槽位（`edit.clip.add`）、轨道管理、设置、导入入册，以及撤销/重做（按钮与快捷键）。
 - Canvas 到时间线的桥（`edit.clip.add` + `workspace.switch`）、Stage 截图导入为单个原子
@@ -179,5 +180,5 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 - 连续交互——节点拖拽、剪辑拖拽/裁剪、淡变拖拽、范围滑杆、实时输入——保留本地批处理历史
   （`beginHistoryBatch`/`endHistoryBatch`），与 Stage 滑块/gizmo 策略一致。拖拽/裁剪 pointer-up
   仍本地 `commitClipPlacement`（离散微移/后接复制/显式落点已共享，见上）。
-- Canvas 置顶、视图状态与分区簿记——尚无语义操作。
+- Canvas 置顶与视图状态——尚无语义操作（分区 add/assign/update/remove 已共享）。
 - Canvas 流水线产物入册、旧评审镜像迁移与批量清除评审——多 store 或迁移簿记流程。

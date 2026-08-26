@@ -141,7 +141,7 @@ function normalizedRevision(snapshot: CreativeWorkspaceAgentSnapshot): Record<st
   const { snapshot_fingerprint: _fingerprint, ...rest } = snapshot;
   const aliases = new Map<string, string>();
   const normalized = JSON.stringify(rest).replace(
-    /(board-node|board-edge|edit-clip|gallery-folder)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g,
+    /(board-node|board-edge|board-section|edit-clip|gallery-folder)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g,
     (match, prefix: string) => {
       let alias = aliases.get(match);
       if (!alias) {
@@ -189,7 +189,7 @@ afterEach(() => {
 });
 
 describe("creative workspace UI/agent parity harness", () => {
-  it("produces identical revisions for the Canvas batch (node add/remove, edge connect/remove, layout)", () => {
+  it("produces identical revisions for the Canvas batch (node/section/edge/layout)", () => {
     const { uiRevision, agentRevision } = compareExecutors((execute) => {
       const note = execute({ op: "canvas.node.add", kind: "note", title: "灵感", body: "旁白基调", x: 80, y: 64 });
       const poster = execute({
@@ -207,8 +207,15 @@ describe("creative workspace UI/agent parity harness", () => {
         target_node_id: createdId(poster, "node"),
       });
       execute({ op: "canvas.dag.layout", direction: "horizontal" });
+      const section = execute({ op: "canvas.section.add", title: "生成区", kind: "generation", x: 20, y: 20 });
+      execute({
+        op: "canvas.node.assign_section",
+        node_id: createdId(note, "node"),
+        section_id: createdId(section, "section"),
+      });
       const doomed = execute({ op: "canvas.node.add", kind: "frame", title: "镜头组", x: 40, y: 400 });
       execute({ op: "canvas.node.remove", node_id: createdId(doomed, "node") });
+      execute({ op: "canvas.section.remove", section_id: createdId(section, "section") });
       execute({ op: "canvas.edge.remove", edge_id: createdId(edge, "edge") });
       execute({
         op: "canvas.edge.add",

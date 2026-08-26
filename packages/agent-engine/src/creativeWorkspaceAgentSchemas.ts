@@ -106,6 +106,7 @@ const projectedBoardNodeSchema = z.strictObject({
   title: z.string(),
   body: z.string(),
   media_id: z.string().nullable(),
+  section_id: z.string().nullable(),
   x: finiteNumber,
   y: finiteNumber,
   width: finiteNumber.positive(),
@@ -119,6 +120,18 @@ const projectedBoardNodeSchema = z.strictObject({
     config: projectedCanvasProductionConfigSchema.nullable(),
     outputs: z.array(projectedCanvasProductionOutputSchema).max(32),
   }),
+});
+
+const projectedBoardSectionSchema = z.strictObject({
+  id: idSchema,
+  kind: z.enum(["character", "scene", "generation", "final", "custom"]),
+  title: z.string(),
+  collapsed: z.boolean(),
+  x: finiteNumber,
+  y: finiteNumber,
+  width: finiteNumber.positive(),
+  height: finiteNumber.positive(),
+  accent: z.string(),
 });
 
 const projectedBoardEdgeSchema = z.strictObject({
@@ -233,6 +246,7 @@ export const creativeWorkspaceAgentSnapshotSchema = z.strictObject({
   board: z.strictObject({
     nodes: z.array(projectedBoardNodeSchema).max(240),
     edges: z.array(projectedBoardEdgeSchema).max(2_000),
+    sections: z.array(projectedBoardSectionSchema).max(32),
     dag: projectedCanvasDagSchema,
     pipeline_runs: z.array(creativeWorkspacePipelineRunSchema).max(40),
     viewport: z.strictObject({ x: finiteNumber, y: finiteNumber, zoom: finiteNumber.positive() }),
@@ -279,6 +293,7 @@ export const creativeWorkspaceAgentSnapshotSchema = z.strictObject({
   counts: z.strictObject({
     board_nodes: z.number().int().nonnegative(),
     board_edges: z.number().int().nonnegative(),
+    board_sections: z.number().int().nonnegative(),
     pipeline_runs: z.number().int().nonnegative(),
     tracks: z.number().int().nonnegative(),
     clips: z.number().int().nonnegative(),
@@ -358,6 +373,7 @@ export const creativeWorkspaceAgentCapabilitiesSchema = z.strictObject({
   limits: z.strictObject({
     board_nodes: z.number().int().positive(),
     board_edges: z.number().int().positive(),
+    board_sections: z.number().int().positive(),
     tracks: z.number().int().positive(),
     clips_per_track: z.number().int().positive(),
     batch_steps: z.number().int().positive(),
@@ -386,6 +402,13 @@ export const creativeWorkspaceAgentCapabilitiesSchema = z.strictObject({
     layout_operation: z.literal("canvas.dag.layout"),
     layout_directions: z.tuple([z.literal("horizontal"), z.literal("vertical")]),
     layout_contract: z.string(),
+    section_operations: z.tuple([
+      z.literal("canvas.section.add"),
+      z.literal("canvas.section.update"),
+      z.literal("canvas.section.remove"),
+      z.literal("canvas.node.assign_section"),
+    ]),
+    section_contract: z.string(),
     execution_boundary: z.string(),
   }),
   preview: z.strictObject({
@@ -621,6 +644,7 @@ export function createEmptyCreativeWorkspaceAgentSnapshot(): CreativeWorkspaceAg
     board: {
       nodes: [],
       edges: [],
+      sections: [],
       dag: { valid: true, roots: [], leaves: [], topological_order: [], parallel_levels: [], issues: [] },
       pipeline_runs: [],
       viewport: { x: 0, y: 0, zoom: 1 },
@@ -661,6 +685,7 @@ export function createEmptyCreativeWorkspaceAgentSnapshot(): CreativeWorkspaceAg
     counts: {
       board_nodes: 0,
       board_edges: 0,
+      board_sections: 0,
       pipeline_runs: 0,
       tracks: 0,
       clips: 0,

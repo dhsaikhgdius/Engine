@@ -41078,6 +41078,7 @@ var creativeWorkspacePipelineRequestSchema = strictOperation("pipeline", {
 function hasDefinedProperty(value) {
   return Object.values(value).some((entry) => entry !== void 0);
 }
+var creativeWorkspaceBoardSectionKindSchema = external_exports.enum(["character", "scene", "generation", "final", "custom"]);
 var canvasNodePatchFields = {
   kind: creativeWorkspaceNodeKindSchema.optional(),
   title: nameSchema.optional(),
@@ -41116,14 +41117,24 @@ var editClipPatchFields = {
 };
 var editClipAddOptionalFields = {
   source_duration_sec: editClipPatchFields.source_duration_sec,
+  in_sec: editClipPatchFields.in_sec,
   playback_rate: editClipPatchFields.playback_rate,
+  opacity: editClipPatchFields.opacity,
+  volume: editClipPatchFields.volume,
   fade_in_sec: editClipPatchFields.fade_in_sec,
   fade_out_sec: editClipPatchFields.fade_out_sec,
   scale: editClipPatchFields.scale,
   position_x: editClipPatchFields.position_x,
   position_y: editClipPatchFields.position_y,
   rotation_deg: editClipPatchFields.rotation_deg,
-  fit: editClipPatchFields.fit
+  fit: editClipPatchFields.fit,
+  /**
+   * When true, after the clip is added the same overwrite-with-trim resolver
+   * the Video Editor UI uses (`resolveDirectorTrackOverwrite`) runs on the
+   * landed clip: overlapping neighbours are truncated, head-trimmed, split,
+   * or removed. Omitted/false keeps today's non-destructive queue placement.
+   */
+  overwrite: external_exports.boolean().optional()
 };
 var creativeWorkspaceEditClipPatchSchema = external_exports.strictObject(editClipPatchFields).refine(hasDefinedProperty, "patch must contain at least one field");
 var editTrackPatchSchema = external_exports.strictObject({
@@ -41144,6 +41155,38 @@ var canvasNodeUpdateSchema = strictOperation("canvas.node.update", {
   patch: creativeWorkspaceCanvasNodePatchSchema
 });
 var canvasNodeRemoveSchema = strictOperation("canvas.node.remove", { node_id: creativeWorkspaceIdSchema });
+var canvasNodeAssignSectionSchema = strictOperation("canvas.node.assign_section", {
+  node_id: creativeWorkspaceIdSchema,
+  section_id: creativeWorkspaceIdSchema.nullable()
+});
+var canvasSectionAddSchema = strictOperation("canvas.section.add", {
+  kind: creativeWorkspaceBoardSectionKindSchema.optional(),
+  title: nameSchema.optional(),
+  x: coordinateSchema.optional(),
+  y: coordinateSchema.optional(),
+  width: boundedNumber(240, 2400).optional(),
+  height: boundedNumber(180, 1600).optional(),
+  accent: external_exports.string().trim().min(1).max(80).optional(),
+  collapsed: external_exports.boolean().optional()
+});
+var canvasSectionPatchFields = {
+  kind: creativeWorkspaceBoardSectionKindSchema.optional(),
+  title: nameSchema.optional(),
+  x: coordinateSchema.optional(),
+  y: coordinateSchema.optional(),
+  width: boundedNumber(240, 2400).optional(),
+  height: boundedNumber(180, 1600).optional(),
+  accent: external_exports.string().trim().min(1).max(80).optional(),
+  collapsed: external_exports.boolean().optional()
+};
+var creativeWorkspaceCanvasSectionPatchSchema = external_exports.strictObject(canvasSectionPatchFields).refine(hasDefinedProperty, "patch must contain at least one field");
+var canvasSectionUpdateSchema = strictOperation("canvas.section.update", {
+  section_id: creativeWorkspaceIdSchema,
+  patch: creativeWorkspaceCanvasSectionPatchSchema
+});
+var canvasSectionRemoveSchema = strictOperation("canvas.section.remove", {
+  section_id: creativeWorkspaceIdSchema
+});
 var canvasEdgeAddSchema = strictOperation("canvas.edge.add", {
   source_node_id: creativeWorkspaceIdSchema,
   target_node_id: creativeWorkspaceIdSchema
@@ -41201,12 +41244,22 @@ var editClipAddSchema = strictOperation("edit.clip.add", {
 });
 var editClipUpdateSchema = strictOperation("edit.clip.update", {
   clip_id: creativeWorkspaceIdSchema,
-  patch: creativeWorkspaceEditClipPatchSchema
+  patch: creativeWorkspaceEditClipPatchSchema,
+  /**
+   * When true, after the patch is applied run `resolveDirectorTrackOverwrite`
+   * on the updated clip (same as Video Editor keyboard nudges).
+   */
+  overwrite: external_exports.boolean().optional()
 });
 var editClipMoveSchema = strictOperation("edit.clip.move", {
   clip_id: creativeWorkspaceIdSchema,
   track_id: creativeWorkspaceIdSchema,
-  start_sec: boundedNumber(0, MAX_TIMELINE_SEC)
+  start_sec: boundedNumber(0, MAX_TIMELINE_SEC),
+  /**
+   * When true, after the move run `resolveDirectorTrackOverwrite` on the
+   * landed clip (same as Video Editor drop resolution).
+   */
+  overwrite: external_exports.boolean().optional()
 });
 var editClipSplitSchema = strictOperation("edit.clip.split", {
   clip_id: creativeWorkspaceIdSchema,
@@ -41371,6 +41424,10 @@ var creativeWorkspaceAgentOperationSchema = external_exports.discriminatedUnion(
   canvasNodeAddSchema,
   canvasNodeUpdateSchema,
   canvasNodeRemoveSchema,
+  canvasNodeAssignSectionSchema,
+  canvasSectionAddSchema,
+  canvasSectionUpdateSchema,
+  canvasSectionRemoveSchema,
   canvasEdgeAddSchema,
   canvasEdgeRemoveSchema,
   canvasDagLayoutSchema,
@@ -58743,6 +58800,26 @@ var DIRECTOR_CHARACTER_MOTION_CATALOG = Object.freeze(
 var motionById = new Map(DIRECTOR_CHARACTER_MOTION_CATALOG.map((item) => [item.id, item]));
 function isDirectorCharacterMotionId(clipId) {
   return motionById.has(clipId);
+}
+
+// packages/agent-engine/src/directorCameraCaptures.ts
+var SUPPORTED_IMAGE_TYPES = /* @__PURE__ */ new Set(["image/png", "image/jpeg", "image/webp"]);
+var MAX_DIRECTOR_CAPTURE_BYTES = 12 * 1024 * 1024;
+var MAX_DIRECTOR_CAPTURE_DATA_URL_CHARS = 168e5;
+var MAX_DIRECTOR_CAMERA_CAPTURES_PER_ACTION = 12;
+function parseDirectorCaptureDataUrl(dataUrl) {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
+  if (!match) return null;
+  const mimeType = match[1];
+  if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) return null;
+  const data = match[2];
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  const byteLength = Math.floor(data.length * 3 / 4) - padding;
+  if (byteLength <= 0 || byteLength > MAX_DIRECTOR_CAPTURE_BYTES) return null;
+  return { mimeType, data };
+}
+function isValidDirectorCaptureDataUrl(dataUrl) {
+  return dataUrl.length <= MAX_DIRECTOR_CAPTURE_DATA_URL_CHARS && parseDirectorCaptureDataUrl(dataUrl) !== null;
 }
 
 // assets/library/flick-stage-props/catalog.json
@@ -119967,6 +120044,14 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
     asset_ids: external_exports.array(id3).min(1).max(128),
     cascade: external_exports.boolean().optional()
   }),
+  /**
+   * Activate or clear the Stage environment panorama. The asset must already
+   * exist in `project.assets` (typically via a prior `upsert_asset`) and be a
+   * panorama image. `null` clears `panoramaAssetId` without deleting the asset.
+   */
+  strictAction("set_panorama_asset", {
+    asset_id: id3.nullable()
+  }),
   strictAction("add_object", {
     id: id3,
     name: name3,
@@ -120179,6 +120264,24 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
     activate: external_exports.boolean().optional()
   }),
   strictAction("update_camera", { camera_id: id3, patch: cameraUpdateSchema }),
+  /**
+   * Append Stage camera capture evidence (PNG/JPEG/WebP data URLs) onto a
+   * camera shot — same bookkeeping the Camera panel / viewport capture
+   * toolbar use. Omitted camera_id resolves to the active camera, then the
+   * first camera. Payload limits match gateway Stage capture validation.
+   */
+  strictAction("add_camera_captures", {
+    camera_id: id3.optional(),
+    captures: external_exports.array(
+      external_exports.strictObject({
+        id: id3.optional(),
+        name: name3.optional(),
+        data_url: external_exports.string().trim().min(22).max(MAX_DIRECTOR_CAPTURE_DATA_URL_CHARS).refine(isValidDirectorCaptureDataUrl, {
+          message: "data_url must be data:image/png|jpeg|webp;base64,... with decoded size \u2264 12 MiB"
+        })
+      })
+    ).min(1).max(MAX_DIRECTOR_CAMERA_CAPTURES_PER_ACTION)
+  }),
   strictAction("delete_cameras", { camera_ids: external_exports.array(id3).min(1).max(64) }),
   strictAction("set_animation", {
     target_type: directorAnimationEntityTypeSchema,
@@ -121460,6 +121563,7 @@ var projectedBoardNodeSchema = external_exports.strictObject({
   title: external_exports.string(),
   body: external_exports.string(),
   media_id: external_exports.string().nullable(),
+  section_id: external_exports.string().nullable(),
   x: creativeWorkspaceFiniteNumberSchema,
   y: creativeWorkspaceFiniteNumberSchema,
   width: creativeWorkspaceFiniteNumberSchema.positive(),
@@ -121473,6 +121577,17 @@ var projectedBoardNodeSchema = external_exports.strictObject({
     config: projectedCanvasProductionConfigSchema.nullable(),
     outputs: external_exports.array(projectedCanvasProductionOutputSchema).max(32)
   })
+});
+var projectedBoardSectionSchema = external_exports.strictObject({
+  id: creativeWorkspaceIdSchema,
+  kind: external_exports.enum(["character", "scene", "generation", "final", "custom"]),
+  title: external_exports.string(),
+  collapsed: external_exports.boolean(),
+  x: creativeWorkspaceFiniteNumberSchema,
+  y: creativeWorkspaceFiniteNumberSchema,
+  width: creativeWorkspaceFiniteNumberSchema.positive(),
+  height: creativeWorkspaceFiniteNumberSchema.positive(),
+  accent: external_exports.string()
 });
 var projectedBoardEdgeSchema = external_exports.strictObject({
   id: creativeWorkspaceIdSchema,
@@ -121574,6 +121689,7 @@ var creativeWorkspaceAgentSnapshotSchema = external_exports.strictObject({
   board: external_exports.strictObject({
     nodes: external_exports.array(projectedBoardNodeSchema).max(240),
     edges: external_exports.array(projectedBoardEdgeSchema).max(2e3),
+    sections: external_exports.array(projectedBoardSectionSchema).max(32),
     dag: projectedCanvasDagSchema,
     pipeline_runs: external_exports.array(creativeWorkspacePipelineRunSchema).max(40),
     viewport: external_exports.strictObject({ x: creativeWorkspaceFiniteNumberSchema, y: creativeWorkspaceFiniteNumberSchema, zoom: creativeWorkspaceFiniteNumberSchema.positive() })
@@ -121620,6 +121736,7 @@ var creativeWorkspaceAgentSnapshotSchema = external_exports.strictObject({
   counts: external_exports.strictObject({
     board_nodes: external_exports.number().int().nonnegative(),
     board_edges: external_exports.number().int().nonnegative(),
+    board_sections: external_exports.number().int().nonnegative(),
     pipeline_runs: external_exports.number().int().nonnegative(),
     tracks: external_exports.number().int().nonnegative(),
     clips: external_exports.number().int().nonnegative(),
@@ -121668,6 +121785,7 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
   limits: external_exports.strictObject({
     board_nodes: external_exports.number().int().positive(),
     board_edges: external_exports.number().int().positive(),
+    board_sections: external_exports.number().int().positive(),
     tracks: external_exports.number().int().positive(),
     clips_per_track: external_exports.number().int().positive(),
     batch_steps: external_exports.number().int().positive(),
@@ -121696,6 +121814,13 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
     layout_operation: external_exports.literal("canvas.dag.layout"),
     layout_directions: external_exports.tuple([external_exports.literal("horizontal"), external_exports.literal("vertical")]),
     layout_contract: external_exports.string(),
+    section_operations: external_exports.tuple([
+      external_exports.literal("canvas.section.add"),
+      external_exports.literal("canvas.section.update"),
+      external_exports.literal("canvas.section.remove"),
+      external_exports.literal("canvas.node.assign_section")
+    ]),
+    section_contract: external_exports.string(),
     execution_boundary: external_exports.string()
   }),
   preview: external_exports.strictObject({
@@ -137495,6 +137620,13 @@ function strictlyIncreasingFrames(samples) {
   }
   return -1;
 }
+var directorUnrealOmittedChannelIdSchema = external_exports.enum(["pose_values", "motion_blocks", "character_rig"]);
+var directorUnrealOmittedChannelDetailSchema = external_exports.strictObject({
+  channel: directorUnrealOmittedChannelIdSchema,
+  /** Pose control names, motion clip ids, or rig control names (capped; see reason for overflow). */
+  controls: external_exports.array(external_exports.string().trim().min(1).max(200)).max(128),
+  reason: external_exports.string().trim().min(1).max(600)
+});
 var directorUnrealBakedEntitySchema = external_exports.strictObject({
   directorId: nonEmpty6.max(200),
   entityType: external_exports.enum(["object", "camera"]),
@@ -137508,7 +137640,9 @@ var directorUnrealBakedEntitySchema = external_exports.strictObject({
     sensorHeightMm: external_exports.number().finite().positive().max(1e3)
   }).optional(),
   /** Channels present in the source animation that the bake could not carry (warn-and-omit). */
-  omittedChannels: external_exports.array(external_exports.enum(["pose_values", "motion_blocks", "character_rig"])).max(8).optional(),
+  omittedChannels: directorUnrealOmittedChannelIdSchema.array().max(8).optional(),
+  /** Structured per-channel details (control names, reason) for the omitted channels. */
+  omittedChannelDetails: external_exports.array(directorUnrealOmittedChannelDetailSchema).max(8).optional(),
   warnings: external_exports.array(external_exports.string().max(2e3)).max(200)
 }).superRefine((entity, context) => {
   const badTransformIndex = strictlyIncreasingFrames(entity.transformSamples);
@@ -137534,6 +137668,25 @@ var directorUnrealBakedEntitySchema = external_exports.strictObject({
       message: "focal length samples and filmback are camera-only channels"
     });
   }
+  const omitted = new Set(entity.omittedChannels ?? []);
+  const seenDetailChannels = /* @__PURE__ */ new Set();
+  (entity.omittedChannelDetails ?? []).forEach((detail, index) => {
+    if (!omitted.has(detail.channel)) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedChannelDetails", index, "channel"],
+        message: `detail channel ${detail.channel} is not listed in omittedChannels`
+      });
+    }
+    if (seenDetailChannels.has(detail.channel)) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedChannelDetails", index, "channel"],
+        message: `duplicate omitted-channel detail for ${detail.channel}`
+      });
+    }
+    seenDetailChannels.add(detail.channel);
+  });
 });
 var directorUnrealSequencerBakeSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_UNREAL_SEQUENCER_BAKE_CONTRACT),
@@ -137827,6 +137980,12 @@ var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
   /** Materials created from Director PBR manifest fallback. */
   materialFallbackCount: external_exports.number().int().nonnegative(),
   /**
+   * Texture slots successfully bound onto those fallback materials from
+   * hashed package assets. Optional: connector 0.3.0 reports predate this
+   * count (textures still bind when present).
+   */
+  appliedTextureCount: external_exports.number().int().nonnegative().optional(),
+  /**
    * Characters posed from Director semantic pose controls (static controls
    * applied to the imported skeleton, keyframed controls baked to clips).
    * Optional: connector 0.2.x reports predate pose baking.
@@ -137842,7 +138001,22 @@ var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
 var directorUnrealOmittedAnimationChannelsSchema = external_exports.strictObject({
   directorId: external_exports.string().trim().min(1).max(200),
   entityType: external_exports.enum(["object", "camera"]),
-  channels: external_exports.array(external_exports.enum(["pose_values", "motion_blocks", "character_rig"])).min(1).max(8)
+  channels: directorUnrealOmittedChannelIdSchema.array().min(1).max(8),
+  /** Per-channel control names and reasons. Optional: connector 0.3.x echoes predate this field. */
+  details: external_exports.array(directorUnrealOmittedChannelDetailSchema).max(8).optional()
+});
+var directorUnrealLightTypeSchema = external_exports.enum([
+  "ambient",
+  "hemisphere",
+  "directional",
+  "point",
+  "spot",
+  "rect-area"
+]);
+var directorUnrealOmittedLightSchema = external_exports.strictObject({
+  directorId: external_exports.string().trim().min(1).max(200),
+  lightType: directorUnrealLightTypeSchema,
+  reason: external_exports.string().trim().min(1).max(600)
 });
 var directorDccEngineReportSchema = external_exports.strictObject({
   ok: external_exports.literal(true),
@@ -137866,6 +138040,12 @@ var directorDccEngineReportSchema = external_exports.strictObject({
   importedSkeletalMeshCount: external_exports.number().int().nonnegative().optional(),
   /** Unreal-only: number of Director PBR materials applied as material instances. */
   appliedMaterialCount: external_exports.number().int().nonnegative().optional(),
+  /** Unreal-only: number of bundled texture files imported and bound to material-instance texture parameters. */
+  appliedTextureCount: external_exports.number().int().nonnegative().optional(),
+  /** Unreal-only: Director lights spawned as Unreal light actors tagged `director_light_id:` (not `director_id`). */
+  importedLightCount: external_exports.number().int().nonnegative().optional(),
+  /** Unreal-only: Director lights the connector declined to spawn (warn-and-omit). */
+  omittedLights: external_exports.array(directorUnrealOmittedLightSchema).max(1024).optional(),
   /** Unreal-only: pose/rig channels the bake omitted, echoed from the verified sidecar. */
   omittedAnimationChannels: external_exports.array(directorUnrealOmittedAnimationChannelsSchema).max(2048).optional(),
   /** Unity connector details; only the unity provider may write this block. */
@@ -137942,11 +138122,9 @@ var directorDccEngineSendResultSchema = external_exports.strictObject({
   /** Absolute path of the echoed return package directory, when produced. */
   returnPackagePath: external_exports.string().nullable(),
   /**
-   * Pose/rig channels the Gateway animation bake omitted (warn-and-omit) for
-   * the bake-sidecar providers (Unreal Sequencer and Godot animation bakes),
+   * Unreal-only: pose/rig channels the Gateway bake omitted (warn-and-omit),
    * computed from the Gateway's own sidecar so an outdated connector can never
-   * silently flatten them out of the result. Unity bakes inside the connector
-   * and reports its omissions through `report.unity.omittedChannels` instead.
+   * silently flatten them out of the result.
    */
   omittedAnimationChannels: external_exports.array(directorUnrealOmittedAnimationChannelsSchema).max(2048).optional(),
   /** Unreal-only: the optional clean-frame render receipt (rendered or skipped with reason). */

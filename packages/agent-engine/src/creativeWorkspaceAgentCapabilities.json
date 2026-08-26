@@ -16,6 +16,7 @@
   "limits": {
     "board_nodes": 240,
     "board_edges": 2000,
+    "board_sections": 32,
     "tracks": 12,
     "clips_per_track": 400,
     "batch_steps": 32,
@@ -36,6 +37,13 @@
     "layout_operation": "canvas.dag.layout",
     "layout_directions": ["horizontal", "vertical"],
     "layout_contract": "Deterministic topological layers preserve node dimensions, use bounded gaps, own one atomic undo snapshot, and refuse invalid graphs.",
+    "section_operations": [
+      "canvas.section.add",
+      "canvas.section.update",
+      "canvas.section.remove",
+      "canvas.node.assign_section"
+    ],
+    "section_contract": "Board sections are observeable lanes; add/update/remove own one atomic undo snapshot; assign_section sets or clears node.section_id (null clears); removing a section orphans member nodes.",
     "execution_boundary": "Canvas executes supported image, video, and audio nodes through durable provider jobs; note/frame nodes pass context, media-backed nodes are cached, and unsupported arbitrary code is never evaluated."
   },
   "preview": {

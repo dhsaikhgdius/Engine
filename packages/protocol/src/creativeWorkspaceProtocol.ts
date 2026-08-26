@@ -291,6 +291,9 @@ function hasDefinedProperty(value: Record<string, unknown>): boolean {
   return Object.values(value).some((entry) => entry !== undefined);
 }
 
+/** Canvas board section / lane kind (workflow stage grouping). */
+export const creativeWorkspaceBoardSectionKindSchema = z.enum(["character", "scene", "generation", "final", "custom"]);
+
 const canvasNodePatchFields = {
   kind: creativeWorkspaceNodeKindSchema.optional(),
   title: nameSchema.optional(),
@@ -382,6 +385,47 @@ const canvasNodeUpdateSchema = strictOperation("canvas.node.update", {
 });
 
 const canvasNodeRemoveSchema = strictOperation("canvas.node.remove", { node_id: creativeWorkspaceIdSchema });
+
+const canvasNodeAssignSectionSchema = strictOperation("canvas.node.assign_section", {
+  node_id: creativeWorkspaceIdSchema,
+  section_id: creativeWorkspaceIdSchema.nullable(),
+});
+
+const canvasSectionAddSchema = strictOperation("canvas.section.add", {
+  kind: creativeWorkspaceBoardSectionKindSchema.optional(),
+  title: nameSchema.optional(),
+  x: coordinateSchema.optional(),
+  y: coordinateSchema.optional(),
+  width: boundedNumber(240, 2_400).optional(),
+  height: boundedNumber(180, 1_600).optional(),
+  accent: z.string().trim().min(1).max(80).optional(),
+  collapsed: z.boolean().optional(),
+});
+
+const canvasSectionPatchFields = {
+  kind: creativeWorkspaceBoardSectionKindSchema.optional(),
+  title: nameSchema.optional(),
+  x: coordinateSchema.optional(),
+  y: coordinateSchema.optional(),
+  width: boundedNumber(240, 2_400).optional(),
+  height: boundedNumber(180, 1_600).optional(),
+  accent: z.string().trim().min(1).max(80).optional(),
+  collapsed: z.boolean().optional(),
+};
+
+/** A partial update to a Canvas board section; at least one field must be present. */
+export const creativeWorkspaceCanvasSectionPatchSchema = z
+  .strictObject(canvasSectionPatchFields)
+  .refine(hasDefinedProperty, "patch must contain at least one field");
+
+const canvasSectionUpdateSchema = strictOperation("canvas.section.update", {
+  section_id: creativeWorkspaceIdSchema,
+  patch: creativeWorkspaceCanvasSectionPatchSchema,
+});
+
+const canvasSectionRemoveSchema = strictOperation("canvas.section.remove", {
+  section_id: creativeWorkspaceIdSchema,
+});
 
 const canvasEdgeAddSchema = strictOperation("canvas.edge.add", {
   source_node_id: creativeWorkspaceIdSchema,
@@ -700,6 +744,10 @@ export const creativeWorkspaceAgentOperationSchema = z.discriminatedUnion("op", 
   canvasNodeAddSchema,
   canvasNodeUpdateSchema,
   canvasNodeRemoveSchema,
+  canvasNodeAssignSectionSchema,
+  canvasSectionAddSchema,
+  canvasSectionUpdateSchema,
+  canvasSectionRemoveSchema,
   canvasEdgeAddSchema,
   canvasEdgeRemoveSchema,
   canvasDagLayoutSchema,
