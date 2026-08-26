@@ -500,6 +500,63 @@ describe("creative workspace UI/agent parity harness", () => {
     expect(track?.clips[0]).toMatchObject({ name: "Overwrite take", startSec: 0, durationSec: 4 });
   });
 
+  it("dispatches media.proxy.attach for a cataloged original and proxy candidate", () => {
+    const assets: CreativeMediaAsset[] = [
+      ...MEDIA_ASSETS,
+      {
+        id: "media:video:take-proxy",
+        kind: "video",
+        name: "Take Proxy",
+        fileName: "take-proxy.webm",
+        mimeType: "video/webm",
+        size: 2_048,
+        createdAt: "2026-07-31T08:02:00.000Z",
+        lastModified: null,
+        durationSec: 12,
+        width: 1_280,
+        height: 720,
+        source: "test",
+        objectUrl: "blob:take-proxy",
+        proxyOf: null,
+      },
+    ];
+    const runtime: CreativeWorkspaceAgentContext = {
+      workspace: { getState: () => useDirectorCreativeWorkspaceStore.getState() },
+      media: {
+        getState: () => ({
+          status: "ready",
+          storageMode: "memory",
+          warning: null,
+          error: null,
+          assets,
+        }),
+        attachExistingProxy: (originalId, proxyId) => {
+          const proxy = assets.find((asset) => asset.id === proxyId);
+          const original = assets.find((asset) => asset.id === originalId);
+          if (!proxy || !original) return null;
+          const updated = { ...proxy, proxyOf: originalId };
+          const index = assets.findIndex((asset) => asset.id === proxyId);
+          assets[index] = updated;
+          return updated;
+        },
+      },
+    };
+    const receipt = dispatchCreativeWorkspaceOperations(
+      {
+        op: "media.proxy.attach",
+        original_media_id: "media:video:take",
+        proxy_media_id: "media:video:take-proxy",
+      },
+      { context: runtime },
+    );
+    expect(receipt).toMatchObject({ ok: true });
+    if (!receipt.ok) throw new Error(receipt.error);
+    expect(receipt.execution.result).toMatchObject({
+      proxy: { id: "media:video:take-proxy", proxy_of: "media:video:take" },
+      changed: true,
+    });
+  });
+
   it("dispatches multi-operation arrays as one atomic batch that rolls back on failure", () => {
     const runtime = context();
     const before = observeCreativeWorkspaceAgentSnapshot(runtime);

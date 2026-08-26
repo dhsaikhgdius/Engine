@@ -172,6 +172,8 @@ Shared today:
 - Offline media recovery from Canvas/Video file pickers through
   `dispatchCreativeWorkspaceMediaRelink` → `executeCreativeWorkspaceMediaRelinkFile` (same body
   Agents reach after resolving a `media.relink` wire source to a `File`).
+- Video Editor proxy file picks: import the candidate, then `media.proxy.attach` through
+  `dispatchCreativeWorkspaceOperations` (same linker Agents use on two cataloged ids).
 
 Still direct, with reasons:
 

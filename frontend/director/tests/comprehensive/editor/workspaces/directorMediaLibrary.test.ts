@@ -5,7 +5,7 @@ import type { CreativeMediaWaveformData } from "../../../../src/comprehensive/ed
 import { LanguageProvider } from "../../../../src/comprehensive/i18n/language";
 
 const mediaMocks = vi.hoisted(() => ({
-  attachProxy: vi.fn(),
+  attachExistingProxy: vi.fn(),
   getAsset: vi.fn(),
   importBlob: vi.fn(),
   importFile: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock("../../../../src/comprehensive/editor/media/creativeMediaProbe", () => (
 
 vi.mock("../../../../src/comprehensive/editor/media/persistentCreativeMediaStore", () => ({
   persistentCreativeMediaLibrary: {
-    attachProxy: mediaMocks.attachProxy,
+    attachExistingProxy: mediaMocks.attachExistingProxy,
     getAsset: mediaMocks.getAsset,
     importBlob: mediaMocks.importBlob,
     importFile: mediaMocks.importFile,
@@ -79,7 +79,7 @@ beforeEach(() => {
   window.localStorage.clear();
   setDirectorCreativeWorkspaceScope("director-media-library-tests");
   useDirectorCreativeWorkspaceStore.getState().resetCreativeWorkspaces();
-  mediaMocks.attachProxy.mockReset();
+  mediaMocks.attachExistingProxy.mockReset();
   mediaMocks.getAsset.mockReset();
   mediaMocks.importBlob.mockReset();
   mediaMocks.importFile.mockReset();
@@ -388,7 +388,8 @@ describe("Director media proxy and engineering state", () => {
       height: 720,
       waveform: WAVEFORM,
     });
-    mediaMocks.attachProxy.mockResolvedValue(proxy);
+    mediaMocks.importBlob.mockResolvedValue(proxy);
+    mediaMocks.attachExistingProxy.mockReturnValue(proxy);
     const file = new File(["proxy"], "take-proxy.mp4", { type: "video/mp4" });
 
     await expect(attachDirectorCreativeMediaProxy(original.id, file)).resolves.toEqual({
@@ -398,8 +399,7 @@ describe("Director media proxy and engineering state", () => {
       proxyMediaId: proxy.id,
       waveformReady: true,
     });
-    expect(mediaMocks.attachProxy).toHaveBeenCalledWith(
-      original.id,
+    expect(mediaMocks.importBlob).toHaveBeenCalledWith(
       file,
       expect.objectContaining({
         kind: "video",
@@ -408,6 +408,7 @@ describe("Director media proxy and engineering state", () => {
         proxyProfile: expect.objectContaining({ label: "1280×720 proxy", width: 1280, height: 720 }),
       }),
     );
+    expect(mediaMocks.attachExistingProxy).toHaveBeenCalledWith(original.id, proxy.id);
   });
 
   it("summarizes online, offline, waveform, and available-proxy state", () => {

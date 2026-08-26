@@ -691,26 +691,24 @@ export async function relinkDirectorCreativeMedia(
 }
 
 /**
- * Attach a lightweight proxy file to an existing persistent media asset for
- * lower-bandwidth playback.
- *
- * @param originalMediaId - The original media id to attach a proxy to.
- * @param file - The proxy media file.
- * @returns A receipt describing the proxy attachment result.
- * @throws If the original media is not in the persistent library or the proxy kind differs.
+ * Import a proxy file as a cataloged media asset without linking it yet.
+ * UI then attaches via `media.proxy.attach`; Agents attach when both ids exist.
  */
-export async function attachDirectorCreativeMediaProxy(
+export async function importDirectorCreativeMediaProxyCandidate(
   originalMediaId: string,
   file: File,
-): Promise<DirectorMediaProxyReceipt> {
+): Promise<CreativeMediaAsset> {
   const original = persistentCreativeMediaLibrary.getAsset(originalMediaId);
   if (!original) throw new Error("只有持久媒体库中的原始素材才能关联代理");
+  if (original.proxyOf) throw new Error("不能为代理媒体继续关联代理");
   const probe = await probeCreativeMediaFile(file);
   if (probe.kind !== original.kind) throw new Error("代理媒体类型必须与原始素材一致");
-  const proxy = await persistentCreativeMediaLibrary.attachProxy(originalMediaId, file, {
+  return persistentCreativeMediaLibrary.importBlob(file, {
     ...probe,
+    kind: probe.kind,
     fileName: file.name,
     name: `${original.name} Proxy`,
+    source: "user-proxy",
     proxyProfile: {
       label: `${probe.width ?? "audio"}${probe.height ? `×${probe.height}` : ""} proxy`,
       width: probe.width ?? null,
@@ -721,12 +719,33 @@ export async function attachDirectorCreativeMediaProxy(
       createdAt: new Date().toISOString(),
     },
   });
+}
+
+/**
+ * Attach a lightweight proxy file to an existing persistent media asset for
+ * lower-bandwidth playback. Library convenience path: import the candidate,
+ * then link via attachExistingProxy (same linker Agents use).
+ *
+ * @param originalMediaId - The original media id to attach a proxy to.
+ * @param file - The proxy media file.
+ * @returns A receipt describing the proxy attachment result.
+ * @throws If the original media is not in the persistent library or the proxy kind differs.
+ */
+export async function attachDirectorCreativeMediaProxy(
+  originalMediaId: string,
+  file: File,
+): Promise<DirectorMediaProxyReceipt> {
+  const proxy = await importDirectorCreativeMediaProxyCandidate(originalMediaId, file);
+  const linked = persistentCreativeMediaLibrary.attachExistingProxy(originalMediaId, proxy.id);
+  if (!linked || linked.proxyOf !== originalMediaId) {
+    throw new Error(`代理关系未能建立：${originalMediaId} → ${proxy.id}`);
+  }
   return {
     ok: true,
     operation: "media.proxy.attach",
     originalMediaId,
-    proxyMediaId: proxy.id,
-    waveformReady: Boolean(proxy.waveform),
+    proxyMediaId: linked.id,
+    waveformReady: Boolean(linked.waveform),
   };
 }
 

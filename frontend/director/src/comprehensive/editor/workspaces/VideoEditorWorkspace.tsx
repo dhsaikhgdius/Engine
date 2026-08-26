@@ -92,8 +92,8 @@ import {
   parseLegacyCreativeProjectJson,
 } from "./creativeProjectBundle";
 import {
-  attachDirectorCreativeMediaProxy,
   getDirectorMediaPreviewSource,
+  importDirectorCreativeMediaProxyCandidate,
   persistDirectorMediaItem,
   useDirectorMediaLibrary,
   type DirectorMediaItem,
@@ -759,8 +759,8 @@ export function VideoEditorWorkspace() {
   const timelineZoom = useDirectorCreativeWorkspaceStore((state) => state.timelineZoom);
   const editSettings = useDirectorCreativeWorkspaceStore((state) => state.editSettings);
   // Clip add ("+" placement), split/remove/transition, discrete fade steps,
-  // track management, settings, import cataloging, undo/redo, and media
-  // relink dispatch through the shared agent contract
+  // track management, settings, import cataloging, undo/redo, media relink,
+  // and proxy attach dispatch through the shared agent contract
   // (dispatchCreativeWorkspaceOperations / dispatchCreativeWorkspaceMediaRelink).
   // Only continuous interactions (drags, trims, fades, range sliders, live
   // typing), remaining overwrite-adjacent nudges/duplicates, and media-less
@@ -1603,9 +1603,18 @@ export function VideoEditorWorkspace() {
     if (!target) return;
     setImportMessage(t("正在关联代理媒体…"));
     try {
-      const receipt = await attachDirectorCreativeMediaProxy(target.id, file);
+      const proxy = await importDirectorCreativeMediaProxyCandidate(target.id, file);
+      const receipt = dispatchCreativeWorkspaceOperations({
+        op: "media.proxy.attach",
+        original_media_id: target.id,
+        proxy_media_id: proxy.id,
+      });
+      if (!receipt.ok) {
+        setImportMessage(receipt.error || t("代理媒体关联失败"));
+        return;
+      }
       setImportMessage(
-        `${t("代理媒体已关联")} · ${receipt.proxyMediaId.slice(0, 28)}${receipt.waveformReady ? ` · ${t("波形已缓存")}` : ""}`,
+        `${t("代理媒体已关联")} · ${proxy.id.slice(0, 28)}${proxy.waveform ? ` · ${t("波形已缓存")}` : ""}`,
       );
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : t("代理媒体关联失败"));

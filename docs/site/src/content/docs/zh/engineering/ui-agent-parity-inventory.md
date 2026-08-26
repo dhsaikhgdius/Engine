@@ -165,6 +165,8 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 - Canvas/Video 文件选择器的离线素材重连经 `dispatchCreativeWorkspaceMediaRelink` →
   `executeCreativeWorkspaceMediaRelinkFile`（与 Agent 在把 `media.relink` 线源解析为 `File`
   之后进入的同一执行体）。
+- Video Editor 代理文件选择：先导入候选，再经 `dispatchCreativeWorkspaceOperations` 执行
+  `media.proxy.attach`（与 Agent 在两个已入册 id 上使用的同一 linker）。
 
 仍为直接写入，附原因：
 
