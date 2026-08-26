@@ -2,7 +2,11 @@ import { z } from "zod";
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectRevision";
 import { directorDccEngineIdSchema } from "./directorDccEngineSpace";
 import { directorUnrealCleanFrameReceiptSchema } from "./directorUnrealCleanFrameContract";
-import { directorUnrealSequencerReceiptSchema } from "./directorUnrealSequencerContract";
+import {
+  directorUnrealOmittedChannelDetailSchema,
+  directorUnrealOmittedChannelIdSchema,
+  directorUnrealSequencerReceiptSchema,
+} from "./directorUnrealSequencerContract";
 import { directorGodotImportReceiptSchema } from "./directorGodotAnimationContract";
 
 /** Contract identifier for a Director-authored engine connector manifest. */
@@ -125,19 +129,50 @@ export type DirectorDccUnityEngineReportDetails = z.infer<typeof directorDccUnit
  * One structured warn-and-omit record for animation channels the Unreal
  * Sequencer bake cannot carry (Control-Rig-style pose values, motion clips,
  * character rig state). World transforms are still baked; these channels are
- * reported instead of being silently flattened.
+ * reported instead of being silently flattened. The optional `details` list
+ * names the affected controls/clips per channel with a reason, so the
+ * frontend can list exactly what was omitted. Control Rig lossless
+ * round-trip stays planned; these records never imply it shipped.
  */
 export const directorUnrealOmittedAnimationChannelsSchema = z.strictObject({
   directorId: z.string().trim().min(1).max(200),
   entityType: z.enum(["object", "camera"]),
-  channels: z
-    .array(z.enum(["pose_values", "motion_blocks", "character_rig"]))
-    .min(1)
-    .max(8),
+  channels: directorUnrealOmittedChannelIdSchema.array().min(1).max(8),
+  /** Per-channel control names and reasons. Optional: connector 0.3.x echoes predate this field. */
+  details: z.array(directorUnrealOmittedChannelDetailSchema).max(8).optional(),
 });
 
 /** A validated structured omitted-channel record. */
 export type DirectorUnrealOmittedAnimationChannels = z.infer<typeof directorUnrealOmittedAnimationChannelsSchema>;
+
+/**
+ * Director light types, mirroring `DIRECTOR_LIGHT_TYPES` in the project
+ * schema (`directorProjectOptions.json`).
+ */
+export const directorUnrealLightTypeSchema = z.enum([
+  "ambient",
+  "hemisphere",
+  "directional",
+  "point",
+  "spot",
+  "rect-area",
+]);
+
+/**
+ * One structured warn-and-omit record for a Director light the Unreal
+ * connector declined to spawn. Directional, point, spot, and rect-area
+ * lights map to Unreal light actors; ambient and hemisphere lights have no
+ * single-actor Unreal equivalent and are reported here instead of being
+ * silently dropped.
+ */
+export const directorUnrealOmittedLightSchema = z.strictObject({
+  directorId: z.string().trim().min(1).max(200),
+  lightType: directorUnrealLightTypeSchema,
+  reason: z.string().trim().min(1).max(600),
+});
+
+/** A validated structured omitted-light record. */
+export type DirectorUnrealOmittedLight = z.infer<typeof directorUnrealOmittedLightSchema>;
 
 /**
  * The receipt an engine connector writes after a headless import run. The
@@ -167,6 +202,12 @@ export const directorDccEngineReportSchema = z
     importedSkeletalMeshCount: z.number().int().nonnegative().optional(),
     /** Unreal-only: number of Director PBR materials applied as material instances. */
     appliedMaterialCount: z.number().int().nonnegative().optional(),
+    /** Unreal-only: number of bundled texture files imported and bound to material-instance texture parameters. */
+    appliedTextureCount: z.number().int().nonnegative().optional(),
+    /** Unreal-only: Director lights spawned as Unreal light actors tagged `director_light_id:` (not `director_id`). */
+    importedLightCount: z.number().int().nonnegative().optional(),
+    /** Unreal-only: Director lights the connector declined to spawn (warn-and-omit). */
+    omittedLights: z.array(directorUnrealOmittedLightSchema).max(1_024).optional(),
     /** Unreal-only: pose/rig channels the bake omitted, echoed from the verified sidecar. */
     omittedAnimationChannels: z.array(directorUnrealOmittedAnimationChannelsSchema).max(2_048).optional(),
     /** Unity connector details; only the unity provider may write this block. */
@@ -275,11 +316,9 @@ export const directorDccEngineSendResultSchema = z.strictObject({
   /** Absolute path of the echoed return package directory, when produced. */
   returnPackagePath: z.string().nullable(),
   /**
-   * Pose/rig channels the Gateway animation bake omitted (warn-and-omit) for
-   * the bake-sidecar providers (Unreal Sequencer and Godot animation bakes),
+   * Unreal-only: pose/rig channels the Gateway bake omitted (warn-and-omit),
    * computed from the Gateway's own sidecar so an outdated connector can never
-   * silently flatten them out of the result. Unity bakes inside the connector
-   * and reports its omissions through `report.unity.omittedChannels` instead.
+   * silently flatten them out of the result.
    */
   omittedAnimationChannels: z.array(directorUnrealOmittedAnimationChannelsSchema).max(2_048).optional(),
   /** Unreal-only: the optional clean-frame render receipt (rendered or skipped with reason). */

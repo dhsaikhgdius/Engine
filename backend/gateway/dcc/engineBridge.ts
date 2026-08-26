@@ -965,6 +965,10 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
         directorId: entity.directorId,
         entityType: entity.entityType,
         channels: entity.omittedChannels!,
+        // Unreal bake carries per-channel control names; Godot entities omit this field.
+        ...("omittedChannelDetails" in entity && entity.omittedChannelDetails?.length
+          ? { details: entity.omittedChannelDetails }
+          : {}),
       }));
     if (omittedAnimationChannels.length > 0) {
       sendWarnings.push(
