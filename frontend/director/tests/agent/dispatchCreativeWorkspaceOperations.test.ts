@@ -557,6 +557,101 @@ describe("creative workspace UI/agent parity harness", () => {
     });
   });
 
+  it("edit.clip.update overwrite nudges into a neighbour the same way keyboard frame steps do", () => {
+    const runtime = context();
+    const executed = uiExecutor(runtime);
+    const first = executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:image:poster",
+      name: "Left still",
+      start_sec: 0,
+      duration_sec: 2,
+      source_duration_sec: 3,
+    });
+    const second = executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:video:take",
+      name: "Right take",
+      start_sec: 2,
+      duration_sec: 2,
+      source_duration_sec: 12,
+    });
+    executed({
+      op: "edit.clip.update",
+      clip_id: createdId(second, "clip"),
+      patch: { start_sec: 1 },
+      overwrite: true,
+    });
+    const track = useDirectorCreativeWorkspaceStore.getState().editTracks.find((item) => item.id === "video-1");
+    expect(track?.clips).toHaveLength(2);
+    expect(track?.clips.find((clip) => clip.id === createdId(first, "clip"))).toMatchObject({
+      startSec: 0,
+      durationSec: 1,
+    });
+    expect(track?.clips.find((clip) => clip.id === createdId(second, "clip"))).toMatchObject({
+      name: "Right take",
+      startSec: 1,
+      durationSec: 2,
+    });
+  });
+
+  it("edit.clip.add preserves in/opacity/volume and overwrite for duplicate-after placement", () => {
+    const runtime = context();
+    const executed = uiExecutor(runtime);
+    executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:video:take",
+      name: "Source take",
+      start_sec: 0,
+      duration_sec: 3,
+      source_duration_sec: 12,
+      in_sec: 1.5,
+      opacity: 0.75,
+      volume: 0.4,
+    });
+    // Neighbour that the duplicate lands on; overwrite should trim it away.
+    executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:image:poster",
+      name: "Covered still",
+      start_sec: 3,
+      duration_sec: 2,
+      source_duration_sec: 3,
+    });
+    const duplicate = executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:video:take",
+      name: "Source take",
+      start_sec: 3,
+      duration_sec: 3,
+      source_duration_sec: 12,
+      in_sec: 1.5,
+      opacity: 0.75,
+      volume: 0.4,
+      fade_in_sec: 0.2,
+      fade_out_sec: 0.1,
+      overwrite: true,
+    });
+    const track = useDirectorCreativeWorkspaceStore.getState().editTracks.find((item) => item.id === "video-1");
+    expect(track?.clips).toHaveLength(2);
+    expect(track?.clips.find((clip) => clip.id === createdId(duplicate, "clip"))).toMatchObject({
+      name: "Source take",
+      startSec: 3,
+      durationSec: 3,
+      inSec: 1.5,
+      opacity: 0.75,
+      volume: 0.4,
+      fadeInSec: 0.2,
+      fadeOutSec: 0.1,
+    });
+    expect(track?.clips.some((clip) => clip.name === "Covered still")).toBe(false);
+  });
+
   it("dispatches multi-operation arrays as one atomic batch that rolls back on failure", () => {
     const runtime = context();
     const before = observeCreativeWorkspaceAgentSnapshot(runtime);

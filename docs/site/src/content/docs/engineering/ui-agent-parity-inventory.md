@@ -174,15 +174,18 @@ Shared today:
   Agents reach after resolving a `media.relink` wire source to a `File`).
 - Video Editor proxy file picks: import the candidate, then `media.proxy.attach` through
   `dispatchCreativeWorkspaceOperations` (same linker Agents use on two cataloged ids).
+- Explicit Video overwrite placement: media drops, keyboard frame nudges, and duplicate-after
+  share `edit.clip.add` / `edit.clip.update` with `overwrite: true` (and optional `in_sec` /
+  `opacity` / `volume` on add so duplicate-after keeps the full clip look). Both paths run the
+  same `resolveDirectorTrackOverwrite` resolver via `commitClipPlacement`.
 
 Still direct, with reasons:
 
 - Continuous interactions — node drags, clip drags/trims, fade drags, range sliders, live
   typing — keep locally batched history (`beginHistoryBatch`/`endHistoryBatch`), matching the
-  Stage slider/gizmo policy.
-- Remaining overwrite-adjacent flows still on `commitClipPlacement` (frame nudges, trim-into
-  neighbour, duplicate-after). Explicit media drops now share `edit.clip.add` with
-  `overwrite: true` (same `resolveDirectorTrackOverwrite` resolver).
+  Stage slider/gizmo policy. Clip drag/trim still resolve overwrite locally via
+  `commitClipPlacement` at pointer-up (discrete nudges/duplicate-after/explicit drops are
+  shared above).
 - Media-less text/caption clips (`text:` ids), Canvas z-order raises, view state, and section
   bookkeeping — no semantic operations yet.
 - Canvas pipeline result cataloging, legacy review-mirror migration, and bulk review clearing —

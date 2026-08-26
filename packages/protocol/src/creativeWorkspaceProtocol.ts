@@ -334,7 +334,10 @@ const editClipPatchFields = {
 };
 const editClipAddOptionalFields = {
   source_duration_sec: editClipPatchFields.source_duration_sec,
+  in_sec: editClipPatchFields.in_sec,
   playback_rate: editClipPatchFields.playback_rate,
+  opacity: editClipPatchFields.opacity,
+  volume: editClipPatchFields.volume,
   fade_in_sec: editClipPatchFields.fade_in_sec,
   fade_out_sec: editClipPatchFields.fade_out_sec,
   scale: editClipPatchFields.scale,
@@ -456,12 +459,22 @@ const editClipAddSchema = strictOperation("edit.clip.add", {
 const editClipUpdateSchema = strictOperation("edit.clip.update", {
   clip_id: creativeWorkspaceIdSchema,
   patch: creativeWorkspaceEditClipPatchSchema,
+  /**
+   * When true, after the patch is applied run `resolveDirectorTrackOverwrite`
+   * on the updated clip (same as Video Editor keyboard nudges).
+   */
+  overwrite: z.boolean().optional(),
 });
 
 const editClipMoveSchema = strictOperation("edit.clip.move", {
   clip_id: creativeWorkspaceIdSchema,
   track_id: creativeWorkspaceIdSchema,
   start_sec: boundedNumber(0, MAX_TIMELINE_SEC),
+  /**
+   * When true, after the move run `resolveDirectorTrackOverwrite` on the
+   * landed clip (same as Video Editor drop resolution).
+   */
+  overwrite: z.boolean().optional(),
 });
 
 const editClipSplitSchema = strictOperation("edit.clip.split", {
