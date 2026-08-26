@@ -2,12 +2,14 @@ import {
   directorMediaTranscriptToCaptionCues,
   insertDirectorCaptionCuesIntoTimeline,
 } from "../comprehensive/editor/workspaces/captionImport";
+import { isNetworkFailureMessage } from "../comprehensive/editor/api/friendlyError";
 import {
   cancelMediaTranscriptionJob,
   fetchDirectorMediaTranscript,
   getMediaTranscriptionCapabilities,
   inspectMediaTranscriptionJob,
   listMediaTranscriptionJobs,
+  MediaTranscriptionRequestError,
   retryMediaTranscriptionJob,
   submitMediaTranscription,
   type MediaTranscriptionJob,
@@ -270,9 +272,20 @@ export async function executeDirectorTranscriptionWorkbenchCommand(
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-      result: {
-        code: error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "transcription_failed",
-      },
+      result: { code: transcriptionFailureCode(error) },
     };
   }
+}
+
+/**
+ * Maps a thrown transcription error onto a stable failure code: cancellation,
+ * the gateway's structured code (e.g. `transcription_not_configured`,
+ * `transcription_job_not_found`), an explicit `gateway_unreachable` for
+ * transport-level fetch failures, and `transcription_failed` otherwise.
+ */
+function transcriptionFailureCode(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
+  if (error instanceof MediaTranscriptionRequestError && error.code) return error.code;
+  if (error instanceof TypeError && isNetworkFailureMessage(error.message)) return "gateway_unreachable";
+  return "transcription_failed";
 }

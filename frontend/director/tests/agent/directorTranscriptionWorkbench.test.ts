@@ -3,6 +3,7 @@ import type { DirectorMediaTranscript } from "@director/protocol/mediaTranscript
 import type { ProductionJobRecord } from "@director/protocol/productionJobProtocol";
 import type { CreativeMediaAsset } from "../../src/comprehensive/editor/media/persistentCreativeMediaStore";
 import { directorTranscriptionCommandSchema } from "@director/agent-engine/contract";
+import { MediaTranscriptionRequestError } from "../../src/comprehensive/editor/media/mediaTranscriptionBridge";
 import { executeDirectorTranscriptionWorkbenchCommand } from "../../src/agent/directorTranscriptionWorkbench";
 
 const SOURCE_ID = "creative-media:audio:dialogue";
@@ -122,6 +123,64 @@ describe("Director transcription workbench", () => {
       dependencies: { getAsset: vi.fn(() => image) },
     });
     expect(result).toMatchObject({ success: false, result: { code: "transcription_failed" } });
+  });
+
+  it("surfaces the gateway's structured error code instead of a blanket transcription_failed", async () => {
+    const command = directorTranscriptionCommandSchema.parse({
+      action: "submit",
+      source_media_id: SOURCE_ID,
+      idempotency_key: "unconfigured-submit-key",
+    });
+    const result = await executeDirectorTranscriptionWorkbenchCommand(command, undefined, {
+      dependencies: {
+        getAsset: vi.fn(() => asset()),
+        getBlob: vi.fn(async () => new Blob([new Uint8Array([1])], { type: "audio/wav" })),
+        submitJob: vi.fn(async () => {
+          throw new MediaTranscriptionRequestError("No transcription provider is configured",
+            "transcription_not_configured", 503);
+        }),
+      },
+    });
+    expect(result).toEqual({
+      success: false,
+      error: "No transcription provider is configured",
+      result: { code: "transcription_not_configured" },
+    });
+
+    const missing = await executeDirectorTranscriptionWorkbenchCommand(
+      directorTranscriptionCommandSchema.parse({ action: "get", job_id: "missing-job" }),
+      undefined,
+      {
+        dependencies: {
+          inspectJob: vi.fn(async () => {
+            throw new MediaTranscriptionRequestError("Transcription job does not exist",
+              "transcription_job_not_found", 404);
+          }),
+        },
+      },
+    );
+    expect(missing).toEqual({
+      success: false,
+      error: "Transcription job does not exist",
+      result: { code: "transcription_job_not_found" },
+    });
+  });
+
+  it("reports a transport-level fetch failure as an explicit gateway_unreachable code", async () => {
+    const command = directorTranscriptionCommandSchema.parse({ action: "capabilities" });
+    const result = await executeDirectorTranscriptionWorkbenchCommand(command, undefined, {
+      dependencies: {
+        capabilities: vi.fn(async () => {
+          // Browsers reject a network-level fetch failure with this TypeError.
+          throw new TypeError("Failed to fetch");
+        }),
+      },
+    });
+    expect(result).toEqual({
+      success: false,
+      error: "Failed to fetch",
+      result: { code: "gateway_unreachable" },
+    });
   });
 
   it("searches a promoted transcript by text, speaker, and time without returning the full transcript", async () => {
