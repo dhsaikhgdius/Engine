@@ -84,9 +84,10 @@ describe("handleCollaborationInviteRoute", () => {
     expect(status).toBe(201);
     const invite = body.invite as Record<string, string>;
     expect(invite.jti).toMatch(/^dci-/);
-    expect(
-      verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha" }),
-    ).toEqual({ ok: true, role: "viewer" });
+    expect(verifyCollaborationInviteToken({ secret: SECRET, token: invite.token, roomId: "scene-alpha" })).toEqual({
+      ok: true,
+      role: "viewer",
+    });
   });
 
   it("revokes one invite by token so later joins are denied", async () => {

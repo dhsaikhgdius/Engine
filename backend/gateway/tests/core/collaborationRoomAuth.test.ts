@@ -125,7 +125,12 @@ describe("collaboration invite revocation", () => {
     expect(verify(oldPrefix.token, "project-a/scene-2")).toEqual({ ok: false, reason: "revoked" });
     expect(verify(fresh.token, "project-a/scene-1")).toEqual({ ok: true, role: "editor" });
     // A different project's rooms are untouched by the cutoff.
-    const otherProject = mintCollaborationInviteToken({ secret: SECRET, room: "project-b/scene-1", role: "editor", now: () => 5_000_000 });
+    const otherProject = mintCollaborationInviteToken({
+      secret: SECRET,
+      room: "project-b/scene-1",
+      role: "editor",
+      now: () => 5_000_000,
+    });
     expect(verify(otherProject.token, "project-b/scene-1")).toEqual({ ok: true, role: "editor" });
   });
 

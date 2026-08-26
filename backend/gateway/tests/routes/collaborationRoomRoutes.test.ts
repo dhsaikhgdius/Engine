@@ -94,7 +94,10 @@ describe("handleCollaborationRoomRoute /api/collab/rooms", () => {
   it("merges live hub rooms with durable snapshot status and never leaks filesystem paths", async () => {
     const { directory, store } = tempStore({ compactAfterUpdates: 1 });
     const hub = new DirectorCollaborationWebSocketHub({ persistence: store });
-    await store.appendUpdate("ops/idle-room", docUpdate((doc) => doc.getMap("scene").set("title", "idle")));
+    await store.appendUpdate(
+      "ops/idle-room",
+      docUpdate((doc) => doc.getMap("scene").set("title", "idle")),
+    );
     const peer = socket();
     hub.handle(peer, { type: "collab.join", room: "ops/live-room", awareness_client_id: 21 });
 
@@ -132,7 +135,10 @@ describe("handleCollaborationRoomRoute /api/collab/rooms", () => {
 
   it("filters by a validated room id and rejects invalid ids", async () => {
     const { store } = tempStore({ compactAfterUpdates: 1 });
-    await store.appendUpdate("ops/idle-room", docUpdate((doc) => doc.getMap("scene").set("title", "idle")));
+    await store.appendUpdate(
+      "ops/idle-room",
+      docUpdate((doc) => doc.getMap("scene").set("title", "idle")),
+    );
     const { deps, json } = dependencies({ snapshotStore: store });
 
     await handleCollaborationRoomRoute(
@@ -192,7 +198,10 @@ describe("handleCollaborationRoomRoute /api/collab/rooms/close", () => {
   it("closes a live room and archives its durable history on request", async () => {
     const { store } = tempStore({ compactAfterUpdates: 1 });
     const hub = new DirectorCollaborationWebSocketHub({ persistence: store });
-    await store.appendUpdate("wrap/room", docUpdate((doc) => doc.getMap("scene").set("title", "final cut")));
+    await store.appendUpdate(
+      "wrap/room",
+      docUpdate((doc) => doc.getMap("scene").set("title", "final cut")),
+    );
     const peer = socket();
     hub.handle(peer, { type: "collab.join", room: "wrap/room", awareness_client_id: 31 });
 

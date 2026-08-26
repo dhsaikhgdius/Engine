@@ -13,7 +13,9 @@ const DEFAULT_MAX_ROOM_CUTOFFS = 512;
 
 const persistedStateSchema = z.object({
   revoked_tokens: z.array(z.object({ jti: z.string().min(1).max(64), exp: z.number().int().positive() })).default([]),
-  room_cutoffs: z.array(z.object({ scope: z.string().min(1).max(181), cutoff: z.number().int().positive() })).default([]),
+  room_cutoffs: z
+    .array(z.object({ scope: z.string().min(1).max(181), cutoff: z.number().int().positive() }))
+    .default([]),
 });
 
 /** The result of revoking one exact invite token. */
@@ -29,10 +31,11 @@ export type CollaborationInviteTokenRevocation =
  *
  * - `revokedTokens` — exact invites revoked by their unique `jti`, retained
  *   until the token would have expired anyway.
- * - `roomCutoffs` — per-scope "not before" timestamps: any invite issued
- *   before the cutoff is denied when joining a room the scope matches.
- *   Legacy invites without an `iat` claim are treated as issued at epoch 0,
- *   so a room cutoff always covers them.
+ * - `roomCutoffs` — per-scope "not before" timestamps: any invite issued at
+ *   or before the cutoff is denied when joining a room the scope matches
+ *   (same-millisecond ties fail closed). Legacy invites without an `iat`
+ *   claim are treated as issued at epoch 0, so a room cutoff always covers
+ *   them.
  *
  * When a persist path is provided every mutation is flushed with an atomic
  * write, so revocations survive gateway restarts alongside room snapshots.
@@ -99,8 +102,8 @@ export class CollaborationInviteRevocationRegistry implements CollaborationInvit
   }
 
   /**
-   * Revokes every invite for a room scope that was issued before now. New
-   * invites minted after this call stay valid, so an operator can rotate a
+   * Revokes every invite for a room scope that was issued at or before now.
+   * Invites minted after this call stay valid, so an operator can rotate a
    * leaked invite without locking the room forever.
    */
   async revokeRoomScope(scope: string) {
@@ -119,7 +122,7 @@ export class CollaborationInviteRevocationRegistry implements CollaborationInvit
   isRevoked(subject: CollaborationInviteRevocationSubject, roomId: string) {
     if (subject.jti && this.revokedTokens.has(subject.jti)) return true;
     for (const [scope, cutoff] of this.roomCutoffs) {
-      if (collaborationRoomScopeMatches(roomId, scope) && (subject.iat ?? 0) < cutoff) return true;
+      if (collaborationRoomScopeMatches(roomId, scope) && (subject.iat ?? 0) <= cutoff) return true;
     }
     return false;
   }

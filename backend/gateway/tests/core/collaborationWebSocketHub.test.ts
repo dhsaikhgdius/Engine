@@ -136,8 +136,7 @@ describe("DirectorCollaborationWebSocketHub", () => {
     rejoined.sent.length = 0;
     hub.handle(rejoined, { type: "collab.sync-request", room: "lifecycle", payload: "" });
     const sync = messages(rejoined).find((message) => message.type === "collab.document-update") as
-      | Extract<DirectorCollaborationGatewayServerMessage, { type: "collab.document-update" }>
-      | undefined;
+      Extract<DirectorCollaborationGatewayServerMessage, { type: "collab.document-update" }> | undefined;
     const restored = new Y.Doc();
     if (sync) Y.applyUpdate(restored, decodeDirectorCollaborationGatewayPayload(sync.payload)!);
     expect(restored.getMap("scene").get("title")).toBeUndefined();
@@ -256,8 +255,7 @@ describe("DirectorCollaborationWebSocketHub room lifecycle policy", () => {
     hub.handle(rejoined, { type: "collab.join", room: "held-room", awareness_client_id: 92 });
     expect(timers.pending.size).toBe(0);
     const synced = messages(rejoined).find((message) => message.type === "collab.document-update") as
-      | Extract<DirectorCollaborationGatewayServerMessage, { type: "collab.document-update" }>
-      | undefined;
+      Extract<DirectorCollaborationGatewayServerMessage, { type: "collab.document-update" }> | undefined;
     const restored = new Y.Doc();
     Y.applyUpdate(restored, decodeDirectorCollaborationGatewayPayload(synced!.payload)!);
     expect(restored.getMap("scene").get("title")).toBe("Kept alive");

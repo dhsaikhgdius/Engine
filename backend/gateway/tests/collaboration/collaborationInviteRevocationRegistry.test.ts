@@ -44,7 +44,13 @@ describe("CollaborationInviteRevocationRegistry", () => {
     const clock = { value: 1_000_000 };
     const now = () => clock.value;
     const registry = new CollaborationInviteRevocationRegistry({ now });
-    const invite = mintCollaborationInviteToken({ secret: SECRET, room: "scene-alpha", role: "editor", ttlSeconds: 60, now });
+    const invite = mintCollaborationInviteToken({
+      secret: SECRET,
+      room: "scene-alpha",
+      role: "editor",
+      ttlSeconds: 60,
+      now,
+    });
     await registry.revokeToken(invite.token);
     expect(registry.counts().revokedTokens).toBe(1);
     clock.value += 61_000;

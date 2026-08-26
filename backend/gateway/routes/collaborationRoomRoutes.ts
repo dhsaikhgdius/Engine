@@ -7,10 +7,7 @@ import type {
   CollaborationRoomOpsStatus,
   CollaborationSnapshotStore,
 } from "../collaboration/collaborationSnapshotStore";
-import type {
-  CollaborationLiveRoomStatus,
-  DirectorCollaborationWebSocketHub,
-} from "../collaborationWebSocketHub";
+import type { CollaborationLiveRoomStatus, DirectorCollaborationWebSocketHub } from "../collaborationWebSocketHub";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 

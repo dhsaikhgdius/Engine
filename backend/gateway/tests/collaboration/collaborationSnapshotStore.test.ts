@@ -138,8 +138,14 @@ describe("CollaborationSnapshotStore", () => {
 
   it("lists every persisted room with snapshot age metadata", async () => {
     const { store } = tempStore({ compactAfterUpdates: 1 });
-    await store.appendUpdate("rooms/alpha", docUpdate((doc) => doc.getMap("scene").set("a", 1)));
-    await store.appendUpdate("rooms/beta", docUpdate((doc) => doc.getMap("scene").set("b", 2)));
+    await store.appendUpdate(
+      "rooms/alpha",
+      docUpdate((doc) => doc.getMap("scene").set("a", 1)),
+    );
+    await store.appendUpdate(
+      "rooms/beta",
+      docUpdate((doc) => doc.getMap("scene").set("b", 2)),
+    );
 
     const rooms = await store.listRooms();
     expect(rooms.map((status) => status.room)).toEqual(["rooms/alpha", "rooms/beta"]);
@@ -153,7 +159,10 @@ describe("CollaborationSnapshotStore", () => {
 
   it("archives a room's durable history so later joins start from an empty document", async () => {
     const { directory, store } = tempStore({ compactAfterUpdates: 1 });
-    await store.appendUpdate("archive-me", docUpdate((doc) => doc.getMap("scene").set("title", "old cut")));
+    await store.appendUpdate(
+      "archive-me",
+      docUpdate((doc) => doc.getMap("scene").set("title", "old cut")),
+    );
     expect(await store.loadSnapshot("archive-me")).not.toBeNull();
 
     const outcome = await store.archiveRoom("archive-me");
