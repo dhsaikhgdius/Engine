@@ -38,9 +38,8 @@ export interface DirectorInterchangeImportResult {
   /** Non-fatal diagnostic messages from the import process. */
   warnings: string[];
   /**
-   * Typed omit records when the format stamps them (Fountain today; Creative
-   * OTIO uses its own import result). Optional for formats that only warn.
-   */
+   * Structured warn-and-omit records when the adapter stamps typed codes.
+   * Free-text `warnings` remain for humans; agents prefer `omitted`.   */
   omitted?: Array<{ code: string; subject: string; reason: string }>;
 }
 
