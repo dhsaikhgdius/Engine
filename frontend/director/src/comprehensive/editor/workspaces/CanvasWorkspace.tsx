@@ -220,9 +220,10 @@ export function CanvasWorkspace() {
   const workspacePrefs = useDirectorCreativeWorkspaceStore((state) => state.workspacePrefs);
   const viewport = useDirectorCreativeWorkspaceStore((state) => state.boardViewport);
   const selectedNodeId = useDirectorCreativeWorkspaceStore((state) => state.selectedBoardNodeId);
-  // Node/edge/layout authoring dispatches through the shared agent contract
-  // (dispatchCreativeWorkspaceOperations); only drag-batch intermediate samples,
-  // view state, and section bookkeeping keep direct store mutators.
+  // Node/edge/layout authoring, import cataloging, and undo/redo dispatch
+  // through the shared agent contract (dispatchCreativeWorkspaceOperations);
+  // only drag-batch intermediate samples, z-order raises, view state, and
+  // section bookkeeping (no semantic ops yet) keep direct store mutators.
   const updateBoardNode = useDirectorCreativeWorkspaceStore((state) => state.updateBoardNode);
   const bringBoardNodeToFront = useDirectorCreativeWorkspaceStore((state) => state.bringBoardNodeToFront);
   const selectBoardNode = useDirectorCreativeWorkspaceStore((state) => state.selectBoardNode);
@@ -234,10 +235,6 @@ export function CanvasWorkspace() {
   const endHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.endHistoryBatch);
   const canUndo = useDirectorCreativeWorkspaceStore((state) => state.canUndo);
   const canRedo = useDirectorCreativeWorkspaceStore((state) => state.canRedo);
-  const undo = useDirectorCreativeWorkspaceStore((state) => state.undo);
-  const redo = useDirectorCreativeWorkspaceStore((state) => state.redo);
-  const updateGalleryMedia = useDirectorCreativeWorkspaceStore((state) => state.updateGalleryMedia);
-  const workspaceStore = useDirectorCreativeWorkspaceStore();
   const [tool, setTool] = useState<CanvasTool>("select");
   const [connectSourceId, setConnectSourceId] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -510,7 +507,9 @@ export function CanvasWorkspace() {
           ),
         ]) {
           const asset = persistentCreativeMediaLibrary.getAsset(mediaId);
-          if (asset) appendBoardNodeToTimeline(workspaceStore, persistentAssetToDirectorMediaItem(asset));
+          if (!asset) continue;
+          const sent = appendBoardNodeToTimeline(persistentAssetToDirectorMediaItem(asset));
+          if (!sent.ok) showImportMessage(`${t("自动加入时间线失败")}：${sent.error}`, "error");
         }
       }
       const succeeded = run.nodeRuns.filter((nodeRun) => nodeRun.status === "succeeded").length;
@@ -599,7 +598,17 @@ export function CanvasWorkspace() {
       try {
         const probe = await probeCreativeMediaFile(file);
         const asset = await persistentCreativeMediaLibrary.importFile(file, probe);
-        updateGalleryMedia(asset.id, { addedAt: new Date().toISOString() });
+        // Cataloging is dispatched separately from the node add so a Canvas
+        // capacity rejection still leaves the imported media in the Gallery.
+        const cataloged = dispatchCreativeWorkspaceOperations({
+          op: "gallery.media.update",
+          media_id: asset.id,
+          patch: { added_at: new Date().toISOString() },
+        });
+        if (!cataloged.ok) {
+          failures.push(`${file.name}: ${cataloged.error}`);
+          continue;
+        }
         const bounds = surfaceRef.current?.getBoundingClientRect();
         const point =
           dropPoint ??
@@ -966,10 +975,20 @@ export function CanvasWorkspace() {
             </button>
           ))}
           <span className="creative-toolbar-separator" />
-          <button aria-label={t("撤销")} disabled={!canUndo} onClick={undo} type="button">
+          <button
+            aria-label={t("撤销")}
+            disabled={!canUndo}
+            onClick={() => dispatchCanvas({ op: "workspace.undo" }, t("撤销失败"))}
+            type="button"
+          >
             <Undo2 aria-hidden size={16} />
           </button>
-          <button aria-label={t("重做")} disabled={!canRedo} onClick={redo} type="button">
+          <button
+            aria-label={t("重做")}
+            disabled={!canRedo}
+            onClick={() => dispatchCanvas({ op: "workspace.redo" }, t("重做失败"))}
+            type="button"
+          >
             <Redo2 aria-hidden size={16} />
           </button>
           <span className="creative-toolbar-separator" />

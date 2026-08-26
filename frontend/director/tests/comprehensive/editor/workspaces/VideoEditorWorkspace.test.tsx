@@ -23,6 +23,8 @@ const mediaImportMocks = vi.hoisted(() => ({
   importFile: vi.fn(),
   probe: vi.fn(),
   setPlaybackPreference: vi.fn(),
+  /** Assets the shared agent contract can resolve; seeded per test in beforeEach. */
+  assets: [] as unknown[],
 }));
 
 vi.mock("../../../../src/comprehensive/i18n/language", () => ({
@@ -55,14 +57,15 @@ vi.mock("../../../../src/comprehensive/editor/media/persistentCreativeMediaStore
       importFile: mediaImportMocks.importFile,
       setPlaybackPreference: mediaImportMocks.setPlaybackPreference,
       // The shared creative agent contract observes this store when the UI
-      // dispatches mutations; an empty ready library keeps snapshots valid.
+      // dispatches mutations; migrated flows (clip add, import cataloging)
+      // resolve media against these seeded assets.
       store: {
         getState: () => ({
           status: "ready" as const,
           storageMode: "memory" as const,
           warning: null,
           error: null,
-          assets: [],
+          assets: mediaImportMocks.assets,
         }),
       },
     },
@@ -167,6 +170,25 @@ const WAVEFORM = {
   minPeaks: [-0.5, -0.25, -0.75, -0.4],
   maxPeaks: [0.5, 0.25, 0.75, 0.4],
 };
+
+/** Builds the media-library asset the shared agent contract resolves for a browser item. */
+function libraryAsset(id: string, kind: DirectorMediaItem["kind"], name: string, durationSec: number | null) {
+  return {
+    id,
+    kind,
+    name,
+    fileName: `${name}.bin`,
+    mimeType: kind === "image" ? "image/png" : kind === "video" ? "video/mp4" : "audio/wav",
+    size: 1_024,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    lastModified: null,
+    durationSec,
+    width: kind === "audio" ? null : 1_920,
+    height: kind === "audio" ? null : 1_080,
+    source: "test",
+    objectUrl: `blob:${id}`,
+  };
+}
 
 function videoTrack(trackId = "video-1") {
   const track = useDirectorCreativeWorkspaceStore.getState().editTracks.find((item) => item.id === trackId);
@@ -275,11 +297,23 @@ beforeEach(() => {
     useDirectorCreativeWorkspaceStore.getState().resetCreativeWorkspaces();
   });
   mediaLibraryMock.items = [IMAGE, VIDEO, AUDIO];
+  mediaImportMocks.assets = [IMAGE, VIDEO, AUDIO].map((item) =>
+    libraryAsset(item.id, item.kind, item.name, item.kind === "image" ? null : item.durationSec),
+  );
   mediaLibraryMock.persist.mockReset().mockImplementation(async (item: DirectorMediaItem) => item.id);
   mediaImportMocks.ensureWaveform.mockReset().mockResolvedValue(null);
   mediaImportMocks.getAsset.mockReset().mockReturnValue(null);
   mediaImportMocks.importBlob.mockReset().mockResolvedValue(undefined);
-  mediaImportMocks.importFile.mockReset().mockImplementation(async (file: File) => ({ id: `imported:${file.name}` }));
+  mediaImportMocks.importFile.mockReset().mockImplementation(async (file: File) => {
+    const asset = libraryAsset(
+      `imported:${file.name}`,
+      file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "audio",
+      file.name,
+      file.type.startsWith("image/") ? null : 2.5,
+    );
+    mediaImportMocks.assets.push(asset);
+    return asset;
+  });
   mediaImportMocks.probe.mockReset().mockImplementation(async (file: File) => ({
     kind: file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "audio",
     mimeType: file.type,
@@ -616,7 +650,12 @@ describe("VideoEditorWorkspace", () => {
       sourceUrl: "blob:transient-frame",
     };
     mediaLibraryMock.items = [capture];
-    mediaLibraryMock.persist.mockResolvedValue("creative-media:image:durable-frame");
+    // Persisting registers the durable asset in the library, which the shared
+    // agent contract then resolves when the clip add dispatches.
+    mediaLibraryMock.persist.mockImplementation(async () => {
+      mediaImportMocks.assets.push(libraryAsset("creative-media:image:durable-frame", "image", "Transient frame", null));
+      return "creative-media:image:durable-frame";
+    });
     render(<VideoEditorWorkspace />);
 
     await user.click(screen.getByRole("button", { name: "添加 Transient frame" }));

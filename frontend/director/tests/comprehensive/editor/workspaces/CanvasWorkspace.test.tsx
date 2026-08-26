@@ -109,6 +109,8 @@ beforeEach(() => {
   mediaLibraryMock.persist.mockImplementation(async (item: DirectorMediaItem) => item.id);
   mediaLibraryMock.relink.mockReset();
   canvasProductionMocks.appendToTimeline.mockReset();
+  // The bridge returns a dispatch receipt; auto-send checks receipt.ok.
+  canvasProductionMocks.appendToTimeline.mockReturnValue({ ok: true });
   canvasProductionMocks.startPipeline.mockReset();
   canvasProductionMocks.activePipeline.mockReset();
   canvasProductionMocks.activePipeline.mockReturnValue(null);
@@ -262,7 +264,6 @@ it("runs the canvas pipeline from the toolbar and forwards verified media to the
     ]),
   );
   expect(canvasProductionMocks.appendToTimeline).toHaveBeenCalledWith(
-    expect.anything(),
     expect.objectContaining({
       id: "creative-media:image:generated",
       thumbnailUrl: "blob:generated-image",

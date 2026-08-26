@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { dispatchCreativeWorkspaceOperations } from "../../../agent/dispatchCreativeWorkspaceOperations";
 import {
   getDirectorCreativeWorkspaceScope,
   subscribeDirectorCreativeWorkspaceScope,
@@ -207,7 +208,18 @@ function updateReview(mediaId: string, update: (current: DirectorMediaReview) =>
   ) {
     return;
   }
-  state.updateGalleryMedia(id, { rating: nextReview.rating, tags: [...nextReview.tags] });
+  // Review edits dispatch through the shared agent contract so they produce
+  // the same revision and receipts as agent-side gallery updates. Media the
+  // contract does not know (legacy mirror entries whose assets are gone)
+  // falls back to the direct upsert the store has always provided.
+  const dispatched = dispatchCreativeWorkspaceOperations({
+    op: "gallery.media.update",
+    media_id: id,
+    patch: { rating: nextReview.rating, tags: [...nextReview.tags] },
+  });
+  if (!dispatched.ok && dispatched.code === "not_found") {
+    state.updateGalleryMedia(id, { rating: nextReview.rating, tags: [...nextReview.tags] });
+  }
   persistLegacyMirror(snapshotFromGalleryRecords(useDirectorCreativeWorkspaceStore.getState().galleryMedia));
 }
 
