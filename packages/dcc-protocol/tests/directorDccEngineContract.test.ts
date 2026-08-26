@@ -73,6 +73,27 @@ describe("Director DCC engine contract", () => {
     expect(directorDccEngineReportSchema.safeParse({ ...report, importedObjectCount: -1 }).success).toBe(false);
   });
 
+  it("accepts typed Unreal omittedSkeletal and rejects count mismatches", () => {
+    const report = {
+      ...engineReport(),
+      provider: "unreal" as const,
+      hostVersion: "5.5.0",
+      connectorVersion: "0.4.2",
+      scenePath: "/Game/Director/DirectorLevel",
+      omittedSkeletalCount: 1,
+      omittedSkeletal: [
+        {
+          directorId: "hero",
+          code: "character_unskinned" as const,
+          reason: "Character hero references a GLB without a skin; it was imported without a skeleton (warn-and-omit).",
+        },
+      ],
+    };
+    expect(directorDccEngineReportSchema.parse(report).omittedSkeletal?.[0]?.code).toBe("character_unskinned");
+    expect(directorDccEngineReportSchema.safeParse({ ...report, omittedSkeletalCount: undefined }).success).toBe(false);
+    expect(directorDccEngineReportSchema.safeParse({ ...report, omittedSkeletalCount: 2 }).success).toBe(false);
+  });
+
   it("validates health results with per-check detail and recovery guidance", () => {
     const health = {
       contract: DIRECTOR_DCC_ENGINE_HEALTH_CONTRACT,
