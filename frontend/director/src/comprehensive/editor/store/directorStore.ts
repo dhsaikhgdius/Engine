@@ -4558,6 +4558,35 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       const mediaId = input.mediaId.trim();
       const name = input.name.trim().slice(0, 240);
       if (!mediaId || !name || !Number.isFinite(input.durationFrames) || input.durationFrames < 1) return null;
+      if (canUseAuthoringPath()) {
+        const action: DirectorAuthoringAction = {
+          action: "add_timeline_audio_clip",
+          name,
+          media_id: mediaId,
+          duration_frames: clamp(Math.round(input.durationFrames), 1, MAX_TIMELINE_AUDIO_FRAME),
+          ...(input.sourceUrl?.trim() ? { source_url: input.sourceUrl.trim() } : {}),
+          ...(input.startFrame !== undefined && Number.isFinite(input.startFrame)
+            ? { start_frame: clamp(Math.round(input.startFrame), 0, MAX_TIMELINE_AUDIO_FRAME) }
+            : {}),
+          ...(input.sourceDurationSec !== undefined &&
+          Number.isFinite(input.sourceDurationSec) &&
+          input.sourceDurationSec > 0
+            ? { source_duration_sec: Math.min(input.sourceDurationSec, 86_400) }
+            : {}),
+        };
+        const receipt = dispatchDirectorAuthoringActions([action], {
+          idempotencyKey: `ui-timeline-audio-add:${mediaId}:${name}:${action.duration_frames}`,
+        });
+        if (!receipt.ok) {
+          notifyDirector({
+            severity: "error",
+            title: "时间线音频更新失败",
+            detail: receipt.error,
+          });
+          return null;
+        }
+        return receipt.created.timeline_audio_clip_ids[0] ?? null;
+      }
       let clipId: string | null = null;
       commitMutation((state) => {
         const timeline = state.project.scene.timeline ?? createDefaultDirectorFrameTimeline();
@@ -4619,6 +4648,26 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return clipId;
     },
     updateTimelineAudioClip: (clipId, patch) => {
+      if (canUseAuthoringPath()) {
+        const authorPatch = {
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          ...(patch.sourceUrl !== undefined ? { sourceUrl: patch.sourceUrl } : {}),
+          ...(patch.startFrame !== undefined ? { startFrame: patch.startFrame } : {}),
+          ...(patch.durationFrames !== undefined ? { durationFrames: patch.durationFrames } : {}),
+          ...(patch.inSec !== undefined ? { inSec: patch.inSec } : {}),
+          ...(patch.sourceDurationSec !== undefined ? { sourceDurationSec: patch.sourceDurationSec } : {}),
+          ...(patch.volume !== undefined ? { volume: patch.volume } : {}),
+          ...(patch.fadeInSec !== undefined ? { fadeInSec: patch.fadeInSec } : {}),
+          ...(patch.fadeOutSec !== undefined ? { fadeOutSec: patch.fadeOutSec } : {}),
+          ...(patch.muted !== undefined ? { muted: patch.muted } : {}),
+        };
+        if (Object.keys(authorPatch).length === 0) return false;
+        return dispatchUiAuthoring(
+          [{ action: "update_timeline_audio_clip", clip_id: clipId, patch: authorPatch }],
+          `ui-timeline-audio-update:${clipId}`,
+          "时间线音频更新失败",
+        );
+      }
       let changed = false;
       commitMutation((state) =>
         withTimelineAudioTracksPatch(state, (tracks) => {
@@ -4640,10 +4689,21 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     },
     moveTimelineAudioClip: (clipId, startFrame) => {
       if (!Number.isFinite(startFrame)) return false;
+      const nextStart = clamp(Math.round(startFrame), 0, MAX_TIMELINE_AUDIO_FRAME);
+      if (canUseAuthoringPath()) {
+        const existing = (get().project.scene.timeline?.audioTracks ?? [])
+          .flatMap((track) => track.clips)
+          .find((clip) => clip.id === clipId);
+        if (!existing || existing.startFrame === nextStart) return false;
+        return dispatchUiAuthoring(
+          [{ action: "update_timeline_audio_clip", clip_id: clipId, patch: { startFrame: nextStart } }],
+          `ui-timeline-audio-move:${clipId}:${nextStart}`,
+          "时间线音频更新失败",
+        );
+      }
       let changed = false;
       commitMutation((state) =>
         withTimelineAudioTracksPatch(state, (tracks) => {
-          const nextStart = clamp(Math.round(startFrame), 0, MAX_TIMELINE_AUDIO_FRAME);
           if (
             !tracks.some((track) => track.clips.some((clip) => clip.id === clipId && clip.startFrame !== nextStart))
           ) {
@@ -4663,6 +4723,17 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return changed;
     },
     removeTimelineAudioClip: (clipId) => {
+      if (canUseAuthoringPath()) {
+        const exists = (get().project.scene.timeline?.audioTracks ?? []).some((track) =>
+          track.clips.some((clip) => clip.id === clipId),
+        );
+        if (!exists) return false;
+        return dispatchUiAuthoring(
+          [{ action: "remove_timeline_audio_clips", clip_ids: [clipId] }],
+          `ui-timeline-audio-remove:${clipId}`,
+          "时间线音频更新失败",
+        );
+      }
       let removed = false;
       commitMutation((state) =>
         withTimelineAudioTracksPatch(state, (tracks) => {
@@ -4677,6 +4748,15 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return removed;
     },
     setTimelineAudioTrackMuted: (trackId, muted) => {
+      if (canUseAuthoringPath()) {
+        const track = (get().project.scene.timeline?.audioTracks ?? []).find((candidate) => candidate.id === trackId);
+        if (!track || track.muted === muted) return false;
+        return dispatchUiAuthoring(
+          [{ action: "set_timeline_audio_track_muted", track_id: trackId, muted }],
+          `ui-timeline-audio-mute:${trackId}:${muted}`,
+          "时间线音频更新失败",
+        );
+      }
       let changed = false;
       commitMutation((state) =>
         withTimelineAudioTracksPatch(state, (tracks) => {

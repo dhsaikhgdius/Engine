@@ -1076,9 +1076,11 @@ function ensureTimelineAudioTracks(project: DirectorProject): {
   timeline: NonNullable<DirectorProject["scene"]["timeline"]>;
   tracks: DirectorTimelineAudioTrack[];
 } {
-  const timeline = project.scene.timeline ?? createDefaultDirectorFrameTimeline();
+  const timeline: NonNullable<DirectorProject["scene"]["timeline"]> = project.scene.timeline ?? {
+    ...createDefaultDirectorFrameTimeline(),
+  };
   project.scene.timeline = timeline;
-  const tracks = timeline.audioTracks ? [...timeline.audioTracks] : [];
+  const tracks: DirectorTimelineAudioTrack[] = timeline.audioTracks ? [...timeline.audioTracks] : [];
   timeline.audioTracks = tracks;
   return { timeline, tracks };
 }
@@ -3209,7 +3211,8 @@ export function applyDirectorAuthoringActions(
               ? null
               : {
                   enabled: patch.propagation.enabled,
-                  radiusM: patch.propagation.radius_m ?? effect.propagation?.radiusM ?? worldFirePropagationDefaults.radiusM,
+                  radiusM:
+                    patch.propagation.radius_m ?? effect.propagation?.radiusM ?? worldFirePropagationDefaults.radiusM,
                   spreadRate:
                     patch.propagation.spread_rate ??
                     effect.propagation?.spreadRate ??
