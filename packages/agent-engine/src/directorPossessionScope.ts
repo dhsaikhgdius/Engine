@@ -5,11 +5,13 @@
  * Agent drives that character. The public Agent boundary (gateway) resolves
  * the possessed character set from the same preflight observation it already
  * performs for revision guards, then rejects workbench mutations that reach
- * outside that set. A binding that names a `session_id` belongs to that exact
- * session; a binding that names only a `profile_id` is matched against the
- * `profile_id` carried by the request envelope. Sessions that possess no
- * character keep full stage-wide authoring; the Director UI dispatch path is
- * not session-scoped.
+ * outside that set — including Player Mode (`op:"player"`) and the persistent
+ * Camera Pilot waypoint write (`pilot.record_waypoint`), which mutate live
+ * project state without carrying author targets. A binding that names a
+ * `session_id` belongs to that exact session; a binding that names only a
+ * `profile_id` is matched against the `profile_id` carried by the request
+ * envelope. Sessions that possess no character keep full stage-wide
+ * authoring; the Director UI dispatch path is not session-scoped.
  *
  * When a session possesses exactly one character, the gateway may fill the
  * omitted object target of character-scoped author actions before Zod
@@ -187,6 +189,14 @@ function authoringActionTargetIds(action: DirectorAuthoringAction): string[] | n
  * delete_objects, production edits, generated_3d promotion, storyboard
  * artifacts) are rejected with a readable error.
  *
+ * Player Mode and Camera Pilot session commands are scoped too: `player`
+ * `enter`/`set_actor` must explicitly name a possessed `actor_id` (the live
+ * actor otherwise falls back to shared-tab state such as the user's
+ * selection), the remaining `player` verbs then drive that constrained live
+ * actor, and `pilot.record_waypoint` is rejected because it writes camera
+ * keyframes outside any character. Transient pilot flight
+ * (`start`/`stop`/`set_view`) stays available.
+ *
  * @param input - The guarded operation, the calling session id, and the possessed set.
  * @returns `{ allowed: true }` or a rejection with an actionable error message.
  */
@@ -201,8 +211,42 @@ export function evaluateDirectorPossessionScope(input: {
     ["patch", "author", "run_macro", "correct", "replace_project", "undo"].includes(operation.op) ||
     (operation.op === "production" && operation.command.action !== "observe") ||
     (operation.op === "generated_3d" && operation.command.action === "promote") ||
-    operation.op === "storyboard_artifact";
+    operation.op === "storyboard_artifact" ||
+    operation.op === "player" ||
+    (operation.op === "pilot" && operation.action === "record_waypoint");
   if (!isMutation) return { allowed: true };
+
+  const possessed = new Set(possessedObjectIds);
+  if (operation.op === "player") {
+    if (operation.action === "enter" || operation.action === "set_actor") {
+      if (!operation.actor_id) {
+        return possessionScopeError(
+          sessionId,
+          possessedObjectIds,
+          `player.${operation.action} omitted actor_id; name one of the possessed character ids explicitly.`,
+        );
+      }
+      if (!possessed.has(operation.actor_id)) {
+        return possessionScopeError(
+          sessionId,
+          possessedObjectIds,
+          `player.${operation.action} targets "${operation.actor_id}", which this session does not possess.`,
+        );
+      }
+    }
+    // The remaining player verbs (exit, teleport, walk_to, interact,
+    // enter_vehicle, exit_vehicle, record_start, record_stop) drive the live
+    // actor whose selection is constrained by the enter/set_actor rule above;
+    // their object_id/position fields are in-world references.
+    return { allowed: true };
+  }
+  if (operation.op === "pilot") {
+    return possessionScopeError(
+      sessionId,
+      possessedObjectIds,
+      `Operation "pilot.record_waypoint" writes camera keyframes outside the possessed characters and is rejected.`,
+    );
+  }
 
   if (operation.op !== "author") {
     return possessionScopeError(
@@ -212,7 +256,6 @@ export function evaluateDirectorPossessionScope(input: {
     );
   }
 
-  const possessed = new Set(possessedObjectIds);
   for (const action of operation.actions) {
     const targetIds = authoringActionTargetIds(action);
     if (targetIds === null) {

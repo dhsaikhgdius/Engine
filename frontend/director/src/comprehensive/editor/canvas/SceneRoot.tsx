@@ -180,13 +180,19 @@ function ViewportObjectLabel({
   badge,
   children,
   position,
+  translateContent = false,
 }: {
   badge?: string;
   children: ReactNode;
   position: [number, number, number];
+  /** Only fixed UI strings opt in; user names (characters, cameras) render verbatim. */
+  translateContent?: boolean;
 }) {
   const { t } = useLanguage();
-  const content = typeof children === "string" ? t(children) : children;
+  // Character and camera names are user data: the wrapping
+  // data-i18n-user-content already shields them from the DOM walker, so the
+  // explicit t() must not run either (a character named 角色1 stays 角色1).
+  const content = translateContent && typeof children === "string" ? t(children) : children;
   return (
     <Html center pointerEvents="none" position={position} zIndexRange={[0, 1]}>
       <div className="role-label" data-i18n-user-content>
@@ -1353,7 +1359,11 @@ const ObjectSceneNode = memo(function ObjectSceneNode({
               {item.name}
             </ViewportObjectLabel>
           ) : null}
-          {showLabels ? <ViewportObjectLabel position={[0, 0.18, 0]}>资产绑定无效</ViewportObjectLabel> : null}
+          {showLabels ? (
+            <ViewportObjectLabel position={[0, 0.18, 0]} translateContent>
+              资产绑定无效
+            </ViewportObjectLabel>
+          ) : null}
         </>
       ) : showPrimary && item.kind === "prop" && item.geometryType ? (
         <GeometryPrimitiveModel assets={assets} color={item.color} geometryType={item.geometryType} item={item} />

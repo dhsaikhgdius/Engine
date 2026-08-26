@@ -224,7 +224,9 @@ async function runTask(token, task) {
   for (const step of task.steps) {
     let failures;
     try {
-      const { body } = await callTool(token, step.tool, sessionId, step.input);
+      // A step may impersonate a specific agent session (e.g. the possessing
+      // session of a character binding); the task session stays the default.
+      const { body } = await callTool(token, step.tool, step.session_id ?? sessionId, step.input);
       failures = checkExpectations(step.expect, body);
     } catch (error) {
       failures = [`request failed: ${error instanceof Error ? error.message : String(error)}`];

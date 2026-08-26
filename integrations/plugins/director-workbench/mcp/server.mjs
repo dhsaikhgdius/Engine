@@ -120317,6 +120317,13 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
         message: "bind_character_agent requires session_id or profile_id"
       });
     }
+    if (action.session_id === "http-default") {
+      context.addIssue({
+        code: "custom",
+        path: ["session_id"],
+        message: 'bind_character_agent cannot bind the anonymous HTTP fallback session "http-default"; pass the durable Agent session id that drives this character (e.g. dsh-<session>) or a profile_id'
+      });
+    }
     return;
   }
   if (action.action !== "add_object") return;

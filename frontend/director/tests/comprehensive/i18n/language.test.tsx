@@ -100,6 +100,8 @@ it("translates direct and dynamic UI phrases", () => {
   expect(translateString("宏“Lighting”已执行，可撤销", "en-US")).toBe("Ran macro “Lighting”; undo is available");
   expect(translateString("排队中 · 前方 2 项", "en-US")).toBe("Queued · 2 ahead");
   expect(translateString("Session 状态：已完成", "en-US")).toBe("Session status: Completed");
+  expect(translateString("会话 dsh-abc123 · 活跃", "en-US")).toBe("Session dsh-abc123 · Active");
+  expect(translateString("会话 dsh-abc123 · 空闲", "en-US")).toBe("Session dsh-abc123 · Idle");
   expect(translateString("正在观察场景", "en-US")).toBe("Observing the scene");
   expect(translateString("正在修改 12 个物体", "en-US")).toBe("Authoring 12 objects");
   expect(translateString("已截取画面", "en-US")).toBe("Captured a frame");
