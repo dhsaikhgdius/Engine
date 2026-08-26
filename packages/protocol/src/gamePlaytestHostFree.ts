@@ -109,11 +109,7 @@ function planarSpeedForInput(input: GamePlaytestInput, moveHeld: boolean): numbe
   return HOST_FREE_WALK_SPEED_MPS;
 }
 
-function locomotionVerb(
-  input: GamePlaytestInput,
-  moveHeld: boolean,
-  jumpHeld: boolean,
-): GameSliceVerb | undefined {
+function locomotionVerb(input: GamePlaytestInput, moveHeld: boolean, jumpHeld: boolean): GameSliceVerb | undefined {
   if (jumpHeld) return "jump";
   if (input.dash && moveHeld) return "dash";
   if (input.crouch) return "crouch";
@@ -161,9 +157,7 @@ export function runHostFreeGamePlaytest(input: RunHostFreeGamePlaytestInput): Ga
 
   const objectiveId = input.slice.roles.find((role) => role.kind === "objective")?.object_id;
 
-  let position: [number, number, number] = input.initial?.position
-    ? [...input.initial.position]
-    : [0, 0, 0];
+  let position: [number, number, number] = input.initial?.position ? [...input.initial.position] : [0, 0, 0];
   let yaw = input.initial?.yaw ?? 0;
   let pitch = input.initial?.pitch ?? 0;
   let stuckElapsedS = 0;
@@ -181,8 +175,18 @@ export function runHostFreeGamePlaytest(input: RunHostFreeGamePlaytestInput): Ga
 
       if (step.input.look_left) yaw = wrapAngle(yaw + GAME_PLAYTEST_LOOK_YAW_RAD_S * script.dt);
       if (step.input.look_right) yaw = wrapAngle(yaw - GAME_PLAYTEST_LOOK_YAW_RAD_S * script.dt);
-      if (step.input.look_up) pitch = clamp(pitch + GAME_PLAYTEST_LOOK_PITCH_RAD_S * script.dt, -GAME_PLAYTEST_MAX_PITCH_RAD, GAME_PLAYTEST_MAX_PITCH_RAD);
-      if (step.input.look_down) pitch = clamp(pitch - GAME_PLAYTEST_LOOK_PITCH_RAD_S * script.dt, -GAME_PLAYTEST_MAX_PITCH_RAD, GAME_PLAYTEST_MAX_PITCH_RAD);
+      if (step.input.look_up)
+        pitch = clamp(
+          pitch + GAME_PLAYTEST_LOOK_PITCH_RAD_S * script.dt,
+          -GAME_PLAYTEST_MAX_PITCH_RAD,
+          GAME_PLAYTEST_MAX_PITCH_RAD,
+        );
+      if (step.input.look_down)
+        pitch = clamp(
+          pitch - GAME_PLAYTEST_LOOK_PITCH_RAD_S * script.dt,
+          -GAME_PLAYTEST_MAX_PITCH_RAD,
+          GAME_PLAYTEST_MAX_PITCH_RAD,
+        );
 
       const speed = planarSpeedForInput(step.input, moveHeld);
       const sin = Math.sin(yaw);
@@ -200,10 +204,7 @@ export function runHostFreeGamePlaytest(input: RunHostFreeGamePlaytestInput): Ga
       stuckElapsedS = moveHeld && planar < GAME_PLAYTEST_STUCK_SPEED_MPS ? stuckElapsedS + script.dt : 0;
       const stuck = stuckElapsedS > GAME_PLAYTEST_STUCK_HOLD_S;
 
-      const verb =
-        step.expect?.verb ??
-        sessionVerb ??
-        locomotionVerb(step.input, moveHeld, jumpHeld);
+      const verb = step.expect?.verb ?? sessionVerb ?? locomotionVerb(step.input, moveHeld, jumpHeld);
       if (verb) verbs.add(verb);
       // Fire input also counts session fire when expect overrides to attack/reload.
       if (sessionVerb) verbs.add(sessionVerb);

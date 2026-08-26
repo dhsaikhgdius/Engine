@@ -66,8 +66,7 @@ describe("director_game full loop (host-free, durable store)", () => {
     const observed = await runtime.execute({ op: "observe", slice_id: options.sliceId });
     expect(observed.success).toBe(true);
     if (!observed.success) throw new Error("observe failed");
-    const suggested = (observed.result as { suggested_playtest_script: GamePlaytestScript })
-      .suggested_playtest_script;
+    const suggested = (observed.result as { suggested_playtest_script: GamePlaytestScript }).suggested_playtest_script;
     expect(suggested.steps.length).toBeGreaterThan(0);
 
     // No trace and no live tab: the Gateway's default host-free kinematic

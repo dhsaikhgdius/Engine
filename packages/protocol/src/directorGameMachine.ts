@@ -299,14 +299,20 @@ export function evaluateGamePlaytest(slice: GameSlice, trace: GamePlaytestTrace)
     });
   }
 
-  const hudUnbound = slice.hud.widgets.some((widget) => widget.role_id && !slice.roles.some((role) => role.id === widget.role_id && role.object_id));
+  const hudUnbound = slice.hud.widgets.some(
+    (widget) => widget.role_id && !slice.roles.some((role) => role.id === widget.role_id && role.object_id),
+  );
   if (hudUnbound) {
     issues.push({
       code: "hud_unbound",
       severity: "warning",
       check: "hud_bound",
       message: "One or more HUD widgets reference a role that has no object_id.",
-      corrective_call: { op: "bind", slice_id: slice.id, bindings: [{ role_id: "<hud widget role_id>", object_id: "<id>" }] },
+      corrective_call: {
+        op: "bind",
+        slice_id: slice.id,
+        bindings: [{ role_id: "<hud widget role_id>", object_id: "<id>" }],
+      },
     });
   }
 
@@ -370,10 +376,19 @@ function verbInput(verb: GameSliceVerb): Record<string, boolean> {
 function defaultId(createId: (() => string) | undefined): string {
   const suffix = createId?.() ?? `game-${crypto.randomUUID()}`;
   if (gameSliceIdSchema.safeParse(suffix).success) return suffix;
-  return `game-${suffix.replace(/[^a-z0-9-]/gi, "").toLowerCase().slice(0, 48) || crypto.randomUUID()}`;
+  return `game-${
+    suffix
+      .replace(/[^a-z0-9-]/gi, "")
+      .toLowerCase()
+      .slice(0, 48) || crypto.randomUUID()
+  }`;
 }
 
-function applyBind(slice: GameSlice, operation: Extract<DirectorGameOperation, { op: "bind" }>, now: string): GameSlice {
+function applyBind(
+  slice: GameSlice,
+  operation: Extract<DirectorGameOperation, { op: "bind" }>,
+  now: string,
+): GameSlice {
   const roles = slice.roles.map((role) => {
     const patch = operation.bindings.find((binding) => binding.role_id === role.id);
     if (!patch) return role;
@@ -406,10 +421,9 @@ function applyBind(slice: GameSlice, operation: Extract<DirectorGameOperation, {
     status: gameSliceBindComplete({ ...slice, roles }) ? "bound" : slice.status === "draft" ? "draft" : slice.status,
     updated_at: now,
     notes: unknown.length
-      ? [
-          ...slice.notes,
-          `Ignored unknown role_id(s): ${unknown.map((binding) => binding.role_id).join(", ")}.`,
-        ].slice(-32)
+      ? [...slice.notes, `Ignored unknown role_id(s): ${unknown.map((binding) => binding.role_id).join(", ")}.`].slice(
+          -32,
+        )
       : slice.notes,
   };
   return gameSliceSchema.parse(next);
@@ -536,11 +550,13 @@ export async function executeDirectorGame(
       if (!("id" in slice)) return slice;
       if (!playerRole(slice)?.object_id) {
         const issue = playerUnboundIssue(slice);
-        return rejection("game_player_unbound", issue.message, { corrective_call: issue.corrective_call, result: { issues: [issue] } });
+        return rejection("game_player_unbound", issue.message, {
+          corrective_call: issue.corrective_call,
+          result: { issues: [issue] },
+        });
       }
       const trace =
-        operation.trace ??
-        (context.runPlaytest ? await context.runPlaytest({ slice, operation }) : undefined);
+        operation.trace ?? (context.runPlaytest ? await context.runPlaytest({ slice, operation }) : undefined);
       if (!trace) {
         return rejection(
           "game_playtest_needs_stage",
@@ -586,7 +602,13 @@ export async function executeDirectorGame(
         return rejection(
           "game_evaluation_missing_trace",
           `Slice ${slice.id} has no playtest trace to evaluate. Call playtest first.`,
-          { corrective_call: { op: "playtest", slice_id: slice.id, script: { steps: [{ frames: 30, input: { forward: true } }] } } },
+          {
+            corrective_call: {
+              op: "playtest",
+              slice_id: slice.id,
+              script: { steps: [{ frames: 30, input: { forward: true } }] },
+            },
+          },
         );
       }
       const report = trace ? evaluateGamePlaytest(slice, trace) : slice.last_evaluation;
@@ -630,7 +652,11 @@ export async function executeDirectorGame(
               { tool: "director_dcc", input: { op: "status", provider: operation.provider } },
               {
                 tool: "director_dcc",
-                input: { op: "send_to_engine", provider: operation.provider, ...(operation.formats ? { formats: operation.formats } : {}) },
+                input: {
+                  op: "send_to_engine",
+                  provider: operation.provider,
+                  ...(operation.formats ? { formats: operation.formats } : {}),
+                },
               },
             ],
           },

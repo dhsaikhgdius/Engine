@@ -262,7 +262,10 @@ export type GamePlaytestStepInput = z.input<typeof gamePlaytestStepSchema>;
  * 1/30 to match the living-world tick). A compile is not a playtest.
  */
 export const gamePlaytestScriptSchema = z.strictObject({
-  dt: finite.min(1 / 240).max(1 / 10).default(1 / 30),
+  dt: finite
+    .min(1 / 240)
+    .max(1 / 10)
+    .default(1 / 30),
   steps: z.array(gamePlaytestStepSchema).min(1).max(256),
 });
 export type GamePlaytestScript = z.infer<typeof gamePlaytestScriptSchema>;
@@ -385,12 +388,7 @@ const DEFAULT_HUD_BY_GENRE: Record<GameSliceGenre, GameSliceHudWidgetKind[]> = {
   rpg: ["health", "prompt", "dialogue"],
 };
 
-const DEFAULT_CHECKS: GameSlicePlayabilityCheck[] = [
-  "on_ground",
-  "facing_matches_move",
-  "verb_exercised",
-  "no_stuck",
-];
+const DEFAULT_CHECKS: GameSlicePlayabilityCheck[] = ["on_ground", "facing_matches_move", "verb_exercised", "no_stuck"];
 
 /**
  * Genres whose default roles include an objective also accept on interaction

@@ -232,7 +232,15 @@ describe("director_game machine", () => {
             verb: "move",
           },
           // Interact pressed with nothing in range: no interaction_object_id.
-          { frame: 1, time_s: 1 / 30, position: [0, 0, 1.2], yaw: 0, velocity: [0, 0, 0], on_ground: true, verb: "interact" },
+          {
+            frame: 1,
+            time_s: 1 / 30,
+            position: [0, 0, 1.2],
+            yaw: 0,
+            velocity: [0, 0, 0],
+            on_ground: true,
+            verb: "interact",
+          },
         ],
       }),
     );
