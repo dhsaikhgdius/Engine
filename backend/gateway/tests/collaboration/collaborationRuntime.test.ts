@@ -42,6 +42,8 @@ describe("createCollaborationRuntime", () => {
     expect(runtime.authorizer.mode).toBe("local-trust");
     expect(runtime.snapshotStore).toBeNull();
     expect(runtime.emptyRoomTtlSeconds).toBe(0);
+    expect(runtime.inviteRateLimitPerMinute).toBe(0);
+    expect(runtime.inviteRateLimiter.enabled).toBe(false);
     expect(runtime.hub.authMode).toBe("local-trust");
     expect(runtime.inviteSecret).toBe("process-secret");
     runtime.hub.destroy();
@@ -56,11 +58,14 @@ describe("createCollaborationRuntime", () => {
         DIRECTOR_COLLAB_INVITE_SECRET: "stable-secret",
         DIRECTOR_COLLAB_PERSISTENCE: "1",
         DIRECTOR_COLLAB_EMPTY_ROOM_TTL_SECONDS: "120",
+        DIRECTOR_COLLAB_INVITE_RATE_LIMIT_PER_MINUTE: "45",
       },
     });
     expect(runtime.authorizer.mode).toBe("invite-required");
     expect(runtime.snapshotStore).not.toBeNull();
     expect(runtime.emptyRoomTtlSeconds).toBe(120);
+    expect(runtime.inviteRateLimitPerMinute).toBe(45);
+    expect(runtime.inviteRateLimiter.enabled).toBe(true);
     expect(runtime.inviteSecret).toBe("stable-secret");
     expect(runtime.revocations.counts()).toEqual({ revokedTokens: 0, roomCutoffs: 0 });
     runtime.hub.destroy();
