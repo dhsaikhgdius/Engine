@@ -10,9 +10,11 @@ Invoked by the Director Gateway (never with a request-supplied script) as:
 Modes:
 - ``health``  print a JSON health line with the engine and connector version.
 - ``import``  import a Director exchange package into a Director level with
-  stable ``director_id`` actor tags, author materials, import skinned GLBs as
-  skeletal meshes, key the Sequencer from the hash-pinned animation bake, then
-  echo a canonical-space return package so Director can verify the round trip.
+  stable ``director_id`` actor tags, author materials (binding bundled texture
+  files to the parent-material texture parameters), spawn the supported subset
+  of Director lights, import skinned GLBs as skeletal meshes, key the
+  Sequencer from the hash-pinned animation bake, then echo a canonical-space
+  return package so Director can verify the round trip.
 - ``export``  export a ``director-dcc-return-v1`` package containing the
   canonical-space transforms of every ``director_id``-tagged actor that moved
   relative to the exchange package baseline.
@@ -42,24 +44,32 @@ if SCRIPT_DIR not in sys.path:
 import director_bake as dbake  # noqa: E402
 import director_gltf as dgltf  # noqa: E402
 import director_host_materials as dhostmat  # noqa: E402
+import director_lights as dlights  # noqa: E402
 import director_livelink as dlivelink  # noqa: E402
 import director_materials as dmaterials  # noqa: E402
 import director_package as dpkg  # noqa: E402
 import director_sequencer as dsequencer  # noqa: E402
 import director_space as dspace  # noqa: E402
 
-CONNECTOR_VERSION = "0.3.0"
+CONNECTOR_VERSION = "0.4.0"
 PROVIDER = "unreal"
 DIRECTOR_TAG_PREFIX = "director_id:"
+# Lights are tagged with their own prefix so the transform-echo export loop
+# (objects and cameras only) never mistakes them for return-package entities.
+DIRECTOR_LIGHT_TAG_PREFIX = "director_light_id:"
 CONTENT_ROOT = "/Game/Director"
 TRANSFORM_TOLERANCE = 1e-6
 PREVIEW_TOKEN_ENV = "DIRECTOR_UNREAL_PREVIEW_TOKEN"
 RENDER_POLL_SECONDS = 300.0
+# Image extensions the exchange package may bundle for material textures.
+TEXTURE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tga", ".exr")
 CONNECTOR_FEATURES = [
     "animation_bake",
     "sequencer_timebase",
     "skeletal_import",
     "materials",
+    "material_textures",
+    "lights",
     "live_preview_protocol",
     "clean_frame_render",
 ]
@@ -199,13 +209,18 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
     """Spawn tagged actors for every Director object and camera.
 
     @returns ``(spawned, cameras, stats)`` where stats carries
-        ``importedSkeletalMeshCount`` and ``appliedMaterialCount``.
+        ``importedSkeletalMeshCount``, ``appliedMaterialCount``, and
+        ``appliedTextureCount``.
     """
     actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     scene = manifest["project"]["scene"]
     assets_by_id = {}
     for asset_entry in manifest.get("assets", []):
         assets_by_id[asset_entry["assetRefId"]] = dpkg.resolve_package_file(package_dir, asset_entry["relativePath"])
+    # Bundled texture image files, keyed by asset-ref id, for material binding.
+    texture_files = {
+        asset_ref: path for asset_ref, path in assets_by_id.items() if path.lower().endswith(TEXTURE_EXTENSIONS)
+    }
 
     glb_inspections: dict[str, dict] = {}
 
@@ -219,10 +234,19 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
         return glb_inspections[asset_ref]
 
     imported_meshes: dict[str, tuple] = {}
+    imported_textures: dict[str, object] = {}
     spawned: dict[str, object] = {}
     package_folder = safe_asset_name(manifest["packageId"][:8])
     material_parents = None
-    stats = {"importedSkeletalMeshCount": 0, "appliedMaterialCount": 0}
+    stats = {"importedSkeletalMeshCount": 0, "appliedMaterialCount": 0, "appliedTextureCount": 0}
+
+    def texture_asset_for(asset_ref: str):
+        """Import one bundled texture once and cache the result (None on failure)."""
+        if asset_ref not in imported_textures:
+            imported_textures[asset_ref] = dhostmat.import_texture_asset(
+                unreal, texture_files[asset_ref], f"{CONTENT_ROOT}/Textures/{package_folder}", warnings
+            )
+        return imported_textures[asset_ref]
 
     for entity in manifest["project"]["objects"]:
         canonical = canonical_world_transform(scene, entity["transform"])
@@ -271,7 +295,7 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
 
         material = entity.get("material")
         if material:
-            mapped = dmaterials.map_material(material, entity["name"])
+            mapped = dmaterials.map_material(material, entity["name"], texture_files)
             warnings.extend(mapped["warnings"])
             if mesh_component is None:
                 warnings.append(
@@ -282,6 +306,10 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
                 if material_parents is None:
                     material_parents = dhostmat.ensure_parent_materials(unreal, CONTENT_ROOT, warnings)
                 try:
+                    texture_assets = {
+                        parameter: texture_asset_for(asset_ref)
+                        for parameter, asset_ref in mapped.get("textures", {}).items()
+                    }
                     applied = dhostmat.apply_material(
                         unreal,
                         mesh_component,
@@ -290,9 +318,11 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
                         f"MI_{safe_asset_name(entity['id'])}",
                         f"{CONTENT_ROOT}/Materials/{package_folder}",
                         warnings,
+                        texture_assets,
                     )
-                    if applied:
+                    if applied["applied"]:
                         stats["appliedMaterialCount"] += 1
+                    stats["appliedTextureCount"] += applied["boundTextureCount"]
                 except Exception as error:  # noqa: BLE001 - material failure must not sink the import
                     warnings.append(f"Material application failed for {entity['id']}: {error}")
         spawned[entity["id"]] = actor
@@ -326,6 +356,88 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
             actor.get_cine_camera_component().current_focal_length = float(focal_length)
         cameras[camera["id"]] = actor
     return spawned, cameras, stats
+
+
+def _apply_light_component_settings(unreal, actor, spec: dict, warnings: list[str]) -> None:
+    """Best-effort light component settings; each failure warns instead of sinking the import."""
+    component = actor.light_component
+    try:
+        component.set_intensity(float(spec["intensity"]))
+        if spec["intensityUnit"] == "candela":
+            component.set_editor_property("intensity_units", unreal.LightUnits.CANDELAS)
+        elif spec["intensityUnit"] == "nits":
+            component.set_editor_property("intensity_units", unreal.LightUnits.NITS)
+    except Exception as error:  # noqa: BLE001
+        warnings.append(f"Light {spec['name']}: intensity could not be applied: {error}")
+    color = spec.get("colorLinear")
+    if color is not None:
+        try:
+            component.set_light_color(unreal.LinearColor(color[0], color[1], color[2], 1.0))
+        except Exception as error:  # noqa: BLE001
+            warnings.append(f"Light {spec['name']}: color could not be applied: {error}")
+    try:
+        component.set_cast_shadows(bool(spec.get("castShadow", False)))
+    except Exception as error:  # noqa: BLE001
+        warnings.append(f"Light {spec['name']}: shadow flag could not be applied: {error}")
+    if spec.get("attenuationRadiusCm") is not None:
+        try:
+            component.set_attenuation_radius(float(spec["attenuationRadiusCm"]))
+        except Exception as error:  # noqa: BLE001
+            warnings.append(f"Light {spec['name']}: attenuation radius could not be applied: {error}")
+    if spec.get("outerConeAngleDeg") is not None:
+        try:
+            component.set_outer_cone_angle(float(spec["outerConeAngleDeg"]))
+            component.set_inner_cone_angle(float(spec["innerConeAngleDeg"]))
+        except Exception as error:  # noqa: BLE001
+            warnings.append(f"Light {spec['name']}: cone angles could not be applied: {error}")
+    if spec.get("sourceWidthCm") is not None:
+        try:
+            component.set_editor_property("source_width", float(spec["sourceWidthCm"]))
+            component.set_editor_property("source_height", float(spec["sourceHeightCm"]))
+        except Exception as error:  # noqa: BLE001
+            warnings.append(f"Light {spec['name']}: rect size could not be applied: {error}")
+
+
+def spawn_lights(unreal, manifest: dict, warnings: list[str]):
+    """Spawn the supported subset of Director lights as tagged Unreal light actors.
+
+    Uses the pure ``director_lights`` mapping: directional, point, spot, and
+    rect-area lights spawn; ambient and hemisphere lights become structured
+    omit records. Lights carry ``director_light_id`` tags (never
+    ``director_id``) so the return-package export loop ignores them.
+
+    @returns ``(imported_light_count, omitted_records)``.
+    """
+    mapping = dlights.map_lights(manifest["project"]["scene"], manifest["project"].get("lights"))
+    warnings.extend(mapping["warnings"])
+    actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    package_folder = safe_asset_name(manifest["packageId"][:8])
+    imported = 0
+    for spec in mapping["lights"]:
+        light_class = getattr(unreal, spec["unrealClass"], None)
+        if light_class is None:
+            warnings.append(
+                f"Light {spec['name']}: this Unreal build has no {spec['unrealClass']} class (warn-and-omit)."
+            )
+            mapping["omitted"].append(
+                {
+                    "directorId": spec["directorId"],
+                    "lightType": spec["lightType"],
+                    "reason": f"The {spec['unrealClass']} actor class is unavailable in this Unreal build.",
+                }
+            )
+            continue
+        transform = unreal_transform_from_canonical(unreal, spec["transform"])
+        actor = actor_subsystem.spawn_actor_from_class(light_class, transform.translation, transform.rotation.rotator())
+        actor.set_actor_transform(transform, False, False)
+        actor.set_actor_label(spec["name"])
+        actor.tags = [unreal.Name(f"{DIRECTOR_LIGHT_TAG_PREFIX}{spec['directorId']}")]
+        actor.set_folder_path(unreal.Name(f"Director/{package_folder}/Lights"))
+        if spec.get("hidden"):
+            actor.set_actor_hidden_in_game(True)
+        _apply_light_component_settings(unreal, actor, spec, warnings)
+        imported += 1
+    return imported, mapping["omitted"]
 
 
 def load_sequencer_bake(arguments, manifest: dict):
@@ -383,6 +495,7 @@ def run_import(unreal, arguments) -> int:
     level_path = f"{CONTENT_ROOT}/Levels/Director_{package_folder}"
     level_subsystem.new_level(level_path)
     spawned, cameras, stats = spawn_actors(unreal, manifest, arguments.package, warnings)
+    imported_light_count, omitted_lights = spawn_lights(unreal, manifest, warnings)
     if bake:
         warnings.extend(bake.get("warnings", []))
         for entity in bake["entities"]:
@@ -417,12 +530,21 @@ def run_import(unreal, arguments) -> int:
         return_dir = os.path.relpath(arguments.return_dir, os.path.dirname(arguments.report)).replace(os.sep, "/")
 
     # Structured warn-and-omit echo: pose/rig channels the verified bake could
-    # not carry are reported as data, never silently flattened into prose.
-    omitted_animation_channels = [
-        {"directorId": entity["directorId"], "entityType": entity["entityType"], "channels": entity["omittedChannels"]}
-        for entity in (bake["entities"] if bake else [])
-        if entity.get("omittedChannels")
-    ]
+    # not carry are reported as data, never silently flattened into prose. The
+    # per-channel details (control names, reasons) are echoed when the
+    # Gateway-written sidecar carries them.
+    omitted_animation_channels = []
+    for entity in bake["entities"] if bake else []:
+        if not entity.get("omittedChannels"):
+            continue
+        record = {
+            "directorId": entity["directorId"],
+            "entityType": entity["entityType"],
+            "channels": entity["omittedChannels"],
+        }
+        if entity.get("omittedChannelDetails"):
+            record["details"] = entity["omittedChannelDetails"]
+        omitted_animation_channels.append(record)
 
     dpkg.write_report(
         arguments.report,
@@ -440,6 +562,9 @@ def run_import(unreal, arguments) -> int:
             "sequencer": sequencer_receipt,
             "importedSkeletalMeshCount": stats["importedSkeletalMeshCount"],
             "appliedMaterialCount": stats["appliedMaterialCount"],
+            "appliedTextureCount": stats["appliedTextureCount"],
+            "importedLightCount": imported_light_count,
+            "omittedLights": omitted_lights or None,
             "omittedAnimationChannels": omitted_animation_channels or None,
         },
     )

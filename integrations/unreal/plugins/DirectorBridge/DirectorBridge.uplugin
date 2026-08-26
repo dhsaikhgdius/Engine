@@ -1,9 +1,9 @@
 {
   "FileVersion": 3,
-  "Version": 2,
-  "VersionName": "0.3.0",
+  "Version": 3,
+  "VersionName": "0.4.0",
   "FriendlyName": "Director Bridge",
-  "Description": "Imports Director exchange packages into a level with stable director_id tags, keys hash-pinned animation bakes into Sequencer (rational frame rates, timecode, camera cuts, focal length), imports skinned GLBs as skeletal meshes, maps Director PBR materials to material instances, and exports director-dcc-return-v1 packages back to Director. Source-only connector; uses the licensed Unreal Engine installation on this machine.",
+  "Description": "Imports Director exchange packages into a level with stable director_id tags, keys hash-pinned animation bakes into Sequencer (rational frame rates, timecode, camera cuts, focal length), imports skinned GLBs as skeletal meshes, maps Director PBR materials to material instances (binding bundled texture images to texture parameters), spawns the supported subset of Director lights, and exports director-dcc-return-v1 packages back to Director. Source-only connector; uses the licensed Unreal Engine installation on this machine.",
   "Category": "Director",
   "CreatedBy": "Director (WorldEngine)",
   "CreatedByURL": "",
@@ -12,8 +12,17 @@
   "Installed": true,
   "EnabledByDefault": true,
   "Plugins": [
-    { "Name": "PythonScriptPlugin", "Enabled": true },
-    { "Name": "EditorScriptingUtilities", "Enabled": true },
-    { "Name": "LevelSequenceEditor", "Enabled": true }
+    {
+      "Name": "PythonScriptPlugin",
+      "Enabled": true
+    },
+    {
+      "Name": "EditorScriptingUtilities",
+      "Enabled": true
+    },
+    {
+      "Name": "LevelSequenceEditor",
+      "Enabled": true
+    }
   ]
 }
