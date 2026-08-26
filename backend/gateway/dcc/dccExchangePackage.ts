@@ -307,7 +307,9 @@ function selectedProject(project: DirectorProject, cameraId?: string, frame?: nu
         "dcc_exchange_frame_invalid",
       );
     }
-    if (frame < timeline.frameStart || frame > timeline.frameEnd) {
+    // NaN slips through plain range comparisons (NaN < x and NaN > x are both
+    // false), so non-finite frames must be rejected explicitly.
+    if (!Number.isFinite(frame) || frame < timeline.frameStart || frame > timeline.frameEnd) {
       throw new DirectorDccExchangePackageError(
         `DCC exchange frame ${frame} is outside ${timeline.frameStart}-${timeline.frameEnd}.`,
         422,
@@ -349,7 +351,21 @@ function requestedFormats(descriptor: DirectorDccProviderDescriptor, input?: Dir
     ),
   ];
   if (input?.length) {
-    const requested = [...new Set(input.map((format) => directorDccPortableExchangeFormatSchema.parse(format)))];
+    const requested = [
+      ...new Set(
+        input.map((format) => {
+          const parsed = directorDccPortableExchangeFormatSchema.safeParse(format);
+          if (!parsed.success) {
+            throw new DirectorDccExchangePackageError(
+              `DCC exchange format ${JSON.stringify(String(format).slice(0, 60))} is not a portable exchange format (glb, usda).`,
+              422,
+              "dcc_exchange_format_unsupported",
+            );
+          }
+          return parsed.data;
+        }),
+      ),
+    ];
     const unsupported = requested.filter((format) => !supported.includes(format));
     if (unsupported.length) {
       throw new DirectorDccExchangePackageError(
@@ -404,11 +420,24 @@ export function createDirectorDccExchangePackager(
       activeExports += 1;
       try {
         const provider = exportOptions.provider;
-        const descriptor = directorDccProviderDescriptorSchema.parse(
-          exportOptions.descriptor ?? getDirectorDccProviderDescriptor(provider),
-        );
+        let descriptor: DirectorDccProviderDescriptor;
+        try {
+          descriptor = directorDccProviderDescriptorSchema.parse(
+            exportOptions.descriptor ?? getDirectorDccProviderDescriptor(provider),
+          );
+        } catch (error) {
+          throw new DirectorDccExchangePackageError(
+            `DCC exchange provider ${JSON.stringify(String(provider).slice(0, 120))} has no valid provider descriptor: ${error instanceof Error ? error.message.slice(0, 400) : String(error).slice(0, 400)}`,
+            422,
+            "dcc_exchange_provider_invalid",
+          );
+        }
         if (descriptor.id !== provider) {
-          throw new Error("DCC exchange descriptor does not match the requested provider.");
+          throw new DirectorDccExchangePackageError(
+            "DCC exchange descriptor does not match the requested provider.",
+            422,
+            "dcc_exchange_provider_invalid",
+          );
         }
         if (exportOptions.exchangeReady === false) {
           throw new DirectorDccExchangePackageError(

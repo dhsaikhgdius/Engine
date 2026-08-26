@@ -433,6 +433,19 @@ function quoteForUnrealScriptArgument(path: string): string {
   return `"${path.replaceAll('"', "")}"`;
 }
 
+/** Validate an engine provider id, converting schema failures into the structured bridge error. */
+function parseEngineProvider(provider: DirectorDccEngineId): DirectorDccEngineId {
+  const parsed = directorDccEngineIdSchema.safeParse(provider);
+  if (!parsed.success) {
+    throw new DirectorDccEngineBridgeError(
+      "engine_provider_invalid",
+      `${JSON.stringify(String(provider).slice(0, 120))} is not a Director engine provider (unreal, unity, godot).`,
+      400,
+    );
+  }
+  return parsed.data;
+}
+
 /**
  * Creates the provider-neutral engine bridge for Unreal, Unity, and Godot.
  *
@@ -627,7 +640,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
   }
 
   async function health(providerInput: DirectorDccEngineId): Promise<DirectorDccEngineHealth> {
-    const provider = directorDccEngineIdSchema.parse(providerInput);
+    const provider = parseEngineProvider(providerInput);
     const cached = healthCache.get(provider);
     if (cached && healthTtlMs > 0 && now() - cached.at < healthTtlMs) return cached.health;
     const result = await runHealth(provider);
@@ -647,7 +660,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
   }
 
   function jobRoot(provider: DirectorDccEngineId) {
-    return resolve(dataDirectory, "dcc-jobs", directorDccEngineIdSchema.parse(provider));
+    return resolve(dataDirectory, "dcc-jobs", parseEngineProvider(provider));
   }
 
   function engineArguments(
@@ -737,7 +750,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     project: DirectorProject,
     sendOptions: DirectorDccEngineSendOptions,
   ): Promise<DirectorDccEngineSendResult> {
-    const provider = directorDccEngineIdSchema.parse(sendOptions.provider);
+    const provider = parseEngineProvider(sendOptions.provider);
     const currentHealth = await health(provider);
     if (!currentHealth.ready || !currentHealth.executable || !currentHealth.projectPath) {
       throw new DirectorDccEngineBridgeError(
