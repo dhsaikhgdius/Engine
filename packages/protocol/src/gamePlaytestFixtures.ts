@@ -63,9 +63,7 @@ export function playtestStepForVerb(verb: GameSliceVerb): GamePlaytestStepInput 
  * Build a scripted tape that exercises every verb in `operations` (in order).
  * Used by observe suggestions and genre fixtures.
  */
-export function suggestedPlaytestScriptForVerbs(
-  operations: readonly GameSliceVerb[],
-): GamePlaytestScript {
+export function suggestedPlaytestScriptForVerbs(operations: readonly GameSliceVerb[]): GamePlaytestScript {
   const steps = operations.map((verb) => playtestStepForVerb(verb));
   return gamePlaytestScriptSchema.parse({ steps });
 }
@@ -102,10 +100,4 @@ export function createGenrePlaytestFixture(
   return { slice, script: suggestedPlaytestScriptForSlice(slice) };
 }
 
-export const GAME_SLICE_GENRES = [
-  "exploration",
-  "fps",
-  "racing",
-  "fighting",
-  "rpg",
-] as const satisfies readonly GameSliceGenre[];
+export { GAME_SLICE_GENRES } from "./gameSliceProtocol";
