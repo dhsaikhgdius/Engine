@@ -617,13 +617,15 @@ Implemented Director boundary (see `integrations/godot/README.md`):
   maps them onto discrete `Camera3D.current` camera-cut tracks inside the
   timeline animation (Godot has no built-in shot timeline, and the exchange
   format never becomes `.tscn`), with unmappable shots warn-and-omitted under
-  structured codes;
+  structured codes and, on connector ≥0.3.2, typed `omittedShots[]` /
+  `omittedShotCount` (`shotId` / `code` / `cameraDirectorId` / `reason`);
 - the engine report carries a Godot-specific receipt (track/key/shot-cut
   counts, light/skeleton/material/texture counts, `worldEnvironmentAmbient`,
   `omittedLightCount`, typed `omittedLights[]` with `directorId` / `code` /
   `lightType` / `reason`, plus `omittedMaterialCount` and typed `omittedMaterials[]`
   with `directorId` / `code` / `reason` for unsupported channels / no-mesh /
-  custom ShaderMaterial) read back from the saved scene;
+  custom ShaderMaterial, plus `omittedShotCount` and typed `omittedShots[]`)
+  read back from the saved scene;
 - the editor plugin can stream an outbound-only preview live link
   (`director-godot-live-link-v1`): ephemeral sequence-numbered frames pushed
   to token-guarded Gateway routes, never authoritative, with stale/replayed

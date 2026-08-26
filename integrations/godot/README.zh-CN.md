@@ -36,11 +36,12 @@ Godot 4 的世界基（右手、Y-up、米制、相机朝向 -Z）与 Director �
     切换轨道（播放该动画即执行分镜的相机切换），原始分镜同时以
     `director_shots` 元数据保留；无法映射相机的镜头带结构化代码警告省略
     （`shot_no_camera_binding`、`shot_camera_not_imported`、
-    `shot_target_not_camera`）；
+    `shot_target_not_camera`；连接器 ≥0.3.2 另附 typed `omittedShots[]` /
+    `omittedShotCount`，含 `shotId` / `code` / `cameraDirectorId` / `reason`）；
   - 写出 `director-dcc-engine-report-v1` 回执，其中的 Godot 专属 `godot` 字段
     （轨道/关键帧/镜头切换计数、灯光/骨架/材质/纹理计数、
     `worldEnvironmentAmbient`、`omittedLightCount`、以及带 `directorId` / `code` /
-    `lightType` / `reason` 的 typed `omittedLights[]`，以及 `appliedMaterialCount` / `omittedMaterialCount` 与 typed `omittedMaterials[]`（`unsupported_channels` / `no_mesh_target` / `custom_shader`））全部从已保存的场景读回，
+    `lightType` / `reason` 的 typed `omittedLights[]`，以及 `appliedMaterialCount` / `omittedMaterialCount` 与 typed `omittedMaterials[]`（`unsupported_channels` / `no_mesh_target` / `custom_shader`），以及 `omittedShotCount` 与 typed `omittedShots[]`）全部从已保存的场景读回，
     并回写一个规范空间的返回包。
 - **导出**（`--mode export`）：重新加载 Director 场景，仅导出相对交换包基线发生
   变化的 `director_id` 物体/相机节点的规范空间变换，写出

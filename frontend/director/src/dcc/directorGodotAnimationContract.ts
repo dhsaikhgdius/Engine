@@ -50,6 +50,29 @@ export const directorGodotOmittedMaterialSchema = z.strictObject({
 export type DirectorGodotOmittedMaterial = z.infer<typeof directorGodotOmittedMaterialSchema>;
 
 /**
+ * Structured warn-and-omit codes the Godot shot mapper stamps into receipts.
+ * Overlapping ranges still key a cut (later wins) and stay free-text warnings
+ * only — they are not omissions.
+ */
+export const directorGodotOmittedShotCodeSchema = z.enum([
+  "shot_no_camera_binding",
+  "shot_camera_not_imported",
+  "shot_target_not_camera",
+]);
+
+/** One typed Godot shot omission (agents read this instead of scraping warnings). */
+export const directorGodotOmittedShotSchema = z.strictObject({
+  shotId: z.string().trim().min(1).max(200),
+  code: directorGodotOmittedShotCodeSchema,
+  /** Bound camera id when known; null when the shot has no camera binding. */
+  cameraDirectorId: z.string().trim().min(1).max(200).nullable(),
+  reason: z.string().trim().min(1).max(600),
+});
+
+/** A validated structured Godot omitted-shot record. */
+export type DirectorGodotOmittedShot = z.infer<typeof directorGodotOmittedShotSchema>;
+
+/**
  * The Godot import receipt the connector embeds in its engine report. All
  * values are read back from the saved scene and authored animation resources,
  * so the receipt proves what was built, not what was requested.
@@ -72,6 +95,16 @@ export const directorGodotImportReceiptSchema = z
     shotCutTrackCount: z.number().int().nonnegative().max(100_000),
     /** Storyboard shots that produced a camera-cut key (unmappable shots warn-and-omit). */
     mappedShotCount: z.number().int().nonnegative().max(100_000),
+    /**
+     * Unmappable storyboard shot count. Always present on connector ≥0.3.2;
+     * older receipts omit the field and Agents fall back to free-text warnings.
+     */
+    omittedShotCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Typed shot omit records. Optional for older connectors; when present,
+     * length must equal omittedShotCount.
+     */
+    omittedShots: z.array(directorGodotOmittedShotSchema).max(1_024).optional(),
     /** glTF payload animations preserved from GLB assets (AnimationPlayer count). */
     payloadAnimationPlayerCount: z.number().int().nonnegative().max(100_000),
     /** Skinned payloads whose Skeleton3D was found, tagged, and left in bind pose. */
@@ -124,6 +157,21 @@ export const directorGodotImportReceiptSchema = z
           code: "custom",
           path: ["omittedMaterials"],
           message: "omittedMaterials length must equal omittedMaterialCount",
+        });
+      }
+    }
+    if (receipt.omittedShots !== undefined) {
+      if (receipt.omittedShotCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedShotCount"],
+          message: "omittedShotCount is required when omittedShots is present",
+        });
+      } else if (receipt.omittedShots.length !== receipt.omittedShotCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedShots"],
+          message: "omittedShots length must equal omittedShotCount",
         });
       }
     }
