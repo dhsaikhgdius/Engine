@@ -3710,16 +3710,27 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       }
       commitMutation((state) => withProjectPatch(state, { storyboard: cloneJsonValue(storyboard) }));
     },
-    removePanoramaAsset: () =>
+    removePanoramaAsset: () => {
+      const panoramaAssetId = get().project.panoramaAssetId;
+      if (!panoramaAssetId) return;
+      if (canUseAuthoringPath()) {
+        dispatchUiAuthoring(
+          [{ action: "remove_assets", asset_ids: [panoramaAssetId] }],
+          `ui-panorama-remove:${panoramaAssetId}`,
+          "删除失败",
+        );
+        return;
+      }
       commitMutation((state) => {
-        const panoramaAssetId = state.project.panoramaAssetId;
-        if (!panoramaAssetId) return state;
+        const currentPanoramaId = state.project.panoramaAssetId;
+        if (!currentPanoramaId) return state;
 
         return withProjectPatch(state, {
-          assets: state.project.assets.filter((item) => item.id !== panoramaAssetId),
+          assets: state.project.assets.filter((item) => item.id !== currentPanoramaId),
           panoramaAssetId: null,
         });
-      }),
+      });
+    },
     removeImportedAsset: (assetId) => {
       const currentState = get();
       const currentAsset = currentState.project.assets.find((item) => item.id === assetId);
@@ -5879,20 +5890,40 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
       return assetId;
     },
-    setAssetRealWorldSize: (assetId, sizeM, source = "user") =>
+    setAssetRealWorldSize: (assetId, sizeM, source = "user") => {
+      const currentAsset = get().project.assets.find((item) => item.id === assetId);
+      if (!currentAsset || currentAsset.sourceType !== "model" || currentAsset.kind === "character") return;
+      if (sizeM !== null && (!Number.isFinite(sizeM) || sizeM <= 0)) return;
+      const nextAsset: DirectorAssetRef = {
+        ...currentAsset,
+        realWorldSizeM: sizeM ?? undefined,
+        sizeSource: sizeM === null ? undefined : source,
+      };
+      if (canUseAuthoringPath()) {
+        dispatchUiAuthoring(
+          [{ action: "upsert_asset", asset: cloneJsonValue(nextAsset) }],
+          `ui-asset-size:${assetId}`,
+          "更新失败",
+        );
+        return;
+      }
       commitMutation((state) => {
         const asset = state.project.assets.find((item) => item.id === assetId);
         if (!asset || asset.sourceType !== "model" || asset.kind === "character") return state;
         if (sizeM !== null && (!Number.isFinite(sizeM) || sizeM <= 0)) return state;
-        const nextAsset: DirectorAssetRef = {
-          ...asset,
-          realWorldSizeM: sizeM ?? undefined,
-          sizeSource: sizeM === null ? undefined : source,
-        };
         return withProjectPatch(state, {
-          assets: state.project.assets.map((item) => (item.id === assetId ? nextAsset : item)),
+          assets: state.project.assets.map((item) =>
+            item.id === assetId
+              ? {
+                  ...item,
+                  realWorldSizeM: sizeM ?? undefined,
+                  sizeSource: sizeM === null ? undefined : source,
+                }
+              : item,
+          ),
         });
-      }),
+      });
+    },
     // human-only: no authoring twin. createSceneObjectFromAsset stamps the
     // Blender nativeSource provisioning marker and character rig defaults that
     // add_object does not author; migrateDirectorProject backfills them only on

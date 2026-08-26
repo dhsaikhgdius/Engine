@@ -91,7 +91,7 @@ flowchart LR
 
 - [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/) 覆盖 Stage `directorStore` 全部
   变更入口，含 mutator、文件、semantic action 与
-  `shared` / `ui-only` / `human-only-interactive` 状态（75 / 87 项目 mutator 已 shared，约 86%）。
+  `shared` / `ui-only` / `human-only-interactive` 状态（77 / 87 项目 mutator 已 shared，约 89%）。
 - `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 的 parity 测试断言
   store mutator 与直接 `applyDirectorAuthoringActions` 对删除、变换、相机 update/activate、
   角色 motion set/clear、体型、统一/人群缩放、人群变换/标签/配色、落地、场景设置、资产删除、

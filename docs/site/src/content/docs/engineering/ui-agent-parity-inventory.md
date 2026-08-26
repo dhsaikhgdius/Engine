@@ -29,9 +29,9 @@ Last verified: **2026-08-26**.
 
 | Category | Count |
 | ------------------------------------ | ----- |
-| shared Stage project mutators | 75 |
-| ui-only Stage project mutators | 12 |
-| Coverage (shared / project mutators) | **75 / 87 ≈ 86%** |
+| shared Stage project mutators | 77 |
+| ui-only Stage project mutators | 10 |
+| Coverage (shared / project mutators) | **77 / 87 ≈ 89%** |
 
 Everything still ui-only either has no semantic action yet (object lists,
 panorama/capture/catalog writes) or is deliberately local with a documented
@@ -112,7 +112,7 @@ Parity is regression-tested in
 | `addSceneMeasurement` / `updateSceneMeasurement` / `removeSceneMeasurement` | `directorStore.ts` | `add_measurement` / `update_measurement` / `remove_measurements` | shared |
 | `setObjectLayerState` | `directorStore.ts` | `set_object_layer_state` | shared (no-op state writes are skipped to keep the undo stack clean) |
 | `moveObjectLayer` | `directorStore.ts` | `reorder_object_layer` | shared |
-| `removePanoramaAsset` | `directorStore.ts` | no semantic action yet | ui-only |
+| `removePanoramaAsset` | `directorStore.ts` | `remove_assets` (clears `panoramaAssetId` when the panorama asset id is removed) | shared |
 
 ## Timeline audio
 
@@ -124,7 +124,8 @@ Parity is regression-tested in
 
 | Mutator | File | Semantic action(s) | Status |
 | --- | --- | --- | --- |
-| `addImportedAsset` / `setAssetRealWorldSize` | `directorStore.ts` | no semantic action yet (asset catalog writes) | ui-only |
+| `addImportedAsset` | `directorStore.ts` | no semantic action yet (catalog ingest + optional scene placement) | ui-only |
+| `setAssetRealWorldSize` | `directorStore.ts` | `upsert_asset` with the patched `realWorldSizeM` / `sizeSource` | shared |
 | `removeImportedAsset` | `directorStore.ts` | `remove_assets` with `cascade` | shared (removals whose cascade would also delete children, clear look targets, camera follow/path bindings, or material texture references keep the legacy writer, which leaves those untouched) |
 | `addObjectFromAsset` | `directorStore.ts` | `add_object` diverges: `createSceneObjectFromAsset` stamps Blender `nativeSource` provisioning markers and character rig defaults that `add_object` does not author | ui-only (deliberately local) |
 | `addPresetCharacter` / `addCrowdCharacters` | `directorStore.ts` | `add_object` diverges: preset adds keep per-add body types and a rotating color palette, and crowd grouping (`crowdId`) is UI-only state `add_object` cannot author | ui-only (deliberately local) |

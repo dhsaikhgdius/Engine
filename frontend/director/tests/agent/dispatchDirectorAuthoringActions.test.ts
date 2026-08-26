@@ -746,6 +746,48 @@ describe("Stage mutator parity with direct agent authoring", () => {
     expect(project.assets.some((asset) => asset.id === assetId)).toBe(false);
     expect(project.objects.some((object) => object.assetRefId === assetId)).toBe(false);
   });
+
+  it("removePanoramaAsset matches a direct remove_assets apply", () => {
+    const panoramaId = useDirectorStore.getState().addImportedAsset({
+      kind: "panorama",
+      sourceType: "image",
+      name: "Parity sky",
+      fileName: "parity-sky.jpg",
+      url: "https://example.com/parity-sky.jpg",
+    });
+    expect(useDirectorStore.getState().project.panoramaAssetId).toBe(panoramaId);
+
+    const agentRevision = agentRevisionFor([{ action: "remove_assets", asset_ids: [panoramaId] }]);
+    useDirectorStore.getState().removePanoramaAsset();
+
+    expect(storeRevision()).toBe(agentRevision);
+    const project = useDirectorStore.getState().project;
+    expect(project.panoramaAssetId).toBeNull();
+    expect(project.assets.some((asset) => asset.id === panoramaId)).toBe(false);
+  });
+
+  it("setAssetRealWorldSize matches a direct upsert_asset apply", () => {
+    const assetId = useDirectorStore.getState().addImportedAsset({
+      kind: "prop",
+      sourceType: "model",
+      name: "Sized prop",
+      fileName: "sized-prop.glb",
+      url: "https://example.com/sized-prop.glb",
+      assetSource: "local",
+      addToScene: false,
+    });
+    const asset = useDirectorStore.getState().project.assets.find((item) => item.id === assetId)!;
+    const nextAsset = { ...asset, realWorldSizeM: 2.5, sizeSource: "user" as const };
+    const agentRevision = agentRevisionFor([{ action: "upsert_asset", asset: structuredClone(nextAsset) }]);
+
+    useDirectorStore.getState().setAssetRealWorldSize(assetId, 2.5, "user");
+
+    expect(storeRevision()).toBe(agentRevision);
+    expect(useDirectorStore.getState().project.assets.find((item) => item.id === assetId)).toMatchObject({
+      realWorldSizeM: 2.5,
+      sizeSource: "user",
+    });
+  });
 });
 
 describe("clipboard paste parity", () => {
