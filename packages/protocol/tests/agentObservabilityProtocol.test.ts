@@ -254,6 +254,24 @@ describe("unified progress adapters", () => {
     expect(progress.message).toBe("开始渲染第 2 镜");
   });
 
+  it("shares intra-phase film progress with the receipt helper during render", () => {
+    const run = {
+      version: 1,
+      id: "film-run-2",
+      workflow: "idea-to-film",
+      status: "running",
+      phase: "render",
+      scenes: [
+        { storyboard: null, shotSpecs: null, cameraPlan: null, videoPath: "/a.mp4" },
+        { storyboard: null, shotSpecs: null, cameraPlan: null, videoPath: null },
+      ],
+      events: [],
+      createdAt: "2026-08-25T10:00:00.000Z",
+      updatedAt: "2026-08-25T10:05:00.000Z",
+    } as unknown as FilmRun;
+    expect(filmRunToUnifiedProgress(run).progress).toBeCloseTo(5 / 7 + 1 / 14);
+  });
+
   it("aggregates unified progress into exhaustive zero-filled state and kind counts", () => {
     const running = filmRunToUnifiedProgress({
       version: 1,

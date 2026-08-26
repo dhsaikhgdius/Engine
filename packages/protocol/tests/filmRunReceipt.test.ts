@@ -49,7 +49,7 @@ describe("filmRunReceipt", () => {
       status: "running",
       phase: "render",
       terminal: false,
-      progress: 5 / 7,
+      progress: 5 / 7 + 0.5 / 7,
       sceneCount: 2,
       renderedSceneCount: 1,
       clipCount: 3,

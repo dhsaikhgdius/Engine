@@ -64,4 +64,47 @@ describe("structuredCall", () => {
       caller.completeStructured(z.object({ a: z.string() }), { system: "s", user: "u", maxAttempts: 2 }),
     ).rejects.toThrow(/failed after 2 attempts/);
   });
+
+  it("meters successful and failed structured completions into the shared usage meter", async () => {
+    const samples: Array<Record<string, unknown>> = [];
+    const okDriver = scriptedDriver(['{"count": 1}']);
+    okDriver.complete = async (request) => {
+      okDriver.requests.push(request);
+      return {
+        id: null,
+        model: null,
+        message: { role: "assistant", content: [{ type: "text", text: '{"count": 1}' }] },
+        finishReason: "stop",
+        rawFinishReason: null,
+        usage: { inputTokens: 11, outputTokens: 3, totalTokens: 14 },
+      };
+    };
+    const okCaller = new FilmStructuredCaller(okDriver, "test-model", undefined, {
+      meter: (sample) => samples.push(sample),
+      provider: "openai-compatible",
+    });
+    await okCaller.completeStructured(z.object({ count: z.number() }), { system: "s", user: "u" });
+    expect(samples).toEqual([
+      expect.objectContaining({
+        scope: "film-llm",
+        provider: "openai-compatible",
+        model: "test-model",
+        input_tokens: 11,
+        output_tokens: 3,
+        total_tokens: 14,
+        retries: 0,
+        succeeded: true,
+      }),
+    ]);
+
+    samples.length = 0;
+    const failDriver = scriptedDriver(["nope", "still nope"]);
+    const failCaller = new FilmStructuredCaller(failDriver, "test-model", undefined, {
+      meter: (sample) => samples.push(sample),
+    });
+    await expect(
+      failCaller.completeStructured(z.object({ a: z.string() }), { system: "s", user: "u", maxAttempts: 2 }),
+    ).rejects.toThrow(/failed after 2/);
+    expect(samples).toEqual([expect.objectContaining({ scope: "film-llm", succeeded: false, retries: 1 })]);
+  });
 });

@@ -1,5 +1,6 @@
 import type { DirectorControlPlaneConfig } from "../controlPlane/controlPlaneConfig";
 import { createModelDriver } from "@director/model-provider/runtime";
+import type { AgentUsageMeter } from "../../../packages/protocol/src/agentObservabilityProtocol";
 import { FilmAudioMixer, OpenAiSpeechProvider } from "./filmAudioPipeline";
 import { FilmPlanningAgents } from "./filmPlanningAgents";
 import { FilmPipelineOrchestrator, type StageAnchorHook, type TimelineExportHook } from "./filmPipelineOrchestrator";
@@ -24,6 +25,8 @@ export type FilmPipelineRuntime = {
 export type FilmPipelineIntegrations = {
   /** Dispatches one director_workbench operation to a connected browser Stage. */
   workbenchExecute?: (input: Record<string, unknown>) => Promise<unknown>;
+  /** Records film planning LLM completions into the shared agent usage meter. */
+  usageMeter?: AgentUsageMeter;
 };
 
 /**
@@ -62,7 +65,12 @@ export function createFilmPipeline(
     baseUrl: film.llm.baseUrl!,
     apiKey: film.llm.apiKey ?? "",
   });
-  const planningAgents = new FilmPlanningAgents(new FilmStructuredCaller(driver, film.llm.model!));
+  const planningAgents = new FilmPlanningAgents(
+    new FilmStructuredCaller(driver, film.llm.model!, undefined, {
+      meter: integrations.usageMeter,
+      provider: film.llm.driver === "anthropic" ? "anthropic" : "openai-compatible",
+    }),
+  );
   const renderCoordinator = new FilmRenderCoordinator({
     planningAgents,
     imageGenerator: new HostedImagesApiGenerator({

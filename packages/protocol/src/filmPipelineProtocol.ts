@@ -381,17 +381,57 @@ export type CreateFilmRunRequest = z.infer<typeof createFilmRunRequestSchema>;
 /** Pre-parse request shape: optional fields may be omitted by callers. */
 export type CreateFilmRunRequestInput = z.input<typeof createFilmRunRequestSchema>;
 
+/** Durable scene fields used to refine progress inside long film phases. */
+type FilmRunProgressScene = Pick<FilmSceneState, "storyboard" | "shotSpecs" | "cameraPlan" | "videoPath">;
+
+/**
+ * Whether one scene has finished the plan-scenes artifacts (storyboard,
+ * shot specs, and camera plan). Missing any of the three keeps the scene
+ * incomplete so progress never claims planning finished early.
+ */
+function scenePlanComplete(scene: FilmRunProgressScene): boolean {
+  return scene.storyboard !== null && scene.shotSpecs !== null && scene.cameraPlan !== null;
+}
+
+/**
+ * Intra-phase fraction in [0, 1] from durable scene state. Returns 0 when
+ * there are no scenes yet (stay at the phase floor) so progress never invents
+ * completion from an empty array.
+ */
+function scenePhaseFraction(
+  scenes: readonly FilmRunProgressScene[],
+  isComplete: (scene: FilmRunProgressScene) => boolean,
+): number {
+  if (scenes.length === 0) return 0;
+  return scenes.filter(isComplete).length / scenes.length;
+}
+
 /**
  * Fractional completion of a film run in [0, 1], or null when the phase is
- * unknown. Phases advance sequentially, so the fraction of completed phases
- * is the only honest numeric signal a film run exposes. This one function
+ * unknown. Phases advance sequentially; inside `plan-scenes` and `render` the
+ * fraction also advances with durable per-scene completion already persisted
+ * on the run (planned artifacts / rendered `videoPath`). This one function
  * backs both the unified progress adapter and the film run receipt so the
- * two surfaces can never diverge.
+ * two surfaces can never diverge. It is not a wall-clock ETA.
  */
-export function filmRunProgress(run: Pick<FilmRun, "phase">): number | null {
+export function filmRunProgress(
+  run: Pick<FilmRun, "phase"> & { scenes?: readonly FilmRunProgressScene[] },
+): number | null {
   const phases = filmRunPhaseSchema.options;
   const index = phases.indexOf(run.phase);
-  return index >= 0 ? index / (phases.length - 1) : null;
+  if (index < 0) return null;
+  const last = phases.length - 1;
+  if (index >= last) return 1;
+  const floor = index / last;
+  const span = 1 / last;
+  const scenes = run.scenes ?? [];
+  if (run.phase === "plan-scenes") {
+    return floor + span * scenePhaseFraction(scenes, scenePlanComplete);
+  }
+  if (run.phase === "render") {
+    return floor + span * scenePhaseFraction(scenes, (scene) => scene.videoPath !== null);
+  }
+  return floor;
 }
 
 /** Groups shots into cameras by camIdx, preserving shot order. */

@@ -149,5 +149,53 @@ describe("filmPipelineProtocol", () => {
     expect(filmRunProgress({ phase: "develop-story" })).toBe(0);
     expect(filmRunProgress({ phase: "render" })).toBeCloseTo(5 / 7);
     expect(filmRunProgress({ phase: "completed" })).toBe(1);
+    expect(filmRunProgress({ phase: "not-a-phase" as never })).toBeNull();
+  });
+
+  it("advances render progress from durable per-scene videoPath completion", () => {
+    const floor = 5 / 7;
+    const span = 1 / 7;
+    const half = filmRunProgress({
+      phase: "render",
+      scenes: [
+        {
+          storyboard: null,
+          shotSpecs: null,
+          cameraPlan: null,
+          videoPath: "/tmp/a.mp4",
+        },
+        {
+          storyboard: null,
+          shotSpecs: null,
+          cameraPlan: null,
+          videoPath: null,
+        },
+      ],
+    });
+    expect(half).toBeCloseTo(floor + span * 0.5);
+    expect(
+      filmRunProgress({
+        phase: "render",
+        scenes: [
+          { storyboard: null, shotSpecs: null, cameraPlan: null, videoPath: "/a.mp4" },
+          { storyboard: null, shotSpecs: null, cameraPlan: null, videoPath: "/b.mp4" },
+        ],
+      }),
+    ).toBeCloseTo(floor + span);
+  });
+
+  it("advances plan-scenes progress only when storyboard, shotSpecs, and cameraPlan exist", () => {
+    const floor = 3 / 7;
+    const span = 1 / 7;
+    expect(
+      filmRunProgress({
+        phase: "plan-scenes",
+        scenes: [
+          { storyboard: [], shotSpecs: [], cameraPlan: [], videoPath: null },
+          { storyboard: [], shotSpecs: null, cameraPlan: null, videoPath: null },
+        ],
+      }),
+    ).toBeCloseTo(floor + span * 0.5);
+    expect(filmRunProgress({ phase: "plan-scenes", scenes: [] })).toBeCloseTo(floor);
   });
 });

@@ -46,7 +46,7 @@ export const filmRunReceiptSchema = z
     phase: filmRunPhaseSchema,
     /** True exactly when status is completed, failed, or cancelled. */
     terminal: z.boolean(),
-    /** Fraction of completed phases in [0, 1]; null when the phase is unknown. */
+    /** Phase floor plus durable per-scene completion inside plan-scenes/render; null when the phase is unknown. */
     progress: z.number().min(0).max(1).nullable(),
     sceneCount: z.number().int().nonnegative(),
     /** Scenes that already produced a rendered scene video. */

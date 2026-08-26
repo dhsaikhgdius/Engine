@@ -372,6 +372,7 @@ const directorGame = createDirectorGame(dataDirectory, {
   }),
 });
 const filmPipeline = createFilmPipeline(controlPlaneConfig, dataDirectory, {
+  usageMeter: agentTraceStore.meter(),
   workbenchExecute: async (input) => {
     const parsed = parseDirectorWorkbenchInput(input);
     if (!parsed.success) throw new Error(parsed.error);
