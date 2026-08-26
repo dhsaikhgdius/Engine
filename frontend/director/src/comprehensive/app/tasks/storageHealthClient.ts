@@ -18,6 +18,44 @@ const sweepReasonCountsSchema = z.object({
   retentionExpired: z.number().int().nonnegative(),
 });
 
+/** Live capacity measurement, or the gateway's typed omission. */
+export const storageCapacityCheckSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("measured"),
+    totalBytes: z.number().nonnegative(),
+    freeBytes: z.number().nonnegative(),
+    availableBytes: z.number().nonnegative(),
+    usedRatio: z.number().min(0).max(1),
+  }),
+  z.object({
+    status: z.literal("unavailable"),
+    code: z.enum(["capacity_unsupported", "capacity_probe_failed"]),
+    reason: z.string(),
+  }),
+]);
+
+/** Result of the gateway's live put → verify → delete write probe. */
+export const storageWriteProbeSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    probedAt: z.string(),
+    latencyMs: z.number().nonnegative(),
+  }),
+  z.object({
+    status: z.literal("failed"),
+    probedAt: z.string(),
+    latencyMs: z.number().nonnegative(),
+    code: z.enum(["put_failed", "verify_failed", "delete_failed"]),
+    reason: z.string(),
+  }),
+]);
+
+/** Live capacity measurement, or the gateway's typed omission. */
+export type StorageCapacityCheck = z.infer<typeof storageCapacityCheckSchema>;
+
+/** Result of the gateway's live write probe. */
+export type StorageWriteProbe = z.infer<typeof storageWriteProbeSchema>;
+
 /** The subset of the gateway health report the tray section renders. */
 export const storageHealthSummarySchema = z.object({
   generatedAt: z.string(),
@@ -58,6 +96,10 @@ export const storageHealthSummarySchema = z.object({
       }),
     )
     .default([]),
+  // Optional so a tray talking to an older gateway simply shows no live
+  // rows instead of claiming capacity or writability it never received.
+  capacity: storageCapacityCheckSchema.optional(),
+  writeProbe: storageWriteProbeSchema.optional(),
 });
 
 /** The subset of the health report the tray renders. */

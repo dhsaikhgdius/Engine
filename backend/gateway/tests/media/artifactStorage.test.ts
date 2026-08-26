@@ -8,6 +8,7 @@ import {
   ObjectStorageUnconfiguredError,
   assertArtifactStorageKey,
   createArtifactStorageBackend,
+  type ArtifactStorageBackend,
   type ObjectStorageClient,
 } from "../../media/artifactStorage";
 
@@ -90,6 +91,27 @@ describe("artifactStorage", () => {
     expect(await storage.delete("production-jobs/job-1/attempts/a-1/output.png")).toBe(true);
     expect(await storage.delete("production-jobs/job-1/attempts/a-1/output.png")).toBe(false);
     expect(await storage.get("production-jobs/job-1/attempts/a-1/output.png")).toBeNull();
+  });
+
+  it("measures live filesystem capacity, creating the root when it does not exist yet", async () => {
+    const root = join(await createRoot(), "not-created-yet");
+    const storage = new FilesystemArtifactStorage(root);
+
+    const capacity = await storage.capacity();
+    expect(Number.isFinite(capacity.totalBytes)).toBe(true);
+    expect(capacity.totalBytes).toBeGreaterThan(0);
+    expect(capacity.freeBytes).toBeGreaterThanOrEqual(0);
+    expect(capacity.freeBytes).toBeLessThanOrEqual(capacity.totalBytes);
+    expect(capacity.availableBytes).toBeGreaterThanOrEqual(0);
+    expect(capacity.availableBytes).toBeLessThanOrEqual(capacity.freeBytes);
+    // Measuring created the root, so writes land on the measured volume.
+    await storage.put("production-jobs/job-x/attempts/a-1/out.bin", new Uint8Array(1));
+  });
+
+  it("leaves capacity undefined on the object-storage skeleton (no enumerable capacity)", () => {
+    const { client } = fakeObjectStorageClient();
+    const storage: ArtifactStorageBackend = new ObjectStorageArtifactStorage(client);
+    expect(storage.capacity).toBeUndefined();
   });
 
   it("lists prefix subtrees without scanning unrelated roots, including partial last segments", async () => {

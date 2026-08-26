@@ -307,3 +307,7 @@
   text-align: right;
   overflow-wrap: anywhere;
 }
+
+.task-tray-storage-rows > span.is-error {
+  color: rgb(var(--director-danger-rgb, 230 96 96));
+}

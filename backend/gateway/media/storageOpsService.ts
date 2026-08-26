@@ -100,6 +100,47 @@ export interface StorageUsageEstimate {
   bytes: number;
 }
 
+/**
+ * Live capacity of the storage backend, measured while building the health
+ * report — never a cached or assumed number. Backends without an enumerable
+ * capacity (object storage) and failed measurements are typed omissions with
+ * a machine code plus the human reason, mirroring the omitted/`storagePresence`
+ * honesty contracts elsewhere in the gateway.
+ */
+export type StorageCapacityCheck =
+  | {
+      status: "measured";
+      totalBytes: number;
+      freeBytes: number;
+      availableBytes: number;
+      /** Fraction of the volume already used, in [0, 1]. */
+      usedRatio: number;
+    }
+  | {
+      status: "unavailable";
+      code: "capacity_unsupported" | "capacity_probe_failed";
+      reason: string;
+    };
+
+/**
+ * Result of the live put → verify → delete round trip the health report runs
+ * against the real backend. A read-only mount, a full disk, or a broken
+ * injected object-storage client fails here with the exact step, instead of
+ * the report implying a writable backend it never exercised.
+ */
+export type StorageWriteProbe =
+  | { status: "ok"; probedAt: string; latencyMs: number }
+  | {
+      status: "failed";
+      probedAt: string;
+      latencyMs: number;
+      code: "put_failed" | "verify_failed" | "delete_failed";
+      reason: string;
+    };
+
+/** Reserved key prefix for health write probes; outside every GC sweep scope. */
+export const STORAGE_WRITE_PROBE_PREFIX = "storage-health/";
+
 /** The full storage/jobs health report. */
 export interface StorageHealthReport {
   contract: "director-storage-health-v1";
@@ -125,6 +166,10 @@ export interface StorageHealthReport {
   sweepCandidates: { count: number; bytes: number; byReason: { unreachable: number; retentionExpired: number } };
   /** Recent executed sweeps, newest first. */
   recentSweeps: StorageGcAuditEntry[];
+  /** Live capacity measurement, or a typed omission when not measurable. */
+  capacity: StorageCapacityCheck;
+  /** Live put → verify → delete round trip against the real backend. */
+  writeProbe: StorageWriteProbe;
 }
 
 /** Thrown when a sweep references a plan this gateway does not hold. */
@@ -303,11 +348,88 @@ export class StorageOpsService {
   }
 
   /**
+   * Measures live backend capacity for the health report. A backend without
+   * an enumerable capacity and a failed measurement are both explicit typed
+   * omissions; a number is only ever reported when it was just measured.
+   */
+  private async checkCapacity(): Promise<StorageCapacityCheck> {
+    if (!this.storage.capacity) {
+      return {
+        status: "unavailable",
+        code: "capacity_unsupported",
+        reason: `The ${this.storage.kind} backend does not expose an enumerable capacity; free-space numbers would be invented, so none are reported.`,
+      };
+    }
+    try {
+      const measured = await this.storage.capacity();
+      const usedRatio =
+        measured.totalBytes > 0
+          ? Math.min(1, Math.max(0, (measured.totalBytes - measured.freeBytes) / measured.totalBytes))
+          : 0;
+      return {
+        status: "measured",
+        totalBytes: measured.totalBytes,
+        freeBytes: measured.freeBytes,
+        availableBytes: measured.availableBytes,
+        usedRatio: Number(usedRatio.toFixed(4)),
+      };
+    } catch (error) {
+      return {
+        status: "unavailable",
+        code: "capacity_probe_failed",
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Runs a live put → verify → delete round trip under the reserved
+   * `storage-health/` prefix. The probe object is deleted before usage is
+   * enumerated so it never appears in the report it verifies; a failed put
+   * still attempts a best-effort cleanup so probes cannot accumulate.
+   */
+  private async probeWrite(): Promise<StorageWriteProbe> {
+    const startedMs = this.now();
+    const probedAt = new Date(startedMs).toISOString();
+    const key = `${STORAGE_WRITE_PROBE_PREFIX}probe-${randomUUID()}.bin`;
+    const payload = new TextEncoder().encode(`director-storage-write-probe ${probedAt}`);
+    let step: "put" | "verify" | "delete" = "put";
+    try {
+      await this.storage.put(key, payload);
+      step = "verify";
+      const head = await this.storage.head(key);
+      if (!head) throw new Error("The probe object was not readable immediately after a successful put.");
+      if (head.bytes !== payload.byteLength) {
+        throw new Error(`The probe object read back ${head.bytes} bytes; ${payload.byteLength} were written.`);
+      }
+      step = "delete";
+      const deleted = await this.storage.delete(key);
+      if (!deleted) throw new Error("The probe object could not be deleted after verification.");
+      return { status: "ok", probedAt, latencyMs: Math.max(0, this.now() - startedMs) };
+    } catch (error) {
+      await this.storage.delete(key).catch(() => undefined);
+      return {
+        status: "failed",
+        probedAt,
+        latencyMs: Math.max(0, this.now() - startedMs),
+        code: `${step}_failed`,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
    * Builds the storage/jobs health report: policy in effect, usage
    * estimates, current sweep candidates (from a fresh dry-run plan that is
-   * not retained), and recent executed sweeps.
+   * not retained), recent executed sweeps, plus two live checks — a
+   * capacity measurement and a write/verify/delete probe — so the report
+   * never implies a healthy backend it did not exercise.
    */
   async health(): Promise<StorageHealthReport> {
+    const capacity = await this.checkCapacity();
+    // Probe before enumerating usage so the (deleted) probe object never
+    // shows up inside the very report that created it.
+    const writeProbe = await this.probeWrite();
     const jobs = await this.jobs.list();
     const plan = await this.computePlan(jobs);
 
@@ -358,6 +480,8 @@ export class StorageOpsService {
         byReason: sweepReasonCounts(sweepEntries),
       },
       recentSweeps: [...audit].reverse().slice(0, 10),
+      capacity,
+      writeProbe,
     };
   }
 
