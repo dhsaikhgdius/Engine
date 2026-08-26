@@ -738,6 +738,92 @@ describe("creative workspace UI/agent parity harness", () => {
     expect(uiRevision).toEqual(agentRevision);
   });
 
+  it("produces identical revisions for clip renames on media and virtual title clips", () => {
+    const { uiRevision, agentRevision } = compareExecutors((execute) => {
+      const take = execute({
+        op: "edit.clip.add",
+        track_id: "video-1",
+        media_id: "media:video:take",
+        name: "Take",
+        start_sec: 0,
+        duration_sec: 4,
+        source_duration_sec: 12,
+      });
+      const title = execute({
+        op: "edit.clip.add",
+        track_id: "video-2",
+        media_id: "text:parity-rename-title",
+        name: "标题文字",
+        start_sec: 0,
+        duration_sec: 3,
+        source_duration_sec: 60 * 60,
+      });
+      execute({ op: "edit.clip.update", clip_id: createdId(take, "clip"), patch: { name: "开场镜头" } });
+      // A title clip's name is its rendered text, so renaming rewrites the overlay.
+      execute({ op: "edit.clip.update", clip_id: createdId(title, "clip"), patch: { name: "第一幕 · 黎明" } });
+    });
+    expect(uiRevision).toEqual(agentRevision);
+  });
+
+  it("keeps the legacy direct-store rename semantics for contract-expressible names", () => {
+    const seedClip = (runtime: CreativeWorkspaceAgentContext) => {
+      const added = agentExecutor(runtime)({
+        op: "edit.clip.add",
+        track_id: "video-1",
+        media_id: "media:video:take",
+        name: "Take",
+        start_sec: 0,
+        duration_sec: 4,
+        source_duration_sec: 12,
+      });
+      return createdId(added, "clip");
+    };
+
+    // Legacy path: the per-keystroke direct store write the inspector used to call.
+    resetWorkspace();
+    const legacyRuntime = context();
+    const legacyClipId = seedClip(legacyRuntime);
+    useDirectorCreativeWorkspaceStore.getState().updateClip(legacyClipId, { name: "开场镜头" });
+    const legacyRevision = normalizedRevision(observeCreativeWorkspaceAgentSnapshot(legacyRuntime));
+
+    // Migrated path: the shared dispatch the inspector calls today.
+    resetWorkspace();
+    const dispatchRuntime = context();
+    const dispatchClipId = seedClip(dispatchRuntime);
+    const renamed = uiExecutor(dispatchRuntime)({
+      op: "edit.clip.update",
+      clip_id: dispatchClipId,
+      patch: { name: "开场镜头" },
+    });
+    expect(renamed).toMatchObject({ clip: { name: "开场镜头" }, track_id: "video-1", overwrite: false });
+    const dispatchRevision = normalizedRevision(observeCreativeWorkspaceAgentSnapshot(dispatchRuntime));
+
+    expect(dispatchRevision).toEqual(legacyRevision);
+  });
+
+  it("rejects a rename on a locked track where the store used to silently no-op", () => {
+    const runtime = context();
+    const executed = uiExecutor(runtime);
+    const clip = executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:video:take",
+      name: "Take",
+      start_sec: 0,
+      duration_sec: 4,
+      source_duration_sec: 12,
+    });
+    executed({ op: "edit.track.update", track_id: "video-1", patch: { locked: true } });
+    const before = observeCreativeWorkspaceAgentSnapshot(runtime).snapshot_fingerprint;
+
+    const rename = dispatchCreativeWorkspaceOperations(
+      { op: "edit.clip.update", clip_id: createdId(clip, "clip"), patch: { name: "开场镜头" } },
+      { context: runtime },
+    );
+    expect(rename).toMatchObject({ ok: false, code: "locked" });
+    expect(observeCreativeWorkspaceAgentSnapshot(runtime).snapshot_fingerprint).toBe(before);
+  });
+
   it("dispatches multi-operation arrays as one atomic batch that rolls back on failure", () => {
     const runtime = context();
     const before = observeCreativeWorkspaceAgentSnapshot(runtime);

@@ -216,6 +216,135 @@ describe("FilmPipelineOrchestrator", () => {
     ).toBe(true);
   });
 
+  it("stamps a typed dialogue-audio omission when enableAudio has no TTS hook", async () => {
+    const { store, orchestrator } = await harness();
+    // enableAudio defaults to true; the harness wires no mixShotAudio hook.
+    const created = await orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 录音棚 - 日" },
+    });
+    const run = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(run.status).toBe("completed");
+    expect(run.capabilityOmissions).toEqual([
+      {
+        capability: "dialogue_audio",
+        code: "tts_unconfigured",
+        sceneIdx: null,
+        reason: "enableAudio was requested but no TTS provider is configured; clips render without dialogue dubbing",
+        at: expect.any(String) as string,
+      },
+    ]);
+    expect(run.events.some((event) => event.message.includes("no TTS provider is configured"))).toBe(true);
+  });
+
+  it("stamps no omission when the run opts out of audio or the TTS hook exists", async () => {
+    const optedOut = await harness();
+    const withoutAudio = await optedOut.orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 默片影院 - 夜", enableAudio: false },
+    });
+    const silent = await waitForStatus(optedOut.store, withoutAudio.id, ["completed", "failed"]);
+    expect(silent.capabilityOmissions).toEqual([]);
+
+    const dir = await mkdtemp(join(tmpdir(), "director-film-orchestrator-"));
+    tempDirs.push(dir);
+    const store = new FilmRunStore(dir);
+    const orchestrator = new FilmPipelineOrchestrator({
+      store,
+      planningAgents: fakePlanningAgents(),
+      renderCoordinator: fakeRenderCoordinator(),
+      ffmpegPath: "ffmpeg",
+      mixShotAudio: async ({ shotDirectory }) => join(shotDirectory, "video.mp4"),
+    });
+    const created = await orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 配音棚 - 日" },
+    });
+    const run = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(run.status).toBe("completed");
+    expect(run.capabilityOmissions).toEqual([]);
+  });
+
+  it("stamps a typed stage-anchor omission when autoStageAnchors has no workbench hook", async () => {
+    const { store, orchestrator } = await harness();
+    const created = await orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 摄影棚 - 日", enableAudio: false, autoStageAnchors: true },
+    });
+    const run = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(run.status).toBe("completed");
+    expect(run.capabilityOmissions).toEqual([
+      {
+        capability: "stage_anchors",
+        code: "anchor_hook_unavailable",
+        sceneIdx: null,
+        reason:
+          "autoStageAnchors was requested but the gateway has no workbench execution channel; scenes render without white-box grounding",
+        at: expect.any(String) as string,
+      },
+    ]);
+  });
+
+  it("stamps a per-scene omission when stage anchor resolution fails", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "director-film-orchestrator-"));
+    tempDirs.push(dir);
+    const store = new FilmRunStore(dir);
+    const orchestrator = new FilmPipelineOrchestrator({
+      store,
+      planningAgents: fakePlanningAgents(),
+      renderCoordinator: fakeRenderCoordinator(),
+      ffmpegPath: "ffmpeg",
+      resolveStageAnchors: async () => {
+        throw new Error("no connected workbench tab");
+      },
+    });
+    const created = await orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 舞台 - 夜", enableAudio: false, autoStageAnchors: true },
+    });
+    const run = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(run.status).toBe("completed");
+    expect(run.capabilityOmissions).toEqual([
+      {
+        capability: "stage_anchors",
+        code: "anchor_resolution_failed",
+        sceneIdx: 0,
+        reason: expect.stringContaining("no connected workbench tab") as string,
+        at: expect.any(String) as string,
+      },
+    ]);
+  });
+
+  it("keeps capability omissions idempotent across resume", async () => {
+    let failures = 1;
+    const coordinator = fakeRenderCoordinator();
+    const failingCoordinator: typeof coordinator = {
+      ...coordinator,
+      async renderScene(request) {
+        if (failures > 0) {
+          failures -= 1;
+          throw new Error("render provider unavailable");
+        }
+        return coordinator.renderScene(request);
+      },
+    };
+    const { store, orchestrator } = await harness(fakePlanningAgents(), failingCoordinator);
+    const created = await orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 机房 - 夜" },
+    });
+    const failed = await waitForStatus(store, created.id, ["failed"]);
+    expect(failed.capabilityOmissions).toHaveLength(1);
+    const stampedAt = failed.capabilityOmissions[0].at;
+
+    await orchestrator.resume(created.id);
+    const completed = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(completed.status).toBe("completed");
+    // The resumed render re-enters the same decision; the first record wins.
+    expect(completed.capabilityOmissions).toHaveLength(1);
+    expect(completed.capabilityOmissions[0].at).toBe(stampedAt);
+  });
+
   it("marks failures with the error and resume retries only unfinished work", async () => {
     let failures = 1;
     const agents = fakePlanningAgents({

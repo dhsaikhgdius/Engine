@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { emptyFilmRunUsage, filmRunUsageSchema } from "./filmRunUsage";
 import {
+  FILM_RUN_CAPABILITY_OMISSION_LIMIT,
   FILM_RUN_PHASE_RECEIPT_LIMIT,
+  filmRunCapabilityOmissionSchema,
   filmRunErrorCodeSchema,
   filmRunIdSchema,
   filmRunPhaseReceiptSchema,
@@ -96,6 +98,14 @@ export const filmRunReceiptSchema = z
     awaitingApproval: z.boolean(),
     /** Durable per-phase execution receipts, oldest first. */
     phaseReceipts: z.array(filmRunPhaseReceiptSchema).max(FILM_RUN_PHASE_RECEIPT_LIMIT),
+    /**
+     * Requested optional capabilities the pipeline skipped, with stable
+     * codes (`tts_unconfigured`, `anchor_hook_unavailable`,
+     * `anchor_resolution_failed`). Always present — empty when nothing was
+     * skipped — so a run that diverged from its input is a typed fact on
+     * every control surface, not a free-text event.
+     */
+    capabilityOmissions: z.array(filmRunCapabilityOmissionSchema).max(FILM_RUN_CAPABILITY_OMISSION_LIMIT),
     /** Stable-coded failure; absent while the run carries no error. */
     error: z.strictObject({ code: filmRunErrorCodeSchema, message: z.string().max(4_000) }).optional(),
     artifacts: z.strictObject({
@@ -202,6 +212,7 @@ export function projectFilmRunReceipt(run: FilmRun, options: ProjectFilmRunRecei
     portraitsReady: run.portraitsReady,
     awaitingApproval: run.status === "waiting_approval" && !run.approvedAt,
     phaseReceipts: run.phaseReceipts,
+    capabilityOmissions: run.capabilityOmissions ?? [],
     ...(error ? { error } : {}),
     artifacts: {
       finalVideoPath: run.finalVideoPath,

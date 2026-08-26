@@ -184,6 +184,13 @@ Shared today:
   media ids without a Gallery asset (video tracks only). The Video Editor "标题文字" button and
   caption/SRT import / transcription promote dispatch the same ops Agents use; caption display
   names are capped at the shared 200-char clip name limit.
+- Clip rename from the inspector "名称" field: every contract-expressible keystroke dispatches
+  `edit.clip.update` with a `name` patch (the same patch Agents send), so a locked track
+  surfaces a rejection instead of the store's silent no-op. Because a title/caption clip
+  renders its name as the overlay text, editing that text shares the same op, and the input
+  enforces the shared 200-char clip name cap. Mirroring the Stage mid-typing whitespace
+  policy, states the schema would reject or rewrite — an emptied field, leading/trailing
+  whitespace, or an over-cap programmatic value — keep the legacy writer.
 - Fountain script import ("导入剧本"): the Canvas modal dispatches
   `canvas.script.apply_plan`, the same executor Agents call. The receipt reports
   `storyboard_shots`, `nodes_added`, the new `sections`, `replaced_section_ids`, and typed
@@ -194,11 +201,13 @@ Shared today:
 
 Still direct, with reasons:
 
-- Continuous interactions — node drags, clip drags/trims, fade drags, range sliders, live
-  typing — keep locally batched history (`beginHistoryBatch`/`endHistoryBatch`), matching the
-  Stage slider/gizmo policy. Clip drag/trim still resolve overwrite locally via
-  `commitClipPlacement` at pointer-up (discrete nudges/duplicate-after/explicit drops are
-  shared above). Continuous Canvas pointer pan/wheel stay local.
+- Continuous interactions — node drags, clip drags/trims, fade drags, range sliders, and
+  mid-typing clip-name states the contract cannot express (emptied, whitespace-edged, or
+  over-cap values) — keep locally batched history (`beginHistoryBatch`/`endHistoryBatch`) or
+  the direct writer, matching the Stage slider/gizmo policy. Clip drag/trim still resolve
+  overwrite locally via `commitClipPlacement` at pointer-up (discrete
+  nudges/duplicate-after/explicit drops are shared above). Continuous Canvas pointer
+  pan/wheel stay local.
 - Canvas board viewport discrete writes — `canvas.board.set_viewport` and
   `canvas.board.fit_content` (toolbar/post-layout fit) share the agent contract; continuous
   pan/wheel remain local. Zoom clamps to `[0.1, 2.5]`; fit defaults to a 1280×800 surface
