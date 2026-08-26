@@ -344,9 +344,9 @@ function selectedProject(project: DirectorProject, cameraId?: string, frame?: nu
 
 /**
  * Unique texture image assets referenced by object PBR material texture
- * slots. Only the Unreal package bundles these today: its connector imports
- * them and binds material-instance texture parameters; other providers keep
- * their existing package layout unchanged.
+ * slots. Unreal and Unity packages bundle these so their connectors can bind
+ * material texture parameters; other providers keep their existing package
+ * layout unchanged.
  */
 function referencedTextureAssets(project: DirectorProject) {
   const textureAssetIds = new Set<string>();
@@ -356,6 +356,11 @@ function referencedTextureAssets(project: DirectorProject) {
     }
   }
   return project.assets.filter((asset) => asset.sourceType === "image" && textureAssetIds.has(asset.id));
+}
+
+/** Providers whose connectors import hashed PBR texture files from the package. */
+function bundlesMaterialTextures(provider: string): boolean {
+  return provider === "unreal" || provider === "unity";
 }
 
 function requestedFormats(descriptor: DirectorDccProviderDescriptor, input?: DirectorDccPortableExchangeFormat[]) {
@@ -474,9 +479,9 @@ export function createDirectorDccExchangePackager(
         const modelAssets = portableProject.assets.filter(
           (asset) => asset.sourceType === "model" && referencedAssetIds.has(asset.id),
         );
-        // Unreal-only: material texture slots resolve to bundled hashed files
-        // so the connector can bind material-instance texture parameters.
-        const textureAssets = provider === "unreal" ? referencedTextureAssets(portableProject) : [];
+        // Unreal and Unity: material texture slots resolve to bundled hashed
+        // files so the connector can bind material texture parameters.
+        const textureAssets = bundlesMaterialTextures(provider) ? referencedTextureAssets(portableProject) : [];
         if (modelAssets.length + textureAssets.length > budgets.maxAssets) {
           throw new DirectorDccExchangeBudgetError(
             `DCC exchange contains ${modelAssets.length + textureAssets.length} model and texture assets, exceeding the limit of ${budgets.maxAssets}.`,

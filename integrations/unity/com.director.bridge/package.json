@@ -1,8 +1,8 @@
 {
   "name": "com.director.bridge",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "displayName": "Director Bridge",
-  "description": "Imports Director exchange packages into a Unity scene with stable director_id components, physical cameras, lights, PBR material fallback, Humanoid/Generic avatars for skinned characters, and a Unity Timeline with baked Director animation. Exports director-dcc-return-v1 packages back to Director. Source-only connector; scene payloads travel as GLB plus manifest JSON, never as Unity YAML.",
+  "description": "Imports Director exchange packages into a Unity scene with stable director_id components, physical cameras, lights, PBR material fallback with hashed package textures, Humanoid/Generic avatars for skinned characters, and a Unity Timeline with baked Director animation. Exports director-dcc-return-v1 packages back to Director. Source-only connector; scene payloads travel as GLB plus manifest JSON, never as Unity YAML.",
   "unity": "2022.3",
   "author": {
     "name": "Director (WorldEngine)"

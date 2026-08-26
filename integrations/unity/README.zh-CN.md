@@ -25,8 +25,8 @@ Gateway 也绝不解析它。
     回执，而不是一行自由文本日志。
   - **材质**依据检测到的渲染管线，把 Director PBR manifest 映射到 URP/Lit 或
     Built-in Standard（HDRP 警告并使用最接近的回退）。绑定 glTF
-    metallic-roughness 标量与内容哈希的相对路径贴图；不支持的材质图
-    警告并省略。
+    metallic-roughness 标量与 Gateway 捆绑的哈希贴图（PNG/JPEG/TGA/EXR 槽位）；
+    不支持的材质图与未捆绑槽位警告并省略。
   - **相机**成为 Unity 物理相机：焦距加 Director 传感器画幅裁切驱动
     `Camera.usePhysicalProperties`、传感器尺寸与 FOV；look-at 目标按场景实体
     解析；正交比例正确换算。变形宽银幕挤压（anamorphic squeeze）警告并省略。
@@ -121,7 +121,7 @@ Windows（`%PROGRAMFILES%\Unity\Hub\Editor`），优先选择最新的稳定版�
 ## 能力诚实性
 
 已实现且有版本校验：无头导入/导出、稳定 `director_id` 往返、场景层级、变换、
-物理相机、灯光、PBR 材质回退、蒙皮 GLB 的 Humanoid/Generic Avatar、分镜 →
+物理相机、灯光、带 Gateway 哈希捆绑贴图的 PBR 材质回退、蒙皮 GLB 的 Humanoid/Generic Avatar、分镜 →
 Timeline 激活轨道、烘焙到 Timeline `AnimationClip` 的 Director 动画与语义
 姿势通道，以及上文所述的仅出站预览实时链接（令牌认证、序列号保序、断线
 安全——仅用于预览，绝不作为场景权威）。连接器无法烘焙的通道（动作块、非

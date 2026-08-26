@@ -30,8 +30,9 @@ never used as an exchange format and is never parsed by the Director Gateway.
     a free-text log line.
   - **Materials** from the Director PBR manifest map onto URP/Lit or Built-in
     Standard depending on the detected render pipeline (HDRP warns and uses the
-    closest fallback). glTF metallic-roughness scalars and hashed relative
-    textures are bound; unsupported material graphs warn-and-omit.
+    closest fallback). glTF metallic-roughness scalars and hashed package
+    textures (Gateway-bundled PNG/JPEG/TGA/EXR slots) are bound; unsupported
+    material graphs and unbound slots warn-and-omit.
   - **Cameras** become physical Unity cameras: focal length plus the Director
     sensor-gate crop drive `Camera.usePhysicalProperties`, sensor size, and FOV;
     look-at targets resolve against scene entities; orthographic scale converts.
@@ -49,7 +50,7 @@ never used as an exchange format and is never parsed by the Director Gateway.
   - Finally, the run echoes a canonical-space return package and writes a
     `director-dcc-engine-report-v1` receipt whose `unity` block reports the
     render pipeline, glTF importer availability, imported light / baked clip /
-    avatar / material-fallback / posed-character counters, and the structured
+    avatar / material-fallback / applied-texture / posed-character counters, and the structured
     `omittedChannels` list (channel id, entity, reason) for anything the
     connector could not bake.
 - **Export** (`...DirectorBridgeCli.Export`): reopens the Director scene,

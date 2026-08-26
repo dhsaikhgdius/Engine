@@ -132,6 +132,7 @@ namespace Director.Bridge.Editor
                     ["humanoidAvatarCount"] = counters.HumanoidAvatarCount,
                     ["genericAvatarCount"] = counters.GenericAvatarCount,
                     ["materialFallbackCount"] = counters.MaterialFallbackCount,
+                    ["appliedTextureCount"] = counters.AppliedTextureCount,
                     ["posedCharacterCount"] = posedCharacterIds.Count,
                     ["omittedChannels"] = omissions,
                 };
@@ -237,6 +238,7 @@ namespace Director.Bridge.Editor
             public int HumanoidAvatarCount;
             public int GenericAvatarCount;
             public int MaterialFallbackCount;
+            public int AppliedTextureCount;
         }
 
         private static Dictionary<string, GameObject> BuildSceneEntities(
@@ -447,7 +449,8 @@ namespace Director.Bridge.Editor
             }
             Material material = DirectorMaterialImport.CreateFallbackMaterial(
                 materialJson, (string)entity["id"], renderPipeline,
-                $"Assets/Director/Packages/{shortId}/Materials", resolveTexture, warnings);
+                $"Assets/Director/Packages/{shortId}/Materials", resolveTexture, warnings,
+                out int appliedTextures);
             if (material == null)
             {
                 return;
@@ -458,6 +461,7 @@ namespace Director.Bridge.Editor
                     Enumerable.Repeat(material, Math.Max(1, renderer.sharedMaterials.Length)).ToArray();
             }
             counters.MaterialFallbackCount += 1;
+            counters.AppliedTextureCount += appliedTextures;
         }
 
         private static void BuildCharacterAvatar(

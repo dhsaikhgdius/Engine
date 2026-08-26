@@ -325,24 +325,29 @@ describe("Director DCC exchange package", () => {
     };
   }
 
-  it("bundles referenced PBR texture images for the Unreal provider with pinned hashes", async () => {
-    const test = await harness();
-    await withBoundTexture(test);
-    const result = await test.packager.exportPackage(test.project, { provider: "unreal", formats: ["usda"] });
+  it("bundles referenced PBR texture images for Unreal and Unity with pinned hashes", async () => {
+    for (const provider of ["unreal", "unity"] as const) {
+      const test = await harness();
+      await withBoundTexture(test);
+      const result = await test.packager.exportPackage(test.project, {
+        provider,
+        formats: provider === "unreal" ? ["usda"] : ["glb"],
+      });
 
-    const texture = result.assets.find(({ assetRefId }) => assetRefId === "asset-wood");
-    expect(texture).toBeDefined();
-    expect(texture!.relativePath).toMatch(/^assets\/\d{3}-.*\.png$/);
-    expect(texture!.sha256).toBe(createHash("sha256").update(Buffer.from("png fixture bytes")).digest("hex"));
-    const manifest = directorDccExchangePackageManifestSchema.parse(
-      JSON.parse(await readFile(result.manifestPath, "utf8")),
-    );
-    expect(manifest.assets.map(({ assetRefId }) => assetRefId)).toEqual(
-      expect.arrayContaining(["asset-chair", "asset-wood"]),
-    );
+      const texture = result.assets.find(({ assetRefId }) => assetRefId === "asset-wood");
+      expect(texture).toBeDefined();
+      expect(texture!.relativePath).toMatch(/^assets\/\d{3}-.*\.png$/);
+      expect(texture!.sha256).toBe(createHash("sha256").update(Buffer.from("png fixture bytes")).digest("hex"));
+      const manifest = directorDccExchangePackageManifestSchema.parse(
+        JSON.parse(await readFile(result.manifestPath, "utf8")),
+      );
+      expect(manifest.assets.map(({ assetRefId }) => assetRefId)).toEqual(
+        expect.arrayContaining(["asset-chair", "asset-wood"]),
+      );
+    }
   });
 
-  it("keeps texture bundling Unreal-only so other providers' packages stay unchanged", async () => {
+  it("keeps texture bundling off for DCC providers without a texture-binding connector", async () => {
     const test = await harness();
     await withBoundTexture(test);
     const result = await test.packager.exportPackage(test.project, { provider: "maya", formats: ["usda"] });

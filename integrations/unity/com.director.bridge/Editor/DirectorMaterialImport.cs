@@ -45,8 +45,10 @@ namespace Director.Bridge.Editor
             string renderPipeline,
             string materialFolder,
             Func<string, Texture2D> resolveTexture,
-            List<string> warnings)
+            List<string> warnings,
+            out int appliedTextureCount)
         {
+            appliedTextureCount = 0;
             Shader shader = FindLitShader(renderPipeline, directorId, warnings);
             if (shader == null) return null;
             bool universal = renderPipeline == "urp";
@@ -70,7 +72,7 @@ namespace Director.Bridge.Editor
             ApplyOpacity(material, materialJson, universal, directorId, warnings);
             ApplyEmission(material, materialJson, universal);
             ApplySides(material, materialJson, universal, directorId, warnings);
-            ApplyTextures(material, materialJson, universal, resolveTexture, directorId, warnings);
+            appliedTextureCount = ApplyTextures(material, materialJson, universal, resolveTexture, directorId, warnings);
             WarnUnsupportedGraphFeatures(materialJson, directorId, warnings);
 
             System.IO.Directory.CreateDirectory(materialFolder);
@@ -187,7 +189,7 @@ namespace Director.Bridge.Editor
             }
         }
 
-        private static void ApplyTextures(
+        private static int ApplyTextures(
             Material material,
             JObject materialJson,
             bool universal,
@@ -196,7 +198,8 @@ namespace Director.Bridge.Editor
             List<string> warnings)
         {
             var textures = (JObject)materialJson["textures"];
-            if (textures == null) return;
+            if (textures == null) return 0;
+            int applied = 0;
             foreach (KeyValuePair<string, JToken> binding in textures)
             {
                 string assetRefId = (string)binding.Value;
@@ -204,14 +207,18 @@ namespace Director.Bridge.Editor
                 switch (binding.Key)
                 {
                     case "baseColorMapAssetId":
-                        AssignTexture(material, universal ? "_BaseMap" : "_MainTex", assetRefId,
-                            resolveTexture, directorId, binding.Key, warnings);
+                        if (AssignTexture(material, universal ? "_BaseMap" : "_MainTex", assetRefId,
+                            resolveTexture, directorId, binding.Key, warnings))
+                        {
+                            applied += 1;
+                        }
                         break;
                     case "normalMapAssetId":
                         if (AssignTexture(material, "_BumpMap", assetRefId, resolveTexture, directorId,
                                 binding.Key, warnings))
                         {
                             material.EnableKeyword("_NORMALMAP");
+                            applied += 1;
                         }
                         break;
                     case "emissiveMapAssetId":
@@ -219,11 +226,15 @@ namespace Director.Bridge.Editor
                                 binding.Key, warnings))
                         {
                             material.EnableKeyword("_EMISSION");
+                            applied += 1;
                         }
                         break;
                     case "aoMapAssetId":
-                        AssignTexture(material, "_OcclusionMap", assetRefId, resolveTexture, directorId,
-                            binding.Key, warnings);
+                        if (AssignTexture(material, "_OcclusionMap", assetRefId, resolveTexture, directorId,
+                            binding.Key, warnings))
+                        {
+                            applied += 1;
+                        }
                         break;
                     default:
                         // Unity's lit shaders expect packed metallic-smoothness;
@@ -234,6 +245,7 @@ namespace Director.Bridge.Editor
                         break;
                 }
             }
+            return applied;
         }
 
         private static bool AssignTexture(
