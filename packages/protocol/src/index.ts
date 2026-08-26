@@ -22,6 +22,8 @@ export * from "./directorProceduralProtocol";
 export * from "./directorProductionProtocol";
 export * from "./episodeProtocol";
 export * from "./gameSliceProtocol";
+export * from "./gamePlaytestHostFree";
+export * from "./gamePlaytestFixtures";
 export * from "./directorGameProtocol";
 export * from "./directorGameDescribe";
 export * from "./directorGameMachine";

@@ -62,8 +62,10 @@ Each `tasks/*.json` file is one task, run sequentially with its own
 `session_id` (`eval-<name>-<timestamp>`). Steps run in order and stop at the first failure.
 
 Every step names one public tool in `tool`: `director_workbench`, `director_creative`,
-`stage_video`, `blender_native`, or `director_dcc`. The task-schema test validates every
+`stage_video`, `blender_native`, `director_dcc`, or `director_game`. The task-schema test validates every
 expected-success input against that tool's strict contract before an isolated browser run.
+Game-slice tasks (`12`–`15`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
+and host-free playtest without an inline `trace`.
 
 `result_paths` are dot-paths resolved against the whole JSON response body
 (arrays index numerically, e.g. `result.issues.0`); a path passes when the resolved value is
