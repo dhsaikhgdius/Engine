@@ -26,6 +26,7 @@ import {
   visibleDirectorTasks,
 } from "./directorTaskTrayStore";
 import { monitoredProductionRunKey, type DirectorMonitoredProductionRun } from "./productionRunTaskClient";
+import { StorageHealthSection } from "./StorageHealthSection";
 import {
   productionRunCanCancel,
   productionRunDisplayName,
@@ -254,6 +255,7 @@ export function DirectorTaskTrayMenu() {
               ) : null}
             </>
           )}
+          {gateway === "connected" ? <StorageHealthSection /> : null}
         </div>
       ) : null}
     </div>

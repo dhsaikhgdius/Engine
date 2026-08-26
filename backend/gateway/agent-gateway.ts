@@ -127,6 +127,10 @@ import { handleProductionJobRoute } from "./routes/productionJobRoutes";
 import { ProductionJobStore } from "./jobs/productionJobStore";
 import { ProductionArtifactStore } from "./artifacts/productionArtifactStore";
 import { handleProductionArtifactRoute } from "./routes/productionArtifactRoutes";
+import { createArtifactStorageBackend } from "./media/artifactStorage";
+import { resolveArtifactRetentionPolicy } from "./media/artifactRetentionPolicy";
+import { StorageOpsService } from "./media/storageOpsService";
+import { handleStorageOpsRoute } from "./routes/storageOpsRoutes";
 import { AgentToolAuditStore } from "./agentToolAuditStore";
 import { AgentConfirmTokenStore } from "./agentConfirmTokenStore";
 import { handleAgentToolAuditRoute } from "./routes/agentToolAuditRoutes";
@@ -396,6 +400,16 @@ const generated3dRuntime = createGenerated3DRuntime(
   generatedAssetRoot,
 );
 const productionArtifactStore = new ProductionArtifactStore(dataDirectory);
+// Storage retention/GC ops: filesystem backend rooted at the data directory
+// (layout-compatible with the durable job store and staged inputs), a
+// conservative env-resolved retention policy, and explicit confirmed sweeps.
+const artifactStorageBackend = createArtifactStorageBackend({ dataDirectory });
+const storageOpsService = new StorageOpsService({
+  storage: artifactStorageBackend,
+  jobs: productionJobStore,
+  retention: resolveArtifactRetentionPolicy(),
+  dataDirectory,
+});
 
 // A corrupt snapshot is quarantined (never silently replaced) and reported on /health.
 const sceneLoadResult = await loadStageSceneWithRecovery(scenePath);
@@ -2128,6 +2142,14 @@ const server = createServer(async (request, response) => {
         json,
         store: productionArtifactStore,
         now: () => new Date().toISOString(),
+      })
+    )
+      return;
+    if (
+      await handleStorageOpsRoute(request, response, url, {
+        readBody: body,
+        json,
+        service: storageOpsService,
       })
     )
       return;

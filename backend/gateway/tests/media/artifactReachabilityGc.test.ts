@@ -160,8 +160,12 @@ describe("artifactReachabilityGc", () => {
     });
     expect(byKey.get("production-jobs/job-gone/attempts/job-gone-attempt-1/orphan.mp4")).toMatchObject({
       action: "sweep",
+      sweepReason: "unreachable",
     });
-    expect(byKey.get(`media-transcode-inputs/${"d".repeat(64)}.bin`)).toMatchObject({ action: "sweep" });
+    expect(byKey.get(`media-transcode-inputs/${"d".repeat(64)}.bin`)).toMatchObject({
+      action: "sweep",
+      sweepReason: "unreachable",
+    });
 
     // With the real clock every object is younger than the window: nothing sweeps.
     const retainedPlan = await planArtifactStorageGc({ storage, jobs, minimumAgeMs: 60 * 60_000 });
@@ -171,6 +175,61 @@ describe("artifactReachabilityGc", () => {
         (entry) => entry.key === "production-jobs/job-gone/attempts/job-gone-attempt-1/orphan.mp4",
       ),
     ).toMatchObject({ keepReason: "retained" });
+  });
+
+  it("sweeps retention-expired reachable artifacts while legal hold and min age still protect", async () => {
+    const storage = await createStorage();
+    const bytes = new TextEncoder().encode("bytes");
+    await storage.put("production-jobs/job-done/attempts/job-done-attempt-1/proxy.mp4", bytes);
+    await storage.put("production-jobs/job-held/attempts/job-held-attempt-1/held.mp4", bytes);
+    await storage.put("production-jobs/job-fresh/attempts/job-fresh-attempt-1/fresh.mp4", bytes);
+
+    const jobs = [
+      job("job-done", "succeeded", "media.proxy", { sourceMediaId: "media-1" } as ProductionJobInput, "proxy.mp4"),
+      job("job-held", "succeeded", "media.proxy", { sourceMediaId: "media-2" } as ProductionJobInput, "held.mp4"),
+      job("job-fresh", "succeeded", "media.proxy", { sourceMediaId: "media-3" } as ProductionJobInput, "fresh.mp4"),
+    ];
+    const retentionExpiredKeys = new Set([
+      "production-jobs/job-done/attempts/job-done-attempt-1/proxy.mp4",
+      "production-jobs/job-held/attempts/job-held-attempt-1/held.mp4",
+    ]);
+
+    const future = Date.now() + 7 * 24 * 60 * 60_000;
+    const plan = await planArtifactStorageGc({
+      storage,
+      jobs,
+      now: () => future,
+      minimumAgeMs: 60_000,
+      isLegalHold: (key) => key.includes("job-held"),
+      retentionExpiredKeys,
+    });
+
+    const byKey = new Map(plan.entries.map((entry) => [entry.key, entry]));
+    expect(byKey.get("production-jobs/job-done/attempts/job-done-attempt-1/proxy.mp4")).toMatchObject({
+      action: "sweep",
+      sweepReason: "retention-expired",
+    });
+    expect(byKey.get("production-jobs/job-held/attempts/job-held-attempt-1/held.mp4")).toMatchObject({
+      action: "keep",
+      keepReason: "legal-hold",
+    });
+    expect(byKey.get("production-jobs/job-fresh/attempts/job-fresh-attempt-1/fresh.mp4")).toMatchObject({
+      action: "keep",
+      keepReason: "reachable",
+    });
+
+    // With the real clock the expired key is still younger than the minimum age: kept as retained.
+    const retainedPlan = await planArtifactStorageGc({
+      storage,
+      jobs,
+      minimumAgeMs: 60 * 60_000,
+      retentionExpiredKeys,
+    });
+    expect(
+      retainedPlan.entries.find(
+        (entry) => entry.key === "production-jobs/job-done/attempts/job-done-attempt-1/proxy.mp4",
+      ),
+    ).toMatchObject({ action: "keep", keepReason: "retained" });
   });
 
   it("dry-runs by default and only deletes when explicitly executed", async () => {
