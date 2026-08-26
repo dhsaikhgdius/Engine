@@ -1394,39 +1394,50 @@ export function executeCreativeWorkspaceAgentOperation(
       if (sourceDurationSec < operation.duration_sec * playbackRate) {
         return semanticFailure(operation.op, "conflict", "Clip duration cannot exceed its source duration.");
       }
-      const clip = state.addClip({
-        trackId: track.id,
-        mediaId: media.id,
-        name: operation.name,
-        startSec: operation.start_sec,
-        durationSec: operation.duration_sec,
-        sourceDurationSec,
-        playbackRate,
-        fadeInSec: operation.fade_in_sec,
-        fadeOutSec: operation.fade_out_sec,
-        scale: operation.scale,
-        positionX: operation.position_x,
-        positionY: operation.position_y,
-        rotationDeg: operation.rotation_deg,
-        fit: operation.fit,
-      });
-      if (!clip) {
-        return semanticFailure(operation.op, "capacity", `Edit track "${track.id}" cannot accept another clip.`);
-      }
-      // addClip resets in/opacity/volume; optional add fields patch them back for
-      // duplicate-after and other authoring that needs the full clip look.
-      if (operation.in_sec !== undefined || operation.opacity !== undefined || operation.volume !== undefined) {
-        state.updateClip(clip.id, {
-          ...(operation.in_sec !== undefined ? { inSec: operation.in_sec } : {}),
-          ...(operation.opacity !== undefined ? { opacity: operation.opacity } : {}),
-          ...(operation.volume !== undefined ? { volume: operation.volume } : {}),
+      const needsFollowUp =
+        operation.in_sec !== undefined ||
+        operation.opacity !== undefined ||
+        operation.volume !== undefined ||
+        Boolean(operation.overwrite);
+      if (needsFollowUp) state.beginHistoryBatch();
+      let clip: ReturnType<typeof state.addClip> = null;
+      try {
+        clip = state.addClip({
+          trackId: track.id,
+          mediaId: media.id,
+          name: operation.name,
+          startSec: operation.start_sec,
+          durationSec: operation.duration_sec,
+          sourceDurationSec,
+          playbackRate,
+          fadeInSec: operation.fade_in_sec,
+          fadeOutSec: operation.fade_out_sec,
+          scale: operation.scale,
+          positionX: operation.position_x,
+          positionY: operation.position_y,
+          rotationDeg: operation.rotation_deg,
+          fit: operation.fit,
         });
+        if (!clip) {
+          return semanticFailure(operation.op, "capacity", `Edit track "${track.id}" cannot accept another clip.`);
+        }
+        // addClip resets in/opacity/volume; optional add fields patch them back for
+        // duplicate-after and other authoring that needs the full clip look.
+        if (operation.in_sec !== undefined || operation.opacity !== undefined || operation.volume !== undefined) {
+          state.updateClip(clip.id, {
+            ...(operation.in_sec !== undefined ? { inSec: operation.in_sec } : {}),
+            ...(operation.opacity !== undefined ? { opacity: operation.opacity } : {}),
+            ...(operation.volume !== undefined ? { volume: operation.volume } : {}),
+          });
+        }
+        if (operation.overwrite) {
+          // Same overwrite-with-trim the Video Editor runs after an explicit drop.
+          state.commitClipPlacement(clip.id);
+        }
+      } finally {
+        if (needsFollowUp) state.endHistoryBatch();
       }
-      if (operation.overwrite) {
-        // Same overwrite-with-trim the Video Editor runs after an explicit drop.
-        state.commitClipPlacement(clip.id);
-      }
-      const projected = findClip(state, clip.id)?.clip ?? clip;
+      const projected = findClip(context.workspace.getState(), clip.id)?.clip ?? clip;
       return success(
         operation.op,
         operation.overwrite
@@ -1488,9 +1499,14 @@ export function executeCreativeWorkspaceAgentOperation(
           );
         }
       }
-      state.updateClip(owner.clip.id, mapClipPatch(operation.patch));
-      if (operation.overwrite) {
-        state.commitClipPlacement(owner.clip.id);
+      if (operation.overwrite) state.beginHistoryBatch();
+      try {
+        state.updateClip(owner.clip.id, mapClipPatch(operation.patch));
+        if (operation.overwrite) {
+          state.commitClipPlacement(owner.clip.id);
+        }
+      } finally {
+        if (operation.overwrite) state.endHistoryBatch();
       }
       const updated = findClip(context.workspace.getState(), owner.clip.id)?.clip;
       if (!updated) {
@@ -1526,9 +1542,14 @@ export function executeCreativeWorkspaceAgentOperation(
           `Cannot move a ${owner.track.kind} clip to ${destination.kind} track "${destination.id}".`,
         );
       }
-      state.moveClipToTrack(owner.clip.id, destination.id, operation.start_sec);
-      if (operation.overwrite) {
-        state.commitClipPlacement(owner.clip.id);
+      if (operation.overwrite) state.beginHistoryBatch();
+      try {
+        state.moveClipToTrack(owner.clip.id, destination.id, operation.start_sec);
+        if (operation.overwrite) {
+          state.commitClipPlacement(owner.clip.id);
+        }
+      } finally {
+        if (operation.overwrite) state.endHistoryBatch();
       }
       const moved = findClip(context.workspace.getState(), owner.clip.id);
       if (!moved || moved.track.id !== destination.id) {
