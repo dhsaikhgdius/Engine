@@ -72,4 +72,44 @@ describe("CollaborationInviteRevocationRegistry", () => {
     await registry.load();
     expect(registry.counts()).toEqual({ revokedTokens: 0, roomCutoffs: 0 });
   });
+
+  it("prunes room cutoffs older than the maximum invite TTL, in memory and on reload", async () => {
+    const clock = { value: 1_000_000 };
+    const now = () => clock.value;
+    const registry = new CollaborationInviteRevocationRegistry({ now });
+    await registry.revokeRoomScope("stale-room");
+    expect(registry.counts().roomCutoffs).toBe(1);
+    // Move past the longest possible invite lifetime: every invite the stale
+    // cutoff could deny has expired on its own by now.
+    clock.value += 30 * 24 * 60 * 60 * 1_000 + 1_000;
+    expect(registry.counts().roomCutoffs).toBe(0);
+
+    // The stale cutoff also disappears on a persisted reload.
+    const persistPath = tempPersistPath();
+    const persisted = new CollaborationInviteRevocationRegistry({ persistPath, now });
+    await persisted.revokeRoomScope("reload-stale");
+    clock.value += 30 * 24 * 60 * 60 * 1_000 + 1_000;
+    const reloaded = new CollaborationInviteRevocationRegistry({ persistPath, now });
+    await reloaded.load();
+    expect(reloaded.counts().roomCutoffs).toBe(0);
+  });
+
+  it("refreshes a re-revoked scope's recency so bounded eviction drops the least recently revoked scope", async () => {
+    const clock = { value: 1_000_000 };
+    const now = () => clock.value;
+    const registry = new CollaborationInviteRevocationRegistry({ maxRoomCutoffs: 2, now });
+    await registry.revokeRoomScope("scene-a");
+    clock.value += 1_000;
+    await registry.revokeRoomScope("scene-b");
+    clock.value += 1_000;
+    // Re-revoking scene-a must refresh its position; the next eviction should
+    // drop scene-b, not the just-refreshed scene-a.
+    await registry.revokeRoomScope("scene-a");
+    clock.value += 1_000;
+    await registry.revokeRoomScope("scene-c");
+    expect(registry.counts().roomCutoffs).toBe(2);
+    expect(registry.isRevoked({ room: "scene-a", exp: clock.value + 60_000, iat: 1 }, "scene-a")).toBe(true);
+    expect(registry.isRevoked({ room: "scene-c", exp: clock.value + 60_000, iat: 1 }, "scene-c")).toBe(true);
+    expect(registry.isRevoked({ room: "scene-b", exp: clock.value + 60_000, iat: 1 }, "scene-b")).toBe(false);
+  });
 });

@@ -1,11 +1,14 @@
 // @vitest-environment node
 
+import { readFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   authenticatedDirectorPreviewUrl,
   createDirectorGatewaySecret,
   createDirectorPreviewSecret,
+  DIRECTOR_CORS_ALLOWED_REQUEST_HEADERS,
   directorAllowedOrigins,
   directorGatewayRequestAuthorized,
   directorGatewayTokenMatches,
@@ -59,6 +62,25 @@ describe("Director gateway authorization boundary", () => {
     expect(trustedDirectorOrigin("http://127.0.0.1:6200", allowed)).toBe(true);
     expect(trustedDirectorOrigin("https://director.example.attacker.test", allowed)).toBe(false);
     expect(trustedDirectorOrigin("http://127.0.0.1:6201", allowed)).toBe(false);
+  });
+
+  it("preflight-approves every custom header the browser control-plane client sends", () => {
+    const allowed = DIRECTOR_CORS_ALLOWED_REQUEST_HEADERS.split(",").map((header) => header.trim().toLowerCase());
+    // Scan the browser client for X-Director-* request headers so a newly
+    // added header cannot silently break cross-origin fetches again (the
+    // observability trace-source tag once failed preflight as an opaque
+    // "Failed to fetch").
+    const clientSource = readFileSync(
+      resolve(__dirname, "../../../../frontend/director/src/comprehensive/editor/assistant/agentGatewayClient.ts"),
+      "utf8",
+    );
+    const sentHeaders = new Set(
+      [...clientSource.matchAll(/["'](x-director-[a-z0-9-]+)["']/gi)].map((match) => match[1]!.toLowerCase()),
+    );
+    expect(sentHeaders.size).toBeGreaterThanOrEqual(2);
+    for (const header of sentHeaders) {
+      expect(allowed).toContain(header);
+    }
   });
 
   it("admits the configured UI and gateway ports into the default origin allowlist", () => {

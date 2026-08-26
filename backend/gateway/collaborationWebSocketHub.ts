@@ -135,9 +135,12 @@ function payloadMessage(
  * Room lifecycle policy: by default an empty room is destroyed immediately
  * (the pre-lifecycle behavior). A positive `emptyRoomRetentionMs` keeps the
  * in-memory document alive for that grace period after the last peer leaves,
- * so a quick rejoin does not depend on the persistence round trip. Whenever
- * a room empties or is explicitly closed, pending durable updates are
- * flushed into the canonical snapshot (best-effort).
+ * so a quick rejoin does not depend on the persistence round trip. Retention
+ * is a convenience, never a capacity claim: when the room cap is reached, the
+ * least-recently-active retained empty room is destroyed to admit a new room
+ * before a join is denied. Whenever a room empties or is explicitly closed,
+ * pending durable updates are flushed into the canonical snapshot
+ * (best-effort).
  *
  * This class deliberately has no knowledge of terminal, Stage, or Agent
  * messages.
@@ -148,6 +151,7 @@ export class DirectorCollaborationWebSocketHub {
   private readonly authorizer: CollaborationRoomAuthorizer;
   private readonly persistence: CollaborationRoomPersistence | null;
   private readonly emptyRoomRetentionMs: number;
+  private readonly maxRooms: number;
   private readonly now: () => number;
   private readonly setTimer: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
   private readonly clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
@@ -158,6 +162,8 @@ export class DirectorCollaborationWebSocketHub {
       persistence?: CollaborationRoomPersistence;
       /** How long an empty room's in-memory document survives the last peer leaving. Default 0 (immediate destroy). */
       emptyRoomRetentionMs?: number;
+      /** Room cap override for tests; production keeps the module default. */
+      maxRooms?: number;
       now?: () => number;
       setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
       clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
@@ -166,6 +172,7 @@ export class DirectorCollaborationWebSocketHub {
     this.authorizer = options.authorizer ?? { mode: "local-trust", authorize: () => ({ ok: true, role: "editor" }) };
     this.persistence = options.persistence ?? null;
     this.emptyRoomRetentionMs = Math.max(0, options.emptyRoomRetentionMs ?? 0);
+    this.maxRooms = Math.max(1, options.maxRooms ?? MAX_ROOMS);
     this.now = options.now ?? Date.now;
     this.setTimer = options.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     this.clearTimer = options.clearTimer ?? ((timer) => clearTimeout(timer));
@@ -420,6 +427,18 @@ export class DirectorCollaborationWebSocketHub {
     }, this.emptyRoomRetentionMs);
   }
 
+  /** Destroys the least-recently-active retained empty room, if any exists. */
+  private evictRetainedEmptyRoom() {
+    let victim: { roomId: string; room: CollaborationRoom } | null = null;
+    for (const [roomId, room] of this.rooms) {
+      if (room.clients.size > 0) continue;
+      if (!victim || room.lastActivityAt < victim.room.lastActivityAt) victim = { roomId, room };
+    }
+    // Pending updates were already flushed when the room emptied and no peer
+    // has written since, so this mirrors the retention-timer expiry path.
+    if (victim) this.destroyRoom(victim.roomId, victim.room, { flush: false });
+  }
+
   private destroyRoom(roomId: string, room: CollaborationRoom, options: { flush?: boolean } = {}) {
     if (room.retentionTimer !== null) {
       this.clearTimer(room.retentionTimer);
@@ -451,7 +470,10 @@ export class DirectorCollaborationWebSocketHub {
     if (current) this.disconnect(client);
     let room = this.rooms.get(roomId);
     if (!room) {
-      if (this.rooms.size >= MAX_ROOMS) {
+      // Retained empty rooms are a rejoin convenience; they must never deny a
+      // new room. Reclaim the least-recently-active one before giving up.
+      if (this.rooms.size >= this.maxRooms) this.evictRetainedEmptyRoom();
+      if (this.rooms.size >= this.maxRooms) {
         this.error(client, "room_full", "The collaboration gateway has reached its room limit.", roomId);
         return;
       }

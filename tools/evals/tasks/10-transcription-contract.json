@@ -1,6 +1,6 @@
 {
   "name": "transcription-contract",
-  "description": "Verify the media-transcription job surface: capabilities and list are reachable, and get/read report a clean failure taxonomy for unknown inputs.",
+  "description": "Verify the media-transcription job surface: capabilities and list are reachable, and get/read report a clean, coded failure taxonomy for unknown inputs.",
   "steps": [
     {
       "label": "transcription capabilities",
@@ -18,10 +18,14 @@
       "expect": { "success": true, "result_paths": ["result.jobs"] }
     },
     {
-      "label": "unknown job id fails",
+      "label": "unknown job id fails with a stable code",
       "tool": "director_workbench",
       "input": { "op": "transcription", "command": { "action": "get", "job_id": "eval-missing-job" } },
-      "expect": { "success": false }
+      "expect": {
+        "success": false,
+        "code": "transcription_job_not_found",
+        "error_includes": "does not exist"
+      }
     },
     {
       "label": "unknown gallery media fails on read",
