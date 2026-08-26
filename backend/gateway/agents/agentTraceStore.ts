@@ -132,8 +132,20 @@ export class AgentTraceStore {
       id: `trace-${++this.sequence}-${crypto.randomUUID()}`,
     });
     this.events.push(event);
-    if (this.events.length > this.limit) this.events.splice(0, this.events.length - this.limit);
-    this.appendLine(this.eventsPath, event);
+    let trimmed = false;
+    if (this.events.length > this.limit) {
+      this.events.splice(0, this.events.length - this.limit);
+      trimmed = true;
+    }
+    if (trimmed) {
+      // Keep the on-disk JSONL window aligned with the in-memory bound so a
+      // long-lived gateway process cannot grow traces without limit. Wait for
+      // any in-flight appends before rewriting the file.
+      await this.appendTail.catch(() => undefined);
+      await this.compact();
+    } else {
+      this.appendLine(this.eventsPath, event);
+    }
     return event;
   }
 
@@ -190,8 +202,17 @@ export class AgentTraceStore {
       recorded_at: this.now().toISOString(),
     });
     this.usage.push(sample);
-    if (this.usage.length > this.limit) this.usage.splice(0, this.usage.length - this.limit);
-    this.appendLine(this.usagePath, sample);
+    let trimmed = false;
+    if (this.usage.length > this.limit) {
+      this.usage.splice(0, this.usage.length - this.limit);
+      trimmed = true;
+    }
+    if (trimmed) {
+      await this.appendTail.catch(() => undefined);
+      await this.compact();
+    } else {
+      this.appendLine(this.usagePath, sample);
+    }
     return sample;
   }
 

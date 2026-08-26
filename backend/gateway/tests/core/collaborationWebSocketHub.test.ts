@@ -110,10 +110,39 @@ describe("DirectorCollaborationWebSocketHub", () => {
     expect(receiverAwareness.getStates().has(sourceId)).toBe(false);
     expect(hub.peerCount("review")).toBe(1);
 
+    hub.disconnect(second);
+    expect(hub.peerCount("review")).toBe(0);
+
     sourceAwareness.destroy();
-    receiverAwareness.destroy();
     sourceDoc.destroy();
+    receiverAwareness.destroy();
     receiverDoc.destroy();
+    hub.destroy();
+  });
+
+  it("destroys an empty room so a later join starts from a fresh document", () => {
+    const hub = new DirectorCollaborationWebSocketHub();
+    const first = socket();
+    hub.handle(first, { type: "collab.join", room: "lifecycle", awareness_client_id: 11 });
+    const seed = new Y.Doc();
+    seed.getMap("scene").set("title", "Transient");
+    hub.handle(first, binaryMessage("collab.document-update", "lifecycle", Y.encodeStateAsUpdate(seed)));
+    hub.disconnect(first);
+    expect(hub.peerCount("lifecycle")).toBe(0);
+
+    const rejoined = socket();
+    hub.handle(rejoined, { type: "collab.join", room: "lifecycle", awareness_client_id: 12 });
+    rejoined.sent.length = 0;
+    hub.handle(rejoined, { type: "collab.sync-request", room: "lifecycle", payload: "" });
+    const sync = messages(rejoined).find((message) => message.type === "collab.document-update") as
+      | Extract<DirectorCollaborationGatewayServerMessage, { type: "collab.document-update" }>
+      | undefined;
+    const restored = new Y.Doc();
+    if (sync) Y.applyUpdate(restored, decodeDirectorCollaborationGatewayPayload(sync.payload)!);
+    expect(restored.getMap("scene").get("title")).toBeUndefined();
+
+    seed.destroy();
+    restored.destroy();
     hub.destroy();
   });
 
