@@ -306,6 +306,7 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 		"importedLightCount": int(light_receipt["importedLightCount"]),
 		"worldEnvironmentAmbient": bool(light_receipt["worldEnvironmentAmbient"]),
 		"omittedLightCount": int(light_receipt["omittedLightCount"]),
+		"omittedLights": light_receipt.get("omittedLights", []),
 		"appliedMaterialCount": applied_material_count,
 		"externalizedTextureCount": externalized_textures,
 	}

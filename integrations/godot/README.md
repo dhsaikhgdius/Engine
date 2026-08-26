@@ -47,8 +47,9 @@ so the boundary stays explicit and testable.
     `shot_camera_not_imported`, `shot_target_not_camera`);
   - a `director-dcc-engine-report-v1` receipt with a Godot-specific `godot`
     block (track/key/shot-cut counts, light/skeleton/material/texture counts,
-    `worldEnvironmentAmbient`, `omittedLightCount`) that is read back from the
-    saved scene, plus an echoed canonical-space return package.
+    `worldEnvironmentAmbient`, `omittedLightCount`, and typed `omittedLights[]`
+    with `directorId` / `code` / `lightType` / `reason`) that is read back from
+    the saved scene, plus an echoed canonical-space return package.
 - **Export** (`--mode export`): reloads the Director scene and writes a
   `director-dcc-return-v1` package containing the canonical transforms of every
   `director_id`-tagged object/camera node that moved relative to the exchange

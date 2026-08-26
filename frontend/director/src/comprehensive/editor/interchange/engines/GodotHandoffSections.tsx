@@ -14,7 +14,7 @@ import { fetchDirectorGodotLiveLinkPreview } from "../../api/dccEngineHandoffCli
 
 /**
  * 结构化警告省略代码 → zh-CN 标签。来源：连接器灯光/镜头警告与网关姿态烘焙
- * 警告，均以 `warn-and-omit code: <code>` 结尾（绝不静默拍平）。
+ * 警告，均以 `warn-and-omit code: …` 结尾（绝不静默拍平）。
  */
 const GODOT_OMIT_CODE_LABELS: Record<string, string> = {
   light_rect_area_unsupported: "面光源不支持",
@@ -49,10 +49,21 @@ interface GodotStructuredOmission {
 }
 
 /**
- * 从发送结果的警告中提取连接器侧结构化省略（`warn-and-omit code: <code>`）。
+ * 从发送结果提取连接器侧结构化省略：优先使用回执里的 typed `omittedLights`，
+ * 旧版连接器仍回退到警告文本中的 `warn-and-omit code: …`。
  * 网关烘焙通道以 `result.omittedAnimationChannels` 为准，不依赖自由文本摘要。
  */
-export function collectGodotStructuredOmissions(warnings: string[]): GodotStructuredOmission[] {
+export function collectGodotStructuredOmissions(
+  warnings: string[],
+  omittedLights: Array<{ directorId: string; code: string; lightType: string; reason: string }> = [],
+): GodotStructuredOmission[] {
+  if (omittedLights.length) {
+    return omittedLights.map((light) => ({
+      code: light.code,
+      detail: light.reason,
+      key: `${light.code}:${light.directorId}`,
+    }));
+  }
   const omissions: GodotStructuredOmission[] = [];
   for (const warning of warnings) {
     const match = OMIT_CODE_PATTERN.exec(warning);
@@ -81,7 +92,10 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
     return <p className="director-engine-handoff-empty">{t("本次运行未附带 Godot 回执详情（旧版连接器）")}</p>;
   }
   const omittedChannels = result.omittedAnimationChannels ?? result.report.omittedAnimationChannels ?? [];
-  const connectorOmissions = collectGodotStructuredOmissions([...result.warnings, ...result.report.warnings]);
+  const connectorOmissions = collectGodotStructuredOmissions(
+    [...result.warnings, ...result.report.warnings],
+    godot.omittedLights ?? [],
+  );
   const seenKeys = new Set<string>();
   const uniqueConnectorOmissions = connectorOmissions.filter((omission) => {
     if (seenKeys.has(omission.key)) return false;

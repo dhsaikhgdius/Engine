@@ -32,20 +32,25 @@ const WARN_HEMISPHERE_APPROXIMATED := "light_hemisphere_approximated"
 
 
 ## Imports Director scene lights under `root`, stamping director_id metadata.
-## Returns receipt counts: {"importedLightCount", "worldEnvironmentAmbient",
-## "omittedLightCount"}. Unsupported lights warn-and-omit with a structured
-## code.
+## Returns receipt counts plus typed omittedLights records:
+## {"importedLightCount", "worldEnvironmentAmbient", "omittedLightCount",
+## "omittedLights": [{directorId, code, lightType, reason}, ...]}.
+## Unsupported lights warn-and-omit with a structured code (never silently flattened).
 static func import_lights(root: Node3D, scene: Dictionary, lights: Array, warnings: Array) -> Dictionary:
 	var imported := 0
-	var omitted := 0
+	var omitted_lights: Array = []
 	var ambient_applied := false
 	for light_entity in lights:
 		var light_type: String = str(light_entity.get("type", ""))
 		var light_id := str(light_entity.get("id", "?"))
 		if light_type in AMBIENT_TYPES:
 			if ambient_applied:
-				omitted += 1
-				warnings.append(
+				_omit_light(
+					omitted_lights,
+					warnings,
+					light_id,
+					light_type,
+					OMIT_AMBIENT_DUPLICATE,
 					(
 						"Light %s (%s): a WorldEnvironment ambient term was already baked from an "
 						+ "earlier ambient/hemisphere light; Godot environments hold one ambient "
@@ -55,8 +60,12 @@ static func import_lights(root: Node3D, scene: Dictionary, lights: Array, warnin
 				)
 				continue
 			if light_entity.get("visible", true) == false:
-				omitted += 1
-				warnings.append(
+				_omit_light(
+					omitted_lights,
+					warnings,
+					light_id,
+					light_type,
+					OMIT_AMBIENT_INVISIBLE,
 					"Light %s (%s): the light is hidden in Director, so no ambient term was baked (warn-and-omit code: %s)."
 					% [light_id, light_type, OMIT_AMBIENT_INVISIBLE]
 				)
@@ -65,8 +74,12 @@ static func import_lights(root: Node3D, scene: Dictionary, lights: Array, warnin
 			ambient_applied = true
 			continue
 		if light_type == "rect-area":
-			omitted += 1
-			warnings.append(
+			_omit_light(
+				omitted_lights,
+				warnings,
+				light_id,
+				light_type,
+				OMIT_RECT_AREA,
 				(
 					"Light %s (rect-area): Godot has no runtime area-light node, so the light was "
 					+ "omitted rather than approximated (warn-and-omit code: %s)."
@@ -75,8 +88,12 @@ static func import_lights(root: Node3D, scene: Dictionary, lights: Array, warnin
 			)
 			continue
 		if light_type not in SUPPORTED_TYPES:
-			omitted += 1
-			warnings.append(
+			_omit_light(
+				omitted_lights,
+				warnings,
+				light_id,
+				light_type,
+				OMIT_UNKNOWN_TYPE,
 				"Light %s has unknown type %s; it was omitted (warn-and-omit code: %s)."
 				% [light_id, light_type, OMIT_UNKNOWN_TYPE]
 			)
@@ -97,8 +114,20 @@ static func import_lights(root: Node3D, scene: Dictionary, lights: Array, warnin
 	return {
 		"importedLightCount": imported,
 		"worldEnvironmentAmbient": ambient_applied,
-		"omittedLightCount": omitted,
+		"omittedLightCount": omitted_lights.size(),
+		"omittedLights": omitted_lights,
 	}
+
+
+## Appends one typed omit record and the matching free-text warning (older UIs
+## still scrape `warn-and-omit code:` from warnings).
+static func _omit_light(
+	omitted_lights: Array, warnings: Array, light_id: String, light_type: String, code: String, warning: String
+) -> void:
+	omitted_lights.append(
+		{"directorId": light_id, "code": code, "lightType": light_type, "reason": warning}
+	)
+	warnings.append(warning)
 
 
 ## Bakes one ambient/hemisphere light into a WorldEnvironment ambient term.
