@@ -15,6 +15,7 @@ const UNITY_DETAILS = {
   humanoidAvatarCount: 1,
   genericAvatarCount: 0,
   materialFallbackCount: 4,
+  appliedTextureCount: 2,
   posedCharacterCount: 1,
   omittedChannels: [
     {

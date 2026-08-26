@@ -109,6 +109,12 @@ export const directorDccUnityEngineReportDetailsSchema = z.strictObject({
   /** Materials created from Director PBR manifest fallback. */
   materialFallbackCount: z.number().int().nonnegative(),
   /**
+   * Texture slots successfully bound onto those fallback materials from
+   * hashed package assets. Optional: connector 0.3.0 reports predate this
+   * count (textures still bind when present).
+   */
+  appliedTextureCount: z.number().int().nonnegative().optional(),
+  /**
    * Characters posed from Director semantic pose controls (static controls
    * applied to the imported skeleton, keyframed controls baked to clips).
    * Optional: connector 0.2.x reports predate pose baking.
