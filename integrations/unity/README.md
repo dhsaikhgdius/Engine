@@ -144,7 +144,7 @@ and cross-checks against the exchange package id and source revision.
 
 Implemented and versioned: headless import/export, stable `director_id` round
 trip, scene hierarchy, transforms, physical cameras, lights, PBR material
-fallback, Humanoid/Generic avatars from skinned GLB, storyboard shots →
+fallback with Gateway-bundled hashed textures, Humanoid/Generic avatars from skinned GLB, storyboard shots →
 Timeline activation tracks, Director animation and semantic pose channels
 baked onto Timeline `AnimationClip`s, and the outbound-only preview live link
 described above (token-authenticated, sequence-numbered, disconnect-safe —
