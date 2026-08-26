@@ -23,6 +23,7 @@ const DENIAL_MESSAGES: Record<CollaborationRoomDenialReason, string> = {
   bad_signature: "The collaboration invite token signature is invalid.",
   expired: "The collaboration invite token has expired.",
   room_mismatch: "The collaboration invite token does not grant access to this room.",
+  revoked: "The collaboration invite token has been revoked.",
 };
 
 type ClientMembership = {
@@ -33,12 +34,14 @@ type ClientMembership = {
 
 /**
  * Optional durable room operations consumed by the hub: seed snapshots,
- * append valid updates, and quarantine corrupt ones.
+ * append valid updates, quarantine corrupt ones, and flush pending updates
+ * into the canonical snapshot when a room empties or is closed.
  */
 export type CollaborationRoomPersistence = {
   loadSnapshot(room: string): Promise<Uint8Array | null>;
   appendUpdate(room: string, update: Uint8Array): Promise<unknown>;
   quarantine(room: string, update: Uint8Array, reason: string): Promise<unknown>;
+  compact?(room: string): Promise<unknown>;
 };
 
 type CollaborationRoom = {
@@ -46,6 +49,21 @@ type CollaborationRoom = {
   awareness: Awareness;
   clients: Set<WebSocket>;
   awarenessOwners: Map<number, WebSocket>;
+  createdAt: number;
+  lastActivityAt: number;
+  retentionTimer: ReturnType<typeof setTimeout> | null;
+};
+
+/** Redacted live status of one collaboration room: counts and timestamps only. */
+export type CollaborationLiveRoomStatus = {
+  room: string;
+  peers: number;
+  editors: number;
+  viewers: number;
+  createdAt: string;
+  lastActivityAt: string;
+  /** True while an empty room is held in memory by the empty-room TTL. */
+  retained: boolean;
 };
 
 type AwarenessEntry = {
@@ -114,6 +132,13 @@ function payloadMessage(
  * share awareness but cannot write). The default authorizer preserves the
  * local trust mode where every authenticated socket is an editor.
  *
+ * Room lifecycle policy: by default an empty room is destroyed immediately
+ * (the pre-lifecycle behavior). A positive `emptyRoomRetentionMs` keeps the
+ * in-memory document alive for that grace period after the last peer leaves,
+ * so a quick rejoin does not depend on the persistence round trip. Whenever
+ * a room empties or is explicitly closed, pending durable updates are
+ * flushed into the canonical snapshot (best-effort).
+ *
  * This class deliberately has no knowledge of terminal, Stage, or Agent
  * messages.
  */
@@ -122,10 +147,28 @@ export class DirectorCollaborationWebSocketHub {
   private readonly memberships = new Map<WebSocket, ClientMembership>();
   private readonly authorizer: CollaborationRoomAuthorizer;
   private readonly persistence: CollaborationRoomPersistence | null;
+  private readonly emptyRoomRetentionMs: number;
+  private readonly now: () => number;
+  private readonly setTimer: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+  private readonly clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
 
-  constructor(options: { authorizer?: CollaborationRoomAuthorizer; persistence?: CollaborationRoomPersistence } = {}) {
+  constructor(
+    options: {
+      authorizer?: CollaborationRoomAuthorizer;
+      persistence?: CollaborationRoomPersistence;
+      /** How long an empty room's in-memory document survives the last peer leaving. Default 0 (immediate destroy). */
+      emptyRoomRetentionMs?: number;
+      now?: () => number;
+      setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+      clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
+    } = {},
+  ) {
     this.authorizer = options.authorizer ?? { mode: "local-trust", authorize: () => ({ ok: true, role: "editor" }) };
     this.persistence = options.persistence ?? null;
+    this.emptyRoomRetentionMs = Math.max(0, options.emptyRoomRetentionMs ?? 0);
+    this.now = options.now ?? Date.now;
+    this.setTimer = options.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
+    this.clearTimer = options.clearTimer ?? ((timer) => clearTimeout(timer));
   }
 
   /** The active room authorization mode. */
@@ -141,6 +184,47 @@ export class DirectorCollaborationWebSocketHub {
   /** Number of peers currently connected to a room. */
   peerCount(roomId: string) {
     return this.rooms.get(roomId)?.clients.size ?? 0;
+  }
+
+  /** Redacted live status for every in-memory room: role counts and timestamps, never document content. */
+  listRoomStatuses(): CollaborationLiveRoomStatus[] {
+    const roleCounts = new Map<string, { editors: number; viewers: number }>();
+    for (const membership of this.memberships.values()) {
+      const counts = roleCounts.get(membership.roomId) ?? { editors: 0, viewers: 0 };
+      if (membership.role === "editor") counts.editors += 1;
+      else counts.viewers += 1;
+      roleCounts.set(membership.roomId, counts);
+    }
+    return [...this.rooms.entries()]
+      .map(([roomId, room]) => ({
+        room: roomId,
+        peers: room.clients.size,
+        editors: roleCounts.get(roomId)?.editors ?? 0,
+        viewers: roleCounts.get(roomId)?.viewers ?? 0,
+        createdAt: new Date(room.createdAt).toISOString(),
+        lastActivityAt: new Date(room.lastActivityAt).toISOString(),
+        retained: room.clients.size === 0,
+      }))
+      .sort((left, right) => left.room.localeCompare(right.room));
+  }
+
+  /**
+   * Explicitly closes a room: every peer receives a `room_closed` error and
+   * loses its membership, the in-memory document is destroyed, and pending
+   * durable updates are flushed into the canonical snapshot. A later join
+   * recreates the room (seeded from the snapshot unless it was archived).
+   */
+  closeRoom(roomId: string): { closed: boolean; disconnectedPeers: number } {
+    const room = this.rooms.get(roomId);
+    if (!room) return { closed: false, disconnectedPeers: 0 };
+    const peers = [...room.clients];
+    for (const peer of peers) {
+      this.error(peer, "room_closed", "This collaboration room was closed by an operator.", roomId);
+      this.memberships.delete(peer);
+    }
+    room.clients.clear();
+    this.destroyRoom(roomId, room);
+    return { closed: true, disconnectedPeers: peers.length };
   }
 
   /** Returns whether the input is a valid collaboration client message. */
@@ -233,6 +317,7 @@ export class DirectorCollaborationWebSocketHub {
       if (this.persistence) {
         void this.persistence.appendUpdate(membership.roomId, payload).catch(() => undefined);
       }
+      room.lastActivityAt = this.now();
       this.broadcast(room, message, client);
       return;
     }
@@ -259,6 +344,7 @@ export class DirectorCollaborationWebSocketHub {
       } else {
         room.awarenessOwners.delete(membership.awarenessClientId);
       }
+      room.lastActivityAt = this.now();
       this.broadcast(room, message, client);
       return;
     }
@@ -304,17 +390,50 @@ export class DirectorCollaborationWebSocketHub {
       );
       if (cleanup) this.broadcast(room, cleanup);
     }
-    if (room.clients.size === 0) {
-      room.awareness.destroy();
-      room.doc.destroy();
-      this.rooms.delete(membership.roomId);
-    }
+    if (room.clients.size === 0) this.releaseEmptyRoom(membership.roomId, room);
   }
 
-  /** Disconnects all clients and destroys all rooms. */
+  /** Disconnects all clients and destroys all rooms, including retained empty ones. */
   destroy() {
     for (const client of [...this.memberships.keys()]) this.disconnect(client);
     this.memberships.clear();
+    for (const [roomId, room] of [...this.rooms.entries()]) this.destroyRoom(roomId, room);
+  }
+
+  /**
+   * Applies the empty-room lifecycle policy: flush pending durable updates
+   * into the snapshot, then either destroy the in-memory document now
+   * (default) or retain it for the configured grace period.
+   */
+  private releaseEmptyRoom(roomId: string, room: CollaborationRoom) {
+    this.flushPersistence(roomId);
+    if (this.emptyRoomRetentionMs <= 0) {
+      this.destroyRoom(roomId, room, { flush: false });
+      return;
+    }
+    if (room.retentionTimer !== null) this.clearTimer(room.retentionTimer);
+    room.retentionTimer = this.setTimer(() => {
+      room.retentionTimer = null;
+      if (this.rooms.get(roomId) === room && room.clients.size === 0) {
+        this.destroyRoom(roomId, room, { flush: false });
+      }
+    }, this.emptyRoomRetentionMs);
+  }
+
+  private destroyRoom(roomId: string, room: CollaborationRoom, options: { flush?: boolean } = {}) {
+    if (room.retentionTimer !== null) {
+      this.clearTimer(room.retentionTimer);
+      room.retentionTimer = null;
+    }
+    room.awareness.destroy();
+    room.doc.destroy();
+    if (this.rooms.get(roomId) === room) this.rooms.delete(roomId);
+    if (options.flush !== false) this.flushPersistence(roomId);
+  }
+
+  private flushPersistence(roomId: string) {
+    if (!this.persistence?.compact) return;
+    void this.persistence.compact(roomId).catch(() => undefined);
   }
 
   private join(client: WebSocket, roomId: string, awarenessClientId: number, inviteToken?: string) {
@@ -339,9 +458,22 @@ export class DirectorCollaborationWebSocketHub {
       const doc = new Y.Doc();
       const awareness = new Awareness(doc);
       awareness.setLocalState(null);
-      room = { doc, awareness, clients: new Set(), awarenessOwners: new Map() };
+      const createdAt = this.now();
+      room = {
+        doc,
+        awareness,
+        clients: new Set(),
+        awarenessOwners: new Map(),
+        createdAt,
+        lastActivityAt: createdAt,
+        retentionTimer: null,
+      };
       this.rooms.set(roomId, room);
       this.seedPersistedSnapshot(roomId, room);
+    }
+    if (room.retentionTimer !== null) {
+      this.clearTimer(room.retentionTimer);
+      room.retentionTimer = null;
     }
     if (room.clients.size >= MAX_PEERS_PER_ROOM) {
       this.error(client, "room_full", "This collaboration room has reached its peer limit.", roomId);
@@ -354,6 +486,7 @@ export class DirectorCollaborationWebSocketHub {
     }
 
     room.clients.add(client);
+    room.lastActivityAt = this.now();
     this.memberships.set(client, { roomId, awarenessClientId, role: authorization.role });
     send(client, { type: "collab.ready", room: roomId, role: authorization.role });
 

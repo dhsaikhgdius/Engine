@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import * as Y from "yjs";
 import { writeJsonAtomic } from "../atomicJsonFile";
@@ -26,6 +26,8 @@ export type CollaborationQuarantineRecord = {
 export type CollaborationRoomOpsStatus = {
   room: string;
   snapshotBytes: number;
+  /** Last write time of the compacted snapshot file, for snapshot-age reporting. */
+  snapshotUpdatedAt: string | null;
   pendingUpdates: number;
   quarantinedUpdates: number;
   lastCompactedAt: string | null;
@@ -59,6 +61,15 @@ function encodeRoomDirectoryName(room: string) {
   return Buffer.from(room, "utf8").toString("base64url");
 }
 
+function decodeRoomDirectoryName(name: string): string | null {
+  try {
+    const room = Buffer.from(name, "base64url").toString("utf8");
+    return encodeRoomDirectoryName(room) === name ? room : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readBinary(path: string): Promise<Uint8Array | null> {
   try {
     return new Uint8Array(await readFile(path));
@@ -89,6 +100,7 @@ async function writeBinaryAtomic(path: string, bytes: Uint8Array) {
  */
 export class CollaborationSnapshotStore {
   private readonly directory: string;
+  private readonly archiveDirectory: string;
   private readonly compactAfterUpdates: number;
   private readonly maxQuarantinedUpdates: number;
   private readonly locks = new Map<string, Promise<unknown>>();
@@ -96,6 +108,7 @@ export class CollaborationSnapshotStore {
 
   constructor(dataDirectory: string, options: { compactAfterUpdates?: number; maxQuarantinedUpdates?: number } = {}) {
     this.directory = resolve(dataDirectory, "collaboration-rooms");
+    this.archiveDirectory = resolve(dataDirectory, "collaboration-rooms-archive");
     this.compactAfterUpdates = Math.max(1, options.compactAfterUpdates ?? DEFAULT_COMPACT_AFTER_UPDATES);
     this.maxQuarantinedUpdates = Math.max(1, options.maxQuarantinedUpdates ?? DEFAULT_MAX_QUARANTINED_UPDATES);
   }
@@ -180,21 +193,72 @@ export class CollaborationSnapshotStore {
 
   /** Reports durable operational counters for one room. */
   async status(room: string): Promise<CollaborationRoomOpsStatus> {
+    return this.withRoomLock(room, () => this.statusLocked(room));
+  }
+
+  /**
+   * Lists every persisted (non-archived) room with its durable operational
+   * status. Directory names that do not decode back to a room id are skipped.
+   */
+  async listRooms(): Promise<CollaborationRoomOpsStatus[]> {
+    let names: string[];
+    try {
+      names = await readdir(this.directory);
+    } catch {
+      return [];
+    }
+    const statuses: CollaborationRoomOpsStatus[] = [];
+    for (const name of names.sort()) {
+      const room = decodeRoomDirectoryName(name);
+      if (room === null) continue;
+      statuses.push(await this.withRoomLock(room, () => this.statusLocked(room)));
+    }
+    return statuses;
+  }
+
+  /**
+   * Moves a room's durable history (snapshot, pending updates, quarantine)
+   * into the archive directory so future joins start from an empty document.
+   * Archived data is renamed, never deleted, and stops seeding new rooms.
+   */
+  async archiveRoom(room: string): Promise<{ archived: boolean; archivedAs: string | null }> {
     return this.withRoomLock(room, async () => {
-      const snapshot = await readBinary(resolve(this.roomDirectory(room), SNAPSHOT_FILE));
-      const meta = await this.readMeta(room);
-      return {
-        room,
-        snapshotBytes: snapshot?.byteLength ?? 0,
-        pendingUpdates: (await this.listUpdateFiles(room)).length,
-        quarantinedUpdates: (await this.readQuarantineIndex(room)).length,
-        lastCompactedAt: meta.lastCompactedAt,
-      };
+      const source = this.roomDirectory(room);
+      const archivedAs = `${encodeRoomDirectoryName(room)}.${Date.now().toString(16)}-${randomUUID().slice(0, 8)}`;
+      try {
+        await mkdir(this.archiveDirectory, { recursive: true });
+        await rename(source, resolve(this.archiveDirectory, archivedAs));
+        return { archived: true, archivedAs };
+      } catch {
+        return { archived: false, archivedAs: null };
+      }
     });
   }
 
   private roomDirectory(room: string) {
     return resolve(this.directory, encodeRoomDirectoryName(room));
+  }
+
+  private async statusLocked(room: string): Promise<CollaborationRoomOpsStatus> {
+    const snapshotPath = resolve(this.roomDirectory(room), SNAPSHOT_FILE);
+    let snapshotBytes = 0;
+    let snapshotUpdatedAt: string | null = null;
+    try {
+      const snapshotStat = await stat(snapshotPath);
+      snapshotBytes = snapshotStat.size;
+      snapshotUpdatedAt = snapshotStat.mtime.toISOString();
+    } catch {
+      // No compacted snapshot yet.
+    }
+    const meta = await this.readMeta(room);
+    return {
+      room,
+      snapshotBytes,
+      snapshotUpdatedAt,
+      pendingUpdates: (await this.listUpdateFiles(room)).length,
+      quarantinedUpdates: (await this.readQuarantineIndex(room)).length,
+      lastCompactedAt: meta.lastCompactedAt,
+    };
   }
 
   private async listUpdateFiles(room: string) {

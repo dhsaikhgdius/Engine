@@ -100,10 +100,9 @@ import {
   type DirectorBrowserWorkspace,
   type WorkbenchRoutingOperation,
 } from "./workbenchClientRouting";
-import { DirectorCollaborationWebSocketHub } from "./collaborationWebSocketHub";
-import { createCollaborationRoomAuthorizer } from "./collaborationRoomAuth";
-import { CollaborationSnapshotStore } from "./collaboration/collaborationSnapshotStore";
+import { createCollaborationRuntime } from "./collaboration/collaborationRuntime";
 import { handleCollaborationInviteRoute } from "./routes/collaborationInviteRoutes";
+import { handleCollaborationRoomRoute } from "./routes/collaborationRoomRoutes";
 import { loadDirectorControlPlaneConfig, type HostedAgentProfileConfig } from "./controlPlane/controlPlaneConfig";
 import { AgentProfileRegistry } from "./agents/agentProfileRegistry";
 import { probeLocalAgentCliAvailability } from "./agents/localAgentCliAvailability";
@@ -265,16 +264,14 @@ type PlannedAgentTargetLease = { targets: PlannedAgentTargets; expiresAt: number
 const plannedAgentTargets = new Map<string, PlannedAgentTargetLease>();
 let previewMimeType: StageCapturePayload["mimeType"] = "image/png";
 const terminalSessions = new TerminalSessionManager(root);
-// Team-readiness collaboration boundary: room auth defaults to local trust and
-// persistence defaults to in-memory; both are opt-in via environment.
-const collaborationInviteSecret = process.env.DIRECTOR_COLLAB_INVITE_SECRET?.trim() || gatewaySecret;
-const collaborationRoomAuthorizer = createCollaborationRoomAuthorizer({ secret: collaborationInviteSecret });
-const collaborationSnapshotStore =
-  process.env.DIRECTOR_COLLAB_PERSISTENCE?.trim() === "1" ? new CollaborationSnapshotStore(dataDirectory) : null;
-const collaborationHub = new DirectorCollaborationWebSocketHub({
-  authorizer: collaborationRoomAuthorizer,
-  ...(collaborationSnapshotStore ? { persistence: collaborationSnapshotStore } : {}),
-});
+// Team-readiness collaboration boundary: room auth defaults to local trust,
+// persistence defaults to in-memory, and empty rooms are destroyed
+// immediately; each is opt-in via environment (see createCollaborationRuntime).
+const collaborationRuntime = createCollaborationRuntime({ dataDirectory, gatewaySecret });
+const collaborationInviteSecret = collaborationRuntime.inviteSecret;
+const collaborationRoomAuthorizer = collaborationRuntime.authorizer;
+const collaborationSnapshotStore = collaborationRuntime.snapshotStore;
+const collaborationHub = collaborationRuntime.hub;
 const blenderBridge = createBlenderBridge({ workspaceRoot: root, dataDirectory });
 const blenderReturnImporter = createBlenderReturnImporter({ workspaceRoot: root, dataDirectory });
 const blenderSceneImporter = createBlenderSceneImporter({ workspaceRoot: root, dataDirectory });
@@ -2137,6 +2134,19 @@ const server = createServer(async (request, response) => {
         json,
         authorizer: collaborationRoomAuthorizer,
         inviteSecret: collaborationInviteSecret,
+        revocations: collaborationRuntime.revocations,
+      })
+    )
+      return;
+    if (
+      await handleCollaborationRoomRoute(request, response, url, {
+        readBody: body,
+        json,
+        hub: collaborationHub,
+        authorizer: collaborationRoomAuthorizer,
+        snapshotStore: collaborationSnapshotStore,
+        revocations: collaborationRuntime.revocations,
+        emptyRoomTtlSeconds: collaborationRuntime.emptyRoomTtlSeconds,
       })
     )
       return;

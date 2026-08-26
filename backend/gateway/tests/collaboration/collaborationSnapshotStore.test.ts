@@ -135,6 +135,39 @@ describe("CollaborationSnapshotStore", () => {
     const quarantined = await store.listQuarantined("room-e");
     expect(quarantined).toHaveLength(2);
   });
+
+  it("lists every persisted room with snapshot age metadata", async () => {
+    const { store } = tempStore({ compactAfterUpdates: 1 });
+    await store.appendUpdate("rooms/alpha", docUpdate((doc) => doc.getMap("scene").set("a", 1)));
+    await store.appendUpdate("rooms/beta", docUpdate((doc) => doc.getMap("scene").set("b", 2)));
+
+    const rooms = await store.listRooms();
+    expect(rooms.map((status) => status.room)).toEqual(["rooms/alpha", "rooms/beta"]);
+    for (const status of rooms) {
+      expect(status.snapshotBytes).toBeGreaterThan(0);
+      expect(status.snapshotUpdatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(status.pendingUpdates).toBe(0);
+      expect(status.lastCompactedAt).not.toBeNull();
+    }
+  });
+
+  it("archives a room's durable history so later joins start from an empty document", async () => {
+    const { directory, store } = tempStore({ compactAfterUpdates: 1 });
+    await store.appendUpdate("archive-me", docUpdate((doc) => doc.getMap("scene").set("title", "old cut")));
+    expect(await store.loadSnapshot("archive-me")).not.toBeNull();
+
+    const outcome = await store.archiveRoom("archive-me");
+    expect(outcome.archived).toBe(true);
+    expect(outcome.archivedAs).toBeTruthy();
+    expect(await store.loadSnapshot("archive-me")).toBeNull();
+    expect(await store.listRooms()).toEqual([]);
+    // The archived bytes were moved aside, not deleted.
+    const { readdirSync } = await import("node:fs");
+    expect(readdirSync(resolve(directory, "collaboration-rooms-archive"))).toHaveLength(1);
+
+    // Archiving a room that has no durable history reports a non-archival.
+    expect(await store.archiveRoom("never-existed")).toEqual({ archived: false, archivedAs: null });
+  });
 });
 
 describe("hub persistence wiring", () => {

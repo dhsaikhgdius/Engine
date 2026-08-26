@@ -12,6 +12,7 @@ import {
 } from "../../../../packages/protocol/src/directorCollaborationGatewayProtocol";
 import { DirectorCollaborationWebSocketHub } from "../../collaborationWebSocketHub";
 import { createCollaborationRoomAuthorizer, mintCollaborationInviteToken } from "../../collaborationRoomAuth";
+import { CollaborationInviteRevocationRegistry } from "../../collaboration/collaborationInviteRevocationRegistry";
 
 type FakeSocket = WebSocket & { sent: string[] };
 
@@ -182,6 +183,157 @@ describe("DirectorCollaborationWebSocketHub", () => {
   });
 });
 
+describe("DirectorCollaborationWebSocketHub room lifecycle policy", () => {
+  function fakeTimers() {
+    const pending = new Map<number, () => void>();
+    let nextId = 1;
+    return {
+      pending,
+      setTimer(callback: () => void) {
+        const id = nextId++;
+        pending.set(id, callback);
+        return id as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearTimer(timer: ReturnType<typeof setTimeout>) {
+        pending.delete(timer as unknown as number);
+      },
+      fire() {
+        for (const [id, callback] of [...pending]) {
+          pending.delete(id);
+          callback();
+        }
+      },
+    };
+  }
+
+  it("closes a room explicitly: peers receive room_closed, memberships end, and the document is destroyed", () => {
+    const hub = new DirectorCollaborationWebSocketHub();
+    const first = socket();
+    const second = socket();
+    hub.handle(first, { type: "collab.join", room: "wrap-party", awareness_client_id: 81 });
+    hub.handle(second, { type: "collab.join", room: "wrap-party", awareness_client_id: 82 });
+    first.sent.length = 0;
+    second.sent.length = 0;
+
+    const result = hub.closeRoom("wrap-party");
+    expect(result).toEqual({ closed: true, disconnectedPeers: 2 });
+    expect(messages(first).at(-1)).toMatchObject({ type: "collab.error", code: "room_closed", room: "wrap-party" });
+    expect(messages(second).at(-1)).toMatchObject({ type: "collab.error", code: "room_closed", room: "wrap-party" });
+    expect(hub.peerCount("wrap-party")).toBe(0);
+    expect(hub.roomCount).toBe(0);
+    expect(hub.closeRoom("wrap-party")).toEqual({ closed: false, disconnectedPeers: 0 });
+
+    // A member that keeps writing after the close needs a fresh join.
+    const doc = new Y.Doc();
+    doc.getMap("scene").set("late", true);
+    hub.handle(first, binaryMessage("collab.document-update", "wrap-party", Y.encodeStateAsUpdate(doc)));
+    expect(messages(first).at(-1)).toMatchObject({ type: "collab.error", code: "join_required" });
+    doc.destroy();
+    hub.destroy();
+  });
+
+  it("retains an empty room for the configured TTL so a quick rejoin keeps the document", () => {
+    const timers = fakeTimers();
+    const hub = new DirectorCollaborationWebSocketHub({
+      emptyRoomRetentionMs: 60_000,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    const first = socket();
+    hub.handle(first, { type: "collab.join", room: "held-room", awareness_client_id: 91 });
+    const seed = new Y.Doc();
+    seed.getMap("scene").set("title", "Kept alive");
+    hub.handle(first, binaryMessage("collab.document-update", "held-room", Y.encodeStateAsUpdate(seed)));
+    hub.disconnect(first);
+
+    // The room is empty but retained in memory.
+    expect(hub.peerCount("held-room")).toBe(0);
+    expect(hub.roomCount).toBe(1);
+    expect(hub.listRoomStatuses()).toMatchObject([{ room: "held-room", peers: 0, retained: true }]);
+
+    // A rejoin inside the TTL cancels the destroy timer and keeps the content.
+    const rejoined = socket();
+    hub.handle(rejoined, { type: "collab.join", room: "held-room", awareness_client_id: 92 });
+    expect(timers.pending.size).toBe(0);
+    const synced = messages(rejoined).find((message) => message.type === "collab.document-update") as
+      | Extract<DirectorCollaborationGatewayServerMessage, { type: "collab.document-update" }>
+      | undefined;
+    const restored = new Y.Doc();
+    Y.applyUpdate(restored, decodeDirectorCollaborationGatewayPayload(synced!.payload)!);
+    expect(restored.getMap("scene").get("title")).toBe("Kept alive");
+
+    // After the TTL fires on an empty room, the next join starts fresh.
+    hub.disconnect(rejoined);
+    expect(hub.roomCount).toBe(1);
+    timers.fire();
+    expect(hub.roomCount).toBe(0);
+
+    seed.destroy();
+    restored.destroy();
+    hub.destroy();
+  });
+
+  it("flushes pending durable updates into the snapshot when a room empties or closes", async () => {
+    const compacted: string[] = [];
+    const persistence = {
+      loadSnapshot: async () => null,
+      appendUpdate: async () => undefined,
+      quarantine: async () => undefined,
+      compact: async (room: string) => {
+        compacted.push(room);
+      },
+    };
+    const hub = new DirectorCollaborationWebSocketHub({ persistence });
+    const leaver = socket();
+    hub.handle(leaver, { type: "collab.join", room: "flush-on-empty", awareness_client_id: 95 });
+    hub.disconnect(leaver);
+    const closer = socket();
+    hub.handle(closer, { type: "collab.join", room: "flush-on-close", awareness_client_id: 96 });
+    hub.closeRoom("flush-on-close");
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+    expect(compacted).toEqual(["flush-on-empty", "flush-on-close"]);
+    hub.destroy();
+  });
+
+  it("reports redacted per-room status with role counts and timestamps only", () => {
+    const clock = { value: 1_700_000_000_000 };
+    const hub = new DirectorCollaborationWebSocketHub({
+      authorizer: createCollaborationRoomAuthorizer({ secret: "status-secret", mode: "required" }),
+      now: () => clock.value,
+    });
+    const editor = socket();
+    const viewer = socket();
+    hub.handle(editor, {
+      type: "collab.join",
+      room: "status-room",
+      awareness_client_id: 97,
+      invite_token: mintCollaborationInviteToken({ secret: "status-secret", room: "status-room", role: "editor" })
+        .token,
+    });
+    clock.value += 5_000;
+    hub.handle(viewer, {
+      type: "collab.join",
+      room: "status-room",
+      awareness_client_id: 98,
+      invite_token: mintCollaborationInviteToken({ secret: "status-secret", room: "status-room", role: "viewer" })
+        .token,
+    });
+    const statuses = hub.listRoomStatuses();
+    expect(statuses).toEqual([
+      {
+        room: "status-room",
+        peers: 2,
+        editors: 1,
+        viewers: 1,
+        createdAt: new Date(1_700_000_000_000).toISOString(),
+        lastActivityAt: new Date(1_700_000_005_000).toISOString(),
+        retained: false,
+      },
+    ]);
+    hub.destroy();
+  });
+});
+
 describe("DirectorCollaborationWebSocketHub room authorization", () => {
   const SECRET = "room-auth-hub-secret";
 
@@ -238,6 +390,29 @@ describe("DirectorCollaborationWebSocketHub room authorization", () => {
       invite_token: mintCollaborationInviteToken({ secret: SECRET, room: "another-room", role: "editor" }).token,
     });
     expect(messages(wrongRoom).at(-1)).toMatchObject({ type: "collab.error", code: "unauthorized" });
+    expect(hub.peerCount("secure-room")).toBe(0);
+    hub.destroy();
+  });
+
+  it("rejects a revoked invite with the corrective denial message", async () => {
+    const revocations = new CollaborationInviteRevocationRegistry();
+    const hub = new DirectorCollaborationWebSocketHub({
+      authorizer: createCollaborationRoomAuthorizer({ secret: SECRET, mode: "required", revocations }),
+    });
+    const invite = mintCollaborationInviteToken({ secret: SECRET, room: "secure-room", role: "editor" });
+    await revocations.revokeToken(invite.token);
+    const client = socket();
+    hub.handle(client, {
+      type: "collab.join",
+      room: "secure-room",
+      awareness_client_id: 44,
+      invite_token: invite.token,
+    });
+    expect(messages(client).at(-1)).toMatchObject({
+      type: "collab.error",
+      code: "unauthorized",
+      message: "The collaboration invite token has been revoked.",
+    });
     expect(hub.peerCount("secure-room")).toBe(0);
     hub.destroy();
   });

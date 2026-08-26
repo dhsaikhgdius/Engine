@@ -101,4 +101,30 @@ describe("GatewayWebSocketDirectorTransport", () => {
     expect(JSON.parse(socket.sent.at(-1)!)).toEqual({ type: "collab.leave", room: "scene/shot-1" });
     expect(socket.closeCode).toBe(1000);
   });
+
+  it("stops writing after an operator closes the room", async () => {
+    const transport = new GatewayWebSocketDirectorTransport("scene/shot-1", 42, {
+      gatewayUrl: "https://director.example/gateway/",
+      getBrowserToken: async () => "secret browser token",
+      createWebSocket: (url) => new TestWebSocket(url) as unknown as WebSocket,
+      reconnect: false,
+    });
+    await waitFor(() => expect(TestWebSocket.instances).toHaveLength(1));
+    const socket = TestWebSocket.instances[0]!;
+    socket.open();
+    socket.receive({ type: "collab.ready", room: "scene/shot-1" });
+    transport.send({ type: "document-update", payload: new Uint8Array([1]) });
+    const sentBeforeClose = socket.sent.length;
+
+    socket.receive({
+      type: "collab.error",
+      room: "scene/shot-1",
+      code: "room_closed",
+      message: "This collaboration room was closed by an operator.",
+    });
+    transport.send({ type: "document-update", payload: new Uint8Array([2]) });
+    expect(socket.sent).toHaveLength(sentBeforeClose);
+
+    transport.close();
+  });
 });
