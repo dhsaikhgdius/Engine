@@ -170,11 +170,14 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 - Video 显式覆盖放置：媒体落点、键盘逐帧微移、后接复制共用 `edit.clip.add` /
   `edit.clip.update` 且 `overwrite: true`（add 可带 `in_sec`/`opacity`/`volume` 以保留复制后的
   完整观感）。两条路径经 `commitClipPlacement` 跑同一 `resolveDirectorTrackOverwrite` 解析器。
+- 无媒体文字/字幕剪辑：`edit.clip.add` 接受虚拟 `text:` / `text:caption:…` media id（无需 Gallery
+  资产，仅视频轨道）。Video「标题文字」与字幕/SRT 导入、转写入轨走与 Agent 相同的操作；字幕显示名受
+  共享剪辑名 200 字上限约束。
 
 仍为直接写入，附原因：
 
 - 连续交互——节点拖拽、剪辑拖拽/裁剪、淡变拖拽、范围滑杆、实时输入——保留本地批处理历史
   （`beginHistoryBatch`/`endHistoryBatch`），与 Stage 滑块/gizmo 策略一致。拖拽/裁剪 pointer-up
   仍本地 `commitClipPlacement`（离散微移/后接复制/显式落点已共享，见上）。
-- 无媒体的文字/字幕剪辑（`text:` id）、Canvas 置顶、视图状态与分区簿记——尚无语义操作。
+- Canvas 置顶、视图状态与分区簿记——尚无语义操作。
 - Canvas 流水线产物入册、旧评审镜像迁移与批量清除评审——多 store 或迁移簿记流程。

@@ -760,13 +760,13 @@ export function VideoEditorWorkspace() {
   const editSettings = useDirectorCreativeWorkspaceStore((state) => state.editSettings);
   // Clip add ("+" placement / duplicate-after), split/remove/transition, discrete
   // fade steps, keyboard frame nudges, track management, settings, import
-  // cataloging, undo/redo, media relink, and proxy attach dispatch through the
-  // shared agent contract (dispatchCreativeWorkspaceOperations /
+  // cataloging, undo/redo, media relink, proxy attach, and media-less
+  // text/caption clips (`text:` / `text:caption:…`) dispatch through the shared
+  // agent contract (dispatchCreativeWorkspaceOperations /
   // dispatchCreativeWorkspaceMediaRelink). Only continuous interactions
-  // (drags, trims, fades, range sliders, live typing) and media-less
-  // text/caption clips keep the direct store mutators. Explicit media drops,
-  // keyboard nudges, and duplicate-after share overwrite placement.
-  const addClip = useDirectorCreativeWorkspaceStore((state) => state.addClip);
+  // (drags, trims, fades, range sliders, live typing) keep the direct store
+  // mutators. Explicit media drops, keyboard nudges, and duplicate-after share
+  // overwrite placement.
   const updateClip = useDirectorCreativeWorkspaceStore((state) => state.updateClip);
   const moveClipToTrack = useDirectorCreativeWorkspaceStore((state) => state.moveClipToTrack);
   const commitClipPlacement = useDirectorCreativeWorkspaceStore((state) => state.commitClipPlacement);
@@ -1553,21 +1553,23 @@ export function VideoEditorWorkspace() {
       return;
     }
     const id = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}`;
-    beginHistoryBatch();
-    const created = addClip({
-      trackId: target.id,
-      mediaId: `text:${id}`,
-      name: "标题文字",
-      startSec: snapDirectorTimelineSeconds(
-        useDirectorCreativeWorkspaceStore.getState().playheadSec,
-        exportFps,
-        snapEnabled,
-      ),
-      durationSec: 3,
-      sourceDurationSec: 60 * 60,
-    });
-    if (created) commitClipPlacement(created.id);
-    endHistoryBatch();
+    dispatchVideo(
+      {
+        op: "edit.clip.add",
+        track_id: target.id,
+        media_id: `text:${id}`,
+        name: "标题文字",
+        start_sec: snapDirectorTimelineSeconds(
+          useDirectorCreativeWorkspaceStore.getState().playheadSec,
+          exportFps,
+          snapEnabled,
+        ),
+        duration_sec: 3,
+        source_duration_sec: 60 * 60,
+        overwrite: true,
+      },
+      t("加入时间线失败"),
+    );
   }
 
   async function importCaptionFile(file: File) {

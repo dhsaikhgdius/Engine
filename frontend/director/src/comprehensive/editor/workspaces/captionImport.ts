@@ -1,4 +1,8 @@
 import type { DirectorMediaTranscript } from "../../../../../../packages/protocol/src/mediaTranscriptionProtocol";
+import {
+  dispatchCreativeWorkspaceOperations,
+  type CreativeWorkspaceOperationInput,
+} from "../../../agent/dispatchCreativeWorkspaceOperations";
 import { useDirectorCreativeWorkspaceStore } from "./directorWorkspaceStore";
 
 /** A single timed caption cue with start time, end time, and display text. */
@@ -10,6 +14,16 @@ export interface DirectorCaptionCue {
   /** The caption text to display during this time window. */
   text: string;
 }
+
+/** Virtual Video title/caption media ids (`text:` / `text:caption:…`) need no Gallery asset. */
+export function isCreativeVirtualTextMediaId(mediaId: string): boolean {
+  return mediaId.startsWith("text:");
+}
+
+/** Shared contract clip names are capped at 200 chars (protocol `nameSchema`). */
+const CREATIVE_CLIP_NAME_MAX = 200;
+const DEFAULT_VIRTUAL_TEXT_SOURCE_DURATION_SEC = 60 * 60;
+const CAPTION_DEFAULT_POSITION_Y = 360;
 
 const TIMECODE = /(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[,.](\d{3})/;
 
@@ -92,8 +106,12 @@ function snapCaptionSeconds(seconds: number, fps: number) {
   return Math.round(Math.max(0, seconds) * safeFps) / safeFps;
 }
 
-/** Adds timed text clips as one undoable operation and preserves source identity in virtual media IDs. */
-export function insertDirectorCaptionCuesIntoTimeline(
+/**
+ * Compile caption cues into shared `edit.clip.add` ops (optional preceding
+ * `edit.track.add`). Callers that need Agent parity should prefer
+ * `insertDirectorCaptionCuesIntoTimeline`, which dispatches this batch.
+ */
+export function compileDirectorCaptionCueInsertOperations(
   cues: readonly DirectorCaptionCue[],
   options: {
     fps?: number;
@@ -102,9 +120,17 @@ export function insertDirectorCaptionCuesIntoTimeline(
     transcriptionJobId?: string;
     trackId?: string;
   } = {},
-) {
+): {
+  operations: CreativeWorkspaceOperationInput[];
+  trackId: string | null;
+  virtualMediaPrefix: string;
+  alreadyPresent: boolean;
+  needsTrackCreate: boolean;
+} {
   const normalized = cues.filter((cue) => cue.text.trim() && cue.endSec > cue.startSec).slice(0, 2_000);
-  if (!normalized.length) return { inserted: 0, trackId: null as string | null };
+  if (!normalized.length) {
+    return { operations: [], trackId: null, virtualMediaPrefix: "", alreadyPresent: false, needsTrackCreate: false };
+  }
   const store = useDirectorCreativeWorkspaceStore.getState();
   const fps = options.fps ?? store.editSettings.fps;
   const offset = Math.max(0, options.offsetSec ?? 0);
@@ -116,9 +142,11 @@ export function insertDirectorCaptionCuesIntoTimeline(
     .filter((clip) => clip.mediaId.startsWith(virtualMediaPrefix));
   if (options.transcriptionJobId && existing.length) {
     return {
-      inserted: 0,
+      operations: [],
       trackId: store.editTracks.find((track) => track.clips.some((clip) => existing.includes(clip)))?.id ?? null,
+      virtualMediaPrefix,
       alreadyPresent: true,
+      needsTrackCreate: false,
     };
   }
   let track = options.trackId
@@ -127,33 +155,85 @@ export function insertDirectorCaptionCuesIntoTimeline(
       )
     : store.editTracks.find((candidate) => candidate.id === "video-2" && !candidate.locked);
   track ??= [...store.editTracks].reverse().find((candidate) => candidate.kind === "video" && !candidate.locked);
-  store.beginHistoryBatch();
-  try {
-    track ??= store.addTrack("video", "字幕") ?? undefined;
-    if (!track) {
-      store.rollbackHistoryBatch();
-      return { inserted: 0, trackId: null };
-    }
-    let inserted = 0;
-    normalized.forEach((cue, index) => {
-      const startSec = snapCaptionSeconds(offset + cue.startSec, fps);
-      const durationSec = Math.max(0.1, snapCaptionSeconds(cue.endSec - cue.startSec, fps));
-      const clip = store.addClip({
-        trackId: track!.id,
-        mediaId: `${virtualMediaPrefix}${index}`,
-        name: cue.text.trim().slice(0, 4_000),
-        startSec,
-        durationSec,
-        sourceDurationSec: 60 * 60,
-        positionY: 360,
-      });
-      if (clip) inserted += 1;
-    });
-    if (inserted) store.endHistoryBatch();
-    else store.rollbackHistoryBatch();
-    return { inserted, trackId: track.id, alreadyPresent: false };
-  } catch (error) {
-    store.rollbackHistoryBatch();
-    throw error;
+  const needsTrackCreate = !track;
+  const trackIdForOps = track?.id ?? "@caption_track";
+  const operations: CreativeWorkspaceOperationInput[] = [];
+  if (needsTrackCreate) {
+    operations.push({ op: "edit.track.add", kind: "video", name: "字幕" });
   }
+  normalized.forEach((cue, index) => {
+    const startSec = snapCaptionSeconds(offset + cue.startSec, fps);
+    const durationSec = Math.max(0.1, snapCaptionSeconds(cue.endSec - cue.startSec, fps));
+    operations.push({
+      op: "edit.clip.add",
+      track_id: trackIdForOps,
+      media_id: `${virtualMediaPrefix}${index}`,
+      name: cue.text.trim().slice(0, CREATIVE_CLIP_NAME_MAX),
+      start_sec: startSec,
+      duration_sec: durationSec,
+      source_duration_sec: DEFAULT_VIRTUAL_TEXT_SOURCE_DURATION_SEC,
+      position_y: CAPTION_DEFAULT_POSITION_Y,
+    });
+  });
+  return {
+    operations,
+    trackId: track?.id ?? null,
+    virtualMediaPrefix,
+    alreadyPresent: false,
+    needsTrackCreate,
+  };
+}
+
+/** Adds timed text clips via shared creative ops and preserves source identity in virtual media IDs. */
+export function insertDirectorCaptionCuesIntoTimeline(
+  cues: readonly DirectorCaptionCue[],
+  options: {
+    fps?: number;
+    offsetSec?: number;
+    sourceMediaId?: string;
+    transcriptionJobId?: string;
+    trackId?: string;
+  } = {},
+) {
+  const compiled = compileDirectorCaptionCueInsertOperations(cues, options);
+  if (compiled.alreadyPresent) {
+    return { inserted: 0, trackId: compiled.trackId, alreadyPresent: true as const };
+  }
+  if (!compiled.operations.length) return { inserted: 0, trackId: null as string | null };
+
+  // When a caption track must be created, Agents resolve `@caption_track` via
+  // execute_batch save_as. The UI dispatch helper does not expose save_as, so
+  // create the track first, then batch the clip adds (two undo units only when
+  // every unlocked video track is missing — default timelines keep video-2).
+  let trackId = compiled.trackId;
+  let clipOperations = compiled.operations;
+  if (compiled.needsTrackCreate) {
+    const trackReceipt = dispatchCreativeWorkspaceOperations({
+      op: "edit.track.add",
+      kind: "video",
+      name: "字幕",
+    });
+    if (!trackReceipt.ok) return { inserted: 0, trackId: null };
+    const createdTrack = trackReceipt.execution.result.track as { id?: string } | undefined;
+    trackId = typeof createdTrack?.id === "string" ? createdTrack.id : null;
+    if (!trackId) return { inserted: 0, trackId: null };
+    clipOperations = compiled.operations
+      .filter((operation) => operation.op === "edit.clip.add")
+      .map((operation) => (operation.op === "edit.clip.add" ? { ...operation, track_id: trackId! } : operation));
+  }
+
+  const receipt = dispatchCreativeWorkspaceOperations(clipOperations);
+  if (!receipt.ok) return { inserted: 0, trackId: trackId ?? null };
+  const inserted = useDirectorCreativeWorkspaceStore
+    .getState()
+    .editTracks.flatMap((track) => track.clips)
+    .filter((clip) => clip.mediaId.startsWith(compiled.virtualMediaPrefix)).length;
+  const resolvedTrackId =
+    trackId ??
+    useDirectorCreativeWorkspaceStore
+      .getState()
+      .editTracks.find((track) => track.clips.some((clip) => clip.mediaId.startsWith(compiled.virtualMediaPrefix)))
+      ?.id ??
+    null;
+  return { inserted, trackId: resolvedTrackId, alreadyPresent: false as const };
 }
