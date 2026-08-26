@@ -1008,9 +1008,16 @@ export async function handleStageRoute(
         // actor without switching the live session, so they skip the probe.
         const needsLivePlayer =
           candidate.op === "player" &&
-          ["enter", "set_actor", "exit", "interact", "enter_vehicle", "exit_vehicle", "record_start", "record_stop"].includes(
-            candidate.action,
-          );
+          [
+            "enter",
+            "set_actor",
+            "exit",
+            "interact",
+            "enter_vehicle",
+            "exit_vehicle",
+            "record_start",
+            "record_stop",
+          ].includes(candidate.action);
         if (!possessionCharacters || (needsLivePlayer && possessionLivePlayer === null)) {
           let bindingProbe: WorkbenchRemote | null;
           try {
