@@ -41,6 +41,7 @@ import { useDirectorMediaLibrary } from "../workspaces/directorMediaLibrary";
 import { useDirectorCreativeWorkspaceStore, type DirectorWorkspaceMode } from "../workspaces/directorWorkspaceStore";
 import { DccProviderBrowser } from "./DccProviderBrowser";
 import { EngineHandoffDock } from "./engines/EngineHandoffDock";
+import type { DirectorInterchangeImportResult } from "./contract";
 import type { DirectorGltfOmitted } from "./gltf";
 import { DIRECTOR_GLTF_OMITTED_CODES } from "./gltf";
 import type { DirectorMeshExportReport } from "./mesh";
@@ -312,7 +313,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
         );
         return;
       }
-      let result;
+      let result: DirectorInterchangeImportResult;
       if (extension === "otio") {
         result = interchange.importDirectorProjectFromOtio(await file.text(), { baseProject });
       } else if (extension === "otioz") {
