@@ -103,3 +103,55 @@ export const directorUnrealLivePreviewSessionSummarySchema = z.strictObject({
 
 /** A validated Gateway live preview session summary. */
 export type DirectorUnrealLivePreviewSessionSummary = z.infer<typeof directorUnrealLivePreviewSessionSummarySchema>;
+
+/** Contract identifier for the read-only Gateway live preview status snapshot. */
+export const DIRECTOR_UNREAL_LIVE_PREVIEW_STATUS_CONTRACT = "director-unreal-live-preview-status-v1" as const;
+
+/**
+ * Lifecycle state of one Gateway preview session:
+ * - `idle` — connected, hello sent, no camera frame forwarded yet.
+ * - `connected` — forwarding frames inside the staleness window.
+ * - `stale` — silent past the disconnect timeout (treated as disconnected).
+ * - `closed` — the socket is gone; `summary.disconnectReason` says why.
+ */
+export const directorUnrealLivePreviewSessionStateSchema = z.enum(["idle", "connected", "stale", "closed"]);
+
+/** A validated live preview session state. */
+export type DirectorUnrealLivePreviewSessionState = z.infer<typeof directorUnrealLivePreviewSessionStateSchema>;
+
+/**
+ * One session entry in the read-only status snapshot. Deliberately
+ * preview-shaped like the summary: counters, sequence numbers, and lifecycle
+ * only — never scene data — so nothing here can reach the authoring path.
+ */
+export const directorUnrealLivePreviewSessionStatusSchema = z.strictObject({
+  sessionId: nonEmpty.max(64),
+  /** Loopback port of the connector listener the session dialled. */
+  port: z.number().int().min(1).max(65_535),
+  state: directorUnrealLivePreviewSessionStateSchema,
+  openedAtMs: z.number().int().nonnegative(),
+  /** Wall-clock time of the last forwarded frame; null while idle. */
+  lastFrameAtMs: z.number().int().nonnegative().nullable(),
+  /** Sequence number of the last forwarded frame; null while idle. */
+  lastForwardedSeq: z.number().int().nonnegative().nullable(),
+  summary: directorUnrealLivePreviewSessionSummarySchema,
+});
+
+/** A validated per-session status entry. */
+export type DirectorUnrealLivePreviewSessionStatus = z.infer<typeof directorUnrealLivePreviewSessionStatusSchema>;
+
+/**
+ * The read-only status snapshot the UI polls (`GET
+ * /api/dcc/unreal/live-preview/status`). Reading it never mutates preview
+ * state and it carries no scene data; the durable scene channel remains the
+ * hash-verified exchange/return package.
+ */
+export const directorUnrealLivePreviewStatusSchema = z.strictObject({
+  contract: z.literal(DIRECTOR_UNREAL_LIVE_PREVIEW_STATUS_CONTRACT),
+  provider: z.literal("unreal"),
+  protocol: z.literal(DIRECTOR_UNREAL_LIVE_PREVIEW_PROTOCOL),
+  sessions: z.array(directorUnrealLivePreviewSessionStatusSchema).max(64),
+});
+
+/** A validated read-only live preview status snapshot. */
+export type DirectorUnrealLivePreviewStatus = z.infer<typeof directorUnrealLivePreviewStatusSchema>;
