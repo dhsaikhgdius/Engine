@@ -92,6 +92,71 @@ describe("creative workspace interchange import", () => {
     expect(context.getImportedProject().storyboard?.shots.length).toBeGreaterThan(0);
   });
 
+  it("projects typed Fountain omitted records onto the import plan and receipt", async () => {
+    const fountain = `Title: Night Run
+Author: Ada
+Logline: A courier misses the last train.
+
+INT. LOBBY - NIGHT
+
+Courier checks the board.
+
+COURIER
+Where is platform nine?
+`;
+    const context = importContext();
+    const planned = await executeCreativeWorkspaceInterchangeRequest(
+      {
+        op: "interchange",
+        request: {
+          action: "plan-import",
+          format: "fountain",
+          workspace: "stage",
+          source: { kind: "inline", encoding: "utf8", payload: fountain, file_name: "night.fountain" },
+          max_inline_bytes: 64 * 1024,
+        },
+      },
+      context,
+    );
+    expect(planned).toMatchObject({
+      result: {
+        success: true,
+        action: "plan-import",
+        plan: { format: "fountain", workspace: "stage" },
+      },
+    });
+    if (!planned.result.success || planned.result.action !== "plan-import") throw new Error("missing import plan");
+    expect(planned.result.plan.omitted_count).toBeGreaterThanOrEqual(2);
+    expect(planned.result.plan.omitted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "title_page_field", subject: "Author" }),
+        expect.objectContaining({ code: "character_dialogue", subject: "COURIER" }),
+      ]),
+    );
+
+    const imported = await executeCreativeWorkspaceInterchangeRequest(
+      {
+        op: "interchange",
+        request: {
+          action: "import",
+          plan_id: planned.result.plan.plan_id,
+          expected_guard_fingerprint: planned.result.plan.guard.fingerprint,
+          confirm: true,
+        },
+      },
+      context,
+    );
+    expect(imported).toMatchObject({
+      result: {
+        success: true,
+        action: "import",
+        receipt: { format: "fountain", workspace: "stage" },
+      },
+    });
+    if (!imported.result.success || imported.result.action !== "import") throw new Error("missing import receipt");
+    expect(imported.result.receipt.omitted).toEqual(planned.result.plan.omitted);
+  });
+
   it("reads a workspace_path source through the host resolver", async () => {
     const context = importContext({
       resolveWorkspacePath: async () => ({
