@@ -100,6 +100,16 @@ export class BlenderNativeSessionError extends Error {
   }
 }
 
+/**
+ * Maps a native-session HTTP status to a machine-readable error code.
+ * 401/403 mean the bearer token was rejected (missing, rotated, or revoked);
+ * consumers such as the read-only live-link preview must stop polling and
+ * surface re-authentication instead of retrying into the same rejection.
+ */
+function nativeErrorCode(status: number): string {
+  return status === 401 || status === 403 ? "blender_auth_invalid" : "blender_session_error";
+}
+
 function normalizeLoopbackUrl(raw: string | undefined) {
   const parsed = new URL(raw?.trim() || "http://127.0.0.1:8791");
   if (parsed.protocol !== "http:") {
@@ -174,7 +184,7 @@ async function failedResponseError(response: Response): Promise<BlenderNativeSes
   } catch {
     // Keep the HTTP status message for non-JSON error bodies.
   }
-  return new BlenderNativeSessionError(message, response.status);
+  return new BlenderNativeSessionError(message, response.status, nativeErrorCode(response.status));
 }
 
 /**
@@ -219,7 +229,7 @@ export function createBlenderNativeSession(options: CreateBlenderNativeSessionOp
             body && typeof body === "object" && "error" in body && typeof body.error === "string"
               ? body.error
               : `Blender native session request failed with HTTP ${response.status}.`;
-          throw new BlenderNativeSessionError(message, response.status);
+          throw new BlenderNativeSessionError(message, response.status, nativeErrorCode(response.status));
         }
         const parsed = schema.safeParse(body);
         if (!parsed.success) {

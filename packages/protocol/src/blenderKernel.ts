@@ -28,8 +28,23 @@ export const BLENDER_INVOKE_OPERATOR_CATEGORY_DENYLIST = [
   "workspace",
 ] as const;
 
-/** Specific operator IDs denied regardless of category membership. */
-export const BLENDER_INVOKE_OPERATOR_ID_DENYLIST = ["wm.quit_blender", "wm.window_close"] as const;
+/**
+ * Specific operator IDs denied regardless of category membership.
+ * Beyond quitting Blender, replacing the loaded mainfile (open/revert/recover/
+ * factory reset) destroys the live scene epoch and every pending native job,
+ * so those loads are denied on the same "session-destroying" grounds. Saving
+ * (`wm.save_as_mainfile`) stays allowed: it never invalidates the session.
+ */
+export const BLENDER_INVOKE_OPERATOR_ID_DENYLIST = [
+  "wm.quit_blender",
+  "wm.window_close",
+  "wm.open_mainfile",
+  "wm.revert_mainfile",
+  "wm.read_homefile",
+  "wm.read_factory_settings",
+  "wm.recover_last_session",
+  "wm.recover_auto_save",
+] as const;
 
 /** RNA target kinds allowed for `set_rna_property` writes. */
 export const BLENDER_RNA_TARGET_KIND_ALLOWLIST = [
@@ -44,6 +59,23 @@ export const BLENDER_RNA_TARGET_KIND_ALLOWLIST = [
 ] as const;
 
 const RNA_PATH_DENY = /^(library|script|expression)$/i;
+
+/**
+ * Typed modeling surfaces (modifier and geometry-node property records) never
+ * take file-system paths, so path-like property names are denied by name
+ * before dispatch. `set_rna_property` keeps the narrower {@link RNA_PATH_DENY}
+ * so explicit render output filepaths stay writable, and `invoke_operator`
+ * properties stay open for import/export operators. Mirrors
+ * `_TYPED_PROPERTY_DENY` in the Blender kernel policy Python copy.
+ */
+const TYPED_PROPERTY_DENY = /^(library|script|expression|filepath|filename|directory)$/i;
+
+/** Operations whose free-form property records are guarded by the typed-property denylist. */
+const TYPED_PROPERTY_RECORD_FIELDS: Readonly<Record<string, string>> = {
+  add_modifier: "properties",
+  set_modifier: "properties",
+  create_geometry_node: "nodeProperties",
+};
 
 /** Error thrown when a Blender operation violates the kernel policy. */
 export class BlenderKernelPolicyError extends Error {
@@ -86,6 +118,20 @@ export function isAllowedBlenderOperator(identifier: string): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Checks whether a typed modifier/geometry-node property name is allowed.
+ *
+ * Path-like names (`filepath`, `filename`, `directory`) and code-carrying
+ * names (`library`, `script`, `expression`) are denied on typed modeling
+ * surfaces; the Blender-side kernel enforces the same rule.
+ *
+ * @param name - The property name from a typed operation's property record.
+ * @returns `true` when the property may be forwarded to Blender.
+ */
+export function isAllowedBlenderTypedPropertyName(name: string): boolean {
+  return !TYPED_PROPERTY_DENY.test(name);
 }
 
 /**
@@ -135,6 +181,18 @@ export function assertBlenderKernelPolicy(operations: readonly ({ op: string } &
       throw new BlenderKernelPolicyError(
         "RNA writes are limited to object, mesh, modifier, constraint, material, collection, scene, and world properties.",
       );
+    }
+    const recordField = TYPED_PROPERTY_RECORD_FIELDS[operation.op];
+    if (recordField) {
+      const record = operation[recordField];
+      const keys = record && typeof record === "object" && !Array.isArray(record) ? Object.keys(record) : [];
+      const denied = keys.find((key) => !isAllowedBlenderTypedPropertyName(key));
+      if (denied !== undefined) {
+        throw new BlenderKernelPolicyError(
+          `Typed ${operation.op} property is outside the Director modeling kernel: ${denied}. ` +
+            "Path-like and code-carrying property names are rejected on typed modeling surfaces.",
+        );
+      }
     }
   }
 }

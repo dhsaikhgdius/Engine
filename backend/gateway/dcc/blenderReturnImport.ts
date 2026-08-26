@@ -490,6 +490,7 @@ export function buildDirectorDccImportPlan(
   const targetRevision = getDirectorProjectRevision(project);
   const operations: DirectorDccImportPlanV1["operations"] = [];
   const conflicts: DirectorDccImportPlanV1["conflicts"] = [];
+  const adjustments: DirectorDccImportPlanV1["adjustments"] = [];
   const warnings = [...manifest.warnings];
   const world = sceneTransform(project);
   const sourceIsCurrent = manifest.sourceRevision === targetRevision;
@@ -512,10 +513,26 @@ export function buildDirectorDccImportPlan(
     );
   }
 
-  const clamp = (value: number, min: number, max: number, label: string): number => {
+  // Every bake is reported twice: a prose warning for humans and a structured
+  // adjustment for machine review. Values are never silently flattened.
+  const clamp = (
+    value: number,
+    min: number,
+    max: number,
+    target: { directorId: string; field: string; label: string },
+  ): number => {
     if (value < min || value > max) {
       const clamped = Math.min(max, Math.max(min, value));
-      warnings.push(`${label} ${value} is outside Director's ${min}-${max} range and was baked to ${clamped}.`);
+      warnings.push(`${target.label} ${value} is outside Director's ${min}-${max} range and was baked to ${clamped}.`);
+      adjustments.push({
+        directorId: target.directorId,
+        field: target.field,
+        code: "baked_to_limit",
+        requested: value,
+        applied: clamped,
+        min,
+        max,
+      });
       return clamped;
     }
     return value;
@@ -634,25 +651,44 @@ export function buildDirectorDccImportPlan(
       }
       if (change.optics) {
         const optics: DirectorDccImportPlanCameraOptics = {};
-        const label = (field: string) => `Camera ${change.directorId} ${field}`;
+        const target = (field: string, label: string) => ({
+          directorId: change.directorId,
+          field,
+          label: `Camera ${change.directorId} ${label}`,
+        });
         if (change.optics.focalLengthMm !== undefined) {
-          optics.focal_length_mm = clamp(change.optics.focalLengthMm, 12, 200, label("focal length (mm)"));
+          optics.focal_length_mm = clamp(
+            change.optics.focalLengthMm,
+            12,
+            200,
+            target("focal_length_mm", "focal length (mm)"),
+          );
         }
         if (change.optics.apertureFStop !== undefined) {
           const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.apertureFStop;
-          optics.aperture_f_stop = clamp(change.optics.apertureFStop, min, max, label("aperture (f-stop)"));
+          optics.aperture_f_stop = clamp(
+            change.optics.apertureFStop,
+            min,
+            max,
+            target("aperture_f_stop", "aperture (f-stop)"),
+          );
         }
         if (change.optics.focusDistanceM !== undefined) {
           const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.focusDistanceM;
-          optics.focus_distance_m = clamp(change.optics.focusDistanceM, min, max, label("focus distance (m)"));
+          optics.focus_distance_m = clamp(
+            change.optics.focusDistanceM,
+            min,
+            max,
+            target("focus_distance_m", "focus distance (m)"),
+          );
         }
         if (change.optics.nearClipM !== undefined) {
           const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.nearClipM;
-          optics.near_clip_m = clamp(change.optics.nearClipM, min, max, label("near clip (m)"));
+          optics.near_clip_m = clamp(change.optics.nearClipM, min, max, target("near_clip_m", "near clip (m)"));
         }
         if (change.optics.farClipM !== undefined) {
           const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.farClipM;
-          optics.far_clip_m = clamp(change.optics.farClipM, min, max, label("far clip (m)"));
+          optics.far_clip_m = clamp(change.optics.farClipM, min, max, target("far_clip_m", "far clip (m)"));
         }
         if (change.optics.sensorFormat !== undefined) {
           optics.sensor_format = change.optics.sensorFormat;
@@ -666,7 +702,11 @@ export function buildDirectorDccImportPlan(
       const patch: DirectorDccImportPlanLightPatch = {};
       if (change.properties.color !== undefined) patch.color = change.properties.color.toLowerCase();
       if (change.properties.intensity !== undefined) {
-        patch.intensity = clamp(change.properties.intensity, 0, 100, `Light ${change.directorId} intensity`);
+        patch.intensity = clamp(change.properties.intensity, 0, 100, {
+          directorId: change.directorId,
+          field: "intensity",
+          label: `Light ${change.directorId} intensity`,
+        });
       }
       if (change.properties.position !== undefined) {
         patch.position = space.worldPointToDirector(change.properties.position, world);
@@ -685,7 +725,11 @@ export function buildDirectorDccImportPlan(
           const limits = getCharacterPoseControlValueLimits(control, object!.bodyType ?? null);
           return {
             control: control as keyof typeof change.controls,
-            value: clamp(value, limits.min, limits.max, `Character ${change.directorId} pose control ${control}`),
+            value: clamp(value, limits.min, limits.max, {
+              directorId: change.directorId,
+              field: `pose.${control}`,
+              label: `Character ${change.directorId} pose control ${control}`,
+            }),
           };
         });
       operations.push({ op: "set_character_pose", objectId: change.directorId, controls });
@@ -723,6 +767,7 @@ export function buildDirectorDccImportPlan(
     sourceRevision: manifest.sourceRevision,
     targetRevision,
     operations,
+    adjustments,
     conflicts,
     warnings,
   });

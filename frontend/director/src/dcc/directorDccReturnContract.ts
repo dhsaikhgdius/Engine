@@ -340,6 +340,26 @@ const importPlanOperationSchema = z.discriminatedUnion("op", [
 ]);
 
 /**
+ * A structured record of one numeric value the plan builder baked to
+ * Director's authoring limits. Every clamp is reported here alongside the
+ * prose warning (warn-and-omit honesty: adjustments are never silently
+ * flattened into the plan), so reviewers and agents can machine-check what
+ * the DCC requested versus what Director will apply.
+ */
+export const directorDccImportPlanAdjustmentSchema = z.strictObject({
+  directorId: nonEmpty.max(200),
+  /** Plan-side field that was adjusted (e.g. `focal_length_mm`, `intensity`, `pose.spine_bend`). */
+  field: nonEmpty.max(120),
+  code: z.enum(["baked_to_limit"]),
+  /** Value carried by the DCC return package. */
+  requested: z.number().finite(),
+  /** Value the plan will apply after baking to the limit. */
+  applied: z.number().finite(),
+  min: z.number().finite(),
+  max: z.number().finite(),
+});
+
+/**
  * DCC import plan schema.
  *
  * Produced by the gateway after reconciling a DCC return manifest against
@@ -356,6 +376,8 @@ export const directorDccImportPlanSchema = z
     sourceRevision: z.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
     targetRevision: z.string().regex(DIRECTOR_PROJECT_REVISION_PATTERN),
     operations: z.array(importPlanOperationSchema).max(40_000),
+    /** Structured limit bakes; absent on plans from pre-adjustment builders. */
+    adjustments: z.array(directorDccImportPlanAdjustmentSchema).max(20_000).default([]),
     conflicts: z
       .array(
         z.strictObject({
@@ -408,6 +430,8 @@ export type DirectorDccReturnLightProperties = z.infer<typeof directorDccReturnL
 export type DirectorDccImportPlanCameraOptics = z.infer<typeof directorDccImportPlanCameraOpticsSchema>;
 /** The Director-side light patch of an import plan operation. */
 export type DirectorDccImportPlanLightPatch = z.infer<typeof directorDccImportPlanLightPatchSchema>;
+/** A structured limit-bake record inside an import plan. */
+export type DirectorDccImportPlanAdjustment = z.infer<typeof directorDccImportPlanAdjustmentSchema>;
 /** Inferred type for a validated DCC return manifest (v1). */
 export type DirectorDccReturnManifestV1 = z.infer<typeof directorDccReturnManifestSchema>;
 /** Inferred type for a validated DCC import plan (v1). */

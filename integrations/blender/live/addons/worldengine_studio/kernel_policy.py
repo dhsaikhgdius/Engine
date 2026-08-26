@@ -21,9 +21,18 @@ OPERATOR_CATEGORY_DENYLIST = {
     "workspace",
 }
 
+# Replacing the loaded mainfile (open/revert/recover/factory reset) destroys
+# the live scene epoch and every pending native job, so those loads are denied
+# on the same "session-destroying" grounds as quitting. Saving stays allowed.
 OPERATOR_ID_DENYLIST = {
     "wm.quit_blender",
     "wm.window_close",
+    "wm.open_mainfile",
+    "wm.revert_mainfile",
+    "wm.read_homefile",
+    "wm.read_factory_settings",
+    "wm.recover_last_session",
+    "wm.recover_auto_save",
 }
 
 RNA_TARGET_KIND_ALLOWLIST = {
