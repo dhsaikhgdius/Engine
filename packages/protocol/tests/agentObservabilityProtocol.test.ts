@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  accumulateAgentUsageSummary,
   agentTraceEventSchema,
   filmRunToUnifiedProgress,
   multiAgentRunToUnifiedProgress,
@@ -15,6 +16,7 @@ import {
   type AgentUsageSample,
   type MultiAgentRunProgressSource,
 } from "../src/agentObservabilityProtocol";
+import { accumulateFilmRunUsage, emptyFilmRunUsage } from "../src/filmRunUsage";
 import type { FilmRun } from "../src/filmPipelineProtocol";
 import type { ProductionJobRecord } from "../src/productionJobProtocol";
 
@@ -172,6 +174,56 @@ describe("usage aggregation", () => {
       retries: 3,
       failure_count: 1,
     });
+  });
+
+  it("folds samples into a running summary and film-run rollup", () => {
+    const first = accumulateAgentUsageSummary(
+      {
+        sample_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        total_duration_ms: 0,
+        retries: 0,
+        failure_count: 0,
+      },
+      {
+        input_tokens: 10,
+        output_tokens: 5,
+        total_tokens: 15,
+        duration_ms: 100,
+        retries: 0,
+        succeeded: true,
+      },
+    );
+    expect(first).toEqual({
+      sample_count: 1,
+      input_tokens: 10,
+      output_tokens: 5,
+      total_tokens: 15,
+      total_duration_ms: 100,
+      retries: 0,
+      failure_count: 0,
+    });
+    const usage = accumulateFilmRunUsage(emptyFilmRunUsage(), {
+      scope: "film-video",
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      duration_ms: 400,
+      retries: 1,
+      succeeded: false,
+    });
+    expect(usage["film-video"]).toEqual({
+      sample_count: 1,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      total_duration_ms: 400,
+      retries: 1,
+      failure_count: 1,
+    });
+    expect(usage["film-llm"].sample_count).toBe(0);
   });
 });
 

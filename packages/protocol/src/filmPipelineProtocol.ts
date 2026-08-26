@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { emptyFilmRunUsage, filmRunUsageSchema } from "./filmRunUsage";
 import { strictOperation } from "./strictProtocolVariant";
 
 /**
@@ -316,6 +317,12 @@ export const filmRunSchema = z.strictObject({
   events: z.array(filmRunEventSchema).max(200).default([]),
   /** Durable per-phase execution receipts, oldest first; bounded window. */
   phaseReceipts: z.array(filmRunPhaseReceiptSchema).max(FILM_RUN_PHASE_RECEIPT_LIMIT).default([]),
+  /**
+   * Per-scope model/media usage rollup for this run. Defaults to zeros so
+   * documents written before metering still parse; the receipt always projects
+   * this field.
+   */
+  usage: filmRunUsageSchema.default(() => emptyFilmRunUsage()),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
