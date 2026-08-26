@@ -97,7 +97,7 @@ flowchart LR
 
 - [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/) covers every Stage
   `directorStore` mutation entry point with mutator, file, semantic action, and
-  `shared` / `ui-only` / `human-only-interactive` status (69 / 87 project mutators shared, ~79%).
+  `shared` / `ui-only` / `human-only-interactive` status (70 / 87 project mutators shared, ~80%).
 - Parity tests in `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` assert
   that store mutators and direct `applyDirectorAuthoringActions` produce the same
   `getDirectorProjectRevision` for deletes, transforms, camera update/activate, character
@@ -131,8 +131,9 @@ lights, world, scene (settings, annotations, measurements, layers), storyboard, 
 and asset removal now route through `dispatchDirectorAuthoringActions` (see the
 [parity inventory](/engineering/ui-agent-parity-inventory/) for the exact per-mutator status and
 legacy fallbacks). Discrete Canvas/Video mutators (1e/1f) now route through
-`dispatchCreativeWorkspaceOperations` over the shared creative contract. Timeline audio, object
-lists, panorama/capture/catalog writes, clipboard paste, the deliberately-local creation flows,
+`dispatchCreativeWorkspaceOperations` over the shared creative contract. Clipboard paste now
+compiles into the shared `duplicate_objects` authoring action. Timeline audio, object
+lists, panorama/capture/catalog writes, the deliberately-local creation flows,
 and Canvas/Video creation flows and continuous drag streams still patch state directly, so M1 is
 **not complete**.
 
@@ -429,7 +430,7 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 | Metric                          | Today (2026-08-26)                                                        | After remaining M3         | After remaining M1 drag leftover |
 | ------------------------------- | ------------------------------------------------------------------------- | -------------------------- | -------------------------------- |
-| Parity coverage (top mutations) | all top edit mutations shared; ~79% of all Stage project mutators (69/87, see the [parity inventory](/engineering/ui-agent-parity-inventory/)) | ≥85%                       | ≥95%     |
+| Parity coverage (top mutations) | all top edit mutations shared; ~80% of all Stage project mutators (70/87, see the [parity inventory](/engineering/ui-agent-parity-inventory/)) | ≥85%                       | ≥95%     |
 | Documented human-only classes   | 0 required (file picker stays an optional local-file import convenience; OBJ/STL export-only) | 0 required                 | 0        |
 | Consistent gateway policy       | Yes (MCP / local / hosted / raw HTTP+CLI; role-gated UI shipped)           | Yes, including full read-only mode | Yes      |
 | In-product workspace            | **Yes (SQL-backed instructions/skills/memory shipped 2026-08-25)**         | Yes                        | Yes      |
