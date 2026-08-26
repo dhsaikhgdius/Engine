@@ -2112,6 +2112,8 @@
   "无法连接": "Cannot connect",
   "无法自动排列": "Cannot arrange automatically",
   "剪辑更新失败": "Failed to update clip",
+  "剪辑微移失败": "Failed to nudge clip",
+  "复制剪辑失败": "Failed to duplicate clip",
   "剪辑删除失败": "Failed to delete clip",
   "剪辑分割失败": "Failed to split clip",
   "轨道创建失败": "Failed to create track",
