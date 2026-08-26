@@ -619,6 +619,39 @@ describe("semantic Director authoring", () => {
     });
   });
 
+  it("relabels crowd characters through update_object crowd_label and rejects non-crowd targets", () => {
+    const source = createDefaultDirectorProject();
+    const character = source.objects.find((object) => object.kind === "character")!;
+    character.crowdId = "crowd_1";
+    character.crowdLabel = "旧人群";
+
+    expect(
+      directorAuthoringActionSchema.safeParse({
+        action: "update_object",
+        object_id: character.id,
+        patch: { crowd_label: "围观群众" },
+      }).success,
+    ).toBe(true);
+
+    const relabeled = applyDirectorAuthoringActions(source, [
+      { action: "update_object", object_id: character.id, patch: { crowd_label: "围观群众" }, force: true },
+    ]);
+    expect(relabeled.project.objects.find((object) => object.id === character.id)?.crowdLabel).toBe("围观群众");
+
+    const cleared = applyDirectorAuthoringActions(relabeled.project, [
+      { action: "update_object", object_id: character.id, patch: { crowd_label: null }, force: true },
+    ]);
+    expect(cleared.project.objects.find((object) => object.id === character.id)?.crowdLabel).toBeUndefined();
+
+    const soloProject = createDefaultDirectorProject();
+    const soloCharacter = soloProject.objects.find((object) => object.kind === "character")!;
+    expect(() =>
+      applyDirectorAuthoringActions(soloProject, [
+        { action: "update_object", object_id: soloCharacter.id, patch: { crowd_label: "围观群众" }, force: true },
+      ]),
+    ).toThrow(/crowd_label is only valid for crowd characters/);
+  });
+
   it("starts a replacement scene without leaking objects from the previous case", () => {
     const source = createDefaultDirectorProject();
     source.assets.push({
