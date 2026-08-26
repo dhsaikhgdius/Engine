@@ -34,6 +34,8 @@ import {
   DIRECTOR_PLACEMENT_MODES,
   DIRECTOR_TRAJECTORY_MOTIONS,
   GEOMETRY_PRIMITIVE_TYPES,
+  formatSceneItemName,
+  getNextSequentialId,
 } from "@director/project-schema";
 import {
   directorAssetRefSchema,
@@ -739,6 +741,20 @@ export const directorAuthoringActionSchema = z
       object_ids: z.array(id).min(1).max(256),
       cascade: z.boolean().optional(),
       force: z.boolean().optional(),
+    }),
+    strictAction("duplicate_objects", {
+      object_ids: z
+        .array(id)
+        .min(1)
+        .max(64)
+        .refine((values) => new Set(values).size === values.length, { message: "object_ids must be unique" }),
+      offset_m: z
+        .number()
+        .finite()
+        .min(-100)
+        .max(100)
+        .optional()
+        .describe("X/Z position offset in meters for every duplicate; defaults to 0.6."),
     }),
     strictAction("add_light", { light: directorLightCreateSchema }),
     strictAction("update_light", {
@@ -1520,6 +1536,204 @@ function deleteObjectSet(project: DirectorProject, requestedIds: string[], casca
   return { objectIds: [...ids], cameraIds: linkedCameraIds, annotationIds, measurementIds };
 }
 
+/** Default X/Z duplicate offset in meters; the Stage paste uses the same value. */
+export const DIRECTOR_DUPLICATE_POSITION_OFFSET_M = 0.6;
+
+/**
+ * Allocate the sequential id a duplicate of `source` receives. Shared with the
+ * Stage clipboard paste so UI and Agent duplicates land identical ids.
+ */
+export function getDirectorDuplicateObjectId(
+  existingObjects: ReadonlyArray<Pick<DirectorObject, "id" | "kind">>,
+  source: Pick<DirectorObject, "kind" | "geometryType">,
+) {
+  if (source.kind === "camera") {
+    return getNextSequentialId(
+      existingObjects.map((item) => item.id),
+      "cam_object_",
+      existingObjects.filter((item) => item.kind === "camera").length + 1,
+    );
+  }
+  if (source.kind === "character") {
+    return getNextSequentialId(
+      existingObjects.map((item) => item.id),
+      "char_paste_",
+      existingObjects.filter((item) => item.kind === "character").length + 1,
+    );
+  }
+  if (source.geometryType) {
+    return getNextSequentialId(
+      existingObjects.map((item) => item.id),
+      `geo_${source.geometryType}_copy_`,
+      existingObjects.length + 1,
+    );
+  }
+  return getNextSequentialId(
+    existingObjects.map((item) => item.id),
+    "obj_",
+    existingObjects.length + 1,
+  );
+}
+
+/**
+ * Duplicate existing objects (and linked camera shots) with new sequential
+ * ids, the Stage paste naming, and an X/Z offset. References are remapped
+ * only within the duplicated set: duplicated children of non-duplicated
+ * parents intentionally become independent, and duplicated object-focused
+ * cameras follow their target's duplicate when that target is duplicated too.
+ * Existing scene entities are never rewritten; the UI-only focus-height
+ * recompute of the legacy paste stays a Stage fallback.
+ */
+function duplicateObjectSet(project: DirectorProject, requestedIds: string[], offset: number) {
+  const sources = requestedIds.map((objectId) => requireObject(project, objectId));
+  sources.forEach((source) => {
+    if (source.nativeSource) {
+      const asset = source.assetRefId ? project.assets.find((item) => item.id === source.assetRefId) : undefined;
+      if (!asset || asset.sourceType !== "model") {
+        throw new Error(
+          `Blender-native object "${source.id}" has no importable model asset and cannot be duplicated. Author the copy in Blender through the DCC handoff instead.`,
+        );
+      }
+    }
+    if (source.kind === "camera" && !project.cameras.some((camera) => camera.id === source.linkedCameraId)) {
+      throw new Error(
+        `Camera object "${source.id}" has no linked camera shot to duplicate. Use add_camera to create a new camera instead.`,
+      );
+    }
+  });
+
+  const applyDuplicateOffset = (position: [number, number, number]): [number, number, number] => [
+    position[0] + offset,
+    position[1],
+    position[2] + offset,
+  ];
+  const idMap = new Map<string, string>();
+  const crowdIdMap = new Map<string, string>();
+  const duplicatedObjectIds: string[] = [];
+  const duplicatedCameraIds: string[] = [];
+
+  function duplicateCrowdIdFor(sourceCrowdId: string) {
+    const existing = crowdIdMap.get(sourceCrowdId);
+    if (existing) return existing;
+    const nextCrowdId = getNextSequentialId(
+      project.objects.map((item) => item.crowdId).filter((value): value is string => typeof value === "string"),
+      "crowd_",
+      1,
+    );
+    crowdIdMap.set(sourceCrowdId, nextCrowdId);
+    return nextCrowdId;
+  }
+
+  sources.forEach((source) => {
+    const sourceCamera =
+      source.kind === "camera" && source.linkedCameraId
+        ? project.cameras.find((camera) => camera.id === source.linkedCameraId)
+        : undefined;
+    if (source.kind === "camera" && sourceCamera) {
+      const cameraIndex = project.cameras.length + 1;
+      const nextCameraId = getNextSequentialId(
+        project.cameras.map((camera) => camera.id),
+        "cam_",
+        cameraIndex,
+      );
+      const nextObjectId = getDirectorDuplicateObjectId(project.objects, source);
+      idMap.set(source.id, nextObjectId);
+      idMap.set(sourceCamera.id, nextCameraId);
+      const nextCamera: DirectorCameraShot = {
+        ...structuredClone(sourceCamera),
+        id: nextCameraId,
+        name: formatSceneItemName("机位", cameraIndex),
+        transform: {
+          ...structuredClone(sourceCamera.transform),
+          position: applyDuplicateOffset(sourceCamera.transform.position),
+        },
+        target:
+          sourceCamera.targetMode === "manual"
+            ? applyDuplicateOffset(sourceCamera.target)
+            : ([...sourceCamera.target] as [number, number, number]),
+        captures: [],
+        lastCaptureUrl: null,
+      };
+      const nextCameraObject: DirectorObject = {
+        ...structuredClone(source),
+        id: nextObjectId,
+        name: nextCamera.name,
+        linkedCameraId: nextCamera.id,
+        transform: structuredClone(nextCamera.transform),
+      };
+      project.cameras.push(nextCamera);
+      project.objects.push(nextCameraObject);
+      duplicatedObjectIds.push(nextObjectId);
+      duplicatedCameraIds.push(nextCameraId);
+      return;
+    }
+
+    const nextObjectId = getDirectorDuplicateObjectId(project.objects, source);
+    idMap.set(source.id, nextObjectId);
+    const nextCharacterCount =
+      source.kind === "character" ? project.objects.filter((item) => item.kind === "character").length + 1 : null;
+    const duplicatedObject: DirectorObject = {
+      ...structuredClone(source),
+      id: nextObjectId,
+      name:
+        source.kind === "character" && nextCharacterCount
+          ? formatSceneItemName("角色", nextCharacterCount)
+          : source.name,
+      ...(source.crowdId ? { crowdId: duplicateCrowdIdFor(source.crowdId) } : {}),
+      transform: {
+        ...structuredClone(source.transform),
+        position: applyDuplicateOffset(source.transform.position),
+      },
+      ...(source.nativeSource
+        ? { nativeSource: { engine: "blender" as const, objectId: nextObjectId, provisioned: false as const } }
+        : {}),
+    };
+    project.objects.push(duplicatedObject);
+    duplicatedObjectIds.push(nextObjectId);
+  });
+
+  // A duplicated child must never silently reattach to the original
+  // composition: reconnect the duplicated pair when its parent was duplicated
+  // too, otherwise the copy intentionally becomes an independent object.
+  const duplicatedObjectIdSet = new Set(duplicatedObjectIds);
+  project.objects = project.objects.map((object) => {
+    if (!duplicatedObjectIdSet.has(object.id) || !object.parentObjectId) return object;
+    const mappedParentId = idMap.get(object.parentObjectId);
+    const remapped = { ...object };
+    if (mappedParentId) remapped.parentObjectId = mappedParentId;
+    else delete remapped.parentObjectId;
+    return remapped;
+  });
+
+  // Duplicated object-focused cameras follow their target's duplicate (which
+  // moved by exactly the duplicate offset); other cameras are left untouched.
+  const duplicatedCameraIdSet = new Set(duplicatedCameraIds);
+  project.cameras = project.cameras.map((camera) => {
+    if (!duplicatedCameraIdSet.has(camera.id)) return camera;
+    if (camera.targetMode !== "object" || !camera.targetObjectId) return camera;
+    const mappedTargetObjectId = idMap.get(camera.targetObjectId) ?? camera.targetObjectId;
+    if (!project.objects.some((object) => object.id === mappedTargetObjectId)) {
+      return { ...camera, targetMode: "manual" as const, targetObjectId: null };
+    }
+    if (mappedTargetObjectId === camera.targetObjectId) return camera;
+    return {
+      ...camera,
+      targetObjectId: mappedTargetObjectId,
+      target: applyDuplicateOffset(camera.target),
+    };
+  });
+
+  // Match the Stage paste: duplicating a camera hands it the viewport.
+  const lastDuplicatedObject = duplicatedObjectIds.length
+    ? project.objects.find((object) => object.id === duplicatedObjectIds[duplicatedObjectIds.length - 1])
+    : undefined;
+  if (lastDuplicatedObject?.kind === "camera" && lastDuplicatedObject.linkedCameraId) {
+    project.activeCameraId = lastDuplicatedObject.linkedCameraId;
+  }
+
+  return { objectIds: duplicatedObjectIds, cameraIds: duplicatedCameraIds };
+}
+
 export function applyDirectorAuthoringActions(
   source: DirectorProject,
   actions: DirectorAuthoringAction[],
@@ -2289,6 +2503,16 @@ export function applyDirectorAuthoringActions(
         deleted.cameraIds.forEach((value) => addUnique(result.deleted.camera_ids, value));
         deleted.annotationIds.forEach((value) => addUnique(result.deleted.annotation_ids, value));
         deleted.measurementIds.forEach((value) => addUnique(result.deleted.measurement_ids, value));
+        break;
+      }
+      case "duplicate_objects": {
+        const duplicated = duplicateObjectSet(
+          project,
+          item.object_ids,
+          item.offset_m ?? DIRECTOR_DUPLICATE_POSITION_OFFSET_M,
+        );
+        duplicated.objectIds.forEach((value) => addUnique(result.created.object_ids, value));
+        duplicated.cameraIds.forEach((value) => addUnique(result.created.camera_ids, value));
         break;
       }
       case "add_light": {

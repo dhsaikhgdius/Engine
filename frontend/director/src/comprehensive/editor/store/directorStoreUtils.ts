@@ -175,20 +175,9 @@ export function roundTransformTuple(values: [number, number, number]): [number, 
   return values.map((value) => roundTransformValue(value)) as [number, number, number];
 }
 
-export function formatSceneItemName(prefix: "角色" | "机位", index: number) {
-  return `${prefix}${String(index).padStart(2, "0")}`;
-}
-
-export function getNextSequentialId(existingIds: string[], prefix: string, minimumIndex = 1) {
-  let maxIndex = minimumIndex - 1;
-  for (const id of existingIds) {
-    if (!id.startsWith(prefix)) continue;
-    const suffix = id.slice(prefix.length);
-    if (!/^\d+$/.test(suffix)) continue;
-    maxIndex = Math.max(maxIndex, Number.parseInt(suffix, 10));
-  }
-  return `${prefix}${maxIndex + 1}`;
-}
+// Sequential ids and padded scene item names are shared with the Agent
+// authoring engine (duplicate_objects) so both paths allocate identically.
+export { formatSceneItemName, getNextSequentialId } from "@director/project-schema";
 
 export function isLocalModelLibraryAsset(asset: DirectorAssetRef) {
   return (

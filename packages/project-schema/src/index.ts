@@ -31,3 +31,4 @@ export * from "./animationRecipes";
 export * from "./filmLanguage";
 export * from "./cameraMoveLanguage";
 export * from "./productionGraph";
+export * from "./sceneItemNaming";

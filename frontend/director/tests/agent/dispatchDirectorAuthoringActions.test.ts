@@ -21,6 +21,7 @@ import {
   compileDirectorCameraUpdateAction,
   compileDirectorCharacterMotionAction,
   compileDirectorLightUpdateAction,
+  compileDirectorPasteClipboardActions,
   compileDirectorSceneUpdateAction,
   compileDirectorWorldSettingsAction,
 } from "../../src/agent/compileDirectorUiAuthoringActions";
@@ -746,5 +747,150 @@ describe("Stage mutator parity with direct agent authoring", () => {
     const project = useDirectorStore.getState().project;
     expect(project.assets.some((asset) => asset.id === assetId)).toBe(false);
     expect(project.objects.some((object) => object.assetRefId === assetId)).toBe(false);
+  });
+});
+
+describe("clipboard paste parity", () => {
+  beforeEach(() => {
+    resetDirectorStore();
+  });
+
+  function copyObjects(ids: string[]) {
+    useDirectorStore.getState().selectObjects(ids);
+    useDirectorStore.getState().copySelectedObjects();
+  }
+
+  function compileCurrentPaste() {
+    const state = useDirectorStore.getState();
+    return compileDirectorPasteClipboardActions(state.project, state.clipboard, state.clipboardPasteCount);
+  }
+
+  function storeRevision() {
+    return getDirectorProjectRevision(useDirectorStore.getState().project);
+  }
+
+  it("routes one-shot paste through the shared duplicate_objects dispatch with revision parity", () => {
+    seedProp("paste-box", [1, 0, -2]);
+    copyObjects(["paste-box"]);
+
+    const action = compileCurrentPaste();
+    expect(action).toEqual({ action: "duplicate_objects", object_ids: ["paste-box"], offset_m: 0.6 });
+    const agentApplied = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [
+      action!,
+    ]);
+    const agentRevision = getDirectorProjectRevision(agentApplied.project);
+
+    useDirectorStore.getState().pasteClipboardObjects();
+
+    expect(storeRevision()).toBe(agentRevision);
+    const state = useDirectorStore.getState();
+    const pastedId = agentApplied.created.object_ids[0];
+    expect(state.clipboardPasteCount).toBe(1);
+    expect(state.selectedObjectIds).toEqual([pastedId]);
+    expect(state.selectedObjectId).toBe(pastedId);
+    expect(state.project.objects.find((object) => object.id === pastedId)?.transform.position).toEqual([1.6, 0, -1.4]);
+  });
+
+  it("grows the offset on repeated paste exactly like the legacy clipboard writer", () => {
+    seedProp("offset-box", [0, 0, 0]);
+    copyObjects(["offset-box"]);
+
+    useDirectorStore.getState().pasteClipboardObjects();
+    useDirectorStore.getState().pasteClipboardObjects();
+
+    const state = useDirectorStore.getState();
+    expect(state.clipboardPasteCount).toBe(2);
+    const secondPastedId = state.selectedObjectIds[0];
+    expect(state.project.objects.find((object) => object.id === secondPastedId)?.transform.position).toEqual([
+      1.2, 0, 1.2,
+    ]);
+  });
+
+  it("pastes a character through the shared path with the sequential rename and re-keyed native source", () => {
+    copyObjects(["char_default_a"]);
+
+    const action = compileCurrentPaste();
+    expect(action).not.toBeNull();
+    const agentApplied = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [
+      action!,
+    ]);
+    const agentRevision = getDirectorProjectRevision(agentApplied.project);
+
+    useDirectorStore.getState().pasteClipboardObjects();
+
+    expect(storeRevision()).toBe(agentRevision);
+    const pastedId = agentApplied.created.object_ids[0];
+    const pasted = useDirectorStore.getState().project.objects.find((object) => object.id === pastedId);
+    expect(pasted?.name).toBe("角色02");
+    expect(pasted?.nativeSource).toEqual({ engine: "blender", objectId: pastedId, provisioned: false });
+  });
+
+  it("pastes a camera rig through the shared path, resets captures, and activates the duplicate", () => {
+    const rigId = useDirectorStore.getState().project.objects.find((object) => object.kind === "camera")!.id;
+    copyObjects([rigId]);
+
+    const action = compileCurrentPaste();
+    expect(action).not.toBeNull();
+    const agentApplied = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [
+      action!,
+    ]);
+    const agentRevision = getDirectorProjectRevision(agentApplied.project);
+
+    useDirectorStore.getState().pasteClipboardObjects();
+
+    expect(storeRevision()).toBe(agentRevision);
+    const project = useDirectorStore.getState().project;
+    const pastedCameraId = agentApplied.created.camera_ids[0];
+    expect(project.activeCameraId).toBe(pastedCameraId);
+    const pastedCamera = project.cameras.find((camera) => camera.id === pastedCameraId);
+    expect(pastedCamera?.captures).toEqual([]);
+    expect(pastedCamera?.lastCaptureUrl).toBeNull();
+  });
+
+  it("keeps the legacy writer for stale clipboard snapshots and still pastes copy-time state", () => {
+    seedProp("stale-box", [1, 0, -2]);
+    copyObjects(["stale-box"]);
+    useDirectorStore.getState().updateObjectTransform("stale-box", { position: [5, 0, 5] });
+
+    expect(compileCurrentPaste()).toBeNull();
+
+    useDirectorStore.getState().pasteClipboardObjects();
+
+    const state = useDirectorStore.getState();
+    const pastedId = state.selectedObjectIds[0];
+    // The legacy fallback pastes the copy-time transform, not the live one.
+    expect(state.project.objects.find((object) => object.id === pastedId)?.transform.position).toEqual([1.6, 0, -1.4]);
+    expect(state.clipboardPasteCount).toBe(1);
+  });
+
+  it("keeps the legacy writer when an object-focused camera targets the copied source", () => {
+    seedProp("focus-box", [2, 0, 1]);
+    const cameraId = useDirectorStore.getState().project.activeCameraId!;
+    useDirectorStore.getState().updateCamera(cameraId, { targetMode: "object", targetObjectId: "focus-box" });
+    copyObjects(["focus-box"]);
+
+    expect(compileCurrentPaste()).toBeNull();
+
+    useDirectorStore.getState().pasteClipboardObjects();
+
+    const state = useDirectorStore.getState();
+    const pastedId = state.selectedObjectIds[0];
+    expect(pastedId).toBeTruthy();
+    // Legacy semantics retained: the existing camera follows the duplicate.
+    expect(state.project.cameras.find((camera) => camera.id === cameraId)?.targetObjectId).toBe(pastedId);
+  });
+
+  it("keeps the legacy writer inside slider/gizmo undo batches", () => {
+    seedProp("batch-box", [0, 0, 0]);
+    copyObjects(["batch-box"]);
+
+    useDirectorStore.getState().beginUndoBatch();
+    useDirectorStore.getState().pasteClipboardObjects();
+    useDirectorStore.getState().endUndoBatch();
+
+    const state = useDirectorStore.getState();
+    expect(state.selectedObjectIds).toHaveLength(1);
+    expect(state.project.objects.some((object) => object.id === state.selectedObjectIds[0])).toBe(true);
+    expect(state.clipboardPasteCount).toBe(1);
   });
 });

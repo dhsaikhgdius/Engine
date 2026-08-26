@@ -76,6 +76,7 @@
     "bind_character_agent",
     "unbind_character_agent",
     "delete_objects",
+    "duplicate_objects",
     "add_light",
     "update_light",
     "delete_lights",
