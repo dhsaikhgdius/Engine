@@ -1350,3 +1350,111 @@ describe("object list parity", () => {
     expect(members.every((object) => object.objectListLabel === "批处理列表")).toBe(true);
   });
 });
+
+describe("preset and crowd character add parity", () => {
+  beforeEach(() => {
+    resetDirectorStore();
+  });
+
+  function storeRevision() {
+    return getDirectorProjectRevision(useDirectorStore.getState().project);
+  }
+
+  it("routes addPresetCharacter through shared add_object with revision parity", () => {
+    const before = structuredClone(useDirectorStore.getState().project);
+    const agentRevision = getDirectorProjectRevision(
+      applyDirectorAuthoringActions(before, [
+        {
+          action: "add_object",
+          id: "char_preset_2",
+          name: "角色02",
+          kind: "character",
+          asset_id: "mixamo:x-bot",
+          transform: { position: [-1.25, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+          placement_mode: "grounded",
+          body_type: "female",
+          color: "#E0524D",
+        },
+      ]).project,
+    );
+
+    useDirectorStore.getState().addPresetCharacter("female");
+
+    expect(storeRevision()).toBe(agentRevision);
+    const added = useDirectorStore.getState().project.objects.find((object) => object.id === "char_preset_2");
+    expect(added).toMatchObject({
+      kind: "character",
+      bodyType: "female",
+      color: "#E0524D",
+      characterSource: "asset",
+      assetRefId: "mixamo:x-bot",
+      placementMode: "grounded",
+      nativeSource: { engine: "blender", objectId: "char_preset_2", provisioned: false },
+    });
+    expect(useDirectorStore.getState().selectedObjectId).toBe("char_preset_2");
+  });
+
+  it("routes addCrowdCharacters through one atomic crowd_id/crowd_label add_object batch with revision parity", () => {
+    const before = structuredClone(useDirectorStore.getState().project);
+    const crowdActions: DirectorAuthoringAction[] = [
+      {
+        action: "add_object",
+        id: "char_preset_2",
+        name: "角色02",
+        kind: "character",
+        asset_id: "mixamo:x-bot",
+        transform: { position: [-1, 0, 4], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        placement_mode: "grounded",
+        body_type: "female",
+        color: "#E0524D",
+        crowd_id: "crowd_1",
+        crowd_label: "群众（1x2）",
+      },
+      {
+        action: "add_object",
+        id: "char_preset_3",
+        name: "角色03",
+        kind: "character",
+        asset_id: "mixamo:x-bot",
+        transform: { position: [1, 0, 4], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        placement_mode: "grounded",
+        body_type: "female",
+        color: "#E91E63",
+        crowd_id: "crowd_1",
+        crowd_label: "群众（1x2）",
+      },
+    ];
+    const agentRevision = getDirectorProjectRevision(applyDirectorAuthoringActions(before, crowdActions).project);
+
+    const createdIds = useDirectorStore
+      .getState()
+      .addCrowdCharacters({ bodyType: "female", rows: 1, columns: 2, spacing: 2 });
+
+    expect(createdIds).toEqual(["char_preset_2", "char_preset_3"]);
+    expect(storeRevision()).toBe(agentRevision);
+    const members = useDirectorStore.getState().project.objects.filter((object) => object.crowdId === "crowd_1");
+    expect(members.map((object) => object.id)).toEqual(createdIds);
+    expect(members.every((object) => object.crowdLabel === "群众（1x2）")).toBe(true);
+    expect(useDirectorStore.getState().selectedCrowdId).toBe("crowd_1");
+    expect(useDirectorStore.getState().selectedObjectIds).toEqual(createdIds);
+
+    // The whole crowd add is one atomic authored batch and one undo entry.
+    useDirectorStore.getState().undo();
+    expect(useDirectorStore.getState().project.objects.some((object) => object.crowdId === "crowd_1")).toBe(false);
+  });
+
+  it("keeps the legacy writer inside slider/gizmo undo batches with identical ids and grouping", () => {
+    useDirectorStore.getState().beginUndoBatch();
+    useDirectorStore.getState().addPresetCharacter("teen");
+    const crowdIds = useDirectorStore.getState().addCrowdCharacters({ rows: 1, columns: 2, spacing: 1 });
+    useDirectorStore.getState().endUndoBatch();
+
+    expect(useDirectorStore.getState().project.objects.some((object) => object.id === "char_preset_2")).toBe(true);
+    expect(crowdIds).toEqual(["char_preset_3", "char_preset_4"]);
+    const members = crowdIds.map((id) =>
+      useDirectorStore.getState().project.objects.find((object) => object.id === id)!,
+    );
+    expect(members.every((member) => member.crowdId === "crowd_1")).toBe(true);
+    expect(members.every((member) => member.crowdLabel === "群众（1x2）")).toBe(true);
+  });
+});
