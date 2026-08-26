@@ -13,10 +13,7 @@ import { safeParseDirectorProject } from "@director/project-schema";
 import { directorUiStateSchema } from "@director/protocol/workbench-ui";
 import type { DirectorStore, DirectorUiState } from "../comprehensive/editor/store/directorStore";
 import { applyDirectorPageEvent } from "../comprehensive/editor/assistant/pageStateBridge";
-import {
-  dispatchDirectorSessionCommand,
-  directorPlayerScriptTimeoutMs,
-} from "./directorSessionCommandBus";
+import { dispatchDirectorSessionCommand, directorPlayerScriptTimeoutMs } from "./directorSessionCommandBus";
 import { useTimelineRuntimeStore } from "../comprehensive/editor/runtime/timelineRuntimeStore";
 import type {
   DirectorAuditIssueInput,
@@ -1929,11 +1926,13 @@ export async function executeDirectorSessionWorkbenchOperation(
               ? {
                   type: "teleport" as const,
                   position: operation.position ?? ([0, 0, 0] as [number, number, number]),
+                  ...(operation.actor_id ? { actor_id: operation.actor_id } : {}),
                   ...(operation.object_id ? { object_id: operation.object_id } : {}),
                 }
               : operation.action === "walk_to"
                 ? {
                     type: "walk_to" as const,
+                    ...(operation.actor_id ? { actor_id: operation.actor_id } : {}),
                     ...(operation.position ? { position: operation.position } : {}),
                     ...(operation.object_id ? { object_id: operation.object_id } : {}),
                   }

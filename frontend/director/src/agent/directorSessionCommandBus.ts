@@ -11,8 +11,8 @@ export type DirectorPlayerSessionCommand =
   | { type: "enter"; actor_id?: string }
   | { type: "exit" }
   | { type: "set_actor"; actor_id: string }
-  | { type: "teleport"; position: [number, number, number]; object_id?: string }
-  | { type: "walk_to"; position?: [number, number, number]; object_id?: string }
+  | { type: "teleport"; position: [number, number, number]; actor_id?: string; object_id?: string }
+  | { type: "walk_to"; position?: [number, number, number]; actor_id?: string; object_id?: string }
   | { type: "interact"; object_id?: string }
   | { type: "enter_vehicle"; object_id?: string }
   | { type: "exit_vehicle" }

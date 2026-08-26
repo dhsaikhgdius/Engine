@@ -196,9 +196,10 @@ Possess mode also scopes the session's writes: a session that possesses characte
 mutate those characters. Deleting other objects, editing someone else's character, `start_scene`,
 and `replace_project` are rejected by the gateway with a readable error (HTTP 403, code
 `possession_scope_violation`). Player Mode and Camera Pilot are scoped the same way:
-`player` `enter`/`set_actor` must name a possessed `actor_id` explicitly (the remaining player
-verbs then drive that constrained live actor), and `pilot record_waypoint` is rejected because
-it writes camera keyframes outside any character, while transient pilot flight
+`player` `enter`/`set_actor`/`teleport`/`walk_to` must name a possessed `actor_id` explicitly
+(Stage otherwise falls back to shared-tab selection; the remaining player verbs then drive that
+constrained live actor), and `pilot record_waypoint` is rejected because it writes camera
+keyframes outside any character, while transient pilot flight
 (`start`/`stop`/`set_view`) stays available. Sessions that possess no character keep full
 stage-wide authoring.
 

@@ -232,31 +232,50 @@ describe("evaluateDirectorPossessionScope", () => {
     expect(cameraAnimation).toMatchObject({ allowed: false, error: expect.stringContaining('"set_animation"') });
   });
 
-  it("scopes player enter/set_actor to an explicitly named possessed actor", () => {
+  it("scopes player enter/set_actor/teleport/walk_to to an explicitly named possessed actor", () => {
     // Omitted actor_id would fall back to shared-tab state (nearest candidate
     // or the user's selection), so possession requires the explicit id.
-    const enterOmitted = evaluate({ op: "player", action: "enter" }, ["hero"]);
-    expect(enterOmitted).toMatchObject({ allowed: false, error: expect.stringContaining("actor_id") });
+    for (const action of ["enter", "set_actor", "teleport", "walk_to"] as const) {
+      const omitted = evaluate(
+        action === "teleport"
+          ? { op: "player", action, position: [1, 0, 2] }
+          : action === "walk_to"
+            ? { op: "player", action, object_id: "marker" }
+            : { op: "player", action },
+        ["hero"],
+      );
+      expect(omitted).toMatchObject({ allowed: false, error: expect.stringContaining("actor_id") });
 
-    const setActorOmitted = evaluate({ op: "player", action: "set_actor" }, ["hero"]);
-    expect(setActorOmitted).toMatchObject({ allowed: false, error: expect.stringContaining("actor_id") });
-
-    const enterOutside = evaluate({ op: "player", action: "enter", actor_id: "villain" }, ["hero"]);
-    expect(enterOutside).toMatchObject({ allowed: false, error: expect.stringContaining('"villain"') });
+      const outside = evaluate(
+        action === "teleport"
+          ? { op: "player", action, actor_id: "villain", position: [1, 0, 2] }
+          : action === "walk_to"
+            ? { op: "player", action, actor_id: "villain", object_id: "marker" }
+            : { op: "player", action, actor_id: "villain" },
+        ["hero"],
+      );
+      expect(outside).toMatchObject({ allowed: false, error: expect.stringContaining('"villain"') });
+    }
 
     expect(evaluate({ op: "player", action: "enter", actor_id: "hero" }, ["hero"])).toEqual({ allowed: true });
     expect(evaluate({ op: "player", action: "set_actor", actor_id: "hero" }, ["hero"])).toEqual({ allowed: true });
+    expect(evaluate({ op: "player", action: "teleport", actor_id: "hero", position: [1, 0, 2] }, ["hero"])).toEqual({
+      allowed: true,
+    });
+    expect(evaluate({ op: "player", action: "walk_to", actor_id: "hero", object_id: "marker" }, ["hero"])).toEqual({
+      allowed: true,
+    });
   });
 
   it("keeps the live-actor player verbs available to a possessed session", () => {
     expect(evaluate({ op: "player", action: "exit" }, ["hero"])).toEqual({ allowed: true });
-    expect(evaluate({ op: "player", action: "teleport", position: [1, 0, 2] }, ["hero"])).toEqual({ allowed: true });
-    expect(evaluate({ op: "player", action: "walk_to", object_id: "villain" }, ["hero"])).toEqual({ allowed: true });
     expect(evaluate({ op: "player", action: "record_start" }, ["hero"])).toEqual({ allowed: true });
     expect(evaluate({ op: "player", action: "record_stop" }, ["hero"])).toEqual({ allowed: true });
-    // Unpossessed sessions keep the whole player surface, including enter
-    // without an explicit actor.
+    expect(evaluate({ op: "player", action: "interact", object_id: "door" }, ["hero"])).toEqual({ allowed: true });
+    // Unpossessed sessions keep the whole player surface, including teleport
+    // without an explicit actor (Stage may fall back to selection).
     expect(evaluate({ op: "player", action: "enter" }, [])).toEqual({ allowed: true });
+    expect(evaluate({ op: "player", action: "teleport", position: [0, 0, 0] }, [])).toEqual({ allowed: true });
   });
 
   it("rejects pilot.record_waypoint under possession but keeps transient flight", () => {

@@ -66,6 +66,38 @@ describe("Director workbench player and pilot session ops", () => {
     }
   });
 
+  it("forwards actor_id on player teleport through the session bus", async () => {
+    const seen: DirectorSessionCommand[] = [];
+    const unsubscribe = subscribeDirectorSessionCommands((command) => {
+      seen.push(command);
+      publishDirectorSessionCommandResult({
+        requestId: command.requestId,
+        ok: true,
+        result: { actor_id: "char_default_a", position: [1, 0, 2], mode: "teleport" },
+      });
+    });
+    try {
+      const result = await executeDirectorSessionWorkbenchOperation({
+        op: "player",
+        action: "teleport",
+        actor_id: "char_default_a",
+        position: [1, 0, 2],
+      });
+      expect(seen).toEqual([
+        expect.objectContaining({
+          surface: "player",
+          command: { type: "teleport", actor_id: "char_default_a", position: [1, 0, 2] },
+        }),
+      ]);
+      expect(result).toMatchObject({
+        success: true,
+        result: { surface: "player", action: "teleport", actor_id: "char_default_a" },
+      });
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("requires position for pilot.set_view before dispatching", async () => {
     const result = await executeDirectorSessionWorkbenchOperation({
       op: "pilot",
