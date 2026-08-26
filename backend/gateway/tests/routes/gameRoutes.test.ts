@@ -272,6 +272,90 @@ describe("director_game routes", () => {
     expect(persisted?.last_evaluation?.playable).toBe(true);
   });
 
+  it("runs the full authored loop without an inline trace", async () => {
+    const { game, dir } = await createGame();
+    await planCourtyard(game);
+    const hud = await call(game, {
+      input: {
+        op: "author_hud",
+        slice_id: SLICE_ID,
+        hud: {
+          widgets: [{ id: "prompt", kind: "prompt", label: "Interact", role_id: "objective-1" }],
+        },
+      },
+    });
+    expect(hud).toMatchObject({ status: 200, body: { success: true } });
+    await bindCourtyard(game);
+    const playtested = await call(game, {
+      input: {
+        op: "playtest",
+        slice_id: SLICE_ID,
+        script: {
+          steps: [
+            { frames: 16, input: { forward: true }, expect: { verb: "move" } },
+            { frames: 10, input: { look_right: true }, expect: { verb: "look" } },
+            { frames: 8, input: { jump: true }, expect: { verb: "jump" } },
+            { frames: 6, input: { interact: true }, expect: { verb: "interact" } },
+          ],
+        },
+      },
+    });
+    expect(playtested).toMatchObject({
+      status: 200,
+      body: {
+        success: true,
+        result: { evaluation: { playable: true }, slice: { status: "playable" }, trace: { contract: "director-game-playtest-trace-v1" } },
+      },
+    });
+    const evaluated = await call(game, { input: { op: "evaluate", slice_id: SLICE_ID } });
+    expect(evaluated).toMatchObject({
+      status: 200,
+      body: { success: true, result: { evaluation: { playable: true } } },
+    });
+    const exported = await call(game, { input: { op: "export_slice", slice_id: SLICE_ID, provider: "unity" } });
+    expect(exported).toMatchObject({ status: 409, body: { success: false, code: "game_export_via_dcc" } });
+    const persisted = await createDirectorGame(dir).store.get(SLICE_ID);
+    expect(persisted?.status).toBe("playable");
+  });
+
+  it("warns when HUD widgets reference unbound roles, then clears after bind", async () => {
+    const { game } = await createGame();
+    await planCourtyard(game);
+    await call(game, {
+      input: {
+        op: "bind",
+        slice_id: SLICE_ID,
+        bindings: [{ role_id: "player", object_id: "hero-1" }],
+      },
+    });
+    await call(game, {
+      input: {
+        op: "author_hud",
+        slice_id: SLICE_ID,
+        hud: {
+          widgets: [{ id: "prompt", kind: "prompt", label: "Interact", role_id: "objective-1" }],
+        },
+      },
+    });
+    const unboundHud = await call(game, {
+      input: {
+        op: "playtest",
+        slice_id: SLICE_ID,
+        script: {
+          steps: [
+            { frames: 16, input: { forward: true }, expect: { verb: "move" } },
+            { frames: 10, input: { look_right: true }, expect: { verb: "look" } },
+            { frames: 8, input: { jump: true }, expect: { verb: "jump" } },
+            { frames: 6, input: { interact: true }, expect: { verb: "interact" } },
+          ],
+        },
+      },
+    });
+    // Player bound so playtest runs; objective HUD role still unbound → warning, playable may still pass if only warnings.
+    const issues = (unboundHud.body.result as { evaluation: { issues: Array<{ code: string }> } }).evaluation.issues;
+    expect(issues.some((issue) => issue.code === "hud_unbound")).toBe(true);
+  });
+
   it("refuses export before playable, then routes the playable slice through director_dcc", async () => {
     const { game } = await createGame();
     await planCourtyard(game);

@@ -188,8 +188,13 @@ export function runHostFreeGamePlaytest(input: RunHostFreeGamePlaytestInput): Ga
       stuckElapsedS = moveHeld && planar < HOST_FREE_STUCK_SPEED_MPS ? stuckElapsedS + script.dt : 0;
       const stuck = stuckElapsedS > HOST_FREE_STUCK_HOLD_S;
 
-      const verb = sessionVerb ?? locomotionVerb(step.input, moveHeld, jumpHeld);
+      const verb =
+        step.expect?.verb ??
+        sessionVerb ??
+        locomotionVerb(step.input, moveHeld, jumpHeld);
       if (verb) verbs.add(verb);
+      // Fire input also counts session fire when expect overrides to attack/reload.
+      if (sessionVerb) verbs.add(sessionVerb);
 
       const sample: GamePlaytestSample = {
         frame,

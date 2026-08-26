@@ -1,0 +1,68 @@
+{
+  "name": "game-slice-hostfree-playtest-no-trace",
+  "description": "Plan, bind, and playtest an exploration slice through director_game without supplying an inline trace. The Gateway host-free kinematic runner must score the tape to playable.",
+  "steps": [
+    {
+      "label": "plan exploration slice",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-hostfree-01",
+        "brief": {
+          "requirement": "Walk to the stele and interact.",
+          "genre": "exploration"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id"]
+      }
+    },
+    {
+      "label": "bind roles",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-hostfree-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "hero-1" },
+          { "role_id": "spawn", "object_id": "spawn-1" },
+          { "role_id": "objective-1", "object_id": "stele-1" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.bind_complete", "result.suggested_playtest_script.steps"]
+      }
+    },
+    {
+      "label": "playtest without inline trace",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-hostfree-01",
+        "script": {
+          "steps": [
+            { "frames": 16, "input": { "forward": true }, "expect": { "verb": "move" } },
+            { "frames": 10, "input": { "look_right": true }, "expect": { "verb": "look" } },
+            { "frames": 8, "input": { "jump": true }, "expect": { "verb": "jump" } },
+            { "frames": 6, "input": { "interact": true }, "expect": { "verb": "interact" } }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.evaluation.playable", "result.trace.contract", "result.slice.status"]
+      }
+    },
+    {
+      "label": "evaluate stored playable receipt",
+      "tool": "director_game",
+      "input": { "op": "evaluate", "slice_id": "game-eval-hostfree-01" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.evaluation.playable"]
+      }
+    }
+  ]
+}
