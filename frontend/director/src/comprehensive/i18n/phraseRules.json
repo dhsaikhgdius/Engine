@@ -323,6 +323,9 @@
     "pattern": "^导入素材约 (\\d+) MB，内容哈希按分块读取；建议优先生成代理媒体以降低后续编辑压力。$",
     "replacement": "Imported media is about $1 MB; content hashing reads in chunks. Prefer generating proxy media to reduce later editing cost."
   },
+  { "pattern": "^确认清扫 (\\d+) 个对象（(.+)）$", "replacement": "Confirm sweep: $1 objects ($2)" },
+  { "pattern": "^已清扫 (\\d+) 个对象，回收 (.+)$", "replacement": "Swept $1 objects, reclaimed $2" },
+  { "pattern": "^(\\d+) 个对象（(.+)）$", "replacement": "$1 objects ($2)" },
   { "pattern": "^(.+) · (.+) 滑杆$", "handler": "compositeSlider" },
   { "pattern": "^(.+) · (.+)$", "handler": "composite" },
   { "pattern": "^(.+)：(.+)$", "replacement": "$1: $2" }

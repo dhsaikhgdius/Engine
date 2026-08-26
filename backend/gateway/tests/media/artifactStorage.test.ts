@@ -92,6 +92,25 @@ describe("artifactStorage", () => {
     expect(await storage.get("production-jobs/job-1/attempts/a-1/output.png")).toBeNull();
   });
 
+  it("lists prefix subtrees without scanning unrelated roots, including partial last segments", async () => {
+    const storage = new FilesystemArtifactStorage(await createRoot());
+    const bytes = new TextEncoder().encode("x");
+    await storage.put("production-jobs/job-1/attempts/a-1/output.png", bytes);
+    await storage.put("production-jobs/job-10/attempts/a-1/output.png", bytes);
+    await storage.put("media-transcode-inputs/aa.bin", bytes);
+
+    expect((await storage.list("production-jobs/job-1/")).map((object) => object.key)).toEqual([
+      "production-jobs/job-1/attempts/a-1/output.png",
+    ]);
+    // A partial trailing segment stays a plain string-prefix filter.
+    expect((await storage.list("production-jobs/job-1")).map((object) => object.key)).toEqual([
+      "production-jobs/job-1/attempts/a-1/output.png",
+      "production-jobs/job-10/attempts/a-1/output.png",
+    ]);
+    expect(await storage.list("production-jobs/missing/")).toEqual([]);
+    expect(await storage.list("media-transcode-inputs/aa.bin")).toHaveLength(1);
+  });
+
   it("delegates the object-storage skeleton to the injected client with validated keys", async () => {
     const { client, calls } = fakeObjectStorageClient();
     const storage = new ObjectStorageArtifactStorage(client);
@@ -110,6 +129,19 @@ describe("artifactStorage", () => {
 
     await expect(storage.put("../escape", bytes)).rejects.toThrow(/unsafe/);
     expect(calls[0]).toBe("put:production-jobs/job-2/attempts/a-1/clip.mp4");
+  });
+
+  it("drops unsafe keys returned by an injected object-storage client", async () => {
+    const { client, objects } = fakeObjectStorageClient();
+    const now = new Date().toISOString();
+    objects.set("production-jobs/job-3/attempts/a-1/safe.mp4", { bytes: new Uint8Array(1), modifiedAt: now });
+    objects.set("../escape.mp4", { bytes: new Uint8Array(1), modifiedAt: now });
+    objects.set("/absolute.mp4", { bytes: new Uint8Array(1), modifiedAt: now });
+
+    const storage = new ObjectStorageArtifactStorage(client);
+    expect((await storage.list()).map((object) => object.key)).toEqual([
+      "production-jobs/job-3/attempts/a-1/safe.mp4",
+    ]);
   });
 
   it("selects the filesystem backend by default and requires a client for object storage", async () => {

@@ -31,11 +31,16 @@ const STAGED_SHA256_PATTERN = /sha256:([a-f0-9]{64})/g;
 /** Why a stored object was kept by the GC plan. */
 export type ArtifactGcKeepReason = "reachable" | "retained" | "legal-hold" | "outside-scope";
 
+/** Why a stored object was planned for sweeping. */
+export type ArtifactGcSweepReason = "unreachable" | "retention-expired";
+
 /** One examined object with the planned action. */
 export interface ArtifactGcEntry extends StoredArtifactObject {
   action: "keep" | "sweep";
   /** Present when the action is keep. */
   keepReason?: ArtifactGcKeepReason;
+  /** Present when the action is sweep. */
+  sweepReason?: ArtifactGcSweepReason;
 }
 
 /** Immutable, reviewable GC plan; sweeping consumes exactly this plan. */
@@ -82,6 +87,13 @@ export interface ArtifactGcPlanOptions {
   minimumAgeMs?: number;
   /** Legal-hold hook: keys it returns true for are never swept. */
   isLegalHold?: (key: string) => boolean;
+  /**
+   * Reachable job-artifact keys whose terminal retention window has passed
+   * (see `collectRetentionExpiredArtifactKeys`). These become sweep
+   * candidates despite being reachable; legal hold and the minimum age
+   * still protect them. Omitted or empty preserves pure reachability GC.
+   */
+  retentionExpiredKeys?: ReadonlySet<string> | ReadonlyMap<string, unknown>;
 }
 
 /**
@@ -107,7 +119,8 @@ export async function planArtifactStorageGc(options: ArtifactGcPlanOptions): Pro
     if (!JOB_ARTIFACT_KEY_PATTERN.test(object.key) && !MEDIA_INPUT_KEY_PATTERN.test(object.key)) {
       return { ...object, action: "keep", keepReason: "outside-scope" };
     }
-    if (reachable.has(object.key)) {
+    const retentionExpired = options.retentionExpiredKeys?.has(object.key) ?? false;
+    if (reachable.has(object.key) && !retentionExpired) {
       return { ...object, action: "keep", keepReason: "reachable" };
     }
     if (options.isLegalHold?.(object.key)) {
@@ -116,7 +129,7 @@ export async function planArtifactStorageGc(options: ArtifactGcPlanOptions): Pro
     if (plannedAtMs - new Date(object.modifiedAt).getTime() < minimumAgeMs) {
       return { ...object, action: "keep", keepReason: "retained" };
     }
-    return { ...object, action: "sweep" };
+    return { ...object, action: "sweep", sweepReason: retentionExpired ? "retention-expired" : "unreachable" };
   });
 
   return {
