@@ -25,9 +25,28 @@ import {
   type CreativeWorkspaceAgentSnapshot,
 } from "../../src/agent/creativeWorkspaceAgentContract";
 import {
+  dispatchCreativeWorkspaceMediaRelink,
   dispatchCreativeWorkspaceOperations,
   type CreativeWorkspaceOperationInput,
 } from "../../src/agent/dispatchCreativeWorkspaceOperations";
+
+vi.mock("../../src/comprehensive/editor/workspaces/directorMediaLibrary", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/comprehensive/editor/workspaces/directorMediaLibrary")>();
+  return {
+    ...actual,
+    relinkDirectorCreativeMedia: vi.fn(async (oldMediaId: string) => ({
+      ok: true,
+      operation: "media.relink" as const,
+      oldMediaId,
+      newMediaId: "media:image:relinked",
+      referencesUpdated: 1,
+      waveformReady: false,
+    })),
+  };
+});
+
+import { relinkDirectorCreativeMedia } from "../../src/comprehensive/editor/workspaces/directorMediaLibrary";
 
 const MEDIA_ASSETS: CreativeMediaAsset[] = [
   {
@@ -510,5 +529,27 @@ describe("creative workspace UI/agent parity harness", () => {
     );
     if (!succeeded.ok) throw new Error(succeeded.error);
     expect(observeCreativeWorkspaceAgentSnapshot(runtime).counts.board_nodes).toBe(before.counts.board_nodes + 2);
+  });
+
+  it("routes UI file-picker relink through the shared media.relink executor", async () => {
+    const runtime = context();
+    const file = new File(["replacement"], "poster-v2.png", { type: "image/png" });
+    const receipt = await dispatchCreativeWorkspaceMediaRelink("media:image:poster", file, {
+      context: runtime,
+      idempotencyKey: "ui-relink-test",
+    });
+    expect(receipt).toMatchObject({ ok: true, idempotency_key: "ui-relink-test" });
+    if (!receipt.ok) throw new Error(receipt.error);
+    expect(receipt.execution).toMatchObject({
+      success: true,
+      operation: "media.relink",
+      result: {
+        old_media_id: "media:image:poster",
+        new_media_id: "media:image:relinked",
+        references_updated: 1,
+        waveform_ready: false,
+      },
+    });
+    expect(vi.mocked(relinkDirectorCreativeMedia)).toHaveBeenCalledWith("media:image:poster", file, "image");
   });
 });

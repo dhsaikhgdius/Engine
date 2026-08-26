@@ -86,6 +86,32 @@ const offlineVideoItem: DirectorMediaItem = {
   availability: "offline",
 };
 
+function seedOfflineCreativeMedia() {
+  persistentCreativeMediaLibrary.store.setState({
+    status: "ready",
+    storageMode: "memory",
+    warning: null,
+    error: null,
+    assets: [
+      {
+        id: offlineVideoItem.id,
+        kind: "video",
+        name: offlineVideoItem.name,
+        fileName: "missing-canvas-take.mp4",
+        mimeType: "video/mp4",
+        size: 1_024,
+        createdAt: "2026-07-31T08:00:00.000Z",
+        lastModified: null,
+        durationSec: 5,
+        width: 1_280,
+        height: 720,
+        source: "test",
+        objectUrl: null,
+      },
+    ],
+  });
+}
+
 function mediaNode(): DirectorBoardNode {
   return {
     id: "board-node-media",
@@ -451,9 +477,10 @@ it("resizes the media panel horizontally", () => {
   expect(screen.queryByRole("separator", { name: "调整 Agent 栏宽度" })).not.toBeInTheDocument();
 });
 
-it("relinks offline media directly from the Canvas media browser", async () => {
+it("relinks offline media through the shared async media.relink contract", async () => {
   const user = userEvent.setup();
   mediaLibraryMock.items = [offlineVideoItem];
+  seedOfflineCreativeMedia();
   mediaLibraryMock.relink.mockResolvedValue({
     ok: true,
     operation: "media.relink",
@@ -551,6 +578,7 @@ it("does not label an uncaptured 3D shot as missing media", () => {
 it("shows relink validation failures without adding another Canvas node", async () => {
   const user = userEvent.setup();
   mediaLibraryMock.items = [offlineVideoItem];
+  seedOfflineCreativeMedia();
   mediaLibraryMock.relink.mockRejectedValue(new Error("重连类型不匹配：需要 video，收到 audio"));
   render(<CanvasWorkspace />);
   const wrongFile = new File(["audio"], "wrong.wav", { type: "audio/wav" });
