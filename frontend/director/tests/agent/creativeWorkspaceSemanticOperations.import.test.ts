@@ -316,4 +316,74 @@ Where is platform nine?
     expect(context.getImportedProject().objects.map((object) => object.id)).toContain("dup-agent-001");
     expect(context.getImportedProject().objects.filter((object) => object.id === "dup-agent-001")).toHaveLength(1);
   });
+
+  it("projects typed USD omitted onto interchange import plans and receipts", async () => {
+    const usda = `#usda 1.0
+(
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "DirectorScene"
+{
+    def Xform "MarkerA" (
+        customData = {
+            string directorAdapter = "director-usd-v1"
+            string directorContract = "director-interchange-v1"
+            string directorStableId = "dup-usd-agent-001"
+            string directorEntityType = "object"
+            string directorKind = "prop"
+            string directorDisplayName = "Marker A"
+        }
+    )
+    {
+        double3 xformOp:translate = (1, 0, 0)
+        double3 xformOp:rotateXYZ = (0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+    }
+    def Xform "MarkerB" (
+        customData = {
+            string directorAdapter = "director-usd-v1"
+            string directorContract = "director-interchange-v1"
+            string directorStableId = "dup-usd-agent-001"
+            string directorEntityType = "object"
+            string directorKind = "prop"
+            string directorDisplayName = "Marker B"
+        }
+    )
+    {
+        double3 xformOp:translate = (2, 0, 0)
+        double3 xformOp:rotateXYZ = (0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+    }
+}
+`;
+    const context = importContext();
+    const planned = await executeCreativeWorkspaceInterchangeRequest(
+      {
+        op: "interchange",
+        request: {
+          action: "plan-import",
+          format: "usd",
+          workspace: "stage",
+          source: { kind: "inline", encoding: "utf8", payload: usda, file_name: "dup.usda" },
+          max_inline_bytes: 64 * 1024,
+        },
+      },
+      context,
+    );
+    expect(planned).toMatchObject({
+      result: {
+        success: true,
+        action: "plan-import",
+        plan: { format: "usd", workspace: "stage" },
+      },
+    });
+    if (!planned.result.success || planned.result.action !== "plan-import") throw new Error("missing import plan");
+    expect(planned.result.plan.omitted_count).toBe(1);
+    expect(planned.result.plan.omitted).toEqual([
+      expect.objectContaining({ code: "duplicate_stable_id", subject: "dup-usd-agent-001" }),
+    ]);
+  });
 });

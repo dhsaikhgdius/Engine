@@ -354,6 +354,113 @@ Rain hits the pavement.
     );
   });
 
+  it("stamps typed USD omitted records for duplicate IDs, empty scenes, and invalid manifests", async () => {
+    const empty = importDirectorProjectFromUsda(`#usda 1.0
+(
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "DirectorScene"
+{
+}
+`);
+    expect(empty.project.objects).toEqual([]);
+    expect(empty.omitted).toEqual([expect.objectContaining({ code: "empty_project_no_metadata", subject: "scene" })]);
+    expect(empty.warnings.some((warning) => warning.includes("empty_project_no_metadata"))).toBe(true);
+
+    const duplicate = importDirectorProjectFromUsda(`#usda 1.0
+(
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "DirectorScene"
+{
+    def Xform "MarkerA" (
+        customData = {
+            string directorAdapter = "director-usd-v1"
+            string directorContract = "${DIRECTOR_INTERCHANGE_CONTRACT}"
+            string directorStableId = "dup-usd-001"
+            string directorEntityType = "object"
+            string directorKind = "prop"
+            string directorDisplayName = "Marker A"
+        }
+    )
+    {
+        double3 xformOp:translate = (1, 0, 0)
+        double3 xformOp:rotateXYZ = (0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+    }
+    def Xform "MarkerB" (
+        customData = {
+            string directorAdapter = "director-usd-v1"
+            string directorContract = "${DIRECTOR_INTERCHANGE_CONTRACT}"
+            string directorStableId = "dup-usd-001"
+            string directorEntityType = "object"
+            string directorKind = "prop"
+            string directorDisplayName = "Marker B"
+        }
+    )
+    {
+        double3 xformOp:translate = (2, 0, 0)
+        double3 xformOp:rotateXYZ = (0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+    }
+}
+`);
+    expect(duplicate.project.objects.map((object) => object.id)).toEqual(["dup-usd-001"]);
+    expect(duplicate.omitted).toEqual([
+      expect.objectContaining({ code: "duplicate_stable_id", subject: "dup-usd-001" }),
+    ]);
+
+    const invalidEmbedded = importDirectorProjectFromUsda(`#usda 1.0
+(
+    metersPerUnit = 1
+    upAxis = "Y"
+    customLayerData = {
+        string directorAdapter = "director-usd-v1"
+        string directorContract = "${DIRECTOR_INTERCHANGE_CONTRACT}"
+        string directorHandedness = "right"
+        string directorManifestBase64 = "${Buffer.from('{"contract":"not-a-manifest"}').toString("base64")}"
+    }
+)
+def Xform "DirectorScene"
+{
+}
+`);
+    expect(invalidEmbedded.omitted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "embedded_manifest_invalid", subject: "directorManifestBase64" }),
+        expect.objectContaining({ code: "empty_project_no_metadata" }),
+      ]),
+    );
+
+    const archive = new JSZip();
+    archive.file(
+      "scene.usda",
+      `#usda 1.0
+(
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "DirectorScene"
+{
+}
+`,
+    );
+    archive.file("director-manifest.json", '{"contract":"not-a-manifest"}');
+    const invalidSidecar = await importDirectorProjectFromUsdz(
+      await archive.generateAsync({ type: "uint8array", compression: "STORE" }),
+    );
+    expect(invalidSidecar.omitted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "embedded_manifest_invalid", subject: "director-manifest.json" }),
+        expect.objectContaining({ code: "empty_project_no_metadata" }),
+      ]),
+    );
+  });
+
   it("imports an external USDA layer and round-trips editable prims through USDA/USDZ", async () => {
     const external = importDirectorProjectFromUsda(fixture("scene.usda"));
     expect(external.project.objects[0]).toMatchObject({
@@ -365,6 +472,7 @@ Rain hits the pavement.
     expect(external.project.cameras[0]).toMatchObject({ id: "fixture-usd-camera-001", fov: 42 });
     expect(external.project.cameras[0]?.nearClipM).toBe(0.1);
     expect(external.project.cameras[0]?.farClipM).toBe(1_000);
+    expect(external.omitted ?? []).toEqual([]);
     expectCameraDirection(
       external.project.cameras[0]!.transform.position,
       external.project.cameras[0]!.target,
