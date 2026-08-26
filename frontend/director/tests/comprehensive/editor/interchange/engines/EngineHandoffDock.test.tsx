@@ -281,6 +281,16 @@ it("sends clean_frame for Unreal and renders the skipped receipt with its reason
           focalLengthTrackCount: 2,
           bakedKeyCount: 1_200,
         },
+        appliedMaterialCount: 2,
+        omittedMaterialCount: 1,
+        omittedMaterials: [
+          {
+            directorId: "prop-glass",
+            code: "unsupported_channels",
+            reason:
+              "Object prop-glass: Director material channels transmission have no faithful Director parent mapping; omitted (warn-and-omit code: unsupported_channels).",
+          },
+        ],
       },
       cleanFrame: {
         contract: "director-unreal-clean-frame-v1",
@@ -310,6 +320,11 @@ it("sends clean_frame for Unreal and renders the skipped receipt with its reason
   expect(sequencer).toHaveTextContent("01:00:00;00");
   expect(sequencer).toHaveTextContent("3");
   expect(sequencer).toHaveTextContent("1200");
+  expect(sequencer).toHaveTextContent("省略材质");
+  expect(sequencer).toHaveTextContent("1");
+  const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
+  expect(within(omittedMaterials).getByText("prop-glass")).toBeInTheDocument();
+  expect(omittedMaterials).toHaveTextContent("不支持的材质通道");
   // Structured omitted channels stay visible instead of being flattened away.
   const omitted = screen.getByRole("list", { name: "省略的动画通道" });
   expect(within(omitted).getByText("obj-hero")).toBeInTheDocument();

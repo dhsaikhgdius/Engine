@@ -3653,5 +3653,7 @@
   "次": "calls",
   "不支持的材质通道": "Unsupported material channels",
   "材质无网格目标": "Material has no mesh target",
-  "自定义着色器材质": "Custom shader material"
+  "自定义着色器材质": "Custom shader material",
+  "父材质不可用": "Parent material unavailable",
+  "材质应用失败": "Material application failed"
 }

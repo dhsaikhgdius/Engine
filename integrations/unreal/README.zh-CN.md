@@ -86,7 +86,7 @@ Director 的动画求值器（缓动曲线、轨迹、相机路径与跟随行�
 - Director PBR 材质参数（baseColor、metalness、roughness、opacity、自发光、
   双面）转换为材质实例，父材质为 Director 创作的 `DirectorPbrOpaque` /
   `DirectorPbrTranslucent`。不支持的通道（transmission、IOR、clearcoat、
-  未随包捆绑为相对哈希文件的贴图引用、仅背面渲染）以警告省略处理。
+  未随包捆绑为相对哈希文件的贴图引用、仅背面渲染）以结构化 `omittedMaterials[]` 警告省略处理（`unsupported_channels` / `no_mesh_target` / `parent_unavailable` / `apply_failed`，附 `omittedMaterialCount`；连接器 ≥0.4.1）。
 
 ## 安装
 
