@@ -288,6 +288,10 @@ export const directorUnrealOmittedMaterialSchema = z.strictObject({
 /** A validated structured omitted-material record. */
 export type DirectorUnrealOmittedMaterial = z.infer<typeof directorUnrealOmittedMaterialSchema>;
 
+/**
+ * Structured warn-and-omit codes the Unreal skeletal import path stamps into
+ * reports when a skinned / character GLB cannot become a faithful SkeletalMesh.
+ */
 export const directorUnrealOmittedSkeletalCodeSchema = z.enum([
   "skeleton_unavailable",
   "character_unskinned",
