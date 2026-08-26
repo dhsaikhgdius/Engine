@@ -3600,6 +3600,11 @@
   "请先选择要绑定的 Agent 会话或 Profile，或填写 Session ID。": "Choose an agent session or profile to bind, or enter a session ID first.",
   "活跃": "Active",
   "空闲": "Idle",
+  "纳入引擎新建对象（经审阅后作为道具导入）": "Include new engine objects (imported as props after review)",
+  "镜头超出播放范围": "Shot outside playback range",
+  "镜头相机未导入": "Shot camera was not imported",
+  "镜头目标不是相机": "Shot target is not a camera",
+  "镜头与前一镜头重叠": "Shot overlaps the previous shot"
   "存储健康": "Storage health",
   "文件系统后端": "Filesystem backend",
   "对象存储后端": "Object-storage backend",

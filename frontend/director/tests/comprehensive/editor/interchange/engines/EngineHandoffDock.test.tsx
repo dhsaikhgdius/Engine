@@ -39,10 +39,25 @@ vi.mock("../../../../../src/comprehensive/editor/api/dccEngineHandoffClient", ()
   closeDirectorUnityLiveLinkSession: handoffClient.closeUnitySession,
   fetchDirectorGodotLiveLinkPreview: handoffClient.godotPreview,
 }));
-vi.mock("../../../../../src/comprehensive/editor/api/dccReturnClient", () => ({
-  previewDirectorDccReturnPackage: returnClient.preview,
-  applyDirectorDccImportPlan: returnClient.apply,
-}));
+vi.mock("../../../../../src/comprehensive/editor/api/dccReturnClient", () => {
+  class DirectorDccReturnClientError extends Error {
+    status: number;
+    code?: string;
+    recovery?: string;
+    constructor(message: string, status = 409, code?: string, recovery?: string) {
+      super(message);
+      this.name = "DirectorDccReturnClientError";
+      this.status = status;
+      this.code = code;
+      this.recovery = recovery;
+    }
+  }
+  return {
+    previewDirectorDccReturnPackage: returnClient.preview,
+    applyDirectorDccImportPlan: returnClient.apply,
+    DirectorDccReturnClientError,
+  };
+});
 vi.mock("../../../../../src/comprehensive/editor/interchange/BlenderLivePanel", () => ({
   BlenderLivePanel: () => <div data-testid="blender-live-panel" />,
 }));
@@ -368,10 +383,17 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
         },
         warnings: [
           "Light light-panel is a rect-area light; omitted rather than approximated (warn-and-omit code: light_rect_area_unsupported).",
+          "Light light-panel-2 is a rect-area light; omitted rather than approximated (warn-and-omit code: light_rect_area_unsupported).",
+        ],
+        omittedAnimationChannels: [
+          { directorId: "hero", entityType: "object", channels: ["pose_values", "motion_blocks"] },
         ],
       },
       warnings: [
-        "hero: rig pose keyframes (bone-level channels) are not carried by the Godot animation bake; only world transforms were baked (warn-and-omit code: pose_values). 3 pose controls affected.",
+        "hero: rig pose keyframes (bone-level channels) are not carried by the Godot animation bake; only world transforms were baked (warn-and-omit, see omittedAnimationChannels). 3 pose controls affected.",
+      ],
+      omittedAnimationChannels: [
+        { directorId: "hero", entityType: "object", channels: ["pose_values", "motion_blocks"] },
       ],
     }),
   );
@@ -386,12 +408,17 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
   expect(factOf("映射镜头")).toHaveTextContent("5");
   expect(factOf("环境光")).toHaveTextContent("WorldEnvironment 已烘焙");
   expect(factOf("省略灯光")).toHaveTextContent("1");
+  // Gateway bake channels render as per-entity structured rows (not free-text).
+  const omittedChannels = screen.getByRole("list", { name: "省略的动画通道" });
+  expect(within(omittedChannels).getByText("hero")).toBeInTheDocument();
+  expect(omittedChannels).toHaveTextContent("姿态控制");
+  expect(omittedChannels).toHaveTextContent("动作片段");
+  // Connector-side light omits keep both entities (dedup is per code+entity).
   const omissions = screen.getByRole("list", { name: "结构化省略" });
-  expect(within(omissions).getByText("light_rect_area_unsupported")).toBeInTheDocument();
+  expect(within(omissions).getAllByText("light_rect_area_unsupported")).toHaveLength(2);
   expect(omissions).toHaveTextContent("面光源不支持");
-  // Pose/motion omittedDetail from the gateway bake stays visible too.
-  expect(within(omissions).getByText("pose_values")).toBeInTheDocument();
-  expect(omissions).toHaveTextContent("3 pose controls affected");
+  expect(omissions).toHaveTextContent("light-panel");
+  expect(omissions).toHaveTextContent("light-panel-2");
 });
 
 it("previews an engine return as a dry run and guards apply behind an explicit review confirmation", async () => {
@@ -413,9 +440,10 @@ it("previews an engine return as a dry run and guards apply behind an explicit r
 
   const panel = screen.getByRole("tabpanel");
   await user.type(await within(panel).findByRole("textbox", { name: "回传包路径" }), "JOB/return");
+  await user.click(within(panel).getByRole("checkbox", { name: /纳入引擎新建对象/ }));
   await user.click(within(panel).getByRole("button", { name: "预览差异" }));
 
-  expect(returnClient.preview).toHaveBeenCalledWith("JOB/return", "godot");
+  expect(returnClient.preview).toHaveBeenCalledWith("JOB/return", "godot", { includeNewObjects: true });
   expect(await within(panel).findByText(/2 项更新 · 1 项跳过 · 0 项冲突 · 1 条提示/)).toBeInTheDocument();
   const apply = within(panel).getByRole("button", { name: "应用引擎回传" });
   expect(apply).toBeDisabled();
