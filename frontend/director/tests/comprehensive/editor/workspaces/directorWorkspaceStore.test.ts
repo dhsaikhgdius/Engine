@@ -1346,6 +1346,7 @@ it("assigns legacy nodes to sections on load and applies script plans", () => {
       ],
       storyboardShotCount: 1,
       warnings: [],
+      omitted: [],
     });
   });
   const next = useDirectorCreativeWorkspaceStore.getState();
@@ -1457,9 +1458,9 @@ it("defers localStorage writes until the persistence debounce fires after a muta
     expect(window.localStorage.getItem(key)).toBeNull();
 
     await new Promise((resolve) => setTimeout(resolve, 650));
-    expect(
-      parseDirectorCreativeWorkspacePersistedState(window.localStorage.getItem(key)).boardNodes,
-    ).toEqual(expect.arrayContaining([expect.objectContaining({ title: "Debounce board" })]));
+    expect(parseDirectorCreativeWorkspacePersistedState(window.localStorage.getItem(key)).boardNodes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: "Debounce board" })]),
+    );
     expect(parseDirectorCreativeWorkspacePersistedState(window.localStorage.getItem(key)).playheadSec).toBeCloseTo(
       2.75,
     );

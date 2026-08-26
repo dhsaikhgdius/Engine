@@ -49,7 +49,6 @@ import {
   type CreativeWorkspaceOperationInput,
 } from "../../../agent/dispatchCreativeWorkspaceOperations";
 import { useLanguage } from "../../i18n/language";
-import { buildScriptToCanvasPlan } from "../assistant/scriptToProductionPipeline";
 import { ComfyNodesDialog, isComfyNodeAvailabilityError } from "../comfy/ComfyNodesDialog";
 import { probeCreativeMediaFile } from "../media/creativeMediaProbe";
 import { persistentCreativeMediaLibrary, type CreativeMediaAsset } from "../media/persistentCreativeMediaStore";
@@ -223,16 +222,15 @@ export function CanvasWorkspace() {
   const workspacePrefs = useDirectorCreativeWorkspaceStore((state) => state.workspacePrefs);
   const viewport = useDirectorCreativeWorkspaceStore((state) => state.boardViewport);
   const selectedNodeId = useDirectorCreativeWorkspaceStore((state) => state.selectedBoardNodeId);
-  // Node/edge/layout/z-order/section/viewport authoring, import cataloging,
-  // undo/redo, and media relink dispatch through the shared agent contract
-  // (dispatchCreativeWorkspaceOperations / dispatchCreativeWorkspaceMediaRelink);
-  // only drag-batch intermediate samples and continuous pointer pan/wheel
-  // keep direct store mutators. Discrete fit/set_viewport and section
-  // assignment at pointer-up are shared.
+  // Node/edge/layout/z-order/section/viewport authoring, Fountain script
+  // import, import cataloging, undo/redo, and media relink dispatch through
+  // the shared agent contract (dispatchCreativeWorkspaceOperations /
+  // dispatchCreativeWorkspaceMediaRelink); only drag-batch intermediate
+  // samples and continuous pointer pan/wheel keep direct store mutators.
+  // Discrete fit/set_viewport and section assignment at pointer-up are shared.
   const updateBoardNode = useDirectorCreativeWorkspaceStore((state) => state.updateBoardNode);
   const selectBoardNode = useDirectorCreativeWorkspaceStore((state) => state.selectBoardNode);
   const setBoardViewport = useDirectorCreativeWorkspaceStore((state) => state.setBoardViewport);
-  const applyScriptCanvasPlan = useDirectorCreativeWorkspaceStore((state) => state.applyScriptCanvasPlan);
   const beginHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.beginHistoryBatch);
   const endHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.endHistoryBatch);
   const canUndo = useDirectorCreativeWorkspaceStore((state) => state.canUndo);
@@ -564,16 +562,21 @@ export function CanvasWorkspace() {
       showImportMessage(t("请先粘贴 Fountain 剧本文本"), "error");
       return;
     }
-    const plan = buildScriptToCanvasPlan(trimmed);
-    applyScriptCanvasPlan(plan);
+    // Shares the exact canvas.script.apply_plan executor Agents use, so a
+    // capacity-truncated import reports typed omissions instead of overclaiming.
+    const receipt = dispatchCanvas({ op: "canvas.script.apply_plan", fountain_text: trimmed }, t("剧本导入失败"));
+    if (!receipt.ok) return;
     setScriptModalOpen(false);
     setScriptDraft("");
-    showImportMessage(
-      plan.warnings.length
-        ? `${t("已导入剧本")} · ${plan.storyboardShotCount} ${t("个分镜")} · ${plan.warnings[0]}`
-        : `${t("已导入剧本")} · ${plan.storyboardShotCount} ${t("个分镜")}`,
-      plan.warnings.length ? "info" : "success",
-    );
+    const result = receipt.execution.result as {
+      nodes_added: number;
+      omitted: Array<{ code: string; subject: string; reason: string }>;
+      warnings: string[];
+    };
+    const segments = [`${t("已导入剧本")} · ${result.nodes_added} ${t("个分镜")}`];
+    if (result.omitted.length) segments.push(`${result.omitted.length} ${t("项已省略")}`);
+    if (result.warnings.length) segments.push(result.warnings[0]!);
+    showImportMessage(segments.join(" · "), result.omitted.length || result.warnings.length ? "info" : "success");
   }
 
   async function importScriptFile(file: File) {

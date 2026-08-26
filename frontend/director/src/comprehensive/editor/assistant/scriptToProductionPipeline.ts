@@ -25,6 +25,8 @@ export interface ScriptToCanvasPlan {
   nodes: Array<Omit<DirectorBoardNode, "id"> & { beatId: string }>;
   storyboardShotCount: number;
   warnings: string[];
+  /** Typed Fountain importer omissions (dialogue, notes, sections, …). */
+  omitted: Array<{ code: string; subject: string; reason: string }>;
 }
 
 const SECTION_BY_BEAT_INDEX: CanvasSectionKind[] = ["character", "scene", "generation", "final"];
@@ -96,6 +98,7 @@ export function buildScriptToCanvasPlan(fountainText: string, baseProject?: Dire
     nodes,
     storyboardShotCount: shots.length,
     warnings,
+    omitted: imported.omitted ?? [],
   };
 }
 

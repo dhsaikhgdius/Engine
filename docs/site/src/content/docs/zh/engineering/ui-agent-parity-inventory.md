@@ -176,6 +176,11 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 - 无媒体文字/字幕剪辑：`edit.clip.add` 接受虚拟 `text:` / `text:caption:…` media id（无需 Gallery
   资产，仅视频轨道）。Video「标题文字」与字幕/SRT 导入、转写入轨走与 Agent 相同的操作；字幕显示名受
   共享剪辑名 200 字上限约束。
+- Fountain 剧本导入（「导入剧本」）：Canvas 弹窗经 `canvas.script.apply_plan` 走与 Agent 相同的
+  执行器。回执报告 `storyboard_shots`、`nodes_added`、新的 `sections`、`replaced_section_ids`
+  与 typed `omitted[]`（240 节点上限截断的 `board_capacity`，加 Fountain 导入器的
+  `character_dialogue` / `boneyard_note` / … 代码），两个表面都不再夸大；画布已满时在任何变更前以
+  `capacity` 拒绝，且单个撤销条目可恢复被替换的分区列表。
 
 仍为直接写入，附原因：
 
