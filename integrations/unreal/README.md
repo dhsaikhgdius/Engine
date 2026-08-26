@@ -113,7 +113,7 @@ resolution, start timecode, playback range, track and key counts).
   `omittedLights` warn-and-omit records. Material channel / no-mesh /
   parent / apply failures surface as typed `omittedMaterials[]`
   (`unsupported_channels` / `no_mesh_target` / `parent_unavailable` /
-  `apply_failed`) with `omittedMaterialCount` (connector ≥0.4.1).
+  `apply_failed`) with `omittedMaterialCount` (connector ≥0.4.1). Skeletal bind-pose failures surface as typed `omittedSkeletal[]` (`skeleton_unavailable` / `character_unskinned` / `empty_actor`) with `omittedSkeletalCount` (connector ≥0.4.2). Omitted lights carry matching `omittedLightCount`.
 
 ## Install
 

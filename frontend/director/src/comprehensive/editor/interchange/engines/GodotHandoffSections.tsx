@@ -13,7 +13,7 @@ import { useLanguage } from "../../../i18n/language";
 import { fetchDirectorGodotLiveLinkPreview } from "../../api/dccEngineHandoffClient";
 
 /**
- * 结构化警告省略代码 → zh-CN 标签。来源：连接器灯光/镜头警告与网关姿态烘焙
+ * 结构化警告省略代码 → zh-CN 标签。来源：连接器灯光/材质/镜头警告与网关姿态烘焙
  * 警告，均以 `warn-and-omit code: …` 结尾（绝不静默拍平）。
  */
 const GODOT_OMIT_CODE_LABELS: Record<string, string> = {
@@ -41,6 +41,12 @@ const GODOT_OMITTED_MATERIAL_LABELS: Record<string, string> = {
   custom_shader: "自定义着色器材质",
 };
 
+const GODOT_OMITTED_SHOT_LABELS: Record<string, string> = {
+  shot_no_camera_binding: "镜头缺少相机绑定",
+  shot_camera_not_imported: "镜头相机未导入",
+  shot_target_not_camera: "镜头目标不是相机",
+};
+
 const OMITTED_CHANNEL_LABELS: Record<string, string> = {
   pose_values: "姿态控制",
   motion_blocks: "动作片段",
@@ -59,15 +65,22 @@ interface GodotStructuredOmission {
 
 /**
  * 从发送结果提取连接器侧结构化省略：优先使用回执里的 typed `omittedLights` /
- * `omittedMaterials`，旧版连接器仍回退到警告文本中的 `warn-and-omit code: …`。
- * 网关烘焙通道以 `result.omittedAnimationChannels` 为准，不依赖自由文本摘要。
+ * `omittedMaterials` / `omittedShots`，旧版连接器仍回退到警告文本中的
+ * `warn-and-omit code: …`。网关烘焙通道以 `result.omittedAnimationChannels` 为准，
+ * 不依赖自由文本摘要。
  */
 export function collectGodotStructuredOmissions(
   warnings: string[],
   omittedLights: Array<{ directorId: string; code: string; lightType: string; reason: string }> = [],
   omittedMaterials: Array<{ directorId: string; code: string; reason: string }> = [],
+  omittedShots: Array<{
+    shotId: string;
+    code: string;
+    cameraDirectorId: string | null;
+    reason: string;
+  }> = [],
 ): GodotStructuredOmission[] {
-  if (omittedLights.length || omittedMaterials.length) {
+  if (omittedLights.length || omittedMaterials.length || omittedShots.length) {
     return [
       ...omittedLights.map((light) => ({
         code: light.code,
@@ -78,6 +91,11 @@ export function collectGodotStructuredOmissions(
         code: material.code,
         detail: material.reason,
         key: `material:${material.code}:${material.directorId}`,
+      })),
+      ...omittedShots.map((shot) => ({
+        code: shot.code,
+        detail: shot.reason,
+        key: `shot:${shot.code}:${shot.shotId}`,
       })),
     ];
   }
@@ -113,6 +131,7 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
     [...result.warnings, ...result.report.warnings],
     godot.omittedLights ?? [],
     godot.omittedMaterials ?? [],
+    godot.omittedShots ?? [],
   );
   const seenKeys = new Set<string>();
   const uniqueConnectorOmissions = connectorOmissions.filter((omission) => {
@@ -140,6 +159,10 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
         <div>
           <dt>{t("映射镜头")}</dt>
           <dd>{godot.mappedShotCount}</dd>
+        </div>
+        <div>
+          <dt>{t("省略镜头")}</dt>
+          <dd>{godot.omittedShotCount ?? godot.omittedShots?.length ?? 0}</dd>
         </div>
         <div>
           <dt>{t("变换轨道")}</dt>
@@ -178,6 +201,22 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
           <dd>{godot.omittedMaterialCount ?? godot.omittedMaterials?.length ?? 0}</dd>
         </div>
       </dl>
+      {(godot.omittedShots?.length ?? 0) > 0 ? (
+        <ul aria-label={t("结构化省略镜头")} className="director-engine-handoff-list is-warning">
+          {godot.omittedShots!.slice(0, 6).map((entry) => (
+            <li key={`shot:${entry.code}:${entry.shotId}`}>
+              <code data-i18n-user-content>{entry.shotId}</code>
+              {` · ${t(GODOT_OMITTED_SHOT_LABELS[entry.code] ?? entry.code)} · `}
+              <span className="director-engine-handoff-omit-detail" data-i18n-user-content title={entry.reason}>
+                {entry.reason}
+              </span>
+            </li>
+          ))}
+          {godot.omittedShots!.length > 6 ? (
+            <li className="director-engine-handoff-more">+{godot.omittedShots!.length - 6}</li>
+          ) : null}
+        </ul>
+      ) : null}
       {(godot.omittedMaterials?.length ?? 0) > 0 ? (
         <ul aria-label={t("结构化省略材质")} className="director-engine-handoff-list is-warning">
           {godot.omittedMaterials!.slice(0, 6).map((entry) => (

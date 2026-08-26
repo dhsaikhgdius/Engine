@@ -33,6 +33,26 @@ export const DIRECTOR_GLB_MIME_TYPE = "model/gltf-binary";
 /** Maximum byte size for a glTF/GLB interchange payload. */
 export const DIRECTOR_GLTF_MAX_BYTES = 128 * 1024 * 1024;
 
+/**
+ * Structured warn-and-omit codes for glTF/GLB → Stage import. Agents read
+ * `omitted[]` on interchange import plans/receipts; free-text warnings stay for humans.
+ */
+export const DIRECTOR_GLTF_OMITTED_CODES = [
+  "embedded_manifest_invalid",
+  "duplicate_stable_id",
+  "empty_project_no_metadata",
+] as const;
+
+/** One glTF omit code. */
+export type DirectorGltfOmittedCode = (typeof DIRECTOR_GLTF_OMITTED_CODES)[number];
+
+/** One structured glTF import omission. */
+export interface DirectorGltfOmitted {
+  code: DirectorGltfOmittedCode;
+  subject: string;
+  reason: string;
+}
+
 /** Root-level metadata embedded in the glTF asset extras. */
 export interface DirectorGltfMetadata {
   adapter: typeof DIRECTOR_GLTF_ADAPTER;
@@ -261,6 +281,10 @@ function parseGltfJson(source: string | GLTF.IGLTF | JSONDocument): JSONDocument
 
 async function importDirectorGltfDocument(document: Document, options: ImportDirectorGltfOptions) {
   const warnings: string[] = [];
+  const omitted: DirectorGltfOmitted[] = [];
+  const pushOmit = (code: DirectorGltfOmittedCode, subject: string, reason: string) => {
+    omitted.push({ code, subject, reason });
+  };
   const rootExtras = document.getRoot().getExtras();
   const rootDirector = isRecord(rootExtras.director) ? rootExtras.director : null;
   let embeddedProject: DirectorProject | null = null;
@@ -268,7 +292,15 @@ async function importDirectorGltfDocument(document: Document, options: ImportDir
     try {
       embeddedProject = parseDirectorInterchangeManifest(rootDirector.manifest).project;
     } catch (error) {
-      warnings.push(`Embedded Director project was ignored: ${error instanceof Error ? error.message : String(error)}`);
+      const detail = error instanceof Error ? error.message : String(error);
+      pushOmit(
+        "embedded_manifest_invalid",
+        "extras.director.manifest",
+        `Embedded Director project was ignored: ${detail}`,
+      );
+      warnings.push(
+        `Embedded Director project was ignored: ${detail} (warn-and-omit code: embedded_manifest_invalid).`,
+      );
     }
   }
   if (rootDirector && rootDirector.coordinateSystem !== undefined) {
@@ -291,7 +323,14 @@ async function importDirectorGltfDocument(document: Document, options: ImportDir
       const metadata = entityMetadata(node.getExtras());
       if (!metadata) return;
       if (importedIds.has(metadata.stableId)) {
-        warnings.push(`Duplicate glTF stable ID ${metadata.stableId} was ignored.`);
+        pushOmit(
+          "duplicate_stable_id",
+          metadata.stableId,
+          `Duplicate glTF stable ID ${metadata.stableId} was ignored.`,
+        );
+        warnings.push(
+          `Duplicate glTF stable ID ${metadata.stableId} was ignored (warn-and-omit code: duplicate_stable_id).`,
+        );
         return;
       }
       importedIds.add(metadata.stableId);
@@ -359,13 +398,20 @@ async function importDirectorGltfDocument(document: Document, options: ImportDir
       }
     });
   if (!embeddedProject && !options.baseProject && importedIds.size === 0) {
-    warnings.push("glTF contains no Director entity metadata; an empty project was created.");
+    pushOmit(
+      "empty_project_no_metadata",
+      "scene",
+      "glTF contains no Director entity metadata; an empty project was created.",
+    );
+    warnings.push(
+      "glTF contains no Director entity metadata; an empty project was created (warn-and-omit code: empty_project_no_metadata).",
+    );
   }
   if (!project.activeCameraId || !project.cameras.some((camera) => camera.id === project.activeCameraId)) {
     project.activeCameraId = project.cameras[0]?.id ?? null;
   }
   assertDirectorInterchangeCharacterAssets(project);
-  return { project, warnings } satisfies DirectorInterchangeImportResult;
+  return { project, warnings, omitted } satisfies DirectorInterchangeImportResult;
 }
 
 function normalizeObjectKind(value: unknown): DirectorObject["kind"] {

@@ -88,6 +88,8 @@ static func build_animation(
 		"fovTrackCount": 0,
 		"shotCutTrackCount": 0,
 		"mappedShotCount": 0,
+		"omittedShotCount": 0,
+		"omittedShots": [],
 	}
 	for bake_warning in bake.get("warnings", []):
 		warnings.append("animation bake: %s" % bake_warning)
@@ -192,6 +194,8 @@ static func build_animation(
 	receipt["fovTrackCount"] = fov_tracks
 	receipt["shotCutTrackCount"] = int(shot_receipt["shotCutTrackCount"])
 	receipt["mappedShotCount"] = int(shot_receipt["mappedShotCount"])
+	receipt["omittedShotCount"] = int(shot_receipt.get("omittedShotCount", 0))
+	receipt["omittedShots"] = shot_receipt.get("omittedShots", [])
 	return receipt
 
 

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -181,6 +181,80 @@ describe("production job receipts, artifact-version registration, and dispatch g
       context.dependencies,
     );
     expect(context.writes[0]).toMatchObject({ status: 503, body: { code: "artifact_version_store_unavailable" } });
+  });
+
+  it("projects storagePresence on receipts and returns 410 when artifact bytes were swept", async () => {
+    const context = await harness({
+      kind: "media.proxy",
+      idempotencyKey: "presence-key",
+      input: { sourceMediaId: "media-presence" },
+    });
+    const queued = await context.store.enqueue({
+      kind: "media.proxy",
+      input: { sourceMediaId: "media-presence" },
+      idempotencyKey: "presence-key",
+      createId: () => "receipt-route-job",
+    });
+    const succeeded = await succeedWithArtifact(context.store, queued);
+    const artifact = succeeded.artifact!;
+    const path = context.store.artifactFilePath(succeeded.id, artifact.attemptId, artifact.fileName);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, Buffer.from("proxy-bytes"));
+
+    context.writes.length = 0;
+    await handleProductionJobRoute(
+      request("GET"),
+      context.response,
+      new URL("http://director.test/api/production-jobs/receipt-route-job/receipt"),
+      context.dependencies,
+    );
+    expect(context.writes[0]).toMatchObject({
+      status: 200,
+      body: {
+        receipt: {
+          artifacts: [{ id: artifact.id, storagePresence: "present", sha256: artifact.sha256 }],
+        },
+      },
+    });
+
+    await rm(path);
+
+    context.writes.length = 0;
+    await handleProductionJobRoute(
+      request("GET"),
+      context.response,
+      new URL("http://director.test/api/production-jobs/receipt-route-job/receipt"),
+      context.dependencies,
+    );
+    expect(context.writes[0]).toMatchObject({
+      status: 200,
+      body: {
+        receipt: {
+          artifacts: [{ id: artifact.id, storagePresence: "absent", sha256: artifact.sha256 }],
+        },
+      },
+    });
+
+    context.writes.length = 0;
+    const end = vi.fn();
+    const writeHead = vi.fn();
+    const downloadResponse = { writeHead, end } as unknown as ServerResponse;
+    await handleProductionJobRoute(
+      request("GET"),
+      downloadResponse,
+      new URL(`http://director.test/api/production-jobs/receipt-route-job/artifacts/${artifact.id}`),
+      context.dependencies,
+    );
+    expect(context.writes[0]).toMatchObject({
+      status: 410,
+      body: {
+        code: "artifact_bytes_unavailable",
+        jobId: "receipt-route-job",
+        artifactId: artifact.id,
+        sha256: artifact.sha256,
+      },
+    });
+    expect(writeHead).not.toHaveBeenCalled();
   });
 
   it("never dispatches a second executor run for an idempotent replay while the job is in flight", async () => {

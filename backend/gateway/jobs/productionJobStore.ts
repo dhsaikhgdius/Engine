@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
@@ -543,6 +543,26 @@ export class ProductionJobStore {
    */
   artifactFilePath(jobId: string, attemptId: string, fileName: string) {
     return artifactPath(this.dataDirectory, jobId, attemptId, fileName);
+  }
+
+  /**
+   * Returns whether artifact bytes are still reachable on the job store's
+   * filesystem. Retention GC may delete bytes while the durable job record and
+   * sha256 evidence remain — callers must treat `false` as honest absence, not
+   * as a store bug.
+   *
+   * @param job - The job record.
+   * @param artifact - The artifact descriptor.
+   * @returns True when the artifact file exists.
+   */
+  async artifactBytesPresent(job: ProductionJobRecord, artifact: ProductionJobArtifact) {
+    try {
+      await access(this.artifactFilePath(job.id, artifact.attemptId, artifact.fileName));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
   }
 
   /**

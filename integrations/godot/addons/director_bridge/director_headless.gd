@@ -308,6 +308,8 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 		"fovTrackCount": int(animation_receipt.get("fovTrackCount", 0)),
 		"shotCutTrackCount": shot_cut_track_count,
 		"mappedShotCount": int(animation_receipt.get("mappedShotCount", 0)),
+		"omittedShotCount": int(animation_receipt.get("omittedShotCount", 0)),
+		"omittedShots": animation_receipt.get("omittedShots", []),
 		"payloadAnimationPlayerCount": payload_animation_players,
 		"importedSkeletonCount": skeleton_count,
 		"importedLightCount": int(light_receipt["importedLightCount"]),

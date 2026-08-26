@@ -92,6 +92,7 @@ import {
   subscribeDirectorSessionCommands,
   type DirectorSessionCommand,
 } from "../../../agent/directorSessionCommandBus";
+import { setDirectorLivePlayerSnapshot } from "../../../agent/directorLivePlayerSnapshot";
 import { useDirectorStore, type CameraShotSnapshot } from "../store/directorStore";
 import { directorCameraShotLanguageReport } from "@director/agent-engine/framing";
 import {
@@ -2968,6 +2969,18 @@ export function DirectorCanvas({
   const playerRecordingStartRef = useRef<number | null>(null);
   const playerRecordingSessionRef = useRef<PlayerMotionRecordingSession | null>(null);
   const playerUndoBatchActiveRef = useRef(false);
+
+  useEffect(() => {
+    setDirectorLivePlayerSnapshot({ playerMode, playerActorId });
+  }, [playerMode, playerActorId]);
+
+  useEffect(() => {
+    return () => {
+      // When this Stage tab unmounts, clear the snapshot so observe does not
+      // report a stale live actor from a closed viewport.
+      setDirectorLivePlayerSnapshot({ playerMode: false, playerActorId: null });
+    };
+  }, []);
   const [recordingSettings, setRecordingSettings] = useState<DirectorTimelineRecordingSettings>(() => {
     const initialTimeline = sceneSettings.timeline;
     return createTimelineRecordingSettings({

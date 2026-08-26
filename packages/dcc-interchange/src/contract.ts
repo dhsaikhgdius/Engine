@@ -32,6 +32,11 @@ export interface DirectorInterchangeManifest {
 export interface DirectorInterchangeImportResult {
   project: DirectorProject;
   warnings: string[];
+  /**
+   * Structured warn-and-omit records when the adapter stamps typed codes.
+   * Free-text `warnings` remain for humans; agents prefer `omitted`.
+   */
+  omitted?: Array<{ code: string; subject: string; reason: string }>;
 }
 
 /**
