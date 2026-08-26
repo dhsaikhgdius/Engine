@@ -102,6 +102,7 @@ import {
   type WorkbenchRoutingOperation,
 } from "./workbenchClientRouting";
 import { createCollaborationRuntime } from "./collaboration/collaborationRuntime";
+import { buildCollaborationHealthStanza } from "./collaboration/collaborationHealth";
 import { handleCollaborationInviteRoute } from "./routes/collaborationInviteRoutes";
 import { handleCollaborationRoomRoute } from "./routes/collaborationRoomRoutes";
 import { loadDirectorControlPlaneConfig, type HostedAgentProfileConfig } from "./controlPlane/controlPlaneConfig";
@@ -2052,6 +2053,15 @@ const server = createServer(async (request, response) => {
         // Non-null when the durable scene snapshot was corrupt at startup and
         // got quarantined; operators recover it from `quarantinePath`.
         sceneRecovery,
+        // Redacted collaboration deployment flags — mode/TTL/rate-limit and
+        // room counts only; never room ids, tokens, or filesystem paths.
+        collaboration: buildCollaborationHealthStanza({
+          mode: collaborationRoomAuthorizer.mode,
+          persistence: collaborationSnapshotStore !== null,
+          emptyRoomTtlSeconds: collaborationRuntime.emptyRoomTtlSeconds,
+          inviteRateLimitPerMinute: collaborationRuntime.inviteRateLimitPerMinute,
+          liveRooms: collaborationHub.listRoomStatuses(),
+        }),
       });
     }
     if (

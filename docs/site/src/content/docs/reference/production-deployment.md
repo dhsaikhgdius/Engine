@@ -83,12 +83,14 @@ per the [Configuration](/reference/configuration/) reference.
 npm run build            # typecheck + chunk budget + portable MCP plugin
 npm test                 # full vitest suite
 curl "$GATEWAY_URL/health"
+# → {"ok":true,...,"collaboration":{"mode":"invite-required","persistence":true,...}}
 curl -H "X-Director-Browser-Token: $DIRECTOR_GATEWAY_TOKEN" "$GATEWAY_URL/api/collab/auth"
 # → {"mode":"invite-required"}
 ```
 
 An unauthenticated `collab.join` must now receive `collab.error` with code `unauthorized`.
-
+Confirm `collaboration.mode === "invite-required"` on `/health` when team auth is enabled; invite
+capability tokens and self-asserted awareness identity are not per-user accounts.
 ## Explicitly out of scope
 
 - Public internet exposure without your own reverse proxy, TLS, and network policy.

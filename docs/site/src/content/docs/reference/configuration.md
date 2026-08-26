@@ -29,6 +29,7 @@ automatically; raw HTTP clients obtain it from `/te-man/director/agent/bootstrap
 | `DIRECTOR_COLLAB_INVITE_SECRET`          | process gateway secret | Stable HMAC secret for invite tokens; set it so invites survive gateway restarts                                                   |
 | `DIRECTOR_COLLAB_PERSISTENCE`            | unset (in-memory)      | Set to `1` to persist Yjs room snapshots (compaction + corrupt-update quarantine) on disk, plus the invite revocation list         |
 | `DIRECTOR_COLLAB_EMPTY_ROOM_TTL_SECONDS` | unset (0)              | Grace period keeping an empty room's in-memory document alive after the last peer leaves (clamped to 24 h; 0 destroys immediately) |
+| `DIRECTOR_COLLAB_INVITE_RATE_LIMIT_PER_MINUTE` | unset (0 / off)  | Optional sliding-window cap on invite mint+revoke HTTP calls per client key; when exceeded returns `invite_rate_limited` with `Retry-After` |
 | `VITE_DIRECTOR_COLLAB_INVITE_TOKEN`      | unset                  | Frontend build/env-provided invite token the browser transport attaches to `collab.join`                                           |
 
 In local trust mode (default) every upgrade-authenticated socket joins as an editor, matching the
@@ -47,7 +48,12 @@ Room lifecycle and operations (all behind the master gateway token, returning co
 timestamps only — never document content, invite tokens, or filesystem paths):
 
 - `GET /api/collab/rooms` — merged live + durable room status: peer/editor/viewer counts,
-  snapshot bytes and age, pending updates, quarantine counts, auth mode, and revocation counters.
+  snapshot bytes and age, pending updates, quarantine counts, auth mode, empty-room TTL,
+  invite rate-limit policy, and revocation counters.
+  Unauthenticated `GET /health` also exposes a redacted `collaboration` stanza (`mode`,
+  `persistence`, `empty_room_ttl_seconds`, `invite_rate_limit_per_minute`, `active_rooms`,
+  `retained_rooms`) so operators can confirm team-mode flags without calling authenticated
+  collab routes.
 - `GET /api/collab/rooms/quarantine?room=<id>` — the bounded corrupt-update quarantine index for
   one room (ids, SHA-256 hashes, sizes, reasons).
 - `POST /api/collab/rooms/close` — `{room, archive?}`: peers receive a `room_closed` error and the
