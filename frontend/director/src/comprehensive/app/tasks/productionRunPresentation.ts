@@ -210,10 +210,7 @@ export function formatProductionRunUsageLine(
 ): string {
   const label = translate(line.label);
   const durationSec = Math.max(0, Math.round(line.summary.total_duration_ms / 1000));
-  const failure =
-    line.summary.failure_count > 0
-      ? ` · ${translate("失败")} ${line.summary.failure_count}`
-      : "";
+  const failure = line.summary.failure_count > 0 ? ` · ${translate("失败")} ${line.summary.failure_count}` : "";
   if (line.scope === "film-llm") {
     return `${label} ${line.summary.total_tokens} tokens · ${durationSec}s${failure}`;
   }
