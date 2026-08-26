@@ -166,7 +166,8 @@ Shared today:
   `node.section_id`, and `board.viewport`.
 - Video clip inspector edits, split, remove (including ripple), cross dissolve, discrete
   keyboard fade steps, the "+" placement into the first free slot (`edit.clip.add`), track
-  management, settings, import cataloging, and undo/redo (buttons and shortcuts).
+  management, settings, discrete timeline zoom (`edit.timeline.set_zoom` /
+  `edit.timeline.fit`), import cataloging, and undo/redo (buttons and shortcuts).
 - The Canvas-to-timeline bridge (`edit.clip.add` + `workspace.switch`), Stage capture import as
   one atomic `execute_batch` (catalog + node add roll back together), and media review
   rating/tag upserts (`gallery.media.update`, with a direct-store fallback only when the
@@ -212,5 +213,12 @@ Still direct, with reasons:
   `canvas.board.fit_content` (toolbar/post-layout fit) share the agent contract; continuous
   pan/wheel remain local. Zoom clamps to `[0.1, 2.5]`; fit defaults to a 1280×800 surface
   when no live DOM measure is available.
+- Video timeline viewport discrete writes — the zoom presets, zoom in/out buttons, and the
+  fit-to-content button share `edit.timeline.set_zoom` / `edit.timeline.fit`; continuous
+  ctrl/cmd-wheel zoom and the scroll anchoring that keeps the zoomed instant under the
+  pointer stay local. Zoom clamps to `[0.5, 4]` (72 px per second at zoom 1); fit frames the
+  edited content span into the live visible width, defaulting to a 960 px surface minus a
+  16 px gutter, and an empty timeline fits its 5-second minimum span. Observe exposes
+  `edit.timeline_zoom`.
 - Canvas pipeline result cataloging, legacy review-mirror migration, and bulk review clearing —
   multi-store or migration bookkeeping flows.

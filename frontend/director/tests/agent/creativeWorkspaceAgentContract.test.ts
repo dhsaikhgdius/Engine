@@ -678,6 +678,64 @@ describe("creative workspace agent operation contract", () => {
     expect(useDirectorCreativeWorkspaceStore.getState().selectedClipId).toBeNull();
   });
 
+  it("sets and fits the Video timeline zoom through the shared viewport ops", () => {
+    const runtime = context();
+    expect(useDirectorCreativeWorkspaceStore.getState().timelineZoom).toBe(1);
+
+    const zoomed = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "edit.timeline.set_zoom", zoom: 2.5 }, runtime),
+    );
+    expect(zoomed.result).toEqual({ timeline_zoom: 2.5, previous_timeline_zoom: 1, unchanged: false });
+    expect(zoomed.snapshot.edit.timeline_zoom).toBe(2.5);
+    const alreadyZoomed = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "edit.timeline.set_zoom", zoom: 2.5 }, runtime),
+    );
+    expect(alreadyZoomed.result).toMatchObject({ unchanged: true });
+
+    // Empty timeline: fit frames the 5-second minimum window into the default
+    // 960 px agent surface minus the 16 px gutter.
+    const emptyFit = expectSuccess(executeCreativeWorkspaceAgentOperation({ op: "edit.timeline.fit" }, runtime));
+    expect(emptyFit.result).toMatchObject({ surface_width: 960, content_span_sec: 5, unchanged: false });
+    expect(emptyFit.result.timeline_zoom).toBeCloseTo(944 / 360, 10);
+    expect(emptyFit.message).toContain("empty timeline");
+
+    // Zoom is view state: it advances the fingerprint but never pushes undo history.
+    expect(useDirectorCreativeWorkspaceStore.getState().canUndo).toBe(false);
+
+    // 6s clip starting at 1s spans 7s of content; (520 - 16) / (7 × 72) = 1 exactly.
+    addVideoClip(runtime);
+    const fitted = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "edit.timeline.fit", surface_width: 520 }, runtime),
+    );
+    expect(fitted.result).toMatchObject({
+      timeline_zoom: 1,
+      surface_width: 520,
+      content_span_sec: 7,
+      unchanged: false,
+    });
+    expect(fitted.snapshot.edit.timeline_zoom).toBe(1);
+    const alreadyFitted = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "edit.timeline.fit", surface_width: 520 }, runtime),
+    );
+    expect(alreadyFitted.result).toMatchObject({ unchanged: true });
+
+    // A surface narrower than the gutter clamps to the shared minimum zoom.
+    const clamped = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "edit.timeline.fit", surface_width: 20 }, runtime),
+    );
+    expect(clamped.result).toMatchObject({ timeline_zoom: 0.5 });
+
+    // The schema rejects zoom outside the shared [0.5, 4] range before execution.
+    expect(parseCreativeWorkspaceAgentOperation({ op: "edit.timeline.set_zoom", zoom: 8 })).toMatchObject({
+      success: false,
+      code: "invalid_input",
+    });
+    expect(parseCreativeWorkspaceAgentOperation({ op: "edit.timeline.set_zoom", zoom: 0.2 })).toMatchObject({
+      success: false,
+      code: "invalid_input",
+    });
+  });
+
   it("ripple-removes a timeline range with deletions, boundary trims, and exact shifts", () => {
     const runtime = context();
     const before = addTimelineClip(runtime, "video-1", "Before", 0, 2);
@@ -1431,6 +1489,8 @@ describe("creative workspace agent operation contract", () => {
           "canvas.node.assign_section",
           "canvas.board.set_viewport",
           "canvas.board.fit_content",
+          "edit.timeline.set_zoom",
+          "edit.timeline.fit",
         ]),
         batch: {
           atomic: true,
@@ -1454,6 +1514,14 @@ describe("creative workspace agent operation contract", () => {
         },
         limits: expect.objectContaining({ board_sections: 32 }),
         editorial: {
+          timeline_viewport: {
+            observe_path: "edit.timeline_zoom",
+            set_zoom_operation: "edit.timeline.set_zoom",
+            fit_operation: "edit.timeline.fit",
+            zoom_range: [0.5, 4],
+            base_pixels_per_second: 72,
+            fit_defaults: { surface_width: 960, gutter: 16 },
+          },
           timebase: {
             source_of_truth: "edit.settings.timebase",
             observe_path: "edit.settings.timebase",

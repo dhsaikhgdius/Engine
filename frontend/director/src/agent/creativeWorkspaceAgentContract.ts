@@ -9,6 +9,13 @@ import {
   normalizeCanvasBoardViewport,
 } from "../comprehensive/editor/workspaces/canvasBoardViewport";
 import {
+  DIRECTOR_TIMELINE_BASE_PIXELS_PER_SECOND,
+  DIRECTOR_TIMELINE_FIT_DEFAULT_SURFACE_WIDTH,
+  clampDirectorTimelineZoom,
+  computeDirectorTimelineFitZoom,
+} from "../comprehensive/editor/workspaces/videoTimelineViewport";
+import { getDirectorTimelineContentDuration } from "../comprehensive/editor/workspaces/directorTimelineVideoExport";
+import {
   createDefaultDirectorCanvasProductionConfig,
   directorCanvasProductionConfigSchema,
 } from "../comprehensive/editor/workspaces/canvasPipelineProtocol";
@@ -16,6 +23,7 @@ import {
   DIRECTOR_CLIP_EDGE_EPSILON_SEC,
   findDirectorTransitionPredecessor,
   getDirectorCreativeWorkspaceScope,
+  getDirectorEditDuration,
   useDirectorCreativeWorkspaceStore,
   type DirectorBoardEdge,
   type DirectorBoardNode,
@@ -2173,6 +2181,51 @@ export function executeCreativeWorkspaceAgentOperation(
         operation.op,
         `Moved the edit playhead to ${operation.seconds}s.`,
         { playhead_sec: operation.seconds },
+        context,
+      );
+    }
+    case "edit.timeline.set_zoom": {
+      const previous = state.timelineZoom;
+      const zoom = clampDirectorTimelineZoom(operation.zoom);
+      const unchanged = previous === zoom;
+      if (!unchanged) state.setTimelineZoom(zoom);
+      const after = context.workspace.getState().timelineZoom;
+      return success(
+        operation.op,
+        unchanged
+          ? "Video timeline zoom already matches the requested scale."
+          : `Set the Video timeline zoom to ${after.toFixed(3)} (${Math.round(
+              after * DIRECTOR_TIMELINE_BASE_PIXELS_PER_SECOND,
+            )} px/s).`,
+        { timeline_zoom: after, previous_timeline_zoom: previous, unchanged },
+        context,
+      );
+    }
+    case "edit.timeline.fit": {
+      const previous = state.timelineZoom;
+      const surfaceWidth = operation.surface_width ?? DIRECTOR_TIMELINE_FIT_DEFAULT_SURFACE_WIDTH;
+      const mediaKindById = new Map(context.media.getState().assets.map((asset) => [asset.id, { kind: asset.kind }]));
+      const contentDuration = getDirectorTimelineContentDuration(state.editTracks, mediaKindById);
+      const span = Math.max(1, contentDuration > 0 ? contentDuration : getDirectorEditDuration(state.editTracks));
+      const zoom = computeDirectorTimelineFitZoom(span, surfaceWidth);
+      const unchanged = previous === zoom;
+      if (!unchanged) state.setTimelineZoom(zoom);
+      const after = context.workspace.getState().timelineZoom;
+      const empty = state.editTracks.every((track) => track.clips.length === 0);
+      return success(
+        operation.op,
+        empty
+          ? `Fitted the empty timeline's minimum window into a ${surfaceWidth} px surface.`
+          : unchanged
+            ? "Video timeline zoom already fits the edited content."
+            : `Fitted ${span.toFixed(2)}s of edited content into a ${surfaceWidth} px timeline surface at zoom ${after.toFixed(3)}.`,
+        {
+          timeline_zoom: after,
+          previous_timeline_zoom: previous,
+          surface_width: surfaceWidth,
+          content_span_sec: span,
+          unchanged,
+        },
         context,
       );
     }

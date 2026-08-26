@@ -445,6 +445,18 @@ export const creativeWorkspaceAgentCapabilitiesSchema = z.strictObject({
       timecode_contract: z.string(),
       example: editSettingsUpdateSchema,
     }),
+    timeline_viewport: z.strictObject({
+      observe_path: z.literal("edit.timeline_zoom"),
+      set_zoom_operation: z.literal("edit.timeline.set_zoom"),
+      fit_operation: z.literal("edit.timeline.fit"),
+      zoom_range: z.tuple([z.literal(0.5), z.literal(4)]),
+      base_pixels_per_second: z.literal(72),
+      fit_defaults: z.strictObject({
+        surface_width: z.literal(960),
+        gutter: z.literal(16),
+      }),
+      viewport_contract: z.string(),
+    }),
     media: z.strictObject({
       observe_path: z.literal("media.assets"),
       observable_fields: z.tuple([
