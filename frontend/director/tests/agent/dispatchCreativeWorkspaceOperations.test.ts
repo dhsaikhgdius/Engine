@@ -454,6 +454,33 @@ describe("creative workspace UI/agent parity harness", () => {
     expect(before).not.toBe(lockedFingerprint);
   });
 
+  it("edit.clip.add overwrite trims covered neighbours the same way commitClipPlacement does", () => {
+    const runtime = context();
+    const executed = uiExecutor(runtime);
+    executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:image:poster",
+      name: "Covered still",
+      start_sec: 0,
+      duration_sec: 3,
+      source_duration_sec: 3,
+    });
+    executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:video:take",
+      name: "Overwrite take",
+      start_sec: 0,
+      duration_sec: 4,
+      source_duration_sec: 12,
+      overwrite: true,
+    });
+    const track = useDirectorCreativeWorkspaceStore.getState().editTracks.find((item) => item.id === "video-1");
+    expect(track?.clips).toHaveLength(1);
+    expect(track?.clips[0]).toMatchObject({ name: "Overwrite take", startSec: 0, durationSec: 4 });
+  });
+
   it("dispatches multi-operation arrays as one atomic batch that rolls back on failure", () => {
     const runtime = context();
     const before = observeCreativeWorkspaceAgentSnapshot(runtime);

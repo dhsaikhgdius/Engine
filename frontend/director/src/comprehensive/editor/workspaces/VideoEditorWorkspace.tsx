@@ -762,9 +762,9 @@ export function VideoEditorWorkspace() {
   // track management, settings, import cataloging, and undo/redo dispatch
   // through the shared agent contract (dispatchCreativeWorkspaceOperations).
   // Only continuous interactions (drags, trims, fades, range sliders, live
-  // typing), overwrite placement flows (drop/nudge/duplicate resolved by
-  // commitClipPlacement), and media-less text/caption clips keep the direct
-  // store mutators.
+  // typing), remaining overwrite-adjacent nudges/duplicates, and media-less
+  // text/caption clips keep the direct store mutators. Explicit media drops
+  // share `edit.clip.add` with overwrite:true.
   const addClip = useDirectorCreativeWorkspaceStore((state) => state.addClip);
   const updateClip = useDirectorCreativeWorkspaceStore((state) => state.updateClip);
   const moveClipToTrack = useDirectorCreativeWorkspaceStore((state) => state.moveClipToTrack);
@@ -1522,20 +1522,21 @@ export function VideoEditorWorkspace() {
       return;
     }
     // Explicit drops land exactly where released and overwrite what they
-    // cover; commitClipPlacement resolves the overwrite, so this flow keeps
-    // the direct mutators inside one history batch.
-    beginHistoryBatch();
-    const created = addClip({
-      trackId: targetTrackId,
-      mediaId,
-      name: item.name,
-      startSec: desiredStart,
-      durationSec,
-      sourceDurationSec: item.kind === "video" || item.kind === "audio" ? durationSec : 60 * 60,
-    });
-    if (created) commitClipPlacement(created.id);
-    endHistoryBatch();
-    if (!created) setImportMessage(t("目标轨道不可用，请先解锁或新建轨道"));
+    // cover via the shared edit.clip.add overwrite flag (same resolver as
+    // commitClipPlacement).
+    dispatchVideo(
+      {
+        op: "edit.clip.add",
+        track_id: targetTrackId,
+        media_id: mediaId,
+        name: item.name.trim().slice(0, 200) || t("未命名剪辑"),
+        start_sec: desiredStart,
+        duration_sec: durationSec,
+        source_duration_sec: item.kind === "video" || item.kind === "audio" ? durationSec : 60 * 60,
+        overwrite: true,
+      },
+      t("加入时间线失败"),
+    );
   }
 
   function addTextClip() {

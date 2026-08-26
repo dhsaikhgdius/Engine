@@ -166,8 +166,8 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 
 - 连续交互——节点拖拽、剪辑拖拽/裁剪、淡变拖拽、范围滑杆、实时输入——保留本地批处理历史
   （`beginHistoryBatch`/`endHistoryBatch`），与 Stage 滑块/gizmo 策略一致。
-- 由 `commitClipPlacement` 解决的覆盖放置流（显式落点、逐帧微移、后接复制）——尚无语义操作
-  能表达“覆盖并裁剪”。
+- 仍走 `commitClipPlacement` 的覆盖相关流（逐帧微移、裁入邻接、后接复制）。显式媒体落点已
+  共用 `edit.clip.add` 且 `overwrite: true`（同一 `resolveDirectorTrackOverwrite` 解析器）。
 - 无媒体的文字/字幕剪辑（`text:` id）、Canvas 置顶、视图状态与分区簿记——尚无语义操作。
 - 媒体重连引用改写、Canvas 流水线产物入册、旧评审镜像迁移与批量清除评审——多 store 或迁移
   簿记流程。
