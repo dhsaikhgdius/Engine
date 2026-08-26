@@ -26,9 +26,43 @@ function groundedTrace(sliceId: string): GamePlaytestTrace {
     dt: 1 / 30,
     verbs_exercised: ["move", "look", "jump", "interact"],
     samples: [
-      { frame: 0, time_s: 0, position: [0, 0, 0], yaw: 0, velocity: [0, 0, 1.2], on_ground: true, flying: false, verb: "move", camera_clip: false, stuck: false },
-      { frame: 15, time_s: 0.5, position: [0, 0, 0.6], yaw: 0, velocity: [0, 0, 1.2], on_ground: true, flying: false, verb: "jump", camera_clip: false, stuck: false },
-      { frame: 30, time_s: 1, position: [0, 0, 1.2], yaw: 0, velocity: [0, 0, 0], on_ground: true, flying: false, verb: "interact", interaction_object_id: "stele-1", camera_clip: false, stuck: false },
+      {
+        frame: 0,
+        time_s: 0,
+        position: [0, 0, 0],
+        yaw: 0,
+        velocity: [0, 0, 1.2],
+        on_ground: true,
+        flying: false,
+        verb: "move",
+        camera_clip: false,
+        stuck: false,
+      },
+      {
+        frame: 15,
+        time_s: 0.5,
+        position: [0, 0, 0.6],
+        yaw: 0,
+        velocity: [0, 0, 1.2],
+        on_ground: true,
+        flying: false,
+        verb: "jump",
+        camera_clip: false,
+        stuck: false,
+      },
+      {
+        frame: 30,
+        time_s: 1,
+        position: [0, 0, 1.2],
+        yaw: 0,
+        velocity: [0, 0, 0],
+        on_ground: true,
+        flying: false,
+        verb: "interact",
+        interaction_object_id: "stele-1",
+        camera_clip: false,
+        stuck: false,
+      },
     ],
   };
 }
@@ -112,7 +146,10 @@ describe("director_game routes", () => {
       body: { success: true, result: { tool: "director_game", runtime: { default: "stage" } } },
     });
     const described = await call(game, { op: "describe", target: "plan", session_id: "http-test" });
-    expect(described).toMatchObject({ status: 200, body: { success: true, result: { target: "plan", kind: "operation" } } });
+    expect(described).toMatchObject({
+      status: 200,
+      body: { success: true, result: { target: "plan", kind: "operation" } },
+    });
   });
 
   it("rejects malformed input with the DCC-style path message", async () => {

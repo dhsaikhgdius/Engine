@@ -1,10 +1,6 @@
 import { mkdir, readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import {
-  gameSliceIdSchema,
-  gameSliceSchema,
-  type GameSlice,
-} from "../../../packages/protocol/src/gameSliceProtocol";
+import { gameSliceIdSchema, gameSliceSchema, type GameSlice } from "../../../packages/protocol/src/gameSliceProtocol";
 import { writeJsonAtomic } from "../atomicJsonFile";
 
 /**
