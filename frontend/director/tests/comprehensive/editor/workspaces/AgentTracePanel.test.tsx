@@ -148,11 +148,39 @@ describe("formatTraceDuration", () => {
 });
 
 describe("formatProgressPercent / groupUsageByScope", () => {
-  it("formats progress fractions and sorts film-llm first", () => {
+  it("formats progress fractions and sorts film scopes ahead of sessions", () => {
     expect(formatProgressPercent(5 / 7)).toBe("71%");
     expect(formatProgressPercent(null)).toBe("—");
-    const rows = groupUsageByScope(SAMPLES);
-    expect(rows.map((row) => row.scope)).toEqual(["film-llm", "prod-session-1"]);
+    const rows = groupUsageByScope([
+      ...SAMPLES,
+      {
+        id: "usage-3",
+        scope: "film-video",
+        provider: "videos-api:veo",
+        model: "veo",
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        duration_ms: 2_000,
+        retries: 1,
+        succeeded: true,
+        recorded_at: "2026-08-25T10:00:03.000Z",
+      },
+      {
+        id: "usage-4",
+        scope: "film-image",
+        provider: "images-api:img",
+        model: "img",
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        duration_ms: 400,
+        retries: 0,
+        succeeded: true,
+        recorded_at: "2026-08-25T10:00:04.000Z",
+      },
+    ]);
+    expect(rows.map((row) => row.scope)).toEqual(["film-llm", "film-image", "film-video", "prod-session-1"]);
     expect(rows[0]!.summary.total_tokens).toBe(60);
   });
 });
@@ -195,9 +223,28 @@ describe("AgentTracePanel", () => {
     expect(screen.getByText(/修订 rev-1 → rev-2/)).toBeInTheDocument();
   });
 
-  it("renders film pipeline progress and per-scope usage including film-llm", async () => {
+  it("renders film pipeline progress and per-scope usage including film scopes", async () => {
     directorControlPlaneFetch.mockImplementation(
-      mockObservability({ usage: USAGE, samples: SAMPLES, progress: [FILM_PROGRESS] }),
+      mockObservability({
+        usage: USAGE,
+        samples: [
+          ...SAMPLES,
+          {
+            id: "usage-3",
+            scope: "film-image",
+            provider: "images-api:img",
+            model: "img",
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            duration_ms: 400,
+            retries: 0,
+            succeeded: true,
+            recorded_at: "2026-08-25T10:00:03.000Z",
+          },
+        ],
+        progress: [FILM_PROGRESS],
+      }),
     );
     render(<AgentTracePanel onClose={() => {}} />);
 
@@ -205,6 +252,7 @@ describe("AgentTracePanel", () => {
     expect(screen.getByText(/idea-to-film · 71% · running/)).toBeInTheDocument();
     expect(screen.getByText("开始渲染第 2 镜")).toBeInTheDocument();
     expect(screen.getByText("Film 规划 LLM")).toBeInTheDocument();
+    expect(screen.getByText("Film 图像生成")).toBeInTheDocument();
     expect(screen.getByText(/60 tokens · 600 ms · 失败 1/)).toBeInTheDocument();
     expect(screen.getByText("prod-session-1")).toBeInTheDocument();
   });

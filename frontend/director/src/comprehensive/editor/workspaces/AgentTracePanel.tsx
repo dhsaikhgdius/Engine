@@ -49,9 +49,10 @@ export type AgentTracePanelData = {
 };
 
 /**
- * Groups usage samples by scope and summarizes each bucket. Scopes are sorted
- * with `film-llm` first when present, then alphabetically, so Film planning
- * metering is never buried under production-session totals.
+ * Groups usage samples by scope and summarizes each bucket. Film pipeline
+ * scopes sort first (`film-llm`, then `film-image`, then `film-video`), then
+ * remaining scopes alphabetically, so render-phase metering is never buried
+ * under production-session totals.
  */
 export function groupUsageByScope(samples: readonly AgentUsageSample[]): AgentTraceUsageScopeRow[] {
   const byScope = new Map<string, AgentUsageSample[]>();
@@ -60,11 +61,17 @@ export function groupUsageByScope(samples: readonly AgentUsageSample[]): AgentTr
     bucket.push(sample);
     byScope.set(sample.scope, bucket);
   }
+  const filmRank = (scope: string) => {
+    if (scope === "film-llm") return 0;
+    if (scope === "film-image") return 1;
+    if (scope === "film-video") return 2;
+    return 100;
+  };
   return [...byScope.entries()]
     .map(([scope, scoped]) => ({ scope, summary: summarizeAgentUsage(scoped) }))
     .sort((left, right) => {
-      if (left.scope === "film-llm") return -1;
-      if (right.scope === "film-llm") return 1;
+      const rankDelta = filmRank(left.scope) - filmRank(right.scope);
+      if (rankDelta !== 0) return rankDelta;
       return left.scope.localeCompare(right.scope);
     });
 }
@@ -124,6 +131,8 @@ function formatClock(iso: string) {
 
 function scopeLabel(scope: string, t: (key: string) => string): string {
   if (scope === "film-llm") return t("Film 规划 LLM");
+  if (scope === "film-image") return t("Film 图像生成");
+  if (scope === "film-video") return t("Film 视频生成");
   return scope;
 }
 
@@ -229,7 +238,10 @@ export function AgentTracePanel({ onClose }: { onClose: () => void }) {
             {formatTraceDuration(usage.total_duration_ms)} · {t("重试")} {usage.retries} · {t("失败")}{" "}
             {usage.failure_count}
           </p>
-          {usageScopes.length > 1 || usageScopes.some((row) => row.scope === "film-llm") ? (
+          {usageScopes.length > 1 ||
+          usageScopes.some(
+            (row) => row.scope === "film-llm" || row.scope === "film-image" || row.scope === "film-video",
+          ) ? (
             <ul className="director-agent-trace-panel-usage-scopes">
               {usageScopes.map((row) => (
                 <li key={row.scope}>

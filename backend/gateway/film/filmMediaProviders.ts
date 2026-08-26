@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import { z } from "zod";
 import { fetchModelJson, ModelDriverHttpError } from "@director/model-provider/runtime";
+import type { AgentUsageMeter } from "../../../packages/protocol/src/agentObservabilityProtocol";
 
 /**
  * Hosted image and video generation for the film pipeline.
@@ -79,7 +80,33 @@ export type HostedMediaProviderConfig = {
   /** Total budget for one video job including polling. */
   timeoutMs?: number;
   pollIntervalMs?: number;
+  /** Optional shared agent usage meter (image → `film-image`, video → `film-video`). */
+  meter?: AgentUsageMeter;
 };
+
+function meterMediaCall(
+  meter: AgentUsageMeter | undefined,
+  input: {
+    scope: "film-image" | "film-video";
+    providerId: string;
+    model: string;
+    startedAtMs: number;
+    retries: number;
+    succeeded: boolean;
+  },
+): void {
+  meter?.({
+    scope: input.scope,
+    provider: input.providerId,
+    model: input.model,
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    duration_ms: Math.max(0, Date.now() - input.startedAtMs),
+    retries: Math.max(0, input.retries),
+    succeeded: input.succeeded,
+  });
+}
 
 const imagesResponseSchema = z.looseObject({
   data: z.array(z.looseObject({ b64_json: z.string().optional(), url: z.string().optional() })).min(1),
@@ -114,32 +141,56 @@ export class HostedImagesApiGenerator implements FilmImageGenerator {
         references.map(async (path) => ({ type: "image_url", image_url: { url: await imageDataUrl(path) } })),
       );
     }
-    const body = await fetchModelJson({
-      fetch: this.fetchImpl,
-      url: `${this.config.baseUrl}/images`,
-      init: {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {}),
+    const startedAtMs = Date.now();
+    try {
+      const body = await fetchModelJson({
+        fetch: this.fetchImpl,
+        url: `${this.config.baseUrl}/images`,
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {}),
+          },
+          body: JSON.stringify(payload),
         },
-        body: JSON.stringify(payload),
-      },
-      signal: request.signal,
-      providerId: this.id,
-      secrets: [this.config.apiKey],
-      maxRetries: 2,
-    });
-    const parsed = imagesResponseSchema.parse(body);
-    const item = parsed.data[0];
-    if (item.b64_json) return decodeBase64Payload(item.b64_json);
-    if (item.url?.startsWith("data:")) return decodeBase64Payload(item.url);
-    if (item.url) {
-      const response = await this.fetchImpl(item.url, { signal: request.signal });
-      if (!response.ok) throw new Error(`${this.id} image download failed (HTTP ${response.status})`);
-      return Buffer.from(await response.arrayBuffer());
+        signal: request.signal,
+        providerId: this.id,
+        secrets: [this.config.apiKey],
+        maxRetries: 2,
+      });
+      const parsed = imagesResponseSchema.parse(body);
+      const item = parsed.data[0];
+      let bytes: Buffer;
+      if (item.b64_json) bytes = decodeBase64Payload(item.b64_json);
+      else if (item.url?.startsWith("data:")) bytes = decodeBase64Payload(item.url);
+      else if (item.url) {
+        const response = await this.fetchImpl(item.url, { signal: request.signal });
+        if (!response.ok) throw new Error(`${this.id} image download failed (HTTP ${response.status})`);
+        bytes = Buffer.from(await response.arrayBuffer());
+      } else {
+        throw new Error(`${this.id} response missing image data`);
+      }
+      meterMediaCall(this.config.meter, {
+        scope: "film-image",
+        providerId: this.id,
+        model: this.config.model,
+        startedAtMs,
+        retries: 0,
+        succeeded: true,
+      });
+      return bytes;
+    } catch (error) {
+      meterMediaCall(this.config.meter, {
+        scope: "film-image",
+        providerId: this.id,
+        model: this.config.model,
+        startedAtMs,
+        retries: 0,
+        succeeded: false,
+      });
+      throw error;
     }
-    throw new Error(`${this.id} response missing image data`);
   }
 }
 
@@ -205,63 +256,88 @@ export class HostedVideosApiGenerator implements FilmVideoGenerator {
         frame_type: frameTypes[index],
       })),
     );
-    const created = videoCreateResponseSchema.parse(
-      await fetchModelJson({
-        fetch: this.fetchImpl,
-        url: `${this.config.baseUrl}/videos`,
-        init: {
-          method: "POST",
-          headers: this.headers(),
-          body: JSON.stringify({
-            model: this.config.model,
-            prompt: request.prompt,
-            aspect_ratio: request.aspectRatio ?? "16:9",
-            duration: request.durationSec ?? 8,
-            frame_images: frameImages,
-          }),
-        },
-        signal: request.signal,
-        providerId: this.id,
-        secrets: [this.config.apiKey],
-        maxRetries: 2,
-      }),
-    );
-
-    const pollUrl = created.polling_url
-      ? new URL(created.polling_url, `${this.config.baseUrl}/`).toString()
-      : `${this.config.baseUrl}/videos/${created.id}`;
-    const pollIntervalMs = this.config.pollIntervalMs ?? 10_000;
-    const deadline = Date.now() + (this.config.timeoutMs ?? 20 * 60_000);
-    for (;;) {
-      if (Date.now() > deadline) {
-        throw new ModelDriverHttpError(this.id, 0, false, `${this.id} video job ${created.id} timed out`);
-      }
-      await wait(pollIntervalMs, request.signal);
-      const polled = videoPollResponseSchema.parse(
+    const startedAtMs = Date.now();
+    let pollRounds = 0;
+    try {
+      const created = videoCreateResponseSchema.parse(
         await fetchModelJson({
           fetch: this.fetchImpl,
-          url: pollUrl,
-          init: { method: "GET", headers: this.headers() },
+          url: `${this.config.baseUrl}/videos`,
+          init: {
+            method: "POST",
+            headers: this.headers(),
+            body: JSON.stringify({
+              model: this.config.model,
+              prompt: request.prompt,
+              aspect_ratio: request.aspectRatio ?? "16:9",
+              duration: request.durationSec ?? 8,
+              frame_images: frameImages,
+            }),
+          },
           signal: request.signal,
           providerId: this.id,
           secrets: [this.config.apiKey],
           maxRetries: 2,
         }),
       );
-      if (polled.status === "completed") {
-        const contentUrl = polled.unsigned_urls?.[0] ?? `${this.config.baseUrl}/videos/${created.id}/content?index=0`;
-        const sameHost = contentUrl.startsWith(this.config.baseUrl);
-        const response = await this.fetchImpl(contentUrl, {
-          signal: request.signal,
-          headers: sameHost ? this.headers() : undefined,
-        });
-        if (!response.ok) throw new Error(`${this.id} video download failed (HTTP ${response.status})`);
-        return Buffer.from(await response.arrayBuffer());
+
+      const pollUrl = created.polling_url
+        ? new URL(created.polling_url, `${this.config.baseUrl}/`).toString()
+        : `${this.config.baseUrl}/videos/${created.id}`;
+      const pollIntervalMs = this.config.pollIntervalMs ?? 10_000;
+      const deadline = Date.now() + (this.config.timeoutMs ?? 20 * 60_000);
+      for (;;) {
+        if (Date.now() > deadline) {
+          throw new ModelDriverHttpError(this.id, 0, false, `${this.id} video job ${created.id} timed out`);
+        }
+        await wait(pollIntervalMs, request.signal);
+        pollRounds += 1;
+        const polled = videoPollResponseSchema.parse(
+          await fetchModelJson({
+            fetch: this.fetchImpl,
+            url: pollUrl,
+            init: { method: "GET", headers: this.headers() },
+            signal: request.signal,
+            providerId: this.id,
+            secrets: [this.config.apiKey],
+            maxRetries: 2,
+          }),
+        );
+        if (polled.status === "completed") {
+          const contentUrl = polled.unsigned_urls?.[0] ?? `${this.config.baseUrl}/videos/${created.id}/content?index=0`;
+          const sameHost = contentUrl.startsWith(this.config.baseUrl);
+          const response = await this.fetchImpl(contentUrl, {
+            signal: request.signal,
+            headers: sameHost ? this.headers() : undefined,
+          });
+          if (!response.ok) throw new Error(`${this.id} video download failed (HTTP ${response.status})`);
+          const bytes = Buffer.from(await response.arrayBuffer());
+          meterMediaCall(this.config.meter, {
+            scope: "film-video",
+            providerId: this.id,
+            model: this.config.model,
+            startedAtMs,
+            // Poll rounds after create count as transport retries for wall-clock metering.
+            retries: Math.max(0, pollRounds - 1),
+            succeeded: true,
+          });
+          return bytes;
+        }
+        if (polled.status === "failed" || polled.status === "cancelled" || polled.status === "expired") {
+          const detail = polled.error === undefined ? "" : `: ${JSON.stringify(polled.error).slice(0, 500)}`;
+          throw new Error(`${this.id} video job ${created.id} ${polled.status}${detail}`);
+        }
       }
-      if (polled.status === "failed" || polled.status === "cancelled" || polled.status === "expired") {
-        const detail = polled.error === undefined ? "" : `: ${JSON.stringify(polled.error).slice(0, 500)}`;
-        throw new Error(`${this.id} video job ${created.id} ${polled.status}${detail}`);
-      }
+    } catch (error) {
+      meterMediaCall(this.config.meter, {
+        scope: "film-video",
+        providerId: this.id,
+        model: this.config.model,
+        startedAtMs,
+        retries: Math.max(0, pollRounds - 1),
+        succeeded: false,
+      });
+      throw error;
     }
   }
 }
