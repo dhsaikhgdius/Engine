@@ -3,6 +3,15 @@ import type { IncomingMessage } from "node:http";
 
 const DEFAULT_BROWSER_PORTS = [5175, 4173, 8787];
 
+/**
+ * The CORS `access-control-allow-headers` value for browser control-plane
+ * requests. Every custom header the browser client sends
+ * (`agentGatewayClient.ts`: the auth token and the observability trace-source
+ * tag) must be listed, or cross-origin fetches fail the preflight with an
+ * opaque "Failed to fetch".
+ */
+export const DIRECTOR_CORS_ALLOWED_REQUEST_HEADERS = "content-type, x-director-browser-token, x-director-trace-source";
+
 function configuredPort(value: string | undefined) {
   if (!value?.trim()) return null;
   const port = Number(value.trim());

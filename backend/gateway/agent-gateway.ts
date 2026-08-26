@@ -60,6 +60,7 @@ import {
   authenticatedDirectorPreviewUrl,
   createDirectorGatewaySecret,
   createDirectorPreviewSecret,
+  DIRECTOR_CORS_ALLOWED_REQUEST_HEADERS,
   directorAllowedOrigins,
   directorGatewayRequestAuthorized,
   directorGatewayTokenMatches,
@@ -459,7 +460,10 @@ function headers(response: ServerResponse, status = 200, contentType = "applicat
     "content-type": contentType,
     ...(corsOrigin ? { "access-control-allow-origin": corsOrigin, vary: "Origin" } : {}),
     "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type, x-director-browser-token",
+    // Every header the browser client sends must be preflight-approved here:
+    // the observability trace-source tag made cross-origin control-plane
+    // fetches fail CORS preflight ("Failed to fetch") when it was missing.
+    "access-control-allow-headers": DIRECTOR_CORS_ALLOWED_REQUEST_HEADERS,
     "cache-control": "no-store",
   });
 }
