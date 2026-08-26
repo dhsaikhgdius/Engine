@@ -26,12 +26,12 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 
 | 类别 | 数量 |
 | ------------------------------ | ----- |
-| shared Stage 项目 mutator | 75 |
-| ui-only Stage 项目 mutator | 12 |
-| 覆盖率（shared / 项目 mutator） | **75 / 87 ≈ 86%** |
+| shared Stage 项目 mutator | 77 |
+| ui-only Stage 项目 mutator | 10 |
+| 覆盖率（shared / 项目 mutator） | **77 / 87 ≈ 89%** |
 
-仍为 ui-only 的入口，要么尚无 semantic action（timeline 音频、object list、全景/capture/资产目录
-写入），要么在 store 中带注释、有意保持本地写入（快照相机、预置/人群/资产新建流程）。
+仍为 ui-only 的入口，要么尚无 semantic action（object list、capture 证据写入、目录入库），
+要么在 store 中带注释、有意保持本地写入（快照相机、预置/人群/资产新建流程）。
 
 对等性由
 `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 回归保护：同一份
@@ -108,7 +108,7 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 | `addSceneMeasurement` / `updateSceneMeasurement` / `removeSceneMeasurement` | `directorStore.ts` | `add_measurement` / `update_measurement` / `remove_measurements` | shared |
 | `setObjectLayerState` | `directorStore.ts` | `set_object_layer_state` | shared（跳过无变化写入以保持撤销栈干净） |
 | `moveObjectLayer` | `directorStore.ts` | `reorder_object_layer` | shared |
-| `removePanoramaAsset` | `directorStore.ts` | 尚无 semantic action | ui-only |
+| `removePanoramaAsset` | `directorStore.ts` | `remove_assets`（移除全景资产 id 时清空 `panoramaAssetId`） | shared（当角色仍需要默认 Mixamo 资产但 `assets` 中缺失时，migrate 会回灌该资产——此时仍走只删除全景条目的旧写入） |
 
 ## 时间线音频
 
@@ -120,7 +120,8 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 
 | Mutator | 文件 | Semantic action | 状态 |
 | --- | --- | --- | --- |
-| `addImportedAsset` / `setAssetRealWorldSize` | `directorStore.ts` | 尚无 semantic action（资产目录写入） | ui-only |
+| `addImportedAsset` | `directorStore.ts` | 尚无 semantic action（目录入库与可选落场景） | ui-only |
+| `setAssetRealWorldSize` | `directorStore.ts` | `upsert_asset` 写入补丁后的 `realWorldSizeM` / `sizeSource` | shared（清空为 `null` 仍走旧写入，避免 migrate 的 2 m 估计回填把道具检查器再次填满） |
 | `removeImportedAsset` | `directorStore.ts` | `remove_assets`（`cascade`） | shared（当级联还会删除子对象、清除 look target、相机 follow/path 绑定或材质纹理引用时，仍走保持这些引用不动的旧写入） |
 | `addObjectFromAsset` | `directorStore.ts` | 与 `add_object` 存在分歧：`createSceneObjectFromAsset` 会打上 Blender `nativeSource` provisioning 标记与角色 rig 默认值，`add_object` 不 author 这些 | ui-only（有意保持本地） |
 | `addPresetCharacter` / `addCrowdCharacters` | `directorStore.ts` | 与 `add_object` 存在分歧：预置新增保留每次的体型与轮换配色，人群分组（`crowdId`）是 `add_object` 无法 author 的 UI 状态 | ui-only（有意保持本地） |

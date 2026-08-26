@@ -97,7 +97,7 @@ flowchart LR
 
 - [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/) covers every Stage
   `directorStore` mutation entry point with mutator, file, semantic action, and
-  `shared` / `ui-only` / `human-only-interactive` status (75 / 87 project mutators shared, ~86%).
+  `shared` / `ui-only` / `human-only-interactive` status (77 / 87 project mutators shared, ~89%).
 - Parity tests in `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` assert
   that store mutators and direct `applyDirectorAuthoringActions` produce the same
   `getDirectorProjectRevision` for deletes, transforms, camera update/activate, character
