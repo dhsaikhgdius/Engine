@@ -411,6 +411,10 @@ it("imports OTIO into Video Editor atomically without replacing the Stage projec
   });
   expect(creative.editSettings).toMatchObject({ aspectRatio: "9 / 16", snapEnabled: false, exportQuality: "preview" });
   expect(useDirectorStore.getState().project).toEqual(stageBefore);
+  const omitReport = screen.getByRole("region", { name: "视频 OTIO 导入省略" });
+  expect(omitReport).toHaveTextContent("offline_media");
+  expect(omitReport).toHaveTextContent("媒体离线待重链");
+  expect(screen.getByRole("list", { name: "结构化省略" })).toHaveTextContent("offline_media");
 });
 
 it("previews Blender return conflicts before enabling Apply", async () => {

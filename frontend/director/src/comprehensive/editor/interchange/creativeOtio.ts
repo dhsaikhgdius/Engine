@@ -69,6 +69,30 @@ export interface DirectorCreativeOtioImportOptions {
   knownMediaIds?: Iterable<string>;
 }
 
+/**
+ * Structured warn-and-omit codes for Creative OTIO import. Agents read these
+ * instead of scraping free-text `warnings[]`. Duplicate stable-ID remaps stay
+ * warnings only (nothing was dropped).
+ */
+export const DIRECTOR_CREATIVE_OTIO_OMITTED_CODES = [
+  "track_limit",
+  "invalid_source_range",
+  "unsupported_as_gap",
+  "clip_limit",
+  "offline_media",
+] as const;
+
+/** One Creative OTIO omit code. */
+export type DirectorCreativeOtioOmittedCode = (typeof DIRECTOR_CREATIVE_OTIO_OMITTED_CODES)[number];
+
+/** One typed Creative OTIO import omission. */
+export interface DirectorCreativeOtioOmitted {
+  code: DirectorCreativeOtioOmittedCode;
+  /** Track name, media name, or other human-readable subject. */
+  subject: string;
+  reason: string;
+}
+
 /** The result of importing a Creative OTIO timeline. */
 export interface DirectorCreativeOtioImportResult {
   /** The reconstructed edit tracks. */
@@ -77,8 +101,13 @@ export interface DirectorCreativeOtioImportResult {
   editSettings: DirectorEditSettings;
   /** All media references discovered during import, including offline ones. */
   mediaReferences: DirectorCreativeOtioMediaReference[];
-  /** Non-fatal diagnostic messages. */
+  /** Non-fatal diagnostic messages (kept for older UIs / free-text scrapers). */
   warnings: string[];
+  /**
+   * Typed omit records for Agent/UI honesty. Length matches the skip events
+   * that could not be carried as Director edit clips / online media.
+   */
+  omitted: DirectorCreativeOtioOmitted[];
   /** The timeline name from the OTIO document. */
   name: string;
 }
@@ -457,6 +486,11 @@ export function importDirectorCreativeTimelineFromOtio(
     throw new Error("OTIO root must be an OpenTimelineIO Timeline with a tracks Stack");
   }
   const warnings: string[] = [];
+  const omitted: DirectorCreativeOtioOmitted[] = [];
+  const pushOmit = (code: DirectorCreativeOtioOmittedCode, subject: string, reason: string) => {
+    omitted.push({ code, subject, reason });
+    warnings.push(reason);
+  };
   const rootMetadata = metadataFor(root);
   const embeddedSettings = isRecord(rootMetadata?.editSettings) ? rootMetadata.editSettings : null;
   const embeddedTimebase = isRecord(embeddedSettings?.timebase) ? embeddedSettings.timebase : null;
@@ -505,8 +539,11 @@ export function importDirectorCreativeTimelineFromOtio(
       let group = trackGroups.get(groupId);
       if (!group) {
         if (trackGroups.size >= MAX_TRACKS) {
-          warnings.push(
-            `Track ${String(rawTrack.name ?? rawTrackIndex + 1)} was skipped because Director supports ${MAX_TRACKS} tracks.`,
+          const trackSubject = String(rawTrack.name ?? rawTrackIndex + 1);
+          pushOmit(
+            "track_limit",
+            trackSubject,
+            `Track ${trackSubject} was skipped because Director supports ${MAX_TRACKS} tracks.`,
           );
           return;
         }
@@ -538,7 +575,11 @@ export function importDirectorCreativeTimelineFromOtio(
         if (!isRecord(rawItem)) return;
         const range = rangeParts(rawItem.source_range, rateNumber);
         if (!range) {
-          warnings.push(`Track ${group!.track.name} item ${itemIndex + 1} has no valid source range and was skipped.`);
+          pushOmit(
+            "invalid_source_range",
+            group!.track.name,
+            `Track ${group!.track.name} item ${itemIndex + 1} has no valid source range and was skipped.`,
+          );
           return;
         }
         const itemSchema = schemaName(rawItem);
@@ -547,12 +588,18 @@ export function importDirectorCreativeTimelineFromOtio(
           return;
         }
         if (itemSchema !== "Clip") {
-          warnings.push(`Unsupported OTIO ${itemSchema || "item"} on ${group!.track.name} was treated as a gap.`);
+          pushOmit(
+            "unsupported_as_gap",
+            group!.track.name,
+            `Unsupported OTIO ${itemSchema || "item"} on ${group!.track.name} was treated as a gap.`,
+          );
           cursorFrame += secondsToFrames(range.durationSec, rateNumber);
           return;
         }
         if (group!.track.clips.length >= MAX_CLIPS_PER_TRACK) {
-          warnings.push(
+          pushOmit(
+            "clip_limit",
+            group!.track.name,
             `${group!.track.name} exceeds Director's ${MAX_CLIPS_PER_TRACK}-clip limit; remaining clips were skipped.`,
           );
           return;
@@ -626,16 +673,17 @@ export function importDirectorCreativeTimelineFromOtio(
     });
   }
   mediaReferences.forEach((reference) => {
-    if (reference.offline)
-      warnings.push(
-        `Media ${reference.name ?? reference.originalMediaId ?? reference.id} is offline and requires relinking.`,
-      );
+    if (reference.offline) {
+      const subject = reference.name ?? reference.originalMediaId ?? reference.id;
+      pushOmit("offline_media", subject, `Media ${subject} is offline and requires relinking.`);
+    }
   });
   return {
     editTracks,
     editSettings,
     mediaReferences: [...mediaReferences.values()],
     warnings,
+    omitted,
     name: typeof root.name === "string" && root.name.trim() ? root.name.trim() : "Imported OTIO timeline",
   };
 }
