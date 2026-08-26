@@ -47,6 +47,13 @@ import {
 
 const gatewayUrl = process.env.STAGE_GATEWAY_URL ?? "http://127.0.0.1:8787";
 const sessionId = process.env.DIRECTOR_MCP_SESSION_ID?.trim() || `mcp-${process.pid}-${crypto.randomUUID()}`;
+// Optional Agent profile identity: character bindings that name only a
+// profile_id (attached before a live session exists) match any caller
+// presenting the same profile, so the MCP surface can join a possession
+// prepared from the Director UI.
+const profileId = process.env.DIRECTOR_MCP_PROFILE_ID?.trim() || "";
+/** Shared tool-envelope identity: the session id plus the optional profile id. */
+const envelopeIdentity = { session_id: sessionId, ...(profileId ? { profile_id: profileId } : {}) };
 const configuredGatewayToken = process.env.DIRECTOR_GATEWAY_TOKEN?.trim() || "";
 if (configuredGatewayToken && configuredGatewayToken.length < 24) {
   console.warn(
@@ -268,7 +275,7 @@ async function callGateway(tool: AgentToolName, input: Record<string, unknown>):
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       input: effectiveInput,
-      session_id: sessionId,
+      ...envelopeIdentity,
       ...(confirmToken ? { confirm_token: confirmToken } : {}),
       ...(boundTargetToken ? { target_token: boundTargetToken } : {}),
     }),
@@ -391,7 +398,7 @@ registerVisibleTool("blender_native", () => {
         const response = await authenticatedGatewayFetch("/api/tools/blender_native", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ input, session_id: sessionId }),
+          body: JSON.stringify({ input, ...envelopeIdentity }),
           signal: AbortSignal.timeout(dynamicToolTimeoutMs("blender_native", input)),
         });
         const payload = (await response.json()) as Record<string, unknown>;
@@ -677,7 +684,7 @@ registerVisibleTool("director_dcc", () => {
         const response = await authenticatedGatewayFetch("/api/tools/director_dcc", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ input: parsedInput, session_id: sessionId }),
+          body: JSON.stringify({ input: parsedInput, ...envelopeIdentity }),
         });
         const payload = (await response.json()) as unknown;
         const parsedPayload = z
@@ -733,7 +740,7 @@ registerVisibleTool("director_game", () => {
         const response = await authenticatedGatewayFetch("/api/tools/director_game", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ input: parsedInput, session_id: sessionId }),
+          body: JSON.stringify({ input: parsedInput, ...envelopeIdentity }),
         });
         const payload = (await response.json()) as unknown;
         const parsedPayload = z

@@ -6,6 +6,13 @@ export type DirectorWorkbenchGatewayConfig = {
   gatewayToken?: string;
   targetToken?: string;
   sessionId?: string;
+  /**
+   * Optional Agent profile id (defaults to DIRECTOR_AGENT_PROFILE_ID). A
+   * character binding that names only a profile_id is possessed by any call
+   * presenting the same profile, so a DSH session can join a possession
+   * prepared from the Director UI before the session existed.
+   */
+  profileId?: string;
   omitScene?: boolean;
   fetchImpl?: typeof fetch;
 };
@@ -162,6 +169,7 @@ export async function dispatchDirectorWorkbenchTool(
   const targetToken = config.targetToken ?? trimEnv(process.env.DIRECTOR_TARGET_TOKEN);
   const sessionId = config.sessionId ?? trimEnv(process.env.DIRECTOR_AGENT_SESSION_ID);
   if (!sessionId) throw new Error("Director tools require the current DeepSeek Harness session id");
+  const profileId = config.profileId ?? trimEnv(process.env.DIRECTOR_AGENT_PROFILE_ID);
   const omitScene = config.omitScene ?? (tool === "director_workbench" || tool === "director_creative");
   const fetchImpl = config.fetchImpl ?? fetch;
   // A confirm token confirms one destructive/publish operation (deliver,
@@ -176,6 +184,7 @@ export async function dispatchDirectorWorkbenchTool(
   const body = JSON.stringify({
     input: effectiveInput,
     session_id: `dsh-${sessionId}`,
+    ...(profileId ? { profile_id: profileId } : {}),
     ...(confirmToken ? { confirm_token: confirmToken } : {}),
     ...(targetToken ? { target_token: targetToken } : {}),
     ...(omitScene ? { omit_scene: true } : {}),

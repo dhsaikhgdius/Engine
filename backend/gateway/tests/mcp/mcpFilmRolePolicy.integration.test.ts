@@ -202,6 +202,72 @@ describe("MCP film-role boundary", () => {
     ]);
   }, 20_000);
 
+  it("forwards DIRECTOR_MCP_PROFILE_ID next to the session id in the tool envelope", async () => {
+    const receivedEnvelopes: Array<Record<string, unknown>> = [];
+    const gateway = createServer((request, response) => {
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        receivedEnvelopes.push(JSON.parse(body) as Record<string, unknown>);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({ success: true, result: { project_revision: "revision-1" }, scene: createDefaultScene() }),
+        );
+      });
+    });
+    servers.push(gateway);
+    await new Promise<void>((resolveListen) => gateway.listen(0, "127.0.0.1", resolveListen));
+    const address = gateway.address() as AddressInfo;
+    const client = await connectMcp(null, `http://127.0.0.1:${address.port}`, {
+      DIRECTOR_MCP_SESSION_ID: "mcp-envelope-session",
+      DIRECTOR_MCP_PROFILE_ID: "profile-hero",
+    });
+
+    const result = await client.callTool({ name: "director_workbench", arguments: { op: "observe" } });
+
+    expect(result.isError).not.toBe(true);
+    expect(receivedEnvelopes).toHaveLength(1);
+    expect(receivedEnvelopes[0]).toMatchObject({
+      input: { op: "observe" },
+      session_id: "mcp-envelope-session",
+      profile_id: "profile-hero",
+    });
+  }, 20_000);
+
+  it("omits profile_id from the envelope when DIRECTOR_MCP_PROFILE_ID is unset", async () => {
+    const receivedEnvelopes: Array<Record<string, unknown>> = [];
+    const gateway = createServer((request, response) => {
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        receivedEnvelopes.push(JSON.parse(body) as Record<string, unknown>);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({ success: true, result: { project_revision: "revision-1" }, scene: createDefaultScene() }),
+        );
+      });
+    });
+    servers.push(gateway);
+    await new Promise<void>((resolveListen) => gateway.listen(0, "127.0.0.1", resolveListen));
+    const address = gateway.address() as AddressInfo;
+    const client = await connectMcp(null, `http://127.0.0.1:${address.port}`, {
+      DIRECTOR_MCP_SESSION_ID: "mcp-envelope-session",
+      DIRECTOR_MCP_PROFILE_ID: "",
+    });
+
+    const result = await client.callTool({ name: "director_workbench", arguments: { op: "observe" } });
+
+    expect(result.isError).not.toBe(true);
+    expect(receivedEnvelopes).toHaveLength(1);
+    expect(receivedEnvelopes[0]).not.toHaveProperty("profile_id");
+  }, 20_000);
+
   it("rejects mutating workbench tools when DIRECTOR_PLAN_MODE is on", async () => {
     const receivedPaths: string[] = [];
     const gateway = createServer((request, response) => {
