@@ -39,10 +39,7 @@ import { createDirectorLight } from "@director/project-schema";
 import { DIRECTOR_DUPLICATE_POSITION_OFFSET_M } from "@director/agent-engine/authoring";
 import { formatSceneItemName, getNextSequentialId } from "../comprehensive/editor/store/directorStoreUtils";
 import { getDirectorObjectFocusTarget } from "../comprehensive/editor/schema/cameraTarget";
-import type {
-  DirectorClipboardEntry,
-  DirectorWorldSettingsPatch,
-} from "../comprehensive/editor/store/directorStore";
+import type { DirectorClipboardEntry, DirectorWorldSettingsPatch } from "../comprehensive/editor/store/directorStore";
 
 type UpdateCameraAction = Extract<DirectorAuthoringAction, { action: "update_camera" }>;
 type DuplicateObjectsAction = Extract<DirectorAuthoringAction, { action: "duplicate_objects" }>;

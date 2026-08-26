@@ -734,9 +734,7 @@ describe("Stage mutator parity with direct agent authoring", () => {
       url: "https://example.com/parity-model.glb",
       assetSource: "local",
     });
-    const seededObject = useDirectorStore
-      .getState()
-      .project.objects.find((object) => object.assetRefId === assetId);
+    const seededObject = useDirectorStore.getState().project.objects.find((object) => object.assetRefId === assetId);
     expect(seededObject).toBeDefined();
 
     const agentRevision = agentRevisionFor([{ action: "remove_assets", asset_ids: [assetId], cascade: true }]);
@@ -775,9 +773,7 @@ describe("clipboard paste parity", () => {
 
     const action = compileCurrentPaste();
     expect(action).toEqual({ action: "duplicate_objects", object_ids: ["paste-box"], offset_m: 0.6 });
-    const agentApplied = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [
-      action!,
-    ]);
+    const agentApplied = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [action!]);
     const agentRevision = getDirectorProjectRevision(agentApplied.project);
 
     useDirectorStore.getState().pasteClipboardObjects();
@@ -811,9 +807,7 @@ describe("clipboard paste parity", () => {
 
     const action = compileCurrentPaste();
     expect(action).not.toBeNull();
-    const agentApplied = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [
-      action!,
-    ]);
+    const agentApplied = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [action!]);
     const agentRevision = getDirectorProjectRevision(agentApplied.project);
 
     useDirectorStore.getState().pasteClipboardObjects();
@@ -831,9 +825,7 @@ describe("clipboard paste parity", () => {
 
     const action = compileCurrentPaste();
     expect(action).not.toBeNull();
-    const agentApplied = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [
-      action!,
-    ]);
+    const agentApplied = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [action!]);
     const agentRevision = getDirectorProjectRevision(agentApplied.project);
 
     useDirectorStore.getState().pasteClipboardObjects();
