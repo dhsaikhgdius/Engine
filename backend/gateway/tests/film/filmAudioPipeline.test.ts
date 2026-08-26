@@ -207,7 +207,12 @@ describe("OpenAiSpeechProvider", () => {
       if (attempt <= 2) return new Response("busy", { status: 429, headers: { "retry-after": "0" } });
       return new Response(Buffer.from("recovered"), { status: 200 });
     }) as typeof fetch;
-    const provider = new OpenAiSpeechProvider({ baseUrl: "https://tts.example.com/v1", model: "tts-1", fetchImpl, meter });
+    const provider = new OpenAiSpeechProvider({
+      baseUrl: "https://tts.example.com/v1",
+      model: "tts-1",
+      fetchImpl,
+      meter,
+    });
 
     await provider.synthesizeSpeech({ text: "hi", voice: "alloy" });
 
@@ -218,7 +223,12 @@ describe("OpenAiSpeechProvider", () => {
   it("meters a failed sample when the request fails closed", async () => {
     const meter = vi.fn();
     const fetchImpl = vi.fn(async () => new Response("denied", { status: 401 })) as typeof fetch;
-    const provider = new OpenAiSpeechProvider({ baseUrl: "https://tts.example.com/v1", model: "tts-1", fetchImpl, meter });
+    const provider = new OpenAiSpeechProvider({
+      baseUrl: "https://tts.example.com/v1",
+      model: "tts-1",
+      fetchImpl,
+      meter,
+    });
 
     await expect(provider.synthesizeSpeech({ text: "hi", voice: "alloy" })).rejects.toThrow("401");
 
@@ -229,7 +239,12 @@ describe("OpenAiSpeechProvider", () => {
   it("does not meter a sample when the signal was aborted before any request", async () => {
     const meter = vi.fn();
     const fetchImpl = vi.fn() as typeof fetch;
-    const provider = new OpenAiSpeechProvider({ baseUrl: "https://tts.example.com/v1", model: "tts-1", fetchImpl, meter });
+    const provider = new OpenAiSpeechProvider({
+      baseUrl: "https://tts.example.com/v1",
+      model: "tts-1",
+      fetchImpl,
+      meter,
+    });
     const controller = new AbortController();
     controller.abort();
 
