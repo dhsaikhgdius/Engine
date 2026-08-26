@@ -140,16 +140,8 @@ export async function handleCollaborationRoomRoute(
   url: URL,
   dependencies: CollaborationRoomRouteDependencies,
 ) {
-  const {
-    readBody,
-    json,
-    hub,
-    authorizer,
-    snapshotStore,
-    revocations,
-    emptyRoomTtlSeconds,
-    inviteRateLimitPerMinute,
-  } = dependencies;
+  const { readBody, json, hub, authorizer, snapshotStore, revocations, emptyRoomTtlSeconds, inviteRateLimitPerMinute } =
+    dependencies;
   const now = dependencies.now ?? Date.now;
 
   if (request.method === "GET" && url.pathname === "/api/collab/rooms") {
