@@ -238,4 +238,52 @@ describe("engine scene import contracts", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("pairs typed omitted records with their count and rejects unknown codes", () => {
+    const targetRevision = getDirectorProjectRevision(createDefaultDirectorProject());
+    const plan = {
+      contract: DIRECTOR_ENGINE_SCENE_IMPORT_PLAN_CONTRACT,
+      planId: "unity-job/plans/abc123.json",
+      ready: true,
+      provider: "unity" as const,
+      packageId: "unity-scene-a",
+      packageDir: "unity-job/package",
+      manifestHash: hash,
+      targetRevision,
+      selection: { includeScene: false, cameraSourceIds: ["camera-main"], lightSourceIds: [] },
+      operations: [],
+      conflicts: [],
+      warnings: [],
+    };
+    const omitted = [
+      {
+        sourceId: "Disc",
+        kind: "light",
+        code: "unsupported_object" as const,
+        reason: "Disc lights are not mapped.",
+      },
+      {
+        sourceId: "camera-main",
+        code: "camera_roll" as const,
+        reason: "Engine camera roll on Main is not represented by Director's target-based camera model.",
+      },
+      {
+        sourceId: "scene",
+        code: "skinned_mesh_rigs" as const,
+        reason: "1 skinned mesh keeps its skeleton inside the GLB bundle.",
+      },
+    ];
+
+    expect(directorEngineSceneImportPlanSchema.safeParse(plan).success).toBe(true);
+    expect(directorEngineSceneImportPlanSchema.safeParse({ ...plan, omittedCount: 3, omitted }).success).toBe(true);
+    expect(directorEngineSceneImportPlanSchema.safeParse({ ...plan, omitted }).success).toBe(false);
+    expect(directorEngineSceneImportPlanSchema.safeParse({ ...plan, omittedCount: 2, omitted }).success).toBe(false);
+    expect(
+      directorEngineSceneImportPlanSchema.safeParse({
+        ...plan,
+        omittedCount: 1,
+        omitted: [{ sourceId: "scene", code: "free_text_only", reason: "unknown code" }],
+      }).success,
+    ).toBe(false);
+  });
 });
