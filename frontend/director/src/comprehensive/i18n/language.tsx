@@ -302,13 +302,21 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dataset.locale = locale;
+    if (locale === "zh-CN") return;
     translateDocument(document, locale);
   }, [locale]);
 
   useEffect(() => {
+    if (locale === "zh-CN") return;
     if (typeof MutationObserver === "undefined") return;
     let scheduled = false;
-    let scheduledFrame: number | null = null;
+    let scheduledFrame: number | ReturnType<typeof setTimeout> | null = null;
+    const cancelScheduledFrame = () => {
+      if (scheduledFrame === null) return;
+      if (typeof scheduledFrame === "number") window.cancelAnimationFrame(scheduledFrame);
+      else window.clearTimeout(scheduledFrame);
+      scheduledFrame = null;
+    };
     const scheduleFrame = window.requestAnimationFrame
       ? (callback: FrameRequestCallback) => window.requestAnimationFrame(callback)
       : (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0);
@@ -331,7 +339,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       observer.disconnect();
-      if (scheduledFrame !== null) window.cancelAnimationFrame(scheduledFrame);
+      cancelScheduledFrame();
     };
   }, [locale]);
 

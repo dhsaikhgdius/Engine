@@ -11,9 +11,10 @@ import "./styles/videoEditor.css";
 import "./styles/objectTreePanel.css";
 import "./styles/rightSidebar.css";
 import "./styles/workspaceLoading.css";
-import { lazy, Suspense, useEffect, useLayoutEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type CSSProperties } from "react";
 import { Bot, Boxes, ChevronDown, Film, Languages, LayoutDashboard, Minimize2, Moon, Sun } from "lucide-react";
 import { LanguageProvider, useLanguage } from "./i18n/language";
+import { RetryableWorkspace } from "./app/errors/RetryableWorkspace";
 import { WorkspaceErrorBoundary } from "./app/errors/WorkspaceErrorBoundary";
 import { HelpMenu } from "./app/help/HelpMenu";
 import { DirectorTaskTrayMenu } from "./app/tasks/DirectorTaskTrayMenu";
@@ -46,25 +47,18 @@ import {
   type DirectorWorkspaceMode,
 } from "./editor/workspaces/directorWorkspaceStore";
 
-const CanvasWorkspace = lazy(async () => {
-  const module = await import("./editor/workspaces/CanvasWorkspace");
-  return { default: module.CanvasWorkspace };
-});
+const loadCanvasWorkspace = () => import("./editor/workspaces/CanvasWorkspace").then((module) => ({ default: module.CanvasWorkspace }));
+const loadVideoEditorWorkspace = () =>
+  import("./editor/workspaces/VideoEditorWorkspace").then((module) => ({ default: module.VideoEditorWorkspace }));
+const loadStageWorkspace = () => import("./editor/workspaces/StageWorkspace").then((module) => ({ default: module.StageWorkspace }));
+const loadAgentWorkspace = () => import("./editor/workspaces/AgentWorkspace").then((module) => ({ default: module.AgentWorkspace }));
 
-const VideoEditorWorkspace = lazy(async () => {
-  const module = await import("./editor/workspaces/VideoEditorWorkspace");
-  return { default: module.VideoEditorWorkspace };
-});
-
-const StageWorkspace = lazy(async () => {
-  const module = await import("./editor/workspaces/StageWorkspace");
-  return { default: module.StageWorkspace };
-});
-
-const AgentWorkspace = lazy(async () => {
-  const module = await import("./editor/workspaces/AgentWorkspace");
-  return { default: module.AgentWorkspace };
-});
+const WORKSPACE_TABS = [
+  ["canvas", LayoutDashboard, "画布"],
+  ["stage", Boxes, "3D 片场"],
+  ["video", Film, "视频编辑器"],
+  ["agent", Bot, "Agent 工作区"],
+] as const;
 
 const StageCaptureHost = lazy(async () => {
   const module = await import("./editor/canvas/StageCaptureHost");
@@ -83,17 +77,6 @@ const BlenderProjectSyncBridge = lazy(async () => {
   const module = await import("./editor/runtime/BlenderProjectSyncBridge");
   return { default: module.BlenderProjectSyncBridge };
 });
-
-function WorkspaceLoading({ label }: { label: string }) {
-  return (
-    <main aria-busy="true" aria-label={label} className="workspace-loading-state">
-      <div className="workspace-loading-content">
-        <span aria-hidden="true" className="workspace-loading-spinner" />
-        <span>{label}</span>
-      </div>
-    </main>
-  );
-}
 
 function isEditableShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -148,6 +131,7 @@ function DirectorApp() {
   const rightPanelCollapsed =
     activeAppWorkspace === "stage" && workspaceLayout.rightPanelCollapsed && !workspaceLayout.frameless;
   const visibleRightSidebarWidth = rightPanelCollapsed ? 0 : workspaceLayout.rightPanelWidth;
+  const workspaceTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
     if (!nativeProjectId) ensureNativeSceneBinding();
@@ -226,6 +210,25 @@ function DirectorApp() {
     setAgentOpen(false);
     setWorkspaceMode(mode);
     writeDirectorAppWorkspaceToLocation(mode);
+  }
+
+  function focusWorkspaceTab(index: number) {
+    const tab = WORKSPACE_TABS[index];
+    if (!tab) return;
+    selectWorkspace(tab[0]);
+    workspaceTabRefs.current[index]?.focus();
+  }
+
+  function handleWorkspaceTabKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, index: number) {
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      focusWorkspaceTab((index + 1) % WORKSPACE_TABS.length);
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      focusWorkspaceTab((index - 1 + WORKSPACE_TABS.length) % WORKSPACE_TABS.length);
+    }
   }
 
   useEffect(() => {
@@ -314,21 +317,21 @@ function DirectorApp() {
         ) : null}
         {!comfyUiEmbedded ? (
           <nav aria-label={t("工作区")} className="top-bar-center top-workspace-tabs" role="tablist">
-            {(
-              [
-                ["canvas", LayoutDashboard, "画布"],
-                ["stage", Boxes, "3D 片场"],
-                ["video", Film, "视频编辑器"],
-                ["agent", Bot, "Agent 工作区"],
-              ] as const
-            ).map(([mode, Icon, label]) => (
+            {WORKSPACE_TABS.map(([mode, Icon, label], index) => (
               <button
+                aria-controls="director-workspace-panel"
                 aria-label={t(label)}
                 aria-selected={activeAppWorkspace === mode}
                 className={activeAppWorkspace === mode ? "is-active" : ""}
+                id={`workspace-tab-${mode}`}
                 key={mode}
                 onClick={() => selectWorkspace(mode)}
+                onKeyDown={(event) => handleWorkspaceTabKeyDown(event, index)}
+                ref={(element) => {
+                  workspaceTabRefs.current[index] = element;
+                }}
                 role="tab"
+                tabIndex={activeAppWorkspace === mode ? 0 : -1}
                 title={t(label)}
                 type="button"
               >
@@ -386,36 +389,33 @@ function DirectorApp() {
           </div>
         </div>
       </header>
-      {activeAppWorkspace === "agent" ? (
-        <WorkspaceErrorBoundary title="Agent 工作区加载失败">
-          <Suspense fallback={<WorkspaceLoading label={t("正在加载 Agent…")} />}>
-            <AgentWorkspace />
-          </Suspense>
-        </WorkspaceErrorBoundary>
-      ) : activeAppWorkspace === "canvas" ? (
-        <WorkspaceErrorBoundary title="画布工作区加载失败">
-          <Suspense fallback={<WorkspaceLoading label={t("正在加载画布…")} />}>
-            <CanvasWorkspace />
-          </Suspense>
-        </WorkspaceErrorBoundary>
-      ) : activeAppWorkspace === "video" ? (
-        <WorkspaceErrorBoundary title="视频编辑器加载失败">
-          <Suspense fallback={<WorkspaceLoading label={t("正在加载视频编辑器…")} />}>
-            <VideoEditorWorkspace />
-          </Suspense>
-        </WorkspaceErrorBoundary>
-      ) : (
-        <WorkspaceErrorBoundary title="3D 片场加载失败">
-          <Suspense fallback={<WorkspaceLoading label={t("正在加载3D 片场…")} />}>
-            <StageWorkspace
-              layout={workspaceLayout}
-              setLayout={setWorkspaceLayout}
-              timelineVisible={timelineVisible}
-              blenderLiveVisible={blenderLiveVisible}
-            />
-          </Suspense>
-        </WorkspaceErrorBoundary>
-      )}
+      <main
+        aria-labelledby={`workspace-tab-${activeAppWorkspace}`}
+        id="director-workspace-panel"
+        role="tabpanel"
+      >
+        {activeAppWorkspace === "agent" ? (
+          <RetryableWorkspace title="Agent 工作区加载失败" loadingLabel={t("正在加载 Agent…")} loader={loadAgentWorkspace} />
+        ) : activeAppWorkspace === "canvas" ? (
+          <RetryableWorkspace title="画布工作区加载失败" loadingLabel={t("正在加载画布…")} loader={loadCanvasWorkspace} />
+        ) : activeAppWorkspace === "video" ? (
+          <RetryableWorkspace
+            title="视频编辑器加载失败"
+            loadingLabel={t("正在加载视频编辑器…")}
+            loader={loadVideoEditorWorkspace}
+          />
+        ) : (
+          <RetryableWorkspace
+            title="3D 片场加载失败"
+            loadingLabel={t("正在加载3D 片场…")}
+            loader={loadStageWorkspace}
+            layout={workspaceLayout}
+            setLayout={setWorkspaceLayout}
+            timelineVisible={timelineVisible}
+            blenderLiveVisible={blenderLiveVisible}
+          />
+        )}
+      </main>
       {activeAppWorkspace !== "stage" && !captureHostNeeded ? (
         <Suspense fallback={null}>
           <BlenderProjectSyncBridge active />

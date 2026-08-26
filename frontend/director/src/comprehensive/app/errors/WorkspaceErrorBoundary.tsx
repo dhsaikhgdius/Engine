@@ -6,6 +6,8 @@ interface WorkspaceErrorBoundaryProps {
   children: ReactNode;
   /** Full failure headline, e.g. "3D 片场加载失败". */
   title?: string;
+  /** Called before clearing the error so parents can recreate lazy imports. */
+  onRetry?: () => void;
 }
 
 interface WorkspaceErrorBoundaryState {
@@ -33,6 +35,7 @@ export class WorkspaceErrorBoundary extends Component<WorkspaceErrorBoundaryProp
   }
 
   private readonly retry = () => {
+    this.props.onRetry?.();
     this.setState({ error: null });
   };
 
