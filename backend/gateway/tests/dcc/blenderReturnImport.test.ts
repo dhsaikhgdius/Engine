@@ -408,6 +408,18 @@ describe("Blender return import", () => {
         reason: expect.stringContaining("include_new_objects"),
       }),
     );
+    // The unimported addition is also a typed record, so agents need not
+    // regex free-text skip reasons to discover the opt-in.
+    expect(plan.omittedAdditionsCount).toBe(1);
+    expect(plan.omittedAdditions).toEqual([
+      {
+        directorId: "lamp-new",
+        name: "Desk Lamp",
+        meshFile: "meshes/lamp-new.glb",
+        code: "opt_in_required",
+        reason: expect.stringContaining("include_new_objects"),
+      },
+    ]);
   });
 
   it("plans create_prop with hash and Director-space transform when new objects are opted in", async () => {
@@ -428,6 +440,9 @@ describe("Blender return import", () => {
     expect(position[0]).toBeCloseTo(0, 6);
     expect(position[1]).toBeCloseTo(1, 6);
     expect(position[2]).toBeCloseTo(-2, 6);
+    // An imported addition is not omitted, so the typed fields stay absent.
+    expect(plan.omittedAdditions).toBeUndefined();
+    expect(plan.omittedAdditionsCount).toBeUndefined();
   });
 
   it("conflicts additions whose director_id already exists in the live project", async () => {
@@ -440,6 +455,15 @@ describe("Blender return import", () => {
       expect.objectContaining({ directorId: "table", code: "duplicate_director_id" }),
     );
     expect(plan.operations).not.toContainEqual(expect.objectContaining({ op: "create_prop" }));
+    expect(plan.omittedAdditionsCount).toBe(1);
+    expect(plan.omittedAdditions).toContainEqual(
+      expect.objectContaining({
+        directorId: "table",
+        name: "Desk Lamp",
+        meshFile: "meshes/lamp-new.glb",
+        code: "duplicate_director_id",
+      }),
+    );
   });
 
   it("applies an opted-in addition as one immutable asset copy plus upsert_asset and add_object", async () => {
@@ -521,6 +545,16 @@ describe("Blender return import", () => {
     );
     expect(plan.operations).toContainEqual(expect.objectContaining({ op: "create_prop", objectId: "shade-new" }));
     expect(plan.operations).not.toContainEqual(expect.objectContaining({ op: "create_prop", objectId: "lamp-new" }));
+    // Only the requested skip is a typed omitted addition; the imported one is not.
+    expect(plan.omittedAdditionsCount).toBe(1);
+    expect(plan.omittedAdditions).toEqual([
+      expect.objectContaining({
+        directorId: "lamp-new",
+        name: "Desk Lamp",
+        meshFile: "meshes/lamp-new.glb",
+        code: "skip_requested",
+      }),
+    ]);
   });
 
   it("keeps mixed skip/opt-in addition intent across the server-side rebuild on apply", async () => {
