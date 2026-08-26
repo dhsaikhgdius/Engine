@@ -1,0 +1,79 @@
+.director-unreal-details {
+  display: grid;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px solid rgb(var(--border-rgb) / 0.12);
+  border-radius: var(--director-radius-sm, 7px);
+  background: rgb(var(--surface-hover-rgb) / 0.35);
+}
+
+.director-unreal-details-block {
+  display: grid;
+  gap: 3px;
+}
+
+.director-unreal-details-block h5 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: rgb(var(--text-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  font-weight: 650;
+  line-height: 13px;
+}
+
+.director-unreal-details-block ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.director-unreal-details-block ul li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 13px;
+}
+
+.director-unreal-details-block ul li strong {
+  color: rgb(var(--text-rgb));
+  font-weight: 600;
+}
+
+.director-unreal-details-block ul li p {
+  flex-basis: 100%;
+  margin: 0;
+  color: rgb(var(--text-muted-rgb));
+}
+
+.director-unreal-details-path {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: rgb(var(--text-rgb));
+  font-family: var(--font-mono, monospace);
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 13px;
+}
+
+.director-unreal-details-note {
+  margin: 0;
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 13px;
+}
+
+.director-unreal-details .is-ready {
+  color: rgb(var(--success-rgb, 74 222 128));
+  font-weight: 650;
+}
+
+.director-unreal-details .is-skipped {
+  color: rgb(var(--warning-rgb, 250 204 21));
+  font-weight: 650;
+}

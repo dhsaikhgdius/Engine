@@ -22,6 +22,7 @@ import {
   type DirectorDccEngineSendResult,
   type DirectorDccExchangePackageResult,
 } from "../api/dccProviderClient";
+import { UnrealEngineDetails } from "./engines/UnrealEngineDetails";
 import "./DccProviderBrowser.css";
 
 /** Props for the DccProviderBrowser component. */
@@ -109,6 +110,8 @@ export function DccProviderBrowser({ onPackageExported, onEngineSendCompleted }:
   const [exportingProvider, setExportingProvider] = useState<DirectorDccProviderId | null>(null);
   const [sendingProvider, setSendingProvider] = useState<DirectorDccProviderId | null>(null);
   const [providerMessages, setProviderMessages] = useState<Partial<Record<DirectorDccProviderId, string>>>({});
+  // Unreal-only receipt panel: the last completed Unreal headless send.
+  const [unrealSendResult, setUnrealSendResult] = useState<DirectorDccEngineSendResult | null>(null);
 
   const discover = useCallback(async () => {
     requestRef.current?.abort();
@@ -146,6 +149,7 @@ export function DccProviderBrowser({ onPackageExported, onEngineSendCompleted }:
         [status.provider.id]:
           `${t("引擎已导入")} ${result.report.importedObjectCount + result.report.importedCameraCount} ${t("个实体")}${sceneNote}`,
       }));
+      if (engine === "unreal") setUnrealSendResult(result);
       onEngineSendCompleted?.(result);
     } catch (sendError) {
       setProviderMessages((current) => ({
@@ -273,6 +277,7 @@ export function DccProviderBrowser({ onPackageExported, onEngineSendCompleted }:
                     {sending ? t("发送中…") : t("无头发送到引擎")}
                   </button>
                 ) : null}
+                {provider.id === "unreal" && unrealSendResult ? <UnrealEngineDetails result={unrealSendResult} /> : null}
               </li>
             );
           })}
