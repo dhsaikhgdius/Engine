@@ -143,7 +143,10 @@ import {
   compileDirectorDeleteObjectActions,
   dispatchDirectorAuthoringActions,
 } from "../../../agent/dispatchDirectorAuthoringActions";
-import { compileDirectorSceneUpdateAction } from "../../../agent/compileDirectorUiAuthoringActions";
+import {
+  compileDirectorSceneUpdateAction,
+  compileDirectorWorldSettingsAction,
+} from "../../../agent/compileDirectorUiAuthoringActions";
 
 /** Input shape for importing an asset into the Director catalog. */
 export interface ImportedAssetInput {
@@ -3405,34 +3408,12 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     },
     updateWorldSettings: (patch) => {
       if (canUseAuthoringPath()) {
-        const wind = {
-          ...(patch.wind?.directionDegrees === undefined ? {} : { direction_degrees: patch.wind.directionDegrees }),
-          ...(patch.wind?.speedMps === undefined ? {} : { speed_mps: patch.wind.speedMps }),
-          ...(patch.wind?.gustiness === undefined ? {} : { gustiness: patch.wind.gustiness }),
-          ...(patch.wind?.turbulence === undefined ? {} : { turbulence: patch.wind.turbulence }),
-        };
-        const timeOfDay = {
-          ...(patch.timeOfDay?.mode === undefined ? {} : { mode: patch.timeOfDay.mode }),
-          ...(patch.timeOfDay?.hours === undefined ? {} : { hours: patch.timeOfDay.hours }),
-          ...(patch.timeOfDay?.cycleMinutes === undefined ? {} : { cycle_minutes: patch.timeOfDay.cycleMinutes }),
-          ...(patch.timeOfDay?.drivesSky === undefined ? {} : { drives_sky: patch.timeOfDay.drivesSky }),
-        };
-        const weather = {
-          ...(patch.weather?.preset === undefined ? {} : { preset: patch.weather.preset }),
-          ...(patch.weather?.intensity === undefined ? {} : { intensity: patch.weather.intensity }),
-          ...(patch.weather?.wetness === undefined ? {} : { wetness: patch.weather.wetness }),
-          ...(patch.weather?.cloudCover === undefined ? {} : { cloud_cover: patch.weather.cloudCover }),
-        };
-        const settings = {
-          ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
-          ...(patch.seed === undefined ? {} : { seed: patch.seed }),
-          ...(Object.keys(wind).length ? { wind } : {}),
-          ...(Object.keys(timeOfDay).length ? { time_of_day: timeOfDay } : {}),
-          ...(Object.keys(weather).length ? { weather } : {}),
-        };
-        // set_world_settings rejects empty patches; empty calls keep the local path.
-        if (Object.keys(settings).length) {
-          dispatchUiAuthoring([{ action: "set_world_settings", settings }], "ui-world-settings");
+        // Every UI world-settings field (including weather.evolution) compiles
+        // to set_world_settings; empty patches keep the local path because the
+        // authoring action rejects them.
+        const action = compileDirectorWorldSettingsAction(patch);
+        if (action) {
+          dispatchUiAuthoring([action], "ui-world-settings");
           return;
         }
       }
