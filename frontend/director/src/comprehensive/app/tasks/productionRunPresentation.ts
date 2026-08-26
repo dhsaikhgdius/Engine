@@ -1,5 +1,26 @@
+import type { AgentUsageSummary } from "../../../../../../packages/protocol/src/agentObservabilityProtocol";
 import { filmRunProgress, type FilmRunPhase } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
+import {
+  FILM_RUN_USAGE_SCOPES,
+  emptyFilmRunUsage,
+  type FilmRunUsageScope,
+} from "../../../../../../packages/protocol/src/filmRunUsage";
 import type { DirectorMonitoredProductionRun } from "./productionRunTaskClient";
+
+/** zh-CN source labels for durable film-run usage scopes (receipt / tray). */
+const FILM_RUN_USAGE_SCOPE_LABELS: Record<FilmRunUsageScope, string> = {
+  "film-llm": "规划 LLM",
+  "film-image": "图像生成",
+  "film-video": "视频生成",
+};
+
+/** One non-empty per-scope usage line for the task tray. */
+export type ProductionRunUsageLine = {
+  scope: FilmRunUsageScope;
+  /** zh-CN source label for the scope. */
+  label: string;
+  summary: AgentUsageSummary;
+};
 
 const FILM_PHASES: readonly FilmRunPhase[] = [
   "develop-story",
@@ -157,4 +178,41 @@ export function productionRunCountsAsActive(entry: DirectorMonitoredProductionRu
  */
 export function productionRunIsFinished(entry: DirectorMonitoredProductionRun) {
   return entry.run.status === "completed" || entry.run.status === "failed" || entry.run.status === "cancelled";
+}
+
+/**
+ * Returns non-empty durable per-scope usage lines from the film run document
+ * (same rollup projected onto `director-film-run-receipt-v1`). Empty when the
+ * run has no metered samples yet — the tray never invents a second meter.
+ *
+ * @param entry - The monitored production run.
+ */
+export function productionRunUsageLines(entry: DirectorMonitoredProductionRun): ProductionRunUsageLine[] {
+  const usage = entry.run.usage ?? emptyFilmRunUsage();
+  return FILM_RUN_USAGE_SCOPES.filter((scope) => usage[scope].sample_count > 0).map((scope) => ({
+    scope,
+    label: FILM_RUN_USAGE_SCOPE_LABELS[scope],
+    summary: usage[scope],
+  }));
+}
+
+/**
+ * Formats one durable film-run usage line for the task tray.
+ * LLM scopes emphasize tokens; image/video emphasize sample count and wall-clock
+ * (tokens stay 0 for media HTTP meters).
+ *
+ * @param line - A non-empty usage line from {@link productionRunUsageLines}.
+ * @param translate - Optional zh→locale mapper for the scope label.
+ */
+export function formatProductionRunUsageLine(
+  line: ProductionRunUsageLine,
+  translate: (source: string) => string = (source) => source,
+): string {
+  const label = translate(line.label);
+  const durationSec = Math.max(0, Math.round(line.summary.total_duration_ms / 1000));
+  const failure = line.summary.failure_count > 0 ? ` · ${translate("失败")} ${line.summary.failure_count}` : "";
+  if (line.scope === "film-llm") {
+    return `${label} ${line.summary.total_tokens} tokens · ${durationSec}s${failure}`;
+  }
+  return `${label} ${line.summary.sample_count} ${translate("次")} · ${durationSec}s${failure}`;
 }

@@ -28,6 +28,7 @@ import {
 import { monitoredProductionRunKey, type DirectorMonitoredProductionRun } from "./productionRunTaskClient";
 import { StorageHealthSection } from "./StorageHealthSection";
 import {
+  formatProductionRunUsageLine,
   productionRunCanCancel,
   productionRunDisplayName,
   productionRunFailureReason,
@@ -37,6 +38,7 @@ import {
   productionRunStatus,
   productionRunStatusLabel,
   productionRunTypeLabel,
+  productionRunUsageLines,
 } from "./productionRunPresentation";
 import { taskIsFinished, taskSupportsCancel, taskSupportsRetry } from "./productionTaskClient";
 import {
@@ -112,6 +114,7 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
   const percent = productionRunProgressPercent(entry);
   const failureReason = status === "failed" ? productionRunFailureReason(entry) : null;
   const finished = productionRunIsFinished(entry);
+  const usageLines = productionRunUsageLines(entry);
 
   return (
     <li className={`task-tray-item is-${status}`}>
@@ -138,6 +141,13 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
         </span>
       </div>
       <p className="task-tray-item-phase">{`${stage.label} · 第 ${stage.current}/${stage.total} 阶段`}</p>
+      {usageLines.length > 0 ? (
+        <ul aria-label={t("本运行用量")} className="task-tray-item-usage">
+          {usageLines.map((line) => (
+            <li key={line.scope}>{formatProductionRunUsageLine(line, t)}</li>
+          ))}
+        </ul>
+      ) : null}
       {failureReason ? <p className="task-tray-item-error">{failureReason}</p> : null}
       <div className="task-tray-item-meta">
         <span className="task-tray-item-time">{formatTaskRelativeTime(entry.run.createdAt)}</span>

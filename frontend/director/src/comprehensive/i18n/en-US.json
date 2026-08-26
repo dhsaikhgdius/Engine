@@ -3647,5 +3647,8 @@
   "Film 图像生成": "Film image generation",
   "Film 视频生成": "Film video generation",
   "添加分区失败": "Failed to add section",
-  "分区分配失败": "Failed to assign section"
+  "分区分配失败": "Failed to assign section",
+  "本运行用量": "Usage for this run",
+  "规划 LLM": "Planning LLM",
+  "次": "calls"
 }
