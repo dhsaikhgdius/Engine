@@ -14,6 +14,7 @@ import { directorUiStateSchema } from "@director/protocol/workbench-ui";
 import type { DirectorStore, DirectorUiState } from "../comprehensive/editor/store/directorStore";
 import { applyDirectorPageEvent } from "../comprehensive/editor/assistant/pageStateBridge";
 import { dispatchDirectorSessionCommand, directorPlayerScriptTimeoutMs } from "./directorSessionCommandBus";
+import { getDirectorLivePlayerSnapshot } from "./directorLivePlayerSnapshot";
 import { useTimelineRuntimeStore } from "../comprehensive/editor/runtime/timelineRuntimeStore";
 import type {
   DirectorAuditIssueInput,
@@ -748,12 +749,15 @@ function uiState(store: DirectorStore): DirectorUiState {
 
 function observableUiState(store: DirectorStore) {
   const timeline = useTimelineRuntimeStore.getState();
+  const livePlayer = getDirectorLivePlayerSnapshot();
   return {
     ...uiState(store),
     activeCameraId: store.project.activeCameraId,
     currentFrame: timeline.playheadFrame,
     selectedTrackKey: timeline.selectedTrackKey,
     selectedKeyframeIndex: timeline.selectedKeyframeIndex,
+    player_mode: livePlayer.playerMode,
+    player_actor_id: livePlayer.playerActorId,
   };
 }
 
