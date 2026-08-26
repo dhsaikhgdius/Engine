@@ -11,7 +11,8 @@
 ## becomes `.tscn`.
 ##
 ## Shots that cannot be mapped warn-and-omit with a structured code so agents
-## can act on the omission instead of parsing prose.
+## can act on the omission instead of parsing prose. Connector ≥0.3.2 also
+## stamps typed `omittedShots[]` onto the import receipt.
 ##
 ## No class_name: headless `godot --script` runs on a fresh project have no
 ## global class cache, so every module is referenced through `preload`.
@@ -28,7 +29,8 @@ const WARN_OVERLAP := "shot_overlaps_previous"
 
 ## Keys one discrete `current` cut key per mappable shot into `animation`,
 ## creating one value track per distinct cut camera. Returns receipt counts:
-## {"shotCutTrackCount", "mappedShotCount", "shotCutKeyCount"}.
+## {"shotCutTrackCount", "mappedShotCount", "shotCutKeyCount",
+## "omittedShotCount", "omittedShots": [{shotId, code, cameraDirectorId, reason}]}.
 static func add_camera_cut_tracks(
 	animation: Animation,
 	root: Node3D,
@@ -39,26 +41,43 @@ static func add_camera_cut_tracks(
 	denominator: int,
 	warnings: Array
 ) -> Dictionary:
-	var receipt := {"shotCutTrackCount": 0, "mappedShotCount": 0, "shotCutKeyCount": 0}
+	var receipt := {
+		"shotCutTrackCount": 0,
+		"mappedShotCount": 0,
+		"shotCutKeyCount": 0,
+		"omittedShotCount": 0,
+		"omittedShots": [],
+	}
 	if shots.is_empty():
 		return receipt
 	var track_by_camera := {}
 	var mapped := 0
 	var keys := 0
+	var omitted_shots: Array = []
 	var previous_end = null
 	var previous_id := ""
 	for shot in shots:
 		var shot_id := str(shot.get("shotId", "?"))
 		var camera_id = shot.get("cameraDirectorId")
 		if camera_id == null:
-			warnings.append(
+			_omit_shot(
+				omitted_shots,
+				warnings,
+				shot_id,
+				null,
+				OMIT_NO_CAMERA,
 				"Shot %s has no camera binding; no camera cut was keyed (warn-and-omit code: %s)."
 				% [shot_id, OMIT_NO_CAMERA]
 			)
 			continue
 		var node = by_director_id.get(camera_id)
 		if node == null:
-			warnings.append(
+			_omit_shot(
+				omitted_shots,
+				warnings,
+				shot_id,
+				str(camera_id),
+				OMIT_CAMERA_NOT_IMPORTED,
 				(
 					"Shot %s references camera %s which was not imported; its cut was skipped "
 					+ "(warn-and-omit code: %s)."
@@ -67,7 +86,12 @@ static func add_camera_cut_tracks(
 			)
 			continue
 		if not (node is Camera3D):
-			warnings.append(
+			_omit_shot(
+				omitted_shots,
+				warnings,
+				shot_id,
+				str(camera_id),
+				OMIT_NOT_A_CAMERA,
 				(
 					"Shot %s is bound to %s which is not a Camera3D; its cut was skipped "
 					+ "(warn-and-omit code: %s)."
@@ -100,4 +124,22 @@ static func add_camera_cut_tracks(
 	receipt["shotCutTrackCount"] = track_by_camera.size()
 	receipt["mappedShotCount"] = mapped
 	receipt["shotCutKeyCount"] = keys
+	receipt["omittedShotCount"] = omitted_shots.size()
+	receipt["omittedShots"] = omitted_shots
 	return receipt
+
+
+## Appends one typed omit record and the matching free-text warning (older UIs
+## still scrape `warn-and-omit code:` from warnings).
+static func _omit_shot(
+	omitted_shots: Array, warnings: Array, shot_id: String, camera_director_id, code: String, warning: String
+) -> void:
+	omitted_shots.append(
+		{
+			"shotId": shot_id,
+			"code": code,
+			"cameraDirectorId": camera_director_id,
+			"reason": warning,
+		}
+	)
+	warnings.append(warning)

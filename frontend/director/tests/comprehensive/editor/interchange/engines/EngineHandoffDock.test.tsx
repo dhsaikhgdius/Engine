@@ -401,6 +401,16 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
           fovTrackCount: 1,
           shotCutTrackCount: 1,
           mappedShotCount: 5,
+          omittedShotCount: 1,
+          omittedShots: [
+            {
+              shotId: "shot-orphan",
+              code: "shot_no_camera_binding",
+              cameraDirectorId: null,
+              reason:
+                "Shot shot-orphan has no camera binding; no camera cut was keyed (warn-and-omit code: shot_no_camera_binding).",
+            },
+          ],
           payloadAnimationPlayerCount: 0,
           importedSkeletonCount: 1,
           importedLightCount: 2,
@@ -459,9 +469,13 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
   const factOf = (label: string) => within(facts).getByText(label).closest("div")!;
   expect(factOf("相机切换轨道")).toHaveTextContent("1");
   expect(factOf("映射镜头")).toHaveTextContent("5");
+  expect(factOf("省略镜头")).toHaveTextContent("1");
   expect(factOf("环境光")).toHaveTextContent("WorldEnvironment 已烘焙");
   expect(factOf("省略灯光")).toHaveTextContent("2");
   expect(factOf("省略材质")).toHaveTextContent("1");
+  const omittedShots = screen.getByRole("list", { name: "结构化省略镜头" });
+  expect(within(omittedShots).getByText("shot-orphan")).toBeInTheDocument();
+  expect(omittedShots).toHaveTextContent("镜头缺少相机绑定");
   const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
   expect(within(omittedMaterials).getByText("prop-glass")).toBeInTheDocument();
   expect(omittedMaterials).toHaveTextContent("不支持的材质通道");
@@ -470,7 +484,7 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
   expect(within(omittedChannels).getByText("hero")).toBeInTheDocument();
   expect(omittedChannels).toHaveTextContent("姿态控制");
   expect(omittedChannels).toHaveTextContent("动作片段");
-  // Connector-side light+material omits keep both light entities (dedup is per code+entity).
+  // Connector-side light+material+shot omits keep entities (dedup is per code+entity).
   const omissions = screen.getByRole("list", { name: "结构化省略" });
   expect(within(omissions).getAllByText("light_rect_area_unsupported")).toHaveLength(2);
   expect(omissions).toHaveTextContent("面光源不支持");
@@ -478,6 +492,8 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
   expect(omissions).toHaveTextContent("unsupported_channels");
   expect(omissions).toHaveTextContent("不支持的材质通道");
   expect(omissions).toHaveTextContent("light-panel-2");
+  expect(omissions).toHaveTextContent("shot_no_camera_binding");
+  expect(omissions).toHaveTextContent("镜头缺少相机绑定");
 });
 
 it("previews an engine return as a dry run and guards apply behind an explicit review confirmation", async () => {

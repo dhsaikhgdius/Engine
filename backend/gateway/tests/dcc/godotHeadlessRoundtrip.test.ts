@@ -364,6 +364,15 @@ describe.skipIf(!hasGodot)("Godot headless roundtrip (set DIRECTOR_GODOT_BIN to 
     expect(receipt.fovTrackCount).toBe(1);
     expect(receipt.shotCutTrackCount).toBe(1);
     expect(receipt.mappedShotCount).toBe(1);
+    expect(receipt.omittedShotCount).toBeGreaterThanOrEqual(1);
+    expect(receipt.omittedShots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "shot_no_camera_binding",
+          cameraDirectorId: null,
+        }),
+      ]),
+    );
     // 25 frames x 3 transform keys x 2 entities + 25 fov keys + 1 camera cut.
     expect(receipt.bakedKeyCount).toBe(176);
     expect(receipt.animationLibrary).toBe("director");
