@@ -166,14 +166,28 @@ describe("director_game routes", () => {
 
   it("applies the film-role tool policy before touching the store", async () => {
     const { game } = await createGame();
-    const execute = vi.fn();
-    const rejected = await call(
+    const execute = vi.fn().mockResolvedValue({ success: true, result: { tool: "director_game" } });
+    const allowed = await call(
       game,
       { input: { op: "capabilities" } },
       { execute, governance: { filmRoleId: "visual-critic" } },
     );
+    expect(allowed).toMatchObject({ status: 200, body: { success: true } });
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    const rejected = await call(
+      game,
+      {
+        input: {
+          op: "bind",
+          slice_id: SLICE_ID,
+          bindings: [{ role_id: "player", object_id: "hero-1" }],
+        },
+      },
+      { execute, governance: { filmRoleId: "visual-critic" } },
+    );
     expect(rejected).toMatchObject({ status: 403, body: { success: false, code: "tool_policy_rejected" } });
-    expect(execute).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("plans a slice and persists it across gateway restarts", async () => {
