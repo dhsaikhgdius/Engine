@@ -1388,7 +1388,7 @@ export function executeCreativeWorkspaceAgentOperation(
         if (operation.media_id === "text:" || operation.media_id === "text") {
           return semanticFailure(
             operation.op,
-            "invalid_input",
+            "conflict",
             'Virtual text media_id must be "text:<id>" or "text:caption:…".',
           );
         }
@@ -1490,7 +1490,7 @@ export function executeCreativeWorkspaceAgentOperation(
           if (nextMediaId === "text:" || nextMediaId === "text") {
             return semanticFailure(
               operation.op,
-              "invalid_input",
+              "conflict",
               'Virtual text media_id must be "text:<id>" or "text:caption:…".',
             );
           }
