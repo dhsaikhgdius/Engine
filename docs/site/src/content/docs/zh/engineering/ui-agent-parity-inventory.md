@@ -30,8 +30,8 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 | ui-only Stage 项目 mutator | 10 |
 | 覆盖率（shared / 项目 mutator） | **77 / 87 ≈ 89%** |
 
-仍为 ui-only 的入口，要么尚无 semantic action（timeline 音频、object list、全景/capture/资产目录
-写入），要么在 store 中带注释、有意保持本地写入（快照相机、预置/人群/资产新建流程）。
+仍为 ui-only 的入口，要么尚无 semantic action（object list、capture 证据写入、目录入库），
+要么在 store 中带注释、有意保持本地写入（快照相机、预置/人群/资产新建流程）。
 
 对等性由
 `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 回归保护：同一份

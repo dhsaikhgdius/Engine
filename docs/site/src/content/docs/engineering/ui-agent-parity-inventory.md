@@ -34,7 +34,7 @@ Last verified: **2026-08-26**.
 | Coverage (shared / project mutators) | **77 / 87 ≈ 89%** |
 
 Everything still ui-only either has no semantic action yet (object lists,
-panorama/capture/catalog writes) or is deliberately local with a documented
+capture evidence writes, catalog ingest) or is deliberately local with a documented
 divergence reason in the store (snapshot cameras, preset/crowd/asset add flows).
 
 Parity is regression-tested in
