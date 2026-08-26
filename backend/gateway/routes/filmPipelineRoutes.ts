@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   createFilmRunRequestSchema,
   type FilmPipelineAvailability,
+  type FilmPipelineCapabilities,
   type FilmPipelinePublicErrorCode,
   type FilmRun,
 } from "../../../packages/protocol/src/filmPipelineProtocol";
@@ -28,6 +29,8 @@ export type FilmPipelineRouteDependencies = {
   /** null while the film providers are not configured. */
   orchestrator: FilmPipelineOrchestrator | null;
   unconfiguredReason?: string;
+  /** Optional-capability readiness reported on the list surface (dialogue TTS, stage anchoring). */
+  capabilities: FilmPipelineCapabilities;
 };
 
 /** Every non-2xx film route response carries one frozen public error code. */
@@ -45,10 +48,16 @@ export async function handleFilmPipelineRoute(
   if (!url.pathname.startsWith("/api/film/runs")) return false;
 
   // The unconfigured pipeline is an explicit reported state on the list
-  // surface, not a hidden 503 that only shows up on writes.
+  // surface, not a hidden 503 that only shows up on writes. Optional
+  // capabilities report alongside so agents learn before create whether
+  // enableAudio / autoStageAnchors can be honored.
   const pipeline: FilmPipelineAvailability = orchestrator
-    ? { configured: true, reason: null }
-    : { configured: false, reason: dependencies.unconfiguredReason ?? "Film pipeline providers 未配置" };
+    ? { configured: true, reason: null, capabilities: dependencies.capabilities }
+    : {
+        configured: false,
+        reason: dependencies.unconfiguredReason ?? "Film pipeline providers 未配置",
+        capabilities: dependencies.capabilities,
+      };
   const unconfigured = () =>
     json(response, 503, errorBody("film_pipeline_unconfigured", pipeline.reason ?? "Film pipeline providers 未配置"));
 
