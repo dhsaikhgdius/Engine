@@ -179,8 +179,27 @@ describe("formatProgressPercent / groupUsageByScope", () => {
         succeeded: true,
         recorded_at: "2026-08-25T10:00:04.000Z",
       },
+      {
+        id: "usage-5",
+        scope: "film-tts",
+        provider: "speech-api:tts-1",
+        model: "tts-1",
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        duration_ms: 700,
+        retries: 1,
+        succeeded: true,
+        recorded_at: "2026-08-25T10:00:05.000Z",
+      },
     ]);
-    expect(rows.map((row) => row.scope)).toEqual(["film-llm", "film-image", "film-video", "prod-session-1"]);
+    expect(rows.map((row) => row.scope)).toEqual([
+      "film-llm",
+      "film-image",
+      "film-video",
+      "film-tts",
+      "prod-session-1",
+    ]);
     expect(rows[0]!.summary.total_tokens).toBe(60);
   });
 });
@@ -224,6 +243,15 @@ describe("AgentTracePanel", () => {
   });
 
   it("renders film pipeline progress and per-scope usage including film scopes", async () => {
+    const emptySummary = {
+      sample_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      total_duration_ms: 0,
+      retries: 0,
+      failure_count: 0,
+    };
     directorControlPlaneFetch.mockImplementation(
       mockObservability({
         usage: USAGE,
@@ -243,7 +271,17 @@ describe("AgentTracePanel", () => {
             recorded_at: "2026-08-25T10:00:03.000Z",
           },
         ],
-        progress: [FILM_PROGRESS],
+        progress: [
+          {
+            ...FILM_PROGRESS,
+            usage: {
+              "film-llm": emptySummary,
+              "film-image": emptySummary,
+              "film-video": emptySummary,
+              "film-tts": { ...emptySummary, sample_count: 4, total_duration_ms: 3_200 },
+            },
+          },
+        ],
       }),
     );
     render(<AgentTracePanel onClose={() => {}} />);
@@ -253,6 +291,9 @@ describe("AgentTracePanel", () => {
     expect(screen.getByText("开始渲染第 2 镜")).toBeInTheDocument();
     expect(screen.getByText("Film 规划 LLM")).toBeInTheDocument();
     expect(screen.getByText("Film 图像生成")).toBeInTheDocument();
+    // Per-run rollup: dialogue speech synthesis surfaces as its own scope line.
+    expect(screen.getByText("Film 语音合成")).toBeInTheDocument();
+    expect(screen.getByText(/4 · 3.2 s/)).toBeInTheDocument();
     expect(screen.getByText(/60 tokens · 600 ms · 失败 1/)).toBeInTheDocument();
     expect(screen.getByText("prod-session-1")).toBeInTheDocument();
   });

@@ -102,13 +102,23 @@ describe("production run task presentation", () => {
             retries: 1,
             failure_count: 1,
           },
+          "film-tts": {
+            sample_count: 5,
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            total_duration_ms: 6_000,
+            retries: 0,
+            failure_count: 0,
+          },
         },
       },
     });
     const lines = productionRunUsageLines(run);
-    expect(lines.map((line) => line.scope)).toEqual(["film-llm", "film-video"]);
+    expect(lines.map((line) => line.scope)).toEqual(["film-llm", "film-video", "film-tts"]);
     expect(formatProductionRunUsageLine(lines[0]!)).toBe("规划 LLM 150 tokens · 4s");
     expect(formatProductionRunUsageLine(lines[1]!)).toBe("视频生成 3 次 · 91s · 失败 1");
+    expect(formatProductionRunUsageLine(lines[2]!)).toBe("语音合成 5 次 · 6s");
     expect(productionRunUsageLines(entry({ source: "film", run: { ...run.run, usage: undefined } }))).toEqual([]);
   });
 });
