@@ -116,6 +116,37 @@ describe("projectProductionJobReceipt", () => {
     expect(projectProductionJobReceipt(succeeded)).toEqual(receipt);
   });
 
+  it("projects live storagePresence onto receipt artifacts without mutating durable metadata", () => {
+    const queued = queuedJob("media.proxy", { sourceMediaId: "media-1" } as ProductionJobInput, "job-presence");
+    const running = transitionProductionJob(queued, "running", { updatedAt: NOW });
+    const artifact = {
+      id: "job-presence-attempt-1-artifact-1",
+      attemptId: "job-presence-attempt-1",
+      role: "primary",
+      mimeType: "video/mp4",
+      fileName: "proxy.mp4",
+      sha256: "a".repeat(64),
+      bytes: 1024,
+      createdAt: NOW,
+    };
+    const succeeded = transitionProductionJob(running, "succeeded", {
+      progress: 1,
+      message: "Succeeded",
+      artifact,
+      updatedAt: NOW,
+    });
+    const absent = projectProductionJobReceipt(succeeded, {
+      artifactStoragePresence: new Map([[artifact.id, "absent"]]),
+    });
+    expect(absent.artifacts).toEqual([{ ...artifact, storagePresence: "absent" }]);
+    const present = projectProductionJobReceipt(succeeded, {
+      artifactStoragePresence: new Map([[artifact.id, "present"]]),
+    });
+    expect(present.artifacts[0]).toMatchObject({ storagePresence: "present", sha256: artifact.sha256 });
+    // Pure projection without a presence map stays metadata-only.
+    expect(projectProductionJobReceipt(succeeded).artifacts[0]).not.toHaveProperty("storagePresence");
+  });
+
   it("surfaces outcome-unknown and reconciliation evidence with retry attempts", () => {
     const queued = queuedJob("video.generate", { prompt: "Paid remote request" } as ProductionJobInput, "job-paid");
     const running = transitionProductionJob(queued, "running", { updatedAt: NOW });
