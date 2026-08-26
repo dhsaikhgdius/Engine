@@ -39,6 +39,7 @@ import {
   type DirectorDccImportPlanCameraOptics,
   type DirectorDccImportPlanLightPatch,
   type DirectorDccImportPlanV1,
+  type DirectorDccOmittedAddition,
   type DirectorDccOmittedOptics,
   type DirectorDccReturnManifestV1,
 } from "@director/dcc-protocol";
@@ -492,6 +493,7 @@ export function buildDirectorDccImportPlan(
   const operations: DirectorDccImportPlanV1["operations"] = [];
   const conflicts: DirectorDccImportPlanV1["conflicts"] = [];
   const omittedOptics: DirectorDccOmittedOptics[] = [];
+  const omittedAdditions: DirectorDccOmittedAddition[] = [];
   const warnings = [...manifest.warnings];
   const world = sceneTransform(project);
   const sourceIsCurrent = manifest.sourceRevision === targetRevision;
@@ -526,11 +528,17 @@ export function buildDirectorDccImportPlan(
   for (const change of manifest.changes) {
     if (requestedSkips.has(change.directorId)) {
       matchedSkips.add(change.directorId);
-      operations.push({
-        op: "skip",
-        directorId: change.directorId,
-        reason: `Skipped on request (skip_director_ids); the DCC change for ${change.directorId} is not applied.`,
-      });
+      const reason = `Skipped on request (skip_director_ids); the DCC change for ${change.directorId} is not applied.`;
+      operations.push({ op: "skip", directorId: change.directorId, reason });
+      if (change.kind === "object_addition") {
+        omittedAdditions.push({
+          directorId: change.directorId,
+          name: change.name,
+          meshFile: change.meshFile,
+          code: "skip_requested",
+          reason,
+        });
+      }
       continue;
     }
     if (change.kind === "object_addition") {
@@ -544,17 +552,28 @@ export function buildDirectorDccImportPlan(
           "Assign a fresh director_id in the DCC and re-export the return package.";
         operations.push({ op: "skip", directorId: change.directorId, reason });
         conflicts.push({ directorId: change.directorId, code: "duplicate_director_id", reason });
+        omittedAdditions.push({
+          directorId: change.directorId,
+          name: change.name,
+          meshFile: change.meshFile,
+          code: "duplicate_director_id",
+          reason,
+        });
         continue;
       }
       if (!options.includeNewObjects) {
         // Additions are never auto-imported: without the explicit opt-in the
         // plan lists them as reviewable skips and stays ready to apply.
-        operations.push({
-          op: "skip",
+        const reason =
+          `New DCC object "${change.name}" (${change.directorId}) is available but not imported; ` +
+          "rebuild the plan with include_new_objects to import it after review.";
+        operations.push({ op: "skip", directorId: change.directorId, reason });
+        omittedAdditions.push({
           directorId: change.directorId,
-          reason:
-            `New DCC object "${change.name}" (${change.directorId}) is available but not imported; ` +
-            "rebuild the plan with include_new_objects to import it after review.",
+          name: change.name,
+          meshFile: change.meshFile,
+          code: "opt_in_required",
+          reason,
         });
         continue;
       }
@@ -740,6 +759,7 @@ export function buildDirectorDccImportPlan(
     conflicts,
     warnings,
     ...(omittedOptics.length > 0 ? { omittedOpticsCount: omittedOptics.length, omittedOptics } : {}),
+    ...(omittedAdditions.length > 0 ? { omittedAdditionsCount: omittedAdditions.length, omittedAdditions } : {}),
   });
 }
 
