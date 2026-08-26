@@ -1,0 +1,129 @@
+{
+  "name": "game-slice-plan-and-playtest",
+  "description": "Plan an exploration game slice, bind stage object ids to its roles, then score a host-free playtest trace to a playable evaluation through the public director_game tool. The trace is inline, so no live Stage player session is required.",
+  "steps": [
+    {
+      "label": "game capabilities",
+      "tool": "director_game",
+      "input": { "op": "capabilities" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.tool", "result.runtime.default", "result.working_order.0"]
+      }
+    },
+    {
+      "label": "describe plan schema",
+      "tool": "director_game",
+      "input": { "op": "describe", "target": "plan" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.target", "result.kind"]
+      }
+    },
+    {
+      "label": "plan an exploration slice",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-explore-01",
+        "brief": {
+          "requirement": "Walk across the courtyard to the stone stele and interact with it.",
+          "genre": "exploration"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id", "result.slice.status", "result.notes.0"]
+      }
+    },
+    {
+      "label": "observe the planned slice",
+      "tool": "director_game",
+      "input": { "op": "observe", "slice_id": "game-eval-explore-01" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id", "result.player"]
+      }
+    },
+    {
+      "label": "bind object ids to roles",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-explore-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "hero-1" },
+          { "role_id": "spawn", "object_id": "spawn-marker-1" },
+          { "role_id": "objective-1", "object_id": "stele-1" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.bind_complete", "result.slice.status"]
+      }
+    },
+    {
+      "label": "playtest with a host-free trace",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-explore-01",
+        "script": {
+          "steps": [{ "frames": 30, "input": { "forward": true } }]
+        },
+        "trace": {
+          "contract": "director-game-playtest-trace-v1",
+          "slice_id": "game-eval-explore-01",
+          "dt": 0.03333333333333333,
+          "verbs_exercised": ["move", "look", "jump", "interact"],
+          "samples": [
+            {
+              "frame": 0,
+              "time_s": 0,
+              "position": [0, 0, 0],
+              "yaw": 0,
+              "velocity": [0, 0, 1.2],
+              "on_ground": true,
+              "flying": false,
+              "verb": "move"
+            },
+            {
+              "frame": 15,
+              "time_s": 0.5,
+              "position": [0, 0, 0.6],
+              "yaw": 0,
+              "velocity": [0, 0, 1.2],
+              "on_ground": true,
+              "flying": false,
+              "verb": "jump"
+            },
+            {
+              "frame": 30,
+              "time_s": 1,
+              "position": [0, 0, 1.2],
+              "yaw": 0,
+              "velocity": [0, 0, 0],
+              "on_ground": true,
+              "flying": false,
+              "verb": "interact",
+              "interaction_object_id": "stele-1"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.evaluation.playable", "result.slice.status", "result.trace.contract"]
+      }
+    },
+    {
+      "label": "evaluate the stored playtest",
+      "tool": "director_game",
+      "input": { "op": "evaluate", "slice_id": "game-eval-explore-01" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.evaluation.contract", "result.evaluation.playable"]
+      }
+    }
+  ]
+}
