@@ -155,21 +155,21 @@ export const directorDccUnityEngineReportDetailsSchema = z
     omittedChannels: z.array(directorDccUnityOmittedChannelSchema).max(4_096).optional(),
   })
   .superRefine((receipt, context) => {
-    if (receipt.omittedLights !== undefined) {
-      const count = receipt.omittedLightCount ?? receipt.omittedLights.length;
-      if (receipt.omittedLightCount !== undefined && receipt.omittedLights.length !== receipt.omittedLightCount) {
-        context.addIssue({
-          code: "custom",
-          path: ["omittedLights"],
-          message: "omittedLights length must equal omittedLightCount",
-        });
-      } else if (receipt.omittedLightCount === undefined && receipt.omittedLights.length !== count) {
-        context.addIssue({
-          code: "custom",
-          path: ["omittedLightCount"],
-          message: "omittedLightCount is required when omittedLights is present",
-        });
-      }
+    if (receipt.omittedLights === undefined) return;
+    if (receipt.omittedLightCount === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedLightCount"],
+        message: "omittedLightCount is required when omittedLights is present",
+      });
+      return;
+    }
+    if (receipt.omittedLights.length !== receipt.omittedLightCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedLights"],
+        message: "omittedLights length must equal omittedLightCount",
+      });
     }
   });
 
