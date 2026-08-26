@@ -30,6 +30,11 @@ describe("film pipeline routes", () => {
     });
   }
 
+  const capabilities = {
+    dialogueAudio: { configured: false, reason: "对白 TTS 未配置：缺少 DIRECTOR_FILM_TTS_API_KEY/BASE_URL" },
+    stageAnchors: { configured: true, reason: null },
+  };
+
   async function harness(payload: unknown, options: { configured?: boolean } = {}) {
     const dir = await mkdtemp(join(tmpdir(), "director-film-routes-"));
     tempDirs.push(dir);
@@ -47,6 +52,7 @@ describe("film pipeline routes", () => {
       store,
       orchestrator: (options.configured === false ? null : orchestrator) as unknown as FilmPipelineOrchestrator,
       unconfiguredReason: options.configured === false ? "缺少配置" : undefined,
+      capabilities,
     };
     const response = { writeHead: vi.fn(), end: vi.fn() } as unknown as ServerResponse;
     return { store, writes, dependencies, response, orchestrator };
@@ -64,7 +70,7 @@ describe("film pipeline routes", () => {
     expect(context.writes[0].status).toBe(200);
     const list = context.writes[0].body as { runs: unknown[]; pipeline: { configured: boolean; reason: null } };
     expect(list.runs).toHaveLength(1);
-    expect(list.pipeline).toEqual({ configured: true, reason: null });
+    expect(list.pipeline).toEqual({ configured: true, reason: null, capabilities });
 
     expect(
       await handleFilmPipelineRoute(
@@ -193,10 +199,43 @@ describe("film pipeline routes", () => {
   it("reports the unconfigured pipeline as an explicit state on the list surface", async () => {
     const context = await harness(null, { configured: false });
     await handleFilmPipelineRoute(request("GET"), context.response, url("/api/film/runs"), context.dependencies);
-    const body = context.writes[0].body as { pipeline: { configured: boolean; reason: string } };
+    const body = context.writes[0].body as {
+      pipeline: { configured: boolean; reason: string; capabilities: unknown };
+    };
     expect(context.writes[0].status).toBe(200);
     expect(body.pipeline.configured).toBe(false);
     expect(body.pipeline.reason).toBe("缺少配置");
+    // Optional-capability readiness stays reported even while core providers are missing.
+    expect(body.pipeline.capabilities).toEqual(capabilities);
+  });
+
+  it("serves typed capability omissions on receipt responses", async () => {
+    const context = await harness(null);
+    const omission = {
+      capability: "dialogue_audio" as const,
+      code: "tts_unconfigured" as const,
+      sceneIdx: null,
+      reason: "enableAudio was requested but no TTS provider is configured; clips render without dialogue dubbing",
+      at: new Date().toISOString(),
+    };
+    await context.store.create(
+      filmRunSchema.parse({
+        ...run("film-dddddddd-4444"),
+        status: "completed",
+        phase: "completed",
+        capabilityOmissions: [omission],
+      }),
+    );
+    await handleFilmPipelineRoute(
+      request("GET"),
+      context.response,
+      url("/api/film/runs/film-dddddddd-4444/receipt"),
+      context.dependencies,
+    );
+    const body = context.writes[0].body as { receipt: { capabilityOmissions: unknown[] } };
+    expect(context.writes[0].status).toBe(200);
+    // The run's divergence from its requested input is a typed receipt fact.
+    expect(body.receipt.capabilityOmissions).toEqual([omission]);
   });
 
   it("creates runs and rejects invalid payloads", async () => {

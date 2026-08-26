@@ -35,6 +35,12 @@ const UNITY_OMITTED_MATERIAL_LABELS: Record<string, string> = {
   shader_missing: "缺少 Lit/Standard 着色器",
 };
 
+const UNITY_OMITTED_SHOT_LABELS: Record<string, string> = {
+  shot_no_camera_binding: "镜头缺少相机绑定",
+  shot_camera_not_imported: "镜头相机未导入",
+  shot_target_not_camera: "镜头目标不是相机",
+};
+
 const RENDER_PIPELINE_LABELS: Record<string, string> = {
   "built-in": "内置管线",
   urp: "URP",
@@ -107,6 +113,18 @@ export function renderUnityReceipt(result: DirectorDccEngineSendResult, t: (sour
           <dt>{t("省略材质")}</dt>
           <dd>{details.omittedMaterialCount ?? details.omittedMaterials?.length ?? 0}</dd>
         </div>
+        {details.mappedShotCount !== undefined ? (
+          <div>
+            <dt>{t("映射镜头")}</dt>
+            <dd>{details.mappedShotCount}</dd>
+          </div>
+        ) : null}
+        {details.omittedShotCount !== undefined || details.omittedShots !== undefined ? (
+          <div>
+            <dt>{t("省略镜头")}</dt>
+            <dd>{details.omittedShotCount ?? details.omittedShots?.length ?? 0}</dd>
+          </div>
+        ) : null}
       </dl>
       {(details.omittedLights?.length ?? 0) > 0 ? (
         <ul aria-label={t("结构化省略灯光")} className="director-engine-handoff-list is-warning">
@@ -133,6 +151,20 @@ export function renderUnityReceipt(result: DirectorDccEngineSendResult, t: (sour
           ))}
           {details.omittedMaterials!.length > 6 ? (
             <li className="director-engine-handoff-more">+{details.omittedMaterials!.length - 6}</li>
+          ) : null}
+        </ul>
+      ) : null}
+      {(details.omittedShots?.length ?? 0) > 0 ? (
+        <ul aria-label={t("结构化省略镜头")} className="director-engine-handoff-list is-warning">
+          {details.omittedShots!.slice(0, 6).map((entry) => (
+            <li key={`${entry.code}:${entry.shotId}`}>
+              <code data-i18n-user-content>{entry.shotId}</code>
+              {` · ${t(UNITY_OMITTED_SHOT_LABELS[entry.code] ?? entry.code)} · `}
+              <span data-i18n-user-content>{entry.reason}</span>
+            </li>
+          ))}
+          {details.omittedShots!.length > 6 ? (
+            <li className="director-engine-handoff-more">+{details.omittedShots!.length - 6}</li>
           ) : null}
         </ul>
       ) : null}

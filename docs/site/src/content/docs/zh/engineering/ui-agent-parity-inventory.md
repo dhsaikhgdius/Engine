@@ -176,6 +176,11 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 - 无媒体文字/字幕剪辑：`edit.clip.add` 接受虚拟 `text:` / `text:caption:…` media id（无需 Gallery
   资产，仅视频轨道）。Video「标题文字」与字幕/SRT 导入、转写入轨走与 Agent 相同的操作；字幕显示名受
   共享剪辑名 200 字上限约束。
+- 检查器「名称」字段的剪辑重命名：契约可表达的每次键入都以 `name` patch 派发
+  `edit.clip.update`（与 Agent 发送的 patch 相同），锁定轨道会浮出拒绝而非 store 的静默
+  no-op。标题/字幕剪辑以名称渲染叠加文字，编辑该文字走同一操作；输入框强制共享的 200 字剪辑名
+  上限。与 Stage 输入中空白策略一致，schema 会拒绝或改写的状态——清空的字段、首尾空白、超限的
+  程序化值——保留旧直写。
 - Fountain 剧本导入（「导入剧本」）：Canvas 弹窗经 `canvas.script.apply_plan` 走与 Agent 相同的
   执行器。回执报告 `storyboard_shots`、`nodes_added`、新的 `sections`、`replaced_section_ids`
   与 typed `omitted[]`（240 节点上限截断的 `board_capacity`，加 Fountain 导入器的
@@ -184,10 +189,10 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 
 仍为直接写入，附原因：
 
-- 连续交互——节点拖拽、剪辑拖拽/裁剪、淡变拖拽、范围滑杆、实时输入——保留本地批处理历史
-  （`beginHistoryBatch`/`endHistoryBatch`），与 Stage 滑块/gizmo 策略一致。拖拽/裁剪 pointer-up
-  仍本地 `commitClipPlacement`（离散微移/后接复制/显式落点已共享，见上）。Canvas 连续指针平移/
-  滚轮缩放保持本地。
+- 连续交互——节点拖拽、剪辑拖拽/裁剪、淡变拖拽、范围滑杆，以及契约无法表达的输入中剪辑名状态
+  （清空、首尾空白、超限值）——保留本地批处理历史（`beginHistoryBatch`/`endHistoryBatch`）或
+  直写，与 Stage 滑块/gizmo 策略一致。拖拽/裁剪 pointer-up 仍本地 `commitClipPlacement`
+  （离散微移/后接复制/显式落点已共享，见上）。Canvas 连续指针平移/滚轮缩放保持本地。
 - Canvas 画板视口离散写入——`canvas.board.set_viewport` 与 `canvas.board.fit_content`（工具栏/
   布局后适应）走共享 agent 契约；连续平移/滚轮仍本地。缩放钳制在 `[0.1, 2.5]`；无现场 DOM
   尺寸时 fit 默认 1280×800 表面。

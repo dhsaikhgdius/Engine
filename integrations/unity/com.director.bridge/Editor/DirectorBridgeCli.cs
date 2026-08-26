@@ -137,6 +137,9 @@ namespace Director.Bridge.Editor
                     ["appliedTextureCount"] = counters.AppliedTextureCount,
                     ["omittedMaterialCount"] = counters.OmittedMaterials.Count,
                     ["omittedMaterials"] = counters.OmittedMaterials,
+                    ["mappedShotCount"] = timelineResult.MappedShotCount,
+                    ["omittedShotCount"] = timelineResult.OmittedShots.Count,
+                    ["omittedShots"] = timelineResult.OmittedShots,
                     ["posedCharacterCount"] = posedCharacterIds.Count,
                     ["omittedChannels"] = omissions,
                 };

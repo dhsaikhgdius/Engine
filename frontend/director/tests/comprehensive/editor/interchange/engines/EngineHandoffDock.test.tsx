@@ -355,6 +355,17 @@ it("renders the Unity bake summary with structured omitted channels and never of
               reason: "HDRP has no Director PBR fallback; omitted.",
             },
           ],
+          mappedShotCount: 3,
+          omittedShotCount: 1,
+          omittedShots: [
+            {
+              shotId: "shot-orphan",
+              code: "shot_no_camera_binding",
+              cameraDirectorId: null,
+              reason:
+                "Shot shot-orphan has no camera binding; no ActivationTrack camera cut was created (warn-and-omit code: shot_no_camera_binding).",
+            },
+          ],
           posedCharacterCount: 2,
           omittedChannels: [
             { directorId: "char-alien", channel: "poseValues", reason: "Non-Mixamo rig: pose controls cannot map." },
@@ -378,13 +389,48 @@ it("renders the Unity bake summary with structured omitted channels and never of
   expect(facts).toHaveTextContent("Assets/Director/DirectorTimeline.playable");
   expect(facts).toHaveTextContent("URP");
   expect(facts).toHaveTextContent("省略材质");
+  const factOf = (label: string) => within(facts).getByText(label).closest("div")!;
+  expect(factOf("映射镜头")).toHaveTextContent("3");
+  expect(factOf("省略镜头")).toHaveTextContent("1");
   const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
   expect(within(omittedMaterials).getByText("prop-hdrp")).toBeInTheDocument();
   expect(omittedMaterials).toHaveTextContent("管线不支持材质回退");
+  const omittedShots = screen.getByRole("list", { name: "结构化省略镜头" });
+  expect(within(omittedShots).getByText("shot-orphan")).toBeInTheDocument();
+  expect(omittedShots).toHaveTextContent("镜头缺少相机绑定");
+  expect(omittedShots).toHaveTextContent("no ActivationTrack camera cut was created");
   const omitted = screen.getByRole("list", { name: "省略的动画通道" });
   expect(within(omitted).getAllByText("char-alien")).toHaveLength(2);
   expect(omitted).toHaveTextContent("Non-Mixamo rig: pose controls cannot map.");
   expect(omitted).toHaveTextContent("动作片段");
+});
+
+it("hides the Unity shot rows for pre-0.3.3 connector reports instead of fabricating zero counts", async () => {
+  providerClient.sendToEngine.mockResolvedValue(
+    sendResult("unity", {
+      report: {
+        ...sendResult("unity").report,
+        unity: {
+          timelinePath: "Assets/Director/DirectorTimeline.playable",
+          renderPipeline: "urp",
+          gltfImporterAvailable: true,
+          importedLightCount: 0,
+          bakedAnimationClipCount: 1,
+          humanoidAvatarCount: 0,
+          genericAvatarCount: 0,
+          materialFallbackCount: 0,
+        },
+      },
+    }),
+  );
+  renderDock();
+  const user = await openTab("Unity");
+
+  await user.click(screen.getByRole("button", { name: /通过原生连接器发送到 Unity/ }));
+  const facts = await screen.findByLabelText("Unity 回执");
+  expect(within(facts).queryByText("映射镜头")).not.toBeInTheDocument();
+  expect(within(facts).queryByText("省略镜头")).not.toBeInTheDocument();
+  expect(screen.queryByRole("list", { name: "结构化省略镜头" })).not.toBeInTheDocument();
 });
 
 it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambient and structured light omits", async () => {

@@ -503,7 +503,11 @@ Implemented Director boundary (see `integrations/unity/README.md`):
   warns-and-omits;
 - Director storyboard shots map to Timeline activation tracks, and Director
   keyframe/trajectory animation is baked into `AnimationClip`s through C# ports
-  of Director's easing and trajectory evaluators;
+  of Director's easing and trajectory evaluators; shots without a usable
+  camera binding warn-and-omit and, on connector ≥0.3.3, surface as typed
+  `omittedShots[]` / `omittedShotCount` with matching `mappedShotCount`
+  (`shotId` / `code` / `cameraDirectorId` / `reason`, the same code
+  vocabulary as the Godot shot mapper);
 - Director semantic pose controls apply to Mixamo-compatible rigs through a C#
   port of Director's pose math — static poses pin the rest pose and keyframed
   pose channels bake into per-bone rotation curves; channels the connector

@@ -83,7 +83,11 @@ import { useDirectorClipFilmstrip, type DirectorClipFilmstripRequest } from "./c
 import { CreativeTransportDropdown } from "./CreativeTransportDropdown";
 import { CreativeWorkspacePanelResizer, useCreativeWorkspacePanelLayout } from "./CreativeWorkspacePanelResizer";
 import { installWindowPointerDrag } from "./windowPointerDrag";
-import { insertDirectorCaptionCuesIntoTimeline, parseDirectorCaptionFile } from "./captionImport";
+import {
+  CREATIVE_CLIP_NAME_MAX,
+  insertDirectorCaptionCuesIntoTimeline,
+  parseDirectorCaptionFile,
+} from "./captionImport";
 import { useDirectorStore } from "../store/directorStore";
 import {
   CREATIVE_PROJECT_BUNDLE_FILE_NAME,
@@ -759,12 +763,13 @@ export function VideoEditorWorkspace() {
   const timelineZoom = useDirectorCreativeWorkspaceStore((state) => state.timelineZoom);
   const editSettings = useDirectorCreativeWorkspaceStore((state) => state.editSettings);
   // Clip add ("+" placement / duplicate-after), split/remove/transition, discrete
-  // fade steps, keyboard frame nudges, track management, settings, import
-  // cataloging, undo/redo, media relink, proxy attach, and media-less
-  // text/caption clips (`text:` / `text:caption:…`) dispatch through the shared
-  // agent contract (dispatchCreativeWorkspaceOperations /
-  // dispatchCreativeWorkspaceMediaRelink). Only continuous interactions
-  // (drags, trims, fades, range sliders, live typing) keep the direct store
+  // fade steps, keyboard frame nudges, clip rename / title text, track
+  // management, settings, import cataloging, undo/redo, media relink, proxy
+  // attach, and media-less text/caption clips (`text:` / `text:caption:…`)
+  // dispatch through the shared agent contract
+  // (dispatchCreativeWorkspaceOperations / dispatchCreativeWorkspaceMediaRelink).
+  // Only continuous interactions (drags, trims, fades, range sliders) and
+  // mid-typing name states the contract cannot express keep the direct store
   // mutators. Explicit media drops, keyboard nudges, and duplicate-after share
   // overwrite placement.
   const updateClip = useDirectorCreativeWorkspaceStore((state) => state.updateClip);
@@ -869,6 +874,22 @@ export function VideoEditorWorkspace() {
     }
     // Range sliders (opacity / volume / scale) stream continuous samples and keep the local mutator.
     updateClip(selected.clip.id, { [field]: value } as Partial<DirectorEditClip>);
+  };
+  /**
+   * Clip rename (and title/caption text, which renders the clip name) shares
+   * `edit.clip.update` with Agents, mirroring the Stage object-rename policy:
+   * every expressible keystroke round-trips the contract so a locked track
+   * surfaces a rejection instead of silently no-oping. Only mid-typing states
+   * the contract cannot express — an emptied field or leading/trailing
+   * whitespace the schema would trim away — keep the legacy writer.
+   */
+  const updateSelectedClipName = (value: string) => {
+    if (!selected) return;
+    if (!value.trim() || value !== value.trim() || value.length > CREATIVE_CLIP_NAME_MAX) {
+      updateClip(selected.clip.id, { name: value });
+      return;
+    }
+    dispatchVideo({ op: "edit.clip.update", clip_id: selected.clip.id, patch: { name: value } }, t("剪辑重命名失败"));
   };
   const duration = getDirectorEditDuration(tracks);
   const contentDuration = getDirectorTimelineContentDuration(tracks, mediaById);
@@ -2772,7 +2793,8 @@ export function VideoEditorWorkspace() {
                 <label>
                   <span>{t("名称")}</span>
                   <input
-                    onChange={(event) => updateClip(selected.clip.id, { name: event.currentTarget.value })}
+                    maxLength={CREATIVE_CLIP_NAME_MAX}
+                    onChange={(event) => updateSelectedClipName(event.currentTarget.value)}
                     value={selected.clip.name}
                   />
                 </label>

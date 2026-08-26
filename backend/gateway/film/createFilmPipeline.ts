@@ -1,6 +1,7 @@
 import type { DirectorControlPlaneConfig } from "../controlPlane/controlPlaneConfig";
 import { createModelDriver } from "@director/model-provider/runtime";
 import type { AgentUsageMeter } from "../../../packages/protocol/src/agentObservabilityProtocol";
+import type { FilmPipelineCapabilities } from "../../../packages/protocol/src/filmPipelineProtocol";
 import { FilmAudioMixer, OpenAiSpeechProvider } from "./filmAudioPipeline";
 import { FilmPlanningAgents } from "./filmPlanningAgents";
 import { FilmPipelineOrchestrator, type StageAnchorHook, type TimelineExportHook } from "./filmPipelineOrchestrator";
@@ -20,6 +21,8 @@ export type FilmPipelineRuntime = {
   orchestrator: FilmPipelineOrchestrator | null;
   /** Human-readable reason why the orchestrator was not created (a missing-config diagnostic, not an error). */
   unconfiguredReason?: string;
+  /** Optional-capability readiness (dialogue TTS, stage anchoring) reported on the pipeline surface. */
+  capabilities: FilmPipelineCapabilities;
 };
 
 /** Optional integrations the film pipeline can use when the host environment provides them. */
@@ -47,6 +50,17 @@ export function createFilmPipeline(
 ): FilmPipelineRuntime {
   const store = new FilmRunStore(dataDirectory);
   const film = config.film;
+  // Optional capabilities are reported explicitly instead of silently
+  // degrading runs that request them: their absence never blocks the core
+  // pipeline, but agents must see it before spending render budget.
+  const capabilities: FilmPipelineCapabilities = {
+    dialogueAudio: film.tts.baseUrl
+      ? { configured: true, reason: null }
+      : { configured: false, reason: "对白 TTS 未配置：缺少 DIRECTOR_FILM_TTS_API_KEY/BASE_URL" },
+    stageAnchors: integrations.workbenchExecute
+      ? { configured: true, reason: null }
+      : { configured: false, reason: "Stage 锚点捕捉不可用：Gateway 未接入 director_workbench 执行通道" },
+  };
   const missing: string[] = [];
   if (!film.llm.baseUrl || !film.llm.model) missing.push("DIRECTOR_FILM_LLM_MODEL/BASE_URL");
   if (film.llm.driver === "anthropic" && !film.llm.apiKey) missing.push("DIRECTOR_FILM_LLM_API_KEY");
@@ -62,6 +76,7 @@ export function createFilmPipeline(
       store,
       orchestrator: null,
       unconfiguredReason: `Film pipeline 未配置：缺少 ${missing.join("、")}`,
+      capabilities,
     };
   }
 
@@ -137,5 +152,5 @@ export function createFilmPipeline(
     mixShotAudio,
     exportTimeline,
   });
-  return { store, orchestrator };
+  return { store, orchestrator, capabilities };
 }

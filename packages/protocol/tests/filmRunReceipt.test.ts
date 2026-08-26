@@ -56,6 +56,7 @@ describe("filmRunReceipt", () => {
       portraitsReady: true,
       awaitingApproval: false,
       phaseReceipts: run.phaseReceipts,
+      capabilityOmissions: [],
       artifacts: { finalVideoPath: null, timelinePath: null, timelineExport: null },
       timestamps: { createdAt: run.createdAt, updatedAt: run.updatedAt },
       usage: {
@@ -232,6 +233,30 @@ describe("filmRunReceipt", () => {
       timelinePath: "/runs/timeline.otio",
       timelineExport,
     });
+  });
+
+  it("projects typed capability omissions onto the receipt", () => {
+    const omissions = [
+      {
+        capability: "dialogue_audio" as const,
+        code: "tts_unconfigured" as const,
+        sceneIdx: null,
+        reason: "enableAudio was requested but no TTS provider is configured",
+        at: "2026-08-13T00:01:00.000Z",
+      },
+      {
+        capability: "stage_anchors" as const,
+        code: "anchor_resolution_failed" as const,
+        sceneIdx: 1,
+        reason: "Stage anchor resolution failed for scene 1",
+        at: "2026-08-13T00:02:00.000Z",
+      },
+    ];
+    const receipt = projectFilmRunReceipt(makeRun({ capabilityOmissions: omissions }));
+    expect(receipt.capabilityOmissions).toEqual(omissions);
+
+    // Documents that predate typed omissions project an empty list, never invented records.
+    expect(projectFilmRunReceipt(makeRun()).capabilityOmissions).toEqual([]);
   });
 
   it("keeps timelineExport null for legacy runs that predate typed export receipts", () => {

@@ -21,7 +21,7 @@ export function isCreativeVirtualTextMediaId(mediaId: string): boolean {
 }
 
 /** Shared contract clip names are capped at 200 chars (protocol `nameSchema`). */
-const CREATIVE_CLIP_NAME_MAX = 200;
+export const CREATIVE_CLIP_NAME_MAX = 200;
 const DEFAULT_VIRTUAL_TEXT_SOURCE_DURATION_SEC = 60 * 60;
 const CAPTION_DEFAULT_POSITION_Y = 360;
 

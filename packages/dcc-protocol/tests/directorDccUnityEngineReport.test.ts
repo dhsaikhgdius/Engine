@@ -36,6 +36,17 @@ const UNITY_DETAILS = {
         "Object prop-hdrp: Director PBR fallback supports URP and Built-in; the active hdrp pipeline uses an unsupported material graph, so the override was omitted (warn-and-omit code: pipeline_unsupported). GLB payload materials still import through the glTF importer.",
     },
   ],
+  mappedShotCount: 2,
+  omittedShotCount: 1,
+  omittedShots: [
+    {
+      shotId: "shot-unbound",
+      code: "shot_no_camera_binding" as const,
+      cameraDirectorId: null,
+      reason:
+        "Shot shot-unbound has no camera binding; no ActivationTrack camera cut was created (warn-and-omit code: shot_no_camera_binding).",
+    },
+  ],
   omittedChannels: [
     {
       directorId: "hero-1",
@@ -108,6 +119,9 @@ describe("Director Unity engine report details", () => {
       omittedLights: _omitLights,
       omittedMaterialCount: _omitMatCount,
       omittedMaterials: _omitMats,
+      mappedShotCount: _mappedShots,
+      omittedShotCount: _omitShotCount,
+      omittedShots: _omitShots,
       ...legacyDetails
     } = UNITY_DETAILS;
     const parsed = directorDccUnityEngineReportDetailsSchema.parse(legacyDetails);
@@ -115,6 +129,8 @@ describe("Director Unity engine report details", () => {
     expect(parsed.omittedChannels).toBeUndefined();
     expect(parsed.omittedLights).toBeUndefined();
     expect(parsed.omittedMaterials).toBeUndefined();
+    expect(parsed.mappedShotCount).toBeUndefined();
+    expect(parsed.omittedShots).toBeUndefined();
   });
 
   it("rejects omittedLights whose length disagrees with omittedLightCount", () => {
@@ -143,6 +159,86 @@ describe("Director Unity engine report details", () => {
       directorDccUnityEngineReportDetailsSchema.safeParse({
         ...UNITY_DETAILS,
         omittedMaterialCount: undefined,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects omittedShots whose length disagrees with omittedShotCount", () => {
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedShotCount: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedShotCount: undefined,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects unknown omitted-shot codes and extra omitted-shot fields", () => {
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedShots: [
+          {
+            shotId: "shot-1",
+            code: "shot_outside_playback",
+            cameraDirectorId: "cam-1",
+            reason: "not a code the Unity shot mapper owns",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedShots: [
+          {
+            shotId: "shot-unbound",
+            code: "shot_no_camera_binding",
+            cameraDirectorId: null,
+            reason: "no camera binding",
+            severity: "warning",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedShots: [{ shotId: "", code: "shot_no_camera_binding", cameraDirectorId: null, reason: "empty id" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps cameraDirectorId nullable only for missing bindings and requires a nonnegative mapped count", () => {
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedShots: [
+          {
+            shotId: "shot-ghost",
+            code: "shot_camera_not_imported",
+            cameraDirectorId: "cam-ghost",
+            reason:
+              "Shot shot-ghost references camera cam-ghost which was not imported; its cut was skipped (warn-and-omit code: shot_camera_not_imported).",
+          },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        mappedShotCount: -1,
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        mappedShotCount: 1.5,
       }).success,
     ).toBe(false);
   });

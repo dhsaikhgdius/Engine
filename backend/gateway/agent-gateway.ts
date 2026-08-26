@@ -2233,6 +2233,7 @@ const server = createServer(async (request, response) => {
         store: filmPipeline.store,
         orchestrator: filmPipeline.orchestrator,
         unconfiguredReason: filmPipeline.unconfiguredReason,
+        capabilities: filmPipeline.capabilities,
       })
     )
       return;
