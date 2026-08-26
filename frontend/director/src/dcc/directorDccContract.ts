@@ -276,6 +276,14 @@ export const directorDccOperationSchema = z.discriminatedUnion("op", [
     provider: directorDccEngineIdSchema,
     package_dir: z.string().trim().min(1).max(2_048),
     dry_run: z.boolean().optional().default(true),
+    /**
+     * Opt in to planning `object_addition` changes (engine objects stamped
+     * with a fresh director_id after the export snapshot). Off by default:
+     * Director never auto-imports new engine objects without review. The
+     * Director-authored connectors emit transform-only returns today, so this
+     * only matters for hand-authored or third-party return packages.
+     */
+    include_new_objects: z.boolean().optional().default(false),
   }),
   strictOperation("import_return_package", {
     package_dir: z.string().trim().min(1).max(2_048),

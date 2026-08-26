@@ -623,9 +623,10 @@ export async function handleDccRoute(
         });
         return true;
       }
-      const plan = skipDirectorIds
-        ? await engineImporter.buildImportPlan(parsed.data.package_dir, project, { skipDirectorIds })
-        : await engineImporter.buildImportPlan(parsed.data.package_dir, project);
+      const plan = await engineImporter.buildImportPlan(parsed.data.package_dir, project, {
+        ...(skipDirectorIds ? { skipDirectorIds } : {}),
+        includeNewObjects: parsed.data.include_new_objects,
+      });
       json(response, plan.ready ? 200 : 409, {
         success: plan.ready,
         ...(plan.ready ? {} : { code: plan.conflicts[0]?.code ?? "conflict_unresolved" }),
@@ -633,6 +634,7 @@ export async function handleDccRoute(
           ready: plan.ready,
           provider: parsed.data.provider,
           dry_run: parsed.data.dry_run,
+          include_new_objects: parsed.data.include_new_objects,
           summary: {
             operation_count: plan.operations.filter((operation) => operation.op !== "skip" && operation.op !== "warn")
               .length,
