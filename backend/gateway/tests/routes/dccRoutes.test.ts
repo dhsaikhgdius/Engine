@@ -655,6 +655,68 @@ describe("DCC engine handoff routes", () => {
     );
   });
 
+  it("serves the read-only engine connector health probe without touching the project", async () => {
+    const json = vi.fn();
+    const getProject = vi.fn();
+    const health = {
+      contract: "director-dcc-engine-health-v1",
+      provider: "godot",
+      ready: false,
+      executable: null,
+      hostVersion: null,
+      connectorVersion: "0.3.0",
+      connectorDirectory: "integrations/godot",
+      projectPath: null,
+      checks: [{ id: "executable", ok: false, detail: "Godot executable was not found." }],
+      warnings: ["Godot executable was not detected."],
+      recovery: ["Set DIRECTOR_GODOT_BIN to the godot / godot4 binary (Godot 4.2 or newer; Godot 4.x only)."],
+    };
+    const engineBridge = { health: vi.fn().mockResolvedValue(health) } as unknown as DirectorDccEngineBridge;
+    expect(
+      await handleDccRoute(request("GET"), response(), new URL("http://test/api/dcc/engines/godot/health"), {
+        readBody: vi.fn(),
+        json,
+        getProject,
+        blender: blenderStub,
+        engineBridge,
+      }),
+    ).toBe(true);
+    expect(engineBridge.health).toHaveBeenCalledWith("godot");
+    expect(getProject).not.toHaveBeenCalled();
+    expect(json).toHaveBeenCalledWith(expect.anything(), 200, { success: true, result: health });
+  });
+
+  it("rejects unknown providers and missing bridges on the engine health route", async () => {
+    const json = vi.fn();
+    const engineBridge = { health: vi.fn() } as unknown as DirectorDccEngineBridge;
+    await handleDccRoute(request("GET"), response(), new URL("http://test/api/dcc/engines/blender/health"), {
+      readBody: vi.fn(),
+      json,
+      getProject: vi.fn(),
+      blender: blenderStub,
+      engineBridge,
+    });
+    expect(engineBridge.health).not.toHaveBeenCalled();
+    expect(json).toHaveBeenCalledWith(
+      expect.anything(),
+      400,
+      expect.objectContaining({ success: false, code: "engine_provider_invalid" }),
+    );
+
+    const missingBridgeJson = vi.fn();
+    await handleDccRoute(request("GET"), response(), new URL("http://test/api/dcc/engines/unreal/health"), {
+      readBody: vi.fn(),
+      json: missingBridgeJson,
+      getProject: vi.fn(),
+      blender: blenderStub,
+    });
+    expect(missingBridgeJson).toHaveBeenCalledWith(
+      expect.anything(),
+      503,
+      expect.objectContaining({ success: false, code: "engine_bridge_unavailable" }),
+    );
+  });
+
   it("rejects send_to_engine for non-engine providers before touching the bridge", async () => {
     const json = vi.fn();
     const engineBridge = { send: vi.fn() } as unknown as DirectorDccEngineBridge;

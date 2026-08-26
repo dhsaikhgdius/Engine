@@ -40,6 +40,7 @@ import { DirectorTemplateDialog } from "../templates/DirectorTemplateDialog";
 import { useDirectorMediaLibrary } from "../workspaces/directorMediaLibrary";
 import { useDirectorCreativeWorkspaceStore, type DirectorWorkspaceMode } from "../workspaces/directorWorkspaceStore";
 import { DccProviderBrowser } from "./DccProviderBrowser";
+import { EngineHandoffDock } from "./engines/EngineHandoffDock";
 import type { DirectorMeshExportReport } from "./mesh";
 import "./DirectorInterchangeMenu.css";
 
@@ -635,6 +636,16 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                 <DccProviderBrowser
                   onPackageExported={(result) =>
                     note("success", `${t("DCC 交换包已生成")} · ${result.provider} · ${result.packagePath}`)
+                  }
+                />
+                <EngineHandoffDock
+                  onEngineSendCompleted={(result) =>
+                    note(
+                      result.warnings.length ? "warning" : "success",
+                      `${t("引擎已导入")} ${result.report.importedObjectCount + result.report.importedCameraCount} ${t("个实体")}${
+                        result.report.scenePath ? ` · ${result.report.scenePath}` : ""
+                      }`,
+                    )
                   }
                 />
                 <div className="director-blender-interchange">
