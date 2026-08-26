@@ -4,6 +4,7 @@ import { writeJsonAtomic } from "../atomicJsonFile";
 import {
   collaborationRoomScopeMatches,
   decodeCollaborationInvitePayload,
+  MAX_COLLABORATION_INVITE_TTL_SECONDS,
   type CollaborationInviteRevocations,
   type CollaborationInviteRevocationSubject,
 } from "../collaborationRoomAuth";
@@ -74,6 +75,7 @@ export class CollaborationInviteRevocationRegistry implements CollaborationInvit
         if (entry.exp > now) this.revokedTokens.set(entry.jti, entry.exp);
       }
       for (const entry of parsed.room_cutoffs) this.roomCutoffs.set(entry.scope, entry.cutoff);
+      this.prune();
     } catch {
       // A missing or unreadable file starts the registry empty.
     }
@@ -108,6 +110,10 @@ export class CollaborationInviteRevocationRegistry implements CollaborationInvit
    */
   async revokeRoomScope(scope: string) {
     const cutoff = this.now();
+    this.prune();
+    // Delete-before-set refreshes the scope's insertion position, so bounded
+    // eviction drops the least recently revoked scope, not a just-refreshed one.
+    this.roomCutoffs.delete(scope);
     this.roomCutoffs.set(scope, cutoff);
     while (this.roomCutoffs.size > this.maxRoomCutoffs) {
       const oldest = this.roomCutoffs.keys().next().value;
@@ -137,6 +143,13 @@ export class CollaborationInviteRevocationRegistry implements CollaborationInvit
     const now = this.now();
     for (const [jti, exp] of this.revokedTokens) {
       if (exp <= now) this.revokedTokens.delete(jti);
+    }
+    // A cutoff older than the maximum invite TTL can never deny a live invite
+    // (every invite issued at or before it has already expired), so dropping
+    // it keeps dead entries from evicting still-relevant cutoffs at the bound.
+    const deadCutoffBefore = now - MAX_COLLABORATION_INVITE_TTL_SECONDS * 1_000;
+    for (const [scope, cutoff] of this.roomCutoffs) {
+      if (cutoff <= deadCutoffBefore) this.roomCutoffs.delete(scope);
     }
   }
 

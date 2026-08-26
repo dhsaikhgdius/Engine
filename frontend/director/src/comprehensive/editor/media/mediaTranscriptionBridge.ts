@@ -14,16 +14,42 @@ import type { CreativeMediaAsset } from "./persistentCreativeMediaStore";
 export type MediaTranscriptionJob = Extract<ProductionJobRecord, { kind: "media.transcribe" }>;
 
 /**
+ * A non-ok transcription gateway response, preserving the gateway's stable
+ * structured error code (for example `transcription_not_configured` or
+ * `transcription_job_not_found`) and the HTTP status alongside the message,
+ * so Agent surfaces can report the exact contract state instead of a blanket
+ * "transcription failed".
+ */
+export class MediaTranscriptionRequestError extends Error {
+  constructor(
+    message: string,
+    /** The gateway's structured error code, when the response carried one. */
+    readonly code: string | null,
+    /** The HTTP status of the failed response. */
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "MediaTranscriptionRequestError";
+  }
+}
+
+/**
  * Parses a fetch response as JSON and throws on non-ok status.
  *
  * @param response - The fetch Response to parse.
  * @returns The parsed JSON body.
+ * @throws {@link MediaTranscriptionRequestError} carrying the gateway's structured code.
  */
 async function jsonResponse(response: Response) {
-  const body = (await response.json().catch(() => ({}))) as { message?: unknown } & Record<string, unknown>;
+  const body = (await response.json().catch(() => ({}))) as { message?: unknown; code?: unknown } & Record<
+    string,
+    unknown
+  >;
   if (!response.ok) {
-    throw new Error(
+    throw new MediaTranscriptionRequestError(
       typeof body.message === "string" ? body.message : `Transcription request failed (${response.status})`,
+      typeof body.code === "string" && body.code ? body.code : null,
+      response.status,
     );
   }
   return body;
@@ -186,7 +212,13 @@ export async function fetchMediaTranscriptionArtifact(jobId: string, artifactId:
     `/api/production-jobs/${encodeURIComponent(jobId)}/artifacts/${encodeURIComponent(artifactId)}`,
     { signal },
   );
-  if (!response.ok) throw new Error(`Transcription artifact download failed (${response.status})`);
+  if (!response.ok) {
+    throw new MediaTranscriptionRequestError(
+      `Transcription artifact download failed (${response.status})`,
+      null,
+      response.status,
+    );
+  }
   return response.blob();
 }
 
