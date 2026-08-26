@@ -3036,6 +3036,7 @@
   "3D 片场工程未能自动保存到本地": "The 3D Stage project could not be autosaved locally",
   "画布与剪辑工作区未能自动保存到本地": "The Canvas and editing workspaces could not be autosaved locally",
   "浏览器本地存储连续写入失败（可能是存储空间已满或处于隐私模式）。建议立即导出工程文件备份。": "Browser local storage writes keep failing (storage may be full or in private mode). Export a project file backup immediately.",
+  "浏览器本地存储写入失败（可能是存储空间已满或处于隐私模式）。当前修改仅保留在本页面中，请立即导出工程文件备份。": "Browser local storage writes are failing (storage may be full or in private mode). Your changes only live in this tab; export a project file backup immediately.",
   "Director 是一个 Agent 原生的 3D 影视创作工作台：从三维布景、镜头设计到生成与剪辑，都在浏览器中完成。": "Director is an agent-native 3D filmmaking workbench: set dressing, shot design, generation, and editing all happen in the browser.",
   "以节点图组织生成与制作任务，构建可追溯的多模态生产流程。": "Organize generation and production tasks as a node graph to build a traceable multimodal pipeline.",
   "在三维场景中布置角色、道具与相机，完成走位、动画与分镜。": "Stage characters, props, and cameras in a 3D scene to block movement, animation, and shots.",

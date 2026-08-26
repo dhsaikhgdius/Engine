@@ -20,8 +20,8 @@ import {
   type DirectorWorkbenchOperation,
 } from "@director/agent-engine";
 import type { AgentBoundaryReceipt, DirectorAgentTarget, StageCapturePayload } from "@director/agent-engine";
-import { createDefaultScene } from "@director/stage-protocol";
 import { parseStageScene } from "@director/stage-protocol";
+import { loadStageSceneWithRecovery } from "./stageSceneFile";
 import {
   directorAgentBootstrapWireSchema,
   directorAgentHealthWireSchema,
@@ -397,12 +397,10 @@ const generated3dRuntime = createGenerated3DRuntime(
 );
 const productionArtifactStore = new ProductionArtifactStore(dataDirectory);
 
-let scene: StageScene = await readFile(scenePath, "utf8")
-  .then((contents) => {
-    const parsed = parseStageScene(JSON.parse(contents));
-    return parsed.success ? parsed.scene : createDefaultScene();
-  })
-  .catch(() => createDefaultScene());
+// A corrupt snapshot is quarantined (never silently replaced) and reported on /health.
+const sceneLoadResult = await loadStageSceneWithRecovery(scenePath);
+let scene: StageScene = sceneLoadResult.scene;
+const sceneRecovery = sceneLoadResult.recovery;
 
 const defaultProduction = (): ProductionRecord => ({
   productionId: "main",
@@ -2012,6 +2010,9 @@ const server = createServer(async (request, response) => {
         ok: true,
         service: "director-stage-gateway",
         clients: clients.size,
+        // Non-null when the durable scene snapshot was corrupt at startup and
+        // got quarantined; operators recover it from `quarantinePath`.
+        sceneRecovery,
       });
     }
     if (

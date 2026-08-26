@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, vi } from "vitest";
 import {
   createDefaultDirectorProject,
+  createInitialDirectorPersistenceHealth,
   createInitialDirectorState,
   selectDirectorCanRedo,
   selectDirectorCanUndo,
+  selectDirectorPersistenceHealth,
   useDirectorStore,
 } from "../../../../src/comprehensive/editor/store/directorStore";
+import {
+  clearDirectorNotifications,
+  getDirectorNotifications,
+} from "../../../../src/comprehensive/app/notifications/directorNotificationStore";
 import { selectRightPanelKind } from "../../../../src/comprehensive/editor/store/directorSelectors";
 import {
   getCameraRigPositionFromViewSnapshot,
@@ -61,6 +67,7 @@ beforeEach(() => {
     undoBatchDepth: 0,
     undoBatchSnapshot: null,
     undoBatchHasTrackedChanges: false,
+    persistenceHealth: createInitialDirectorPersistenceHealth(),
   });
 });
 
@@ -2081,4 +2088,95 @@ it("groups slider-style audio volume changes into one undo step while batching",
   expect(useDirectorStore.getState().undoStack.length).toBe(undoDepthAfterAdd + 1);
   useDirectorStore.getState().undo();
   expect(getTimelineAudioTracks()[0]!.clips[0]!.volume).toBe(1);
+});
+
+it("shares undo snapshots structurally with the pre-edit document instead of deep-cloning per mutation", () => {
+  const before = useDirectorStore.getState().project;
+  const defaultBackgroundColor = before.scene.backgroundColor;
+  useDirectorStore.getState().updateScene({ backgroundColor: "#101010" });
+
+  const afterEdit = useDirectorStore.getState();
+  // The undo entry holds the exact pre-edit document (no JSON round trip)...
+  expect(afterEdit.undoStack.at(-1)!.project).toBe(before);
+  // ...and untouched slices keep their identity on the live document.
+  expect(afterEdit.project.objects).toBe(before.objects);
+  expect(afterEdit.project.assets).toBe(before.assets);
+  expect(afterEdit.project.cameras).toBe(before.cameras);
+
+  // Undo/redo stay correct across further edits on the shared structure.
+  useDirectorStore.getState().updateScene({ backgroundColor: "#202020" });
+  useDirectorStore.getState().undo();
+  expect(useDirectorStore.getState().project.scene.backgroundColor).toBe("#101010");
+  useDirectorStore.getState().undo();
+  expect(useDirectorStore.getState().project.scene.backgroundColor).toBe(defaultBackgroundColor);
+  expect(useDirectorStore.getState().project.objects).toEqual(before.objects);
+  useDirectorStore.getState().redo();
+  expect(useDirectorStore.getState().project.scene.backgroundColor).toBe("#101010");
+});
+
+it("skips the undo entry when a drag batch ends where it started even though references changed", () => {
+  useDirectorStore.getState().beginUndoBatch();
+  useDirectorStore.getState().updateObjectTransform("char_default_a", { position: [1, 0, 0] });
+  useDirectorStore.getState().endUndoBatch();
+  const undoDepth = useDirectorStore.getState().undoStack.length;
+  const historyDepth = useDirectorStore.getState().historyUndoStack.length;
+
+  useDirectorStore.getState().beginUndoBatch();
+  useDirectorStore.getState().updateObjectTransform("char_default_a", { position: [2, 0, 0] });
+  useDirectorStore.getState().updateObjectTransform("char_default_a", { position: [1, 0, 0] });
+  useDirectorStore.getState().endUndoBatch();
+
+  // Values are unchanged (deep-equal) even though every drag sample rebuilt
+  // the object references, so no no-op undo step is recorded.
+  expect(useDirectorStore.getState().undoStack.length).toBe(undoDepth);
+  expect(useDirectorStore.getState().historyUndoStack.length).toBe(historyDepth);
+});
+
+it("records failed localStorage writes in persistenceHealth and surfaces an actionable export warning", () => {
+  vi.useFakeTimers();
+  localStorage.clear();
+  clearDirectorNotifications();
+  const storage = localStorage;
+  const workingSetItem = storage.setItem.bind(storage);
+  storage.setItem = () => {
+    throw new DOMException("QuotaExceededError");
+  };
+
+  useDirectorStore.getState().updateScene({ backgroundColor: "#131313" });
+  vi.advanceTimersByTime(1_000);
+
+  const failedHealth = selectDirectorPersistenceHealth(useDirectorStore.getState());
+  expect(failedHealth.status).toBe("failed");
+  expect(failedHealth.consecutiveFailures).toBe(1);
+  expect(failedHealth.lastFailureAt).not.toBeNull();
+  expect(failedHealth.lastError).toContain("QuotaExceededError");
+
+  const warning = getDirectorNotifications().find((item) => item.key === "director-store-persist-failed");
+  expect(warning?.severity).toBe("warning");
+  expect(warning?.actions.map((action) => action.label)).toEqual(["导出工程"]);
+
+  // The export action downloads the live in-memory project as a JSON backup.
+  const createObjectUrl = vi.fn(() => "blob:director-project-backup");
+  vi.stubGlobal("URL", { ...URL, createObjectURL: createObjectUrl, revokeObjectURL: vi.fn() });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  warning!.actions[0]!.onSelect();
+  expect(createObjectUrl).toHaveBeenCalledTimes(1);
+  expect(click).toHaveBeenCalledTimes(1);
+  click.mockRestore();
+
+  // Repeated failures keep counting; the next successful write recovers.
+  useDirectorStore.getState().updateScene({ backgroundColor: "#141414" });
+  vi.advanceTimersByTime(1_000);
+  expect(selectDirectorPersistenceHealth(useDirectorStore.getState()).consecutiveFailures).toBe(2);
+
+  storage.setItem = workingSetItem;
+  useDirectorStore.getState().updateScene({ backgroundColor: "#151515" });
+  vi.advanceTimersByTime(1_000);
+
+  expect(selectDirectorPersistenceHealth(useDirectorStore.getState())).toEqual(
+    createInitialDirectorPersistenceHealth(),
+  );
+  expect(getDirectorNotifications().some((item) => item.key === "director-store-persist-failed")).toBe(false);
+  expect(localStorage.getItem("storyai-3d-director-desk-demo")).not.toBeNull();
+  vi.useRealTimers();
 });
