@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
+import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { resolve } from "node:path";
 import { createUnityLiveLinkHub, UnityLiveLinkError, type UnityLiveLinkEventPayload } from "../../dcc/unityLiveLink";
 import { handleDccRoute } from "../../routes/dccRoutes";
 import type { BlenderBridge } from "../../dcc/blenderBridge";
@@ -342,5 +344,27 @@ describe("Unity live-link routes", () => {
     expect(handled).toBe(true);
     expect(calls[0]?.status).toBe(503);
     expect(calls[0]?.body.code).toBe("live_link_unavailable");
+  });
+
+  it("has no import path into project mutation or authoring dispatch (source guard)", async () => {
+    const source = await readFile(resolve(__dirname, "..", "..", "dcc", "unityLiveLink.ts"), "utf8");
+    const importedModules = [...source.matchAll(/from\s+"([^"]+)"/g)].map((match) => match[1]!);
+    // The hub may only mint tokens and validate payloads; authoring surfaces
+    // (project schema mutators, agent-engine operations, return importers)
+    // must stay unreachable from live-link frames — the link is never
+    // authoritative for project state.
+    expect(importedModules.length).toBeGreaterThan(0);
+    for (const module of importedModules) {
+      expect(["node:crypto", "zod"]).toContain(module);
+    }
+    for (const forbidden of [
+      "@director/project-schema",
+      "@director/agent-engine",
+      "applyAuthoring",
+      "blenderReturnImport",
+      "authoringDispatch",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
   });
 });
