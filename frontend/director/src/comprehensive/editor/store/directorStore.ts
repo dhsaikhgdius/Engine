@@ -3725,9 +3725,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           project.objects.some((object) => {
             if (object.kind !== "character") return false;
             const assetRefId =
-              object.assetRefId ??
-              inferLegacyLibraryCharacterAssetId(project, object) ??
-              defaultCharacterAsset.id;
+              object.assetRefId ?? inferLegacyLibraryCharacterAssetId(project, object) ?? defaultCharacterAsset.id;
             return assetRefId === defaultCharacterAsset.id;
           });
         if (!migrateWouldRehydrateDefaultCharacter) {
