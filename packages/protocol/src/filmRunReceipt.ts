@@ -8,6 +8,7 @@ import {
   filmRunPhaseSchema,
   filmRunProgress,
   filmRunStatusSchema,
+  filmTimelineExportReceiptSchema,
   filmWorkflowSchema,
   type FilmRun,
   type FilmRunStatus,
@@ -100,6 +101,13 @@ export const filmRunReceiptSchema = z
     artifacts: z.strictObject({
       finalVideoPath: z.string().nullable(),
       timelinePath: z.string().nullable(),
+      /**
+       * Typed export receipt behind `timelinePath`: planned/exported shot
+       * counts plus per-shot omissions with stable codes. Null when no
+       * timeline exists or the run predates typed export receipts, so a
+       * complete handoff is never invented for legacy documents.
+       */
+      timelineExport: filmTimelineExportReceiptSchema.nullable(),
       /** Live byte presence probed at read time; omitted on pure projections. */
       storagePresence: filmRunArtifactsStoragePresenceSchema.optional(),
     }),
@@ -130,6 +138,13 @@ export const filmRunReceiptSchema = z
         code: "custom",
         path: ["renderedSceneCount"],
         message: "renderedSceneCount cannot exceed sceneCount",
+      });
+    }
+    if (receipt.artifacts.timelineExport !== null && receipt.artifacts.timelinePath === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["artifacts", "timelineExport"],
+        message: "timelineExport requires a claimed timelinePath",
       });
     }
     const presence = receipt.artifacts.storagePresence;
@@ -191,6 +206,7 @@ export function projectFilmRunReceipt(run: FilmRun, options: ProjectFilmRunRecei
     artifacts: {
       finalVideoPath: run.finalVideoPath,
       timelinePath: run.timelinePath,
+      timelineExport: run.timelineExport,
       ...(options.artifactStoragePresence
         ? {
             storagePresence: {

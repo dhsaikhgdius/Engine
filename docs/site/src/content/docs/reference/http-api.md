@@ -348,8 +348,11 @@ Film routes report the pipeline's configuration state explicitly on the list res
 (`film_pipeline_unconfigured`, `invalid_request`, `invalid_run_id`, `run_not_found`), and attach a
 normalized `director-film-run-receipt-v1` (phase receipts, stable error codes, artifact paths with
 live per-artifact `storagePresence` probed at read time — `present`/`absent`, null for unclaimed
-paths) to status, receipt, and action responses. Cancel stays available while providers are
-unconfigured.
+paths) to status, receipt, and action responses. The receipt's `artifacts.timelineExport` carries
+the durable typed OTIO export receipt stamped next to `timelinePath`: planned/exported shot counts
+plus per-shot `omittedShots[]` (code `clip_missing`), so a partial editorial handoff is a typed
+fact instead of a silent skip; it stays null for runs that predate typed export receipts. Cancel
+stays available while providers are unconfigured.
 
 Observability routes return redacted execution receipts, model-usage aggregates, and one unified
 progress shape for production jobs, multi-agent runs, and film runs; `/traces/sessions` lists
