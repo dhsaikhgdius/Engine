@@ -338,8 +338,10 @@ whose analysis status is `degraded` and mode is `local`. See
 Film routes report the pipeline's configuration state explicitly on the list response (`pipeline:
 {configured, reason}`), answer failures with frozen public codes
 (`film_pipeline_unconfigured`, `invalid_request`, `invalid_run_id`, `run_not_found`), and attach a
-normalized `director-film-run-receipt-v1` (phase receipts, stable error codes, artifacts) to
-status, receipt, and action responses. Cancel stays available while providers are unconfigured.
+normalized `director-film-run-receipt-v1` (phase receipts, stable error codes, artifact paths with
+live per-artifact `storagePresence` probed at read time — `present`/`absent`, null for unclaimed
+paths) to status, receipt, and action responses. Cancel stays available while providers are
+unconfigured.
 
 Observability routes return redacted execution receipts, model-usage aggregates, and one unified
 progress shape for production jobs, multi-agent runs, and film runs; `/traces/sessions` lists

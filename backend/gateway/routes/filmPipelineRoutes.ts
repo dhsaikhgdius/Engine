@@ -3,12 +3,23 @@ import {
   createFilmRunRequestSchema,
   type FilmPipelineAvailability,
   type FilmPipelinePublicErrorCode,
+  type FilmRun,
 } from "../../../packages/protocol/src/filmPipelineProtocol";
 import { projectFilmRunReceipt } from "../../../packages/protocol/src/filmRunReceipt";
 import type { FilmPipelineOrchestrator } from "../film/filmPipelineOrchestrator";
 import type { FilmRunStore } from "../film/filmRunStore";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
+
+/**
+ * Projects the run's receipt with live artifact byte presence: the claimed
+ * final-video/timeline paths are probed at read time so receipts never
+ * over-claim artifacts whose bytes were cleaned up after the run finished
+ * (mirrors the live production-job receipt projection).
+ */
+async function projectLiveFilmRunReceipt(store: FilmRunStore, run: FilmRun) {
+  return projectFilmRunReceipt(run, { artifactStoragePresence: await store.artifactStoragePresence(run) });
+}
 
 export type FilmPipelineRouteDependencies = {
   readBody: (request: IncomingMessage) => Promise<unknown>;
@@ -56,7 +67,7 @@ export async function handleFilmPipelineRoute(
       return true;
     }
     const run = await orchestrator.create(parsed.data);
-    json(response, 202, { run, receipt: projectFilmRunReceipt(run) });
+    json(response, 202, { run, receipt: await projectLiveFilmRunReceipt(store, run) });
     return true;
   }
 
@@ -76,13 +87,13 @@ export async function handleFilmPipelineRoute(
     return true;
   }
   if (request.method === "GET" && !action) {
-    json(response, 200, { run, receipt: projectFilmRunReceipt(run) });
+    json(response, 200, { run, receipt: await projectLiveFilmRunReceipt(store, run) });
     return true;
   }
   // The normalized receipt every control surface shares (mirrors
   // GET /api/production-jobs/:id/receipt).
   if (request.method === "GET" && action === "receipt") {
-    json(response, 200, { receipt: projectFilmRunReceipt(run) });
+    json(response, 200, { receipt: await projectLiveFilmRunReceipt(store, run) });
     return true;
   }
   if (request.method === "POST" && action && action !== "receipt") {
@@ -90,7 +101,7 @@ export async function handleFilmPipelineRoute(
       // Cancel is a pure state transition; it stays available on an
       // unconfigured gateway so stale runs remain controllable.
       const cancelled = orchestrator ? await orchestrator.cancel(id) : await store.markCancelled(id);
-      json(response, 200, { run: cancelled, receipt: projectFilmRunReceipt(cancelled) });
+      json(response, 200, { run: cancelled, receipt: await projectLiveFilmRunReceipt(store, cancelled) });
       return true;
     }
     if (!orchestrator) {
@@ -98,7 +109,7 @@ export async function handleFilmPipelineRoute(
       return true;
     }
     const updated = action === "resume" ? await orchestrator.resume(id) : await orchestrator.approve(id);
-    json(response, 202, { run: updated, receipt: projectFilmRunReceipt(updated) });
+    json(response, 202, { run: updated, receipt: await projectLiveFilmRunReceipt(store, updated) });
     return true;
   }
   return false;

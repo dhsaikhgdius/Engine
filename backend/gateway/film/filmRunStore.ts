@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir } from "node:fs/promises";
+import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   closeFilmRunPhaseReceipts,
@@ -6,6 +6,10 @@ import {
   filmRunSchema,
   type FilmRun,
 } from "../../../packages/protocol/src/filmPipelineProtocol";
+import type {
+  FilmRunArtifactStoragePresence,
+  ProjectFilmRunReceiptOptions,
+} from "../../../packages/protocol/src/filmRunReceipt";
 import { writeJsonAtomic } from "../atomicJsonFile";
 
 /**
@@ -122,6 +126,30 @@ export class FilmRunStore {
   }
 
   /**
+   * Probes whether the bytes behind the run's claimed artifact paths still
+   * exist on disk. Disk cleanup, `.runtime` wipes, or manual deletion can age
+   * bytes out while the run document keeps the path claim; live receipt reads
+   * pass this to `projectFilmRunReceipt` so every control surface reports
+   * honest `storagePresence` instead of trusting the stored paths (mirrors
+   * `ProductionJobStore.artifactBytesPresent`).
+   *
+   * @param run - The durable film run document.
+   * @returns Probe verdicts for each claimed path; unclaimed paths are omitted.
+   */
+  async artifactStoragePresence(
+    run: FilmRun,
+  ): Promise<NonNullable<ProjectFilmRunReceiptOptions["artifactStoragePresence"]>> {
+    const [finalVideo, timeline] = await Promise.all([
+      this.pathBytesPresent(run.finalVideoPath),
+      this.pathBytesPresent(run.timelinePath),
+    ]);
+    return {
+      ...(finalVideo === null ? {} : { finalVideo }),
+      ...(timeline === null ? {} : { timeline }),
+    };
+  }
+
+  /**
    * Marks runs left `queued`/`running` by a previous gateway process as
    * failed with the stable `film_run_interrupted` code, so restart survivors
    * report an explicit state instead of appearing to run forever. Callers
@@ -152,6 +180,17 @@ export class FilmRunStore {
       interrupted.push(run.id);
     }
     return interrupted;
+  }
+
+  private async pathBytesPresent(path: string | null): Promise<FilmRunArtifactStoragePresence | null> {
+    if (path === null) return null;
+    try {
+      await access(path);
+      return "present";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+      throw error;
+    }
   }
 
   private path(id: string) {

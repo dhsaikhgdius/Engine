@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -96,6 +96,64 @@ describe("film pipeline routes", () => {
     expect(context.writes[0].status).toBe(200);
     expect(body.receipt.contract).toBe("director-film-run-receipt-v1");
     expect(body.receipt.terminal).toBe(false);
+  });
+
+  it("projects live artifact storagePresence on receipt-carrying responses", async () => {
+    const context = await harness(null);
+
+    // Runs with no artifact claims report null presence for both slots.
+    await context.store.create(run("film-aaaaaaaa-1111"));
+    await handleFilmPipelineRoute(
+      request("GET"),
+      context.response,
+      url("/api/film/runs/film-aaaaaaaa-1111/receipt"),
+      context.dependencies,
+    );
+    const queued = context.writes[0].body as {
+      receipt: { artifacts: { storagePresence: { finalVideo: null; timeline: null } } };
+    };
+    expect(queued.receipt.artifacts.storagePresence).toEqual({ finalVideo: null, timeline: null });
+
+    // Claimed paths are probed at read time: the final video bytes exist,
+    // the claimed timeline file was deleted after the run finished.
+    const runDirectory = context.store.runDirectory("film-bbbbbbbb-2222");
+    await mkdir(runDirectory, { recursive: true });
+    const finalVideoPath = join(runDirectory, "final_video.mp4");
+    await writeFile(finalVideoPath, "mp4-bytes");
+    const completed = run("film-bbbbbbbb-2222");
+    await context.store.create(
+      filmRunSchema.parse({
+        ...completed,
+        status: "completed",
+        phase: "completed",
+        finalVideoPath,
+        timelinePath: join(runDirectory, "timeline.otio"),
+      }),
+    );
+    await handleFilmPipelineRoute(
+      request("GET"),
+      context.response,
+      url("/api/film/runs/film-bbbbbbbb-2222"),
+      context.dependencies,
+    );
+    const status = context.writes[1].body as {
+      receipt: { artifacts: { finalVideoPath: string; storagePresence: { finalVideo: string; timeline: string } } };
+    };
+    expect(status.receipt.artifacts.finalVideoPath).toBe(finalVideoPath);
+    expect(status.receipt.artifacts.storagePresence).toEqual({ finalVideo: "present", timeline: "absent" });
+
+    // Later cleanup ages the video bytes out; the next read reports it honestly.
+    await rm(finalVideoPath);
+    await handleFilmPipelineRoute(
+      request("GET"),
+      context.response,
+      url("/api/film/runs/film-bbbbbbbb-2222/receipt"),
+      context.dependencies,
+    );
+    const stale = context.writes[2].body as {
+      receipt: { artifacts: { storagePresence: { finalVideo: string; timeline: string } } };
+    };
+    expect(stale.receipt.artifacts.storagePresence).toEqual({ finalVideo: "absent", timeline: "absent" });
   });
 
   it("reports the unconfigured pipeline as an explicit state on the list surface", async () => {
