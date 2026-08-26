@@ -758,14 +758,14 @@ export function VideoEditorWorkspace() {
   );
   const timelineZoom = useDirectorCreativeWorkspaceStore((state) => state.timelineZoom);
   const editSettings = useDirectorCreativeWorkspaceStore((state) => state.editSettings);
-  // Clip add ("+" placement), split/remove/transition, discrete fade steps,
-  // track management, settings, import cataloging, undo/redo, media relink,
-  // and proxy attach dispatch through the shared agent contract
-  // (dispatchCreativeWorkspaceOperations / dispatchCreativeWorkspaceMediaRelink).
-  // Only continuous interactions (drags, trims, fades, range sliders, live
-  // typing), remaining overwrite-adjacent nudges/duplicates, and media-less
-  // text/caption clips keep the direct store mutators. Explicit media drops
-  // share `edit.clip.add` with overwrite:true.
+  // Clip add ("+" placement / duplicate-after), split/remove/transition, discrete
+  // fade steps, keyboard frame nudges, track management, settings, import
+  // cataloging, undo/redo, media relink, and proxy attach dispatch through the
+  // shared agent contract (dispatchCreativeWorkspaceOperations /
+  // dispatchCreativeWorkspaceMediaRelink). Only continuous interactions
+  // (drags, trims, fades, range sliders, live typing) and media-less
+  // text/caption clips keep the direct store mutators. Explicit media drops,
+  // keyboard nudges, and duplicate-after share overwrite placement.
   const addClip = useDirectorCreativeWorkspaceStore((state) => state.addClip);
   const updateClip = useDirectorCreativeWorkspaceStore((state) => state.updateClip);
   const moveClipToTrack = useDirectorCreativeWorkspaceStore((state) => state.moveClipToTrack);
@@ -1261,10 +1261,15 @@ export function VideoEditorWorkspace() {
       if (nudgeDirection !== 0 && selected) {
         event.preventDefault();
         const step = (event.shiftKey ? 1 : 1 / exportFps) * nudgeDirection;
-        beginHistoryBatch();
-        updateClip(selected.clip.id, { startSec: Math.max(0, selected.clip.startSec + step) });
-        commitClipPlacement(selected.clip.id);
-        endHistoryBatch();
+        dispatchVideo(
+          {
+            op: "edit.clip.update",
+            clip_id: selected.clip.id,
+            patch: { start_sec: Math.max(0, selected.clip.startSec + step) },
+            overwrite: true,
+          },
+          t("剪辑微移失败"),
+        );
         return;
       }
       if (event.key === "Home" || event.key === "End") {
@@ -1825,29 +1830,30 @@ export function VideoEditorWorkspace() {
   /** Shared by the clip context menu and the Ctrl/⌘+D shortcut. */
   function duplicateClip(clip: DirectorEditClip, track: DirectorEditTrack) {
     if (track.locked) return;
-    beginHistoryBatch();
-    const created = addClip({
-      trackId: track.id,
-      mediaId: clip.mediaId,
-      name: clip.name,
-      startSec: clip.startSec + clip.durationSec,
-      durationSec: clip.durationSec,
-      sourceDurationSec: clip.sourceDurationSec,
-      playbackRate: clip.playbackRate,
-      fadeInSec: clip.fadeInSec,
-      fadeOutSec: clip.fadeOutSec,
-      scale: clip.scale,
-      positionX: clip.positionX,
-      positionY: clip.positionY,
-      rotationDeg: clip.rotationDeg,
-      fit: clip.fit,
-    });
-    // addClip resets inSec and defaults opacity/volume, so patch them back onto the copy.
-    if (created) {
-      updateClip(created.id, { inSec: clip.inSec, opacity: clip.opacity, volume: clip.volume });
-      commitClipPlacement(created.id);
-    }
-    endHistoryBatch();
+    dispatchVideo(
+      {
+        op: "edit.clip.add",
+        track_id: track.id,
+        media_id: clip.mediaId,
+        name: clip.name,
+        start_sec: clip.startSec + clip.durationSec,
+        duration_sec: clip.durationSec,
+        source_duration_sec: clip.sourceDurationSec,
+        playback_rate: clip.playbackRate,
+        in_sec: clip.inSec,
+        opacity: clip.opacity,
+        volume: clip.volume,
+        fade_in_sec: clip.fadeInSec,
+        fade_out_sec: clip.fadeOutSec,
+        scale: clip.scale,
+        position_x: clip.positionX,
+        position_y: clip.positionY,
+        rotation_deg: clip.rotationDeg,
+        fit: clip.fit,
+        overwrite: true,
+      },
+      t("复制剪辑失败"),
+    );
   }
 
   function openClipContextMenu(event: ReactMouseEvent, clip: DirectorEditClip) {
