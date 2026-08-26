@@ -368,6 +368,135 @@ describe("semantic Director authoring", () => {
     expect(cleaned.project.scene.measurements).toEqual([]);
   });
 
+  it("authors named object lists: create, add with derived label, rename, and detach", () => {
+    const source = createDefaultDirectorProject();
+    const seeded = applyDirectorAuthoringActions(
+      source,
+      ["list-a", "list-b", "list-c"].map((id, index) => ({
+        action: "add_object" as const,
+        id,
+        name: `道具 ${id}`,
+        kind: "prop" as const,
+        geometry_type: "box" as const,
+        transform: { position: [index * 2, 0, 0] as [number, number, number], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      })),
+    );
+
+    const created = applyDirectorAuthoringActions(seeded.project, [
+      { action: "create_object_list", list_id: "object_list_1", label: "前景道具", object_ids: ["list-a", "list-b"] },
+    ]);
+    const createdMembers = created.project.objects.filter((object) => object.objectListId === "object_list_1");
+    expect(createdMembers.map((object) => object.id)).toEqual(["list-a", "list-b"]);
+    expect(createdMembers.every((object) => object.objectListLabel === "前景道具")).toBe(true);
+    expect(created.updated.object_ids).toEqual(["list-a", "list-b"]);
+
+    const added = applyDirectorAuthoringActions(created.project, [
+      { action: "add_objects_to_object_list", list_id: "object_list_1", object_ids: ["list-c"] },
+    ]);
+    expect(added.project.objects.find((object) => object.id === "list-c")).toMatchObject({
+      objectListId: "object_list_1",
+      objectListLabel: "前景道具",
+    });
+
+    const renamed = applyDirectorAuthoringActions(added.project, [
+      { action: "rename_object_list", list_id: "object_list_1", label: "主体道具" },
+    ]);
+    expect(
+      renamed.project.objects
+        .filter((object) => object.objectListId === "object_list_1")
+        .every((object) => object.objectListLabel === "主体道具"),
+    ).toBe(true);
+    expect(renamed.updated.object_ids).toEqual(["list-a", "list-b", "list-c"]);
+
+    const removed = applyDirectorAuthoringActions(renamed.project, [
+      { action: "remove_objects_from_object_lists", object_ids: ["list-b"] },
+    ]);
+    const detached = removed.project.objects.find((object) => object.id === "list-b");
+    expect(detached?.objectListId).toBeUndefined();
+    expect(detached?.objectListLabel).toBeUndefined();
+    expect(detached?.objectListDetached).toBe(true);
+    expect(removed.project.objects.filter((object) => object.objectListId === "object_list_1")).toHaveLength(2);
+
+    const readded = applyDirectorAuthoringActions(removed.project, [
+      { action: "add_objects_to_object_list", list_id: "object_list_1", object_ids: ["list-b"] },
+    ]);
+    expect(readded.project.objects.find((object) => object.id === "list-b")?.objectListDetached).toBeUndefined();
+  });
+
+  it("derives the add label from the first member's name when its label is blank", () => {
+    const seeded = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      {
+        action: "add_object",
+        id: "anchor-object",
+        name: "锚点道具",
+        kind: "prop",
+        geometry_type: "box",
+        transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+      {
+        action: "add_object",
+        id: "joining-object",
+        name: "新增道具",
+        kind: "prop",
+        geometry_type: "sphere",
+        transform: { position: [2, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    ]);
+    const anchor = seeded.project.objects.find((object) => object.id === "anchor-object")!;
+    anchor.objectListId = "object_list_1";
+    anchor.objectListLabel = "  ";
+
+    const added = applyDirectorAuthoringActions(seeded.project, [
+      { action: "add_objects_to_object_list", list_id: "object_list_1", object_ids: ["joining-object"] },
+    ]);
+    expect(added.project.objects.find((object) => object.id === "joining-object")?.objectListLabel).toBe("锚点道具");
+  });
+
+  it("rejects duplicate object-list ids, unknown lists, unknown members, and crowd members", () => {
+    const seeded = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
+      {
+        action: "add_object",
+        id: "list-guard-a",
+        name: "A",
+        kind: "prop",
+        geometry_type: "box",
+        transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    ]);
+    const listed = applyDirectorAuthoringActions(seeded.project, [
+      { action: "create_object_list", list_id: "object_list_1", label: "已有列表", object_ids: ["list-guard-a"] },
+    ]);
+
+    expect(() =>
+      applyDirectorAuthoringActions(listed.project, [
+        { action: "create_object_list", list_id: "object_list_1", label: "重复", object_ids: ["list-guard-a"] },
+      ]),
+    ).toThrow(/already exists/);
+    expect(() =>
+      applyDirectorAuthoringActions(listed.project, [
+        { action: "add_objects_to_object_list", list_id: "object_list_9", object_ids: ["list-guard-a"] },
+      ]),
+    ).toThrow(/No object list/);
+    expect(() =>
+      applyDirectorAuthoringActions(listed.project, [
+        { action: "rename_object_list", list_id: "object_list_9", label: "改名" },
+      ]),
+    ).toThrow(/No object list/);
+    expect(() =>
+      applyDirectorAuthoringActions(listed.project, [
+        { action: "remove_objects_from_object_lists", object_ids: ["missing-object"] },
+      ]),
+    ).toThrow(/No object with id/);
+
+    const crowdProject = structuredClone(listed.project);
+    crowdProject.objects.find((object) => object.id === "list-guard-a")!.crowdId = "crowd_1";
+    expect(() =>
+      applyDirectorAuthoringActions(crowdProject, [
+        { action: "add_objects_to_object_list", list_id: "object_list_1", object_ids: ["list-guard-a"] },
+      ]),
+    ).toThrow(/Crowd member/);
+  });
+
   it("never mutates the source when a later semantic action fails", () => {
     const source = createDefaultDirectorProject();
     const before = structuredClone(source);

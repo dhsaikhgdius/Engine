@@ -149,7 +149,11 @@ import {
   dispatchDirectorAuthoringActions,
 } from "../../../agent/dispatchDirectorAuthoringActions";
 import {
+  compileDirectorAddObjectsToObjectListAction,
+  compileDirectorCreateObjectListAction,
   compileDirectorPasteClipboardActions,
+  compileDirectorRemoveObjectsFromObjectListsAction,
+  compileDirectorRenameObjectListAction,
   compileDirectorSceneUpdateAction,
   compileDirectorWorldSettingsAction,
 } from "../../../agent/compileDirectorUiAuthoringActions";
@@ -5383,10 +5387,18 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         );
       });
     },
-    // human-only: no authoring twin. Object lists are a UI selection helper
-    // (objectListId/objectListLabel), not composite groups; group_objects would
-    // be a wrong mapping.
+    // Shared: create_object_list allocates the same object_list_N id and
+    // membership the legacy writer computes; the legacy path remains for
+    // undo batches and inputs the compiler cannot express (no-op filters).
     createObjectList: (ids, label) => {
+      if (canUseAuthoringPath()) {
+        const compiled = compileDirectorCreateObjectListAction(get().project, ids, label);
+        if (compiled) {
+          return dispatchUiAuthoring([compiled.action], `ui-object-list-create:${compiled.listId}`)
+            ? compiled.listId
+            : null;
+        }
+      }
       const normalizedLabel = label.trim();
       const objectIds = Array.from(new Set(ids));
       let objectListId: string | null = null;
@@ -5411,8 +5423,16 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
       return objectListId;
     },
-    // human-only: no authoring twin (see createObjectList).
-    addObjectsToObjectList: (ids, objectListId) =>
+    // Shared: add_objects_to_object_list derives the label from the first
+    // member exactly like the legacy writer; unknown lists no-op locally.
+    addObjectsToObjectList: (ids, objectListId) => {
+      if (canUseAuthoringPath()) {
+        const compiled = compileDirectorAddObjectsToObjectListAction(get().project, ids, objectListId);
+        if (compiled) {
+          dispatchUiAuthoring([compiled], `ui-object-list-add:${compiled.list_id}`);
+          return;
+        }
+      }
       commitMutation((state) => {
         const normalizedListId = objectListId.trim();
         const objectIds = new Set(ids);
@@ -5431,9 +5451,18 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               }
             : item,
         );
-      }),
-    // human-only: no authoring twin (see createObjectList).
-    removeObjectsFromObjectList: (ids) =>
+      });
+    },
+    // Shared: remove_objects_from_object_lists clears membership and marks
+    // the object detached, exactly like the legacy writer.
+    removeObjectsFromObjectList: (ids) => {
+      if (canUseAuthoringPath()) {
+        const compiled = compileDirectorRemoveObjectsFromObjectListsAction(get().project, ids);
+        if (compiled) {
+          dispatchUiAuthoring([compiled], `ui-object-list-remove:${[...compiled.object_ids].sort().join(",")}`);
+          return;
+        }
+      }
       commitMutation((state) => {
         const objectIds = new Set(ids);
         if (objectIds.size === 0) return state;
@@ -5448,9 +5477,18 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
               }
             : item,
         );
-      }),
-    // human-only: no authoring twin (see createObjectList).
-    updateObjectListLabel: (objectListId, label) =>
+      });
+    },
+    // Shared: rename_object_list relabels every member of the exact list id;
+    // blank labels and unknown lists keep the legacy no-op.
+    updateObjectListLabel: (objectListId, label) => {
+      if (canUseAuthoringPath()) {
+        const compiled = compileDirectorRenameObjectListAction(get().project, objectListId, label);
+        if (compiled) {
+          dispatchUiAuthoring([compiled], `ui-object-list-rename:${compiled.list_id}`);
+          return;
+        }
+      }
       commitMutation((state) => {
         const normalizedListId = objectListId.trim();
         const normalizedLabel = label.trim();
@@ -5459,7 +5497,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         return mapProjectObjects(state, (item) =>
           item.objectListId === normalizedListId ? { ...item, objectListLabel: normalizedLabel } : item,
         );
-      }),
+      });
+    },
     updateObjectColor: (id, color) => {
       const currentState = get();
       const currentObject = currentState.project.objects.find((item) => item.id === id);

@@ -19,10 +19,14 @@ import {
 } from "../../src/agent/dispatchDirectorAuthoringActions";
 import {
   compileDirectorAddLightAction,
+  compileDirectorAddObjectsToObjectListAction,
   compileDirectorCameraUpdateAction,
   compileDirectorCharacterMotionAction,
+  compileDirectorCreateObjectListAction,
   compileDirectorLightUpdateAction,
   compileDirectorPasteClipboardActions,
+  compileDirectorRemoveObjectsFromObjectListsAction,
+  compileDirectorRenameObjectListAction,
   compileDirectorSceneUpdateAction,
   compileDirectorWorldSettingsAction,
 } from "../../src/agent/compileDirectorUiAuthoringActions";
@@ -1216,5 +1220,133 @@ describe("timeline audio parity", () => {
     useDirectorStore.getState().removeTimelineAudioClip(clipId!);
     expect(storeRevision()).toBe(getDirectorProjectRevision(agentRemove.project));
     expect(useDirectorStore.getState().project.scene.timeline!.audioTracks![0]!.clips).toEqual([]);
+  });
+});
+
+describe("object list parity", () => {
+  beforeEach(() => {
+    resetDirectorStore();
+  });
+
+  function storeRevision() {
+    return getDirectorProjectRevision(useDirectorStore.getState().project);
+  }
+
+  it("matches create_object_list revision when store.createObjectList names a selection", () => {
+    seedProp("list-box-a");
+    seedProp("list-box-b", [2, 0, 0]);
+    const before = structuredClone(useDirectorStore.getState().project);
+
+    const compiled = compileDirectorCreateObjectListAction(before, ["list-box-a", "list-box-b"], " 前景道具 ");
+    expect(compiled).not.toBeNull();
+    expect(compiled!.listId).toBe("object_list_1");
+    const agentRevision = getDirectorProjectRevision(applyDirectorAuthoringActions(before, [compiled!.action]).project);
+
+    const listId = useDirectorStore.getState().createObjectList(["list-box-a", "list-box-b"], " 前景道具 ");
+
+    expect(listId).toBe(compiled!.listId);
+    expect(storeRevision()).toBe(agentRevision);
+    const members = useDirectorStore.getState().project.objects.filter((object) => object.objectListId === listId);
+    expect(members.map((object) => object.id)).toEqual(["list-box-a", "list-box-b"]);
+    expect(members.every((object) => object.objectListLabel === "前景道具")).toBe(true);
+  });
+
+  it("matches add, rename, and remove object-list revisions through the store mutators", () => {
+    seedProp("list-box-a");
+    seedProp("list-box-b", [2, 0, 0]);
+    seedProp("list-box-c", [4, 0, 0]);
+    const listId = useDirectorStore.getState().createObjectList(["list-box-a", "list-box-b"], "前景道具");
+    expect(listId).toBeTruthy();
+
+    const beforeAdd = structuredClone(useDirectorStore.getState().project);
+    const addAction = compileDirectorAddObjectsToObjectListAction(beforeAdd, ["list-box-c"], listId!);
+    expect(addAction).not.toBeNull();
+    const agentAddRevision = getDirectorProjectRevision(applyDirectorAuthoringActions(beforeAdd, [addAction!]).project);
+    useDirectorStore.getState().addObjectsToObjectList(["list-box-c"], listId!);
+    expect(storeRevision()).toBe(agentAddRevision);
+    expect(
+      useDirectorStore.getState().project.objects.find((object) => object.id === "list-box-c")?.objectListLabel,
+    ).toBe("前景道具");
+
+    const beforeRename = structuredClone(useDirectorStore.getState().project);
+    const renameAction = compileDirectorRenameObjectListAction(beforeRename, listId!, "主体道具");
+    expect(renameAction).not.toBeNull();
+    const agentRenameRevision = getDirectorProjectRevision(
+      applyDirectorAuthoringActions(beforeRename, [renameAction!]).project,
+    );
+    useDirectorStore.getState().updateObjectListLabel(listId!, "主体道具");
+    expect(storeRevision()).toBe(agentRenameRevision);
+
+    const beforeRemove = structuredClone(useDirectorStore.getState().project);
+    const removeAction = compileDirectorRemoveObjectsFromObjectListsAction(beforeRemove, ["list-box-b"]);
+    expect(removeAction).not.toBeNull();
+    const agentRemoveRevision = getDirectorProjectRevision(
+      applyDirectorAuthoringActions(beforeRemove, [removeAction!]).project,
+    );
+    useDirectorStore.getState().removeObjectsFromObjectList(["list-box-b"]);
+    expect(storeRevision()).toBe(agentRemoveRevision);
+    const detached = useDirectorStore.getState().project.objects.find((object) => object.id === "list-box-b");
+    expect(detached?.objectListId).toBeUndefined();
+    expect(detached?.objectListDetached).toBe(true);
+  });
+
+  it("filters crowd members identically on both paths when creating a list", () => {
+    seedProp("list-box-a");
+    seedProp("crowd-member", [2, 0, 0]);
+    const withCrowd = structuredClone(useDirectorStore.getState().project);
+    withCrowd.objects.find((object) => object.id === "crowd-member")!.crowdId = "crowd_1";
+    useDirectorStore.getState().applyAuthoredProject(withCrowd);
+
+    const compiled = compileDirectorCreateObjectListAction(
+      useDirectorStore.getState().project,
+      ["list-box-a", "crowd-member"],
+      "混合选择",
+    );
+    expect(compiled).not.toBeNull();
+    expect(compiled!.action.object_ids).toEqual(["list-box-a"]);
+
+    const listId = useDirectorStore.getState().createObjectList(["list-box-a", "crowd-member"], "混合选择");
+    expect(listId).toBe(compiled!.listId);
+    const crowdMember = useDirectorStore.getState().project.objects.find((object) => object.id === "crowd-member");
+    expect(crowdMember?.objectListId).toBeUndefined();
+  });
+
+  it("keeps the legacy no-op for blank labels and unknown lists", () => {
+    seedProp("list-box-a");
+    const beforeRevision = storeRevision();
+
+    expect(compileDirectorCreateObjectListAction(useDirectorStore.getState().project, ["list-box-a"], "   ")).toBe(
+      null,
+    );
+    expect(useDirectorStore.getState().createObjectList(["list-box-a"], "   ")).toBeNull();
+    expect(storeRevision()).toBe(beforeRevision);
+
+    expect(
+      compileDirectorAddObjectsToObjectListAction(useDirectorStore.getState().project, ["list-box-a"], "object_list_9"),
+    ).toBeNull();
+    useDirectorStore.getState().addObjectsToObjectList(["list-box-a"], "object_list_9");
+    expect(storeRevision()).toBe(beforeRevision);
+
+    expect(
+      compileDirectorRenameObjectListAction(useDirectorStore.getState().project, "object_list_9", "改名"),
+    ).toBeNull();
+    useDirectorStore.getState().updateObjectListLabel("object_list_9", "改名");
+    expect(storeRevision()).toBe(beforeRevision);
+  });
+
+  it("keeps the legacy writer inside slider/gizmo undo batches", () => {
+    seedProp("list-box-a");
+    seedProp("list-box-b", [2, 0, 0]);
+
+    useDirectorStore.getState().beginUndoBatch();
+    const listId = useDirectorStore.getState().createObjectList(["list-box-a", "list-box-b"], "批处理列表");
+    useDirectorStore.getState().endUndoBatch();
+
+    expect(listId).toBe("object_list_1");
+    const members = useDirectorStore
+      .getState()
+      .project.objects.filter((object) => object.objectListId === "object_list_1");
+    expect(members.map((object) => object.id)).toEqual(["list-box-a", "list-box-b"]);
+    expect(members.every((object) => object.objectListLabel === "批处理列表")).toBe(true);
   });
 });
