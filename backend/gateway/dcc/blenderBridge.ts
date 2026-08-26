@@ -245,7 +245,12 @@ async function createLocalAssetMounts(workspaceRoot: string): Promise<LocalAsset
   ]);
 }
 
-async function resolveMountedModel(mounts: LocalAssetMount[], url: string): Promise<DirectorDccAssetResolution> {
+async function resolveMountedFile(
+  mounts: LocalAssetMount[],
+  url: string,
+  allowedExtensions: readonly string[],
+  extensionMessage: string,
+): Promise<DirectorDccAssetResolution> {
   const decoded = decodeLocalAssetUrl(url);
   if (!decoded) {
     return { status: "unsupported", message: "Only safe local library or DCC import URLs are supported." };
@@ -257,9 +262,21 @@ async function resolveMountedModel(mounts: LocalAssetMount[], url: string): Prom
   if (!isInside(mount.filesystemRoot, candidate)) {
     return { status: "unsupported", message: `Asset path escaped ${mount.label}.` };
   }
-  if (![".glb", ".gltf"].includes(extname(candidate).toLowerCase())) {
-    return { status: "unsupported", message: "Bridge v1 accepts GLB or glTF model assets only." };
+  if (!allowedExtensions.includes(extname(candidate).toLowerCase())) {
+    return { status: "unsupported", message: extensionMessage };
   }
+  return resolveCanonicalFile(mount, candidate, decoded);
+}
+
+async function resolveMountedModel(mounts: LocalAssetMount[], url: string): Promise<DirectorDccAssetResolution> {
+  return resolveMountedFile(mounts, url, [".glb", ".gltf"], "Bridge v1 accepts GLB or glTF model assets only.");
+}
+
+async function resolveCanonicalFile(
+  mount: LocalAssetMount,
+  candidate: string,
+  decoded: string,
+): Promise<DirectorDccAssetResolution> {
   if (!mount.canonicalRoot) {
     return { status: "missing", message: `Asset root does not exist: ${mount.label}.` };
   }
@@ -287,6 +304,27 @@ async function resolveMountedModel(mounts: LocalAssetMount[], url: string): Prom
  */
 export async function resolveDccModelAsset(workspaceRoot: string, url: string): Promise<DirectorDccAssetResolution> {
   return resolveMountedModel(await createLocalAssetMounts(resolve(workspaceRoot)), url);
+}
+
+/** Image formats the Unreal editor texture importer accepts from an exchange package. */
+const DCC_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".tga", ".exr"] as const;
+
+/**
+ * Resolves a browser asset URL to an allowed, canonical local texture image
+ * path for DCC export, under the same mount and symlink constraints as
+ * {@link resolveDccModelAsset} but limited to importable image formats.
+ *
+ * @param workspaceRoot - Absolute path to the workspace root.
+ * @param url - A browser-side asset URL (e.g. `/assets/library/wood.png`).
+ * @returns A resolution record with status and, on success, the canonical source path.
+ */
+export async function resolveDccImageAsset(workspaceRoot: string, url: string): Promise<DirectorDccAssetResolution> {
+  return resolveMountedFile(
+    await createLocalAssetMounts(resolve(workspaceRoot)),
+    url,
+    DCC_IMAGE_EXTENSIONS,
+    "Texture bundling accepts PNG, JPEG, TGA, or EXR image assets only.",
+  );
 }
 
 async function resolveAssetMap(workspaceRoot: string, assets: DirectorAssetRef[]) {
