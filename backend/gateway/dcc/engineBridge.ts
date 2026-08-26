@@ -957,15 +957,51 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     const bakedEntities = unrealBake?.bake.entities ?? godotBake?.bake.entities ?? [];
     const omittedAnimationChannels = bakedEntities
       .filter((entity) => entity.omittedChannels?.length)
-      .map((entity) => ({
-        directorId: entity.directorId,
-        entityType: entity.entityType,
-        channels: entity.omittedChannels!,
-        // Unreal bake carries per-channel control names; Godot entities omit this field.
-        ...("omittedChannelDetails" in entity && entity.omittedChannelDetails?.length
-          ? { details: entity.omittedChannelDetails }
-          : {}),
-      }));
+      .map((entity) => {
+        const base = {
+          directorId: entity.directorId,
+          entityType: entity.entityType,
+          channels: entity.omittedChannels!,
+        };
+        // Unreal: per-channel details list already on the bake entity.
+        if ("omittedChannelDetails" in entity && entity.omittedChannelDetails?.length) {
+          return { ...base, details: entity.omittedChannelDetails };
+        }
+        // Godot: fold the bake's omittedDetail bag into the shared per-channel
+        // details shape so send_to_engine results stay honest across providers.
+        if ("omittedDetail" in entity && entity.omittedDetail) {
+          const detail = entity.omittedDetail;
+          const details: Array<{
+            channel: "pose_values" | "motion_blocks" | "character_rig";
+            controls: string[];
+            reason: string;
+          }> = [];
+          if (entity.omittedChannels!.includes("pose_values")) {
+            details.push({
+              channel: "pose_values",
+              controls: detail.poseControls,
+              reason: `Semantic pose keyframes are not carried by the Godot animation bake (${detail.poseControlCount} controls); only world transforms were baked.`,
+            });
+          }
+          if (entity.omittedChannels!.includes("motion_blocks")) {
+            details.push({
+              channel: "motion_blocks",
+              controls: detail.motionClips.map((clip) => clip.id),
+              reason: `Packaged motion clips are not part of the exchange package (${detail.motionClipCount} clips); clip playback cannot be keyed host-side.`,
+            });
+          }
+          if (entity.omittedChannels!.includes("character_rig")) {
+            details.push({
+              channel: "character_rig",
+              controls: [],
+              reason:
+                "Character rig state is not carried by the Godot animation bake; the skeletal mesh imports in bind pose.",
+            });
+          }
+          if (details.length > 0) return { ...base, details };
+        }
+        return base;
+      });
     if (omittedAnimationChannels.length > 0) {
       sendWarnings.push(
         `${omittedAnimationChannels.length} baked entity/entities carry pose or rig channels the ${provider} animation bake cannot transfer; only world transforms were baked (warn-and-omit, see omittedAnimationChannels).`,
