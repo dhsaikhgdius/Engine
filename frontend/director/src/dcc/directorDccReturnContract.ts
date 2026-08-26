@@ -4,7 +4,10 @@ import {
   directorAnimationEntityTypeSchema,
   directorTransformSchema,
 } from "../comprehensive/editor/schema/directorProjectSchema";
-import { DIRECTOR_CAMERA_SENSOR_FORMATS } from "../comprehensive/editor/schema/directorProject";
+import {
+  DIRECTOR_ANIMATION_INTERPOLATIONS,
+  DIRECTOR_CAMERA_SENSOR_FORMATS,
+} from "../comprehensive/editor/schema/directorProject";
 import { DIRECTOR_CAMERA_OPTICS_LIMITS } from "../comprehensive/editor/schema/cameraGeometry";
 import { CHARACTER_POSE_CONTROL_KEYS } from "../comprehensive/editor/schema/poseSchema";
 import { strictKind, strictOperation } from "../../../../packages/protocol/src/strictProtocolVariant";
@@ -75,6 +78,36 @@ export const directorDccReturnLightPropertiesSchema = z
 const poseControlKeySchema = z.enum(CHARACTER_POSE_CONTROL_KEYS);
 
 /**
+ * Director light types a DCC return package can create. Mirrors
+ * `DIRECTOR_DCC_EXPORTABLE_LIGHT_TYPES` (the types the scene package exports);
+ * defined here because the scene contract depends on this module.
+ */
+export const DIRECTOR_DCC_RETURN_LIGHT_TYPES = ["directional", "point", "spot", "rect-area"] as const;
+
+/** Upper bound of keyframes one animation_update change may carry. */
+export const DIRECTOR_DCC_RETURN_MAX_ANIMATION_KEYFRAMES = 2_000;
+
+/**
+ * One keyframe of a returned transform animation, in the package's wire space.
+ * Interpolation is Director's portable timeline set (`step`/`linear`/`smooth`,
+ * mapped from Blender `CONSTANT`/`LINEAR`/`BEZIER`); anything else must be
+ * omitted by the exporter with a structured warning, never approximated
+ * silently.
+ */
+export const directorDccReturnAnimationKeyframeSchema = z.strictObject({
+  frame: finiteWire,
+  interpolation: z.enum(DIRECTOR_ANIMATION_INTERPOLATIONS),
+  transform: directorDccTransformSchema,
+});
+
+const directorDccReturnAnimationKeyframesSchema = z
+  .array(directorDccReturnAnimationKeyframeSchema)
+  .max(DIRECTOR_DCC_RETURN_MAX_ANIMATION_KEYFRAMES)
+  .refine((keyframes) => keyframes.every((keyframe, index) => index === 0 || keyframe.frame > keyframes[index - 1]!.frame), {
+    message: "animation keyframes must be sorted by strictly increasing frame",
+  });
+
+/**
  * A sample of Director's portable humanoid pose controls. Keys must be
  * portable control keys (a partial record: exporters send the controls they
  * track); unknown keys are rejected at the schema boundary so a DCC-side typo
@@ -95,8 +128,14 @@ export const directorDccReturnPoseControlsSchema = z
  * - `camera_update`: camera transform and/or optics (focal length, aperture, focus, clipping, sensor format).
  * - `light_update`: properties of a light that kept its Director `director_id`.
  * - `pose_update`: a portable pose-control sample for a Director character binding, with optional root motion.
+ * - `animation_update`: the full replacement transform-keyframe list a DCC authored on a Director
+ *   object's timeline track (empty = the DCC deleted every key). Only plainly keyed transform
+ *   channels round-trip; NLA, drivers, constraints, and exotic interpolation are exporter-omitted
+ *   with structured codes.
  * - `object_addition`: a DCC object that gained a fresh `director_id` after the export snapshot.
  *   Import is reviewed and opt-in; Director never auto-imports unmarked DCC objects.
+ * - `camera_addition` / `light_addition`: a DCC camera or light that gained a fresh `director_id`.
+ *   Same reviewed, opt-in import as `object_addition`.
  */
 export const directorDccReturnChangeSchema = z.discriminatedUnion("kind", [
   strictKind("mesh_replacement", {
@@ -113,6 +152,37 @@ export const directorDccReturnChangeSchema = z.discriminatedUnion("kind", [
     meshFile: safeRelativePath,
     transform: directorDccTransformSchema,
     assetLabel: z.string().trim().min(1).max(240).optional(),
+  }),
+  strictKind("camera_addition", {
+    directorId: nonEmpty.max(200),
+    entityType: z.literal("camera"),
+    name: z.string().trim().min(1).max(240),
+    transform: directorDccTransformSchema,
+    /** Wire-space look-at point recovered on the camera's aim ray at its focus distance. */
+    target: wireVec3,
+    optics: directorDccReturnCameraOpticsSchema.optional(),
+  }),
+  strictKind("light_addition", {
+    directorId: nonEmpty.max(200),
+    entityType: z.literal("light"),
+    name: z.string().trim().min(1).max(240),
+    type: z.enum(DIRECTOR_DCC_RETURN_LIGHT_TYPES),
+    /** Wire-space world position. */
+    position: wireVec3,
+    /** Wire-space aim point (directional/spot/rect-area) at a documented default distance. */
+    target: wireVec3.optional(),
+    color: hexColor,
+    /** Director intensity, already inverted through the deterministic watts table. */
+    intensity: finiteWire.min(0).max(100),
+    /** Spot half-angle in radians (Director convention). */
+    angleRad: finiteWire
+      .positive()
+      .max(Math.PI / 2)
+      .optional(),
+    penumbra: finiteWire.min(0).max(1).optional(),
+    widthM: finiteWire.positive().max(1_000_000).optional(),
+    heightM: finiteWire.positive().max(1_000_000).optional(),
+    castShadow: z.boolean().optional(),
   }),
   strictKind("transform_update", {
     directorId: nonEmpty.max(200),
@@ -143,6 +213,14 @@ export const directorDccReturnChangeSchema = z.discriminatedUnion("kind", [
     entityType: z.literal("object"),
     controls: directorDccReturnPoseControlsSchema,
     /** Character root motion sampled together with the pose, if the root moved. */
+    transform: directorDccTransformSchema.optional(),
+  }),
+  strictKind("animation_update", {
+    directorId: nonEmpty.max(200),
+    entityType: z.literal("object"),
+    /** Replacement keyframes; empty means the DCC deleted every transform key. */
+    keyframes: directorDccReturnAnimationKeyframesSchema,
+    /** Base transform sampled at currentFrame, if the base channels also moved. */
     transform: directorDccTransformSchema.optional(),
   }),
 ]);
@@ -292,11 +370,44 @@ export const directorDccImportPlanLightPatchSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, { message: "light patch cannot be empty" });
 
+/** One Director-side timeline keyframe of a `set_entity_animation` plan operation. */
+export const directorDccImportPlanAnimationKeyframeSchema = z.strictObject({
+  frame: z.number().finite(),
+  interpolation: z.enum(DIRECTOR_ANIMATION_INTERPOLATIONS),
+  transform: directorTransformSchema,
+});
+
+/** The Director-side light creation payload of a `create_light` plan operation. */
+export const directorDccImportPlanLightCreateSchema = z.strictObject({
+  name: nonEmpty.max(240),
+  type: z.enum(DIRECTOR_DCC_RETURN_LIGHT_TYPES),
+  color: hexColor,
+  intensity: z.number().finite().min(0).max(100),
+  position: directorVec3Schema,
+  target: directorVec3Schema.optional(),
+  angle: z
+    .number()
+    .finite()
+    .min(0.001)
+    .max(Math.PI / 2)
+    .optional(),
+  penumbra: z.number().finite().min(0).max(1).optional(),
+  width: z.number().finite().positive().max(1_000_000).optional(),
+  height: z.number().finite().positive().max(1_000_000).optional(),
+  castShadow: z.boolean().optional(),
+});
+
 const importPlanOperationSchema = z.discriminatedUnion("op", [
   strictOperation("update_transform", {
     entityType: directorAnimationEntityTypeSchema,
     objectId: nonEmpty.max(200),
     transform: directorTransformSchema,
+  }),
+  strictOperation("set_entity_animation", {
+    entityType: z.literal("object"),
+    objectId: nonEmpty.max(200),
+    /** Replacement timeline keyframes; empty clears the entity's keyframes. */
+    keyframes: z.array(directorDccImportPlanAnimationKeyframeSchema).max(DIRECTOR_DCC_RETURN_MAX_ANIMATION_KEYFRAMES),
   }),
   strictOperation("update_camera_optics", {
     objectId: nonEmpty.max(200),
@@ -331,6 +442,17 @@ const importPlanOperationSchema = z.discriminatedUnion("op", [
     glbPath: safeRelativePath,
     hash: sha256,
     transform: directorTransformSchema,
+  }),
+  strictOperation("create_camera", {
+    cameraId: nonEmpty.max(200),
+    name: nonEmpty.max(240),
+    position: directorVec3Schema,
+    target: directorVec3Schema,
+    optics: directorDccImportPlanCameraOpticsSchema.optional(),
+  }),
+  strictOperation("create_light", {
+    lightId: nonEmpty.max(200),
+    light: directorDccImportPlanLightCreateSchema,
   }),
   strictOperation("skip", {
     directorId: nonEmpty.max(200),
@@ -392,7 +514,9 @@ export const directorDccReturnReportSchema = z.strictObject({
   lightCount: z.number().int().nonnegative().optional(),
   /** Number of pose_update changes; optional on pre-optics exporters. */
   poseCount: z.number().int().nonnegative().optional(),
-  /** Number of object_addition changes; optional on pre-addition exporters. */
+  /** Number of animation_update changes; optional on pre-animation exporters. */
+  animationCount: z.number().int().nonnegative().optional(),
+  /** Number of addition changes (object/camera/light); optional on pre-addition exporters. */
   additionCount: z.number().int().nonnegative().optional(),
   warnings: z.array(z.string().max(2_000)),
   blenderVersion: nonEmpty.max(200),
@@ -402,6 +526,12 @@ export const directorDccReturnReportSchema = z.strictObject({
 export type DirectorDccReturnChange = z.infer<typeof directorDccReturnChangeSchema>;
 /** Camera optics carried by a `camera_update` return change. */
 export type DirectorDccReturnCameraOptics = z.infer<typeof directorDccReturnCameraOpticsSchema>;
+/** One keyframe of an `animation_update` return change. */
+export type DirectorDccReturnAnimationKeyframe = z.infer<typeof directorDccReturnAnimationKeyframeSchema>;
+/** One Director-side keyframe of a `set_entity_animation` plan operation. */
+export type DirectorDccImportPlanAnimationKeyframe = z.infer<typeof directorDccImportPlanAnimationKeyframeSchema>;
+/** The Director-side light creation payload of a `create_light` plan operation. */
+export type DirectorDccImportPlanLightCreate = z.infer<typeof directorDccImportPlanLightCreateSchema>;
 /** Light properties carried by a `light_update` return change. */
 export type DirectorDccReturnLightProperties = z.infer<typeof directorDccReturnLightPropertiesSchema>;
 /** The Director-side camera optics patch of an import plan operation. */
