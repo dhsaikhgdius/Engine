@@ -305,6 +305,7 @@ export const gameSliceIssueSchema = z.strictObject({
     "stuck",
     "verb_not_exercised",
     "interaction_out_of_range",
+    "vehicle_sequence_invalid",
     "hud_unbound",
     "player_unbound",
     "objective_unreachable",
@@ -391,6 +392,18 @@ const DEFAULT_CHECKS: GameSlicePlayabilityCheck[] = [
   "no_stuck",
 ];
 
+/**
+ * Genres whose default roles include an objective also accept on interaction
+ * evidence: the tape must interact in range and reach the objective object.
+ */
+const EXTRA_CHECKS_BY_GENRE: Record<GameSliceGenre, GameSlicePlayabilityCheck[]> = {
+  exploration: ["interaction_in_range", "objective_reachable"],
+  fps: [],
+  racing: [],
+  fighting: [],
+  rpg: ["interaction_in_range", "objective_reachable"],
+};
+
 function defaultPerspective(genre: GameSliceGenre, requested?: GameSlicePerspective): GameSlicePerspective {
   if (requested) return requested;
   if (genre === "fps") return "first";
@@ -475,7 +488,7 @@ export function createGameSliceFromBrief(input: {
     assets: [],
     acceptance: {
       operations: verbs,
-      playability_checks: DEFAULT_CHECKS,
+      playability_checks: [...DEFAULT_CHECKS, ...EXTRA_CHECKS_BY_GENRE[brief.genre]],
       style: brief.style,
     },
     notes,
