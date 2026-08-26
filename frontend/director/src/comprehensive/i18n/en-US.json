@@ -135,6 +135,7 @@
   "选择另一个节点完成连接，Esc 取消": "Select another node to connect; Esc cancels",
   "调整节点大小": "Resize node",
   "置于顶层": "Bring to front",
+  "置于顶层失败": "Failed to bring to front",
   "便签": "Note",
   "3D 分镜": "3D shot",
   "图片": "Image",

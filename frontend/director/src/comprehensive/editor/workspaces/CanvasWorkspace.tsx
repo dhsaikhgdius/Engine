@@ -216,13 +216,12 @@ export function CanvasWorkspace() {
   const workspacePrefs = useDirectorCreativeWorkspaceStore((state) => state.workspacePrefs);
   const viewport = useDirectorCreativeWorkspaceStore((state) => state.boardViewport);
   const selectedNodeId = useDirectorCreativeWorkspaceStore((state) => state.selectedBoardNodeId);
-  // Node/edge/layout authoring, import cataloging, undo/redo, and media
+  // Node/edge/layout/z-order authoring, import cataloging, undo/redo, and media
   // relink dispatch through the shared agent contract
   // (dispatchCreativeWorkspaceOperations / dispatchCreativeWorkspaceMediaRelink);
-  // only drag-batch intermediate samples, z-order raises, view state, and
-  // section bookkeeping (no semantic ops yet) keep direct store mutators.
+  // only drag-batch intermediate samples, view state, and section bookkeeping
+  // (no semantic ops yet) keep direct store mutators.
   const updateBoardNode = useDirectorCreativeWorkspaceStore((state) => state.updateBoardNode);
-  const bringBoardNodeToFront = useDirectorCreativeWorkspaceStore((state) => state.bringBoardNodeToFront);
   const selectBoardNode = useDirectorCreativeWorkspaceStore((state) => state.selectBoardNode);
   const setBoardViewport = useDirectorCreativeWorkspaceStore((state) => state.setBoardViewport);
   const addBoardSection = useDirectorCreativeWorkspaceStore((state) => state.addBoardSection);
@@ -1258,7 +1257,7 @@ export function CanvasWorkspace() {
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.stopPropagation();
-                        bringBoardNodeToFront(node.id);
+                        dispatchCanvas({ op: "canvas.node.bring_to_front", node_id: node.id }, t("置于顶层失败"));
                       }}
                       type="button"
                     >

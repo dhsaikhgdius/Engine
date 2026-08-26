@@ -386,6 +386,8 @@ export const creativeWorkspaceAgentCapabilitiesSchema = z.strictObject({
     layout_operation: z.literal("canvas.dag.layout"),
     layout_directions: z.tuple([z.literal("horizontal"), z.literal("vertical")]),
     layout_contract: z.string(),
+    bring_to_front_operation: z.literal("canvas.node.bring_to_front"),
+    z_order_contract: z.string(),
     execution_boundary: z.string(),
   }),
   preview: z.strictObject({

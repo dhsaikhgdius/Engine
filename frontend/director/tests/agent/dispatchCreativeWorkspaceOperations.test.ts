@@ -189,7 +189,7 @@ afterEach(() => {
 });
 
 describe("creative workspace UI/agent parity harness", () => {
-  it("produces identical revisions for the Canvas batch (node add/remove, edge connect/remove, layout)", () => {
+  it("produces identical revisions for the Canvas batch (node add/remove, edge connect/remove, layout, bring-to-front)", () => {
     const { uiRevision, agentRevision } = compareExecutors((execute) => {
       const note = execute({ op: "canvas.node.add", kind: "note", title: "灵感", body: "旁白基调", x: 80, y: 64 });
       const poster = execute({
@@ -208,6 +208,7 @@ describe("creative workspace UI/agent parity harness", () => {
       });
       execute({ op: "canvas.dag.layout", direction: "horizontal" });
       const doomed = execute({ op: "canvas.node.add", kind: "frame", title: "镜头组", x: 40, y: 400 });
+      execute({ op: "canvas.node.bring_to_front", node_id: createdId(note, "node") });
       execute({ op: "canvas.node.remove", node_id: createdId(doomed, "node") });
       execute({ op: "canvas.edge.remove", edge_id: createdId(edge, "edge") });
       execute({

@@ -159,7 +159,8 @@ produce the same revision (roadmap M1 batches 1e/1f). Parity is regression-teste
 
 Shared today:
 
-- Canvas node/edge/layout authoring (`canvas.node.*`, `canvas.edge.*`, `canvas.dag.layout`),
+- Canvas node/edge/layout/z-order authoring (`canvas.node.*` including
+  `canvas.node.bring_to_front`, `canvas.edge.*`, `canvas.dag.layout`),
   media import cataloging (`gallery.media.update`), and the undo/redo buttons
   (`workspace.undo` / `workspace.redo`).
 - Video clip inspector edits, split, remove (including ripple), cross dissolve, discrete
@@ -190,6 +191,7 @@ Still direct, with reasons:
   Stage slider/gizmo policy. Clip drag/trim still resolve overwrite locally via
   `commitClipPlacement` at pointer-up (discrete nudges/duplicate-after/explicit drops are
   shared above).
-- Canvas z-order raises, view state, and section bookkeeping — no semantic operations yet.
+- Canvas bring-to-front is shared; view state and section bookkeeping — no semantic
+  operations yet.
 - Canvas pipeline result cataloging, legacy review-mirror migration, and bulk review clearing —
   multi-store or migration bookkeeping flows.

@@ -110,7 +110,7 @@ capabilities
 
 | 族             | 操作                                                                                                                        |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Canvas 节点    | `canvas.node.add`、`canvas.node.update`、`canvas.node.remove`                                                               |
+| Canvas 节点    | `canvas.node.add`、`canvas.node.update`、`canvas.node.remove`、`canvas.node.bring_to_front`                                   |
 | Canvas 边      | `canvas.edge.add`、`canvas.edge.remove`                                                                                     |
 | Canvas DAG     | `canvas.dag.layout`、`canvas.production.configure`；顶层 `pipeline` start/status/cancel                                     |
 | Video 片段     | `edit.clip.add`、`edit.clip.update`、`edit.clip.move`、`edit.clip.split`、`edit.clip.remove`                                |

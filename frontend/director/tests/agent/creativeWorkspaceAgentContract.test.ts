@@ -452,6 +452,19 @@ describe("creative workspace agent operation contract", () => {
     expect(laidOut.snapshot.board.nodes.find((node) => node.id === imageId)).toMatchObject({ x: 50, y: 60 });
 
     expectSuccess(executeCreativeWorkspaceAgentOperation({ op: "canvas.edge.remove", edge_id: edgeId }, runtime));
+    const broughtFront = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "canvas.node.bring_to_front", node_id: imageId }, runtime),
+    );
+    expect(broughtFront.result).toMatchObject({ already_front: false, z_index: 1 });
+    expect(useDirectorCreativeWorkspaceStore.getState().boardNodes.map((node) => node.id)).toEqual([noteId, imageId]);
+    const alreadyFront = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "canvas.node.bring_to_front", node_id: imageId }, runtime),
+    );
+    expect(alreadyFront.result).toMatchObject({ already_front: true, z_index: 1 });
+    expectFailure(
+      executeCreativeWorkspaceAgentOperation({ op: "canvas.node.bring_to_front", node_id: "missing-node" }, runtime),
+      "not_found",
+    );
     const removed = expectSuccess(
       executeCreativeWorkspaceAgentOperation({ op: "canvas.node.remove", node_id: imageId }, runtime),
     );
@@ -1242,6 +1255,7 @@ describe("creative workspace agent operation contract", () => {
           "gallery.folder.add",
           "gallery.preferences.update",
           "canvas.production.configure",
+          "canvas.node.bring_to_front",
         ]),
         batch: {
           atomic: true,
@@ -1252,6 +1266,7 @@ describe("creative workspace agent operation contract", () => {
           analysis: ["topological_order", "parallel_levels", "roots", "leaves", "cycle_path", "issues"],
           layout_operation: "canvas.dag.layout",
           layout_directions: ["horizontal", "vertical"],
+          bring_to_front_operation: "canvas.node.bring_to_front",
         },
         editorial: {
           timebase: {

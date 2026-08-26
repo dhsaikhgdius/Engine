@@ -1257,6 +1257,29 @@ export function executeCreativeWorkspaceAgentOperation(
       state.removeBoardNode(node.id);
       return success(operation.op, `Removed canvas node "${node.title}".`, { removed_id: node.id }, context);
     }
+    case "canvas.node.bring_to_front": {
+      const index = state.boardNodes.findIndex((candidate) => candidate.id === operation.node_id);
+      if (index < 0) {
+        return semanticFailure(operation.op, "not_found", `Canvas node "${operation.node_id}" does not exist.`);
+      }
+      const node = state.boardNodes[index]!;
+      const alreadyFront = index === state.boardNodes.length - 1;
+      if (!alreadyFront) state.bringBoardNodeToFront(node.id);
+      const after = context.workspace.getState().boardNodes;
+      const zIndex = after.findIndex((candidate) => candidate.id === node.id);
+      return success(
+        operation.op,
+        alreadyFront
+          ? `Canvas node "${node.title}" is already at the front of the board z-order.`
+          : `Brought canvas node "${node.title}" to the front of the board z-order.`,
+        {
+          node: projectBoardNode(after.find((candidate) => candidate.id === node.id) ?? node),
+          z_index: zIndex,
+          already_front: alreadyFront,
+        },
+        context,
+      );
+    }
     case "canvas.edge.add": {
       const source = state.boardNodes.find((node) => node.id === operation.source_node_id);
       const target = state.boardNodes.find((node) => node.id === operation.target_node_id);

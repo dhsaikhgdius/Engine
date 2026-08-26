@@ -383,6 +383,11 @@ const canvasNodeUpdateSchema = strictOperation("canvas.node.update", {
 
 const canvasNodeRemoveSchema = strictOperation("canvas.node.remove", { node_id: creativeWorkspaceIdSchema });
 
+/** Raise a Canvas board node to the top of the paint/z-order (array tail). Idempotent when already front. */
+const canvasNodeBringToFrontSchema = strictOperation("canvas.node.bring_to_front", {
+  node_id: creativeWorkspaceIdSchema,
+});
+
 const canvasEdgeAddSchema = strictOperation("canvas.edge.add", {
   source_node_id: creativeWorkspaceIdSchema,
   target_node_id: creativeWorkspaceIdSchema,
@@ -700,6 +705,7 @@ export const creativeWorkspaceAgentOperationSchema = z.discriminatedUnion("op", 
   canvasNodeAddSchema,
   canvasNodeUpdateSchema,
   canvasNodeRemoveSchema,
+  canvasNodeBringToFrontSchema,
   canvasEdgeAddSchema,
   canvasEdgeRemoveSchema,
   canvasDagLayoutSchema,
