@@ -9,9 +9,11 @@ import {
   MEDIA_INPUT_PREFIX,
   PRODUCTION_JOB_ARTIFACT_PREFIX,
   planArtifactStorageGc,
+  revalidateArtifactGcSweep,
   sweepArtifactStorageGc,
   type ArtifactGcEntry,
   type ArtifactGcPlan,
+  type ArtifactGcSweepSkip,
 } from "./artifactReachabilityGc";
 import {
   collectRetentionExpiredArtifactKeys,
@@ -28,8 +30,12 @@ import type { ArtifactStorageBackend } from "./artifactStorage";
  * A sweep can only consume a plan this exact process produced: the caller
  * must echo the plan id as `confirm`, plans expire after a bounded TTL, and
  * replaying an executed plan returns the recorded outcome instead of
- * deleting twice. Every executed sweep is appended to a bounded on-disk
- * audit log that the health endpoint reports as "recent GC results".
+ * deleting twice. Before deleting, the reviewed plan is revalidated against
+ * the live job records and object freshness, so a key that became reachable
+ * or was rewritten during the review window is skipped with a typed code
+ * instead of deleted. Every executed sweep is appended to a bounded
+ * on-disk audit log that the health endpoint reports as "recent GC
+ * results", including per-reason skip counts.
  */
 
 /** Default lifetime of a computed GC plan before sweeping refuses it. */
@@ -44,6 +50,16 @@ const storageGcSweepReasonCountsSchema = z.strictObject({
   retentionExpired: z.number().int().nonnegative(),
 });
 
+const storageGcSkipReasonCountsSchema = z.strictObject({
+  becameReachable: z.number().int().nonnegative(),
+  modifiedSincePlan: z.number().int().nonnegative(),
+  alreadyAbsent: z.number().int().nonnegative(),
+  deleteFailed: z.number().int().nonnegative(),
+});
+
+/** Per-reason counts of planned-sweep keys that were skipped, not deleted. */
+export type StorageGcSkipReasonCounts = z.infer<typeof storageGcSkipReasonCountsSchema>;
+
 /** One persisted record of an executed sweep. */
 export const storageGcAuditEntrySchema = z.strictObject({
   planId: z.string().min(1),
@@ -56,6 +72,8 @@ export const storageGcAuditEntrySchema = z.strictObject({
   reclaimedBytes: z.number().int().nonnegative(),
   skippedCount: z.number().int().nonnegative(),
   byReason: storageGcSweepReasonCountsSchema,
+  /** Absent on audit entries recorded before skip reasons were tracked. */
+  skippedByReason: storageGcSkipReasonCountsSchema.optional(),
 });
 
 /** One persisted record of an executed sweep. */
@@ -91,7 +109,10 @@ export interface StorageGcSweepOutcome {
   skippedCount: number;
   deletedKeys: string[];
   skippedKeys: string[];
+  /** Typed evidence for every skipped key, including sweep-time revalidation. */
+  skipped: ArtifactGcSweepSkip[];
   byReason: { unreachable: number; retentionExpired: number };
+  skippedByReason: StorageGcSkipReasonCounts;
 }
 
 /** Usage estimate for one storage category. */
@@ -248,6 +269,22 @@ function sweepReasonCounts(entries: readonly ArtifactGcEntry[]) {
     else byReason.unreachable += 1;
   }
   return byReason;
+}
+
+function skipReasonCounts(skipped: readonly ArtifactGcSweepSkip[]): StorageGcSkipReasonCounts {
+  const counts: StorageGcSkipReasonCounts = {
+    becameReachable: 0,
+    modifiedSincePlan: 0,
+    alreadyAbsent: 0,
+    deleteFailed: 0,
+  };
+  for (const skip of skipped) {
+    if (skip.code === "became-reachable") counts.becameReachable += 1;
+    else if (skip.code === "modified-since-plan") counts.modifiedSincePlan += 1;
+    else if (skip.code === "already-absent") counts.alreadyAbsent += 1;
+    else counts.deleteFailed += 1;
+  }
+  return counts;
 }
 
 /** Operational storage health, GC planning, and confirmed sweeping. */
@@ -513,6 +550,13 @@ export class StorageOpsService {
    * the corrective call, and is idempotent: replaying an executed plan
    * returns the recorded outcome without deleting again.
    *
+   * The reviewed plan is revalidated against the live job records and
+   * object freshness immediately before deletion: a planned-sweep key that
+   * a job now references, or whose bytes were rewritten after planning, is
+   * skipped with a typed code (`became-reachable`, `modified-since-plan`)
+   * instead of deleted, so a stale plan can never delete bytes a retry or
+   * reconciliation needs.
+   *
    * @throws {@link StorageGcConfirmMismatchError} When `confirm` ≠ `planId`.
    * @throws {@link StorageGcPlanNotFoundError} When the plan is unknown.
    * @throws {@link StorageGcPlanExpiredError} When the review window passed.
@@ -527,10 +571,19 @@ export class StorageOpsService {
         throw new StorageGcPlanExpiredError(request.planId, new Date(cached.expiresAtMs).toISOString());
       }
 
-      const result = await sweepArtifactStorageGc(this.storage, cached.plan, { dryRun: false });
+      const jobsNow = await this.jobs.list();
+      const { executable, blocked } = await revalidateArtifactGcSweep({
+        storage: this.storage,
+        jobs: jobsNow,
+        plan: cached.plan,
+        retentionExpiredKeys: collectRetentionExpiredArtifactKeys(jobsNow, this.retention.policy, this.now()),
+      });
+      const result = await sweepArtifactStorageGc(this.storage, executable, { dryRun: false });
       const sweepEntries = cached.plan.entries.filter((entry) => entry.action === "sweep");
       const deleted = new Set(result.deletedKeys);
       const byReason = sweepReasonCounts(sweepEntries.filter((entry) => deleted.has(entry.key)));
+      const skipped = [...blocked, ...result.skipped];
+      const skippedByReason = skipReasonCounts(skipped);
       const sweptAt = new Date(this.now()).toISOString();
       const outcome: StorageGcSweepOutcome = {
         planId: request.planId,
@@ -539,10 +592,12 @@ export class StorageOpsService {
         replayed: false,
         deletedCount: result.deletedKeys.length,
         reclaimedBytes: result.reclaimedBytes,
-        skippedCount: result.skippedKeys.length,
+        skippedCount: skipped.length,
         deletedKeys: result.deletedKeys,
-        skippedKeys: result.skippedKeys,
+        skippedKeys: skipped.map((skip) => skip.key),
+        skipped,
         byReason,
+        skippedByReason,
       };
       cached.outcome = outcome;
       await this.appendAudit({
@@ -556,6 +611,7 @@ export class StorageOpsService {
         reclaimedBytes: outcome.reclaimedBytes,
         skippedCount: outcome.skippedCount,
         byReason,
+        skippedByReason,
       });
       return outcome;
     });
