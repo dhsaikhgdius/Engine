@@ -421,6 +421,8 @@ export const creativeWorkspaceAgentCapabilitiesSchema = z.strictObject({
       max_zoom: z.literal(1.35),
     }),
     viewport_contract: z.string(),
+    script_operation: z.literal("canvas.script.apply_plan"),
+    script_contract: z.string(),
     execution_boundary: z.string(),
   }),
   preview: z.strictObject({

@@ -184,6 +184,13 @@ Shared today:
   media ids without a Gallery asset (video tracks only). The Video Editor "标题文字" button and
   caption/SRT import / transcription promote dispatch the same ops Agents use; caption display
   names are capped at the shared 200-char clip name limit.
+- Fountain script import ("导入剧本"): the Canvas modal dispatches
+  `canvas.script.apply_plan`, the same executor Agents call. The receipt reports
+  `storyboard_shots`, `nodes_added`, the new `sections`, `replaced_section_ids`, and typed
+  `omitted[]` (`board_capacity` for shots dropped at the 240-node cap, plus the Fountain
+  importer's `character_dialogue` / `boneyard_note` / … codes) so neither surface overclaims;
+  a full board rejects with `capacity` before any mutation, and one undo entry restores the
+  replaced section list.
 
 Still direct, with reasons:
 
