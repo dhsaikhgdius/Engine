@@ -214,17 +214,31 @@ async function defaultRunProcess(
   timeoutMs: number,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolveProcess, rejectProcess) => {
-    const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"], shell: false });
+    // Detach on POSIX so a timed-out Unreal/Unity headless job can be killed as
+    // a process group; otherwise only the direct child dies and grandchildren leak.
+    const detached = process.platform !== "win32";
+    const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"], shell: false, detached });
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 2_000).unref();
-      if (!settled) {
-        settled = true;
-        rejectProcess(new Error(`Engine job exceeded ${timeoutMs} ms.`));
+    let timedOut = false;
+    let forceKillTimer: NodeJS.Timeout | undefined;
+    const killProcessTree = (signal: NodeJS.Signals) => {
+      if (detached && child.pid) {
+        try {
+          process.kill(-child.pid, signal);
+          return;
+        } catch {
+          // Fall back to the direct child when the process group is already gone.
+        }
       }
+      child.kill(signal);
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killProcessTree("SIGTERM");
+      forceKillTimer = setTimeout(() => killProcessTree("SIGKILL"), 2_000);
+      forceKillTimer.unref();
     }, timeoutMs);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -236,6 +250,7 @@ async function defaultRunProcess(
     });
     child.on("error", (error) => {
       clearTimeout(timer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
       if (!settled) {
         settled = true;
         rejectProcess(error);
@@ -243,9 +258,11 @@ async function defaultRunProcess(
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
       if (settled) return;
       settled = true;
-      if (code === 0) resolveProcess({ stdout, stderr });
+      if (timedOut) rejectProcess(new Error(`Engine job exceeded ${timeoutMs} ms.`));
+      else if (code === 0) resolveProcess({ stdout, stderr });
       else rejectProcess(new Error(`Engine process exited with code ${code ?? "unknown"}. ${stderr || stdout}`));
     });
   });
@@ -391,15 +408,65 @@ async function resolveEngineProject(
   return { ok: true, projectPath, projectDirectory: projectPath, detail: projectPath };
 }
 
+async function readInstalledConnectorVersion(
+  provider: DirectorDccEngineId,
+  projectDirectory: string,
+): Promise<string | null> {
+  if (provider === "unreal") {
+    const upluginPath = resolve(projectDirectory, "Plugins/DirectorBridge/DirectorBridge.uplugin");
+    try {
+      const raw = JSON.parse(await readFile(upluginPath, "utf8")) as { VersionName?: unknown };
+      return typeof raw.VersionName === "string" && raw.VersionName.trim() ? raw.VersionName.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+  if (provider === "unity") {
+    const packagePath = resolve(projectDirectory, "Packages/com.director.bridge/package.json");
+    try {
+      const raw = JSON.parse(await readFile(packagePath, "utf8")) as { version?: unknown };
+      return typeof raw.version === "string" && raw.version.trim() ? raw.version.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 async function checkInstalledConnector(
   provider: DirectorDccEngineId,
   projectDirectory: string,
+  expectedVersion: string | null,
 ): Promise<{ ok: boolean; detail: string }> {
   for (const relativePath of ENGINE_PROJECT_CONNECTOR_FILES[provider]) {
     const candidate = resolve(projectDirectory, relativePath);
     if (!(await isFile(candidate))) {
       return { ok: false, detail: `Missing installed Director connector file: ${relativePath}.` };
     }
+  }
+  // Unreal/Unity previously only checked file presence, so a stale project copy
+  // reported nativeReady until a mid-job engine_report_invalid. Match Godot's
+  // version honesty: installed connector version must equal the workspace manifest.
+  if ((provider === "unreal" || provider === "unity") && expectedVersion) {
+    const installedVersion = await readInstalledConnectorVersion(provider, projectDirectory);
+    if (!installedVersion) {
+      return {
+        ok: false,
+        detail: `Could not read the installed Director connector version in ${projectDirectory}.`,
+      };
+    }
+    if (installedVersion !== expectedVersion) {
+      return {
+        ok: false,
+        detail:
+          `Installed connector version ${installedVersion} does not match workspace ` +
+          `connector ${expectedVersion}; update the connector copy in the engine project.`,
+      };
+    }
+    return {
+      ok: true,
+      detail: `Director connector ${installedVersion} is installed in ${projectDirectory}.`,
+    };
   }
   return { ok: true, detail: `Director connector is installed in ${projectDirectory}.` };
 }
@@ -567,7 +634,11 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
 
     let projectConnectorOk = false;
     if (project.ok && project.projectDirectory) {
-      const installed = await checkInstalledConnector(provider, project.projectDirectory);
+      const installed = await checkInstalledConnector(
+        provider,
+        project.projectDirectory,
+        manifest?.version ?? null,
+      );
       projectConnectorOk = installed.ok;
       checks.push({ id: "project_connector", ok: installed.ok, detail: installed.detail });
       if (!installed.ok) {

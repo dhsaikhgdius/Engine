@@ -23,6 +23,16 @@ const GODOT_OMIT_CODE_LABELS: Record<string, string> = {
   light_type_unknown: "未知灯光类型",
   light_hemisphere_approximated: "半球光已近似",
   shot_no_camera_binding: "镜头缺少相机绑定",
+  shot_outside_playback: "镜头超出播放范围",
+  shot_camera_not_imported: "镜头相机未导入",
+  shot_target_not_camera: "镜头目标不是相机",
+  shot_overlaps_previous: "镜头与前一镜头重叠",
+  pose_values: "姿态控制",
+  motion_blocks: "动作片段",
+  character_rig: "角色绑定",
+};
+
+const OMITTED_CHANNEL_LABELS: Record<string, string> = {
   pose_values: "姿态控制",
   motion_blocks: "动作片段",
   character_rig: "角色绑定",
@@ -30,21 +40,27 @@ const GODOT_OMIT_CODE_LABELS: Record<string, string> = {
 
 const OMIT_CODE_PATTERN = /warn-and-omit code: ([a-z0-9_]+)/;
 
-/** One structured omission extracted from the send warnings. */
+/** One structured omission extracted from connector-side free-text warnings. */
 interface GodotStructuredOmission {
   code: string;
   detail: string;
+  /** Dedup key: code alone collapses multi-entity connector warnings incorrectly. */
+  key: string;
 }
 
 /**
- * 从发送结果的警告中提取结构化省略（`warn-and-omit code: <code>`），
- * 覆盖网关烘焙(姿态/动作 omittedDetail 摘要)与连接器(灯光/镜头)两侧。
+ * 从发送结果的警告中提取连接器侧结构化省略（`warn-and-omit code: <code>`）。
+ * 网关烘焙通道以 `result.omittedAnimationChannels` 为准，不依赖自由文本摘要。
  */
 export function collectGodotStructuredOmissions(warnings: string[]): GodotStructuredOmission[] {
   const omissions: GodotStructuredOmission[] = [];
   for (const warning of warnings) {
     const match = OMIT_CODE_PATTERN.exec(warning);
-    if (match?.[1]) omissions.push({ code: match[1], detail: warning });
+    if (!match?.[1]) continue;
+    // Prefer the first token that looks like an entity id so duplicate codes
+    // across lights/shots stay distinct; fall back to the full warning text.
+    const entityHint = warning.match(/\b(?:Light|Camera|Shot|Object)\s+([^\s:]+)/i)?.[1] ?? warning;
+    omissions.push({ code: match[1], detail: warning, key: `${match[1]}:${entityHint}` });
   }
   return omissions;
 }
@@ -64,11 +80,12 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
   if (!godot) {
     return <p className="director-engine-handoff-empty">{t("本次运行未附带 Godot 回执详情（旧版连接器）")}</p>;
   }
-  const omissions = collectGodotStructuredOmissions([...result.warnings, ...result.report.warnings]);
-  const seenCodes = new Set<string>();
-  const uniqueOmissions = omissions.filter((omission) => {
-    if (seenCodes.has(omission.code)) return false;
-    seenCodes.add(omission.code);
+  const omittedChannels = result.omittedAnimationChannels ?? result.report.omittedAnimationChannels ?? [];
+  const connectorOmissions = collectGodotStructuredOmissions([...result.warnings, ...result.report.warnings]);
+  const seenKeys = new Set<string>();
+  const uniqueConnectorOmissions = connectorOmissions.filter((omission) => {
+    if (seenKeys.has(omission.key)) return false;
+    seenKeys.add(omission.key);
     return true;
   });
   return (
@@ -125,10 +142,23 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
           <dd>{godot.appliedMaterialCount}</dd>
         </div>
       </dl>
-      {uniqueOmissions.length ? (
+      {omittedChannels.length ? (
+        <ul aria-label={t("省略的动画通道")} className="director-engine-handoff-list is-warning">
+          {omittedChannels.slice(0, 6).map((entry) => (
+            <li key={`${entry.directorId}:${entry.channels.join(",")}`}>
+              <code data-i18n-user-content>{entry.directorId}</code>
+              {` · ${entry.channels.map((channel) => t(OMITTED_CHANNEL_LABELS[channel] ?? channel)).join("、")} · ${t("仅烘焙世界变换")}`}
+            </li>
+          ))}
+          {omittedChannels.length > 6 ? (
+            <li className="director-engine-handoff-more">+{omittedChannels.length - 6}</li>
+          ) : null}
+        </ul>
+      ) : null}
+      {uniqueConnectorOmissions.length ? (
         <ul aria-label={t("结构化省略")} className="director-engine-handoff-list is-warning">
-          {uniqueOmissions.slice(0, 6).map((omission) => (
-            <li key={omission.code}>
+          {uniqueConnectorOmissions.slice(0, 6).map((omission) => (
+            <li key={omission.key}>
               <code>{omission.code}</code>
               {` · ${t(GODOT_OMIT_CODE_LABELS[omission.code] ?? omission.code)}`}
               <span className="director-engine-handoff-omit-detail" data-i18n-user-content title={omission.detail}>
@@ -136,8 +166,8 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
               </span>
             </li>
           ))}
-          {uniqueOmissions.length > 6 ? (
-            <li className="director-engine-handoff-more">+{uniqueOmissions.length - 6}</li>
+          {uniqueConnectorOmissions.length > 6 ? (
+            <li className="director-engine-handoff-more">+{uniqueConnectorOmissions.length - 6}</li>
           ) : null}
         </ul>
       ) : null}
