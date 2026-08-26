@@ -41,6 +41,50 @@ describe("Director DSH workbench plugin gateway client", () => {
     ).resolves.toEqual({ status: 200, body: { success: true, op: "observe" } });
   });
 
+  it("forwards the Agent profile id in the envelope so profile-only possessions match", async () => {
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({
+        input: { op: "observe" },
+        session_id: "dsh-sess-2",
+        profile_id: "profile-hero",
+        omit_scene: true,
+      });
+      return new Response(JSON.stringify({ success: true, op: "observe" }), { status: 200 });
+    });
+
+    await expect(
+      dispatchDirectorWorkbenchTool(
+        "director_workbench",
+        { op: "observe" },
+        {
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+          gatewayToken: TEST_GATEWAY_TOKEN,
+          sessionId: "sess-2",
+          profileId: "profile-hero",
+        },
+      ),
+    ).resolves.toEqual({ status: 200, body: { success: true, op: "observe" } });
+  });
+
+  it("reads DIRECTOR_AGENT_PROFILE_ID when the config omits the profile id", async () => {
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toMatchObject({ profile_id: "profile-env" });
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    });
+    process.env.DIRECTOR_AGENT_PROFILE_ID = "profile-env";
+    try {
+      await expect(
+        dispatchDirectorWorkbenchTool(
+          "director_workbench",
+          { op: "observe" },
+          { fetchImpl: fetchImpl as unknown as typeof fetch, gatewayToken: TEST_GATEWAY_TOKEN, sessionId: "sess-env" },
+        ),
+      ).resolves.toEqual({ status: 200, body: { success: true } });
+    } finally {
+      delete process.env.DIRECTOR_AGENT_PROFILE_ID;
+    }
+  });
+
   it("retries a transient gateway fetch once", async () => {
     let attempts = 0;
     const fetchImpl = vi.fn(async () => {
@@ -117,9 +161,10 @@ describe("Director DSH workbench plugin gateway client", () => {
       "director_workbench",
       "stage_video",
       "blender_native",
+      "director_game",
       DIRECTOR_MODEL_ROUTES_TOOL_NAME,
     ]);
-    expect(defineTool).toHaveBeenCalledTimes(5);
+    expect(defineTool).toHaveBeenCalledTimes(6);
     const workbench = defineTool.mock.calls.find((call) => call[0].name === "director_workbench")?.[0];
     expect(workbench?.timeoutMs).toBe(70_000);
     expect(workbench?.isConcurrencySafe?.({ op: "observe" })).toBe(true);
