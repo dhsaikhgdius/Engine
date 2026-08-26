@@ -455,8 +455,8 @@ describe("Blender return import", () => {
       "addition-apply-1",
       applyAuthoring,
     );
-    const additionAsset = result.copiedAssets.find((asset) =>
-      asset.hash === setup.manifest.fileHashes["meshes/lamp-new.glb"],
+    const additionAsset = result.copiedAssets.find(
+      (asset) => asset.hash === setup.manifest.fileHashes["meshes/lamp-new.glb"],
     );
     expect(additionAsset).toBeDefined();
     expect(
@@ -475,11 +475,14 @@ describe("Blender return import", () => {
         id: "lamp-new",
         name: "Desk Lamp",
         kind: "prop",
-        transform: expect.objectContaining({ position: [expect.closeTo(0, 6), expect.closeTo(1, 6), expect.closeTo(-2, 6)] }),
+        transform: expect.objectContaining({
+          position: [expect.closeTo(0, 6), expect.closeTo(1, 6), expect.closeTo(-2, 6)],
+        }),
       }),
     );
     const upsertIndex = operation.actions.findIndex(
-      (action) => action.action === "upsert_asset" && (action.asset as { name?: string }).name === "Desk Lamp (Blender)",
+      (action) =>
+        action.action === "upsert_asset" && (action.asset as { name?: string }).name === "Desk Lamp (Blender)",
     );
     const addIndex = operation.actions.findIndex((action) => action.action === "add_object");
     expect(upsertIndex).toBeGreaterThanOrEqual(0);
@@ -577,9 +580,7 @@ describe("Blender return import", () => {
     expect(addObject.transform.position[1]).toBeCloseTo(1, 6);
     expect(addObject.transform.position[2]).toBeCloseTo(-2, 6);
     // The copied asset carries the manifest hash, not the forged one.
-    expect(result.copiedAssets.map((asset) => asset.hash)).toContain(
-      setup.manifest.fileHashes["meshes/lamp-new.glb"],
-    );
+    expect(result.copiedAssets.map((asset) => asset.hash)).toContain(setup.manifest.fileHashes["meshes/lamp-new.glb"]);
     expect(result.copiedAssets.map((asset) => asset.hash)).not.toContain("e".repeat(64));
   });
 
