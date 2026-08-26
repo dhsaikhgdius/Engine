@@ -217,10 +217,16 @@ function mediaSources(context: CreativeWorkspaceSemanticContext) {
 async function createInterchangePayload(
   context: CreativeWorkspaceSemanticContext,
   plan: InterchangePlanRecord,
-): Promise<{ bytes: Uint8Array; payload: string; warnings: string[] }> {
+): Promise<{
+  bytes: Uint8Array;
+  payload: string;
+  warnings: string[];
+  omitted: Array<{ code: string; subject: string; reason: string }>;
+}> {
   const interchange = await import("../comprehensive/editor/interchange");
   let value: string | Uint8Array;
   let warnings: string[] = [];
+  let omitted: Array<{ code: string; subject: string; reason: string }> = [];
   if (plan.workspace === "video") {
     const state = context.getCreativeState();
     const source = { editTracks: structuredClone(state.editTracks), editSettings: structuredClone(state.editSettings) };
@@ -246,16 +252,27 @@ async function createInterchangePayload(
       });
       value = archive.bytes;
       warnings = archive.report.warnings;
+      omitted = meshExportOmissions(archive.report);
     } else {
       const archive = await interchange.exportDirectorProjectToStlArchive(project, {
         objectIds: plan.object_ids ?? undefined,
       });
       value = archive.bytes;
       warnings = archive.report.warnings;
+      omitted = meshExportOmissions(archive.report);
     }
   }
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
-  return { bytes, payload: typeof value === "string" ? value : bytesToBase64(bytes), warnings };
+  return { bytes, payload: typeof value === "string" ? value : bytesToBase64(bytes), warnings, omitted };
+}
+
+/** Project the typed mesh loss report onto interchange receipt omissions: subject is the exact Stage object ID. */
+function meshExportOmissions(report: {
+  omitted: Array<{ stableId: string; code: string; reason: string }>;
+}): Array<{ code: string; subject: string; reason: string }> {
+  return report.omitted
+    .slice(0, 50)
+    .map((entry) => ({ code: entry.code, subject: entry.stableId, reason: entry.reason }));
 }
 
 /**
@@ -384,7 +401,7 @@ export async function executeCreativeWorkspaceInterchangeRequest(
     );
   }
   try {
-    const { bytes, payload, warnings } = await createInterchangePayload(context, plan);
+    const { bytes, payload, warnings, omitted } = await createInterchangePayload(context, plan);
     if (signal?.aborted) {
       return creativeWorkspaceInterchangeToolResultSchema.parse({
         op: "interchange",
@@ -418,6 +435,7 @@ export async function executeCreativeWorkspaceInterchangeRequest(
           guard: beforeGuard,
           payload,
           warnings: [...new Set([...plan.warnings, ...warnings])].slice(0, 50),
+          ...(omitted.length ? { omitted_count: omitted.length, omitted } : {}),
         },
       },
     });
