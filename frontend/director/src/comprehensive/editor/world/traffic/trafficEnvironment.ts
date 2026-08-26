@@ -1,5 +1,11 @@
 import type { DirectorWorldWeather } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
-import { computeEffectiveWorldSnowCover, computeEffectiveWorldWetness } from "../surface/worldSurfaceResponse";
+import {
+  computeClimateSnowCover,
+  computeClimateSurfaceWetness,
+  computeEffectiveWorldSnowCover,
+  computeEffectiveWorldWetness,
+} from "../surface/worldSurfaceResponse";
+import type { WorldClimateState } from "../worldClimate";
 
 /**
  * Weather and time-of-day responses for the ambient traffic layer.
@@ -73,6 +79,23 @@ export interface RoadSurfaceAppearance {
 export function computeRoadSurfaceAppearance(weather: DirectorWorldWeather): RoadSurfaceAppearance {
   const wetness = computeEffectiveWorldWetness(weather);
   const snowCover = computeEffectiveWorldSnowCover(weather);
+  return {
+    colorScale: 1 - 0.45 * wetness,
+    roughness: 1 - 0.62 * wetness,
+    snowMix: 0.72 * snowCover,
+  };
+}
+
+/**
+ * Climate-vector road appearance: the same asphalt response driven by the
+ * continuous climate wetness/snow terms, so an evolving cycle wets, dries,
+ * and snow-dusts the road in step with the rest of the surface layer. A
+ * static climate reproduces {@link computeRoadSurfaceAppearance} exactly
+ * (locked by tests).
+ */
+export function computeClimateRoadSurfaceAppearance(climate: WorldClimateState): RoadSurfaceAppearance {
+  const wetness = computeClimateSurfaceWetness(climate);
+  const snowCover = computeClimateSnowCover(climate);
   return {
     colorScale: 1 - 0.45 * wetness,
     roughness: 1 - 0.62 * wetness,

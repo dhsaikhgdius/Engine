@@ -100,9 +100,7 @@ describe("propagation gating", () => {
     expect(
       isFirePropagationEffect(makeFireEffect({ propagation: { enabled: false, radiusM: 12, spreadRate: 1 } })),
     ).toBe(false);
-    expect(
-      isFirePropagationEffect(makeFireEffect({ anchor: { objectId: "obj-1", position: [0, 0, 0] } })),
-    ).toBe(false);
+    expect(isFirePropagationEffect(makeFireEffect({ anchor: { objectId: "obj-1", position: [0, 0, 0] } }))).toBe(false);
   });
 
   it("config key tracks sim-relevant fields and ignores view-only ones", () => {
@@ -110,10 +108,23 @@ describe("propagation gating", () => {
     const base = firePropagationConfigKey(makeFireEffect(), settings, []);
     expect(firePropagationConfigKey(makeFireEffect({ intensity: 2, sizeScale: 3 }), settings, [])).toBe(base);
     expect(
-      firePropagationConfigKey(makeFireEffect({ propagation: { enabled: true, radiusM: 20, spreadRate: 1 } }), settings, []),
+      firePropagationConfigKey(
+        makeFireEffect({ propagation: { enabled: true, radiusM: 20, spreadRate: 1 } }),
+        settings,
+        [],
+      ),
     ).not.toBe(base);
     expect(
       firePropagationConfigKey(makeFireEffect(), { ...settings, weather: { ...settings.weather, wetness: 0.5 } }, []),
+    ).not.toBe(base);
+    // Every wind field the evaluator reads must invalidate the key —
+    // turbulence drives the flutter band and heading meander.
+    expect(
+      firePropagationConfigKey(
+        makeFireEffect(),
+        { ...settings, wind: { ...settings.wind, turbulence: settings.wind.turbulence + 0.5 } },
+        [],
+      ),
     ).not.toBe(base);
     const rect: FireWaterRect = { centerX: 4, centerZ: 0, sizeX: 4, sizeZ: 4, rotationDegrees: 0 };
     expect(firePropagationConfigKey(makeFireEffect(), settings, [rect])).not.toBe(base);
@@ -142,7 +153,13 @@ describe("deterministic replay", () => {
   it("replay stays identical under an evolving climate cycle", () => {
     const effect = makeFireEffect();
     const settings = makeSettings({
-      weather: { preset: "rain", intensity: 1, wetness: 0, cloudCover: 0.5, evolution: { mode: "cycle", periodSeconds: 120 } },
+      weather: {
+        preset: "rain",
+        intensity: 1,
+        wetness: 0,
+        cloudCover: 0.5,
+        evolution: { mode: "cycle", periodSeconds: 120 },
+      },
     });
     const a = createFirePropagationSim(effect, settings, []);
     const b = createFirePropagationSim(effect, settings, []);

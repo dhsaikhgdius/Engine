@@ -94,7 +94,7 @@ export const WORLD_AMBIENT_CLOCK_FRAME_PRIORITY = -1000;
  * re-render an image-identical frame forever on a demand-driven stage.
  */
 export function isDirectorWorldAmbientActive(
-  world: Pick<DirectorWorld, "settings" | "effects" | "waterBodies" | "wildlife"> | null | undefined,
+  world: Pick<DirectorWorld, "settings" | "effects" | "waterBodies" | "wildlife" | "roads"> | null | undefined,
 ): boolean {
   if (!world || !world.settings.enabled) return false;
   const { timeOfDay, weather } = world.settings;
@@ -102,6 +102,8 @@ export function isDirectorWorldAmbientActive(
     world.effects.length > 0 ||
     world.waterBodies.length > 0 ||
     world.wildlife.length > 0 ||
+    // Ambient traffic advances with worldSeconds like every other system.
+    world.roads.length > 0 ||
     timeOfDay.mode === "cycle" ||
     timeOfDay.drivesSky ||
     weather.preset !== "clear" ||

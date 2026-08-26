@@ -1,6 +1,7 @@
 import type { DirectorWorldWeather, DirectorWorldWind } from "../../schema/directorProject";
+import type { WorldClimateState } from "../worldClimate";
 import { hashCombine, worldRandom01, worldStreamId } from "../worldRandom";
-import { evaluateSkyWeatherMood } from "./skyWeather";
+import { resolveSkyWeatherMood } from "./skyWeather";
 import { SKY_NOON_SUN_INTENSITY, type SkyLightingState } from "./solar";
 
 /**
@@ -84,6 +85,22 @@ export interface SkyCloudQuad {
 export function getSkyCloudClusterCount(cloudCover: number, maxClusters = SKY_CLOUD_MAX_CLUSTERS): number {
   if (!Number.isFinite(cloudCover)) return 0;
   return Math.floor(clamp01(cloudCover) * maxClusters);
+}
+
+/**
+ * Number of leading quads of a FULL-COVER placement list visible at the given
+ * cover. Placements are emitted cluster-major and cover only truncates the
+ * cluster tail, so the visible prefix of `createSkyCloudPlacements(seed, 1)`
+ * is byte-identical to `createSkyCloudPlacements(seed, cover)` — this lets a
+ * renderer allocate once at full cover and follow an evolving climate with a
+ * pure instance-count write.
+ */
+export function countSkyCloudQuadsForCover(quads: readonly SkyCloudQuad[], cloudCover: number): number {
+  const clusterCount = getSkyCloudClusterCount(cloudCover);
+  if (clusterCount >= SKY_CLOUD_MAX_CLUSTERS) return quads.length;
+  let count = 0;
+  while (count < quads.length && quads[count].clusterIndex < clusterCount) count += 1;
+  return count;
 }
 
 /**
@@ -184,9 +201,14 @@ export interface SkyCloudPalette {
  * term. `sunIntensity` already encodes twilight, night, cloud cover, and
  * storm darkening; passing the weather additionally applies the preset's
  * cloud darkening so storm decks read slate-dark rather than merely unlit.
+ * An evolving climate blends the darkening across the active transition.
  */
-export function getSkyCloudPalette(lighting: SkyLightingState, weather?: DirectorWorldWeather): SkyCloudPalette {
-  const darkening = weather ? evaluateSkyWeatherMood(weather).cloudShaderDarkening : 1;
+export function getSkyCloudPalette(
+  lighting: SkyLightingState,
+  weather?: DirectorWorldWeather,
+  climate?: WorldClimateState,
+): SkyCloudPalette {
+  const darkening = weather ? resolveSkyWeatherMood(weather, climate).cloudShaderDarkening : 1;
   const direct = clamp01(lighting.sunIntensity / SKY_NOON_SUN_INTENSITY);
   const litBrightness = (0.45 + 0.55 * direct) * darkening;
   const baseBrightness = (0.3 + 0.42 * direct) * darkening;

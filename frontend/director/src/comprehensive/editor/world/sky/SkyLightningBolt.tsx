@@ -47,7 +47,7 @@ export interface SkyLightningBoltProps {
 }
 
 export default function SkyLightningBolt({ context }: SkyLightningBoltProps) {
-  const { seed, settings } = context;
+  const { seed } = context;
   const writtenWindowRef = useRef<number | null>(null);
 
   const bolt = useMemo(() => {
@@ -85,7 +85,10 @@ export default function SkyLightningBolt({ context }: SkyLightningBoltProps) {
   );
 
   const syncBoltFrame = () => {
-    const state = evaluateLightningState(seed, context.worldSeconds, settings.weather);
+    // Same evaluated-climate gate as the flash lights in SkyLayer — the
+    // visible channel and the illumination must come from ONE strike source,
+    // or an evolving storm would flash lights with no bolt in the sky.
+    const state = evaluateLightningState(seed, context.worldSeconds, context.climate.weather);
     if (!state.active || state.strikeWindowIndex === undefined) {
       bolt.core.visible = false;
       bolt.forks.visible = false;

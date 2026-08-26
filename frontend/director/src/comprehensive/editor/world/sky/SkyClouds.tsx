@@ -12,6 +12,7 @@ import {
 } from "three";
 import type { LivingWorldFrameContext } from "../livingWorldContracts";
 import {
+  countSkyCloudQuadsForCover,
   createSkyCloudPlacements,
   getSkyCloudDriftRadians,
   getSkyCloudPalette,
@@ -19,7 +20,7 @@ import {
   SKY_CLOUD_MAX_QUAD_COUNT,
 } from "./cloudField";
 import { getCloudSpriteTexture } from "./skySpriteTextures";
-import { evaluateSkyWeatherMood } from "./skyWeather";
+import { resolveSkyWeatherMood } from "./skyWeather";
 import { evaluateSkyLighting } from "./solar";
 
 /**
@@ -112,17 +113,11 @@ export default function SkyClouds({ context }: SkyCloudsProps) {
   const meshRef = useRef<InstancedMesh>(null);
   const lastDriftSampleSecondsRef = useRef<number | null>(null);
 
-  // Preset + intensity raise the effective cover, so an overcast or storm
-  // sky fills with clusters even when the authored cover slider sits low.
-  const mood = useMemo(
-    () => evaluateSkyWeatherMood(settings.weather),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [settings.weather.preset, settings.weather.intensity, settings.weather.cloudCover],
-  );
-  const quads = useMemo(
-    () => createSkyCloudPlacements(seed, mood.effectiveCloudCover),
-    [seed, mood.effectiveCloudCover],
-  );
+  // Full-cover placement list, seeded once. Cover only truncates the cluster
+  // tail (see cloudField), so the per-frame effective cover — including an
+  // evolving climate that mutates outside React — selects the visible prefix
+  // with a pure instance-count write, never a placement rebuild.
+  const quads = useMemo(() => createSkyCloudPlacements(seed, 1), [seed]);
 
   const geometry = useMemo(() => {
     const plane = new PlaneGeometry(1, 1);
@@ -158,7 +153,17 @@ export default function SkyClouds({ context }: SkyCloudsProps) {
 
   const syncCloudFrame = useCallback(
     (force = false) => {
-      const palette = getSkyCloudPalette(evaluateSkyLighting(settings, context.worldSeconds), settings.weather);
+      // Preset + intensity raise the effective cover, so an overcast or
+      // storm sky fills with clusters even when the authored cover slider
+      // sits low; the evaluated climate blends the mood across an evolving
+      // transition (static mode reads the authored block verbatim).
+      const climate = context.climate;
+      const mood = resolveSkyWeatherMood(climate.weather, climate);
+      const palette = getSkyCloudPalette(
+        evaluateSkyLighting(settings, context.worldSeconds, climate),
+        climate.weather,
+        climate,
+      );
       (material.uniforms.uTopColor.value as Color).setRGB(...palette.top);
       (material.uniforms.uBottomColor.value as Color).setRGB(...palette.bottom);
       material.uniforms.uOpacity.value = Math.min(
@@ -173,9 +178,11 @@ export default function SkyClouds({ context }: SkyCloudsProps) {
 
       const mesh = meshRef.current;
       if (!mesh) return;
+      const visibleQuadCount = countSkyCloudQuadsForCover(quads, mood.effectiveCloudCover);
       const driftRadians = getSkyCloudDriftRadians(settings.wind, driftSampleSeconds);
       const weights = geometry.getAttribute("aCloudWeight") as InstancedBufferAttribute;
-      quads.forEach((quad, index) => {
+      for (let index = 0; index < visibleQuadCount; index += 1) {
+        const quad = quads[index];
         const [x, y, z] = getSkyCloudPosition(quad, driftRadians);
         // Heavy weather widens each puff so clusters merge into banks.
         const size = quad.size * mood.cloudSizeScale;
@@ -183,22 +190,22 @@ export default function SkyClouds({ context }: SkyCloudsProps) {
         scratchMatrix.setPosition(x, y, z);
         mesh.setMatrixAt(index, scratchMatrix);
         weights.setX(index, quad.opacityWeight);
-      });
-      mesh.count = quads.length;
+      }
+      mesh.count = visibleQuadCount;
+      mesh.visible = visibleQuadCount > 0;
       mesh.instanceMatrix.needsUpdate = true;
       weights.needsUpdate = true;
     },
-    [context, geometry, material, mood, quads, settings],
+    [context, geometry, material, quads, settings],
   );
 
-  // Palette stays live every frame; instance transforms remain bucketed at
-  // four updates per second, independent of React render frequency.
+  // Palette stays live every frame; instance transforms and the visible
+  // cluster count remain bucketed at four updates per second, independent of
+  // React render frequency.
   useLayoutEffect(() => {
     syncCloudFrame(true);
   }, [syncCloudFrame]);
   useFrame(() => syncCloudFrame());
-
-  if (quads.length === 0) return null;
 
   return (
     <instancedMesh

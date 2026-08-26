@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
   AdditiveBlending,
@@ -14,10 +14,7 @@ import {
   Quaternion,
   Vector3,
 } from "three";
-import type {
-  DirectorWorldRoad,
-  DirectorWorldWeather,
-} from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
+import type { DirectorWorldRoad } from "../../../../../../../packages/protocol/src/worldSystemsProtocol";
 import type { LivingWorldFrameContext, TrafficLayerProps } from "../livingWorldContracts";
 import { evaluateWorldTimeOfDayHours } from "../worldTime";
 import {
@@ -29,9 +26,10 @@ import {
   type RoadSpline,
 } from "./roadSpline";
 import {
-  computeRoadSurfaceAppearance,
+  computeClimateRoadSurfaceAppearance,
   computeTrafficHeadlightFactor,
   trafficWeatherSpeedScale,
+  type RoadSurfaceAppearance,
 } from "./trafficEnvironment";
 import {
   buildRoadTrafficStreams,
@@ -134,11 +132,11 @@ function composeVehicleMatrices(
 function RoadSurface({
   road,
   spline,
-  weather,
+  context,
 }: {
   road: DirectorWorldRoad;
   spline: RoadSpline;
-  weather: DirectorWorldWeather;
+  context: LivingWorldFrameContext;
 }) {
   const geometry = useMemo(() => {
     const ribbon = buildRoadRibbon(spline, road.widthM, ROAD_SURFACE_LIFT_M);
@@ -162,15 +160,33 @@ function RoadSurface({
 
   // The road owns its weather appearance (the surface patcher skips
   // living-world-road-* meshes): wet asphalt darkens and glazes, snow blends
-  // toward white. Pure function of authored weather — no per-frame work.
-  const appearance = computeRoadSurfaceAppearance(weather);
-  useMemo(() => {
+  // toward white. Driven by the evaluated climate so an evolving cycle wets
+  // and dries the asphalt continuously; the change guard keeps a static
+  // climate at zero per-frame material writes.
+  const lastAppearanceRef = useRef<RoadSurfaceAppearance | null>(null);
+  const syncAppearance = () => {
+    const appearance = computeClimateRoadSurfaceAppearance(context.climate);
+    const last = lastAppearanceRef.current;
+    if (
+      last !== null &&
+      last.colorScale === appearance.colorScale &&
+      last.roughness === appearance.roughness &&
+      last.snowMix === appearance.snowMix
+    ) {
+      return;
+    }
+    lastAppearanceRef.current = appearance;
     material.color
       .setHex(ROAD_SURFACE_COLOR)
       .multiplyScalar(appearance.colorScale)
       .lerp(ROAD_SNOW_COLOR, appearance.snowMix);
     material.roughness = appearance.roughness;
-  }, [material, appearance.colorScale, appearance.roughness, appearance.snowMix]);
+  };
+  // First paint before the frameloop starts (e.g. while scrubbing paused).
+  useLayoutEffect(() => {
+    syncAppearance();
+  });
+  useFrame(syncAppearance);
 
   return <mesh geometry={geometry} material={material} name={`living-world-road-${road.id}`} receiveShadow />;
 }
@@ -186,6 +202,11 @@ function RoadVehicles({
 }) {
   // Weather scales the whole lane uniformly; the hashed 0.85..1.15 band and
   // slot offsets are untouched, so gaps and ordering replay identically.
+  // This reads the AUTHORED weather block deliberately: vehicle positions
+  // are a closed form of `speed * worldSeconds`, so a time-varying climate
+  // scale would teleport every car whenever the ramp moved. Making traffic
+  // slow inside an evolving storm needs an integrated arc-length clock
+  // (like the wetness integrator) — out of scope for a view-layer scale.
   const laneSpeedScale = trafficWeatherSpeedScale(context.settings.weather);
   const streams = useMemo(
     () =>
@@ -366,7 +387,7 @@ function RoadTraffic({ road, context }: { road: DirectorWorldRoad; context: Livi
   const spline = useMemo(() => buildRoadSpline(road.points, road.loop), [road.points, road.loop]);
   return (
     <>
-      {road.showSurface ? <RoadSurface road={road} spline={spline} weather={context.settings.weather} /> : null}
+      {road.showSurface ? <RoadSurface road={road} spline={spline} context={context} /> : null}
       {road.vehicleCount > 0 ? <RoadVehicles road={road} spline={spline} context={context} /> : null}
     </>
   );
