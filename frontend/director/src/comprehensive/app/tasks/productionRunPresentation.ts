@@ -1,4 +1,4 @@
-import type { FilmRunPhase } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
+import { filmRunProgress, type FilmRunPhase } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
 import type { DirectorMonitoredProductionRun } from "./productionRunTaskClient";
 
 const FILM_PHASES: readonly FilmRunPhase[] = [
@@ -96,14 +96,19 @@ export function productionRunStage(entry: DirectorMonitoredProductionRun) {
 }
 
 /**
- * Returns the progress percentage (0–100) of a production run based on stage position.
+ * Returns the progress percentage (0–100) of a production run.
+ *
+ * Uses the same {@link filmRunProgress} helper as film run receipts and
+ * unified agent progress so the task tray never invents a second scale
+ * (stage current/total was off-by-one vs the phase-floor contract).
  *
  * @param entry - The monitored production run.
  * @returns An integer between 0 and 100.
  */
 export function productionRunProgressPercent(entry: DirectorMonitoredProductionRun) {
-  const stage = productionRunStage(entry);
-  return stage.total > 0 ? Math.round((stage.current / stage.total) * 100) : 0;
+  const fraction = filmRunProgress(entry.run);
+  if (fraction === null) return 0;
+  return Math.max(0, Math.min(100, Math.round(fraction * 100)));
 }
 
 /**
