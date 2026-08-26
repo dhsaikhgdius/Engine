@@ -117,7 +117,7 @@ duplicate the mutation. Reusing it for changed input is a conflict.
 
 | Family          | Operations                                                                                                                  |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Canvas nodes    | `canvas.node.add`, `canvas.node.update`, `canvas.node.remove`                                                               |
+| Canvas nodes    | `canvas.node.add`, `canvas.node.update`, `canvas.node.remove`, `canvas.node.bring_to_front` |
 | Canvas edges    | `canvas.edge.add`, `canvas.edge.remove`                                                                                     |
 | Canvas DAG      | `canvas.dag.layout`, `canvas.production.configure`; top-level `pipeline` start/status/cancel                                |
 | Video clips     | `edit.clip.add`, `edit.clip.update`, `edit.clip.move`, `edit.clip.split`, `edit.clip.remove`                                |
