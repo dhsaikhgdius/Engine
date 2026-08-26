@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -52,6 +52,14 @@ const INSTALLED_CONNECTOR_FILES: Record<DirectorDccEngineId, string[]> = {
   godot: ["addons/director_bridge/plugin.cfg", "addons/director_bridge/director_headless.gd"],
 };
 
+/** The workspace connector manifest version health compares installed copies against. */
+async function workspaceConnectorVersion(provider: DirectorDccEngineId): Promise<string> {
+  const manifest = JSON.parse(
+    await readFile(resolve(repositoryRoot, "integrations", provider, "connector.json"), "utf8"),
+  ) as { version: string };
+  return manifest.version;
+}
+
 async function temporaryEngineSetup(provider: DirectorDccEngineId) {
   const root = await mkdtemp(resolve(tmpdir(), `director-engine-stress-${provider}-`));
   const dataDirectory = resolve(root, "data");
@@ -64,10 +72,19 @@ async function temporaryEngineSetup(provider: DirectorDccEngineId) {
     await mkdir(dirname(markerPath), { recursive: true });
     await writeFile(markerPath, marker === "project.godot" ? GODOT_PROJECT_FIXTURE : "fixture", "utf8");
   }
+  // Health's version-honesty check reads the installed connector version
+  // (uplugin VersionName / package.json version) and requires it to equal
+  // the workspace connector manifest.
+  const connectorVersion = await workspaceConnectorVersion(provider);
   for (const connectorFile of INSTALLED_CONNECTOR_FILES[provider]) {
     const filePath = resolve(projectDirectory, connectorFile);
     await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, "fixture", "utf8");
+    const contents = connectorFile.endsWith(".uplugin")
+      ? JSON.stringify({ VersionName: connectorVersion })
+      : connectorFile.endsWith("package.json")
+        ? JSON.stringify({ version: connectorVersion })
+        : "fixture";
+    await writeFile(filePath, contents, "utf8");
   }
   const environment: NodeJS.ProcessEnv = {
     PATH: "",
