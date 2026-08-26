@@ -10,6 +10,10 @@ import {
   type CollaborationRoomAuthorizer,
 } from "../collaborationRoomAuth";
 import type { CollaborationInviteRevocationRegistry } from "../collaboration/collaborationInviteRevocationRegistry";
+import {
+  collaborationInviteRateLimitKeyFromAuthorization,
+  type CollaborationInviteRateLimiter,
+} from "../collaboration/collaborationInviteRateLimit";
 import { applyCollaborationResponseHardening } from "./collaborationRoomRoutes";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
@@ -47,7 +51,33 @@ export type CollaborationInviteRouteDependencies = {
   inviteSecret: string;
   /** Registry consulted on join to deny revoked invites. */
   revocations: CollaborationInviteRevocationRegistry;
+  /**
+   * Optional sliding-window limiter for mint/revoke. When omitted or disabled,
+   * local trust mode stays unbounded.
+   */
+  rateLimiter?: CollaborationInviteRateLimiter;
 };
+
+function rejectIfRateLimited(
+  request: IncomingMessage,
+  response: ServerResponse,
+  json: JsonWriter,
+  rateLimiter: CollaborationInviteRateLimiter | undefined,
+): boolean {
+  if (!rateLimiter?.enabled) return false;
+  const authorizationHeader = request.headers.authorization;
+  const authorization = Array.isArray(authorizationHeader) ? authorizationHeader[0] : authorizationHeader;
+  const verdict = rateLimiter.check(collaborationInviteRateLimitKeyFromAuthorization(authorization));
+  if (verdict.allowed) return false;
+  response.setHeader("Retry-After", String(verdict.retryAfterSeconds));
+  json(response, 429, {
+    error: "协作邀请操作过于频繁，请稍后重试",
+    code: "invite_rate_limited",
+    retry_after_seconds: verdict.retryAfterSeconds,
+    limit_per_minute: verdict.limitPerMinute,
+  });
+  return true;
+}
 
 /**
  * Handles HTTP routes for collaboration room invites. All routes sit behind
@@ -69,7 +99,7 @@ export async function handleCollaborationInviteRoute(
   url: URL,
   dependencies: CollaborationInviteRouteDependencies,
 ) {
-  const { readBody, json, authorizer, inviteSecret, revocations } = dependencies;
+  const { readBody, json, authorizer, inviteSecret, revocations, rateLimiter } = dependencies;
   if (request.method === "GET" && url.pathname === "/api/collab/auth") {
     applyCollaborationResponseHardening(response);
     json(response, 200, { mode: authorizer.mode });
@@ -77,6 +107,7 @@ export async function handleCollaborationInviteRoute(
   }
   if (request.method === "POST" && url.pathname === "/api/collab/invites") {
     applyCollaborationResponseHardening(response);
+    if (rejectIfRateLimited(request, response, json, rateLimiter)) return true;
     const parsed = createInviteRequestSchema.safeParse(await readBody(request));
     if (!parsed.success) {
       json(response, 400, { error: "协作邀请参数无效", code: "invalid_request" });
@@ -102,6 +133,7 @@ export async function handleCollaborationInviteRoute(
   }
   if (request.method === "POST" && url.pathname === "/api/collab/invites/revoke") {
     applyCollaborationResponseHardening(response);
+    if (rejectIfRateLimited(request, response, json, rateLimiter)) return true;
     const parsed = revokeInviteRequestSchema.safeParse(await readBody(request));
     if (!parsed.success) {
       json(response, 400, { error: "协作邀请吊销参数无效", code: "invalid_request" });

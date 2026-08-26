@@ -2,6 +2,10 @@ import { resolve } from "node:path";
 import { createCollaborationRoomAuthorizer, type CollaborationRoomAuthorizer } from "../collaborationRoomAuth";
 import { DirectorCollaborationWebSocketHub } from "../collaborationWebSocketHub";
 import { CollaborationInviteRevocationRegistry } from "./collaborationInviteRevocationRegistry";
+import {
+  CollaborationInviteRateLimiter,
+  parseCollaborationInviteRateLimitPerMinute,
+} from "./collaborationInviteRateLimit";
 import { CollaborationSnapshotStore } from "./collaborationSnapshotStore";
 
 const MAX_EMPTY_ROOM_TTL_SECONDS = 24 * 60 * 60;
@@ -14,12 +18,16 @@ export type DirectorCollaborationRuntime = {
   authorizer: CollaborationRoomAuthorizer;
   /** Invite revocation registry (persisted when room persistence is on). */
   revocations: CollaborationInviteRevocationRegistry;
+  /** Sliding-window limiter for invite mint/revoke (disabled when limit is 0). */
+  inviteRateLimiter: CollaborationInviteRateLimiter;
   /** Durable room snapshot store, or null when persistence is off. */
   snapshotStore: CollaborationSnapshotStore | null;
   /** The WebSocket room hub. */
   hub: DirectorCollaborationWebSocketHub;
   /** The configured empty-room retention, in seconds (0 = immediate destroy). */
   emptyRoomTtlSeconds: number;
+  /** Configured invite mint/revoke limit per minute (0 = unlimited). */
+  inviteRateLimitPerMinute: number;
 };
 
 /** Parses `DIRECTOR_COLLAB_EMPTY_ROOM_TTL_SECONDS`: a positive integer clamped to 24 hours, else 0. */
@@ -45,9 +53,7 @@ export function createCollaborationRuntime(options: {
   const persistenceEnabled = env.DIRECTOR_COLLAB_PERSISTENCE?.trim() === "1";
   const snapshotStore = persistenceEnabled ? new CollaborationSnapshotStore(options.dataDirectory) : null;
   const revocations = new CollaborationInviteRevocationRegistry(
-    persistenceEnabled
-      ? { persistPath: resolve(options.dataDirectory, "collaboration-invite-revocations.json") }
-      : {},
+    persistenceEnabled ? { persistPath: resolve(options.dataDirectory, "collaboration-invite-revocations.json") } : {},
   );
   void revocations.load();
   // An explicit empty mode keeps the factory bound to the provided env
@@ -58,10 +64,23 @@ export function createCollaborationRuntime(options: {
     revocations,
   });
   const emptyRoomTtlSeconds = parseCollaborationEmptyRoomTtlSeconds(env.DIRECTOR_COLLAB_EMPTY_ROOM_TTL_SECONDS);
+  const inviteRateLimitPerMinute = parseCollaborationInviteRateLimitPerMinute(
+    env.DIRECTOR_COLLAB_INVITE_RATE_LIMIT_PER_MINUTE,
+  );
+  const inviteRateLimiter = new CollaborationInviteRateLimiter(inviteRateLimitPerMinute);
   const hub = new DirectorCollaborationWebSocketHub({
     authorizer,
     ...(snapshotStore ? { persistence: snapshotStore } : {}),
     emptyRoomRetentionMs: emptyRoomTtlSeconds * 1_000,
   });
-  return { inviteSecret, authorizer, revocations, snapshotStore, hub, emptyRoomTtlSeconds };
+  return {
+    inviteSecret,
+    authorizer,
+    revocations,
+    inviteRateLimiter,
+    snapshotStore,
+    hub,
+    emptyRoomTtlSeconds,
+    inviteRateLimitPerMinute,
+  };
 }

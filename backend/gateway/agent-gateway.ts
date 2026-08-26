@@ -2185,6 +2185,7 @@ const server = createServer(async (request, response) => {
         authorizer: collaborationRoomAuthorizer,
         inviteSecret: collaborationInviteSecret,
         revocations: collaborationRuntime.revocations,
+        rateLimiter: collaborationRuntime.inviteRateLimiter,
       })
     )
       return;

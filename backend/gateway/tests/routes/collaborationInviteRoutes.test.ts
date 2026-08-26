@@ -2,6 +2,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it, vi } from "vitest";
+import { CollaborationInviteRateLimiter } from "../../collaboration/collaborationInviteRateLimit";
 import { CollaborationInviteRevocationRegistry } from "../../collaboration/collaborationInviteRevocationRegistry";
 import {
   createCollaborationRoomAuthorizer,
@@ -17,8 +18,8 @@ const SECRET = "invite-routes-test-secret";
 
 type FakeResponse = ServerResponse & { headers: Map<string, string> };
 
-function request(method: string) {
-  return { method } as IncomingMessage;
+function request(method: string, headers: Record<string, string> = {}) {
+  return { method, headers } as IncomingMessage;
 }
 
 function response(): FakeResponse {
@@ -174,5 +175,44 @@ describe("handleCollaborationInviteRoute", () => {
       deps,
     );
     expect(lastJsonCall(json)).toMatchObject({ status: 409, body: { code: "invite_not_revocable" } });
+  });
+
+  it("returns invite_rate_limited with Retry-After when the mint/revoke budget is exhausted", async () => {
+    const rateLimiter = new CollaborationInviteRateLimiter(1);
+    const { deps, json } = dependencies({
+      rateLimiter,
+      readBody: vi.fn().mockResolvedValue({ room: "scene-alpha", role: "editor" }),
+    });
+    const first = response();
+    await handleCollaborationInviteRoute(
+      request("POST", { authorization: "Bearer operator-token" }),
+      first,
+      new URL("http://gateway.local/api/collab/invites"),
+      deps,
+    );
+    expect(lastJsonCall(json).status).toBe(201);
+
+    const second = response();
+    await handleCollaborationInviteRoute(
+      request("POST", { authorization: "Bearer operator-token" }),
+      second,
+      new URL("http://gateway.local/api/collab/invites"),
+      deps,
+    );
+    expect(lastJsonCall(json)).toMatchObject({
+      status: 429,
+      body: { code: "invite_rate_limited", limit_per_minute: 1 },
+    });
+    expect(second.headers.get("retry-after")).toMatch(/^\d+$/);
+
+    // Mint and revoke share one budget for the same Authorization fingerprint.
+    const revoke = response();
+    await handleCollaborationInviteRoute(
+      request("POST", { authorization: "Bearer operator-token" }),
+      revoke,
+      new URL("http://gateway.local/api/collab/invites/revoke"),
+      { ...deps, readBody: vi.fn().mockResolvedValue({ room: "scene-alpha" }) },
+    );
+    expect(lastJsonCall(json)).toMatchObject({ status: 429, body: { code: "invite_rate_limited" } });
   });
 });
