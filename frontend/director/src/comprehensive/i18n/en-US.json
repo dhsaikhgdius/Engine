@@ -376,6 +376,8 @@
   "完整工程 JSON · 无损往返": "Complete project JSON · lossless round-trip",
   "导入完成，已替换当前 3D 工程": "Import complete; the current 3D project has been replaced",
   "剧本": "Screenplay",
+  "剧本导入失败": "Script import failed",
+  "项已省略": "items omitted",
   "三维场景": "3D scene",
   "三维网格": "Mesh",
   "OpenTimelineIO 归档": "OpenTimelineIO archive",

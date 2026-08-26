@@ -468,6 +468,17 @@ const canvasDagLayoutSchema = strictOperation("canvas.dag.layout", {
   node_gap: boundedNumber(20, 800).optional(),
 });
 
+/**
+ * Parse Fountain screenplay text and apply the Canvas storyboard plan the UI
+ * "导入剧本" modal builds: the preset workflow lanes plus one note node per
+ * parsed shot. Replaces the current section list, appends nodes up to the
+ * board node cap, and reports every dropped node and importer omission as a
+ * typed `omitted` entry instead of silently truncating.
+ */
+const canvasScriptApplyPlanSchema = strictOperation("canvas.script.apply_plan", {
+  fountain_text: z.string().trim().min(1).max(500_000),
+});
+
 /** A partial update to a Canvas production node's configuration; at least one field must be present. */
 export const creativeWorkspaceCanvasProductionConfigPatchSchema = z
   .strictObject({
@@ -777,6 +788,7 @@ export const creativeWorkspaceAgentOperationSchema = z.discriminatedUnion("op", 
   canvasEdgeAddSchema,
   canvasEdgeRemoveSchema,
   canvasDagLayoutSchema,
+  canvasScriptApplyPlanSchema,
   canvasProductionConfigureSchema,
   editClipAddSchema,
   editClipUpdateSchema,

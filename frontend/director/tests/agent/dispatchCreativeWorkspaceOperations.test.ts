@@ -254,6 +254,29 @@ describe("creative workspace UI/agent parity harness", () => {
     expect(uiRevision).toEqual(agentRevision);
   });
 
+  it("produces identical revisions for the Fountain script import (canvas.script.apply_plan)", () => {
+    const fountain = [
+      "INT. STUDIO - DAY",
+      "",
+      "The director frames the opening shot.",
+      "",
+      "EXT. RIVER - DUSK",
+      "",
+      "The crew moves to the river bank.",
+    ].join("\n");
+    const { uiRevision, agentRevision } = compareExecutors((execute) => {
+      const note = execute({ op: "canvas.node.add", kind: "note", title: "旧节点", x: 0, y: 0 });
+      const applied = execute({ op: "canvas.script.apply_plan", fountain_text: fountain });
+      expect(applied).toMatchObject({ storyboard_shots: 2, nodes_added: 2, omitted: [] });
+      // Chain the nodes so the dag projection is structurally ordered; an
+      // edgeless dag would sort by random node UUIDs and defeat the diff.
+      const shots = applied.nodes as Array<{ id: string }>;
+      execute({ op: "canvas.edge.add", source_node_id: createdId(note, "node"), target_node_id: shots[0]!.id });
+      execute({ op: "canvas.edge.add", source_node_id: shots[0]!.id, target_node_id: shots[1]!.id });
+    });
+    expect(uiRevision).toEqual(agentRevision);
+  });
+
   it("produces identical revisions for undo/redo and workspace switches", () => {
     const { uiRevision, agentRevision } = compareExecutors((execute) => {
       execute({ op: "canvas.node.add", kind: "note", title: "第一稿", x: 0, y: 0 });

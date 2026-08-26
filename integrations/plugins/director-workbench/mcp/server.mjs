@@ -41215,6 +41215,9 @@ var canvasDagLayoutSchema = strictOperation("canvas.dag.layout", {
   layer_gap: boundedNumber(40, 1200).optional(),
   node_gap: boundedNumber(20, 800).optional()
 });
+var canvasScriptApplyPlanSchema = strictOperation("canvas.script.apply_plan", {
+  fountain_text: external_exports.string().trim().min(1).max(5e5)
+});
 var creativeWorkspaceCanvasProductionConfigPatchSchema = external_exports.strictObject({
   workflow_id: external_exports.string().trim().min(1).max(160).nullable().optional(),
   node_ids: external_exports.array(external_exports.string().trim().min(1).max(80)).max(32).refine((values) => new Set(values).size === values.length, "node_ids must be unique").optional(),
@@ -41447,6 +41450,7 @@ var creativeWorkspaceAgentOperationSchema = external_exports.discriminatedUnion(
   canvasEdgeAddSchema,
   canvasEdgeRemoveSchema,
   canvasDagLayoutSchema,
+  canvasScriptApplyPlanSchema,
   canvasProductionConfigureSchema,
   editClipAddSchema,
   editClipUpdateSchema,
@@ -121953,6 +121957,8 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
       max_zoom: external_exports.literal(1.35)
     }),
     viewport_contract: external_exports.string(),
+    script_operation: external_exports.literal("canvas.script.apply_plan"),
+    script_contract: external_exports.string(),
     execution_boundary: external_exports.string()
   }),
   preview: external_exports.strictObject({
