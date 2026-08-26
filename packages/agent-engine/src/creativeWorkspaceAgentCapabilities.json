@@ -46,7 +46,17 @@
       "canvas.section.remove",
       "canvas.node.assign_section"
     ],
-    "section_contract": "Board sections are observeable lanes; add/update/remove own one atomic undo snapshot; assign_section sets or clears node.section_id (null clears); removing a section orphans member nodes."
+    "section_contract": "Board sections are observeable lanes; add/update/remove own one atomic undo snapshot; assign_section sets or clears node.section_id (null clears); removing a section orphans member nodes.",
+    "viewport_operations": ["canvas.board.set_viewport", "canvas.board.fit_content"],
+    "viewport_observe_path": "board.viewport",
+    "viewport_zoom_range": [0.1, 2.5],
+    "viewport_fit_defaults": {
+      "surface_width": 1280,
+      "surface_height": 800,
+      "padding": 120,
+      "max_zoom": 1.35
+    },
+    "viewport_contract": "Board pan/zoom is observeable at board.viewport; canvas.board.set_viewport clamps zoom to [0.1, 2.5] and does not push undo history; canvas.board.fit_content frames all nodes into an optional surface (default 1280×800, padding 120, max zoom 1.35) or resets to identity when the board is empty; continuous pointer pan/wheel stay local."
   },
   "preview": {
     "workspaces": ["auto", "canvas", "video"],

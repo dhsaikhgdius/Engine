@@ -500,6 +500,34 @@ describe("creative workspace agent operation contract", () => {
     expect(removedSection.snapshot.board.nodes.find((node) => node.id === noteId)).toMatchObject({
       section_id: null,
     });
+
+    const setViewport = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "canvas.board.set_viewport", x: 40, y: -20, zoom: 1.25 }, runtime),
+    );
+    expect(setViewport.result).toMatchObject({
+      viewport: { x: 40, y: -20, zoom: 1.25 },
+      unchanged: false,
+    });
+    expect(setViewport.snapshot.board.viewport).toEqual({ x: 40, y: -20, zoom: 1.25 });
+    const alreadyViewport = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "canvas.board.set_viewport", x: 40, y: -20, zoom: 1.25 }, runtime),
+    );
+    expect(alreadyViewport.result).toMatchObject({ unchanged: true });
+    const fitted = expectSuccess(
+      executeCreativeWorkspaceAgentOperation(
+        { op: "canvas.board.fit_content", surface_width: 1_000, surface_height: 700, padding: 100 },
+        runtime,
+      ),
+    );
+    expect(fitted.result).toMatchObject({
+      node_count: 2,
+      reset_to_identity: false,
+      surface: { width: 1_000, height: 700 },
+      padding: 100,
+    });
+    expect(fitted.snapshot.board.viewport.zoom).toBeGreaterThan(0);
+    expect(fitted.snapshot.board.viewport.zoom).toBeLessThanOrEqual(1.35);
+
     const removed = expectSuccess(
       executeCreativeWorkspaceAgentOperation({ op: "canvas.node.remove", node_id: imageId }, runtime),
     );
@@ -1293,6 +1321,8 @@ describe("creative workspace agent operation contract", () => {
           "canvas.node.bring_to_front",
           "canvas.section.add",
           "canvas.node.assign_section",
+          "canvas.board.set_viewport",
+          "canvas.board.fit_content",
         ]),
         batch: {
           atomic: true,
@@ -1310,6 +1340,9 @@ describe("creative workspace agent operation contract", () => {
             "canvas.section.remove",
             "canvas.node.assign_section",
           ],
+          viewport_operations: ["canvas.board.set_viewport", "canvas.board.fit_content"],
+          viewport_observe_path: "board.viewport",
+          viewport_zoom_range: [0.1, 2.5],
         },
         limits: expect.objectContaining({ board_sections: 32 }),
         editorial: {

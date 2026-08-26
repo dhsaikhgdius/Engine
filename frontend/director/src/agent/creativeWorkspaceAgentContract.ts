@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { analyzeDirectorCanvasDag, wouldCreateDirectorCanvasCycle } from "../comprehensive/editor/workspaces/canvasDag";
 import {
+  CANVAS_BOARD_FIT_DEFAULT_PADDING,
+  CANVAS_BOARD_FIT_DEFAULT_SURFACE_HEIGHT,
+  CANVAS_BOARD_FIT_DEFAULT_SURFACE_WIDTH,
+  computeCanvasBoardFitViewport,
+  normalizeCanvasBoardViewport,
+} from "../comprehensive/editor/workspaces/canvasBoardViewport";
+import {
   createDefaultDirectorCanvasProductionConfig,
   directorCanvasProductionConfigSchema,
 } from "../comprehensive/editor/workspaces/canvasPipelineProtocol";
@@ -1397,6 +1404,67 @@ export function executeCreativeWorkspaceAgentOperation(
       }
       state.removeBoardSection(section.id);
       return success(operation.op, `Removed canvas section "${section.title}".`, { removed_id: section.id }, context);
+    }
+    case "canvas.board.set_viewport": {
+      const previous = { ...state.boardViewport };
+      const viewport = normalizeCanvasBoardViewport({
+        x: operation.x,
+        y: operation.y,
+        zoom: operation.zoom,
+      });
+      const unchanged = previous.x === viewport.x && previous.y === viewport.y && previous.zoom === viewport.zoom;
+      if (!unchanged) state.setBoardViewport(viewport);
+      const after = context.workspace.getState().boardViewport;
+      return success(
+        operation.op,
+        unchanged
+          ? "Canvas board viewport already matches the requested pan/zoom."
+          : `Set Canvas board viewport to pan (${after.x.toFixed(1)}, ${after.y.toFixed(1)}) at zoom ${after.zoom.toFixed(3)}.`,
+        {
+          viewport: { ...after },
+          previous_viewport: previous,
+          unchanged,
+        },
+        context,
+      );
+    }
+    case "canvas.board.fit_content": {
+      const previous = { ...state.boardViewport };
+      const surfaceWidth = operation.surface_width ?? CANVAS_BOARD_FIT_DEFAULT_SURFACE_WIDTH;
+      const surfaceHeight = operation.surface_height ?? CANVAS_BOARD_FIT_DEFAULT_SURFACE_HEIGHT;
+      const padding = operation.padding ?? CANVAS_BOARD_FIT_DEFAULT_PADDING;
+      const viewport = computeCanvasBoardFitViewport(
+        state.boardNodes.map((node) => ({
+          x: node.x,
+          y: node.y,
+          width: node.width,
+          height: node.height,
+        })),
+        { width: surfaceWidth, height: surfaceHeight },
+        { padding },
+      );
+      const unchanged = previous.x === viewport.x && previous.y === viewport.y && previous.zoom === viewport.zoom;
+      if (!unchanged) state.setBoardViewport(viewport);
+      const after = context.workspace.getState().boardViewport;
+      const empty = state.boardNodes.length === 0;
+      return success(
+        operation.op,
+        empty
+          ? "Reset Canvas board viewport to identity because the board has no nodes."
+          : unchanged
+            ? "Canvas board viewport already frames the current nodes."
+            : `Fitted ${state.boardNodes.length} Canvas node(s) into a ${surfaceWidth}×${surfaceHeight} surface.`,
+        {
+          viewport: { ...after },
+          previous_viewport: previous,
+          surface: { width: surfaceWidth, height: surfaceHeight },
+          padding,
+          node_count: state.boardNodes.length,
+          unchanged,
+          reset_to_identity: empty,
+        },
+        context,
+      );
     }
     case "canvas.edge.add": {
       const source = state.boardNodes.find((node) => node.id === operation.source_node_id);

@@ -411,6 +411,16 @@ export const creativeWorkspaceAgentCapabilitiesSchema = z.strictObject({
       z.literal("canvas.node.assign_section"),
     ]),
     section_contract: z.string(),
+    viewport_operations: z.tuple([z.literal("canvas.board.set_viewport"), z.literal("canvas.board.fit_content")]),
+    viewport_observe_path: z.literal("board.viewport"),
+    viewport_zoom_range: z.tuple([z.literal(0.1), z.literal(2.5)]),
+    viewport_fit_defaults: z.strictObject({
+      surface_width: z.literal(1_280),
+      surface_height: z.literal(800),
+      padding: z.literal(120),
+      max_zoom: z.literal(1.35),
+    }),
+    viewport_contract: z.string(),
     execution_boundary: z.string(),
   }),
   preview: z.strictObject({

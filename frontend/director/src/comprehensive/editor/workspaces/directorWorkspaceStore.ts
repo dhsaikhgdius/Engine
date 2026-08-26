@@ -18,6 +18,7 @@ import {
   resolveSectionForNode,
   type DirectorBoardSection,
 } from "./canvasSections";
+import { normalizeCanvasBoardViewport } from "./canvasBoardViewport";
 import {
   layoutDirectorCanvasDag,
   wouldCreateDirectorCanvasCycle,
@@ -1376,14 +1377,7 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
       });
     }),
   selectBoardNode: (selectedBoardNodeId) => set({ selectedBoardNodeId }),
-  setBoardViewport: (viewport) =>
-    set({
-      boardViewport: {
-        x: Number.isFinite(viewport.x) ? viewport.x : 0,
-        y: Number.isFinite(viewport.y) ? viewport.y : 0,
-        zoom: clamp(viewport.zoom, 0.1, 2.5),
-      },
-    }),
+  setBoardViewport: (viewport) => set({ boardViewport: normalizeCanvasBoardViewport(viewport) }),
   addBoardSection: (input) => {
     if (get().boardSections.length >= MAX_BOARD_SECTIONS) return null;
     const section: DirectorBoardSection = {
