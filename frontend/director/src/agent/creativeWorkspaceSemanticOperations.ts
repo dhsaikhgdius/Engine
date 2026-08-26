@@ -78,8 +78,18 @@ const defaultSemanticContext: CreativeWorkspaceSemanticContext = {
 
 const interchangePlans = new WeakMap<object, Map<string, InterchangePlanRecord>>();
 type PreparedImportPayload =
-  | { kind: "stage"; project: DirectorProject; warnings: string[] }
-  | { kind: "video"; imported: { editTracks: unknown; editSettings: unknown; warnings: string[] }; warnings: string[] };
+  | {
+      kind: "stage";
+      project: DirectorProject;
+      warnings: string[];
+      omitted: Array<{ code: string; subject: string; reason: string }>;
+    }
+  | {
+      kind: "video";
+      imported: { editTracks: unknown; editSettings: unknown; warnings: string[]; omitted?: unknown };
+      warnings: string[];
+      omitted: Array<{ code: string; subject: string; reason: string }>;
+    };
 const interchangeImportPayloads = new WeakMap<
   object,
   Map<string, { plan: InterchangeImportPlanRecord; payload: PreparedImportPayload }>
@@ -540,13 +550,25 @@ async function parseInterchangeImport(
       format === "otio"
         ? interchange.importDirectorCreativeTimelineFromOtio(text(), { knownMediaIds })
         : await interchange.importDirectorCreativeTimelineFromOtioz(bytes, { knownMediaIds });
-    return { kind: "video", imported, warnings: imported.warnings };
+    const videoOmitted = Array.isArray((imported as { omitted?: unknown }).omitted)
+      ? (imported as { omitted: Array<{ code: string; subject: string; reason: string }> }).omitted.slice(0, 50)
+      : [];
+    return {
+      kind: "video",
+      imported,
+      warnings: imported.warnings,
+      omitted: videoOmitted,
+    };
   }
   if (format === "obj" || format === "stl") {
     throw new Error(`${format.toUpperCase()} import is not supported; only Stage mesh export is available`);
   }
   const baseProject = context.getStageProject();
-  let result: { project: DirectorProject; warnings: string[] };
+  let result: {
+    project: DirectorProject;
+    warnings: string[];
+    omitted?: Array<{ code: string; subject: string; reason: string }>;
+  };
   if (format === "otio") result = interchange.importDirectorProjectFromOtio(text(), { baseProject });
   else if (format === "otioz") result = await interchange.importDirectorProjectFromOtioz(bytes, { baseProject });
   else if (format === "fountain") result = interchange.importDirectorProjectFromFountain(text(), { baseProject });
@@ -555,7 +577,12 @@ async function parseInterchangeImport(
   else if (format === "usd") result = interchange.importDirectorProjectFromUsda(text(), { baseProject });
   else if (format === "usdz") result = await interchange.importDirectorProjectFromUsdz(bytes, { baseProject });
   else throw new Error(`${format} import is not supported`);
-  return { kind: "stage", project: result.project, warnings: result.warnings };
+  return {
+    kind: "stage",
+    project: result.project,
+    warnings: result.warnings,
+    omitted: Array.isArray(result.omitted) ? result.omitted.slice(0, 50) : [],
+  };
 }
 
 async function planInterchangeImport(
@@ -610,6 +637,12 @@ async function planInterchangeImport(
       guard,
       summary,
       warnings: payload.warnings.slice(0, 50),
+      ...(payload.omitted.length
+        ? {
+            omitted_count: payload.omitted.length,
+            omitted: payload.omitted.slice(0, 50) as InterchangeImportPlanRecord["omitted"],
+          }
+        : {}),
     };
     rememberImportPlan(context, plan, payload);
     return creativeWorkspaceInterchangeToolResultSchema.parse({
@@ -706,6 +739,12 @@ async function commitInterchangeImport(
           before_guard: beforeGuard,
           after_guard: afterGuard,
           warnings: plan.warnings,
+          ...(plan.omitted !== undefined
+            ? {
+                omitted_count: plan.omitted_count ?? plan.omitted.length,
+                omitted: plan.omitted,
+              }
+            : {}),
         },
       },
     });

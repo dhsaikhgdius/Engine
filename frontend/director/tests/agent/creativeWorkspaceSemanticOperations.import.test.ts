@@ -165,4 +165,90 @@ describe("creative workspace interchange import", () => {
     );
     expect(unknown).toMatchObject({ result: { success: false, code: "not_found" } });
   });
+
+  it("projects typed glTF omitted records onto the import plan and receipt", async () => {
+    const gltf = JSON.stringify({
+      asset: { version: "2.0" },
+      scenes: [{ nodes: [0, 1] }],
+      scene: 0,
+      nodes: [
+        {
+          name: "Marker A",
+          translation: [1, 0, 0],
+          extras: {
+            director: {
+              adapter: "director-gltf-v1",
+              contract: "director-interchange-v1",
+              stableId: "dup-agent-001",
+              entityType: "object",
+              kind: "prop",
+            },
+          },
+        },
+        {
+          name: "Marker B",
+          translation: [2, 0, 0],
+          extras: {
+            director: {
+              adapter: "director-gltf-v1",
+              contract: "director-interchange-v1",
+              stableId: "dup-agent-001",
+              entityType: "object",
+              kind: "prop",
+            },
+          },
+        },
+      ],
+    });
+    const context = importContext();
+    const planned = await executeCreativeWorkspaceInterchangeRequest(
+      {
+        op: "interchange",
+        request: {
+          action: "plan-import",
+          format: "gltf",
+          workspace: "stage",
+          source: { kind: "inline", encoding: "utf8", payload: gltf, file_name: "dup.gltf" },
+          max_inline_bytes: 64 * 1024,
+        },
+      },
+      context,
+    );
+    expect(planned).toMatchObject({
+      result: {
+        success: true,
+        action: "plan-import",
+        plan: { format: "gltf", workspace: "stage" },
+      },
+    });
+    if (!planned.result.success || planned.result.action !== "plan-import") throw new Error("missing import plan");
+    expect(planned.result.plan.omitted_count).toBe(1);
+    expect(planned.result.plan.omitted).toEqual([
+      expect.objectContaining({ code: "duplicate_stable_id", subject: "dup-agent-001" }),
+    ]);
+
+    const imported = await executeCreativeWorkspaceInterchangeRequest(
+      {
+        op: "interchange",
+        request: {
+          action: "import",
+          plan_id: planned.result.plan.plan_id,
+          expected_guard_fingerprint: planned.result.plan.guard.fingerprint,
+          confirm: true,
+        },
+      },
+      context,
+    );
+    expect(imported).toMatchObject({
+      result: {
+        success: true,
+        action: "import",
+        receipt: { format: "gltf", workspace: "stage" },
+      },
+    });
+    if (!imported.result.success || imported.result.action !== "import") throw new Error("missing import receipt");
+    expect(imported.result.receipt.omitted).toEqual(planned.result.plan.omitted);
+    expect(context.getImportedProject().objects.map((object) => object.id)).toContain("dup-agent-001");
+    expect(context.getImportedProject().objects.filter((object) => object.id === "dup-agent-001")).toHaveLength(1);
+  });
 });

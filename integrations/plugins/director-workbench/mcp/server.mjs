@@ -41637,6 +41637,30 @@ var creativeWorkspaceInterchangePlanSchema = external_exports.strictObject({
   guard: creativeWorkspaceSemanticGuardSchema,
   warnings: external_exports.array(external_exports.string().max(1e3)).max(50)
 });
+var creativeWorkspaceInterchangeOmittedCodeSchema = external_exports.enum([
+  // Fountain → storyboard
+  "character_dialogue",
+  "boneyard_note",
+  "section_heading",
+  "title_page_field",
+  "invalid_marker",
+  "transition",
+  // Creative OTIO / OTIOZ → Video Editor
+  "track_limit",
+  "invalid_source_range",
+  "unsupported_as_gap",
+  "clip_limit",
+  "offline_media",
+  // glTF / GLB → Stage
+  "embedded_manifest_invalid",
+  "duplicate_stable_id",
+  "empty_project_no_metadata"
+]);
+var creativeWorkspaceInterchangeOmittedSchema = external_exports.strictObject({
+  code: creativeWorkspaceInterchangeOmittedCodeSchema,
+  subject: external_exports.string().trim().min(1).max(240),
+  reason: external_exports.string().trim().min(1).max(600)
+});
 var creativeWorkspaceInterchangeImportPlanSchema = external_exports.strictObject({
   contract: external_exports.literal("director-interchange-import-plan-v1"),
   plan_id: external_exports.string().regex(/^interchange-plan:v1:[0-9a-f-]{36}$/),
@@ -41652,7 +41676,25 @@ var creativeWorkspaceInterchangeImportPlanSchema = external_exports.strictObject
     video_clips: external_exports.number().int().nonnegative().optional(),
     video_tracks: external_exports.number().int().nonnegative().optional()
   }),
-  warnings: external_exports.array(external_exports.string().max(1e3)).max(50)
+  warnings: external_exports.array(external_exports.string().max(1e3)).max(50),
+  omitted_count: external_exports.number().int().nonnegative().max(50).optional(),
+  omitted: external_exports.array(creativeWorkspaceInterchangeOmittedSchema).max(50).optional()
+}).superRefine((plan, context) => {
+  if (plan.omitted !== void 0) {
+    if (plan.omitted_count === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omitted_count"],
+        message: "omitted_count is required when omitted is present"
+      });
+    } else if (plan.omitted.length !== plan.omitted_count) {
+      context.addIssue({
+        code: "custom",
+        path: ["omitted"],
+        message: "omitted length must equal omitted_count"
+      });
+    }
+  }
 });
 var creativeWorkspaceInterchangeReceiptSchema = external_exports.strictObject({
   contract: external_exports.literal("director-interchange-export-v1"),
@@ -41677,7 +41719,25 @@ var creativeWorkspaceInterchangeImportReceiptSchema = external_exports.strictObj
   file_name: external_exports.string().trim().min(1).max(240),
   before_guard: creativeWorkspaceSemanticGuardSchema,
   after_guard: creativeWorkspaceSemanticGuardSchema,
-  warnings: external_exports.array(external_exports.string().max(1e3)).max(50)
+  warnings: external_exports.array(external_exports.string().max(1e3)).max(50),
+  omitted_count: external_exports.number().int().nonnegative().max(50).optional(),
+  omitted: external_exports.array(creativeWorkspaceInterchangeOmittedSchema).max(50).optional()
+}).superRefine((receipt, context) => {
+  if (receipt.omitted !== void 0) {
+    if (receipt.omitted_count === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omitted_count"],
+        message: "omitted_count is required when omitted is present"
+      });
+    } else if (receipt.omitted.length !== receipt.omitted_count) {
+      context.addIssue({
+        code: "custom",
+        path: ["omitted"],
+        message: "omitted length must equal omitted_count"
+      });
+    }
+  }
 });
 var creativeWorkspaceInterchangeResultSchema = external_exports.union([
   strictSuccessAction(true, "capabilities", {
@@ -136534,6 +136594,12 @@ var directorDccImportPlanCameraOpticsSchema = external_exports.strictObject({
   far_clip_m: opticsLimit("farClipM").optional(),
   sensor_format: external_exports.enum(DIRECTOR_CAMERA_SENSOR_FORMATS4).optional()
 }).refine((value) => Object.keys(value).length > 0, { message: "camera optics patch cannot be empty" });
+var directorDccOmittedOpticsSchema = external_exports.strictObject({
+  directorId: nonEmpty3.max(200),
+  code: external_exports.enum(["sensor_format"]),
+  field: external_exports.literal("sensorFormat").optional(),
+  reason: nonEmpty3.max(600)
+});
 var directorVec3Schema3 = external_exports.tuple([external_exports.number().finite(), external_exports.number().finite(), external_exports.number().finite()]);
 var directorDccImportPlanLightPatchSchema = external_exports.strictObject({
   color: hexColor.optional(),
@@ -136604,10 +136670,37 @@ var directorDccImportPlanSchema = external_exports.strictObject({
       reason: nonEmpty3.max(2e3)
     })
   ).max(2e4),
-  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4)
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4),
+  /**
+   * Count of optics fields the planner declined to apply. Optional for plans
+   * built before typed omittedOptics; when omittedOptics is present, length
+   * must equal this count.
+   */
+  omittedOpticsCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed warn-and-omit records for optics the return plan strips
+   * (`sensor_format` today). Optional for older plans; when present, length
+   * must equal omittedOpticsCount.
+   */
+  omittedOptics: external_exports.array(directorDccOmittedOpticsSchema).max(1024).optional()
 }).superRefine((plan, context) => {
   if (plan.ready && plan.conflicts.length > 0) {
     context.addIssue({ code: "custom", path: ["ready"], message: "ready plans cannot contain conflicts" });
+  }
+  if (plan.omittedOptics !== void 0) {
+    if (plan.omittedOpticsCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedOpticsCount"],
+        message: "omittedOpticsCount is required when omittedOptics is present"
+      });
+    } else if (plan.omittedOptics.length !== plan.omittedOpticsCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedOptics"],
+        message: "omittedOptics length must equal omittedOpticsCount"
+      });
+    }
   }
 });
 var directorDccReturnReportSchema = external_exports.strictObject({
@@ -137930,6 +138023,16 @@ var directorGodotOmittedLightSchema = external_exports.strictObject({
   lightType: external_exports.string().trim().min(1).max(80),
   reason: external_exports.string().trim().min(1).max(600)
 });
+var directorGodotOmittedMaterialCodeSchema = external_exports.enum([
+  "unsupported_channels",
+  "no_mesh_target",
+  "custom_shader"
+]);
+var directorGodotOmittedMaterialSchema = external_exports.strictObject({
+  directorId: external_exports.string().trim().min(1).max(200),
+  code: directorGodotOmittedMaterialCodeSchema,
+  reason: external_exports.string().trim().min(1).max(600)
+});
 var directorGodotImportReceiptSchema = external_exports.strictObject({
   /** `res://` path of the AnimationPlayer's owning scene, when animation was keyed. */
   animationPlayerPath: external_exports.string().trim().min(1).max(1024).nullable(),
@@ -137965,6 +138068,17 @@ var directorGodotImportReceiptSchema = external_exports.strictObject({
   omittedLights: external_exports.array(directorGodotOmittedLightSchema).max(1024).optional(),
   /** Director PBR materials applied to imported payload meshes. */
   appliedMaterialCount: external_exports.number().int().nonnegative().max(1e5),
+  /**
+   * Material warn-and-omit count (unsupported channels, no mesh target, custom
+   * ShaderMaterial). Always present on connector ≥0.3.1; older receipts omit
+   * the field and Agents fall back to free-text warnings.
+   */
+  omittedMaterialCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed material omit records. Optional for older connectors; when present,
+   * length must equal omittedMaterialCount.
+   */
+  omittedMaterials: external_exports.array(directorGodotOmittedMaterialSchema).max(1024).optional(),
   /** Payload textures externalized to hashed `res://director/textures/` resources. */
   externalizedTextureCount: external_exports.number().int().nonnegative().max(1e5)
 }).superRefine((receipt, context) => {
@@ -137974,6 +138088,21 @@ var directorGodotImportReceiptSchema = external_exports.strictObject({
       path: ["omittedLights"],
       message: "omittedLights length must equal omittedLightCount"
     });
+  }
+  if (receipt.omittedMaterials !== void 0) {
+    if (receipt.omittedMaterialCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedMaterialCount"],
+        message: "omittedMaterialCount is required when omittedMaterials is present"
+      });
+    } else if (receipt.omittedMaterials.length !== receipt.omittedMaterialCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedMaterials"],
+        message: "omittedMaterials length must equal omittedMaterialCount"
+      });
+    }
   }
 });
 var directorGodotConnectorHealthSchema = external_exports.strictObject({
@@ -138016,6 +138145,18 @@ var directorDccUnityOmittedChannelSchema = external_exports.strictObject({
   /** Human-readable reason (why it could not bake, and what to do instead). */
   reason: nonEmpty8.max(600)
 });
+var directorUnityOmittedLightSchema = external_exports.strictObject({
+  directorId: external_exports.string().trim().min(1).max(200),
+  code: external_exports.enum(["light_type_unknown"]),
+  lightType: external_exports.string().trim().min(1).max(80),
+  reason: external_exports.string().trim().min(1).max(600)
+});
+var directorUnityOmittedMaterialSchema = external_exports.strictObject({
+  directorId: external_exports.string().trim().min(1).max(200),
+  code: external_exports.enum(["pipeline_unsupported", "shader_missing"]),
+  renderPipeline: external_exports.enum(["built-in", "urp", "hdrp", "custom"]),
+  reason: external_exports.string().trim().min(1).max(600)
+});
 var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
   /** Project-relative Timeline asset path, or null when no shots/animation mapped. */
   timelinePath: external_exports.string().trim().min(1).max(1024).nullable(),
@@ -138025,6 +138166,17 @@ var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
   gltfImporterAvailable: external_exports.boolean(),
   /** Lights created from the manifest with director_id markers. */
   importedLightCount: external_exports.number().int().nonnegative(),
+  /**
+   * Count of Director lights the connector declined to spawn as GameObjects.
+   * Optional: connector builds before typed omittedLights omit this field.
+   */
+  omittedLightCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed warn-and-omit records for lights Unity cannot spawn (unknown type
+   * today). Optional for older connectors; when present, length must equal
+   * omittedLightCount.
+   */
+  omittedLights: external_exports.array(directorUnityOmittedLightSchema).max(1024).optional(),
   /** AnimationClips baked from Director keyframe/trajectory channels. */
   bakedAnimationClipCount: external_exports.number().int().nonnegative(),
   /** Humanoid Avatars built from Mixamo-compatible skinned payloads. */
@@ -138040,6 +138192,17 @@ var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
    */
   appliedTextureCount: external_exports.number().int().nonnegative().optional(),
   /**
+   * Count of Director PBR overrides the connector declined to materialize.
+   * Optional: connector builds before typed omittedMaterials omit this field.
+   */
+  omittedMaterialCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed warn-and-omit records for whole-fallback material failures
+   * (`pipeline_unsupported`, `shader_missing`). Optional for older
+   * connectors; when present, length must equal omittedMaterialCount.
+   */
+  omittedMaterials: external_exports.array(directorUnityOmittedMaterialSchema).max(1024).optional(),
+  /**
    * Characters posed from Director semantic pose controls (static controls
    * applied to the imported skeleton, keyframed controls baked to clips).
    * Optional: connector 0.2.x reports predate pose baking.
@@ -138051,6 +138214,37 @@ var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
    * and carried free-text warnings only.
    */
   omittedChannels: external_exports.array(directorDccUnityOmittedChannelSchema).max(4096).optional()
+}).superRefine((receipt, context) => {
+  if (receipt.omittedLights !== void 0) {
+    if (receipt.omittedLightCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedLightCount"],
+        message: "omittedLightCount is required when omittedLights is present"
+      });
+    } else if (receipt.omittedLights.length !== receipt.omittedLightCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedLights"],
+        message: "omittedLights length must equal omittedLightCount"
+      });
+    }
+  }
+  if (receipt.omittedMaterials !== void 0) {
+    if (receipt.omittedMaterialCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedMaterialCount"],
+        message: "omittedMaterialCount is required when omittedMaterials is present"
+      });
+    } else if (receipt.omittedMaterials.length !== receipt.omittedMaterialCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedMaterials"],
+        message: "omittedMaterials length must equal omittedMaterialCount"
+      });
+    }
+  }
 });
 var directorUnrealOmittedAnimationChannelsSchema = external_exports.strictObject({
   directorId: external_exports.string().trim().min(1).max(200),
@@ -138070,6 +138264,17 @@ var directorUnrealLightTypeSchema = external_exports.enum([
 var directorUnrealOmittedLightSchema = external_exports.strictObject({
   directorId: external_exports.string().trim().min(1).max(200),
   lightType: directorUnrealLightTypeSchema,
+  reason: external_exports.string().trim().min(1).max(600)
+});
+var directorUnrealOmittedMaterialCodeSchema = external_exports.enum([
+  "unsupported_channels",
+  "no_mesh_target",
+  "parent_unavailable",
+  "apply_failed"
+]);
+var directorUnrealOmittedMaterialSchema = external_exports.strictObject({
+  directorId: external_exports.string().trim().min(1).max(200),
+  code: directorUnrealOmittedMaterialCodeSchema,
   reason: external_exports.string().trim().min(1).max(600)
 });
 var directorDccEngineReportSchema = external_exports.strictObject({
@@ -138094,6 +138299,17 @@ var directorDccEngineReportSchema = external_exports.strictObject({
   importedSkeletalMeshCount: external_exports.number().int().nonnegative().optional(),
   /** Unreal-only: number of Director PBR materials applied as material instances. */
   appliedMaterialCount: external_exports.number().int().nonnegative().optional(),
+  /**
+   * Unreal-only: material warn-and-omit count. Optional for connectors before
+   * 0.4.1; when omittedMaterials is present, length must equal this count.
+   */
+  omittedMaterialCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Unreal-only: typed material omit records (`unsupported_channels`,
+   * `no_mesh_target`, `parent_unavailable`, `apply_failed`). Optional for
+   * older connectors; when present, length must equal omittedMaterialCount.
+   */
+  omittedMaterials: external_exports.array(directorUnrealOmittedMaterialSchema).max(1024).optional(),
   /** Unreal-only: number of bundled texture files imported and bound to material-instance texture parameters. */
   appliedTextureCount: external_exports.number().int().nonnegative().optional(),
   /** Unreal-only: Director lights spawned as Unreal light actors tagged `director_light_id:` (not `director_id`). */
@@ -138120,6 +138336,21 @@ var directorDccEngineReportSchema = external_exports.strictObject({
       path: ["godot"],
       message: "only godot connector reports may carry the godot details block"
     });
+  }
+  if (report.omittedMaterials !== void 0) {
+    if (report.omittedMaterialCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedMaterialCount"],
+        message: "omittedMaterialCount is required when omittedMaterials is present"
+      });
+    } else if (report.omittedMaterials.length !== report.omittedMaterialCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedMaterials"],
+        message: "omittedMaterials length must equal omittedMaterialCount"
+      });
+    }
   }
 });
 var directorDccEngineHealthCheckIdSchema = external_exports.enum([
@@ -138650,8 +138881,175 @@ var directorGameEnvelopeSchema = external_exports.discriminatedUnion("success", 
   directorGameRejectionEnvelopeSchema
 ]);
 
-// packages/protocol/src/filmPipelineProtocol.ts
+// packages/protocol/src/agentObservabilityProtocol.ts
 var nonEmptyText11 = (maximum) => external_exports.string().trim().min(1).max(maximum);
+var agentTraceSourceSchema = external_exports.enum(["ui", "mcp", "http", "cli"]);
+var agentTraceOutcomeSchema = external_exports.enum(["success", "conflict", "error"]);
+var agentTraceEventSchema = external_exports.strictObject({
+  /** Stable event id assigned by the trace store. */
+  id: nonEmptyText11(160),
+  /** Caller session (HTTP envelope `session_id`; `mcp-*`, `cli-*`, `browser-ui`, …). */
+  session_id: nonEmptyText11(160),
+  /** Entry surface that issued the call. */
+  source: agentTraceSourceSchema,
+  /** Tool name (`director_workbench`, `director_creative`, `stage_video`, …). */
+  tool: nonEmptyText11(160),
+  /** Semantic operation (`author`, `production.observe`, `generation.submit`, …). */
+  operation: nonEmptyText11(160),
+  /** Outcome classification; `conflict` covers stale-guard and idempotency replays. */
+  outcome: agentTraceOutcomeSchema,
+  /** HTTP status the gateway answered with. */
+  status_code: external_exports.number().int().min(100).max(599),
+  /** ISO timestamp when the gateway accepted the call. */
+  started_at: external_exports.string(),
+  /** Wall-clock duration of the gateway-side execution. */
+  duration_ms: external_exports.number().int().nonnegative(),
+  /** Guard revision observed before the mutation, when one was bound. */
+  revision_before: external_exports.string().max(240).nullable(),
+  /** Revision reported by the target after the call, when observable. */
+  revision_after: external_exports.string().max(240).nullable(),
+  /** Idempotency key from the agent boundary receipt, when one was issued. */
+  idempotency_key: external_exports.string().max(160).optional(),
+  /** Structured result code (`stale_project_revision`, `workbench_unavailable`, …). */
+  code: external_exports.string().max(160).optional(),
+  /** Redacted error message when the call failed. */
+  error: external_exports.string().max(500).optional(),
+  /** Reference (URL) to a capture produced by this call — never image bytes. */
+  capture_ref: external_exports.string().max(2e3).optional()
+});
+var agentTraceChainStepSchema = external_exports.strictObject({
+  tool: nonEmptyText11(160),
+  operation: nonEmptyText11(160),
+  outcome: agentTraceOutcomeSchema,
+  started_at: external_exports.string(),
+  duration_ms: external_exports.number().int().nonnegative(),
+  revision_before: external_exports.string().max(240).nullable(),
+  revision_after: external_exports.string().max(240).nullable(),
+  code: external_exports.string().max(160).optional(),
+  capture_ref: external_exports.string().max(2e3).optional()
+});
+var agentTraceSessionSummarySchema = external_exports.strictObject({
+  session_id: nonEmptyText11(160),
+  sources: external_exports.array(agentTraceSourceSchema).min(1),
+  started_at: external_exports.string(),
+  ended_at: external_exports.string(),
+  call_count: external_exports.number().int().nonnegative(),
+  error_count: external_exports.number().int().nonnegative(),
+  conflict_count: external_exports.number().int().nonnegative(),
+  total_duration_ms: external_exports.number().int().nonnegative(),
+  /** First bound guard revision seen in the session, when any. */
+  revision_start: external_exports.string().max(240).nullable(),
+  /** Last observed post-call revision in the session, when any. */
+  revision_end: external_exports.string().max(240).nullable(),
+  chain: external_exports.array(agentTraceChainStepSchema)
+});
+var agentTraceSessionAggregateSchema = agentTraceSessionSummarySchema.omit({ chain: true });
+var agentUsageSampleSchema = external_exports.strictObject({
+  /** Stable sample id assigned by the store. */
+  id: nonEmptyText11(160),
+  /** Session or run scope the call belongs to (production session, film run, …). */
+  scope: nonEmptyText11(160),
+  /** Provider identity (`api`, `anthropic`, `openai-compatible`, …). */
+  provider: nonEmptyText11(160),
+  /** Model name as configured, never the credential. */
+  model: nonEmptyText11(320),
+  input_tokens: external_exports.number().int().nonnegative(),
+  output_tokens: external_exports.number().int().nonnegative(),
+  total_tokens: external_exports.number().int().nonnegative(),
+  /** Wall-clock time of the provider call, including retries. */
+  duration_ms: external_exports.number().int().nonnegative(),
+  /** Retries after the first attempt (0 when the first attempt settled it). */
+  retries: external_exports.number().int().nonnegative(),
+  succeeded: external_exports.boolean(),
+  recorded_at: external_exports.string()
+});
+var agentUsageSummarySchema = external_exports.strictObject({
+  sample_count: external_exports.number().int().nonnegative(),
+  input_tokens: external_exports.number().int().nonnegative(),
+  output_tokens: external_exports.number().int().nonnegative(),
+  total_tokens: external_exports.number().int().nonnegative(),
+  total_duration_ms: external_exports.number().int().nonnegative(),
+  retries: external_exports.number().int().nonnegative(),
+  failure_count: external_exports.number().int().nonnegative()
+});
+var EMPTY_AGENT_USAGE_SUMMARY = {
+  sample_count: 0,
+  input_tokens: 0,
+  output_tokens: 0,
+  total_tokens: 0,
+  total_duration_ms: 0,
+  retries: 0,
+  failure_count: 0
+};
+var UNIFIED_PROGRESS_CONTRACT = "director-progress-v1";
+var unifiedProgressStateSchema = external_exports.enum([
+  "queued",
+  "running",
+  "waiting",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "unknown"
+]);
+var unifiedProgressKindSchema = external_exports.enum(["production_job", "multi_agent_run", "film_run"]);
+var unifiedProgressSchema = external_exports.strictObject({
+  contract: external_exports.literal(UNIFIED_PROGRESS_CONTRACT),
+  kind: unifiedProgressKindSchema,
+  /** Source record id (job id, run id). */
+  id: nonEmptyText11(200),
+  /** Short human-readable label (job kind, objective excerpt, workflow). */
+  label: nonEmptyText11(200),
+  state: unifiedProgressStateSchema,
+  /** Fractional completion in [0, 1]; null when the source reports no numeric progress. */
+  progress: external_exports.number().min(0).max(1).nullable(),
+  /** Latest human-readable status message from the source record, when any. */
+  message: external_exports.string().max(2e3).nullable(),
+  /** Source-native status string preserved verbatim for drill-down. */
+  source_status: nonEmptyText11(80),
+  created_at: external_exports.string(),
+  updated_at: external_exports.string(),
+  /**
+   * Durable per-scope film-run usage (`film-llm` / `film-image` / `film-video`).
+   * Only film_run entries may carry this; omitted when the run has no metered
+   * samples yet so Agents/UI do not invent a second meter. Shape matches
+   * `filmRunUsageSchema` without importing it (that module imports this file).
+   */
+  usage: external_exports.strictObject({
+    "film-llm": agentUsageSummarySchema,
+    "film-image": agentUsageSummarySchema,
+    "film-video": agentUsageSummarySchema
+  }).optional()
+}).superRefine((entry, context) => {
+  if (entry.usage !== void 0 && entry.kind !== "film_run") {
+    context.addIssue({
+      code: "custom",
+      path: ["usage"],
+      message: "usage is only valid on film_run unified progress entries"
+    });
+  }
+});
+var unifiedProgressSummarySchema = external_exports.strictObject({
+  entry_count: external_exports.number().int().nonnegative(),
+  by_state: external_exports.record(unifiedProgressStateSchema, external_exports.number().int().nonnegative()),
+  by_kind: external_exports.record(unifiedProgressKindSchema, external_exports.number().int().nonnegative())
+});
+
+// packages/protocol/src/filmRunUsage.ts
+var filmRunUsageSchema = external_exports.strictObject({
+  "film-llm": agentUsageSummarySchema,
+  "film-image": agentUsageSummarySchema,
+  "film-video": agentUsageSummarySchema
+});
+function emptyFilmRunUsage() {
+  return {
+    "film-llm": { ...EMPTY_AGENT_USAGE_SUMMARY },
+    "film-image": { ...EMPTY_AGENT_USAGE_SUMMARY },
+    "film-video": { ...EMPTY_AGENT_USAGE_SUMMARY }
+  };
+}
+
+// packages/protocol/src/filmPipelineProtocol.ts
+var nonEmptyText12 = (maximum) => external_exports.string().trim().min(1).max(maximum);
 var boundedText5 = (maximum) => external_exports.string().trim().max(maximum);
 var shotIndex = external_exports.number().int().min(0).max(4096);
 var filmRunIdSchema = external_exports.string().regex(/^film-[a-z0-9-]{8,64}$/i);
@@ -138672,7 +139070,7 @@ var filmPipelineAvailabilitySchema = external_exports.strictObject({
 var filmCharacterSchema = external_exports.strictObject({
   idx: shotIndex,
   /** Stable identifier used inside descriptions, e.g. "Alice" or "老渔夫". */
-  name: nonEmptyText11(240),
+  name: nonEmptyText12(240),
   /** Off-screen voices are never sent to the portrait generator. */
   isVisible: external_exports.boolean(),
   /** Facial features, body shape and other rarely-changing traits. */
@@ -138684,24 +139082,24 @@ var shotBriefSchema = external_exports.strictObject({
   idx: shotIndex,
   /** Shots sharing one physical camera setup share a camIdx. */
   camIdx: shotIndex,
-  visualDesc: nonEmptyText11(8e3),
+  visualDesc: nonEmptyText12(8e3),
   audioDesc: boundedText5(4e3).default("")
 });
 var shotVariationSchema = external_exports.enum(["small", "medium", "large"]);
 var shotSpecSchema = external_exports.strictObject({
   idx: shotIndex,
   camIdx: shotIndex,
-  visualDesc: nonEmptyText11(8e3),
+  visualDesc: nonEmptyText12(8e3),
   /** medium/large shots additionally require a generated last frame. */
   variationType: shotVariationSchema,
   variationReason: boundedText5(4e3).default(""),
   /** First-frame still description; a pure snapshot without ongoing motion. */
-  ffDesc: nonEmptyText11(8e3),
+  ffDesc: nonEmptyText12(8e3),
   ffVisCharIdxs: external_exports.array(shotIndex).max(64).default([]),
   lfDesc: boundedText5(8e3).default(""),
   lfVisCharIdxs: external_exports.array(shotIndex).max(64).default([]),
   /** Camera and subject motion connecting first and last frame, plus dialogue. */
-  motionDesc: nonEmptyText11(8e3),
+  motionDesc: nonEmptyText12(8e3),
   audioDesc: boundedText5(4e3).default("")
 });
 var cameraPlanNodeSchema = external_exports.strictObject({
@@ -138715,8 +139113,8 @@ var cameraPlanNodeSchema = external_exports.strictObject({
 });
 var portraitViewSchema = external_exports.enum(["front", "side", "back"]);
 var portraitEntrySchema = external_exports.strictObject({
-  path: nonEmptyText11(2048),
-  description: nonEmptyText11(2e3)
+  path: nonEmptyText12(2048),
+  description: nonEmptyText12(2e3)
 });
 var characterPortraitsSchema = external_exports.strictObject({
   front: portraitEntrySchema,
@@ -138727,15 +139125,15 @@ var portraitRegistrySchema = external_exports.record(external_exports.string(), 
 var stageReferenceSchema = external_exports.strictObject({
   sceneIdx: shotIndex,
   shotIdx: shotIndex,
-  imagePath: nonEmptyText11(2048),
+  imagePath: nonEmptyText12(2048),
   note: boundedText5(2e3).default(
     "White-box stage capture: composition, camera angle and spatial blocking are authoritative. Replace mannequin characters and untextured geometry with the final styled characters and environment while preserving the layout."
   )
 });
 var characterReferenceSchema = external_exports.strictObject({
-  name: nonEmptyText11(240),
+  name: nonEmptyText12(240),
   view: portraitViewSchema.default("front"),
-  imagePath: nonEmptyText11(2048),
+  imagePath: nonEmptyText12(2048),
   note: boundedText5(2e3).default("")
 });
 var filmWorkflowSchema = external_exports.enum(["idea-to-film", "script-to-film"]);
@@ -138759,7 +139157,7 @@ var filmRunPhaseSchema = external_exports.enum([
 ]);
 var filmSceneStateSchema = external_exports.strictObject({
   idx: shotIndex,
-  script: nonEmptyText11(64e3),
+  script: nonEmptyText12(64e3),
   storyboard: external_exports.array(shotBriefSchema).max(512).nullable().default(null),
   shotSpecs: external_exports.array(shotSpecSchema).max(512).nullable().default(null),
   cameraPlan: external_exports.array(cameraPlanNodeSchema).max(512).nullable().default(null),
@@ -138769,12 +139167,12 @@ var filmSceneStateSchema = external_exports.strictObject({
   videoPath: external_exports.string().nullable().default(null)
 });
 var filmRunInputSchema = external_exports.strictObject({
-  idea: nonEmptyText11(16e3).optional(),
-  script: nonEmptyText11(12e4).optional(),
+  idea: nonEmptyText12(16e3).optional(),
+  script: nonEmptyText12(12e4).optional(),
   /** Pre-split scene scripts skip scene segmentation entirely. */
-  sceneScripts: external_exports.array(nonEmptyText11(64e3)).min(1).max(64).optional(),
+  sceneScripts: external_exports.array(nonEmptyText12(64e3)).min(1).max(64).optional(),
   userRequirement: boundedText5(8e3).default(""),
-  style: nonEmptyText11(500).default("cinematic, photorealistic film still, motivated lighting"),
+  style: nonEmptyText12(500).default("cinematic, photorealistic film still, motivated lighting"),
   aspectRatio: external_exports.enum(["16:9", "9:16", "2.39:1", "1:1"]).default("16:9"),
   /** Pause after planning so a human or agent can review artifacts. */
   reviewGate: external_exports.boolean().default(false),
@@ -138793,8 +139191,8 @@ var filmRunInputSchema = external_exports.strictObject({
 });
 var filmRunEventSchema = external_exports.strictObject({
   at: external_exports.string(),
-  stage: nonEmptyText11(120),
-  message: nonEmptyText11(2e3)
+  stage: nonEmptyText12(120),
+  message: nonEmptyText12(2e3)
 });
 var filmRunPhaseReceiptSchema = external_exports.strictObject({
   phase: filmRunPhaseSchema,
@@ -138825,6 +139223,12 @@ var filmRunSchema = external_exports.strictObject({
   events: external_exports.array(filmRunEventSchema).max(200).default([]),
   /** Durable per-phase execution receipts, oldest first; bounded window. */
   phaseReceipts: external_exports.array(filmRunPhaseReceiptSchema).max(FILM_RUN_PHASE_RECEIPT_LIMIT).default([]),
+  /**
+   * Per-scope model/media usage rollup for this run. Defaults to zeros so
+   * documents written before metering still parse; the receipt always projects
+   * this field.
+   */
+  usage: filmRunUsageSchema.default(() => emptyFilmRunUsage()),
   createdAt: external_exports.string(),
   updatedAt: external_exports.string()
 });
