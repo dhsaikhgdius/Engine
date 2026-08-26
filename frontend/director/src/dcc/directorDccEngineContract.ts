@@ -86,47 +86,92 @@ export const directorDccUnityOmittedChannelSchema = z.strictObject({
 export type DirectorDccUnityOmittedChannel = z.infer<typeof directorDccUnityOmittedChannelSchema>;
 
 /**
+ * One structured warn-and-omit record for a Director light the Unity connector
+ * declined to spawn as a GameObject. Ambient/hemisphere map to RenderSettings
+ * (not omitted); unknown vocabulary types are reported here with a stable code.
+ */
+export const directorUnityOmittedLightSchema = z.strictObject({
+  directorId: z.string().trim().min(1).max(200),
+  code: z.enum(["light_type_unknown"]),
+  lightType: z.string().trim().min(1).max(80),
+  reason: z.string().trim().min(1).max(600),
+});
+
+/** A validated Unity omitted-light record. */
+export type DirectorUnityOmittedLight = z.infer<typeof directorUnityOmittedLightSchema>;
+
+/**
  * Unity-specific details block the `com.director.bridge` connector appends to
  * its run report. Every field is an observed fact about the finished import —
  * not a capability claim — so the Gateway and Agents can audit what the
  * connector actually produced without parsing Unity project files.
  */
-export const directorDccUnityEngineReportDetailsSchema = z.strictObject({
-  /** Project-relative Timeline asset path, or null when no shots/animation mapped. */
-  timelinePath: z.string().trim().min(1).max(1_024).nullable(),
-  /** Render pipeline the material fallback targeted during the run. */
-  renderPipeline: z.enum(["built-in", "urp", "hdrp", "custom"]),
-  /** Whether a glTF ScriptedImporter produced prefabs for GLB payloads. */
-  gltfImporterAvailable: z.boolean(),
-  /** Lights created from the manifest with director_id markers. */
-  importedLightCount: z.number().int().nonnegative(),
-  /** AnimationClips baked from Director keyframe/trajectory channels. */
-  bakedAnimationClipCount: z.number().int().nonnegative(),
-  /** Humanoid Avatars built from Mixamo-compatible skinned payloads. */
-  humanoidAvatarCount: z.number().int().nonnegative(),
-  /** Generic Avatars built where Humanoid mapping was not possible. */
-  genericAvatarCount: z.number().int().nonnegative(),
-  /** Materials created from Director PBR manifest fallback. */
-  materialFallbackCount: z.number().int().nonnegative(),
-  /**
-   * Texture slots successfully bound onto those fallback materials from
-   * hashed package assets. Optional: connector 0.3.0 reports predate this
-   * count (textures still bind when present).
-   */
-  appliedTextureCount: z.number().int().nonnegative().optional(),
-  /**
-   * Characters posed from Director semantic pose controls (static controls
-   * applied to the imported skeleton, keyframed controls baked to clips).
-   * Optional: connector 0.2.x reports predate pose baking.
-   */
-  posedCharacterCount: z.number().int().nonnegative().optional(),
-  /**
-   * Structured warn-and-omit records for animation channels the connector
-   * declined to bake. Optional: connector 0.2.x reports predate this field
-   * and carried free-text warnings only.
-   */
-  omittedChannels: z.array(directorDccUnityOmittedChannelSchema).max(4_096).optional(),
-});
+export const directorDccUnityEngineReportDetailsSchema = z
+  .strictObject({
+    /** Project-relative Timeline asset path, or null when no shots/animation mapped. */
+    timelinePath: z.string().trim().min(1).max(1_024).nullable(),
+    /** Render pipeline the material fallback targeted during the run. */
+    renderPipeline: z.enum(["built-in", "urp", "hdrp", "custom"]),
+    /** Whether a glTF ScriptedImporter produced prefabs for GLB payloads. */
+    gltfImporterAvailable: z.boolean(),
+    /** Lights created from the manifest with director_id markers. */
+    importedLightCount: z.number().int().nonnegative(),
+    /**
+     * Count of Director lights the connector declined to spawn as GameObjects.
+     * Optional: connector builds before typed omittedLights omit this field.
+     */
+    omittedLightCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Typed warn-and-omit records for lights Unity cannot spawn (unknown type
+     * today). Optional for older connectors; when present, length must equal
+     * omittedLightCount.
+     */
+    omittedLights: z.array(directorUnityOmittedLightSchema).max(1_024).optional(),
+    /** AnimationClips baked from Director keyframe/trajectory channels. */
+    bakedAnimationClipCount: z.number().int().nonnegative(),
+    /** Humanoid Avatars built from Mixamo-compatible skinned payloads. */
+    humanoidAvatarCount: z.number().int().nonnegative(),
+    /** Generic Avatars built where Humanoid mapping was not possible. */
+    genericAvatarCount: z.number().int().nonnegative(),
+    /** Materials created from Director PBR manifest fallback. */
+    materialFallbackCount: z.number().int().nonnegative(),
+    /**
+     * Texture slots successfully bound onto those fallback materials from
+     * hashed package assets. Optional: connector 0.3.0 reports predate this
+     * count (textures still bind when present).
+     */
+    appliedTextureCount: z.number().int().nonnegative().optional(),
+    /**
+     * Characters posed from Director semantic pose controls (static controls
+     * applied to the imported skeleton, keyframed controls baked to clips).
+     * Optional: connector 0.2.x reports predate pose baking.
+     */
+    posedCharacterCount: z.number().int().nonnegative().optional(),
+    /**
+     * Structured warn-and-omit records for animation channels the connector
+     * declined to bake. Optional: connector 0.2.x reports predate this field
+     * and carried free-text warnings only.
+     */
+    omittedChannels: z.array(directorDccUnityOmittedChannelSchema).max(4_096).optional(),
+  })
+  .superRefine((receipt, context) => {
+    if (receipt.omittedLights === undefined) return;
+    if (receipt.omittedLightCount === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedLightCount"],
+        message: "omittedLightCount is required when omittedLights is present",
+      });
+      return;
+    }
+    if (receipt.omittedLights.length !== receipt.omittedLightCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedLights"],
+        message: "omittedLights length must equal omittedLightCount",
+      });
+    }
+  });
 
 /** Unity-specific details block of an engine connector run report. */
 export type DirectorDccUnityEngineReportDetails = z.infer<typeof directorDccUnityEngineReportDetailsSchema>;

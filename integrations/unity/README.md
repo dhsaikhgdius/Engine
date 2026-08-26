@@ -36,7 +36,7 @@ never used as an exchange format and is never parsed by the Director Gateway.
   - **Cameras** become physical Unity cameras: focal length plus the Director
     sensor-gate crop drive `Camera.usePhysicalProperties`, sensor size, and FOV;
     look-at targets resolve against scene entities; orthographic scale converts.
-    Anamorphic squeeze is warned and omitted.
+    Anamorphic squeeze is warned and omitted. Unknown light types surface as typed `omittedLights[]` (`directorId` / `code` / `lightType` / `reason`) with matching `omittedLightCount`.
   - **Lights** (point / spot / directional / area) become Unity `Light`
     GameObjects with their own `DirectorId`; ambient and hemisphere lights map
     onto `RenderSettings` with a warning. Lights do not round-trip (the return

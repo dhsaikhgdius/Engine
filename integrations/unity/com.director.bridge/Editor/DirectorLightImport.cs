@@ -18,20 +18,28 @@ namespace Director.Bridge.Editor
     public static class DirectorLightImport
     {
         /// <summary>
-        /// Creates every importable light in the manifest. Returns the number
-        /// of Light GameObjects created (ambient/hemisphere RenderSettings
-        /// updates do not count as imported lights).
+        /// Creates every importable light in the manifest. Returns imported
+        /// Light GameObject count plus typed omittedLights records for types
+        /// Unity cannot represent (today: unknown vocabulary). Ambient and
+        /// hemisphere still map to RenderSettings and are not counted as
+        /// imports or omits.
         /// </summary>
-        public static int ImportLights(
+        public sealed class LightImportResult
+        {
+            public int ImportedLightCount;
+            public JArray OmittedLights = new JArray();
+        }
+
+        public static LightImportResult ImportLights(
             JArray lights,
             Func<double[], Vector3> directorWorldPointToUnity,
             Dictionary<string, GameObject> byDirectorId,
             List<string> warnings)
         {
-            int importedCount = 0;
+            var result = new LightImportResult();
             if (lights == null)
             {
-                return importedCount;
+                return result;
             }
             foreach (JToken lightToken in lights)
             {
@@ -57,15 +65,27 @@ namespace Director.Bridge.Editor
                         marker.directorId = directorId;
                         marker.entityType = "light";
                         byDirectorId[directorId] = gameObject;
-                        importedCount += 1;
+                        result.ImportedLightCount += 1;
                         break;
                     }
                     default:
-                        warnings.Add($"Light {directorId}: unknown light type \"{lightType}\"; omitted (warn-and-omit).");
+                    {
+                        const string code = "light_type_unknown";
+                        string reason =
+                            $"Light {directorId}: unknown light type \"{lightType}\"; omitted (warn-and-omit code: {code}).";
+                        warnings.Add(reason);
+                        result.OmittedLights.Add(new JObject
+                        {
+                            ["directorId"] = directorId,
+                            ["code"] = code,
+                            ["lightType"] = lightType ?? "unknown",
+                            ["reason"] = reason,
+                        });
                         break;
+                    }
                 }
             }
-            return importedCount;
+            return result;
         }
 
         private static void ApplyAmbient(JObject lightJson, List<string> warnings)

@@ -128,6 +128,8 @@ namespace Director.Bridge.Editor
                     ["renderPipeline"] = renderPipeline,
                     ["gltfImporterAvailable"] = gltfImporterAvailable,
                     ["importedLightCount"] = counters.ImportedLightCount,
+                    ["omittedLightCount"] = counters.OmittedLights.Count,
+                    ["omittedLights"] = counters.OmittedLights,
                     ["bakedAnimationClipCount"] = timelineResult.BakedAnimationClipCount,
                     ["humanoidAvatarCount"] = counters.HumanoidAvatarCount,
                     ["genericAvatarCount"] = counters.GenericAvatarCount,
@@ -235,6 +237,7 @@ namespace Director.Bridge.Editor
             public int ObjectCount;
             public int CameraCount;
             public int ImportedLightCount;
+            public JArray OmittedLights = new JArray();
             public int HumanoidAvatarCount;
             public int GenericAvatarCount;
             public int MaterialFallbackCount;
@@ -354,7 +357,7 @@ namespace Director.Bridge.Editor
                 counters.CameraCount += 1;
             }
 
-            counters.ImportedLightCount = DirectorLightImport.ImportLights(
+            var lightImport = DirectorLightImport.ImportLights(
                 (JArray)project["lights"],
                 point =>
                 {
@@ -363,6 +366,8 @@ namespace Director.Bridge.Editor
                 },
                 byDirectorId,
                 warnings);
+            counters.ImportedLightCount = lightImport.ImportedLightCount;
+            counters.OmittedLights = lightImport.OmittedLights;
 
             return byDirectorId;
         }

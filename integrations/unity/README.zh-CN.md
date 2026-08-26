@@ -41,7 +41,7 @@ Gateway 也绝不解析它。
   - 最后回写一个规范空间的返回包，并写出 `director-dcc-engine-report-v1`
     回执，其 `unity` 块报告渲染管线、glTF 导入器可用性、导入灯光数 /
     烘焙片段数 / Avatar 数 / 材质回退数 / 已应用姿势角色数等计数，以及
-    结构化的 `omittedChannels` 列表（通道 ID、实体、原因），涵盖所有连接器
+    结构化的 `omittedChannels` 列表（通道 ID、实体、原因），未知灯光类型另以结构化 `omittedLights[]`（`directorId` / `code` / `lightType` / `reason`）呈现，涵盖所有连接器
     无法烘焙的通道。
 - **导出**（`...DirectorBridgeCli.Export`）：重新打开 Director 场景，在提供方边界
   把所有 `DirectorId` 实体的变换转换回 Director 规范空间，仅导出相对交换包基线

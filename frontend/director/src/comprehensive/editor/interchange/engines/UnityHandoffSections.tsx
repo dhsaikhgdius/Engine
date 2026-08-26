@@ -26,6 +26,10 @@ const UNITY_OMITTED_CHANNEL_LABELS: Record<string, string> = {
   ik: "IK 目标",
 };
 
+const UNITY_OMITTED_LIGHT_LABELS: Record<string, string> = {
+  light_type_unknown: "未知灯光类型",
+};
+
 const RENDER_PIPELINE_LABELS: Record<string, string> = {
   "built-in": "内置管线",
   urp: "URP",
@@ -87,10 +91,28 @@ export function renderUnityReceipt(result: DirectorDccEngineSendResult, t: (sour
           <dd>{details.importedLightCount}</dd>
         </div>
         <div>
+          <dt>{t("省略灯光")}</dt>
+          <dd>{details.omittedLightCount ?? details.omittedLights?.length ?? 0}</dd>
+        </div>
+        <div>
           <dt>{t("材质回退")}</dt>
           <dd>{details.materialFallbackCount}</dd>
         </div>
       </dl>
+      {(details.omittedLights?.length ?? 0) > 0 ? (
+        <ul aria-label={t("结构化省略")} className="director-engine-handoff-list is-warning">
+          {details.omittedLights!.slice(0, 6).map((entry) => (
+            <li key={`${entry.code}:${entry.directorId}`}>
+              <code data-i18n-user-content>{entry.directorId}</code>
+              {` · ${t(UNITY_OMITTED_LIGHT_LABELS[entry.code] ?? entry.code)} · `}
+              <span data-i18n-user-content>{entry.reason}</span>
+            </li>
+          ))}
+          {details.omittedLights!.length > 6 ? (
+            <li className="director-engine-handoff-more">+{details.omittedLights!.length - 6}</li>
+          ) : null}
+        </ul>
+      ) : null}
       {omitted.length ? (
         <ul aria-label={t("省略的动画通道")} className="director-engine-handoff-list is-warning">
           {omitted.slice(0, 6).map((entry) => (
