@@ -1257,10 +1257,7 @@ export function CanvasWorkspace() {
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.stopPropagation();
-                        dispatchCanvas(
-                          { op: "canvas.node.bring_to_front", node_id: node.id },
-                          t("置于顶层失败"),
-                        );
+                        dispatchCanvas({ op: "canvas.node.bring_to_front", node_id: node.id }, t("置于顶层失败"));
                       }}
                       type="button"
                     >
