@@ -1,6 +1,9 @@
 // @vitest-environment node
 
+import { mkdtempSync, rmSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { CollaborationInviteRateLimiter } from "../../collaboration/collaborationInviteRateLimit";
 import { CollaborationInviteRevocationRegistry } from "../../collaboration/collaborationInviteRevocationRegistry";
@@ -91,7 +94,7 @@ describe("handleCollaborationInviteRoute", () => {
     });
   });
 
-  it("revokes one invite by token so later joins are denied", async () => {
+  it("revokes one invite by token so later joins are denied, without overclaiming durability", async () => {
     const invite = mintCollaborationInviteToken({ secret: SECRET, room: "scene-alpha", role: "editor" });
     const { deps, json, revocations } = dependencies({
       readBody: vi.fn().mockResolvedValue({ token: invite.token }),
@@ -102,9 +105,11 @@ describe("handleCollaborationInviteRoute", () => {
       new URL("http://gateway.local/api/collab/invites/revoke"),
       deps,
     );
+    // The default registry is process-local, so the response must say the
+    // revocation is neither persisted nor backed by a durable file.
     expect(lastJsonCall(json)).toMatchObject({
       status: 200,
-      body: { revoked: true, jti: invite.jti, room: "scene-alpha" },
+      body: { revoked: true, jti: invite.jti, room: "scene-alpha", persisted: false, persistence_enabled: false },
     });
     expect(
       verifyCollaborationInviteToken({
@@ -127,7 +132,10 @@ describe("handleCollaborationInviteRoute", () => {
       new URL("http://gateway.local/api/collab/invites/revoke"),
       deps,
     );
-    expect(lastJsonCall(json)).toMatchObject({ status: 200, body: { revoked: true, room: "project-a/*" } });
+    expect(lastJsonCall(json)).toMatchObject({
+      status: 200,
+      body: { revoked: true, room: "project-a/*", persisted: false, persistence_enabled: false },
+    });
     expect(
       verifyCollaborationInviteToken({
         secret: SECRET,
@@ -136,6 +144,31 @@ describe("handleCollaborationInviteRoute", () => {
         revocations,
       }),
     ).toEqual({ ok: false, reason: "revoked" });
+  });
+
+  it("reports persisted: true when the revocation reached a durable registry file", async () => {
+    const directory = mkdtempSync(resolve(tmpdir(), "director-collab-invite-routes-"));
+    try {
+      const revocations = new CollaborationInviteRevocationRegistry({
+        persistPath: resolve(directory, "collaboration-invite-revocations.json"),
+      });
+      const { deps, json } = dependencies({
+        revocations,
+        readBody: vi.fn().mockResolvedValue({ room: "project-a/*" }),
+      });
+      await handleCollaborationInviteRoute(
+        request("POST"),
+        response(),
+        new URL("http://gateway.local/api/collab/invites/revoke"),
+        deps,
+      );
+      expect(lastJsonCall(json)).toMatchObject({
+        status: 200,
+        body: { revoked: true, room: "project-a/*", persisted: true, persistence_enabled: true },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("rejects revoke requests that provide both or neither selector", async () => {
