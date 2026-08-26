@@ -159,7 +159,141 @@ describe("Director OBJ/STL mesh export", () => {
       {
         stableId: "garden-splat",
         name: "花园扫描",
+        code: "splat_no_triangle_mesh",
         reason: "gaussian splat captures carry no triangle mesh and cannot be materialized for mesh export",
+      },
+    ]);
+  });
+
+  it("stamps a typed omit code on every skipped object in the loss report", async () => {
+    const project = projectWithPrimitives();
+    project.objects.push(
+      {
+        id: "hidden-box",
+        name: "Hidden Box",
+        kind: "prop",
+        visible: false,
+        locked: false,
+        geometryType: "box",
+        transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+      {
+        id: "bare-character",
+        name: "Bare Character",
+        kind: "character",
+        visible: true,
+        locked: false,
+        transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+      {
+        id: "broken-ref",
+        name: "Broken Reference",
+        kind: "prop",
+        visible: true,
+        locked: false,
+        assetRefId: "asset-that-does-not-exist",
+        transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    );
+
+    const archive = await exportDirectorProjectToObjArchive(project, {
+      objectIds: ["export-box", "hidden-box", "bare-character", "broken-ref"],
+      exportedAt: "2026-08-07T02:00:00.000Z",
+    });
+
+    expect(archive.report.scope.includedObjectIds).toEqual(["export-box"]);
+    expect(archive.report.omitted).toEqual([
+      { stableId: "hidden-box", name: "Hidden Box", code: "hidden_object", reason: "hidden object excluded" },
+      {
+        stableId: "bare-character",
+        name: "Bare Character",
+        code: "unsupported_object_kind",
+        reason: "character has no supported primitive mesh",
+      },
+      {
+        stableId: "broken-ref",
+        name: "Broken Reference",
+        code: "asset_not_model",
+        reason: "asset reference asset-that-does-not-exist does not resolve to a model asset",
+      },
+    ]);
+  });
+
+  it("distinguishes rigged characters, loader failures, and the synchronous path with typed codes", async () => {
+    const project = projectWithPrimitives();
+    project.assets.push(
+      {
+        id: "asset-rigged-hero",
+        name: "Rigged hero",
+        kind: "character",
+        sourceType: "model",
+        assetSource: "local",
+        fileName: "hero.glb",
+        url: "data:model/gltf-binary;base64,fixture",
+      },
+      {
+        id: "asset-broken-model",
+        name: "Broken model",
+        kind: "prop",
+        sourceType: "model",
+        assetSource: "local",
+        fileName: "broken.glb",
+        url: "data:model/gltf-binary;base64,fixture",
+      },
+    );
+    project.objects.push(
+      {
+        id: "rigged-hero",
+        name: "Rigged hero",
+        kind: "prop",
+        visible: true,
+        locked: false,
+        assetRefId: "asset-rigged-hero",
+        transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+      {
+        id: "broken-model",
+        name: "Broken model",
+        kind: "prop",
+        visible: true,
+        locked: false,
+        assetRefId: "asset-broken-model",
+        transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    );
+
+    const archive = await exportDirectorProjectToObjArchive(project, {
+      objectIds: ["export-box", "rigged-hero", "broken-model"],
+      exportedAt: "2026-08-07T02:00:00.000Z",
+      modelLoader: async () => {
+        throw new Error("fixture loader failure");
+      },
+    });
+    expect(archive.report.omitted).toEqual([
+      {
+        stableId: "rigged-hero",
+        name: "Rigged hero",
+        code: "rigged_character_requires_dcc",
+        reason: "rigged character assets require pose-aware DCC export",
+      },
+      {
+        stableId: "broken-model",
+        name: "Broken model",
+        code: "model_materialization_failed",
+        reason: "fixture loader failure",
+      },
+    ]);
+
+    const sync = exportDirectorProjectToObj(project, {
+      objectIds: ["export-box", "broken-model"],
+      exportedAt: "2026-08-07T02:00:00.000Z",
+    });
+    expect(sync.reportBase.omitted).toEqual([
+      {
+        stableId: "broken-model",
+        name: "Broken model",
+        code: "sync_export_requires_archive",
+        reason: "imported model materialization is available only through the asynchronous archive exporter",
       },
     ]);
   });

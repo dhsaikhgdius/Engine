@@ -45,7 +45,7 @@ import type { DirectorInterchangeImportResult } from "./contract";
 import type { DirectorFountainOmitted } from "./fountain";
 import type { DirectorGltfOmitted } from "./gltf";
 import { DIRECTOR_GLTF_OMITTED_CODES } from "./gltf";
-import type { DirectorMeshExportReport } from "./mesh";
+import type { DirectorMeshExportOmittedCode, DirectorMeshExportReport } from "./mesh";
 import "./DirectorInterchangeMenu.css";
 
 type DirectorInterchangeFormat =
@@ -66,6 +66,18 @@ const GLTF_OMIT_LABELS: Record<(typeof DIRECTOR_GLTF_OMITTED_CODES)[number], str
   embedded_manifest_invalid: "嵌入工程清单无效",
   duplicate_stable_id: "重复稳定 ID 已忽略",
   empty_project_no_metadata: "无 Director 元数据",
+};
+
+const MESH_OMIT_LABELS: Record<DirectorMeshExportOmittedCode, string> = {
+  hidden_object: "隐藏对象未导出",
+  unsupported_object_kind: "无可导出网格",
+  sync_export_requires_archive: "需使用归档导出",
+  degenerate_geometry: "退化几何已跳过",
+  asset_not_model: "资产引用无效",
+  rigged_character_requires_dcc: "角色需 DCC 导出",
+  splat_no_triangle_mesh: "泼溅无三角网格",
+  imported_asset_limit: "超出导入资产上限",
+  model_materialization_failed: "模型实体化失败",
 };
 
 const FORMAT_GROUPS: Array<{ id: string; label: string; formats: DirectorInterchangeFormatEntry[] }> = [
@@ -282,7 +294,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
         nextMeshReport?.warnings.length ? "warning" : "success",
         `${FORMATS.find((item) => item.id === format)?.label ?? format} · ${t("导出完成")}${
           nextMeshReport ? ` · ${nextMeshReport.warnings.length} ${t("条兼容性提示")}` : ""
-        }`,
+        }${nextMeshReport?.omitted.length ? ` · ${nextMeshReport.omitted.length} ${t("项结构化省略")}` : ""}`,
       );
     } catch (error) {
       note("error", error instanceof Error ? error.message : t("交换文件导出失败"));
@@ -1035,6 +1047,22 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                       · {meshExportReport.omitted.length} {t("项未导出")}
                     </span>
                   </div>
+                  {meshExportReport.omitted.length ? (
+                    <ul aria-label={t("结构化省略")} className="director-interchange-list is-warning">
+                      {meshExportReport.omitted.slice(0, 8).map((entry) => (
+                        <li key={`${entry.code}:${entry.stableId}`}>
+                          <code>{entry.code}</code>
+                          {` · ${t(MESH_OMIT_LABELS[entry.code] ?? entry.code)} · `}
+                          <span data-i18n-user-content title={entry.reason}>
+                            {entry.name}
+                          </span>
+                        </li>
+                      ))}
+                      {meshExportReport.omitted.length > 8 ? (
+                        <li className="director-interchange-more">+{meshExportReport.omitted.length - 8}</li>
+                      ) : null}
+                    </ul>
+                  ) : null}
                   {meshExportReport.warnings.length ? (
                     <ul className="director-interchange-list is-warning">
                       {meshExportReport.warnings.slice(0, 8).map((warning) => (
