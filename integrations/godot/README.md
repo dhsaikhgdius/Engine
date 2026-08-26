@@ -44,11 +44,13 @@ so the boundary stays explicit and testable.
     performs the storyboard's camera cuts), with the raw shots additionally
     preserved as `director_shots` metadata; shots without a mappable camera
     warn-and-omit with structured codes (`shot_no_camera_binding`,
-    `shot_camera_not_imported`, `shot_target_not_camera`);
+    `shot_camera_not_imported`, `shot_target_not_camera`) and, on connector
+    ≥0.3.2, typed `omittedShots[]` / `omittedShotCount` with `shotId` /
+    `code` / `cameraDirectorId` / `reason`;
   - a `director-dcc-engine-report-v1` receipt with a Godot-specific `godot`
     block (track/key/shot-cut counts, light/skeleton/material/texture counts,
-    `worldEnvironmentAmbient`, `omittedLightCount`, typed `omittedLights[]`, `appliedMaterialCount`, `omittedMaterialCount`, and typed `omittedMaterials[]` (`unsupported_channels` / `no_mesh_target` / `custom_shader`)
-    with `directorId` / `code` / `lightType` / `reason`) that is read back from
+    `worldEnvironmentAmbient`, `omittedLightCount`, typed `omittedLights[]`, `appliedMaterialCount`, `omittedMaterialCount`, and typed `omittedMaterials[]` (`unsupported_channels` / `no_mesh_target` / `custom_shader`), plus `omittedShotCount` and typed `omittedShots[]`
+    with `shotId` / `code` / `cameraDirectorId` / `reason`) that is read back from
     the saved scene, plus an echoed canonical-space return package.
 - **Export** (`--mode export`): reloads the Director scene and writes a
   `director-dcc-return-v1` package containing the canonical transforms of every

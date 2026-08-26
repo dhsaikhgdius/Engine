@@ -148,6 +148,16 @@ describe("Godot import receipt and connector health", () => {
       fovTrackCount: 1,
       shotCutTrackCount: 1,
       mappedShotCount: 2,
+      omittedShotCount: 1,
+      omittedShots: [
+        {
+          shotId: "shot-orphan",
+          code: "shot_no_camera_binding",
+          cameraDirectorId: null,
+          reason:
+            "Shot shot-orphan has no camera binding; no camera cut was keyed (warn-and-omit code: shot_no_camera_binding).",
+        },
+      ],
       payloadAnimationPlayerCount: 1,
       importedSkeletonCount: 1,
       importedLightCount: 3,
@@ -176,6 +186,13 @@ describe("Godot import receipt and connector health", () => {
     });
     expect(receipt.displayRate).toBe("24000/1001");
     expect(receipt.mappedShotCount).toBe(2);
+    expect(receipt.omittedShots).toEqual([
+      expect.objectContaining({
+        shotId: "shot-orphan",
+        code: "shot_no_camera_binding",
+        cameraDirectorId: null,
+      }),
+    ]);
     expect(receipt.worldEnvironmentAmbient).toBe(true);
     expect(receipt.omittedLights).toEqual([
       expect.objectContaining({
@@ -246,6 +263,37 @@ describe("Godot import receipt and connector health", () => {
             "Object prop-x: a Director material was authored but the payload has no meshes to apply it to (warn-and-omit code: no_mesh_target).",
         },
       ],
+      externalizedTextureCount: 0,
+    };
+    expect(directorGodotImportReceiptSchema.safeParse(base).success).toBe(false);
+  });
+
+  it("rejects omittedShots whose length disagrees with omittedShotCount", () => {
+    const base = {
+      animationPlayerPath: null,
+      animationLibrary: null,
+      displayRate: null,
+      bakedKeyCount: 0,
+      transformTrackCount: 0,
+      fovTrackCount: 0,
+      shotCutTrackCount: 0,
+      mappedShotCount: 0,
+      omittedShotCount: 0,
+      omittedShots: [
+        {
+          shotId: "shot-x",
+          code: "shot_camera_not_imported" as const,
+          cameraDirectorId: "cam-missing",
+          reason:
+            "Shot shot-x references camera cam-missing which was not imported; its cut was skipped (warn-and-omit code: shot_camera_not_imported).",
+        },
+      ],
+      payloadAnimationPlayerCount: 0,
+      importedSkeletonCount: 0,
+      importedLightCount: 0,
+      worldEnvironmentAmbient: false,
+      omittedLightCount: 0,
+      appliedMaterialCount: 0,
       externalizedTextureCount: 0,
     };
     expect(directorGodotImportReceiptSchema.safeParse(base).success).toBe(false);
