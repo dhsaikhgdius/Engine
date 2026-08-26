@@ -41,6 +41,7 @@ import { useDirectorMediaLibrary } from "../workspaces/directorMediaLibrary";
 import { useDirectorCreativeWorkspaceStore, type DirectorWorkspaceMode } from "../workspaces/directorWorkspaceStore";
 import { DccProviderBrowser } from "./DccProviderBrowser";
 import { EngineHandoffDock } from "./engines/EngineHandoffDock";
+import type { DirectorFountainOmitted } from "./fountain";
 import type { DirectorMeshExportReport } from "./mesh";
 import "./DirectorInterchangeMenu.css";
 
@@ -48,6 +49,15 @@ type DirectorInterchangeFormat =
   "project" | "otio" | "otioz" | "fountain" | "gltf" | "glb" | "usda" | "usdz" | "obj" | "stl";
 
 type DirectorInterchangeFormatEntry = { id: DirectorInterchangeFormat; label: string; detail: string };
+
+const FOUNTAIN_OMIT_LABELS: Record<string, string> = {
+  character_dialogue: "对白未导入分镜",
+  boneyard_note: "旁注已跳过",
+  section_heading: "分节标题已跳过",
+  title_page_field: "标题页字段未导入",
+  invalid_marker: "无效镜头标记",
+  transition: "转场已跳过",
+};
 
 const FORMAT_GROUPS: Array<{ id: string; label: string; formats: DirectorInterchangeFormatEntry[] }> = [
   {
@@ -147,6 +157,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   const [importDragOver, setImportDragOver] = useState(false);
   const [meshExportScope, setMeshExportScope] = useState<"all" | "selection">("all");
   const [meshExportReport, setMeshExportReport] = useState<DirectorMeshExportReport | null>(null);
+  const [fountainOmitted, setFountainOmitted] = useState<DirectorFountainOmitted[]>([]);
   const [blendPackageDir, setBlendPackageDir] = useState("");
   const [blendManifest, setBlendManifest] = useState<DirectorBlendSceneManifestV1 | null>(null);
   const [blendPlan, setBlendPlan] = useState<DirectorBlendSceneImportPlanV1 | null>(null);
@@ -196,6 +207,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
     setBusy(true);
     note("busy", t("正在准备交换文件…"));
     setMeshExportReport(null);
+    setFountainOmitted([]);
     try {
       const interchange = await import("./index");
       const project = useDirectorStore.getState().project;
@@ -273,6 +285,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   async function importFile(file: File) {
     setBusy(true);
     note("busy", t("正在校验并导入交换文件…"));
+    setFountainOmitted([]);
     try {
       const extension = extensionOf(file);
       if (extension === "json") {
@@ -309,6 +322,20 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
         result = await interchange.importDirectorProjectFromOtioz(await sourceBytes(), { baseProject });
       } else if (extension === "fountain") {
         result = interchange.importDirectorProjectFromFountain(await file.text(), { baseProject });
+        setFountainOmitted(
+          Array.isArray(result.omitted)
+            ? (result.omitted as DirectorFountainOmitted[]).filter((entry) =>
+                [
+                  "character_dialogue",
+                  "boneyard_note",
+                  "section_heading",
+                  "title_page_field",
+                  "invalid_marker",
+                  "transition",
+                ].includes(entry.code),
+              )
+            : [],
+        );
       } else if (extension === "gltf") {
         result = await interchange.importDirectorProjectFromGltf(await file.text(), { baseProject });
       } else if (extension === "glb") {
@@ -324,7 +351,9 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
       note(
         result.warnings.length ? "warning" : "success",
         result.warnings.length
-          ? `${t("导入完成")} · ${result.warnings.length} ${t("条兼容性提示")}`
+          ? `${t("导入完成")} · ${result.warnings.length} ${t("条兼容性提示")}${
+              result.omitted?.length ? ` · ${result.omitted.length} ${t("项结构化省略")}` : ""
+            }`
           : t("导入完成 · 无兼容性警告"),
       );
     } catch (error) {
@@ -629,6 +658,30 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                 tabIndex={-1}
                 type="file"
               />
+              {fountainOmitted.length ? (
+                <section aria-label={t("Fountain 导入省略")} className="director-mesh-export-report">
+                  <div>
+                    <strong>{t("Fountain 导入省略")}</strong>
+                    <span>
+                      {fountainOmitted.length} {t("项结构化省略")}
+                    </span>
+                  </div>
+                  <ul aria-label={t("结构化省略")} className="director-interchange-list is-warning">
+                    {fountainOmitted.slice(0, 8).map((entry) => (
+                      <li key={`${entry.code}:${entry.subject}:${entry.reason}`}>
+                        <code>{entry.code}</code>
+                        {` · ${t(FOUNTAIN_OMIT_LABELS[entry.code] ?? entry.code)} · `}
+                        <span data-i18n-user-content title={entry.reason}>
+                          {entry.subject}
+                        </span>
+                      </li>
+                    ))}
+                    {fountainOmitted.length > 8 ? (
+                      <li className="director-interchange-more">+{fountainOmitted.length - 8}</li>
+                    ) : null}
+                  </ul>
+                </section>
+              ) : null}
             </section>
             {workspace === "stage" ? (
               <section aria-label={t("DCC 工作流")} className="director-interchange-section">
