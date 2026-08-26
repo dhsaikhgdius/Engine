@@ -17,6 +17,15 @@ const UNITY_DETAILS = {
   materialFallbackCount: 4,
   appliedTextureCount: 2,
   posedCharacterCount: 1,
+  omittedLightCount: 1,
+  omittedLights: [
+    {
+      directorId: "light-weird",
+      code: "light_type_unknown" as const,
+      lightType: "portal",
+      reason: 'Light light-weird: unknown light type "portal"; omitted (warn-and-omit code: light_type_unknown).',
+    },
+  ],
   omittedChannels: [
     {
       directorId: "hero-1",
@@ -82,10 +91,32 @@ describe("Director Unity engine report details", () => {
   });
 
   it("keeps pose fields optional so 0.2.x connector reports still validate", () => {
-    const { posedCharacterCount: _count, omittedChannels: _channels, ...legacyDetails } = UNITY_DETAILS;
+    const {
+      posedCharacterCount: _count,
+      omittedChannels: _channels,
+      omittedLightCount: _omitCount,
+      omittedLights: _omitLights,
+      ...legacyDetails
+    } = UNITY_DETAILS;
     const parsed = directorDccUnityEngineReportDetailsSchema.parse(legacyDetails);
     expect(parsed.posedCharacterCount).toBeUndefined();
     expect(parsed.omittedChannels).toBeUndefined();
+    expect(parsed.omittedLights).toBeUndefined();
+  });
+
+  it("rejects omittedLights whose length disagrees with omittedLightCount", () => {
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedLightCount: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedLightCount: undefined,
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects unknown omitted-channel ids and unknown omission fields", () => {
