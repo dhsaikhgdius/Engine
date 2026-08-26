@@ -132,6 +132,7 @@ type EngineSceneApplyLedger = z.infer<typeof engineSceneApplyLedgerSchema>;
  */
 export type DirectorEngineSceneImportErrorCode =
   | "engine_unavailable"
+  | "engine_provider_invalid"
   | "project_invalid"
   | "upload_invalid"
   | "upload_too_large"
@@ -147,6 +148,7 @@ export type DirectorEngineSceneImportErrorCode =
 const RECOVERY: Record<DirectorEngineSceneImportErrorCode, string> = {
   engine_unavailable:
     "Install the engine or set DIRECTOR_UNREAL_EDITOR_BIN / DIRECTOR_UNITY_BIN, or export the scene package inside the engine and upload the .zip instead.",
+  engine_provider_invalid: "Use provider unreal or unity for engine scene import operations.",
   project_invalid: "Point project_dir at a readable engine project inside the workspace, then retry.",
   upload_invalid: "Choose a .zip engine scene package produced by the Director exporter and retry.",
   upload_too_large: "Reduce the engine scene package below 512 MiB, then retry.",
@@ -304,6 +306,18 @@ export interface CreateEngineSceneImporterOptions {
 function isInside(parent: string, child: string): boolean {
   const value = relative(parent, child);
   return value === "" || (!value.startsWith(`..${sep}`) && value !== ".." && !isAbsolute(value));
+}
+
+/** Validate an engine scene provider id, converting schema failures into the structured import error. */
+function parseEngineSceneProvider(provider: DirectorEngineSceneProvider): DirectorEngineSceneProvider {
+  const parsed = directorEngineSceneProviderSchema.safeParse(provider);
+  if (!parsed.success) {
+    throw new DirectorEngineSceneImportError(
+      "engine_provider_invalid",
+      `${JSON.stringify(String(provider).slice(0, 120))} is not an engine scene provider (unreal, unity).`,
+    );
+  }
+  return parsed.data;
 }
 
 function posixRelative(parent: string, child: string): string {
@@ -767,7 +781,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     provider: DirectorEngineSceneProvider,
     packageDir: string,
   ): Promise<ValidatedDirectorEngineScenePackage> {
-    const parsedProvider = directorEngineSceneProviderSchema.parse(provider);
+    const parsedProvider = parseEngineSceneProvider(provider);
     const directory = await resolvePackageDirectory(packageDir);
     const manifestPath = resolve(directory.absolute, "manifest.json");
     const canonicalManifest = await realpath(manifestPath).catch(() => null);
@@ -1123,7 +1137,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     project: DirectorProject,
     declaredBytes?: number,
   ): Promise<EngineSceneImportUploadResult> {
-    const parsedProvider = directorEngineSceneProviderSchema.parse(provider);
+    const parsedProvider = parseEngineSceneProvider(provider);
     const normalizedName = fileName.trim();
     if (!normalizedName.toLowerCase().endsWith(".zip") || normalizedName.includes("\0")) {
       throw new DirectorEngineSceneImportError("upload_invalid", "Engine scene package filename must end in .zip.");
@@ -1271,7 +1285,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     project: DirectorProject,
     scene?: string,
   ): Promise<EngineSceneImportUploadResult> {
-    const parsedProvider = directorEngineSceneProviderSchema.parse(provider);
+    const parsedProvider = parseEngineSceneProvider(provider);
     const projectDirectory = await resolveEngineProjectDirectory(projectDir);
     const executable = await discoverDccRuntimeExecutable(parsedProvider, environment);
     if (!executable) {
