@@ -1099,6 +1099,42 @@ function requireTimelineAudioClip(
   throw new Error(`Timeline audio clip "${clipId}" was not found.`);
 }
 
+/** Clamp timeline audio patch fields the same way the Stage store historically did. */
+function applyTimelineAudioClipPatch(
+  clip: DirectorTimelineAudioClip,
+  patch: Partial<Omit<DirectorTimelineAudioClip, "id" | "mediaId">>,
+): DirectorTimelineAudioClip {
+  const next: DirectorTimelineAudioClip = { ...clip };
+  if (patch.name !== undefined && patch.name.trim()) next.name = patch.name.trim().slice(0, 240);
+  if (patch.sourceUrl !== undefined) next.sourceUrl = patch.sourceUrl?.trim() || undefined;
+  if (patch.startFrame !== undefined && Number.isFinite(patch.startFrame)) {
+    next.startFrame = Math.max(0, Math.min(1_000_000, Math.round(patch.startFrame)));
+  }
+  if (patch.durationFrames !== undefined && Number.isFinite(patch.durationFrames)) {
+    next.durationFrames = Math.max(1, Math.min(1_000_000, Math.round(patch.durationFrames)));
+  }
+  if (patch.inSec !== undefined && Number.isFinite(patch.inSec)) {
+    next.inSec = Math.max(0, Math.min(86_400, patch.inSec));
+  }
+  if (patch.sourceDurationSec !== undefined) {
+    next.sourceDurationSec =
+      Number.isFinite(patch.sourceDurationSec) && patch.sourceDurationSec! > 0
+        ? Math.min(patch.sourceDurationSec!, 86_400)
+        : undefined;
+  }
+  if (patch.volume !== undefined && Number.isFinite(patch.volume)) {
+    next.volume = Math.max(0, Math.min(1, patch.volume));
+  }
+  if (patch.fadeInSec !== undefined && Number.isFinite(patch.fadeInSec)) {
+    next.fadeInSec = Math.max(0, Math.min(60, patch.fadeInSec));
+  }
+  if (patch.fadeOutSec !== undefined && Number.isFinite(patch.fadeOutSec)) {
+    next.fadeOutSec = Math.max(0, Math.min(60, patch.fadeOutSec));
+  }
+  if (patch.muted !== undefined) next.muted = patch.muted;
+  return next;
+}
+
 function ensureAvailableId(project: DirectorProject, value: string, label: string) {
   const exists =
     project.assets.some((item) => item.id === value) ||
@@ -2657,18 +2693,7 @@ export function applyDirectorAuthoringActions(
       case "update_timeline_audio_clip": {
         const { timeline, tracks } = ensureTimelineAudioTracks(project);
         const found = requireTimelineAudioClip(tracks, item.clip_id);
-        const patch = item.patch;
-        const next: DirectorTimelineAudioClip = { ...found.clip };
-        if (patch.name !== undefined) next.name = patch.name;
-        if (patch.sourceUrl !== undefined) next.sourceUrl = patch.sourceUrl;
-        if (patch.startFrame !== undefined) next.startFrame = patch.startFrame;
-        if (patch.durationFrames !== undefined) next.durationFrames = patch.durationFrames;
-        if (patch.inSec !== undefined) next.inSec = patch.inSec;
-        if (patch.sourceDurationSec !== undefined) next.sourceDurationSec = patch.sourceDurationSec;
-        if (patch.volume !== undefined) next.volume = patch.volume;
-        if (patch.fadeInSec !== undefined) next.fadeInSec = patch.fadeInSec;
-        if (patch.fadeOutSec !== undefined) next.fadeOutSec = patch.fadeOutSec;
-        if (patch.muted !== undefined) next.muted = patch.muted;
+        const next = applyTimelineAudioClipPatch(found.clip, item.patch);
         const nextClips = [...found.track.clips];
         nextClips[found.clipIndex] = next;
         tracks[found.trackIndex] = { ...found.track, clips: nextClips };
