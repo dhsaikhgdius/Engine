@@ -179,6 +179,68 @@ export const characterReferenceSchema = z.strictObject({
 });
 
 // ---------------------------------------------------------------------------
+// Timeline export receipt
+// ---------------------------------------------------------------------------
+
+/** Bounded window of typed omit records on one timeline export receipt; the count stays exact past it. */
+export const FILM_TIMELINE_OMITTED_SHOT_LIMIT = 512;
+
+/** Stable classification of why one planned shot is absent from the exported OTIO timeline. */
+export const filmTimelineOmittedShotCodeSchema = z.enum([
+  /** The shot's rendered clip bytes were missing from the run directory at export time. */
+  "clip_missing",
+]);
+
+/** One planned shot omitted from the exported OTIO timeline (agents read this instead of scraping events). */
+export const filmTimelineOmittedShotSchema = z.strictObject({
+  sceneIdx: shotIndex,
+  shotIdx: shotIndex,
+  code: filmTimelineOmittedShotCodeSchema,
+  reason: nonEmptyText(600),
+});
+
+/**
+ * Durable receipt of one OTIO timeline export, written next to
+ * `timelinePath` when the export succeeds. A partial editorial handoff is a
+ * typed, durable fact instead of a silent skip: every planned shot either
+ * became a timeline clip or appears in `omittedShots` with a stable code.
+ */
+export const filmTimelineExportReceiptSchema = z
+  .strictObject({
+    /** Planned shots visited at export time. */
+    shotCount: z.number().int().positive().max(100_000),
+    /** Planned shots that became timeline clips; the export fails instead of writing an empty timeline. */
+    clipCount: z.number().int().positive().max(100_000),
+    /** Exact number of planned shots absent from the timeline. */
+    omittedShotCount: z.number().int().nonnegative().max(100_000),
+    /** Typed omit records, bounded to {@link FILM_TIMELINE_OMITTED_SHOT_LIMIT}. */
+    omittedShots: z.array(filmTimelineOmittedShotSchema).max(FILM_TIMELINE_OMITTED_SHOT_LIMIT),
+  })
+  .superRefine((receipt, context) => {
+    if (receipt.clipCount + receipt.omittedShotCount !== receipt.shotCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["shotCount"],
+        message: "clipCount plus omittedShotCount must equal shotCount",
+      });
+    }
+    if (receipt.omittedShots.length !== Math.min(receipt.omittedShotCount, FILM_TIMELINE_OMITTED_SHOT_LIMIT)) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedShots"],
+        message: "omittedShots must carry min(omittedShotCount, FILM_TIMELINE_OMITTED_SHOT_LIMIT) records",
+      });
+    }
+  });
+
+/** Stable timeline-export omission classification. */
+export type FilmTimelineOmittedShotCode = z.infer<typeof filmTimelineOmittedShotCodeSchema>;
+/** One typed timeline-export omission record. */
+export type FilmTimelineOmittedShot = z.infer<typeof filmTimelineOmittedShotSchema>;
+/** Durable receipt of one OTIO timeline export. */
+export type FilmTimelineExportReceipt = z.infer<typeof filmTimelineExportReceiptSchema>;
+
+// ---------------------------------------------------------------------------
 // Run state machine
 // ---------------------------------------------------------------------------
 
@@ -309,6 +371,12 @@ export const filmRunSchema = z.strictObject({
   finalVideoPath: z.string().nullable().default(null),
   /** OTIO timeline exported after assembly for Video Editor / NLE handoff. */
   timelinePath: z.string().nullable().default(null),
+  /**
+   * Typed receipt of the OTIO timeline export stamped together with
+   * `timelinePath`. Null when no timeline was exported yet or the run
+   * predates typed export receipts — never invented for legacy documents.
+   */
+  timelineExport: filmTimelineExportReceiptSchema.nullable().default(null),
   approvedAt: z.string().nullable().default(null),
   error: z.string().nullable().default(null),
   /** Stable classification of `error`; null when the run carries no error. */
