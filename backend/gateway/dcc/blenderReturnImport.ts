@@ -759,9 +759,7 @@ export function buildDirectorDccImportPlan(
     conflicts,
     warnings,
     ...(omittedOptics.length > 0 ? { omittedOpticsCount: omittedOptics.length, omittedOptics } : {}),
-    ...(omittedAdditions.length > 0
-      ? { omittedAdditionsCount: omittedAdditions.length, omittedAdditions }
-      : {}),
+    ...(omittedAdditions.length > 0 ? { omittedAdditionsCount: omittedAdditions.length, omittedAdditions } : {}),
   });
 }
 
