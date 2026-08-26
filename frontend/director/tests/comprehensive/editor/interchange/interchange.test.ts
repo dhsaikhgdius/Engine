@@ -143,6 +143,7 @@ describe("Director professional interchange fixtures", () => {
       "EXT. PLATFORM - NIGHT",
     ]);
     expect(new Set(external.project.storyboard?.shots.map((shot) => shot.scriptBeatId)).size).toBe(2);
+    expect(external.omitted ?? []).toEqual([]);
 
     const project = projectFixture();
     const imported = importDirectorProjectFromFountain(exportDirectorProjectToFountain(project));
@@ -150,6 +151,48 @@ describe("Director professional interchange fixtures", () => {
       { id: "shot-opening-001", scriptBeatId: "beat-opening-001" },
       { id: "shot-detail-002", scriptBeatId: "beat-detail-002" },
     ]);
+  });
+
+  it("stamps typed Fountain omitted records for dialogue, notes, sections, and title-page fields", () => {
+    const source = `Title: Night Run
+Author: Ada
+Draft date: 2026-08-26
+Logline: A courier misses the last train.
+
+# Act One
+
+INT. LOBBY - NIGHT
+
+[[plant the ticket]]
+
+Courier checks the board.
+
+COURIER
+Where is platform nine?
+
+CUT TO:
+
+EXT. STREET - NIGHT
+
+Rain hits the pavement.
+`;
+    const imported = importDirectorProjectFromFountain(source);
+    expect(imported.project.storyboard?.shots.map((shot) => shot.title)).toEqual([
+      "INT. LOBBY - NIGHT",
+      "EXT. STREET - NIGHT",
+    ]);
+    expect(imported.project.storyboard?.shots[0]?.action).toBe("Courier checks the board.");
+    expect(imported.omitted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "title_page_field", subject: "Author" }),
+        expect.objectContaining({ code: "title_page_field", subject: "Draft date" }),
+        expect.objectContaining({ code: "section_heading" }),
+        expect.objectContaining({ code: "boneyard_note" }),
+        expect.objectContaining({ code: "character_dialogue", subject: "COURIER" }),
+        expect.objectContaining({ code: "transition", subject: "CUT TO:" }),
+      ]),
+    );
+    expect(imported.warnings.some((warning) => warning.includes("character_dialogue"))).toBe(true);
   });
 
   it("imports an external OTIO fixture and round-trips rational timebase through OTIO/OTIOZ", async () => {

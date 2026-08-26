@@ -42,6 +42,7 @@ import { useDirectorCreativeWorkspaceStore, type DirectorWorkspaceMode } from ".
 import { DccProviderBrowser } from "./DccProviderBrowser";
 import { EngineHandoffDock } from "./engines/EngineHandoffDock";
 import type { DirectorInterchangeImportResult } from "./contract";
+import type { DirectorFountainOmitted } from "./fountain";
 import type { DirectorGltfOmitted } from "./gltf";
 import { DIRECTOR_GLTF_OMITTED_CODES } from "./gltf";
 import type { DirectorMeshExportReport } from "./mesh";
@@ -51,6 +52,15 @@ type DirectorInterchangeFormat =
   "project" | "otio" | "otioz" | "fountain" | "gltf" | "glb" | "usda" | "usdz" | "obj" | "stl";
 
 type DirectorInterchangeFormatEntry = { id: DirectorInterchangeFormat; label: string; detail: string };
+
+const FOUNTAIN_OMIT_LABELS: Record<string, string> = {
+  character_dialogue: "对白未导入分镜",
+  boneyard_note: "旁注已跳过",
+  section_heading: "分节标题已跳过",
+  title_page_field: "标题页字段未导入",
+  invalid_marker: "无效镜头标记",
+  transition: "转场已跳过",
+};
 
 const GLTF_OMIT_LABELS: Record<(typeof DIRECTOR_GLTF_OMITTED_CODES)[number], string> = {
   embedded_manifest_invalid: "嵌入工程清单无效",
@@ -156,6 +166,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   const [importDragOver, setImportDragOver] = useState(false);
   const [meshExportScope, setMeshExportScope] = useState<"all" | "selection">("all");
   const [meshExportReport, setMeshExportReport] = useState<DirectorMeshExportReport | null>(null);
+  const [fountainOmitted, setFountainOmitted] = useState<DirectorFountainOmitted[]>([]);
   const [gltfOmitted, setGltfOmitted] = useState<DirectorGltfOmitted[]>([]);
   const [blendPackageDir, setBlendPackageDir] = useState("");
   const [blendManifest, setBlendManifest] = useState<DirectorBlendSceneManifestV1 | null>(null);
@@ -283,6 +294,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   async function importFile(file: File) {
     setBusy(true);
     note("busy", t("正在校验并导入交换文件…"));
+    setFountainOmitted([]);
     setGltfOmitted([]);
     try {
       const extension = extensionOf(file);
@@ -658,6 +670,30 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                 tabIndex={-1}
                 type="file"
               />
+              {fountainOmitted.length ? (
+                <section aria-label={t("Fountain 导入省略")} className="director-mesh-export-report">
+                  <div>
+                    <strong>{t("Fountain 导入省略")}</strong>
+                    <span>
+                      {fountainOmitted.length} {t("项结构化省略")}
+                    </span>
+                  </div>
+                  <ul aria-label={t("结构化省略")} className="director-interchange-list is-warning">
+                    {fountainOmitted.slice(0, 8).map((entry) => (
+                      <li key={`${entry.code}:${entry.subject}:${entry.reason}`}>
+                        <code>{entry.code}</code>
+                        {` · ${t(FOUNTAIN_OMIT_LABELS[entry.code] ?? entry.code)} · `}
+                        <span data-i18n-user-content title={entry.reason}>
+                          {entry.subject}
+                        </span>
+                      </li>
+                    ))}
+                    {fountainOmitted.length > 8 ? (
+                      <li className="director-interchange-more">+{fountainOmitted.length - 8}</li>
+                    ) : null}
+                  </ul>
+                </section>
+              ) : null}
               {gltfOmitted.length ? (
                 <section aria-label={t("glTF 导入省略")} className="director-mesh-export-report">
                   <div>

@@ -266,6 +266,7 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
         },
       ],
       importedLightCount: 2,
+      omittedLightCount: 1,
       omittedLights: [
         {
           directorId: "light_ambient_1",
@@ -284,8 +285,34 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
       expect.objectContaining({ directorId: "prop-glass", code: "unsupported_channels" }),
     ]);
     expect(result.report.importedLightCount).toBe(2);
+    expect(result.report.omittedLightCount).toBe(1);
     expect(result.report.omittedLights).toEqual([
       expect.objectContaining({ directorId: "light_ambient_1", lightType: "ambient" }),
+    ]);
+  });
+
+  it("returns typed omittedSkeletal records on the Unreal send report", async () => {
+    const harness = await createSendHarness({
+      omittedSkeletalCount: 2,
+      omittedSkeletal: [
+        {
+          directorId: "hero",
+          code: "character_unskinned",
+          reason: "Character hero references a GLB without a skin; it was imported without a skeleton (warn-and-omit).",
+        },
+        {
+          directorId: "prop-1",
+          code: "empty_actor",
+          reason:
+            "Object prop-1 references asset asset-missing that is not a GLB payload; spawned as an empty actor (warn-and-omit).",
+        },
+      ],
+    });
+    const result = await harness.send();
+    expect(result.report.omittedSkeletalCount).toBe(2);
+    expect(result.report.omittedSkeletal).toEqual([
+      expect.objectContaining({ directorId: "hero", code: "character_unskinned" }),
+      expect.objectContaining({ directorId: "prop-1", code: "empty_actor" }),
     ]);
   });
 
@@ -297,6 +324,20 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
           directorId: "prop-x",
           code: "no_mesh_target",
           reason: "Object prop-x has a Director material but no mesh component (warn-and-omit code: no_mesh_target).",
+        },
+      ],
+    });
+    await expect(harness.send()).rejects.toMatchObject({ code: "engine_report_invalid" });
+  });
+
+  it("fails the job when omittedLights length disagrees with omittedLightCount", async () => {
+    const harness = await createSendHarness({
+      omittedLightCount: 0,
+      omittedLights: [
+        {
+          directorId: "light_ambient_1",
+          lightType: "ambient",
+          reason: "Uniform ambient light has no single-actor Unreal equivalent (warn-and-omit).",
         },
       ],
     });

@@ -138277,6 +138277,16 @@ var directorUnrealOmittedMaterialSchema = external_exports.strictObject({
   code: directorUnrealOmittedMaterialCodeSchema,
   reason: external_exports.string().trim().min(1).max(600)
 });
+var directorUnrealOmittedSkeletalCodeSchema = external_exports.enum([
+  "skeleton_unavailable",
+  "character_unskinned",
+  "empty_actor"
+]);
+var directorUnrealOmittedSkeletalSchema = external_exports.strictObject({
+  directorId: external_exports.string().trim().min(1).max(200),
+  code: directorUnrealOmittedSkeletalCodeSchema,
+  reason: external_exports.string().trim().min(1).max(600)
+});
 var directorDccEngineReportSchema = external_exports.strictObject({
   ok: external_exports.literal(true),
   contract: external_exports.literal(DIRECTOR_DCC_ENGINE_REPORT_CONTRACT),
@@ -138310,10 +138320,26 @@ var directorDccEngineReportSchema = external_exports.strictObject({
    * older connectors; when present, length must equal omittedMaterialCount.
    */
   omittedMaterials: external_exports.array(directorUnrealOmittedMaterialSchema).max(1024).optional(),
+  /**
+   * Unreal-only: skeletal warn-and-omit count. Optional for connectors before
+   * 0.4.2; when omittedSkeletal is present, length must equal this count.
+   */
+  omittedSkeletalCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Unreal-only: typed skeletal omit records (`skeleton_unavailable`,
+   * `character_unskinned`, `empty_actor`). Optional for older connectors;
+   * when present, length must equal omittedSkeletalCount.
+   */
+  omittedSkeletal: external_exports.array(directorUnrealOmittedSkeletalSchema).max(1024).optional(),
   /** Unreal-only: number of bundled texture files imported and bound to material-instance texture parameters. */
   appliedTextureCount: external_exports.number().int().nonnegative().optional(),
   /** Unreal-only: Director lights spawned as Unreal light actors tagged `director_light_id:` (not `director_id`). */
   importedLightCount: external_exports.number().int().nonnegative().optional(),
+  /**
+   * Unreal-only: light warn-and-omit count. Optional for connectors before
+   * 0.4.2; when omittedLights is present, length must equal this count.
+   */
+  omittedLightCount: external_exports.number().int().nonnegative().max(1e5).optional(),
   /** Unreal-only: Director lights the connector declined to spawn (warn-and-omit). */
   omittedLights: external_exports.array(directorUnrealOmittedLightSchema).max(1024).optional(),
   /** Unreal-only: pose/rig channels the bake omitted, echoed from the verified sidecar. */
@@ -138349,6 +138375,36 @@ var directorDccEngineReportSchema = external_exports.strictObject({
         code: "custom",
         path: ["omittedMaterials"],
         message: "omittedMaterials length must equal omittedMaterialCount"
+      });
+    }
+  }
+  if (report.omittedSkeletal !== void 0) {
+    if (report.omittedSkeletalCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedSkeletalCount"],
+        message: "omittedSkeletalCount is required when omittedSkeletal is present"
+      });
+    } else if (report.omittedSkeletal.length !== report.omittedSkeletalCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedSkeletal"],
+        message: "omittedSkeletal length must equal omittedSkeletalCount"
+      });
+    }
+  }
+  if (report.omittedLights !== void 0) {
+    if (report.omittedLightCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedLightCount"],
+        message: "omittedLightCount is required when omittedLights is present"
+      });
+    } else if (report.omittedLights.length !== report.omittedLightCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedLights"],
+        message: "omittedLights length must equal omittedLightCount"
       });
     }
   }
