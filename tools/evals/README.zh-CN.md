@@ -61,7 +61,7 @@ npm run eval:reference
 5. 启动无头 Chromium 并导航到 `http://127.0.0.1:5199`。
 6. 按文件名顺序读取 `tasks/*.json`,逐个执行步骤。
 7. 每个步骤向 `POST /api/tools/<step.tool>` 发送 JSON,验证响应是否匹配预期
-   （`success`、`code`、`error_includes`、`result_paths`）。
+   （`success`、`code`、`error_includes`、`result_paths`、`result_equals`）。
 8. 汇总通过/失败计数,退出码反映结果。
 
 ## 任务格式
@@ -70,11 +70,16 @@ npm run eval:reference
 （`eval-<name>-<timestamp>`）按顺序运行。步骤按顺序执行,遇到第一个失败即停止。
 
 每个步骤都通过 `tool` 指定一个公开工具:`director_workbench`、`director_creative`、
-`stage_video`、`blender_native` 或 `director_dcc`。在启动隔离浏览器前,任务 schema 测试会先用
-对应工具的严格合同校验所有预期成功的输入。
+`stage_video`、`blender_native`、`director_dcc` 或 `director_game`。在启动隔离浏览器前,任务 schema 测试会先用
+对应工具的严格合同校验所有预期成功的输入。游戏切片任务（`12`–`16`）覆盖规划/绑定/试玩、
+导出到 `director_dcc` 的路由、未绑定拒绝、无内联 `trace` 的 host-free playtest,以及
+harness 与代码生成的诚实契约（Stage 是默认运行时;`export_slice` 拒绝生成引擎代码）。这些诚实
+断言背后的对比记录在 `docs/site/src/content/docs/zh/research/game-harness-vs-codegen.md`。
 
 `result_paths` 是针对整个 JSON 响应体解析的点号路径（数组按数字索引,如
 `result.issues.0`）;当解析到的值既不是 `undefined` 也不是 `null` 时路径通过。
+`result_equals` 把相同的点号路径映射到精确的预期 JSON 值,用于"存在还不够"的断言
+（例如 `runtime.default` 必须等于 `"stage"`,而非仅存在）。
 `expect.success: false` 的步骤在校验边界按预期报错时通过,与 HTTP 状态码无关。
 运行器是通用的——只需将新 JSON 文件放入 `tasks/` 即可添加任务。
 
@@ -103,3 +108,4 @@ possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角�
 | `tasks/14-game-slice-unbound-playtest-rejects.json` | 验证未绑定玩家角色时 playtest 被拒绝                                   |
 | `tasks/14-world-systems-observation.json`        | 设置 Living World 天气/风并添加一个效果,验证 `world` 观察投影            |
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | 无显式 trace 的 host-free playtest 评分                            |
+| `tasks/16-game-harness-vs-codegen-honesty.json`  | harness vs 代码生成诚实性:capabilities 报告 `runtime.default = "stage"`,`export_slice` 在可玩回执之前（`game_export_not_playable`）与之后（`game_export_via_dcc`）都拒绝代码生成 |
