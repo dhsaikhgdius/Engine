@@ -51,7 +51,9 @@ curl -X POST "$GATEWAY_URL/api/collab/invites" \
 吊销只在当前进程内生效，随网关一起消失——若 `DIRECTOR_COLLAB_INVITE_SECRET` 稳定，被"吊销"的
 邀请在重启后会再次生效，因此 `persisted: false` 是需要处理的事项，不是脚注。吊销也会立即结束
 在线会话，而不只是拒绝未来加入：已用被吊销邀请连接的成员会收到永久性 `unauthorized` 错误并被
-踢出，吊销响应中的 `disconnected_peers` / `disconnected_rooms` 如实报告实时影响范围。日常运维方面：
+踢出，吊销响应中的 `disconnected_peers` / `disconnected_rooms` 如实报告实时影响范围。邀请过期
+同样约束在线会话：已加入成员的邀请一到 `expires_at` 就会被同样的永久性 `unauthorized` 错误
+踢出，短时效邀请绝不会变成无限期的在线成员资格。日常运维方面：
 `GET /api/collab/rooms` 报告成员计数、快照年龄、隔离区计数、鉴权模式，以及吊销是否持久
 （`invite_revocations.durable`）；`GET /api/collab/rooms/quarantine?room=…` 列出某房间被隔离的
 损坏更新（条目在读取时会重新校验）；`POST /api/collab/rooms/close`（可选 `"archive": true`）

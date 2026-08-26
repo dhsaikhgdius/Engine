@@ -39,6 +39,28 @@ function binaryMessage(
   return { type, room, payload: encodeDirectorCollaborationGatewayPayload(payload)! };
 }
 
+function fakeTimers() {
+  const pending = new Map<number, () => void>();
+  let nextId = 1;
+  return {
+    pending,
+    setTimer(callback: () => void) {
+      const id = nextId++;
+      pending.set(id, callback);
+      return id as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimer(timer: ReturnType<typeof setTimeout>) {
+      pending.delete(timer as unknown as number);
+    },
+    fire() {
+      for (const [id, callback] of [...pending]) {
+        pending.delete(id);
+        callback();
+      }
+    },
+  };
+}
+
 describe("DirectorCollaborationWebSocketHub", () => {
   it("routes Yjs updates only to peers in the same room and never echoes to the sender", () => {
     const hub = new DirectorCollaborationWebSocketHub();
@@ -183,28 +205,6 @@ describe("DirectorCollaborationWebSocketHub", () => {
 });
 
 describe("DirectorCollaborationWebSocketHub room lifecycle policy", () => {
-  function fakeTimers() {
-    const pending = new Map<number, () => void>();
-    let nextId = 1;
-    return {
-      pending,
-      setTimer(callback: () => void) {
-        const id = nextId++;
-        pending.set(id, callback);
-        return id as unknown as ReturnType<typeof setTimeout>;
-      },
-      clearTimer(timer: ReturnType<typeof setTimeout>) {
-        pending.delete(timer as unknown as number);
-      },
-      fire() {
-        for (const [id, callback] of [...pending]) {
-          pending.delete(id);
-          callback();
-        }
-      },
-    };
-  }
-
   it("closes a room explicitly: peers receive room_closed, memberships end, and the document is destroyed", () => {
     const hub = new DirectorCollaborationWebSocketHub();
     const first = socket();
@@ -614,6 +614,184 @@ describe("DirectorCollaborationWebSocketHub room authorization", () => {
     viewerDoc.destroy();
     editorDoc.destroy();
     received.destroy();
+    hub.destroy();
+  });
+});
+
+describe("DirectorCollaborationWebSocketHub invite expiry enforcement", () => {
+  const SECRET = "invite-expiry-hub-secret";
+
+  function expiryHub(clock: { value: number }, timers: ReturnType<typeof fakeTimers>) {
+    const now = () => clock.value;
+    return new DirectorCollaborationWebSocketHub({
+      authorizer: createCollaborationRoomAuthorizer({ secret: SECRET, mode: "required", now }),
+      now,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+  }
+
+  it("ejects a live peer the moment its invite expires, mirroring the rejoin denial", () => {
+    const clock = { value: 1_700_000_000_000 };
+    const timers = fakeTimers();
+    const hub = expiryHub(clock, timers);
+    const now = () => clock.value;
+    const shortLived = socket();
+    const survivor = socket();
+    hub.handle(shortLived, {
+      type: "collab.join",
+      room: "timed-room",
+      awareness_client_id: 111,
+      invite_token: mintCollaborationInviteToken({
+        secret: SECRET,
+        room: "timed-room",
+        role: "editor",
+        ttlSeconds: 60,
+        now,
+      }).token,
+    });
+    hub.handle(survivor, {
+      type: "collab.join",
+      room: "timed-room",
+      awareness_client_id: 112,
+      invite_token: mintCollaborationInviteToken({
+        secret: SECRET,
+        room: "timed-room",
+        role: "editor",
+        ttlSeconds: 3_600,
+        now,
+      }).token,
+    });
+    shortLived.sent.length = 0;
+    survivor.sent.length = 0;
+    // One deadline timer covers the earliest live expiry.
+    expect(timers.pending.size).toBe(1);
+
+    clock.value += 60_001;
+    timers.fire();
+    expect(messages(shortLived).at(-1)).toMatchObject({
+      type: "collab.error",
+      code: "unauthorized",
+      room: "timed-room",
+      message: "The collaboration invite token has expired.",
+    });
+    expect(hub.peerCount("timed-room")).toBe(1);
+    expect(messages(survivor)).toHaveLength(0);
+
+    // The ejected peer lost its membership and must present a fresh invite.
+    const doc = new Y.Doc();
+    doc.getMap("scene").set("late", true);
+    hub.handle(shortLived, binaryMessage("collab.document-update", "timed-room", Y.encodeStateAsUpdate(doc)));
+    expect(messages(shortLived).at(-1)).toMatchObject({ type: "collab.error", code: "join_required" });
+
+    // The timer re-arms for the surviving invite and clears when it leaves.
+    expect(timers.pending.size).toBe(1);
+    hub.disconnect(survivor);
+    expect(timers.pending.size).toBe(0);
+    doc.destroy();
+    hub.destroy();
+  });
+
+  it("an early enforcement pass ejects nothing and stays armed for the real expiry", () => {
+    const clock = { value: 1_700_000_000_000 };
+    const timers = fakeTimers();
+    const hub = expiryHub(clock, timers);
+    const peer = socket();
+    hub.handle(peer, {
+      type: "collab.join",
+      room: "timed-room",
+      awareness_client_id: 113,
+      invite_token: mintCollaborationInviteToken({
+        secret: SECRET,
+        room: "timed-room",
+        role: "editor",
+        ttlSeconds: 60,
+        now: () => clock.value,
+      }).token,
+    });
+    clock.value += 30_000;
+    expect(hub.enforceInviteExpiries()).toEqual({ disconnectedPeers: 0, rooms: [] });
+    expect(hub.peerCount("timed-room")).toBe(1);
+    expect(timers.pending.size).toBe(1);
+    clock.value += 30_001;
+    expect(hub.enforceInviteExpiries()).toEqual({ disconnectedPeers: 1, rooms: ["timed-room"] });
+    expect(hub.peerCount("timed-room")).toBe(0);
+    hub.destroy();
+  });
+
+  it("a same-socket rejoin with a fresh invite extends the live session past the original expiry", () => {
+    const clock = { value: 1_700_000_000_000 };
+    const timers = fakeTimers();
+    const hub = expiryHub(clock, timers);
+    const now = () => clock.value;
+    const peer = socket();
+    hub.handle(peer, {
+      type: "collab.join",
+      room: "timed-room",
+      awareness_client_id: 114,
+      invite_token: mintCollaborationInviteToken({
+        secret: SECRET,
+        room: "timed-room",
+        role: "editor",
+        ttlSeconds: 60,
+        now,
+      }).token,
+    });
+    hub.handle(peer, {
+      type: "collab.join",
+      room: "timed-room",
+      awareness_client_id: 114,
+      invite_token: mintCollaborationInviteToken({
+        secret: SECRET,
+        room: "timed-room",
+        role: "editor",
+        ttlSeconds: 3_600,
+        now,
+      }).token,
+    });
+    peer.sent.length = 0;
+
+    clock.value += 60_001;
+    timers.fire();
+    expect(messages(peer)).toHaveLength(0);
+    expect(hub.peerCount("timed-room")).toBe(1);
+    // The early fire re-armed for the refreshed invite's expiry.
+    expect(timers.pending.size).toBe(1);
+    hub.destroy();
+  });
+
+  it("never expires local-trust memberships and arms no timer for them", () => {
+    const timers = fakeTimers();
+    const hub = new DirectorCollaborationWebSocketHub({ setTimer: timers.setTimer, clearTimer: timers.clearTimer });
+    const peer = socket();
+    hub.handle(peer, { type: "collab.join", room: "trusted-room", awareness_client_id: 115 });
+    expect(timers.pending.size).toBe(0);
+    expect(hub.enforceInviteExpiries()).toEqual({ disconnectedPeers: 0, rooms: [] });
+    expect(hub.peerCount("trusted-room")).toBe(1);
+    hub.destroy();
+  });
+
+  it("chains expiries beyond the 32-bit timer cap without ejecting early", () => {
+    const clock = { value: 1_700_000_000_000 };
+    const timers = fakeTimers();
+    const hub = expiryHub(clock, timers);
+    const peer = socket();
+    hub.handle(peer, {
+      type: "collab.join",
+      room: "timed-room",
+      awareness_client_id: 116,
+      invite_token: mintCollaborationInviteToken({
+        secret: SECRET,
+        room: "timed-room",
+        role: "editor",
+        ttlSeconds: 30 * 24 * 60 * 60,
+        now: () => clock.value,
+      }).token,
+    });
+    // The clamped timer fires before the real expiry, ejects nothing, and re-arms.
+    timers.fire();
+    expect(hub.peerCount("timed-room")).toBe(1);
+    expect(timers.pending.size).toBe(1);
     hub.destroy();
   });
 });
