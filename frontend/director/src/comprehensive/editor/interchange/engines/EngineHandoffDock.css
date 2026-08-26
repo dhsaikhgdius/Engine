@@ -1,0 +1,587 @@
+/* 「DCC / 引擎交接」工作台:复用交换菜单的既有设计令牌,窄面板优先。 */
+
+.director-engine-handoff-dock {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.director-engine-handoff-dock-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.director-engine-handoff-dock-heading > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.director-engine-handoff-dock-heading strong {
+  color: rgb(var(--text-rgb));
+  font-size: var(--interchange-section-size, 11px);
+  font-weight: 650;
+  line-height: 15px;
+}
+
+.director-engine-handoff-dock-heading span {
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 13px;
+}
+
+.director-engine-handoff-dock .is-spinning {
+  animation: director-engine-handoff-spin 0.8s linear infinite;
+}
+
+.director-engine-handoff-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.director-engine-handoff-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 999px;
+  color: rgb(var(--text-muted-rgb));
+  background: rgb(var(--field-rgb) / 0.4);
+  font-size: var(--interchange-control-size, 10.5px);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.director-engine-handoff-tabs button:hover:not(.is-active) {
+  border-color: rgb(var(--border-rgb) / 0.18);
+  color: rgb(var(--text-rgb));
+}
+
+.director-engine-handoff-tabs button.is-active {
+  border-color: rgb(var(--accent-rgb) / 0.38);
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--accent-rgb) / 0.12);
+}
+
+.director-engine-handoff-tab-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 999px;
+  background: rgb(var(--text-dim-rgb));
+}
+
+.director-engine-handoff-tab-dot[data-state="native"] {
+  background: rgb(var(--director-positive-rgb, 104 206 126));
+}
+
+.director-engine-handoff-tab-dot[data-state="exchange"] {
+  background: rgb(var(--accent-rgb));
+}
+
+.director-engine-handoff-panel {
+  min-width: 0;
+}
+
+.director-engine-handoff-detail {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.director-engine-handoff-block {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 8px;
+  background: rgb(var(--field-rgb) / 0.24);
+}
+
+.director-engine-handoff-block-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.director-engine-handoff-block-heading strong {
+  color: rgb(var(--text-rgb));
+  font-size: var(--interchange-section-size, 11px);
+  font-weight: 650;
+  line-height: 14px;
+}
+
+.director-engine-handoff-block-heading small {
+  min-width: 0;
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 12px;
+  text-align: right;
+}
+
+.director-engine-handoff-readiness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.director-engine-handoff-readiness span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.director-engine-handoff-readiness .is-ready,
+.director-engine-handoff-receipt-heading .is-ready {
+  border-color: rgb(var(--director-positive-rgb, 104 206 126) / 0.18);
+  color: rgb(var(--director-positive-rgb, 104 206 126));
+  background: rgb(var(--director-positive-rgb, 104 206 126) / 0.1);
+}
+
+.director-engine-handoff-readiness .is-unavailable {
+  border-color: rgb(var(--border-rgb) / 0.1);
+  color: rgb(var(--text-dim-rgb));
+  background: rgb(var(--field-rgb) / 0.55);
+}
+
+.director-engine-handoff-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.director-engine-handoff-capabilities li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 999px;
+  color: rgb(var(--text-muted-rgb));
+  background: rgb(var(--field-rgb) / 0.5);
+  font-size: 9.5px;
+  line-height: 1.3;
+}
+
+.director-engine-handoff-capabilities li em {
+  font-style: normal;
+  font-weight: 650;
+}
+
+.director-engine-handoff-capabilities li[data-level="native"] em {
+  color: rgb(var(--director-positive-rgb, 104 206 126));
+}
+
+.director-engine-handoff-capabilities li[data-level="exchange"] em {
+  color: rgb(var(--accent-rgb));
+}
+
+.director-engine-handoff-capabilities li[data-level="planned"] em {
+  color: rgb(var(--text-dim-rgb));
+}
+
+.director-engine-handoff-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 4px 8px;
+  margin: 0;
+}
+
+.director-engine-handoff-facts > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.director-engine-handoff-facts dt {
+  color: rgb(var(--text-dim-rgb));
+  font-size: 9px;
+  line-height: 12px;
+}
+
+.director-engine-handoff-facts dd {
+  overflow: hidden;
+  margin: 0;
+  color: rgb(var(--text-rgb));
+  font-size: var(--interchange-body-size, 10.5px);
+  font-weight: 600;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.director-engine-handoff-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.4;
+}
+
+.director-engine-handoff-list li {
+  overflow-wrap: anywhere;
+  padding-left: 10px;
+  position: relative;
+}
+
+.director-engine-handoff-list li::before {
+  content: "·";
+  position: absolute;
+  left: 2px;
+}
+
+.director-engine-handoff-list.is-warning {
+  color: rgb(var(--director-warning-rgb, 226 178 94));
+}
+
+.director-engine-handoff-list.is-danger {
+  color: rgb(var(--director-danger-rgb, 230 96 96));
+}
+
+.director-engine-handoff-more {
+  color: rgb(var(--text-dim-rgb));
+}
+
+.director-engine-handoff-omit-detail {
+  display: block;
+  overflow: hidden;
+  color: rgb(var(--text-dim-rgb));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.director-engine-handoff-empty,
+.director-engine-handoff-hint {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 7px;
+  color: rgb(var(--text-muted-rgb));
+  background: rgb(var(--field-rgb) / 0.28);
+  font-size: var(--interchange-body-size, 10.5px);
+  line-height: 1.4;
+}
+
+.director-engine-handoff-error {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid rgb(var(--director-danger-rgb, 230 96 96) / 0.2);
+  border-radius: 7px;
+  color: rgb(var(--director-danger-rgb, 230 96 96));
+  background: rgb(var(--field-rgb) / 0.28);
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.director-engine-handoff-error p {
+  margin: 0;
+}
+
+.director-engine-handoff-notes {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.4;
+}
+
+.director-engine-handoff-notes li {
+  overflow-wrap: anywhere;
+  padding-left: 10px;
+  position: relative;
+}
+
+.director-engine-handoff-notes li::before {
+  content: "·";
+  position: absolute;
+  left: 2px;
+}
+
+.director-engine-handoff-opt-in {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.4;
+}
+
+.director-engine-handoff-opt-in input {
+  margin-top: 1px;
+}
+
+.director-engine-handoff-send,
+.director-engine-handoff-apply {
+  display: inline-flex;
+  width: 100%;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgb(var(--director-positive-rgb, 104 206 126) / 0.22);
+  border-radius: 7px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--director-positive-rgb, 104 206 126) / 0.08);
+  font-size: var(--interchange-control-size, 10.5px);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.director-engine-handoff-send:hover:not(:disabled),
+.director-engine-handoff-apply:hover:not(:disabled) {
+  border-color: rgb(var(--director-positive-rgb, 104 206 126) / 0.38);
+  background: rgb(var(--director-positive-rgb, 104 206 126) / 0.14);
+}
+
+.director-engine-handoff-send:disabled,
+.director-engine-handoff-apply:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.director-engine-handoff-receipt {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 7px;
+  background: rgb(var(--field-rgb) / 0.3);
+}
+
+.director-engine-handoff-receipt-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.director-engine-handoff-receipt-heading > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.director-engine-handoff-receipt-heading small {
+  overflow: hidden;
+  min-width: 0;
+  color: rgb(var(--text-dim-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.director-engine-handoff-receipt-extra {
+  display: grid;
+  gap: 6px;
+}
+
+.director-engine-handoff-clean-frame {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 7px;
+  color: rgb(var(--text-muted-rgb));
+  background: rgb(var(--field-rgb) / 0.4);
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.35;
+}
+
+.director-engine-handoff-clean-frame[data-status="rendered"] {
+  border-color: rgb(var(--director-positive-rgb, 104 206 126) / 0.2);
+  color: rgb(var(--director-positive-rgb, 104 206 126));
+}
+
+.director-engine-handoff-clean-frame[data-status="skipped"] {
+  border-color: rgb(var(--director-warning-rgb, 226 178 94) / 0.2);
+  color: rgb(var(--director-warning-rgb, 226 178 94));
+}
+
+.director-engine-handoff-return-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.director-engine-handoff-return-controls input {
+  min-width: 0;
+  flex: 1 1 140px;
+}
+
+.director-engine-handoff-plan {
+  display: grid;
+  gap: 5px;
+}
+
+.director-engine-handoff-plan > span {
+  justify-self: start;
+  padding: 2px 7px;
+  border: 1px solid rgb(var(--director-warning-rgb, 226 178 94) / 0.24);
+  border-radius: 999px;
+  color: rgb(var(--director-warning-rgb, 226 178 94));
+  background: rgb(var(--director-warning-rgb, 226 178 94) / 0.1);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.director-engine-handoff-plan > span[data-ready="true"] {
+  border-color: rgb(var(--director-positive-rgb, 104 206 126) / 0.24);
+  color: rgb(var(--director-positive-rgb, 104 206 126));
+  background: rgb(var(--director-positive-rgb, 104 206 126) / 0.1);
+}
+
+.director-engine-handoff-plan > p {
+  margin: 0;
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.4;
+}
+
+.director-engine-handoff-applied {
+  color: rgb(var(--director-positive-rgb, 104 206 126));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.4;
+}
+
+.director-engine-handoff-live {
+  display: grid;
+  gap: 6px;
+}
+
+.director-engine-handoff-live-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.director-engine-handoff-live-toolbar > button:not(.ui-icon-button) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  border-radius: 7px;
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--accent-rgb) / 0.08);
+  font-size: var(--interchange-control-size, 10.5px);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.director-engine-handoff-live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.director-engine-handoff-live-status[data-status="connected"] {
+  color: rgb(var(--director-positive-rgb, 104 206 126));
+}
+
+.director-engine-handoff-live-status[data-status="idle"] {
+  color: rgb(var(--director-warning-rgb, 226 178 94));
+}
+
+.director-engine-handoff-live-status[data-status="disconnected"],
+.director-engine-handoff-live-status[data-status="unobservable"] {
+  color: rgb(var(--text-dim-rgb));
+}
+
+.director-engine-handoff-sessions {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.director-engine-handoff-sessions li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid rgb(var(--border-rgb) / 0.1);
+  border-radius: 7px;
+  background: rgb(var(--field-rgb) / 0.35);
+  color: rgb(var(--text-muted-rgb));
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.35;
+}
+
+.director-engine-handoff-sessions li small {
+  color: rgb(var(--text-dim-rgb));
+}
+
+.director-engine-handoff-token {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid rgb(var(--director-warning-rgb, 226 178 94) / 0.24);
+  border-radius: 7px;
+  color: rgb(var(--director-warning-rgb, 226 178 94));
+  background: rgb(var(--director-warning-rgb, 226 178 94) / 0.08);
+  font-size: var(--interchange-meta-size, 9.5px);
+  line-height: 1.4;
+}
+
+.director-engine-handoff-token svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.director-engine-handoff-token p {
+  margin: 0 0 3px;
+}
+
+.director-engine-handoff-token code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: rgb(var(--text-rgb));
+  font-size: 10px;
+  user-select: all;
+}
+
+@keyframes director-engine-handoff-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

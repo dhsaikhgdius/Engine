@@ -189,6 +189,14 @@ Stage 验收与 provider-neutral 证据使用 `director_workbench` 的 `shot_ir`
 `apply_import_plan` 在 Director 官方连接器 `nativeReady` 时跑 Unreal/Unity/Godot 无头往返。就绪门槛
 与未就绪结构化诊断见[多 DCC 集成](/engineering/multi_dcc_integration/)。
 
+编辑器侧，同一组操作汇聚在交换菜单的「DCC / 引擎交接」工作台（Blender / Unreal /
+Unity / Godot 四个标签页）：来自实时提供方目录的诚实能力芯片、带恢复步骤的连接器健康、
+无头发送与各引擎回执（Unreal Sequencer 时基与 `clean_frame` rendered/skipped、Unity
+Timeline/Avatar 烘焙、Godot AnimationPlayer/镜头切换计数与 WorldEnvironment 环境光）、
+结构化省略通道列表、需显式审阅确认的回传干跑预览，以及绝不宣称写入工程的仅预览
+实时链路状态。Blender 标签页挂载既有实时面板；`.blend` 导入与 `include_new_objects`
+回传选项仍在菜单原有区块中。
+
 ## 往返检查表
 
 1. 记录源项目 revision/fingerprint。

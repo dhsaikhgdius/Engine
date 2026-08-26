@@ -214,6 +214,17 @@ Unreal/Unity/Godot round trip when the Director-authored connector is `nativeRea
 See [Multi-DCC Integration](/engineering/multi_dcc_integration/) for the engine
 readiness bar and structured not-ready diagnostics.
 
+In the editor, the same operations surface in the interchange menu's
+"DCC / engine handoff" dock (Blender / Unreal / Unity / Godot tabs): honest
+capability chips from the live provider catalog, connector health with recovery
+steps, headless send with per-engine receipts (Unreal Sequencer timebase and
+`clean_frame` rendered/skipped, Unity Timeline/Avatar bake, Godot
+AnimationPlayer/shot-cut counts and WorldEnvironment ambient), structured
+omitted-channel lists, dry-run return previews behind an explicit review
+confirmation, and preview-only live-link status that never claims to write the
+project. The Blender tab mounts the existing live panel; `.blend` import and
+the `include_new_objects` return opt-in stay in their existing menu sections.
+
 ## Round-trip checklist
 
 1. Record the source project revision/fingerprint.

@@ -1,6 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
-import { directorDccOperationSchema, type DirectorDccEngineId } from "@director/dcc-protocol";
+import {
+  directorDccEngineIdSchema,
+  directorDccOperationSchema,
+  type DirectorDccEngineId,
+} from "@director/dcc-protocol";
 import { safeParseDirectorProject } from "@director/project-schema";
 import { directorEngineSceneProviderSchema } from "@director/dcc-protocol";
 import type { BlenderBridge } from "../dcc/blenderBridge";
@@ -287,6 +291,35 @@ export async function handleDccRoute(
       return true;
     }
     json(response, 200, { success: true, result: await providers.discover() });
+    return true;
+  }
+  // Read-only engine connector health: the same versioned probe that gates
+  // send_to_engine, exposed so the editor can render connector version,
+  // warnings, and recovery steps without triggering a failing send.
+  const engineHealthMatch = url.pathname.match(/^\/api\/dcc\/engines\/([^/]+)\/health$/);
+  if (engineHealthMatch) {
+    if (request.method !== "GET") {
+      json(response, 405, { success: false, error: "Engine connector health requires GET." });
+      return true;
+    }
+    if (!engineBridge) {
+      json(response, 503, {
+        success: false,
+        code: "engine_bridge_unavailable",
+        error: "The DCC engine bridge is not configured on this gateway.",
+      });
+      return true;
+    }
+    const parsedEngineId = directorDccEngineIdSchema.safeParse(decodeURIComponent(engineHealthMatch[1] ?? ""));
+    if (!parsedEngineId.success) {
+      json(response, 400, {
+        success: false,
+        code: "engine_provider_invalid",
+        error: "Engine connector health supports the unreal, unity, and godot providers.",
+      });
+      return true;
+    }
+    json(response, 200, { success: true, result: await engineBridge.health(parsedEngineId.data) });
     return true;
   }
   // Godot live-link preview transport. Godot never listens on a port: the

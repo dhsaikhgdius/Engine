@@ -196,6 +196,7 @@ const sendToEngineInputSchema = z.strictObject({
   formats: z.array(directorDccPortableExchangeFormatSchema).min(1).max(2).optional(),
   cameraId: z.string().trim().min(1).max(160).optional(),
   frame: z.number().finite().nonnegative().optional(),
+  cleanFrame: z.boolean().optional(),
 });
 
 /** Input shape for a headless send-to-engine handoff. */
@@ -208,6 +209,12 @@ export interface DirectorDccEngineSendRequest {
   cameraId?: string;
   /** Optional frame number to snapshot at. */
   frame?: number;
+  /**
+   * Unreal-only: also render one best-effort clean still (no gizmos or
+   * labels) and attach its receipt (`rendered` with a hash-pinned image, or
+   * `skipped` with a reason — a skip never fails the handoff).
+   */
+  cleanFrame?: boolean;
 }
 
 /**
@@ -237,6 +244,7 @@ export async function sendDirectorProjectToEngine(
         ...(request.formats ? { formats: request.formats } : {}),
         ...(request.cameraId ? { camera_id: request.cameraId } : {}),
         ...(request.frame !== undefined ? { frame: request.frame } : {}),
+        ...(request.cleanFrame !== undefined ? { clean_frame: request.cleanFrame } : {}),
       },
     }),
     signal: options.signal,
