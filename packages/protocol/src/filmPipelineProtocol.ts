@@ -17,6 +17,59 @@ const shotIndex = z.number().int().min(0).max(4_096);
 /** Durable identifier for a film run; carries the `film-` prefix for namespace partitioning. */
 export const filmRunIdSchema = z.string().regex(/^film-[a-z0-9-]{8,64}$/i);
 
+/**
+ * Frozen public error codes of the film HTTP surface (`/api/film/runs*`).
+ * Every non-2xx film route response carries exactly one of these codes;
+ * agents may branch on them, so the list only ever grows.
+ */
+export const FILM_PIPELINE_PUBLIC_ERROR_CODES = [
+  "film_pipeline_unconfigured",
+  "invalid_request",
+  "invalid_run_id",
+  "run_not_found",
+] as const;
+/** One frozen public film HTTP error code. */
+export type FilmPipelinePublicErrorCode = (typeof FILM_PIPELINE_PUBLIC_ERROR_CODES)[number];
+
+/**
+ * Stable public classification of why a stored film run failed. Persisted on
+ * the run document next to the free-text `error` so agents can branch without
+ * parsing provider messages.
+ */
+export const filmRunErrorCodeSchema = z.enum([
+  /** The owning gateway process exited while the run was queued or running. */
+  "film_run_interrupted",
+  /** A hosted LLM/image/video provider call failed. */
+  "film_provider_error",
+  /** Any other execution failure (planning validation, ffmpeg, filesystem, …). */
+  "film_run_error",
+]);
+/** Stable film run failure classification. */
+export type FilmRunErrorCode = z.infer<typeof filmRunErrorCodeSchema>;
+
+/**
+ * Classifies one execution failure into the stable public film run error
+ * code. Provider transport failures are detected by error name so the
+ * protocol package stays free of provider-runtime imports.
+ */
+export function classifyFilmRunError(error: unknown): FilmRunErrorCode {
+  return error instanceof Error && error.name === "ModelDriverHttpError" ? "film_provider_error" : "film_run_error";
+}
+
+/**
+ * Reported configuration state of the film pipeline. An unconfigured
+ * pipeline is an explicit reported state on the list surface — existing runs
+ * stay readable and cancellable while create/resume/approve are refused.
+ */
+export const filmPipelineAvailabilitySchema = z.strictObject({
+  /** True when the planning LLM plus image and video providers are configured. */
+  configured: z.boolean(),
+  /** Missing-config diagnostic (a reported state, not an error); null when configured. */
+  reason: z.string().max(500).nullable(),
+});
+/** Reported film pipeline configuration state. */
+export type FilmPipelineAvailability = z.infer<typeof filmPipelineAvailabilitySchema>;
+
 // ---------------------------------------------------------------------------
 // Planning artifacts
 // ---------------------------------------------------------------------------
@@ -200,6 +253,46 @@ export const filmRunEventSchema = z.strictObject({
   message: nonEmptyText(2_000),
 });
 
+/**
+ * Durable receipt for one entry into a pipeline phase: when work in that
+ * phase started and, once the run moved on (or terminated), when it ended.
+ * A resumed run opens a fresh receipt for the phase it re-enters, so the
+ * receipts read as the actual wall-clock history of the run.
+ */
+export const filmRunPhaseReceiptSchema = z.strictObject({
+  phase: filmRunPhaseSchema,
+  startedAt: z.string(),
+  /** Null while the run is still inside the phase. */
+  finishedAt: z.string().nullable().default(null),
+});
+/** One durable phase receipt. */
+export type FilmRunPhaseReceipt = z.infer<typeof filmRunPhaseReceiptSchema>;
+
+/** Bounded phase-receipt window; oldest receipts are dropped past this. */
+export const FILM_RUN_PHASE_RECEIPT_LIMIT = 64;
+
+/**
+ * Closes every open phase receipt at the given timestamp. Idempotent:
+ * receipts that already carry a `finishedAt` are returned unchanged.
+ */
+export function closeFilmRunPhaseReceipts(receipts: readonly FilmRunPhaseReceipt[], at: string): FilmRunPhaseReceipt[] {
+  return receipts.map((receipt) => (receipt.finishedAt === null ? { ...receipt, finishedAt: at } : receipt));
+}
+
+/**
+ * Opens a receipt for a newly entered phase, closing any receipt still open
+ * and keeping the window bounded to {@link FILM_RUN_PHASE_RECEIPT_LIMIT}.
+ */
+export function openFilmRunPhaseReceipt(
+  receipts: readonly FilmRunPhaseReceipt[],
+  phase: FilmRunPhase,
+  at: string,
+): FilmRunPhaseReceipt[] {
+  return [...closeFilmRunPhaseReceipts(receipts, at), { phase, startedAt: at, finishedAt: null }].slice(
+    -FILM_RUN_PHASE_RECEIPT_LIMIT,
+  );
+}
+
 /** The durable run document: immutable identity, current state, input, and all phase artifacts. */
 export const filmRunSchema = z.strictObject({
   version: z.literal(1),
@@ -217,8 +310,12 @@ export const filmRunSchema = z.strictObject({
   timelinePath: z.string().nullable().default(null),
   approvedAt: z.string().nullable().default(null),
   error: z.string().nullable().default(null),
+  /** Stable classification of `error`; null when the run carries no error. */
+  errorCode: filmRunErrorCodeSchema.nullable().default(null),
   /** Bounded progress log; oldest entries are dropped past 200. */
   events: z.array(filmRunEventSchema).max(200).default([]),
+  /** Durable per-phase execution receipts, oldest first; bounded window. */
+  phaseReceipts: z.array(filmRunPhaseReceiptSchema).max(FILM_RUN_PHASE_RECEIPT_LIMIT).default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -283,6 +380,19 @@ export type FilmRun = z.infer<typeof filmRunSchema>;
 export type CreateFilmRunRequest = z.infer<typeof createFilmRunRequestSchema>;
 /** Pre-parse request shape: optional fields may be omitted by callers. */
 export type CreateFilmRunRequestInput = z.input<typeof createFilmRunRequestSchema>;
+
+/**
+ * Fractional completion of a film run in [0, 1], or null when the phase is
+ * unknown. Phases advance sequentially, so the fraction of completed phases
+ * is the only honest numeric signal a film run exposes. This one function
+ * backs both the unified progress adapter and the film run receipt so the
+ * two surfaces can never diverge.
+ */
+export function filmRunProgress(run: Pick<FilmRun, "phase">): number | null {
+  const phases = filmRunPhaseSchema.options;
+  const index = phases.indexOf(run.phase);
+  return index >= 0 ? index / (phases.length - 1) : null;
+}
 
 /** Groups shots into cameras by camIdx, preserving shot order. */
 export function groupShotsIntoCameras(shotSpecs: readonly ShotSpec[]): CameraPlanNode[] {

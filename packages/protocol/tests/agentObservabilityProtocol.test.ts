@@ -7,7 +7,9 @@ import {
   productionJobToUnifiedProgress,
   redactAgentTraceText,
   summarizeAgentTraceSession,
+  summarizeAgentTraceSessions,
   summarizeAgentUsage,
+  summarizeUnifiedProgress,
   UNIFIED_PROGRESS_CONTRACT,
   type AgentTraceEvent,
   type AgentUsageSample,
@@ -102,6 +104,32 @@ describe("session tool-chain summary", () => {
 
   it("returns null for a session without events", () => {
     expect(summarizeAgentTraceSession("missing", [traceEvent()])).toBeNull();
+  });
+});
+
+describe("per-session aggregates", () => {
+  it("aggregates every session without chains, newest session first, honoring the limit", () => {
+    const events = [
+      traceEvent({ id: "trace-1", session_id: "session-a", started_at: "2026-08-25T10:00:00.000Z" }),
+      traceEvent({
+        id: "trace-2",
+        session_id: "session-a",
+        started_at: "2026-08-25T10:00:05.000Z",
+        outcome: "error",
+        status_code: 500,
+      }),
+      traceEvent({ id: "trace-3", session_id: "session-b", started_at: "2026-08-25T10:00:07.000Z", source: "cli" }),
+      traceEvent({ id: "trace-4", session_id: "session-c", started_at: "2026-08-25T09:00:00.000Z" }),
+    ];
+    const aggregates = summarizeAgentTraceSessions(events);
+    expect(aggregates.map((aggregate) => aggregate.session_id)).toEqual(["session-b", "session-a", "session-c"]);
+    const sessionA = aggregates[1]!;
+    expect(sessionA.call_count).toBe(2);
+    expect(sessionA.error_count).toBe(1);
+    expect("chain" in sessionA).toBe(false);
+
+    expect(summarizeAgentTraceSessions(events, 1).map((aggregate) => aggregate.session_id)).toEqual(["session-b"]);
+    expect(summarizeAgentTraceSessions([])).toEqual([]);
   });
 });
 
@@ -224,5 +252,38 @@ describe("unified progress adapters", () => {
     expect(progress.state).toBe("running");
     expect(progress.progress).toBeCloseTo(5 / 7);
     expect(progress.message).toBe("开始渲染第 2 镜");
+  });
+
+  it("aggregates unified progress into exhaustive zero-filled state and kind counts", () => {
+    const running = filmRunToUnifiedProgress({
+      version: 1,
+      id: "film-run-1",
+      workflow: "idea-to-film",
+      status: "running",
+      phase: "render",
+      events: [],
+      createdAt: "2026-08-25T10:00:00.000Z",
+      updatedAt: "2026-08-25T10:05:00.000Z",
+    } as unknown as FilmRun);
+    const waiting = multiAgentRunToUnifiedProgress({
+      id: "run-alpha",
+      objective: "拍一支短片",
+      status: "waiting_approval",
+      nodes: [],
+      createdAt: "2026-08-25T10:00:00.000Z",
+      updatedAt: "2026-08-25T10:03:00.000Z",
+    });
+    const summary = summarizeUnifiedProgress([running, waiting]);
+    expect(summary.entry_count).toBe(2);
+    expect(summary.by_state).toEqual({
+      queued: 0,
+      running: 1,
+      waiting: 1,
+      succeeded: 0,
+      failed: 0,
+      cancelled: 0,
+      unknown: 0,
+    });
+    expect(summary.by_kind).toEqual({ production_job: 0, multi_agent_run: 1, film_run: 1 });
   });
 });

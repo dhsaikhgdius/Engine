@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  filmRunSchema,
   groupShotsIntoCameras,
   shotBriefSchema,
   shotSpecSchema,
@@ -209,5 +210,161 @@ describe("FilmPipelineOrchestrator", () => {
     const cancelled = await waitForStatus(store, created.id, ["cancelled"]);
     expect(cancelled.status).toBe("cancelled");
     await Promise.race([cancelPromise, new Promise((resolve) => setTimeout(resolve, 200))]);
+  });
+
+  it("never resurrects a run cancelled before its execution ticks", async () => {
+    const { store, orchestrator, agents } = await harness();
+    const created = await orchestrator.create({
+      workflow: "idea-to-film",
+      input: { idea: "开拍前就取消的片子" },
+    });
+    // Cancel lands before the scheduled execute() runs its first write.
+    await orchestrator.cancel(created.id);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const run = await store.get(created.id);
+    expect(run?.status).toBe("cancelled");
+    expect(agents.calls).not.toContain("developStory");
+  });
+
+  it("runs the render exactly once when approve is called concurrently", async () => {
+    const { store, orchestrator, coordinator } = await harness();
+    const created = await orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 剧场 - 日", reviewGate: true },
+    });
+    await waitForStatus(store, created.id, ["waiting_approval"]);
+    await Promise.all([orchestrator.approve(created.id), orchestrator.approve(created.id)]);
+    const completed = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(completed.status).toBe("completed");
+    expect(coordinator.renders).toEqual([0]);
+  });
+
+  it("does not let approve resurrect a run cancelled at the review gate", async () => {
+    const { store, orchestrator, coordinator } = await harness();
+    const created = await orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 仓库 - 夜", reviewGate: true },
+    });
+    await waitForStatus(store, created.id, ["waiting_approval"]);
+    await orchestrator.cancel(created.id);
+    const afterApprove = await orchestrator.approve(created.id);
+    expect(afterApprove.status).toBe("cancelled");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((await store.get(created.id))?.status).toBe("cancelled");
+    expect(coordinator.renders).toHaveLength(0);
+  });
+
+  it("does not start a second execution when resume races a running run", async () => {
+    let releaseStory!: () => void;
+    const gate = new Promise<void>((resolveGate) => {
+      releaseStory = resolveGate;
+    });
+    const agents = fakePlanningAgents({
+      async developStory() {
+        agents.calls.push("developStory");
+        await gate;
+        return "一段完整的故事";
+      },
+    });
+    const { store, orchestrator } = await harness(agents);
+    const created = await orchestrator.create({ workflow: "idea-to-film", input: { idea: "同时 resume 的片子" } });
+    await waitForStatus(store, created.id, ["running"]);
+    const resumed = await orchestrator.resume(created.id);
+    expect(["queued", "running"]).toContain(resumed.status);
+    releaseStory();
+    await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(agents.calls.filter((call) => call === "developStory")).toHaveLength(1);
+  });
+
+  it("records durable phase receipts across the run including the review gate", async () => {
+    const { store, orchestrator } = await harness();
+    const created = await orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 灯塔 - 夜", reviewGate: true },
+    });
+    const waiting = await waitForStatus(store, created.id, ["waiting_approval"]);
+    const open = waiting.phaseReceipts.filter((receipt) => receipt.finishedAt === null);
+    expect(open).toHaveLength(1);
+    expect(open[0]?.phase).toBe("await-approval");
+
+    await orchestrator.approve(created.id);
+    const completed = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(completed.status).toBe("completed");
+    const phases = completed.phaseReceipts.map((receipt) => receipt.phase);
+    expect(phases).toContain("plan-scenes");
+    expect(phases).toContain("await-approval");
+    expect(phases).toContain("render");
+    expect(phases).toContain("assemble");
+    // A terminal run holds no open receipt.
+    expect(completed.phaseReceipts.every((receipt) => receipt.finishedAt !== null)).toBe(true);
+  });
+
+  it("classifies provider transport failures with the stable error code", async () => {
+    const providerError = new Error("videos-api HTTP 502");
+    providerError.name = "ModelDriverHttpError";
+    let failures = 1;
+    const agents = fakePlanningAgents({
+      async developStory() {
+        if (failures > 0) {
+          failures -= 1;
+          throw providerError;
+        }
+        return "一段完整的故事";
+      },
+    });
+    const { store, orchestrator } = await harness(agents);
+    const created = await orchestrator.create({ workflow: "idea-to-film", input: { idea: "供应商掉线的片子" } });
+    const failed = await waitForStatus(store, created.id, ["failed"]);
+    expect(failed.errorCode).toBe("film_provider_error");
+    expect(failed.phaseReceipts.every((receipt) => receipt.finishedAt !== null)).toBe(true);
+
+    await orchestrator.resume(created.id);
+    const completed = await waitForStatus(store, created.id, ["completed"]);
+    // Resume clears the stale classification along with the error text.
+    expect(completed.error).toBeNull();
+    expect(completed.errorCode).toBeNull();
+  });
+
+  it("reconciles restart survivors before executing anything new", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "director-film-orchestrator-"));
+    tempDirs.push(dir);
+    const store = new FilmRunStore(dir);
+    const now = new Date().toISOString();
+    await store.create(
+      filmRunSchema.parse({
+        version: 1,
+        id: "film-restarted-0001",
+        workflow: "idea-to-film",
+        status: "running",
+        phase: "render",
+        input: { idea: "上个进程留下的片子" },
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    const orchestrator = new FilmPipelineOrchestrator({
+      store,
+      planningAgents: fakePlanningAgents(),
+      renderCoordinator: fakeRenderCoordinator(),
+      ffmpegPath: "ffmpeg",
+    });
+    // Any public entry point awaits reconciliation first.
+    const listed = await orchestrator.resume("film-restarted-0001");
+    expect(["queued", "running", "completed"]).toContain(listed.status);
+    const survivor = await waitForStatus(store, "film-restarted-0001", ["completed", "failed"]);
+    // The interrupted state was durably recorded, then resume continued.
+    expect(survivor.events.some((event) => event.stage === "reconcile")).toBe(true);
+  });
+
+  it("provider failures without the transport marker classify as film_run_error", async () => {
+    const agents = fakePlanningAgents({
+      async extractCharacters() {
+        throw new Error("planning schema mismatch");
+      },
+    });
+    const { store, orchestrator } = await harness(agents);
+    const created = await orchestrator.create({ workflow: "script-to-film", input: { script: "EXT. 海边 - 日" } });
+    const failed = await waitForStatus(store, created.id, ["failed"]);
+    expect(failed.errorCode).toBe("film_run_error");
   });
 });
