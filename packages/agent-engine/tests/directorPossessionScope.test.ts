@@ -16,11 +16,16 @@ function parseOperation(input: unknown): DirectorWorkbenchOperation {
   return parsed.operation;
 }
 
-function evaluate(input: unknown, possessedObjectIds: readonly string[]) {
+function evaluate(
+  input: unknown,
+  possessedObjectIds: readonly string[],
+  options: { livePlayer?: { playerMode: boolean; playerActorId: string | null } | null } = {},
+) {
   return evaluateDirectorPossessionScope({
     operation: parseOperation(input),
     sessionId: SESSION,
     possessedObjectIds,
+    livePlayer: options.livePlayer,
   });
 }
 
@@ -267,11 +272,25 @@ describe("evaluateDirectorPossessionScope", () => {
     });
   });
 
-  it("keeps the live-actor player verbs available to a possessed session", () => {
-    expect(evaluate({ op: "player", action: "exit" }, ["hero"])).toEqual({ allowed: true });
-    expect(evaluate({ op: "player", action: "record_start" }, ["hero"])).toEqual({ allowed: true });
-    expect(evaluate({ op: "player", action: "record_stop" }, ["hero"])).toEqual({ allowed: true });
-    expect(evaluate({ op: "player", action: "interact", object_id: "door" }, ["hero"])).toEqual({ allowed: true });
+  it("gates live-actor player verbs on an active possessed Player Mode", () => {
+    const idle = evaluate({ op: "player", action: "interact", object_id: "door" }, ["hero"]);
+    expect(idle).toMatchObject({ allowed: false, error: expect.stringMatching(/player_mode|Player Mode/i) });
+
+    const active = evaluate({ op: "player", action: "interact", object_id: "door" }, ["hero"], {
+      livePlayer: { playerMode: true, playerActorId: "hero" },
+    });
+    expect(active).toEqual({ allowed: true });
+
+    const outside = evaluate({ op: "player", action: "record_start" }, ["hero"], {
+      livePlayer: { playerMode: true, playerActorId: "villain" },
+    });
+    expect(outside).toMatchObject({ allowed: false, error: expect.stringContaining('"villain"') });
+
+    expect(
+      evaluate({ op: "player", action: "exit" }, ["hero"], {
+        livePlayer: { playerMode: true, playerActorId: "hero" },
+      }),
+    ).toEqual({ allowed: true });
     // Unpossessed sessions keep the whole player surface, including teleport
     // without an explicit actor (Stage may fall back to selection).
     expect(evaluate({ op: "player", action: "enter" }, [])).toEqual({ allowed: true });
