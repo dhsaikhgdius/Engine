@@ -46,6 +46,7 @@ import {
   type DirectorEngineSceneImportSelection,
   type DirectorEngineSceneLight,
   type DirectorEngineSceneManifestV1,
+  type DirectorEngineSceneOmitted,
   type DirectorEngineSceneProvider,
 } from "@director/dcc-protocol";
 import { writeJsonAtomic } from "../atomicJsonFile";
@@ -880,6 +881,14 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
       ...manifest.warnings,
       ...manifest.unsupported.map((item) => `${item.kind} ${item.name}: ${item.reason}`),
     ];
+    // Free-text warnings stay for humans; every dropped claim also lands here
+    // as a typed record (mirrors the Blender scene import plan `omitted`).
+    const omitted: DirectorEngineSceneOmitted[] = manifest.unsupported.map((item) => ({
+      sourceId: item.name,
+      kind: item.kind,
+      code: "unsupported_object",
+      reason: item.reason,
+    }));
     const packageKey = sha256(`${manifest.provider}\0${manifest.packageId}\0${validated.manifestHash}`).slice(0, 20);
     const assetId = `engine-scene-asset-${packageKey}`;
     const objectId = `engine-scene-object-${packageKey}`;
@@ -938,6 +947,11 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
             conflicts.push({ sourceId: "scene", code: "id_collision", reason: `Director ID ${id} already exists.` });
           }
         }
+        if (manifest.scene.nodeCount > 1) {
+          const reason = `The ${manifest.scene.nodeCount} engine scene nodes import as one flattened Director scene object; per-node editing requires the planned engine round trip.`;
+          warnings.push(reason);
+          omitted.push({ sourceId: "scene", code: "hierarchy_flattened", reason });
+        }
       }
     }
     for (const camera of manifest.cameras) {
@@ -956,6 +970,9 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
       if (operation.focalLengthMm === 12 || operation.focalLengthMm === 200) {
         warnings.push(`Camera ${camera.name} focal length was clamped to Director's 12–200 mm range.`);
       }
+      const rollReason = `Engine camera roll on ${camera.name} is not represented by Director's target-based camera model.`;
+      warnings.push(rollReason);
+      omitted.push({ sourceId: camera.sourceId, code: "camera_roll", reason: rollReason });
     }
     for (const light of manifest.lights) {
       if (!selectedLightIds.has(light.sourceId)) continue;
@@ -970,17 +987,14 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
       }
     }
     if (manifest.scene.animationClipCount > 0) {
-      warnings.push(
-        `${manifest.scene.animationClipCount} animation clip(s) remain embedded in the GLB; Director v1 imports the scene at the exported frame and does not map them onto its editable timeline.`,
-      );
+      const reason = `${manifest.scene.animationClipCount} animation clip(s) remain embedded in the GLB; Director v1 imports the scene at the exported frame and does not map them onto its editable timeline.`;
+      warnings.push(reason);
+      omitted.push({ sourceId: "scene", code: "animation_clips", reason });
     }
     if (manifest.scene.skinnedMeshCount > 0) {
-      warnings.push(
-        `${manifest.scene.skinnedMeshCount} skinned mesh(es) keep their skeletons inside the GLB bundle; Director does not rebind them to its character rig system on import.`,
-      );
-    }
-    if (selection.cameraSourceIds.length) {
-      warnings.push("Engine camera roll is not represented by Director's target-based camera model.");
+      const reason = `${manifest.scene.skinnedMeshCount} skinned mesh(es) keep their skeletons inside the GLB bundle; Director does not rebind them to its character rig system on import.`;
+      warnings.push(reason);
+      omitted.push({ sourceId: "scene", code: "skinned_mesh_rigs", reason });
     }
     const selectionHash = sha256(JSON.stringify(selection)).slice(0, 16);
     const jobId = validated.packageDir.split("/")[0]!;
@@ -997,6 +1011,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
       operations,
       conflicts,
       warnings,
+      ...(omitted.length > 0 ? { omittedCount: omitted.length, omitted } : {}),
     });
   }
 

@@ -23,8 +23,8 @@ standard.
 | Blender `.blend`   | import        | Active-scene current-frame GLB snapshot, selected static perspective cameras, source-time audit metadata                                          | No deep editable hierarchy, animation playback/timeline remap, live sync, or safe processing of untrusted files; Blender-only semantics are unsupported or lossy |
 | Blender round trip | export/return | Validated scene/camera/light handoff, clay preview, stable-ID return of meshes, transforms, camera optics, `director_id` lights, and portable pose controls | Return is limited to hashed packages below the DCC job root; new objects import only via a stamped `director_id` plus the explicit `include_new_objects` opt-in, and bone edits reconcile only where the stamped bone-role map covers them (others warn-and-omit) |
 | Engine handoff (Unreal/Unity/Godot) | send/receive | Headless connector import of scene layout, cameras, and shot ranges with `director:id` metadata; canonical-space transform return. Unreal additionally keys Gateway-baked transform/camera animation into Sequencer (rational rates, SMPTE start timecode), imports skinned GLBs as bind-pose skeletal meshes, and applies Director PBR parameters as material instances. Unity additionally bakes Director animation and semantic pose channels onto Timeline, builds Avatars from skinned GLB, applies PBR material fallback and lights, and offers an outbound-only preview live link. Godot 4 additionally imports Gateway-baked `AnimationPlayer` animation on a rational timebase, skinned GLB skeletons in bind pose, `StandardMaterial3D` materials with hashed external textures, and Omni/Spot/Directional lights | Requires the Director-authored connector installed in the user's engine project (`nativeReady`); Unreal, Unity, and Godot preview live link are native (never a project mutation); Unreal `clean_frame` is best-effort; Unreal Control-Rig poses, motion clips, and textures warn-and-omit; Godot rig pose channels and ambient/rect lights warn-and-omit |
-| Unreal scene       | import        | Level GLB bundle (geometry, materials, skeletal meshes), typed hierarchy snapshot, cine camera optics, directional/point/spot/rect/sky lights, stable actor IDs | Sequencer animation is inventoried by name only; clip planes use Director defaults; round-trip back to Unreal is planned                                          |
-| Unity scene        | import        | Scene GLB bundle (geometry, materials, skinned meshes), typed hierarchy snapshot, physical camera optics, directional/point/spot/rect lights + flat ambient, `GlobalObjectId` stable IDs | Disc lights and skybox ambient become gaps; animation clips are inventoried with durations only; round-trip back to Unity is planned                              |
+| Unreal scene       | import        | Level GLB bundle (geometry, materials, skeletal meshes), typed hierarchy snapshot, cine camera optics, directional/point/spot/rect/sky lights, stable actor IDs | Sequencer animation is inventoried by name only; clip planes use Director defaults; round-trip back to Unreal is planned; every drop is also stamped as a typed plan `omitted[]` record |
+| Unity scene        | import        | Scene GLB bundle (geometry, materials, skinned meshes), typed hierarchy snapshot, physical camera optics, directional/point/spot/rect lights + flat ambient, `GlobalObjectId` stable IDs | Disc lights and skybox ambient become gaps; animation clips are inventoried with durations only; round-trip back to Unity is planned; every drop is also stamped as a typed plan `omitted[]` record |
 
 The editor's **Interchange** menu is the human entry point. Stage OTIO and Video workspace OTIO
 have separate adapters because they preserve different source models. Import always validates
@@ -109,6 +109,14 @@ performs one atomic authoring mutation with `plan_id`, `expected_revision`, and 
 the engine-side glTF exporter (Unreal's glTF Exporter plugin, Unity's `com.unity.cloud.gltfast`);
 without it the package still imports cameras, lights, and hierarchy and records the geometry gap.
 Round-trip back to the engines is a declared `planned` capability, not an available one.
+
+Every plan returned by upload, extraction, preview, and apply states what it leaves behind in typed
+`result.plan.omitted[]` records paired with `omittedCount` (mirroring the `.blend` import plan):
+`unsupported_object` (exporter-skipped element, with its engine `kind`), `hierarchy_flattened` (the
+scene imports as one flattened Director scene object), `animation_clips` (embedded clips are not
+mapped onto the timeline), `skinned_mesh_rigs` (skeletons are not rebound to Director's character
+rig system), and `camera_roll` (per imported camera). Free-text `warnings` stay for humans; read
+the typed records instead of parsing warning strings.
 
 ## Coordinate system
 
