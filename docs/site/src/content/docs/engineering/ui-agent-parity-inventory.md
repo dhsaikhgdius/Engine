@@ -174,8 +174,9 @@ Still direct, with reasons:
 - Continuous interactions — node drags, clip drags/trims, fade drags, range sliders, live
   typing — keep locally batched history (`beginHistoryBatch`/`endHistoryBatch`), matching the
   Stage slider/gizmo policy.
-- Overwrite placement flows resolved by `commitClipPlacement` (explicit drops, frame nudges,
-  duplicate-after) — no semantic operation expresses overwrite-with-trim yet.
+- Remaining overwrite-adjacent flows still on `commitClipPlacement` (frame nudges, trim-into
+  neighbour, duplicate-after). Explicit media drops now share `edit.clip.add` with
+  `overwrite: true` (same `resolveDirectorTrackOverwrite` resolver).
 - Media-less text/caption clips (`text:` ids), Canvas z-order raises, view state, and section
   bookkeeping — no semantic operations yet.
 - Media relink reference rewrites, canvas pipeline result cataloging, legacy review-mirror

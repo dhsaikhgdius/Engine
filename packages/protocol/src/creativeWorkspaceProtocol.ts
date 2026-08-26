@@ -342,6 +342,13 @@ const editClipAddOptionalFields = {
   position_y: editClipPatchFields.position_y,
   rotation_deg: editClipPatchFields.rotation_deg,
   fit: editClipPatchFields.fit,
+  /**
+   * When true, after the clip is added the same overwrite-with-trim resolver
+   * the Video Editor UI uses (`resolveDirectorTrackOverwrite`) runs on the
+   * landed clip: overlapping neighbours are truncated, head-trimmed, split,
+   * or removed. Omitted/false keeps today's non-destructive queue placement.
+   */
+  overwrite: z.boolean().optional(),
 };
 
 /** A partial update to a Video Editor clip; at least one field must be present. */

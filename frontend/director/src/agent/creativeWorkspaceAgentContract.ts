@@ -1413,10 +1413,17 @@ export function executeCreativeWorkspaceAgentOperation(
       if (!clip) {
         return semanticFailure(operation.op, "capacity", `Edit track "${track.id}" cannot accept another clip.`);
       }
+      if (operation.overwrite) {
+        // Same overwrite-with-trim the Video Editor runs after an explicit drop.
+        state.commitClipPlacement(clip.id);
+      }
+      const projected = findClip(state, clip.id)?.clip ?? clip;
       return success(
         operation.op,
-        `Added clip "${clip.name}" to track "${track.name}".`,
-        { clip: projectEditClip(clip), track_id: track.id },
+        operation.overwrite
+          ? `Added clip "${projected.name}" to track "${track.name}" with overwrite placement.`
+          : `Added clip "${projected.name}" to track "${track.name}".`,
+        { clip: projectEditClip(projected), track_id: track.id, overwrite: Boolean(operation.overwrite) },
         context,
       );
     }
