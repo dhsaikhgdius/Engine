@@ -39,6 +39,7 @@ import {
   type DirectorDccImportPlanCameraOptics,
   type DirectorDccImportPlanLightPatch,
   type DirectorDccImportPlanV1,
+  type DirectorDccOmittedOptics,
   type DirectorDccReturnManifestV1,
 } from "@director/dcc-protocol";
 
@@ -490,6 +491,7 @@ export function buildDirectorDccImportPlan(
   const targetRevision = getDirectorProjectRevision(project);
   const operations: DirectorDccImportPlanV1["operations"] = [];
   const conflicts: DirectorDccImportPlanV1["conflicts"] = [];
+  const omittedOptics: DirectorDccOmittedOptics[] = [];
   const warnings = [...manifest.warnings];
   const world = sceneTransform(project);
   const sourceIsCurrent = manifest.sourceRevision === targetRevision;
@@ -658,9 +660,14 @@ export function buildDirectorDccImportPlan(
         // emits sensor mm edits, and the Gateway must warn-and-omit any return
         // package that still carries sensorFormat (crafted/legacy packages).
         if (change.optics.sensorFormat !== undefined) {
-          warnings.push(
-            `Camera ${change.directorId} sensor format '${change.optics.sensorFormat}' was omitted from the return plan (warn-and-omit); choose a sensor format in Director's named gates instead of editing Blender sensor size.`,
-          );
+          const reason = `Camera ${change.directorId} sensor format '${change.optics.sensorFormat}' was omitted from the return plan (warn-and-omit); choose a sensor format in Director's named gates instead of editing Blender sensor size.`;
+          warnings.push(reason);
+          omittedOptics.push({
+            directorId: change.directorId,
+            code: "sensor_format",
+            field: "sensorFormat",
+            reason,
+          });
         }
         if (Object.keys(optics).length > 0) {
           operations.push({ op: "update_camera_optics", objectId: change.directorId, optics });
@@ -732,6 +739,7 @@ export function buildDirectorDccImportPlan(
     operations,
     conflicts,
     warnings,
+    ...(omittedOptics.length > 0 ? { omittedOpticsCount: omittedOptics.length, omittedOptics } : {}),
   });
 }
 

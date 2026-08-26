@@ -6,7 +6,7 @@ import {
   directorDccOperationSchema,
   directorTransformToBlender,
 } from "../src/directorDccContract";
-import { directorDccReturnManifestSchema } from "../src/directorDccReturnContract";
+import { directorDccImportPlanSchema, directorDccReturnManifestSchema } from "../src/directorDccReturnContract";
 
 function transformMatrix(transform: DirectorTransform) {
   return new Matrix4().compose(
@@ -84,6 +84,38 @@ describe("Director DCC return contract", () => {
       }).success,
     ).toBe(false);
     expect(directorDccReturnManifestSchema.safeParse({ ...valid, fileHashes: {} }).success).toBe(false);
+  });
+
+  it("accepts typed omittedOptics on import plans and rejects count mismatches", () => {
+    const revision = "director-project-revision:v1:sha256:" + "a".repeat(64);
+    const base = {
+      contract: "director-dcc-import-plan-v1",
+      ready: true,
+      packageId: "return-1",
+      packageDir: "job-1/return-package",
+      manifestHash: "b".repeat(64),
+      sourceRevision: revision,
+      targetRevision: revision,
+      operations: [],
+      conflicts: [],
+      warnings: ["Camera cam-1 sensor format omitted"],
+      omittedOpticsCount: 1,
+      omittedOptics: [
+        {
+          directorId: "cam-1",
+          code: "sensor_format",
+          field: "sensorFormat",
+          reason: "Camera cam-1 sensor format 'imax65' was omitted from the return plan (warn-and-omit).",
+        },
+      ],
+    };
+    expect(directorDccImportPlanSchema.safeParse(base).success).toBe(true);
+    expect(directorDccImportPlanSchema.safeParse({ ...base, omittedOpticsCount: undefined }).success).toBe(false);
+    expect(directorDccImportPlanSchema.safeParse({ ...base, omittedOpticsCount: 2 }).success).toBe(false);
+    expect(
+      directorDccImportPlanSchema.safeParse({ ...base, omittedOptics: undefined, omittedOpticsCount: undefined })
+        .success,
+    ).toBe(true);
   });
 
   it("requires a SHA-256 for object_addition meshes and keeps new-object import opt-in", () => {

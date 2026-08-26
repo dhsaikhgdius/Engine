@@ -958,6 +958,15 @@ describe("Blender return import: camera optics, lights, and pose controls", () =
     });
     expect((opticsOp as { optics: Record<string, unknown> }).optics.sensor_format).toBeUndefined();
     expect(plan.warnings.join("\n")).toMatch(/sensor format.*imax65.*warn-and-omit/i);
+    expect(plan.omittedOpticsCount).toBe(1);
+    expect(plan.omittedOptics).toEqual([
+      expect.objectContaining({
+        directorId: "cam-1",
+        code: "sensor_format",
+        field: "sensorFormat",
+        reason: expect.stringMatching(/sensor format.*imax65.*warn-and-omit/i),
+      }),
+    ]);
 
     const applyAuthoring = vi.fn().mockResolvedValue({ success: true });
     await setup.importer.applyImportPlan(
