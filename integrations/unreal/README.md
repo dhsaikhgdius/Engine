@@ -110,7 +110,10 @@ resolution, start timecode, playback range, track and key counts).
 - Directional, point, spot, and rect-area lights spawn as Unreal light actors
   tagged `director_light_id:<id>` (never `director_id`, so the return-package
   transform echo ignores them). Ambient and hemisphere lights are structured
-  `omittedLights` warn-and-omit records.
+  `omittedLights` warn-and-omit records. Material channel / no-mesh /
+  parent / apply failures surface as typed `omittedMaterials[]`
+  (`unsupported_channels` / `no_mesh_target` / `parent_unavailable` /
+  `apply_failed`) with `omittedMaterialCount` (connector ≥0.4.1).
 
 ## Install
 

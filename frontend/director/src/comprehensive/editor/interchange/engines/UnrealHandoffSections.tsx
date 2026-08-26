@@ -15,6 +15,13 @@ const OMITTED_CHANNEL_LABELS: Record<string, string> = {
   character_rig: "角色绑定",
 };
 
+const UNREAL_OMITTED_MATERIAL_LABELS: Record<string, string> = {
+  unsupported_channels: "不支持的材质通道",
+  no_mesh_target: "材质无网格目标",
+  parent_unavailable: "父材质不可用",
+  apply_failed: "材质应用失败",
+};
+
 /** zh-CN source strings describing the Unreal send payload. */
 export const UNREAL_SEND_NOTES = [
   "以 USD 优先（附 GLB）发送场景、相机与稳定 ID",
@@ -29,6 +36,9 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
   const sequencer = result.report.sequencer;
   const cleanFrame = result.cleanFrame;
   const omitted = result.omittedAnimationChannels ?? result.report.omittedAnimationChannels ?? [];
+  const omittedMaterials = result.report.omittedMaterials ?? [];
+  const omittedMaterialCount = result.report.omittedMaterialCount ?? omittedMaterials.length;
+  const appliedMaterialCount = result.report.appliedMaterialCount;
   return (
     <div className="director-engine-handoff-receipt-extra">
       {sequencer ? (
@@ -60,6 +70,18 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
             <dt>{t("烘焙关键帧")}</dt>
             <dd>{sequencer.bakedKeyCount}</dd>
           </div>
+          {appliedMaterialCount !== undefined ? (
+            <div>
+              <dt>{t("材质")}</dt>
+              <dd>{appliedMaterialCount}</dd>
+            </div>
+          ) : null}
+          {omittedMaterialCount > 0 || omittedMaterials.length > 0 ? (
+            <div>
+              <dt>{t("省略材质")}</dt>
+              <dd>{omittedMaterialCount}</dd>
+            </div>
+          ) : null}
         </dl>
       ) : (
         <p className="director-engine-handoff-empty">{t("本次运行未写入 Sequencer 回执（静态导入）")}</p>
@@ -81,6 +103,22 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
             </span>
           )}
         </div>
+      ) : null}
+      {omittedMaterials.length ? (
+        <ul aria-label={t("结构化省略材质")} className="director-engine-handoff-list is-warning">
+          {omittedMaterials.slice(0, 6).map((entry) => (
+            <li key={`material:${entry.code}:${entry.directorId}`}>
+              <code data-i18n-user-content>{entry.directorId}</code>
+              {` · ${t(UNREAL_OMITTED_MATERIAL_LABELS[entry.code] ?? entry.code)} · `}
+              <span data-i18n-user-content title={entry.reason}>
+                {entry.reason}
+              </span>
+            </li>
+          ))}
+          {omittedMaterials.length > 6 ? (
+            <li className="director-engine-handoff-more">+{omittedMaterials.length - 6}</li>
+          ) : null}
+        </ul>
       ) : null}
       {omitted.length ? (
         <ul aria-label={t("省略的动画通道")} className="director-engine-handoff-list is-warning">

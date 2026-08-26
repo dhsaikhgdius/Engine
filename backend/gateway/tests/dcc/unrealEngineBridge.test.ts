@@ -256,6 +256,15 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
       importedSkeletalMeshCount: 1,
       appliedMaterialCount: 3,
       appliedTextureCount: 2,
+      omittedMaterialCount: 1,
+      omittedMaterials: [
+        {
+          directorId: "prop-glass",
+          code: "unsupported_channels",
+          reason:
+            "Object prop-glass: Director material channels transmission have no faithful Director parent mapping; omitted (warn-and-omit code: unsupported_channels).",
+        },
+      ],
       importedLightCount: 2,
       omittedLights: [
         {
@@ -270,10 +279,28 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
     expect(result.report.importedSkeletalMeshCount).toBe(1);
     expect(result.report.appliedMaterialCount).toBe(3);
     expect(result.report.appliedTextureCount).toBe(2);
+    expect(result.report.omittedMaterialCount).toBe(1);
+    expect(result.report.omittedMaterials).toEqual([
+      expect.objectContaining({ directorId: "prop-glass", code: "unsupported_channels" }),
+    ]);
     expect(result.report.importedLightCount).toBe(2);
     expect(result.report.omittedLights).toEqual([
       expect.objectContaining({ directorId: "light_ambient_1", lightType: "ambient" }),
     ]);
+  });
+
+  it("fails the job when omittedMaterials length disagrees with omittedMaterialCount", async () => {
+    const harness = await createSendHarness({
+      omittedMaterialCount: 0,
+      omittedMaterials: [
+        {
+          directorId: "prop-x",
+          code: "no_mesh_target",
+          reason: "Object prop-x has a Director material but no mesh component (warn-and-omit code: no_mesh_target).",
+        },
+      ],
+    });
+    await expect(harness.send()).rejects.toMatchObject({ code: "engine_report_invalid" });
   });
 
   it("fails the job when the connector reports a malformed omitted-light record", async () => {

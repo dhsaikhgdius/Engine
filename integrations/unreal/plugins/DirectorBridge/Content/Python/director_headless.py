@@ -51,7 +51,7 @@ import director_package as dpkg  # noqa: E402
 import director_sequencer as dsequencer  # noqa: E402
 import director_space as dspace  # noqa: E402
 
-CONNECTOR_VERSION = "0.4.0"
+CONNECTOR_VERSION = "0.4.1"
 PROVIDER = "unreal"
 DIRECTOR_TAG_PREFIX = "director_id:"
 # Lights are tagged with their own prefix so the transform-echo export loop
@@ -210,7 +210,8 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
 
     @returns ``(spawned, cameras, stats)`` where stats carries
         ``importedSkeletalMeshCount``, ``appliedMaterialCount``, and
-        ``appliedTextureCount``.
+        ``appliedTextureCount``, plus ``omittedMaterials`` typed warn-and-omit
+        records for channel / no-mesh / parent / apply failures.
     """
     actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     scene = manifest["project"]["scene"]
@@ -238,7 +239,12 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
     spawned: dict[str, object] = {}
     package_folder = safe_asset_name(manifest["packageId"][:8])
     material_parents = None
-    stats = {"importedSkeletalMeshCount": 0, "appliedMaterialCount": 0, "appliedTextureCount": 0}
+    stats = {
+        "importedSkeletalMeshCount": 0,
+        "appliedMaterialCount": 0,
+        "appliedTextureCount": 0,
+        "omittedMaterials": [],
+    }
 
     def texture_asset_for(asset_ref: str):
         """Import one bundled texture once and cache the result (None on failure)."""
@@ -297,10 +303,29 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
         if material:
             mapped = dmaterials.map_material(material, entity["name"], texture_files)
             warnings.extend(mapped["warnings"])
+            if mapped.get("omitted"):
+                channels = ", ".join(mapped["omitted"])
+                reason = (
+                    f"Object {entity['id']}: Director material channels {channels} have no faithful "
+                    f"Director parent mapping; omitted (warn-and-omit code: unsupported_channels)."
+                )
+                # Channel prose already landed via mapped["warnings"]; keep the typed
+                # record as the Agent-facing honesty surface.
+                stats["omittedMaterials"].append(
+                    {
+                        "directorId": entity["id"],
+                        "code": "unsupported_channels",
+                        "reason": reason,
+                    }
+                )
             if mesh_component is None:
-                warnings.append(
+                reason = (
                     f"Object {entity['id']} has a Director material but no mesh component; "
-                    "the material was not applied (warn-and-omit)."
+                    "the material was not applied (warn-and-omit code: no_mesh_target)."
+                )
+                warnings.append(reason)
+                stats["omittedMaterials"].append(
+                    {"directorId": entity["id"], "code": "no_mesh_target", "reason": reason}
                 )
             else:
                 if material_parents is None:
@@ -322,9 +347,31 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
                     )
                     if applied["applied"]:
                         stats["appliedMaterialCount"] += 1
+                    else:
+                        parent_kind = mapped.get("parent", "opaque")
+                        reason = (
+                            f"Object {entity['id']}: Material instance was skipped because the "
+                            f"{parent_kind} Director parent material is unavailable "
+                            "(warn-and-omit code: parent_unavailable)."
+                        )
+                        warnings.append(reason)
+                        stats["omittedMaterials"].append(
+                            {
+                                "directorId": entity["id"],
+                                "code": "parent_unavailable",
+                                "reason": reason,
+                            }
+                        )
                     stats["appliedTextureCount"] += applied["boundTextureCount"]
                 except Exception as error:  # noqa: BLE001 - material failure must not sink the import
-                    warnings.append(f"Material application failed for {entity['id']}: {error}")
+                    reason = (
+                        f"Material application failed for {entity['id']}: {error} "
+                        "(warn-and-omit code: apply_failed)."
+                    )
+                    warnings.append(reason)
+                    stats["omittedMaterials"].append(
+                        {"directorId": entity["id"], "code": "apply_failed", "reason": reason}
+                    )
         spawned[entity["id"]] = actor
 
     # Restore the Director parent hierarchy while keeping world transforms.
@@ -563,6 +610,8 @@ def run_import(unreal, arguments) -> int:
             "importedSkeletalMeshCount": stats["importedSkeletalMeshCount"],
             "appliedMaterialCount": stats["appliedMaterialCount"],
             "appliedTextureCount": stats["appliedTextureCount"],
+            "omittedMaterialCount": len(stats["omittedMaterials"]) or None,
+            "omittedMaterials": stats["omittedMaterials"] or None,
             "importedLightCount": imported_light_count,
             "omittedLights": omitted_lights or None,
             "omittedAnimationChannels": omitted_animation_channels or None,
