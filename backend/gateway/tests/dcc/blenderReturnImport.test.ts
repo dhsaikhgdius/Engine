@@ -784,6 +784,7 @@ async function richFixture(options: RichFixtureOptions = {}) {
 
   return {
     root,
+    packageDirectory,
     project,
     exportRevision,
     manifest,
@@ -933,5 +934,43 @@ describe("Blender return import: camera optics, lights, and pose controls", () =
     expect(plan.operations).toContainEqual(expect.objectContaining({ op: "update_camera_optics", objectId: "cam-1" }));
     expect(plan.operations).toContainEqual(expect.objectContaining({ op: "update_light", lightId: "light-1" }));
     expect(plan.operations).toContainEqual(expect.objectContaining({ op: "set_character_pose", objectId: "hero" }));
+  });
+
+  it("warn-and-omits return sensorFormat so Director named gates stay authoritative", async () => {
+    const setup = await richFixture();
+    const manifestPath = resolve(setup.packageDirectory, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      changes: Array<{ kind: string; optics?: Record<string, unknown> }>;
+    };
+    const camera = manifest.changes.find((change) => change.kind === "camera_update");
+    expect(camera?.optics).toBeDefined();
+    camera!.optics!.sensorFormat = "imax65";
+    await writeFile(manifestPath, JSON.stringify(manifest));
+
+    const plan = await setup.importer.buildImportPlan("job-1/return-package", setup.project);
+    const opticsOp = plan.operations.find(
+      (operation) => operation.op === "update_camera_optics" && operation.objectId === "cam-1",
+    );
+    expect(opticsOp).toMatchObject({
+      op: "update_camera_optics",
+      objectId: "cam-1",
+      optics: { focal_length_mm: 200, aperture_f_stop: 0.7, focus_distance_m: 1.5 },
+    });
+    expect((opticsOp as { optics: Record<string, unknown> }).optics.sensor_format).toBeUndefined();
+    expect(plan.warnings.join("\n")).toMatch(/sensor format.*imax65.*warn-and-omit/i);
+
+    const applyAuthoring = vi.fn().mockResolvedValue({ success: true });
+    await setup.importer.applyImportPlan(
+      plan,
+      setup.project,
+      getDirectorProjectRevision(setup.project),
+      "sensor-omit-1",
+      applyAuthoring,
+    );
+    const operation = applyAuthoring.mock.calls[0]![0] as { actions: Array<Record<string, unknown>> };
+    const cameraAction = operation.actions.find((action) => action.action === "update_camera") as {
+      patch?: { sensor_format?: string };
+    };
+    expect(cameraAction?.patch?.sensor_format).toBeUndefined();
   });
 });

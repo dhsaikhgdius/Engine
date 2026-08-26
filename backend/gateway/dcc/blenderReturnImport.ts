@@ -654,10 +654,17 @@ export function buildDirectorDccImportPlan(
           const { min, max } = DIRECTOR_CAMERA_OPTICS_LIMITS.farClipM;
           optics.far_clip_m = clamp(change.optics.farClipM, min, max, label("far clip (m)"));
         }
+        // Sensor format is a Director named gate: the Blender exporter never
+        // emits sensor mm edits, and the Gateway must warn-and-omit any return
+        // package that still carries sensorFormat (crafted/legacy packages).
         if (change.optics.sensorFormat !== undefined) {
-          optics.sensor_format = change.optics.sensorFormat;
+          warnings.push(
+            `Camera ${change.directorId} sensor format '${change.optics.sensorFormat}' was omitted from the return plan (warn-and-omit); choose a sensor format in Director's named gates instead of editing Blender sensor size.`,
+          );
         }
-        operations.push({ op: "update_camera_optics", objectId: change.directorId, optics });
+        if (Object.keys(optics).length > 0) {
+          operations.push({ op: "update_camera_optics", objectId: change.directorId, optics });
+        }
       }
       continue;
     }

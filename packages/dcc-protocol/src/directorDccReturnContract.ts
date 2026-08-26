@@ -93,7 +93,9 @@ export const directorDccReturnPoseControlsSchema = z
  *
  * - `mesh_replacement`: replace an object's mesh (with optional transform and asset label).
  * - `transform_update`: move an object or camera.
- * - `camera_update`: camera transform and/or optics (focal length, aperture, focus, clipping, sensor format).
+ * - `camera_update`: camera transform and/or optics (focal length, aperture, focus, clipping).
+ *   Sensor format may appear on legacy packages but Gateway plans warn-and-omit it —
+ *   Director named gates own sensor size; Blender sensor mm edits are not authoritative.
  * - `light_update`: properties of a light that kept its Director `director_id`.
  * - `pose_update`: a portable pose-control sample for a Director character binding, with optional root motion.
  * - `object_addition`: a DCC object that gained a fresh `director_id` after the export snapshot.
