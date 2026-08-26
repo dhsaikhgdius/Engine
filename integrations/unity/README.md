@@ -45,12 +45,18 @@ never used as an exchange format and is never parsed by the Director Gateway.
     single `PlayableDirector` host. Storyboard shots become `ActivationTrack`
     clips over their cameras, and Director keyframe / trajectory animation is
     baked into `AnimationClip`s on `AnimationTrack`s using a C# port of
-    Director's easing and trajectory evaluators. Unsupported channels
+    Director's easing and trajectory evaluators. Shots without a usable camera
+    binding surface as typed `omittedShots[]` (`shotId` / `code` /
+    `cameraDirectorId` / `reason`; codes `shot_no_camera_binding` /
+    `shot_camera_not_imported` / `shot_target_not_camera`, the same vocabulary
+    as the Godot shot mapper) with matching `mappedShotCount` /
+    `omittedShotCount` (connector ≥0.3.3). Unsupported channels
     warn-and-omit; `.unity` YAML never becomes the interchange format.
   - Finally, the run echoes a canonical-space return package and writes a
     `director-dcc-engine-report-v1` receipt whose `unity` block reports the
     render pipeline, glTF importer availability, imported light / baked clip /
-    avatar / material-fallback / applied-texture / posed-character counters, and the structured
+    avatar / material-fallback / applied-texture / posed-character counters,
+    mapped / omitted shot counts with typed `omittedShots`, and the structured
     `omittedChannels` list (channel id, entity, reason) for anything the
     connector could not bake.
 - **Export** (`...DirectorBridgeCli.Export`): reopens the Director scene,
@@ -150,6 +156,7 @@ baked onto Timeline `AnimationClip`s, and the outbound-only preview live link
 described above (token-authenticated, sequence-numbered, disconnect-safe —
 preview only, never scene authority). Channels the connector cannot bake
 (motion blocks, pose channels on non-Mixamo rigs) are reported as structured
-`omittedChannels`, never silently flattened. Still planned: production USD
+`omittedChannels`, and storyboard shots without a usable camera binding as
+structured `omittedShots` — never silently flattened. Still planned: production USD
 round trip — Unity's USD packages are pre-release, so USDA stays secondary
 and experimental, and GLB remains the preferred exchange payload.

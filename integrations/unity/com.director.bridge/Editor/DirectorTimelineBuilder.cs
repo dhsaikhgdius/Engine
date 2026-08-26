@@ -14,7 +14,9 @@ namespace Director.Bridge.Editor
     ///
     /// - Storyboard shots become ActivationTrack clips over their camera
     ///   GameObjects, so scrubbing the Timeline switches shot cameras at the
-    ///   authored frame ranges.
+    ///   authored frame ranges. Shots without a usable camera binding record
+    ///   typed omittedShots (same codes as the Godot shot mapper) instead of
+    ///   being dropped silently.
     /// - Director keyframe/trajectory animation is baked per entity into
     ///   AnimationClips through <see cref="DirectorAnimationEvaluator"/> (the
     ///   C# port of Director's evaluator), sampled once per Director frame in
@@ -44,6 +46,12 @@ namespace Director.Bridge.Editor
 
             /// <summary>Number of baked AnimationClips.</summary>
             public int BakedAnimationClipCount;
+
+            /// <summary>Storyboard shots that produced an ActivationTrack camera cut.</summary>
+            public int MappedShotCount;
+
+            /// <summary>Typed warn-and-omit records for shots that could not produce a cut.</summary>
+            public JArray OmittedShots = new JArray();
 
             /// <summary>Director ids of characters whose keyframed pose channels were baked or pinned.</summary>
             public List<string> PoseBakedEntityIds = new List<string>();
@@ -78,7 +86,7 @@ namespace Director.Bridge.Editor
             }
 
             var animated = CollectAnimatedEntities(project, byDirectorId, warnings, omissions);
-            var shots = CollectShots(project, cameras);
+            var shots = CollectShots(project, byDirectorId, cameras, warnings, result);
             if (animated.Count == 0 && shots.Count == 0)
             {
                 return result;
@@ -103,6 +111,7 @@ namespace Director.Bridge.Editor
                 clip.duration = Math.Max(
                     1.0 / fps, ((double)shot["frameEnd"] - (double)shot["frameStart"]) / fps);
                 playableDirector.SetGenericBinding(track, cameraObject);
+                result.MappedShotCount += 1;
             }
 
             foreach (AnimatedEntity entity in animated)
@@ -162,20 +171,69 @@ namespace Director.Bridge.Editor
             return animated;
         }
 
+        /// <summary>
+        /// Collects the storyboard shots that can produce an ActivationTrack
+        /// camera cut. Shots without a usable camera binding warn-and-omit
+        /// with a structured code (same vocabulary as the Godot shot mapper)
+        /// so editorial data is never dropped silently.
+        /// </summary>
         private static List<(JObject Shot, GameObject Camera)> CollectShots(
-            JObject project, Dictionary<string, GameObject> cameras)
+            JObject project,
+            Dictionary<string, GameObject> byDirectorId,
+            Dictionary<string, GameObject> cameras,
+            List<string> warnings,
+            Result result)
         {
             var shots = new List<(JObject, GameObject)>();
             foreach (JToken shotToken in (JArray)(project["storyboard"]?["shots"] ?? new JArray()))
             {
                 var shot = (JObject)shotToken;
+                string shotId = (string)shot["id"] ?? "?";
                 string cameraId = (string)shot["cameraId"];
-                if (cameraId != null && cameras.TryGetValue(cameraId, out GameObject cameraObject))
+                if (cameraId == null)
+                {
+                    OmitShot(
+                        result, warnings, shotId, null, "shot_no_camera_binding",
+                        $"Shot {shotId} has no camera binding; no ActivationTrack camera cut was created " +
+                        "(warn-and-omit code: shot_no_camera_binding).");
+                    continue;
+                }
+                if (cameras.TryGetValue(cameraId, out GameObject cameraObject))
                 {
                     shots.Add((shot, cameraObject));
+                    continue;
                 }
+                if (byDirectorId.ContainsKey(cameraId))
+                {
+                    OmitShot(
+                        result, warnings, shotId, cameraId, "shot_target_not_camera",
+                        $"Shot {shotId} is bound to {cameraId} which is not an imported camera; its cut was " +
+                        "skipped (warn-and-omit code: shot_target_not_camera).");
+                    continue;
+                }
+                OmitShot(
+                    result, warnings, shotId, cameraId, "shot_camera_not_imported",
+                    $"Shot {shotId} references camera {cameraId} which was not imported; its cut was skipped " +
+                    "(warn-and-omit code: shot_camera_not_imported).");
             }
             return shots;
+        }
+
+        /// <summary>
+        /// Appends one typed omit record and the matching free-text warning
+        /// (older UIs still scrape the warn-and-omit code from warnings).
+        /// </summary>
+        private static void OmitShot(
+            Result result, List<string> warnings, string shotId, string cameraDirectorId, string code, string warning)
+        {
+            result.OmittedShots.Add(new JObject
+            {
+                ["shotId"] = shotId,
+                ["code"] = code,
+                ["cameraDirectorId"] = cameraDirectorId == null ? JValue.CreateNull() : (JToken)cameraDirectorId,
+                ["reason"] = warning,
+            });
+            warnings.Add(warning);
         }
 
         private static bool BakeEntity(
