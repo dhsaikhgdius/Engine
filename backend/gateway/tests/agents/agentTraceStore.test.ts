@@ -67,6 +67,26 @@ describe("AgentTraceStore", () => {
     expect(events[0]?.operation).toBe("op-4");
   });
 
+  it("compacts on-disk JSONL when the in-memory window trims", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const store = new AgentTraceStore({ dataDirectory, limit: 3 });
+    for (let index = 0; index < 8; index += 1) {
+      await store.record(eventInput({ operation: `op-${index}` }));
+    }
+    await store.flush();
+    const eventsFile = await readFile(join(dataDirectory, "agent-traces", "events.jsonl"), "utf8");
+    const lines = eventsFile
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    expect(lines).toHaveLength(3);
+    expect(lines.map((line) => (JSON.parse(line) as { operation: string }).operation)).toEqual([
+      "op-5",
+      "op-6",
+      "op-7",
+    ]);
+  });
+
   it("summarizes the most recent session by default", async () => {
     const store = new AgentTraceStore();
     await store.record(eventInput({ session_id: "first" }));
