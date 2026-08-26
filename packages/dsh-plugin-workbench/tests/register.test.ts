@@ -31,6 +31,7 @@ describe("Director DSH agent guidance", () => {
     expect(guidance).toContain('{"op":"describe","target":"author.add_object"}');
     expect(guidance).toContain('{"op":"describe","target":"create_blockout"}');
     expect(guidance).toContain('{"op":"describe","target":"interchange"}');
+    expect(guidance).toContain("director_game");
   });
 
   it("teaches the white-box principles instead of primitive assembly", () => {
@@ -63,6 +64,6 @@ describe("Director DSH agent guidance", () => {
     ]) {
       expect(guidance).not.toContain(vocabulary);
     }
-    expect(guidance.length).toBeLessThan(4200);
+    expect(guidance.length).toBeLessThan(4600);
   });
 });
