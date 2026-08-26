@@ -216,6 +216,16 @@ function observedWorkbenchCharacters(value: unknown) {
   return Array.isArray(characters) ? characters : undefined;
 }
 
+function observedLivePlayer(value: unknown): { playerMode: boolean; playerActorId: string | null } | null {
+  const ui = record(record(value)?.ui) ?? record(value);
+  if (!ui || !("player_mode" in ui || "player_actor_id" in ui)) return null;
+  const actor = ui.player_actor_id;
+  return {
+    playerMode: ui.player_mode === true,
+    playerActorId: typeof actor === "string" && actor.trim() ? actor : null,
+  };
+}
+
 function observedProductionRevision(value: unknown) {
   const revision = record(value)?.production_revision;
   return typeof revision === "number" && Number.isInteger(revision) && revision >= 0 ? String(revision) : null;
@@ -914,6 +924,7 @@ export async function handleStageRoute(
         return true;
       }
       let possessionCharacters = observedWorkbenchCharacters(discovery?.response.result);
+      let possessionLivePlayer = observedLivePlayer(discovery?.response.result);
       if (!operation) {
         // Possession fill-in: character-scoped author actions omitted their
         // object target. When the caller possesses exactly one character, fill
@@ -980,11 +991,19 @@ export async function handleStageRoute(
       // exact target when no preflight already observed characters) and writes
       // the 403 rejection; returns true when a response was written.
       const rejectsPossessionScope = async (candidate: DirectorWorkbenchOperation): Promise<boolean> => {
-        if (!possessionCharacters) {
+        const needsLivePlayer =
+          candidate.op === "player" &&
+          ["exit", "interact", "enter_vehicle", "exit_vehicle", "record_start", "record_stop"].includes(
+            candidate.action,
+          );
+        if (!possessionCharacters || (needsLivePlayer && possessionLivePlayer === null)) {
           let bindingProbe: WorkbenchRemote | null;
           try {
             bindingProbe = await requestWorkbenchCommand(
-              { op: "observe", fields: ["characters"] },
+              {
+                op: "observe",
+                fields: needsLivePlayer ? ["characters", "ui"] : ["characters"],
+              },
               undefined,
               targetToken,
             );
@@ -1002,10 +1021,21 @@ export async function handleStageRoute(
             return true;
           }
           possessionCharacters = observedWorkbenchCharacters(bindingProbe.response.result) ?? [];
+          if (needsLivePlayer) {
+            possessionLivePlayer = observedLivePlayer(bindingProbe.response.result) ?? {
+              playerMode: false,
+              playerActorId: null,
+            };
+          }
         }
         const possessedObjectIds = collectPossessedObjectIds(possessionCharacters, possessionIdentity);
         if (!possessedObjectIds.length) return false;
-        const verdict = evaluateDirectorPossessionScope({ operation: candidate, sessionId, possessedObjectIds });
+        const verdict = evaluateDirectorPossessionScope({
+          operation: candidate,
+          sessionId,
+          possessedObjectIds,
+          ...(needsLivePlayer ? { livePlayer: possessionLivePlayer } : {}),
+        });
         if (verdict.allowed) return false;
         respond(response, 403, {
           scene,

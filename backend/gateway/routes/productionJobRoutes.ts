@@ -20,6 +20,29 @@ import type { ProductionArtifactStore } from "../artifacts/productionArtifactSto
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
+const ARTIFACT_BYTES_UNAVAILABLE = {
+  code: "artifact_bytes_unavailable",
+  message:
+    "制品字节已不可用（可能已被保留策略回收）；任务回执上的 sha256 / 元数据与 immutable ArtifactVersion 证据仍保留。",
+} as const;
+
+async function projectLiveProductionJobReceipt(store: ProductionJobStore, job: ProductionJobRecord) {
+  const artifactStoragePresence = new Map<string, "present" | "absent">();
+  await Promise.all(
+    job.artifacts.map(async (artifact) => {
+      artifactStoragePresence.set(
+        artifact.id,
+        (await store.artifactBytesPresent(job, artifact)) ? "present" : "absent",
+      );
+    }),
+  );
+  return projectProductionJobReceipt(job, { artifactStoragePresence });
+}
+
+function isEnoent(error: unknown) {
+  return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+}
+
 export type ProductionJobRouteDependencies = {
   readBody: (request: IncomingMessage) => Promise<unknown>;
   json: JsonWriter;
@@ -267,7 +290,10 @@ async function enqueueJob(
     const job = await dependencies.store.enqueue({ ...parsed.data, createId: dependencies.createJobId });
     void runJob(dependencies, job.id);
     const parsedJob = productionJobRecordSchema.parse(job);
-    dependencies.json(response, 202, { job: parsedJob, receipt: projectProductionJobReceipt(parsedJob) });
+    dependencies.json(response, 202, {
+      job: parsedJob,
+      receipt: await projectLiveProductionJobReceipt(dependencies.store, parsedJob),
+    });
   } catch (error) {
     if (error instanceof ProductionJobIdempotencyConflictError) {
       dependencies.json(response, 409, {
@@ -342,7 +368,10 @@ export async function handleProductionJobRoute(
       return true;
     }
     const reconciled = productionJobRecordSchema.parse(job);
-    json(response, 200, { job: reconciled, receipt: projectProductionJobReceipt(reconciled) });
+    json(response, 200, {
+      job: reconciled,
+      receipt: await projectLiveProductionJobReceipt(store, reconciled),
+    });
     return true;
   }
 
@@ -354,7 +383,9 @@ export async function handleProductionJobRoute(
       json(response, 404, { message: "Production job 不存在" });
       return true;
     }
-    json(response, 200, { receipt: projectProductionJobReceipt(productionJobRecordSchema.parse(job)) });
+    json(response, 200, {
+      receipt: await projectLiveProductionJobReceipt(store, productionJobRecordSchema.parse(job)),
+    });
     return true;
   }
 
@@ -388,7 +419,7 @@ export async function handleProductionJobRoute(
           version: registration.version,
           replayed: registration.replayed,
         })),
-        receipt: projectProductionJobReceipt(productionJobRecordSchema.parse(job)),
+        receipt: await projectLiveProductionJobReceipt(store, productionJobRecordSchema.parse(job)),
       });
     } catch (error) {
       const code = (error as { code?: string }).code;
@@ -413,13 +444,35 @@ export async function handleProductionJobRoute(
       json(response, 404, { message: "Production job artifact 不可用" });
       return true;
     }
-    const bytes = await store.readArtifact(job, artifact);
-    response.writeHead(200, {
-      "Content-Type": artifact.mimeType,
-      "Content-Length": bytes.byteLength,
-      "Cache-Control": "no-store",
-    });
-    response.end(bytes);
+    if (!(await store.artifactBytesPresent(job, artifact))) {
+      json(response, 410, {
+        ...ARTIFACT_BYTES_UNAVAILABLE,
+        jobId: job.id,
+        artifactId: artifact.id,
+        sha256: artifact.sha256,
+      });
+      return true;
+    }
+    try {
+      const bytes = await store.readArtifact(job, artifact);
+      response.writeHead(200, {
+        "Content-Type": artifact.mimeType,
+        "Content-Length": bytes.byteLength,
+        "Cache-Control": "no-store",
+      });
+      response.end(bytes);
+    } catch (error) {
+      if (isEnoent(error)) {
+        json(response, 410, {
+          ...ARTIFACT_BYTES_UNAVAILABLE,
+          jobId: job.id,
+          artifactId: artifact.id,
+          sha256: artifact.sha256,
+        });
+        return true;
+      }
+      throw error;
+    }
     return true;
   }
 
@@ -431,13 +484,35 @@ export async function handleProductionJobRoute(
       json(response, 404, { message: "Canvas job artifact 不可用" });
       return true;
     }
-    const bytes = await store.readArtifact(job, job.artifact);
-    response.writeHead(200, {
-      "Content-Type": job.artifact.mimeType,
-      "Content-Length": bytes.byteLength,
-      "Cache-Control": "no-store",
-    });
-    response.end(bytes);
+    if (!(await store.artifactBytesPresent(job, job.artifact))) {
+      json(response, 410, {
+        ...ARTIFACT_BYTES_UNAVAILABLE,
+        jobId: job.id,
+        artifactId: job.artifact.id,
+        sha256: job.artifact.sha256,
+      });
+      return true;
+    }
+    try {
+      const bytes = await store.readArtifact(job, job.artifact);
+      response.writeHead(200, {
+        "Content-Type": job.artifact.mimeType,
+        "Content-Length": bytes.byteLength,
+        "Cache-Control": "no-store",
+      });
+      response.end(bytes);
+    } catch (error) {
+      if (isEnoent(error)) {
+        json(response, 410, {
+          ...ARTIFACT_BYTES_UNAVAILABLE,
+          jobId: job.id,
+          artifactId: job.artifact.id,
+          sha256: job.artifact.sha256,
+        });
+        return true;
+      }
+      throw error;
+    }
     return true;
   }
 
@@ -449,7 +524,10 @@ export async function handleProductionJobRoute(
       return true;
     }
     const parsedJob = productionJobRecordSchema.parse(job);
-    json(response, 200, { job: parsedJob, receipt: projectProductionJobReceipt(parsedJob) });
+    json(response, 200, {
+      job: parsedJob,
+      receipt: await projectLiveProductionJobReceipt(store, parsedJob),
+    });
     return true;
   }
 
