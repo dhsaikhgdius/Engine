@@ -155,9 +155,11 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 
 当前已共享：
 
-- Canvas 节点/边/布局/置顶/分区创作（`canvas.node.*`、含 `canvas.node.bring_to_front` / `canvas.node.assign_section`、
-  `canvas.section.*`、`canvas.edge.*`、`canvas.dag.layout`）、素材导入入册（`gallery.media.update`）以及撤销/重做按钮
-  （`workspace.undo` / `workspace.redo`）。观察面暴露 `board.sections` 与 `node.section_id`。
+- Canvas 节点/边/布局/置顶/分区/视口创作（`canvas.node.*`、含 `canvas.node.bring_to_front` /
+  `canvas.node.assign_section`、`canvas.section.*`、`canvas.board.set_viewport` /
+  `canvas.board.fit_content`、`canvas.edge.*`、`canvas.dag.layout`）、素材导入入册
+  （`gallery.media.update`）以及撤销/重做按钮（`workspace.undo` / `workspace.redo`）。观察面暴露
+  `board.sections`、`node.section_id` 与 `board.viewport`。
 - Video 剪辑检查器编辑、分割、删除（含 ripple）、交叉溶解、键盘离散淡变步进、“+”按钮加入首个
   空闲槽位（`edit.clip.add`）、轨道管理、设置、导入入册，以及撤销/重做（按钮与快捷键）。
 - Canvas 到时间线的桥（`edit.clip.add` + `workspace.switch`）、Stage 截图导入为单个原子
@@ -179,6 +181,9 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 
 - 连续交互——节点拖拽、剪辑拖拽/裁剪、淡变拖拽、范围滑杆、实时输入——保留本地批处理历史
   （`beginHistoryBatch`/`endHistoryBatch`），与 Stage 滑块/gizmo 策略一致。拖拽/裁剪 pointer-up
-  仍本地 `commitClipPlacement`（离散微移/后接复制/显式落点已共享，见上）。
-- Canvas 视图状态——尚无语义操作（置顶与分区 add/assign/update/remove 已共享）。
+  仍本地 `commitClipPlacement`（离散微移/后接复制/显式落点已共享，见上）。Canvas 连续指针平移/
+  滚轮缩放保持本地。
+- Canvas 画板视口离散写入——`canvas.board.set_viewport` 与 `canvas.board.fit_content`（工具栏/
+  布局后适应）走共享 agent 契约；连续平移/滚轮仍本地。缩放钳制在 `[0.1, 2.5]`；无现场 DOM
+  尺寸时 fit 默认 1280×800 表面。
 - Canvas 流水线产物入册、旧评审镜像迁移与批量清除评审——多 store 或迁移簿记流程。

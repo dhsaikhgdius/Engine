@@ -58,6 +58,13 @@ import { CreativeWorkspacePanelResizer, useCreativeWorkspacePanelLayout } from "
 import { installWindowPointerDrag } from "./windowPointerDrag";
 import { analyzeDirectorCanvasDag } from "./canvasDag";
 import {
+  CANVAS_BOARD_FIT_DEFAULT_PADDING,
+  CANVAS_BOARD_FIT_DEFAULT_SURFACE_HEIGHT,
+  CANVAS_BOARD_FIT_DEFAULT_SURFACE_WIDTH,
+  CANVAS_BOARD_VIEWPORT_ZOOM_MAX,
+  CANVAS_BOARD_VIEWPORT_ZOOM_MIN,
+} from "./canvasBoardViewport";
+import {
   getActiveDirectorCanvasPipelineHandle,
   startDirectorCanvasPipeline,
   type DirectorCanvasPipelineHandle,
@@ -216,11 +223,12 @@ export function CanvasWorkspace() {
   const workspacePrefs = useDirectorCreativeWorkspaceStore((state) => state.workspacePrefs);
   const viewport = useDirectorCreativeWorkspaceStore((state) => state.boardViewport);
   const selectedNodeId = useDirectorCreativeWorkspaceStore((state) => state.selectedBoardNodeId);
-  // Node/edge/layout/z-order/section authoring, import cataloging, undo/redo, and media
-  // relink dispatch through the shared agent contract
+  // Node/edge/layout/z-order/section/viewport authoring, import cataloging,
+  // undo/redo, and media relink dispatch through the shared agent contract
   // (dispatchCreativeWorkspaceOperations / dispatchCreativeWorkspaceMediaRelink);
-  // only drag-batch intermediate samples and view state (no semantic ops yet)
-  // keep direct store mutators. Section assignment at pointer-up is discrete.
+  // only drag-batch intermediate samples and continuous pointer pan/wheel
+  // keep direct store mutators. Discrete fit/set_viewport and section
+  // assignment at pointer-up are shared.
   const updateBoardNode = useDirectorCreativeWorkspaceStore((state) => state.updateBoardNode);
   const selectBoardNode = useDirectorCreativeWorkspaceStore((state) => state.selectBoardNode);
   const setBoardViewport = useDirectorCreativeWorkspaceStore((state) => state.setBoardViewport);
@@ -759,7 +767,10 @@ export function CanvasWorkspace() {
     if (!bounds) return;
     const localX = event.clientX - bounds.left;
     const localY = event.clientY - bounds.top;
-    const nextZoom = Math.min(2.5, Math.max(0.1, viewport.zoom * Math.exp(-event.deltaY * 0.0012)));
+    const nextZoom = Math.min(
+      CANVAS_BOARD_VIEWPORT_ZOOM_MAX,
+      Math.max(CANVAS_BOARD_VIEWPORT_ZOOM_MIN, viewport.zoom * Math.exp(-event.deltaY * 0.0012)),
+    );
     const worldX = (localX - viewport.x) / viewport.zoom;
     const worldY = (localY - viewport.y) / viewport.zoom;
     setBoardViewport({
@@ -771,21 +782,15 @@ export function CanvasWorkspace() {
 
   function fitBoard() {
     const bounds = surfaceRef.current?.getBoundingClientRect();
-    const liveNodes = useDirectorCreativeWorkspaceStore.getState().boardNodes;
-    if (!bounds || !liveNodes.length) return setBoardViewport({ x: 0, y: 0, zoom: 1 });
-    const minX = Math.min(...liveNodes.map((node) => node.x));
-    const minY = Math.min(...liveNodes.map((node) => node.y));
-    const maxX = Math.max(...liveNodes.map((node) => node.x + node.width));
-    const maxY = Math.max(...liveNodes.map((node) => node.y + node.height));
-    const zoom = Math.min(
-      1.35,
-      Math.max(0.1, Math.min((bounds.width - 120) / (maxX - minX), (bounds.height - 120) / (maxY - minY))),
-    );
-    setBoardViewport({
-      x: (bounds.width - (maxX - minX) * zoom) / 2 - minX * zoom,
-      y: (bounds.height - (maxY - minY) * zoom) / 2 - minY * zoom,
-      zoom,
+    const receipt = dispatchCreativeWorkspaceOperations({
+      op: "canvas.board.fit_content",
+      surface_width: bounds && bounds.width > 0 ? bounds.width : CANVAS_BOARD_FIT_DEFAULT_SURFACE_WIDTH,
+      surface_height: bounds && bounds.height > 0 ? bounds.height : CANVAS_BOARD_FIT_DEFAULT_SURFACE_HEIGHT,
+      padding: CANVAS_BOARD_FIT_DEFAULT_PADDING,
     });
+    if (!receipt.ok) {
+      showImportMessage(`${t("无法适应画布")}：${receipt.error}`, "error");
+    }
   }
 
   function autoLayoutDag() {

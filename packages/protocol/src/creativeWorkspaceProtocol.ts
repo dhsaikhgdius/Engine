@@ -432,6 +432,24 @@ const canvasSectionRemoveSchema = strictOperation("canvas.section.remove", {
   section_id: creativeWorkspaceIdSchema,
 });
 
+/** Set Canvas board pan/zoom. Zoom is clamped to [0.1, 2.5]; continuous pointer pan/wheel stay local. */
+const canvasBoardSetViewportSchema = strictOperation("canvas.board.set_viewport", {
+  x: coordinateSchema,
+  y: coordinateSchema,
+  zoom: boundedNumber(0.1, 2.5),
+});
+
+/**
+ * Frame every board node into an optional surface size. Defaults match the
+ * agent-side identity surface (1280×800, padding 120) when the live DOM measure
+ * is unavailable; an empty board resets to `{ x: 0, y: 0, zoom: 1 }`.
+ */
+const canvasBoardFitContentSchema = strictOperation("canvas.board.fit_content", {
+  surface_width: boundedNumber(1, 16_000).optional(),
+  surface_height: boundedNumber(1, 16_000).optional(),
+  padding: boundedNumber(0, 800).optional(),
+});
+
 const canvasEdgeAddSchema = strictOperation("canvas.edge.add", {
   source_node_id: creativeWorkspaceIdSchema,
   target_node_id: creativeWorkspaceIdSchema,
@@ -754,6 +772,8 @@ export const creativeWorkspaceAgentOperationSchema = z.discriminatedUnion("op", 
   canvasSectionAddSchema,
   canvasSectionUpdateSchema,
   canvasSectionRemoveSchema,
+  canvasBoardSetViewportSchema,
+  canvasBoardFitContentSchema,
   canvasEdgeAddSchema,
   canvasEdgeRemoveSchema,
   canvasDagLayoutSchema,

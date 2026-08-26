@@ -41190,6 +41190,16 @@ var canvasSectionUpdateSchema = strictOperation("canvas.section.update", {
 var canvasSectionRemoveSchema = strictOperation("canvas.section.remove", {
   section_id: creativeWorkspaceIdSchema
 });
+var canvasBoardSetViewportSchema = strictOperation("canvas.board.set_viewport", {
+  x: coordinateSchema,
+  y: coordinateSchema,
+  zoom: boundedNumber(0.1, 2.5)
+});
+var canvasBoardFitContentSchema = strictOperation("canvas.board.fit_content", {
+  surface_width: boundedNumber(1, 16e3).optional(),
+  surface_height: boundedNumber(1, 16e3).optional(),
+  padding: boundedNumber(0, 800).optional()
+});
 var canvasEdgeAddSchema = strictOperation("canvas.edge.add", {
   source_node_id: creativeWorkspaceIdSchema,
   target_node_id: creativeWorkspaceIdSchema
@@ -41432,6 +41442,8 @@ var creativeWorkspaceAgentOperationSchema = external_exports.discriminatedUnion(
   canvasSectionAddSchema,
   canvasSectionUpdateSchema,
   canvasSectionRemoveSchema,
+  canvasBoardSetViewportSchema,
+  canvasBoardFitContentSchema,
   canvasEdgeAddSchema,
   canvasEdgeRemoveSchema,
   canvasDagLayoutSchema,
@@ -121827,6 +121839,16 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
       external_exports.literal("canvas.node.assign_section")
     ]),
     section_contract: external_exports.string(),
+    viewport_operations: external_exports.tuple([external_exports.literal("canvas.board.set_viewport"), external_exports.literal("canvas.board.fit_content")]),
+    viewport_observe_path: external_exports.literal("board.viewport"),
+    viewport_zoom_range: external_exports.tuple([external_exports.literal(0.1), external_exports.literal(2.5)]),
+    viewport_fit_defaults: external_exports.strictObject({
+      surface_width: external_exports.literal(1280),
+      surface_height: external_exports.literal(800),
+      padding: external_exports.literal(120),
+      max_zoom: external_exports.literal(1.35)
+    }),
+    viewport_contract: external_exports.string(),
     execution_boundary: external_exports.string()
   }),
   preview: external_exports.strictObject({
@@ -137896,6 +137918,18 @@ var directorGodotAnimationBakeSchema = external_exports.strictObject({
   });
 });
 var rationalRateStringSchema2 = external_exports.string().regex(/^[1-9]\d{0,6}\/[1-9]\d{0,6}$/);
+var directorGodotOmittedLightCodeSchema = external_exports.enum([
+  "light_rect_area_unsupported",
+  "light_ambient_duplicate",
+  "light_ambient_invisible",
+  "light_type_unknown"
+]);
+var directorGodotOmittedLightSchema = external_exports.strictObject({
+  directorId: external_exports.string().trim().min(1).max(200),
+  code: directorGodotOmittedLightCodeSchema,
+  lightType: external_exports.string().trim().min(1).max(80),
+  reason: external_exports.string().trim().min(1).max(600)
+});
 var directorGodotImportReceiptSchema = external_exports.strictObject({
   /** `res://` path of the AnimationPlayer's owning scene, when animation was keyed. */
   animationPlayerPath: external_exports.string().trim().min(1).max(1024).nullable(),
@@ -137923,10 +137957,24 @@ var directorGodotImportReceiptSchema = external_exports.strictObject({
   worldEnvironmentAmbient: external_exports.boolean(),
   /** Lights omitted with a structured warn-and-omit code (rect-area, duplicate ambient, …). */
   omittedLightCount: external_exports.number().int().nonnegative().max(1e5),
+  /**
+   * Typed omit records for Agent/UI honesty. Optional for older connectors that
+   * only stamped free-text warnings; when present, length must match
+   * `omittedLightCount`.
+   */
+  omittedLights: external_exports.array(directorGodotOmittedLightSchema).max(1024).optional(),
   /** Director PBR materials applied to imported payload meshes. */
   appliedMaterialCount: external_exports.number().int().nonnegative().max(1e5),
   /** Payload textures externalized to hashed `res://director/textures/` resources. */
   externalizedTextureCount: external_exports.number().int().nonnegative().max(1e5)
+}).superRefine((receipt, context) => {
+  if (receipt.omittedLights !== void 0 && receipt.omittedLights.length !== receipt.omittedLightCount) {
+    context.addIssue({
+      code: "custom",
+      path: ["omittedLights"],
+      message: "omittedLights length must equal omittedLightCount"
+    });
+  }
 });
 var directorGodotConnectorHealthSchema = external_exports.strictObject({
   ok: external_exports.literal(true),

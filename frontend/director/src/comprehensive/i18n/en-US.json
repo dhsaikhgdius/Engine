@@ -2114,6 +2114,7 @@
   "连接删除失败": "Failed to delete connection",
   "无法连接": "Cannot connect",
   "无法自动排列": "Cannot arrange automatically",
+  "无法适应画布": "Cannot fit the board",
   "剪辑更新失败": "Failed to update clip",
   "剪辑微移失败": "Failed to nudge clip",
   "复制剪辑失败": "Failed to duplicate clip",
