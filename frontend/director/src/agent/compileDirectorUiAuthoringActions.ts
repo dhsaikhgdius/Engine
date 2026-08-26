@@ -36,10 +36,13 @@ import {
   type CameraViewSnapshot,
 } from "../comprehensive/editor/schema/cameraGeometry";
 import { createDirectorLight } from "@director/project-schema";
+import { DIRECTOR_DUPLICATE_POSITION_OFFSET_M } from "@director/agent-engine/authoring";
 import { formatSceneItemName, getNextSequentialId } from "../comprehensive/editor/store/directorStoreUtils";
-import type { DirectorWorldSettingsPatch } from "../comprehensive/editor/store/directorStore";
+import { getDirectorObjectFocusTarget } from "../comprehensive/editor/schema/cameraTarget";
+import type { DirectorClipboardEntry, DirectorWorldSettingsPatch } from "../comprehensive/editor/store/directorStore";
 
 type UpdateCameraAction = Extract<DirectorAuthoringAction, { action: "update_camera" }>;
+type DuplicateObjectsAction = Extract<DirectorAuthoringAction, { action: "duplicate_objects" }>;
 type AddCameraAction = Extract<DirectorAuthoringAction, { action: "add_camera" }>;
 type SetSceneAction = Extract<DirectorAuthoringAction, { action: "set_scene" }>;
 type SetWorldSettingsAction = Extract<DirectorAuthoringAction, { action: "set_world_settings" }>;
@@ -408,4 +411,62 @@ export function compileDirectorSceneUpdateAction(patch: Partial<SceneSettings>):
   }
   if (!Object.keys(scenePatch).length) return null;
   return { action: "set_scene", patch: scenePatch } as SetSceneAction;
+}
+
+/**
+ * Compile a Stage clipboard paste into one duplicate_objects authoring action.
+ * The authoring engine duplicates live objects, so the compiler routes only
+ * pastes whose result provably matches the legacy clipboard writer:
+ * - every clipboard snapshot (object, and linked camera shot for camera
+ *   entries) must still equal its live project entity, otherwise the paste
+ *   must reproduce copy-time state and keeps the legacy writer;
+ * - Blender-native objects without an importable model asset keep the legacy
+ *   writer (duplicate_objects rejects them; legacy copy filtered them too);
+ * - object-focused cameras keep the legacy writer when a copied source is
+ *   their focus target (legacy retargets existing cameras at the duplicate)
+ *   or when their stored target drifted from the UI focus-height recompute.
+ */
+export function compileDirectorPasteClipboardActions(
+  project: DirectorProject,
+  clipboard: DirectorClipboardEntry[],
+  clipboardPasteCount: number,
+): DuplicateObjectsAction | null {
+  if (!clipboard.length || clipboard.length > 64) return null;
+  const offset = DIRECTOR_DUPLICATE_POSITION_OFFSET_M * (clipboardPasteCount + 1);
+  if (!Number.isFinite(offset) || Math.abs(offset) > 100) return null;
+  const copiedObjectIds = clipboard.map((entry) => entry.object.id);
+  const copiedObjectIdSet = new Set(copiedObjectIds);
+  if (copiedObjectIdSet.size !== clipboard.length) return null;
+
+  for (const entry of clipboard) {
+    const liveObject = project.objects.find((object) => object.id === entry.object.id);
+    if (!liveObject || !jsonEqual(entry.object, liveObject)) return null;
+    if (liveObject.nativeSource) {
+      const asset = liveObject.assetRefId
+        ? project.assets.find((item) => item.id === liveObject.assetRefId)
+        : undefined;
+      if (!asset || asset.sourceType !== "model") return null;
+    }
+    if (entry.object.kind === "camera") {
+      // Camera objects with a missing linked shot paste as plain objects in
+      // the legacy writer; duplicate_objects rejects them instead.
+      if (!entry.camera || !entry.object.linkedCameraId) return null;
+      const liveCamera = project.cameras.find((camera) => camera.id === entry.object.linkedCameraId);
+      if (!liveCamera || !jsonEqual(entry.camera, liveCamera)) return null;
+    }
+  }
+
+  for (const camera of project.cameras) {
+    if (camera.targetMode !== "object" || !camera.targetObjectId) continue;
+    if (copiedObjectIdSet.has(camera.targetObjectId)) return null;
+    const targetObject = project.objects.find((object) => object.id === camera.targetObjectId);
+    if (!targetObject) return null;
+    if (!jsonEqual(camera.target, getDirectorObjectFocusTarget(targetObject))) return null;
+  }
+
+  return {
+    action: "duplicate_objects",
+    object_ids: copiedObjectIds,
+    offset_m: offset,
+  };
 }

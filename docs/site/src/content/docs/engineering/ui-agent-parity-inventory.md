@@ -29,12 +29,12 @@ Last verified: **2026-08-26**.
 
 | Category | Count |
 | ------------------------------------ | ----- |
-| shared Stage project mutators | 69 |
-| ui-only Stage project mutators | 18 |
-| Coverage (shared / project mutators) | **69 / 87 ≈ 79%** |
+| shared Stage project mutators | 70 |
+| ui-only Stage project mutators | 17 |
+| Coverage (shared / project mutators) | **70 / 87 ≈ 80%** |
 
 Everything still ui-only either has no semantic action yet (timeline audio, object lists,
-panorama/capture/catalog writes, clipboard paste) or is deliberately local with a documented
+panorama/capture/catalog writes) or is deliberately local with a documented
 divergence reason in the store (snapshot cameras, preset/crowd/asset add flows).
 
 Parity is regression-tested in
@@ -64,7 +64,7 @@ Parity is regression-tested in
 | `updateObjectReferenceBindings` | `directorStore.ts` | `update_object` `reference_bindings` | shared (camera rigs and provisioned native Blender objects keep the legacy writer) |
 | `createCompositeObject` / `addObjectsToComposite` / `removeObjectsFromComposite` | `directorStore.ts` | `group_objects` / `update_object` `parent_id` patches | shared (provisioned native Blender children keep the legacy writer) |
 | `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | no semantic action; object lists are a UI selection helper, not composite groups | ui-only (deliberately local) |
-| `pasteClipboardObjects` | `directorStore.ts` | `add_object` batch (not yet compiled; documented gap) | ui-only |
+| `pasteClipboardObjects` | `directorStore.ts` | `duplicate_objects` (one action per paste; ids, names, offsets, and crowd remaps allocate identically on both paths) | shared (stale clipboard snapshots that no longer match the live objects, camera objects without a linked shot, Blender-native objects without a model asset, and pastes an object-focused camera participates in — as copied source, focus target of a copied source, or with a drifted stored target — keep the legacy writer) |
 
 ## Cameras
 
