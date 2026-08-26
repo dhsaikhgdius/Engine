@@ -27,6 +27,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run repo:check
       - run: npm run lint
       # Full-tree `format:check` is already red on main (~290 files). Gate PRs
