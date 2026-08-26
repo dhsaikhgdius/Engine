@@ -112,7 +112,7 @@ Parity is regression-tested in
 | `addSceneMeasurement` / `updateSceneMeasurement` / `removeSceneMeasurement` | `directorStore.ts` | `add_measurement` / `update_measurement` / `remove_measurements` | shared |
 | `setObjectLayerState` | `directorStore.ts` | `set_object_layer_state` | shared (no-op state writes are skipped to keep the undo stack clean) |
 | `moveObjectLayer` | `directorStore.ts` | `reorder_object_layer` | shared |
-| `removePanoramaAsset` | `directorStore.ts` | `remove_assets` (clears `panoramaAssetId` when the panorama asset id is removed) | shared |
+| `removePanoramaAsset` | `directorStore.ts` | `remove_assets` (clears `panoramaAssetId` when the panorama asset id is removed) | shared (when characters still need the default Mixamo asset but it is missing from `assets`, migrate would rehydrate it — keep the legacy writer that only drops the panorama entry) |
 
 ## Timeline audio
 
@@ -125,7 +125,7 @@ Parity is regression-tested in
 | Mutator | File | Semantic action(s) | Status |
 | --- | --- | --- | --- |
 | `addImportedAsset` | `directorStore.ts` | no semantic action yet (catalog ingest + optional scene placement) | ui-only |
-| `setAssetRealWorldSize` | `directorStore.ts` | `upsert_asset` with the patched `realWorldSizeM` / `sizeSource` | shared |
+| `setAssetRealWorldSize` | `directorStore.ts` | `upsert_asset` with the patched `realWorldSizeM` / `sizeSource` | shared (clearing to `null` keeps the legacy writer so migrate's estimated 2 m backfill does not refill the Prop inspector) |
 | `removeImportedAsset` | `directorStore.ts` | `remove_assets` with `cascade` | shared (removals whose cascade would also delete children, clear look targets, camera follow/path bindings, or material texture references keep the legacy writer, which leaves those untouched) |
 | `addObjectFromAsset` | `directorStore.ts` | `add_object` diverges: `createSceneObjectFromAsset` stamps Blender `nativeSource` provisioning markers and character rig defaults that `add_object` does not author | ui-only (deliberately local) |
 | `addPresetCharacter` / `addCrowdCharacters` | `directorStore.ts` | `add_object` diverges: preset adds keep per-add body types and a rotating color palette, and crowd grouping (`crowdId`) is UI-only state `add_object` cannot author | ui-only (deliberately local) |

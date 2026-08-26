@@ -3714,12 +3714,30 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       const panoramaAssetId = get().project.panoramaAssetId;
       if (!panoramaAssetId) return;
       if (canUseAuthoringPath()) {
-        dispatchUiAuthoring(
-          [{ action: "remove_assets", asset_ids: [panoramaAssetId] }],
-          `ui-panorama-remove:${panoramaAssetId}`,
-          "删除失败",
-        );
-        return;
+        const project = get().project;
+        const defaultCharacterAsset = getDefaultMixamoCharacterAssetRef();
+        // applyAuthoredProject always runs migrateDirectorProject, which injects
+        // the default Mixamo asset when characters still reference it but the
+        // asset list omitted it. The local writer only removes the panorama
+        // entry, so keep that path when migrate would widen the asset list.
+        const migrateWouldRehydrateDefaultCharacter =
+          !project.assets.some((asset) => asset.id === defaultCharacterAsset.id) &&
+          project.objects.some((object) => {
+            if (object.kind !== "character") return false;
+            const assetRefId =
+              object.assetRefId ??
+              inferLegacyLibraryCharacterAssetId(project, object) ??
+              defaultCharacterAsset.id;
+            return assetRefId === defaultCharacterAsset.id;
+          });
+        if (!migrateWouldRehydrateDefaultCharacter) {
+          dispatchUiAuthoring(
+            [{ action: "remove_assets", asset_ids: [panoramaAssetId] }],
+            `ui-panorama-remove:${panoramaAssetId}`,
+            "删除失败",
+          );
+          return;
+        }
       }
       commitMutation((state) => {
         const currentPanoramaId = state.project.panoramaAssetId;
@@ -5894,12 +5912,17 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       const currentAsset = get().project.assets.find((item) => item.id === assetId);
       if (!currentAsset || currentAsset.sourceType !== "model" || currentAsset.kind === "character") return;
       if (sizeM !== null && (!Number.isFinite(sizeM) || sizeM <= 0)) return;
-      const nextAsset: DirectorAssetRef = {
-        ...currentAsset,
-        realWorldSizeM: sizeM ?? undefined,
-        sizeSource: sizeM === null ? undefined : source,
-      };
-      if (canUseAuthoringPath()) {
+      // Clearing omits realWorldSizeM/sizeSource. applyAuthoredProject then runs
+      // backfillDirectorAssetMetricScale, which re-estimates unsized models to
+      // the 2 m fallback — the Prop inspector would show a filled value again.
+      // Keep the local writer for clear so the empty-field UX matches the
+      // previous direct patch; finite sizes still share upsert_asset.
+      if (canUseAuthoringPath() && sizeM !== null) {
+        const nextAsset: DirectorAssetRef = {
+          ...currentAsset,
+          realWorldSizeM: sizeM,
+          sizeSource: source,
+        };
         dispatchUiAuthoring(
           [{ action: "upsert_asset", asset: cloneJsonValue(nextAsset) }],
           `ui-asset-size:${assetId}`,
