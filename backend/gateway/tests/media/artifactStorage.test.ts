@@ -139,9 +139,7 @@ describe("artifactStorage", () => {
     objects.set("/absolute.mp4", { bytes: new Uint8Array(1), modifiedAt: now });
 
     const storage = new ObjectStorageArtifactStorage(client);
-    expect((await storage.list()).map((object) => object.key)).toEqual([
-      "production-jobs/job-3/attempts/a-1/safe.mp4",
-    ]);
+    expect((await storage.list()).map((object) => object.key)).toEqual(["production-jobs/job-3/attempts/a-1/safe.mp4"]);
   });
 
   it("selects the filesystem backend by default and requires a client for object storage", async () => {

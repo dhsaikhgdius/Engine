@@ -153,9 +153,7 @@ describe("artifactRetentionPolicy", () => {
     ];
 
     const expired = collectRetentionExpiredArtifactKeys(jobs, policy, NOW);
-    expect([...expired.keys()]).toEqual([
-      "production-jobs/job-failed/attempts/job-failed-attempt-1/partial.mp4",
-    ]);
+    expect([...expired.keys()]).toEqual(["production-jobs/job-failed/attempts/job-failed-attempt-1/partial.mp4"]);
     expect(expired.get("production-jobs/job-failed/attempts/job-failed-attempt-1/partial.mp4")).toMatchObject({
       jobId: "job-failed",
       jobKind: "media.proxy",

@@ -27,7 +27,11 @@ export const artifactRetentionRuleSchema = z.strictObject({
   /** Job kinds the rule applies to; empty/omitted means every kind. */
   jobKinds: z.array(productionJobKindSchema).max(32).optional(),
   /** Terminal statuses the rule applies to; omitted means every terminal status. */
-  statuses: z.array(z.enum(["succeeded", "failed", "cancelled"])).min(1).max(3).optional(),
+  statuses: z
+    .array(z.enum(["succeeded", "failed", "cancelled"]))
+    .min(1)
+    .max(3)
+    .optional(),
   /** Days a matching terminal job's artifact bytes stay retained after it finished. */
   retainDays: z.number().int().min(1).max(3650),
 });
@@ -46,7 +50,12 @@ export const artifactLegalHoldSchema = z.strictObject({
 export const artifactRetentionPolicySchema = z.strictObject({
   contract: z.literal("director-artifact-retention-policy-v1").default("director-artifact-retention-policy-v1"),
   /** Objects younger than this are always kept, whatever the rules say. */
-  minimumAgeHours: z.number().int().min(1).max(24 * 365).default(24),
+  minimumAgeHours: z
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 365)
+    .default(24),
   /** Terminal-job artifact expiry rules; empty means nothing reachable ever expires. */
   rules: z.array(artifactRetentionRuleSchema).max(32).default([]),
   legalHold: artifactLegalHoldSchema.default({ keys: [], keyPrefixes: [], jobIds: [] }),

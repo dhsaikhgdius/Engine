@@ -154,7 +154,12 @@ describe("storage ops routes", () => {
         health: {
           contract: "director-storage-health-v1",
           backend: "filesystem",
-          policy: { source: "default", minimumAgeHours: 24, rules: [], legalHold: { keys: 0, keyPrefixes: 0, jobIds: 0 } },
+          policy: {
+            source: "default",
+            minimumAgeHours: 24,
+            rules: [],
+            legalHold: { keys: 0, keyPrefixes: 0, jobIds: 0 },
+          },
           usage: {
             jobArtifacts: { objects: 1, bytes: 10 },
             jobMetadata: { objects: 1 },

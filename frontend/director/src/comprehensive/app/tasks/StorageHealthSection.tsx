@@ -102,9 +102,7 @@ export function StorageHealthSection() {
             <span>{t("可清扫")}</span>
             <span>
               {health.sweepCandidates.count > 0
-                ? t(
-                    `${health.sweepCandidates.count} 个对象（${formatStorageBytes(health.sweepCandidates.bytes)}）`,
-                  )
+                ? t(`${health.sweepCandidates.count} 个对象（${formatStorageBytes(health.sweepCandidates.bytes)}）`)
                 : t("无")}
             </span>
             <span>{t("最近清扫")}</span>
