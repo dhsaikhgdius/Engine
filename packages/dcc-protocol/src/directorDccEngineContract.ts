@@ -289,6 +289,26 @@ export const directorUnrealOmittedMaterialSchema = z.strictObject({
 export type DirectorUnrealOmittedMaterial = z.infer<typeof directorUnrealOmittedMaterialSchema>;
 
 /**
+ * Structured warn-and-omit codes the Unreal skeletal import path stamps into
+ * reports when a skinned / character GLB cannot become a faithful SkeletalMesh.
+ */
+export const directorUnrealOmittedSkeletalCodeSchema = z.enum([
+  "skeleton_unavailable",
+  "character_unskinned",
+  "empty_actor",
+]);
+
+/** One typed Unreal skeletal omission (agents read this instead of scraping warnings). */
+export const directorUnrealOmittedSkeletalSchema = z.strictObject({
+  directorId: z.string().trim().min(1).max(200),
+  code: directorUnrealOmittedSkeletalCodeSchema,
+  reason: z.string().trim().min(1).max(600),
+});
+
+/** A validated structured omitted-skeletal record. */
+export type DirectorUnrealOmittedSkeletal = z.infer<typeof directorUnrealOmittedSkeletalSchema>;
+
+/**
  * The receipt an engine connector writes after a headless import run. The
  * gateway schema-validates this file; a malformed or `ok:false` report fails
  * the job with structured diagnostics.
@@ -327,6 +347,17 @@ export const directorDccEngineReportSchema = z
      * older connectors; when present, length must equal omittedMaterialCount.
      */
     omittedMaterials: z.array(directorUnrealOmittedMaterialSchema).max(1_024).optional(),
+    /**
+     * Unreal-only: skeletal warn-and-omit count. Optional for connectors before
+     * 0.4.2; when omittedSkeletal is present, length must equal this count.
+     */
+    omittedSkeletalCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Unreal-only: typed skeletal omit records (`skeleton_unavailable`,
+     * `character_unskinned`, `empty_actor`). Optional for older connectors;
+     * when present, length must equal omittedSkeletalCount.
+     */
+    omittedSkeletal: z.array(directorUnrealOmittedSkeletalSchema).max(1_024).optional(),
     /** Unreal-only: number of bundled texture files imported and bound to material-instance texture parameters. */
     appliedTextureCount: z.number().int().nonnegative().optional(),
     /** Unreal-only: Director lights spawned as Unreal light actors tagged `director_light_id:` (not `director_id`). */
@@ -367,6 +398,21 @@ export const directorDccEngineReportSchema = z
           code: "custom",
           path: ["omittedMaterials"],
           message: "omittedMaterials length must equal omittedMaterialCount",
+        });
+      }
+    }
+    if (report.omittedSkeletal !== undefined) {
+      if (report.omittedSkeletalCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedSkeletalCount"],
+          message: "omittedSkeletalCount is required when omittedSkeletal is present",
+        });
+      } else if (report.omittedSkeletal.length !== report.omittedSkeletalCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedSkeletal"],
+          message: "omittedSkeletal length must equal omittedSkeletalCount",
         });
       }
     }

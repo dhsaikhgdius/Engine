@@ -289,6 +289,31 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
     ]);
   });
 
+  it("returns typed omittedSkeletal records on the Unreal send report", async () => {
+    const harness = await createSendHarness({
+      omittedSkeletalCount: 2,
+      omittedSkeletal: [
+        {
+          directorId: "hero",
+          code: "character_unskinned",
+          reason: "Character hero references a GLB without a skin; it was imported without a skeleton (warn-and-omit).",
+        },
+        {
+          directorId: "prop-1",
+          code: "empty_actor",
+          reason:
+            "Object prop-1 references asset asset-missing that is not a GLB payload; spawned as an empty actor (warn-and-omit).",
+        },
+      ],
+    });
+    const result = await harness.send();
+    expect(result.report.omittedSkeletalCount).toBe(2);
+    expect(result.report.omittedSkeletal).toEqual([
+      expect.objectContaining({ directorId: "hero", code: "character_unskinned" }),
+      expect.objectContaining({ directorId: "prop-1", code: "empty_actor" }),
+    ]);
+  });
+
   it("fails the job when omittedMaterials length disagrees with omittedMaterialCount", async () => {
     const harness = await createSendHarness({
       omittedMaterialCount: 0,

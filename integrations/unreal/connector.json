@@ -1,7 +1,7 @@
 {
   "contract": "director-dcc-connector-v1",
   "provider": "unreal",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "entryPoints": {
     "health": "plugins/DirectorBridge/Content/Python/director_headless.py",
     "import": "plugins/DirectorBridge/Content/Python/director_headless.py",
