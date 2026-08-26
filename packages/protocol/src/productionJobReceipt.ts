@@ -5,6 +5,7 @@ import {
   productionJobErrorSchema,
   productionJobKindSchema,
   productionJobStatusSchema,
+  type ProductionJobArtifact,
   type ProductionJobRecord,
 } from "./productionJobProtocol";
 
@@ -26,6 +27,30 @@ export const productionJobReceiptAttemptSchema = z.strictObject({
   /** Ordered provider phases; the first entry is the immutable externalId. */
   externalIds: z.array(z.string().trim().min(1).max(500)).min(1).max(16).optional(),
 });
+
+/**
+ * Live byte presence for one receipt artifact. Durable job JSON never stores
+ * this — it is projected at read time so retention GC can age out bytes while
+ * sha256 / ArtifactVersion evidence remains.
+ */
+export const productionJobArtifactStoragePresenceSchema = z.enum(["present", "absent"]);
+
+/**
+ * Receipt artifact: immutable metadata plus optional live `storagePresence`
+ * when the Gateway (or a test) has probed the artifact bytes.
+ */
+export const productionJobReceiptArtifactSchema = productionJobArtifactSchema.extend({
+  storagePresence: productionJobArtifactStoragePresenceSchema.optional(),
+});
+
+/** Options for {@link projectProductionJobReceipt}. */
+export type ProjectProductionJobReceiptOptions = {
+  /**
+   * Live byte presence keyed by artifact id. When provided, every artifact on
+   * the receipt carries `storagePresence` (missing keys become `absent`).
+   */
+  artifactStoragePresence?: ReadonlyMap<string, z.infer<typeof productionJobArtifactStoragePresenceSchema>>;
+};
 
 /**
  * Normalized, kind-independent receipt for one durable production job.
@@ -56,7 +81,7 @@ export const productionJobReceiptSchema = z
     }),
     error: productionJobErrorSchema.optional(),
     /** Ordered immutable artifacts across every attempt of the job. */
-    artifacts: z.array(productionJobArtifactSchema),
+    artifacts: z.array(productionJobReceiptArtifactSchema),
     /** The promoted/primary artifact id when the compatibility pointer exists. */
     primaryArtifactId: z.string().min(1).optional(),
   })
@@ -91,6 +116,23 @@ export const productionJobReceiptSchema = z
 /** Normalized receipt of one durable production job. */
 export type ProductionJobReceipt = z.infer<typeof productionJobReceiptSchema>;
 
+/** Receipt artifact with optional live storage presence. */
+export type ProductionJobReceiptArtifact = z.infer<typeof productionJobReceiptArtifactSchema>;
+
+/** Live artifact byte presence on a receipt. */
+export type ProductionJobArtifactStoragePresence = z.infer<typeof productionJobArtifactStoragePresenceSchema>;
+
+function projectReceiptArtifacts(
+  artifacts: readonly ProductionJobArtifact[],
+  presence: ProjectProductionJobReceiptOptions["artifactStoragePresence"],
+): ProductionJobReceiptArtifact[] {
+  if (!presence) return artifacts.map((artifact) => ({ ...artifact }));
+  return artifacts.map((artifact) => ({
+    ...artifact,
+    storagePresence: presence.get(artifact.id) ?? "absent",
+  }));
+}
+
 /**
  * Projects the normalized receipt from a full durable job record. The
  * projection is deterministic and total over every job kind: the same job
@@ -98,10 +140,17 @@ export type ProductionJobReceipt = z.infer<typeof productionJobReceiptSchema>;
  * (generation, DCC, media transcode/proxy, transcription, reconstruction,
  * episode packaging) ran it.
  *
+ * Pass {@link ProjectProductionJobReceiptOptions.artifactStoragePresence} from
+ * Gateway live reads so agents see whether retention GC has aged out bytes.
+ *
  * @param job - The full durable job record.
+ * @param options - Optional live byte-presence map.
  * @returns The validated normalized receipt.
  */
-export function projectProductionJobReceipt(job: ProductionJobRecord): ProductionJobReceipt {
+export function projectProductionJobReceipt(
+  job: ProductionJobRecord,
+  options: ProjectProductionJobReceiptOptions = {},
+): ProductionJobReceipt {
   const current = job.attempts.at(-1)!;
   const error = current.error ?? (job.error ? { code: "job_error", message: job.error, retryable: false } : undefined);
   return productionJobReceiptSchema.parse({
@@ -131,7 +180,7 @@ export function projectProductionJobReceipt(job: ProductionJobRecord): Productio
       finishedAt: current.timestamps.finishedAt,
     },
     error,
-    artifacts: job.artifacts,
+    artifacts: projectReceiptArtifacts(job.artifacts, options.artifactStoragePresence),
     primaryArtifactId: job.artifact?.id,
   });
 }
