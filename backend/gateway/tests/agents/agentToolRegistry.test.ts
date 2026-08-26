@@ -9,7 +9,7 @@ import {
   dynamicToolTimeoutMs,
 } from "../../agents/agentToolRegistry";
 
-const DOMAIN_TOOLS = ["director_creative", "director_workbench", "stage_video", "blender_native"] as const;
+const DOMAIN_TOOLS = ["director_creative", "director_workbench", "stage_video", "blender_native", "director_game"] as const;
 
 function domainTool(name: (typeof DOMAIN_TOOLS)[number]) {
   const tool = DIRECTOR_DYNAMIC_TOOLS.find((candidate) => candidate.name === name);
@@ -23,6 +23,7 @@ describe("Director Agent tool registry", () => {
     ["director_creative", ["capabilities", "observe", "execute", "execute_batch"]],
     ["stage_video", ["capabilities", "prepare", "submit", "status"]],
     ["blender_native", ["status", "scene", "apply", "capture", "capture_render", "polyhaven_search"]],
+    ["director_game", ["capabilities", "describe", "plan", "playtest", "evaluate"]],
   ] as const)("advertises %s through a compact discoverable operation envelope", (name, expectedOperations) => {
     const schema = domainTool(name).inputSchema as {
       properties?: {
@@ -85,6 +86,8 @@ describe("Director Agent tool registry", () => {
     expect(directorAgentToolExecutionMode("blender_native", { op: "polyhaven_search" })).toBe("parallel");
     expect(directorAgentToolExecutionMode("blender_native", { op: "capture_render" })).toBe("parallel");
     expect(directorAgentToolExecutionMode("blender_native", { op: "apply" })).toBe("exclusive");
+    expect(directorAgentToolExecutionMode("director_game", { op: "capabilities" })).toBe("parallel");
+    expect(directorAgentToolExecutionMode("director_game", { op: "plan" })).toBe("exclusive");
   });
 
   it("gives blender_native a 5-minute tool budget", () => {

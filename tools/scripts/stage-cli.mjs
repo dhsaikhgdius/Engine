@@ -8,7 +8,7 @@ import { join } from "node:path";
 const [, , tool, rawInput = "{}"] = process.argv;
 const gatewayUrl = process.env.STAGE_GATEWAY_URL ?? "http://127.0.0.1:8787";
 const sessionId = process.env.STAGE_AGENT_SESSION?.trim() || "cli-default";
-const preferredTools = ["director_workbench", "director_creative", "director_dcc", "stage_video"];
+const preferredTools = ["director_workbench", "director_creative", "director_dcc", "director_game", "stage_video"];
 const legacyTools = ["stage_read", "stage_scene", "stage_object", "stage_camera", "stage_show"];
 const validTools = new Set([...preferredTools, ...legacyTools]);
 const helpFlags = new Set(["--help", "-h", "help"]);
@@ -17,7 +17,7 @@ function printHelp() {
   process.stdout.write(`Stage CLI — HTTP client for the Director gateway (default ${gatewayUrl}).
 
 Coding agents: when the Director MCP server is connected, call MCP tools
-director_workbench, director_creative, and director_dcc instead of this CLI.
+director_workbench, director_creative, director_dcc, and director_game instead of this CLI.
 
 Usage:
   npm run --silent stage -- <tool> '<json>'
@@ -28,6 +28,7 @@ Preferred tools:
   director_workbench   3D Stage, generation, jobs
   director_creative    Canvas, Video Editor, Gallery
   director_dcc         Blender / DCC handoff
+  director_game        Typed game slice, Stage playtest
   stage_video          image-to-video jobs
 
 Legacy compact tools (HTTP compatibility; not advertised on MCP):
@@ -52,6 +53,7 @@ Examples:
   npm run --silent stage -- director_workbench '{"op":"describe","target":"author.add_object"}'
   npm run --silent stage -- director_creative '{"op":"observe"}'
   npm run --silent stage -- director_dcc '{"op":"status"}'
+  npm run --silent stage -- director_game '{"op":"capabilities"}'
 
 Env: STAGE_GATEWAY_URL, STAGE_AGENT_SESSION, DIRECTOR_TARGET_TOKEN,
      DIRECTOR_FILM_ROLE, DIRECTOR_CONFIRM_TOKEN

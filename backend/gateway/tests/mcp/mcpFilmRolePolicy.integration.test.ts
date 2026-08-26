@@ -66,6 +66,7 @@ describe("MCP film-role boundary", () => {
         "director_creative",
         "director_dcc",
         "director_film",
+        "director_game",
         "director_production",
         "director_workbench",
         "stage_video",

@@ -120,12 +120,18 @@ import { HostedProductionAgentRunner } from "./multiAgent/hostedProductionAgentR
 import { handleMultiAgentRunRoute } from "./routes/multiAgentRunRoutes";
 import { createFilmPipeline } from "./film/createFilmPipeline";
 import { handleFilmPipelineRoute } from "./routes/filmPipelineRoutes";
+import { createDirectorGame } from "./game/createDirectorGame";
+import { handleGameRoute } from "./routes/gameRoutes";
 import { createVideoGenerationService } from "./video/createVideoGenerationService";
 import { handleControlPlaneRoute } from "./routes/controlPlaneRoutes";
 import { handleProductionJobRoute } from "./routes/productionJobRoutes";
 import { ProductionJobStore } from "./jobs/productionJobStore";
 import { ProductionArtifactStore } from "./artifacts/productionArtifactStore";
 import { handleProductionArtifactRoute } from "./routes/productionArtifactRoutes";
+import { createArtifactStorageBackend } from "./media/artifactStorage";
+import { resolveArtifactRetentionPolicy } from "./media/artifactRetentionPolicy";
+import { StorageOpsService } from "./media/storageOpsService";
+import { handleStorageOpsRoute } from "./routes/storageOpsRoutes";
 import { AgentToolAuditStore } from "./agentToolAuditStore";
 import { AgentConfirmTokenStore } from "./agentConfirmTokenStore";
 import { handleAgentToolAuditRoute } from "./routes/agentToolAuditRoutes";
@@ -348,6 +354,10 @@ const productionRunOrchestrator = new ProductionRunOrchestrator(
   multiAgentRunStore,
   controlPlaneConfig.agents.roleProfiles,
 );
+// Host-free director_game runtime: the shared reducer plus the durable slice
+// store. The live-Stage playtest tape driver is intentionally not wired yet,
+// so playtest without an explicit trace returns game_playtest_needs_stage.
+const directorGame = createDirectorGame(dataDirectory);
 const filmPipeline = createFilmPipeline(controlPlaneConfig, dataDirectory, {
   workbenchExecute: async (input) => {
     const parsed = parseDirectorWorkbenchInput(input);
@@ -393,6 +403,16 @@ const generated3dRuntime = createGenerated3DRuntime(
   generatedAssetRoot,
 );
 const productionArtifactStore = new ProductionArtifactStore(dataDirectory);
+// Storage retention/GC ops: filesystem backend rooted at the data directory
+// (layout-compatible with the durable job store and staged inputs), a
+// conservative env-resolved retention policy, and explicit confirmed sweeps.
+const artifactStorageBackend = createArtifactStorageBackend({ dataDirectory });
+const storageOpsService = new StorageOpsService({
+  storage: artifactStorageBackend,
+  jobs: productionJobStore,
+  retention: resolveArtifactRetentionPolicy(),
+  dataDirectory,
+});
 
 // A corrupt snapshot is quarantined (never silently replaced) and reported on /health.
 const sceneLoadResult = await loadStageSceneWithRecovery(scenePath);
@@ -2129,6 +2149,14 @@ const server = createServer(async (request, response) => {
     )
       return;
     if (
+      await handleStorageOpsRoute(request, response, url, {
+        readBody: body,
+        json,
+        service: storageOpsService,
+      })
+    )
+      return;
+    if (
       await handleCollaborationInviteRoute(request, response, url, {
         readBody: body,
         json,
@@ -2171,6 +2199,15 @@ const server = createServer(async (request, response) => {
         store: filmPipeline.store,
         orchestrator: filmPipeline.orchestrator,
         unconfiguredReason: filmPipeline.unconfiguredReason,
+      })
+    )
+      return;
+    if (
+      await handleGameRoute(request, response, url, {
+        readBody: body,
+        json,
+        execute: directorGame.execute,
+        governance: toolGovernance,
       })
     )
       return;

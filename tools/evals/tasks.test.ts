@@ -7,6 +7,7 @@ import { directorWorkbenchOperationSchema } from "../../packages/agent-engine/sr
 import { creativeWorkspaceAgentRequestSchema } from "../../packages/protocol/src/creativeWorkspaceProtocol";
 import { videoModelOperationSchema } from "../../packages/protocol/src/videoGenerationProtocol";
 import { blenderNativeToolRequestSchema } from "../../packages/protocol/src/blenderLiveProtocol";
+import { directorGameOperationSchema } from "../../packages/protocol/src/directorGameProtocol";
 import { directorDccOperationSchema } from "../../packages/dcc-protocol/src/directorDccContract";
 
 const tasksDirectory = join(dirname(fileURLToPath(import.meta.url)), "tasks");
@@ -16,6 +17,7 @@ const schemas = {
   stage_video: videoModelOperationSchema,
   blender_native: blenderNativeToolRequestSchema,
   director_dcc: directorDccOperationSchema,
+  director_game: directorGameOperationSchema,
 } as const;
 
 type GoldenTask = {

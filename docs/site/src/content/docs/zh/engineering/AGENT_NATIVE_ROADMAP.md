@@ -91,10 +91,11 @@ flowchart LR
 
 - [UI/Agent 对等清单](/zh/engineering/ui-agent-parity-inventory/) 覆盖 Stage `directorStore` 全部
   变更入口，含 mutator、文件、semantic action 与
-  `shared` / `ui-only` / `human-only-interactive` 状态（35 / 87 项目 mutator 已 shared，约 40%）。
+  `shared` / `ui-only` / `human-only-interactive` 状态（69 / 87 项目 mutator 已 shared，约 79%）。
 - `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 的 parity 测试断言
-  store mutator 与直接 `applyDirectorAuthoringActions` 对删除、变换、相机 update/add/activate、
-  角色 motion set/clear、灯光 add/update/delete 产出相同 `getDirectorProjectRevision`。
+  store mutator 与直接 `applyDirectorAuthoringActions` 对删除、变换、相机 update/activate、
+  角色 motion set/clear、体型、统一/人群缩放、人群变换/标签/配色、落地、场景设置、资产删除、
+  灯光 add/update/delete 产出相同 `getDirectorProjectRevision`。
 - Feature Status 已有 **Agent UI parity coverage** 行并链接清单。
 
 ### 剩余工作
@@ -115,12 +116,14 @@ flowchart LR
 
 ## Milestone 1 — Shared Action Registry
 
-**状态：Partial**（核验于 2026-08-25）。Stage 的对象、相机、角色/motion/IK、灯光、世界、场景、
-Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAuthoringActions` 执行
-（1a–1c 批次加灯光/世界；每个 mutator 的精确状态与旧路径回退见
+**状态：Partial**（核验于 2026-08-26）。Stage 的对象（含多选/批量编辑、对齐/分布、隔离、pivot、
+命名、配色、材质、载具参数、参考绑定与 composite 分组）、相机、角色/motion/IK、人群、灯光、世界、
+场景（设置、标注、测量、图层）、Storyboard、实体动画与资产删除的单次项目 mutator 已经经
+`dispatchDirectorAuthoringActions` 执行（每个 mutator 的精确状态与旧路径回退见
 [对等清单](/zh/engineering/ui-agent-parity-inventory/)）。Canvas/Video 离散 mutator（1e/1f）现已经
-`dispatchCreativeWorkspaceOperations` 走共享 Creative 契约执行。Timeline 音频、标注/测量、图层、材质、
-资产流程以及 Canvas/Video 的创建流程与连续拖拽流仍直接 patch 状态，因此 M1 **尚未完成**。
+`dispatchCreativeWorkspaceOperations` 走共享 Creative 契约执行。Timeline 音频、object list、
+全景/capture/资产目录写入、剪贴板粘贴、有意保持本地的新建流程，以及 Canvas/Video 的创建流程与
+连续拖拽流仍直接 patch 状态，因此 M1 **尚未完成**。
 
 **目标：** UI 与 Agent 共享同一 mutation 路径，消除「双轨写入」。
 
@@ -141,7 +144,7 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
 
 | 批次   | 范围                 | 典型 action                                            | 状态                                               |
 | ------ | -------------------- | ------------------------------------------------------ | -------------------------------------------------- |
-| **1a** | 对象 CRUD、transform | `add_object`, `update_object`, `delete_objects`        | 删除/单次变换/开关已 shared；新建流程与多选批量未完成 |
+| **1a** | 对象 CRUD、transform | `add_object`, `update_object`, `delete_objects`        | 删除/单次与多选变换/开关/编辑及几何 primitive 已 shared；资产/预置/人群新建流程有意保持本地 |
 | **1b** | 相机与镜头           | `add_camera`, `update_camera`, `set_active_camera`     | 已 shared                                          |
 | **1c** | 角色与 motion        | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | 已 shared                       |
 | **1d** | Timeline / coverage  | `add_coverage_shot`, `add_performance_take`, timeline 音频 | Storyboard + 实体动画已 shared；timeline 音频未完成 |
@@ -404,9 +407,9 @@ Storyboard 与实体动画的单次项目 mutator 已经经 `dispatchDirectorAut
 
 ## 成功指标
 
-| 指标                             | 当前（2026-08-25）                                    | 剩余 M3 完成后     | 剩余 M1 拖拽流完成后 |
+| 指标                             | 当前（2026-08-26）                                    | 剩余 M3 完成后     | 剩余 M1 拖拽流完成后 |
 | -------------------------------- | ----------------------------------------------------- | ------------------ | -------------------- |
-| Parity coverage（top mutations） | top mutations 约 60%；全部 Stage 项目 mutator 约 40%（35/87，见[对等清单](/zh/engineering/ui-agent-parity-inventory/)） | ≥85%               | ≥95%  |
+| Parity coverage（top mutations） | top 编辑 mutation 已全部 shared；全部 Stage 项目 mutator 约 79%（69/87，见[对等清单](/zh/engineering/ui-agent-parity-inventory/)） | ≥85%               | ≥95%  |
 | Human-only 能力（已文档化）      | 0 类必需（文件选择器仅作为本地文件的可选导入便捷入口；OBJ/STL 仍只导出） | 0 类必需           | 0 类  |
 | Gateway 入口 policy 一致         | 是（MCP / 本地 / 托管 / 原始 HTTP+CLI；role 限制 UI 已交付） | 是，含完整只读 mode | 是    |
 | In-product workspace             | **是（SQL instructions/skills/memory 已于 2026-08-25 交付）** | 是                 | 是    |

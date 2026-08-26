@@ -155,7 +155,9 @@ npm run --silent stage -- director_workbench '{"op":"capabilities"}'
 或直接运行 `node tools/scripts/stage-cli.mjs`。
 
 对 Stage 以及生成、转录与生成式 3D 任务使用 `director_workbench`；对 Canvas DAG、Video、交换与协作
-使用 `director_creative`；对 DCC 交接使用 `director_dcc`。存在语义操作时，不要按屏幕坐标自动化 UI。
+使用 `director_creative`；对 DCC 交接使用 `director_dcc`。实验性的 `director_game` 工具在 live Stage
+player 上规划并试玩一个类型化 game slice，导出走 `director_dcc` —— 它不会生成引擎原生游戏工程。
+存在语义操作时，不要按屏幕坐标自动化 UI。
 
 `npm run dsh` 会准备 Director workbench overlay，并在 `:3080` 启动锁定的 DeepSeek Harness Web 配置。
 

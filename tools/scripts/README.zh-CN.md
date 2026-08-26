@@ -64,7 +64,7 @@
 
 | 文件 | 用途 |
 |---|---|
-| `stage-cli.mjs` | Stage CLI：通过 HTTP 调用 Director Gateway。优先 `director_workbench`、`director_creative`、`director_dcc`、`stage_video`。兼容层：`stage_read`、`stage_scene`、`stage_object`、`stage_camera`、`stage_show`。`npm run stage -- --help` |
+| `stage-cli.mjs` | Stage CLI：通过 HTTP 调用 Director Gateway。优先 `director_workbench`、`director_creative`、`director_dcc`、`director_game`、`stage_video`。兼容层：`stage_read`、`stage_scene`、`stage_object`、`stage_camera`、`stage_show`。`npm run stage -- --help` |
 | `blender.mjs` | Blender 启动器：查找 Blender 4.2+ 可执行文件，启动 WorldEngine Blender 后端（`worldengine_backend.py`），支持 `run` 和 `test` 命令 |
 
 ### Agent 集成

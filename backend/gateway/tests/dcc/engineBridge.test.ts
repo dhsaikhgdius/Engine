@@ -88,7 +88,13 @@ async function temporaryEngineSetup(provider: DirectorDccEngineId, options: { in
     for (const connectorFile of INSTALLED_CONNECTOR_FILES[provider]) {
       const filePath = resolve(projectDirectory, connectorFile);
       await mkdir(dirname(filePath), { recursive: true });
-      await writeFile(filePath, "fixture", "utf8");
+      let body = "fixture";
+      if (provider === "unreal" && connectorFile.endsWith(".uplugin")) {
+        body = JSON.stringify({ VersionName: CONNECTOR_VERSIONS.unreal });
+      } else if (provider === "unity" && connectorFile.endsWith("package.json")) {
+        body = JSON.stringify({ name: "com.director.bridge", version: CONNECTOR_VERSIONS.unity });
+      }
+      await writeFile(filePath, body, "utf8");
     }
   }
   const environment: NodeJS.ProcessEnv = {
@@ -182,6 +188,40 @@ describe("DirectorDccEngineBridge", () => {
     expect(health.ready).toBe(false);
     expect(health.checks).toContainEqual(expect.objectContaining({ id: "project_connector", ok: false }));
   });
+
+  it.each(["unreal", "unity"] as const)(
+    "refuses %s nativeReady when the installed connector version drifts from the workspace manifest",
+    async (provider) => {
+      const setup = await temporaryEngineSetup(provider);
+      const versionFile =
+        provider === "unreal"
+          ? resolve(setup.projectDirectory, "Plugins/DirectorBridge/DirectorBridge.uplugin")
+          : resolve(setup.projectDirectory, "Packages/com.director.bridge/package.json");
+      await writeFile(
+        versionFile,
+        JSON.stringify(provider === "unreal" ? { VersionName: "0.0.1-stale" } : { version: "0.0.1-stale" }),
+        "utf8",
+      );
+      const bridge = createDirectorDccEngineBridge({
+        workspaceRoot: repositoryRoot,
+        dataDirectory: setup.dataDirectory,
+        exchangePackager: { exportPackage: vi.fn() },
+        environment: setup.environment,
+        probeHostVersion: async () => `${provider} 9.9 fixture`,
+        healthTtlMs: 0,
+      });
+      const health = await bridge.health(provider);
+      expect(health.ready).toBe(false);
+      expect(health.checks).toContainEqual(
+        expect.objectContaining({
+          id: "project_connector",
+          ok: false,
+          detail: expect.stringMatching(/0\.0\.1-stale/),
+        }),
+      );
+      expect(health.recovery.join(" ")).toMatch(/Copy integrations\//);
+    },
+  );
 
   it("rejects send with structured engine_not_ready diagnostics when the connector is unavailable", async () => {
     const root = await mkdtemp(resolve(tmpdir(), "director-engine-notready-"));

@@ -87,6 +87,13 @@ export function directorAgentToolExecutionMode(tool: string, input: unknown): "p
   if (tool === "director_creative" && typeof op === "string" && PARALLEL_CREATIVE_OPS.has(op)) return "parallel";
   if (tool === "blender_native" && typeof op === "string" && PARALLEL_BLENDER_OPS.has(op)) return "parallel";
   if (tool === "stage_video" && (op === "capabilities" || op === "status" || op === "get")) return "parallel";
+  if (
+    tool === "director_game" &&
+    typeof op === "string" &&
+    (op === "capabilities" || op === "describe" || op === "observe" || op === "evaluate")
+  ) {
+    return "parallel";
+  }
   if (tool === "director_model_routes") return "parallel";
   return "exclusive";
 }

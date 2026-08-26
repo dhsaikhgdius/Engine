@@ -1004,18 +1004,32 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
     };
   }
 
+  const MAX_VALIDATED_PACKAGE_CACHE_ENTRIES = 32;
   const validatedPackageCache = new Map<string, ValidatedDirectorDccReturnPackage>();
+
+  function rememberValidatedPackage(validated: ValidatedDirectorDccReturnPackage): void {
+    validatedPackageCache.delete(validated.packageDir);
+    validatedPackageCache.set(validated.packageDir, validated);
+    while (validatedPackageCache.size > MAX_VALIDATED_PACKAGE_CACHE_ENTRIES) {
+      const oldest = validatedPackageCache.keys().next().value;
+      if (oldest === undefined) break;
+      validatedPackageCache.delete(oldest);
+    }
+  }
 
   async function validatePackageCached(packageDir: string): Promise<ValidatedDirectorDccReturnPackage> {
     const directory = await resolvePackageDirectory(packageDir);
     const cached = validatedPackageCache.get(directory.relative);
     if (cached) {
       const manifestHash = await sha256File(cached.manifestPath).catch(() => null);
-      if (manifestHash === cached.manifestHash) return cached;
+      if (manifestHash === cached.manifestHash) {
+        rememberValidatedPackage(cached);
+        return cached;
+      }
       validatedPackageCache.delete(directory.relative);
     }
     const validated = await validatePackage(directory.relative);
-    validatedPackageCache.set(validated.packageDir, validated);
+    rememberValidatedPackage(validated);
     return validated;
   }
 

@@ -19,7 +19,7 @@ import type { DirectorDccImportPlanV1 } from "../../../../dcc/directorDccReturnC
 import { useLanguage } from "../../../i18n/language";
 import { fetchDirectorDccEngineHealth } from "../../api/dccEngineHandoffClient";
 import { DirectorDccProviderClientError, sendDirectorProjectToEngine } from "../../api/dccProviderClient";
-import { applyDirectorDccImportPlan, previewDirectorDccReturnPackage } from "../../api/dccReturnClient";
+import { applyDirectorDccImportPlan, DirectorDccReturnClientError, previewDirectorDccReturnPackage } from "../../api/dccReturnClient";
 
 /** zh-CN capability labels keyed by the provider catalog capability ids. */
 const CAPABILITY_LABELS: Record<string, string> = {
@@ -127,9 +127,10 @@ export function EngineDetailPanel({
   const [sendResult, setSendResult] = useState<DirectorDccEngineSendResult | null>(null);
   const [sendError, setSendError] = useState<{ message: string; recovery: string[] } | null>(null);
   const [returnDir, setReturnDir] = useState("");
+  const [includeNewObjects, setIncludeNewObjects] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [receivePreview, setReceivePreview] = useState<EngineReturnPreviewState | null>(null);
-  const [receiveError, setReceiveError] = useState("");
+  const [receiveError, setReceiveError] = useState<{ message: string; recovery: string[] } | null>(null);
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
@@ -194,16 +195,25 @@ export function EngineDetailPanel({
     const packageDir = returnDir.trim();
     if (!packageDir || busy) return;
     setPreviewing(true);
-    setReceiveError("");
+    setReceiveError(null);
     setReceivePreview(null);
     setReviewConfirmed(false);
     setApplied(false);
     setAppliedSummary("");
     try {
-      const preview = await previewDirectorDccReturnPackage(packageDir, engine);
+      const preview = await previewDirectorDccReturnPackage(packageDir, engine, {
+        includeNewObjects,
+      });
       setReceivePreview({ plan: preview.plan, summary: preview.summary, ready: preview.ready });
     } catch (error) {
-      setReceiveError(error instanceof Error ? error.message : t("引擎回传预览失败"));
+      if (error instanceof DirectorDccReturnClientError) {
+        setReceiveError({
+          message: error.message,
+          recovery: error.recovery ? [error.recovery] : [],
+        });
+      } else {
+        setReceiveError({ message: error instanceof Error ? error.message : t("引擎回传预览失败"), recovery: [] });
+      }
     } finally {
       setPreviewing(false);
     }
@@ -212,13 +222,20 @@ export function EngineDetailPanel({
   async function applyReturn() {
     if (!receivePreview?.ready || !reviewConfirmed || busy || applied) return;
     setApplying(true);
-    setReceiveError("");
+    setReceiveError(null);
     try {
       const result = await applyDirectorDccImportPlan(receivePreview.plan, engine);
       setApplied(true);
       setAppliedSummary(`${t("引擎回传已应用")} · ${result.copiedAssets.length} ${t("个细化资产")}`);
     } catch (error) {
-      setReceiveError(error instanceof Error ? error.message : t("引擎回传应用失败"));
+      if (error instanceof DirectorDccReturnClientError) {
+        setReceiveError({
+          message: error.message,
+          recovery: error.recovery ? [error.recovery] : [],
+        });
+      } else {
+        setReceiveError({ message: error instanceof Error ? error.message : t("引擎回传应用失败"), recovery: [] });
+      }
     } finally {
       setApplying(false);
     }
@@ -413,10 +430,25 @@ export function EngineDetailPanel({
             {previewing ? t("预览中…") : t("预览差异")}
           </button>
         </div>
+        <label className="director-engine-handoff-opt-in">
+          <input
+            checked={includeNewObjects}
+            disabled={busy}
+            onChange={(event) => {
+              setIncludeNewObjects(event.currentTarget.checked);
+              setReceivePreview(null);
+              setReviewConfirmed(false);
+              setApplied(false);
+            }}
+            type="checkbox"
+          />
+          <span>{t("纳入引擎新建对象（经审阅后作为道具导入）")}</span>
+        </label>
         {receiveError ? (
-          <p className="director-engine-handoff-error" role="alert">
-            {receiveError}
-          </p>
+          <div className="director-engine-handoff-error" role="alert">
+            <p>{receiveError.message}</p>
+            <TruncatedList items={receiveError.recovery} label={t("恢复步骤")} />
+          </div>
         ) : null}
         {receivePreview ? (
           <div className="director-engine-handoff-plan">
