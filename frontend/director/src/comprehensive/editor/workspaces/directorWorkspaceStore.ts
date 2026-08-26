@@ -2227,7 +2227,8 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
 
 interface PendingPersistedWorkspaceState {
   scopeId: string;
-  serialized: string;
+  /** When set, flush writes this exact payload. When omitted, serialize lazily on flush. */
+  serialized?: string;
 }
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2244,16 +2245,29 @@ function cancelPersistTimer() {
 const WORKSPACE_PERSIST_FAILURE_NOTICE_THRESHOLD = 3;
 let workspacePersistFailureStreak = 0;
 
+function resolvePendingSerialized(pending: PendingPersistedWorkspaceState): string | null {
+  if (pending.serialized !== undefined) return pending.serialized;
+  // Lazy path: only serialize while the dirty scope is still active so we never
+  // persist the wrong project document after a scope switch.
+  if (pending.scopeId !== activeWorkspaceScope) return null;
+  return serializeDirectorCreativeWorkspacePersistedState(useDirectorCreativeWorkspaceStore.getState());
+}
+
 function flushPendingPersistedState() {
   if (typeof window === "undefined" || !pendingPersistedState) return;
   const pending = pendingPersistedState;
-  if (lastPersistedStateByScope.get(pending.scopeId) === pending.serialized) {
+  const serialized = resolvePendingSerialized(pending);
+  if (serialized === null) {
+    if (pendingPersistedState === pending) pendingPersistedState = null;
+    return;
+  }
+  if (lastPersistedStateByScope.get(pending.scopeId) === serialized) {
     if (pendingPersistedState === pending) pendingPersistedState = null;
     return;
   }
   try {
-    window.localStorage.setItem(storageKeyForScope(pending.scopeId), pending.serialized);
-    lastPersistedStateByScope.set(pending.scopeId, pending.serialized);
+    window.localStorage.setItem(storageKeyForScope(pending.scopeId), serialized);
+    lastPersistedStateByScope.set(pending.scopeId, serialized);
     if (pendingPersistedState === pending) pendingPersistedState = null;
     if (workspacePersistFailureStreak >= WORKSPACE_PERSIST_FAILURE_NOTICE_THRESHOLD) {
       dismissDirectorNotification("workspace-store-persist-failed");
@@ -2274,15 +2288,16 @@ function flushPendingPersistedState() {
   }
 }
 
-function schedulePersistedState(state: DirectorCreativeWorkspaceState) {
-  const serialized = serializeDirectorCreativeWorkspacePersistedState(state);
-  if (
-    (pendingPersistedState?.scopeId === activeWorkspaceScope && pendingPersistedState.serialized === serialized) ||
-    lastPersistedStateByScope.get(activeWorkspaceScope) === serialized
-  ) {
-    return;
-  }
-  pendingPersistedState = { scopeId: activeWorkspaceScope, serialized };
+/**
+ * Mark the active scope dirty and debounce the localStorage write.
+ * Serialization runs only when the timer fires (or on explicit flush), so
+ * high-frequency store notifications stay cheap.
+ */
+function schedulePersistedState(_state: DirectorCreativeWorkspaceState) {
+  const alreadyQueuedForScope =
+    pendingPersistedState?.scopeId === activeWorkspaceScope && pendingPersistedState.serialized === undefined;
+  pendingPersistedState = { scopeId: activeWorkspaceScope };
+  if (alreadyQueuedForScope && persistTimer !== null) return;
   cancelPersistTimer();
   persistTimer = setTimeout(() => {
     persistTimer = null;

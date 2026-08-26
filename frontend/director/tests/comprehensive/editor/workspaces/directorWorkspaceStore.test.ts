@@ -1438,3 +1438,33 @@ it("isolates and restores canvas and video state across project scopes", async (
     window.localStorage.removeItem(keyB);
   }
 });
+
+it("defers localStorage writes until the persistence debounce fires after a mutation burst", async () => {
+  const scope = `persist-debounce-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const key = `director.creative-workspaces.v2.${scope}`;
+  try {
+    act(() => setDirectorCreativeWorkspaceScope(scope));
+    expect(window.localStorage.getItem(key)).toBeNull();
+
+    act(() => {
+      const store = useDirectorCreativeWorkspaceStore.getState();
+      store.addBoardNode({ kind: "video", title: "Debounce board", x: 12, y: 24 });
+      for (let index = 0; index < 12; index += 1) {
+        store.setPlayhead(index * 0.25);
+      }
+    });
+    // High-frequency notifications must not serialize synchronously.
+    expect(window.localStorage.getItem(key)).toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    expect(
+      parseDirectorCreativeWorkspacePersistedState(window.localStorage.getItem(key)).boardNodes,
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ title: "Debounce board" })]));
+    expect(parseDirectorCreativeWorkspacePersistedState(window.localStorage.getItem(key)).playheadSec).toBeCloseTo(
+      2.75,
+    );
+  } finally {
+    act(() => setDirectorCreativeWorkspaceScope(""));
+    window.localStorage.removeItem(key);
+  }
+});

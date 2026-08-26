@@ -6,6 +6,8 @@ import {
   hashCreativeMediaBlob,
   persistentCreativeMediaLibrary,
   usePersistentCreativeMedia,
+  CREATIVE_MEDIA_HASH_CHUNK_BYTES,
+  CREATIVE_MEDIA_LARGE_IMPORT_BYTES,
   type CreativeMediaObjectUrlFactory,
   type PersistentCreativeMediaLibrary,
 } from "../../../../src/comprehensive/editor/media/persistentCreativeMediaStore";
@@ -258,6 +260,31 @@ describe("persistent creative media library", () => {
     );
     await expect(library.importBlob(new Blob(["unknown"]))).rejects.toThrow("无法识别媒体类型");
     expect(library.store.getState().assets).toEqual([]);
+  });
+
+  it("hashes multi-chunk blobs identically to a single contiguous digest", async () => {
+    const bytes = new Uint8Array(CREATIVE_MEDIA_HASH_CHUNK_BYTES + 17);
+    for (let index = 0; index < bytes.length; index += 1) bytes[index] = index % 251;
+    const chunked = new Blob([bytes], { type: "application/octet-stream" });
+    const compact = new Blob([bytes.slice()], { type: "application/octet-stream" });
+    const left = await hashCreativeMediaBlob(chunked);
+    const right = await hashCreativeMediaBlob(compact);
+    expect(left).toBe(right);
+    expect(left.startsWith("sha256:") || left.startsWith("fnv1a64:")).toBe(true);
+  });
+
+  it("surfaces a soft warning when importing media at or above the large-import threshold", async () => {
+    const library = trackLibrary(
+      createPersistentCreativeMediaLibrary({
+        backend: new MemoryCreativeMediaBackend(),
+        objectUrls: createObjectUrlTracker().factory,
+        hashBlob: deterministicTestHash,
+      }),
+    );
+    const large = new Blob([new Uint8Array([9, 9, 9])], { type: "video/mp4" });
+    Object.defineProperty(large, "size", { value: CREATIVE_MEDIA_LARGE_IMPORT_BYTES });
+    await library.importBlob(large, { fileName: "large.mp4", durationSec: 12 });
+    expect(library.store.getState().warning).toMatch(/导入素材约 \d+ MB/);
   });
 
   it("generates a waveform once, persists it, and reuses the cache after hydration", async () => {
