@@ -55,14 +55,16 @@ describe("film pipeline routes", () => {
   const request = (method: string) => ({ method }) as IncomingMessage;
   const url = (pathname: string) => new URL(`http://127.0.0.1:8787${pathname}`);
 
-  it("lists runs and returns run documents", async () => {
+  it("lists runs with the pipeline state and returns run documents with receipts", async () => {
     const context = await harness(null);
     await context.store.create(run("film-aaaaaaaa-1111"));
     expect(
       await handleFilmPipelineRoute(request("GET"), context.response, url("/api/film/runs"), context.dependencies),
     ).toBe(true);
     expect(context.writes[0].status).toBe(200);
-    expect((context.writes[0].body as { runs: unknown[] }).runs).toHaveLength(1);
+    const list = context.writes[0].body as { runs: unknown[]; pipeline: { configured: boolean; reason: null } };
+    expect(list.runs).toHaveLength(1);
+    expect(list.pipeline).toEqual({ configured: true, reason: null });
 
     expect(
       await handleFilmPipelineRoute(
@@ -73,6 +75,36 @@ describe("film pipeline routes", () => {
       ),
     ).toBe(true);
     expect(context.writes[1].status).toBe(200);
+    const status = context.writes[1].body as { run: { id: string }; receipt: { contract: string; runId: string } };
+    expect(status.run.id).toBe("film-aaaaaaaa-1111");
+    expect(status.receipt.contract).toBe("director-film-run-receipt-v1");
+    expect(status.receipt.runId).toBe("film-aaaaaaaa-1111");
+  });
+
+  it("serves the normalized receipt route", async () => {
+    const context = await harness(null);
+    await context.store.create(run("film-aaaaaaaa-1111"));
+    expect(
+      await handleFilmPipelineRoute(
+        request("GET"),
+        context.response,
+        url("/api/film/runs/film-aaaaaaaa-1111/receipt"),
+        context.dependencies,
+      ),
+    ).toBe(true);
+    const body = context.writes[0].body as { receipt: { contract: string; terminal: boolean; progress: number } };
+    expect(context.writes[0].status).toBe(200);
+    expect(body.receipt.contract).toBe("director-film-run-receipt-v1");
+    expect(body.receipt.terminal).toBe(false);
+  });
+
+  it("reports the unconfigured pipeline as an explicit state on the list surface", async () => {
+    const context = await harness(null, { configured: false });
+    await handleFilmPipelineRoute(request("GET"), context.response, url("/api/film/runs"), context.dependencies);
+    const body = context.writes[0].body as { pipeline: { configured: boolean; reason: string } };
+    expect(context.writes[0].status).toBe(200);
+    expect(body.pipeline.configured).toBe(false);
+    expect(body.pipeline.reason).toBe("缺少配置");
   });
 
   it("creates runs and rejects invalid payloads", async () => {
@@ -88,10 +120,56 @@ describe("film pipeline routes", () => {
     expect(invalid.writes[0].status).toBe(400);
   });
 
-  it("returns 503 when providers are unconfigured", async () => {
+  it("returns 503 with the frozen code when providers are unconfigured", async () => {
     const context = await harness({ workflow: "idea-to-film", input: { idea: "x" } }, { configured: false });
     await handleFilmPipelineRoute(request("POST"), context.response, url("/api/film/runs"), context.dependencies);
-    expect(context.writes[0]).toMatchObject({ status: 503 });
+    expect(context.writes[0]).toMatchObject({ status: 503, body: { code: "film_pipeline_unconfigured" } });
+
+    await context.store.create(run("film-stale000-0000"));
+    for (const action of ["resume", "approve"] as const) {
+      await handleFilmPipelineRoute(
+        request("POST"),
+        context.response,
+        url(`/api/film/runs/film-stale000-0000/${action}`),
+        context.dependencies,
+      );
+      expect(context.writes.at(-1)).toMatchObject({ status: 503, body: { code: "film_pipeline_unconfigured" } });
+    }
+  });
+
+  it("cancels stale runs even when the pipeline is unconfigured", async () => {
+    const context = await harness(null, { configured: false });
+    await context.store.create(run("film-stale111-1111"));
+    await handleFilmPipelineRoute(
+      request("POST"),
+      context.response,
+      url("/api/film/runs/film-stale111-1111/cancel"),
+      context.dependencies,
+    );
+    expect(context.writes[0].status).toBe(200);
+    const body = context.writes[0].body as { run: { status: string }; receipt: { status: string; terminal: boolean } };
+    expect(body.run.status).toBe("cancelled");
+    expect(body.receipt.terminal).toBe(true);
+    expect((await context.store.get("film-stale111-1111"))?.status).toBe("cancelled");
+  });
+
+  it("answers every failure with a frozen public error code", async () => {
+    const invalidId = await harness(null);
+    await handleFilmPipelineRoute(request("GET"), invalidId.response, url("/api/film/runs/%ZZ"), invalidId.dependencies);
+    expect(invalidId.writes[0]).toMatchObject({ status: 400, body: { code: "invalid_run_id" } });
+
+    const missing = await harness(null);
+    await handleFilmPipelineRoute(
+      request("GET"),
+      missing.response,
+      url("/api/film/runs/film-missing0-0000"),
+      missing.dependencies,
+    );
+    expect(missing.writes[0]).toMatchObject({ status: 404, body: { code: "run_not_found" } });
+
+    const invalid = await harness({ workflow: "idea-to-film", input: {} });
+    await handleFilmPipelineRoute(request("POST"), invalid.response, url("/api/film/runs"), invalid.dependencies);
+    expect(invalid.writes[0]).toMatchObject({ status: 400, body: { code: "invalid_request" } });
   });
 
   it("routes get/resume/cancel/approve for existing runs and 404s for unknown ids", async () => {

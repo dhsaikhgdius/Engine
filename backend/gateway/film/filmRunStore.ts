@@ -1,6 +1,11 @@
 import { mkdir, readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { filmRunIdSchema, filmRunSchema, type FilmRun } from "../../../packages/protocol/src/filmPipelineProtocol";
+import {
+  closeFilmRunPhaseReceipts,
+  filmRunIdSchema,
+  filmRunSchema,
+  type FilmRun,
+} from "../../../packages/protocol/src/filmPipelineProtocol";
 import { writeJsonAtomic } from "../atomicJsonFile";
 
 /**
@@ -93,6 +98,60 @@ export class FilmRunStore {
       resolveLock();
       if (this.locks.get(id) === chain) this.locks.delete(id);
     }
+  }
+
+  /**
+   * Marks a run cancelled unless it already completed, closing any open
+   * phase receipt. This is a pure store transition: it needs no configured
+   * providers, so stale runs stay controllable on an unconfigured gateway.
+   *
+   * @param id - The film run id.
+   * @returns The run after the transition.
+   * @throws When the run does not exist.
+   */
+  async markCancelled(id: string) {
+    return this.update(id, (run) =>
+      run.status === "completed"
+        ? run
+        : {
+            ...run,
+            status: "cancelled",
+            phaseReceipts: closeFilmRunPhaseReceipts(run.phaseReceipts, new Date().toISOString()),
+          },
+    );
+  }
+
+  /**
+   * Marks runs left `queued`/`running` by a previous gateway process as
+   * failed with the stable `film_run_interrupted` code, so restart survivors
+   * report an explicit state instead of appearing to run forever. Callers
+   * must invoke this before any execution starts in the current process.
+   *
+   * @returns The ids of the runs that were transitioned.
+   */
+  async reconcileInterrupted(): Promise<string[]> {
+    const runs = await this.list(500);
+    const interrupted: string[] = [];
+    for (const run of runs) {
+      if (run.status !== "queued" && run.status !== "running") continue;
+      await this.update(run.id, (current) => {
+        if (current.status !== "queued" && current.status !== "running") return current;
+        const at = new Date().toISOString();
+        return {
+          ...current,
+          status: "failed",
+          error: "Film run interrupted by a gateway restart; resume continues from the last durable artifact",
+          errorCode: "film_run_interrupted",
+          phaseReceipts: closeFilmRunPhaseReceipts(current.phaseReceipts, at),
+          events: [
+            ...current.events,
+            { at, stage: "reconcile", message: "Run interrupted by a gateway restart" },
+          ].slice(-200),
+        };
+      });
+      interrupted.push(run.id);
+    }
+    return interrupted;
   }
 
   private path(id: string) {

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { filmRunSchema, type FilmRun } from "../src/filmPipelineProtocol";
 import {
@@ -151,6 +153,15 @@ describe("buildFilmTimelineOtio v1 compatibility", () => {
     const second = JSON.stringify(buildFilmTimelineOtio({ run: makeRun(), clips: makeLegacyClips() }), null, 2);
     expect(second).toBe(first);
   });
+
+  it("matches the checked-in v1 golden fixture byte for byte", () => {
+    // The exporter serializes with JSON.stringify(timeline, null, 2) + "\n";
+    // this fixture pins those exact bytes across code changes, not just
+    // within one process.
+    const expected = readFileSync(resolve(__dirname, "fixtures", "filmTimelineOtio.v1.otio.json"), "utf8");
+    const emitted = `${JSON.stringify(buildFilmTimelineOtio({ run: makeRun(), clips: makeLegacyClips() }), null, 2)}\n`;
+    expect(emitted).toBe(expected);
+  });
 });
 
 describe("buildFilmTimelineOtio v2 editorial contract", () => {
@@ -294,6 +305,12 @@ describe("buildFilmTimelineOtio v2 editorial contract", () => {
     const first = JSON.stringify(buildFilmTimelineOtio({ run: makeRun(), clips: makeEditorialClips() }), null, 2);
     const second = JSON.stringify(buildFilmTimelineOtio({ run: makeRun(), clips: makeEditorialClips() }), null, 2);
     expect(second).toBe(first);
+  });
+
+  it("matches the checked-in v2 golden fixture byte for byte", () => {
+    const expected = readFileSync(resolve(__dirname, "fixtures", "filmTimelineOtio.v2.otio.json"), "utf8");
+    const emitted = `${JSON.stringify(buildFilmTimelineOtio({ run: makeRun(), clips: makeEditorialClips() }), null, 2)}\n`;
+    expect(emitted).toBe(expected);
   });
 
   it("rejects invalid probed starts and audio durations", () => {

@@ -44,6 +44,11 @@ export function createFilmPipeline(
   if (!film.image.baseUrl) missing.push("DIRECTOR_FILM_IMAGE_API_KEY/BASE_URL");
   if (!film.video.baseUrl) missing.push("DIRECTOR_FILM_VIDEO_API_KEY/BASE_URL");
   if (missing.length) {
+    // No orchestrator will ever execute in this process, so runs left
+    // queued/running by a previous process are interrupted by definition.
+    void store.reconcileInterrupted().catch((error: unknown) => {
+      console.warn("Film run startup reconciliation failed", error);
+    });
     return {
       store,
       orchestrator: null,

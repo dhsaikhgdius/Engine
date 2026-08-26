@@ -63,4 +63,51 @@ describe("FilmRunStore", () => {
     expect(() => store.runDirectory("../escape")).toThrow(/Invalid film run id/);
     await expect(store.update("film-dddddddd-4444", (run) => run)).rejects.toThrow(/Unknown film run/);
   });
+
+  it("marks non-completed runs cancelled and closes open phase receipts", async () => {
+    const store = await createStore();
+    await store.create(
+      filmRunSchema.parse({
+        ...baseRun("film-eeeeeeee-5555"),
+        status: "running",
+        phaseReceipts: [{ phase: "develop-story", startedAt: new Date().toISOString(), finishedAt: null }],
+      }),
+    );
+    const cancelled = await store.markCancelled("film-eeeeeeee-5555");
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.phaseReceipts[0]?.finishedAt).not.toBeNull();
+
+    await store.create(filmRunSchema.parse({ ...baseRun("film-ffffffff-6666"), status: "completed" }));
+    expect((await store.markCancelled("film-ffffffff-6666")).status).toBe("completed");
+  });
+
+  it("reconciles queued/running restart survivors into interrupted-failed runs", async () => {
+    const store = await createStore();
+    await store.create(filmRunSchema.parse({ ...baseRun("film-11111111-aaaa"), status: "queued" }));
+    await store.create(
+      filmRunSchema.parse({
+        ...baseRun("film-22222222-bbbb"),
+        status: "running",
+        phase: "render",
+        phaseReceipts: [{ phase: "render", startedAt: new Date().toISOString(), finishedAt: null }],
+      }),
+    );
+    await store.create(filmRunSchema.parse({ ...baseRun("film-33333333-cccc"), status: "completed" }));
+    await store.create(filmRunSchema.parse({ ...baseRun("film-44444444-dddd"), status: "waiting_approval" }));
+
+    const interrupted = await store.reconcileInterrupted();
+    expect(interrupted.sort()).toEqual(["film-11111111-aaaa", "film-22222222-bbbb"]);
+
+    const running = await store.get("film-22222222-bbbb");
+    expect(running?.status).toBe("failed");
+    expect(running?.errorCode).toBe("film_run_interrupted");
+    expect(running?.error).toContain("resume continues");
+    expect(running?.phaseReceipts[0]?.finishedAt).not.toBeNull();
+    expect(running?.events.at(-1)?.stage).toBe("reconcile");
+
+    // Terminal and gate states are untouched, and a second pass is a no-op.
+    expect((await store.get("film-33333333-cccc"))?.status).toBe("completed");
+    expect((await store.get("film-44444444-dddd"))?.status).toBe("waiting_approval");
+    expect(await store.reconcileInterrupted()).toEqual([]);
+  });
 });
