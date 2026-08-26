@@ -92,6 +92,114 @@ describe("creative workspace interchange import", () => {
     expect(context.getImportedProject().storyboard?.shots.length).toBeGreaterThan(0);
   });
 
+  it("projects typed Creative OTIO omitted records onto the import plan and receipt", async () => {
+    const otio = JSON.stringify({
+      OTIO_SCHEMA: "Timeline.1",
+      name: "Agent Video",
+      global_start_time: { OTIO_SCHEMA: "RationalTime.1", value: 0, rate: 24 },
+      metadata: {},
+      tracks: {
+        OTIO_SCHEMA: "Stack.1",
+        name: "Tracks",
+        metadata: {},
+        children: [
+          {
+            OTIO_SCHEMA: "Track.1",
+            name: "V1",
+            kind: "Video",
+            metadata: {},
+            children: [
+              {
+                OTIO_SCHEMA: "Clip.2",
+                name: "Remote",
+                source_range: {
+                  OTIO_SCHEMA: "TimeRange.1",
+                  start_time: { OTIO_SCHEMA: "RationalTime.1", value: 0, rate: 24 },
+                  duration: { OTIO_SCHEMA: "RationalTime.1", value: 24, rate: 24 },
+                },
+                media_reference: {
+                  OTIO_SCHEMA: "ExternalReference.1",
+                  name: "Remote.mov",
+                  target_url: "file:///Volumes/Offline/Remote.mov",
+                  metadata: {},
+                },
+                metadata: {},
+              },
+              {
+                OTIO_SCHEMA: "Transition.1",
+                name: "Dissolve",
+                source_range: {
+                  OTIO_SCHEMA: "TimeRange.1",
+                  start_time: { OTIO_SCHEMA: "RationalTime.1", value: 0, rate: 24 },
+                  duration: { OTIO_SCHEMA: "RationalTime.1", value: 12, rate: 24 },
+                },
+                metadata: {},
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const context = importContext();
+    const planned = await executeCreativeWorkspaceInterchangeRequest(
+      {
+        op: "interchange",
+        request: {
+          action: "plan-import",
+          format: "otio",
+          workspace: "video",
+          source: { kind: "inline", encoding: "utf8", payload: otio, file_name: "edit.otio" },
+          max_inline_bytes: 64 * 1024,
+        },
+      },
+      context,
+    );
+    expect(planned).toMatchObject({
+      result: {
+        success: true,
+        action: "plan-import",
+        plan: {
+          format: "otio",
+          workspace: "video",
+          omitted_count: 2,
+        },
+      },
+    });
+    if (!planned.result.success || planned.result.action !== "plan-import") throw new Error("missing import plan");
+    expect(planned.result.plan.omitted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "offline_media" }),
+        expect.objectContaining({ code: "unsupported_as_gap" }),
+      ]),
+    );
+
+    const imported = await executeCreativeWorkspaceInterchangeRequest(
+      {
+        op: "interchange",
+        request: {
+          action: "import",
+          plan_id: planned.result.plan.plan_id,
+          expected_guard_fingerprint: planned.result.plan.guard.fingerprint,
+          confirm: true,
+        },
+      },
+      context,
+    );
+    expect(imported).toMatchObject({
+      result: {
+        success: true,
+        action: "import",
+        receipt: {
+          format: "otio",
+          workspace: "video",
+          omitted_count: 2,
+        },
+      },
+    });
+    if (!imported.result.success || imported.result.action !== "import") throw new Error("missing import receipt");
+    expect(imported.result.receipt.omitted).toHaveLength(2);
+  });
+
   it("projects typed Fountain omitted records onto the import plan and receipt", async () => {
     const fountain = `Title: Night Run
 Author: Ada
