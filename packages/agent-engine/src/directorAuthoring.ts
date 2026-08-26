@@ -685,6 +685,22 @@ export const directorAuthoringActionSchema = z
       delete_group: z.boolean().default(true),
       force: z.boolean().optional(),
     }),
+    strictAction("create_object_list", {
+      list_id: id,
+      label: name,
+      object_ids: objectIds,
+    }),
+    strictAction("add_objects_to_object_list", {
+      list_id: id,
+      object_ids: objectIds,
+    }),
+    strictAction("remove_objects_from_object_lists", {
+      object_ids: objectIds,
+    }),
+    strictAction("rename_object_list", {
+      list_id: id,
+      label: name,
+    }),
     strictAction("add_annotation", { annotation: directorSceneAnnotationSchema }),
     strictAction("update_annotation", { annotation_id: id, patch: annotationUpdateSchema }),
     strictAction("remove_annotations", { annotation_ids: z.array(id).min(1).max(512) }),
@@ -1271,6 +1287,19 @@ function requireObject(project: DirectorProject, objectId: string) {
   const object = project.objects.find((item) => item.id === objectId);
   if (!object) throw new Error(`No object with id "${objectId}" exists.`);
   return object;
+}
+
+/**
+ * Resolve object-list member ids, rejecting crowd members: object lists are a
+ * per-object selection-set annotation and crowds already group as one unit.
+ */
+function requireObjectListMembers(project: DirectorProject, objectIds: string[]) {
+  const members = objectIds.map((objectId) => requireObject(project, objectId));
+  const crowdMember = members.find((object) => object.crowdId);
+  if (crowdMember) {
+    throw new Error(`Crowd member "${crowdMember.id}" cannot join an object list; target its crowd instead.`);
+  }
+  return members;
 }
 
 function isAuthoringObjectLocked(project: DirectorProject, object: DirectorObject) {
@@ -2437,6 +2466,57 @@ export function applyDirectorAuthoringActions(
         } else {
           addUnique(result.updated.object_ids, group.id);
         }
+        break;
+      }
+      case "create_object_list": {
+        if (project.objects.some((object) => object.objectListId === item.list_id)) {
+          throw new Error(`Object list id "${item.list_id}" already exists. Use add_objects_to_object_list instead.`);
+        }
+        const members = requireObjectListMembers(project, item.object_ids);
+        members.forEach((object) => {
+          object.objectListId = item.list_id;
+          object.objectListLabel = item.label;
+          delete object.objectListDetached;
+          addUnique(result.updated.object_ids, object.id);
+        });
+        break;
+      }
+      case "add_objects_to_object_list": {
+        const anchor = project.objects.find((object) => object.objectListId === item.list_id);
+        if (!anchor) {
+          throw new Error(`No object list with id "${item.list_id}" exists. Use create_object_list first.`);
+        }
+        // Same label derivation as the Stage tree panel: the first member's
+        // trimmed label, falling back to that member's name.
+        const label = anchor.objectListLabel?.trim() || anchor.name;
+        const members = requireObjectListMembers(project, item.object_ids);
+        members.forEach((object) => {
+          object.objectListId = item.list_id;
+          object.objectListLabel = label;
+          delete object.objectListDetached;
+          addUnique(result.updated.object_ids, object.id);
+        });
+        break;
+      }
+      case "remove_objects_from_object_lists": {
+        const members = item.object_ids.map((objectId) => requireObject(project, objectId));
+        members.forEach((object) => {
+          delete object.objectListId;
+          delete object.objectListLabel;
+          // Detached objects also opt out of the Stage tree's name-based
+          // automatic grouping, matching the panel's remove semantics.
+          object.objectListDetached = true;
+          addUnique(result.updated.object_ids, object.id);
+        });
+        break;
+      }
+      case "rename_object_list": {
+        const members = project.objects.filter((object) => object.objectListId === item.list_id);
+        if (!members.length) throw new Error(`No object list with id "${item.list_id}" exists.`);
+        members.forEach((object) => {
+          object.objectListLabel = item.label;
+          addUnique(result.updated.object_ids, object.id);
+        });
         break;
       }
       case "add_annotation": {
