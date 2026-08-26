@@ -610,6 +610,9 @@ export const directorAuthoringActionSchema = z
           "Rejected on the public director_workbench agent wire. Instance catalog or project meshes with asset_id, or model with blender_native / generated_3d.",
         ),
       placement_mode: placementMode.optional(),
+      /** Crowd grouping for character adds; provide crowd_id and crowd_label together. */
+      crowd_id: id.optional(),
+      crowd_label: z.string().trim().min(1).max(240).optional(),
       parent_id: id.optional(),
       look_target_object_id: id.optional(),
       reference_bindings: z.array(directorReferenceBindingSchema).max(32).optional(),
@@ -2197,6 +2200,14 @@ export function applyDirectorAuthoringActions(
           assetId: resolvedAssetId,
           characterSource: item.kind === "character" ? "asset" : undefined,
         });
+        if ((item.crowd_id !== undefined || item.crowd_label !== undefined) && item.kind !== "character") {
+          throw new Error(`crowd_id/crowd_label are only valid on kind:"character" adds; drop them for "${item.id}".`);
+        }
+        if ((item.crowd_id === undefined) !== (item.crowd_label === undefined)) {
+          throw new Error(
+            `Crowd adds require crowd_id and crowd_label together; pass both or neither for "${item.id}".`,
+          );
+        }
         if (item.parent_id) requireObject(project, item.parent_id);
         const posePreset = getMannequinPosePreset(item.pose_preset_id ?? "stand");
         const transform = item.transform ?? { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] };
@@ -2239,6 +2250,7 @@ export function applyDirectorAuthoringActions(
             ? {
                 bodyType: item.body_type ?? "mannequin",
                 color: item.color ?? "#d19a3a",
+                ...(item.crowd_id && item.crowd_label ? { crowdId: item.crowd_id, crowdLabel: item.crowd_label } : {}),
                 characterRig: {
                   rigType: "mixamo",
                   posePresetId: item.pose_preset_id ?? "stand",

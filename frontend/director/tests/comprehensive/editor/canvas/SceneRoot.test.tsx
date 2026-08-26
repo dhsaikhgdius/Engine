@@ -436,7 +436,9 @@ it("renders every preset through the canonical packaged character while retainin
   screen
     .getAllByTestId("mock-character-model")
     .forEach((model) => expect(model).toHaveAttribute("data-url", "/mixamo-characters/models/x-bot.glb"));
-  expect(characterColors).toEqual(["#d19a3a", "#4F8EF7", "#E0524D"]);
+  // The legacy automatic blue is migration-rewritten to ochre, so the palette
+  // skips it and preset adds keep colors that survive persistence unchanged.
+  expect(characterColors).toEqual(["#d19a3a", "#E0524D", "#E91E63"]);
   expect(new Set(characterColors).size).toBe(characterColors.length);
 });
 

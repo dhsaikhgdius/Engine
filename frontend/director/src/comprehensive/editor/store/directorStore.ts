@@ -1266,13 +1266,20 @@ function updateObjectById(objects: DirectorObject[], id: string, updater: (item:
 }
 
 function getNextCharacterColor(objects: DirectorObject[]) {
+  // Migration rewrites the legacy automatic blue to the warm core-Human colour
+  // at every authored landing point and reload, so handing it out would let
+  // the rotating palette collapse onto duplicated ochre; allocate the stable
+  // colours only.
+  const allocatableColors = CHARACTER_COLOR_PALETTE.filter(
+    (color) => color.toLowerCase() !== LEGACY_AUTOMATIC_CHARACTER_BLUE,
+  );
   const usedColors = new Set(objects.filter((item) => item.kind === "character").map((item) => item.color));
-  const unusedColor = CHARACTER_COLOR_PALETTE.find((color) => !usedColors.has(color));
+  const unusedColor = allocatableColors.find((color) => !usedColors.has(color));
 
   if (unusedColor) return unusedColor;
 
   const characterCount = objects.filter((item) => item.kind === "character").length;
-  return CHARACTER_COLOR_PALETTE[characterCount % CHARACTER_COLOR_PALETTE.length];
+  return allocatableColors[characterCount % allocatableColors.length];
 }
 
 function getGeometryPrimitiveLabel(geometryType: GeometryPrimitiveType) {
@@ -1360,6 +1367,65 @@ function buildPresetCharacterObject(
   } satisfies DirectorObject;
 }
 
+/** Builds the next preset character exactly where the toolbar add flow would place it. */
+function buildNextPresetCharacterObject(state: DirectorRuntimeState, bodyType: CharacterBodyType, color?: string) {
+  const presetCharacterCount = state.project.objects.filter(
+    (item) => item.kind === "character" && item.id.startsWith("char_preset_"),
+  ).length;
+  const presetCharacterIndex = presetCharacterCount + 1;
+  const row = Math.floor((presetCharacterIndex - 1) / 4);
+  const x = getAddedModelColumnOffset(presetCharacterIndex - row * 4);
+  const z = row * 0.8;
+  return buildPresetCharacterObject(state, bodyType, [x, 0, z], undefined, color);
+}
+
+/**
+ * Builds every member of one crowd add with the same incremental id, name,
+ * and grid allocation the legacy writer computes, so the shared authoring
+ * path and the in-batch fallback create identical objects.
+ */
+function buildCrowdCharacterObjects(
+  state: DirectorRuntimeState,
+  bodyType: CharacterBodyType,
+  rows: number,
+  columns: number,
+  spacing: number,
+): { objects: DirectorObject[]; crowdId: string } {
+  const positions = getCrowdCharacterPositions(rows, columns, spacing);
+  const offset = getCrowdCharacterOffset(state.project.objects, spacing);
+  const crowdLabel = formatCrowdLabel(rows, columns);
+  const crowdId = getNextCrowdId(state.project.objects);
+  const nextObjects = [...state.project.objects];
+  const created: DirectorObject[] = [];
+
+  positions.forEach((position) => {
+    const nextState = {
+      ...state,
+      project: {
+        ...state.project,
+        objects: nextObjects,
+      },
+    } as DirectorRuntimeState;
+    const nextObject = buildPresetCharacterObject(
+      nextState,
+      bodyType,
+      [
+        Number((position[0] + offset[0]).toFixed(4)),
+        Number((position[1] + offset[1]).toFixed(4)),
+        Number((position[2] + offset[2]).toFixed(4)),
+      ],
+      {
+        crowdId,
+        crowdLabel,
+      },
+    );
+    nextObjects.push(nextObject);
+    created.push(nextObject);
+  });
+
+  return { objects: created, crowdId };
+}
+
 function formatCameraCaptureName(cameraName: string, captureIndex: number) {
   return `${cameraName}-截图${String(captureIndex).padStart(2, "0")}`;
 }
@@ -1439,6 +1505,31 @@ function compileAddObjectFromAssetAction(
           body_type: nextObject.bodyType ?? DEFAULT_CHARACTER_BODY_TYPE,
           color: nextObject.color ?? DIRECTOR_PREVIZ_PALETTE.human,
         }
+      : {}),
+  };
+}
+
+/**
+ * Compile a preset/crowd character built by buildPresetCharacterObject into
+ * the shared add_object action. The engine injects the default Mixamo asset
+ * from the packaged catalog when the project lacks it and stamps the same
+ * nativeSource shell migrate adds at the authored landing point.
+ */
+function compilePresetCharacterAddAction(
+  nextObject: DirectorObject,
+): Extract<DirectorAuthoringAction, { action: "add_object" }> {
+  return {
+    action: "add_object",
+    id: nextObject.id,
+    name: nextObject.name,
+    kind: "character",
+    asset_id: nextObject.assetRefId ?? getDefaultMixamoCharacterAssetRef().id,
+    transform: nextObject.transform,
+    placement_mode: "grounded",
+    body_type: nextObject.bodyType ?? DEFAULT_CHARACTER_BODY_TYPE,
+    color: nextObject.color ?? DIRECTOR_PREVIZ_PALETTE.human,
+    ...(nextObject.crowdId && nextObject.crowdLabel
+      ? { crowd_id: nextObject.crowdId, crowd_label: nextObject.crowdLabel }
       : {}),
   };
 }
@@ -6169,66 +6260,59 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
       return nextObjectId;
     },
-    // human-only: no authoring twin. add_object forces mannequin body type and
-    // the default ochre for characters, while the preset flow keeps per-add
-    // body types and a rotating distinct-color palette.
-    addPresetCharacter: (bodyType = DEFAULT_CHARACTER_BODY_TYPE, color) =>
+    // Shares add_object with the explicit per-add body type and rotating
+    // palette color the preset flow allocates; the engine injects the default
+    // Mixamo asset from the packaged catalog when the project lacks it.
+    addPresetCharacter: (bodyType = DEFAULT_CHARACTER_BODY_TYPE, color) => {
+      if (canUseAuthoringPath()) {
+        const nextObject = buildNextPresetCharacterObject(get() as DirectorRuntimeState, bodyType, color);
+        const applied = dispatchUiAuthoring(
+          [compilePresetCharacterAddAction(nextObject)],
+          `ui-preset-character:${nextObject.id}`,
+          "添加失败",
+        );
+        if (applied) {
+          // Selection is UI-only state; apply it after the authored commit.
+          commitUiMutation((state) => ({ ...state, ...selectedObjectsPatch([nextObject.id]) }));
+          return;
+        }
+      }
       commitMutation((state) => {
         const defaultCharacterAsset = getDefaultMixamoCharacterAssetRef();
-        const presetCharacterCount = state.project.objects.filter(
-          (item) => item.kind === "character" && item.id.startsWith("char_preset_"),
-        ).length;
-        const presetCharacterIndex = presetCharacterCount + 1;
-        const row = Math.floor((presetCharacterIndex - 1) / 4);
-        const x = getAddedModelColumnOffset(presetCharacterIndex - row * 4);
-        const z = row * 0.8;
-        const nextObject = buildPresetCharacterObject(state, bodyType, [x, 0, z], undefined, color);
+        const nextObject = buildNextPresetCharacterObject(state, bodyType, color);
 
         return appendSelectedObject(state, nextObject, {
           assets: state.project.assets.some((asset) => asset.id === defaultCharacterAsset.id)
             ? state.project.assets
             : [defaultCharacterAsset, ...state.project.assets],
         });
-      }),
-    // human-only: no authoring twin. crowdId/crowdLabel grouping is UI-only
-    // state that add_object cannot author.
+      });
+    },
+    // Shares one atomic add_object batch carrying crowd_id/crowd_label so
+    // Agents and the UI author the same crowd grouping and member grid.
     addCrowdCharacters: ({ bodyType = DEFAULT_CHARACTER_BODY_TYPE, rows, columns, spacing }) => {
+      if (canUseAuthoringPath()) {
+        const built = buildCrowdCharacterObjects(get() as DirectorRuntimeState, bodyType, rows, columns, spacing);
+        if (!built.objects.length) return [];
+        const applied = dispatchUiAuthoring(
+          built.objects.map(compilePresetCharacterAddAction),
+          `ui-crowd-characters:${built.crowdId}`,
+          "添加失败",
+        );
+        if (applied) {
+          const createdIds = built.objects.map((object) => object.id);
+          // Selection is UI-only state; apply it after the authored commit.
+          commitUiMutation((state) => ({ ...state, ...selectedObjectsPatch(createdIds, built.crowdId) }));
+          return createdIds;
+        }
+      }
       const createdIds: string[] = [];
 
       commitMutation((state) => {
         const defaultCharacterAsset = getDefaultMixamoCharacterAssetRef();
-        const positions = getCrowdCharacterPositions(rows, columns, spacing);
-        const offset = getCrowdCharacterOffset(state.project.objects, spacing);
-        const nextObjects = [...state.project.objects];
-        const crowdLabel = formatCrowdLabel(rows, columns);
-        const crowdId = getNextCrowdId(state.project.objects);
-
-        positions.forEach((position) => {
-          const nextState = {
-            ...state,
-            project: {
-              ...state.project,
-              objects: nextObjects,
-            },
-          } as DirectorRuntimeState;
-          const nextObject = buildPresetCharacterObject(
-            nextState,
-            bodyType,
-            [
-              Number((position[0] + offset[0]).toFixed(4)),
-              Number((position[1] + offset[1]).toFixed(4)),
-              Number((position[2] + offset[2]).toFixed(4)),
-            ],
-            {
-              crowdId,
-              crowdLabel,
-            },
-          );
-          nextObjects.push(nextObject);
-          createdIds.push(nextObject.id);
-        });
-
-        if (!createdIds.length) return state;
+        const built = buildCrowdCharacterObjects(state, bodyType, rows, columns, spacing);
+        if (!built.objects.length) return state;
+        createdIds.push(...built.objects.map((object) => object.id));
 
         return withProjectPatch(
           state,
@@ -6236,9 +6320,9 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             assets: state.project.assets.some((asset) => asset.id === defaultCharacterAsset.id)
               ? state.project.assets
               : [defaultCharacterAsset, ...state.project.assets],
-            objects: nextObjects,
+            objects: [...state.project.objects, ...built.objects],
           },
-          selectedObjectsPatch(createdIds, crowdId),
+          selectedObjectsPatch(createdIds, built.crowdId),
         );
       });
 
