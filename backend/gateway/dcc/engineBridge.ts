@@ -634,11 +634,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
 
     let projectConnectorOk = false;
     if (project.ok && project.projectDirectory) {
-      const installed = await checkInstalledConnector(
-        provider,
-        project.projectDirectory,
-        manifest?.version ?? null,
-      );
+      const installed = await checkInstalledConnector(provider, project.projectDirectory, manifest?.version ?? null);
       projectConnectorOk = installed.ok;
       checks.push({ id: "project_connector", ok: installed.ok, detail: installed.detail });
       if (!installed.ok) {

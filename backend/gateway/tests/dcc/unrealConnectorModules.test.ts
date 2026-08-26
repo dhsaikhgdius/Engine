@@ -545,9 +545,8 @@ describe.skipIf(!pythonAvailable)(
             textureFiles: { "asset-alpha": "assets/001-alpha.png" },
           }),
         );
-        const result = (
-          output as { result: { parent: string; textures: Record<string, string>; omitted: string[] } }
-        ).result;
+        const result = (output as { result: { parent: string; textures: Record<string, string>; omitted: string[] } })
+          .result;
         expect(result.parent).toBe("translucent");
         expect(result.textures).toEqual({ OpacityMap: "asset-alpha" });
         // Referenced but not bundled: structured omit, never a silent drop.
