@@ -190,6 +190,12 @@ v1 只检查 Blender 的 active scene，并采样其 current frame。GLB 可以�
 Director 不会映射或播放它们；导入的透视相机是该帧的静态相机。manifest 中的 timebase/帧范围
 只用于审核，不会改写 Director 时间线。该 API 是批量上传、预览、应用，不是 Blender 实时同步。
 
+上传、预览、应用返回的每个计划都会在类型化的 `result.plan.omitted[]`（与 `omittedCount` 配对）中
+声明被放弃的内容：`unsupported_object`（extractor 跳过的数据块，附 Blender `kind`）、
+`hierarchy_flattened`（场景合并为单一 Director 场景对象导入）、`animation_actions`（内嵌动作未映射
+到时间线）与 `camera_roll_lens_shift`（逐台导入相机）。free-text `warnings` 仍面向人类；请读取
+类型化记录而不是解析警告文本。
+
 若要改变选择，预览一个新的服务端持久计划：
 
 ```bash

@@ -196,6 +196,13 @@ animation clips, but Director does not map or play them; imported perspective ca
 that frame. Manifest timebase/range values are audit metadata and do not rewrite the Director
 timeline. This API is batch upload/preview/apply, not live Blender synchronization.
 
+Every plan returned by upload, preview, and apply states what it leaves behind in typed
+`result.plan.omitted[]` records paired with `omittedCount`: `unsupported_object` (extractor-skipped
+datablock, with its Blender `kind`), `hierarchy_flattened` (the scene imports as one flattened
+Director scene object), `animation_actions` (embedded actions are not mapped onto the timeline), and
+`camera_roll_lens_shift` (per imported camera). Free-text `warnings` stay for humans; read the typed
+records instead of parsing warning strings.
+
 To change the selection, preview a new server-persisted plan:
 
 ```bash
