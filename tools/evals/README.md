@@ -77,12 +77,14 @@ Each `tasks/*.json` file is one task, run sequentially with its own
 Every step names one public tool in `tool`: `director_workbench`, `director_creative`,
 `stage_video`, `blender_native`, `director_dcc`, or `director_game`. The task-schema test validates every
 expected-success input against that tool's strict contract before an isolated browser run.
-Game-slice tasks (`12`–`15`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
-and host-free playtest without an inline `trace`.
+Game-slice tasks (`12`–`18`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
+host-free playtest without an inline `trace`, and the fps/racing/rpg genre demo recipes replayed
+verbatim from `packages/protocol/src/gameDemoRecipes.ts`.
 
 `result_paths` are dot-paths resolved against the whole JSON response body
 (arrays index numerically, e.g. `result.issues.0`); a path passes when the resolved value is
-neither `undefined` nor `null`. Steps with `expect.success: false` pass when the boundary
+neither `undefined` nor `null`. `result_equals` maps dot-paths to exact primitive values, e.g.
+a playable receipt must be literally `true`, not merely present. Steps with `expect.success: false` pass when the boundary
 reports the expected failure, regardless of HTTP status. The runner is generic — add a task
 by dropping a new JSON file into `tasks/`.
 
@@ -113,3 +115,6 @@ really are incomplete.
 | `tasks/14-game-slice-unbound-playtest-rejects.json` | Verify playtest rejects until the player role is bound to a Stage object                                          |
 | `tasks/14-world-systems-observation.json`        | Author Living World weather/wind plus one effect, then verify the `world` observation projection                     |
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | Host-free playtest scoring without an explicit trace                                                            |
+| `tasks/16-game-demo-fps-recipe-hostfree.json`    | Replay the fps demo recipe: discover via capabilities/describe, plan, bind hinted roles, host-free playtest to playable |
+| `tasks/17-game-demo-racing-recipe-hostfree.json` | Replay the racing demo recipe with enter/exit vehicle verbs to a literally playable receipt                          |
+| `tasks/18-game-demo-rpg-recipe-hostfree.json`    | Replay the rpg demo recipe with interact plus attack verbs to a literally playable receipt                            |

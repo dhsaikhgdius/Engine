@@ -1,0 +1,99 @@
+{
+  "name": "game-demo-fps-recipe-hostfree",
+  "description": "Discover the fps demo recipe from director_game capabilities/describe, plan from its brief template, bind the hinted roles, then score the recipe acceptance script to a literally playable receipt through the host-free runner — no inline trace, no engine source.",
+  "steps": [
+    {
+      "label": "capabilities lists demo recipes",
+      "tool": "director_game",
+      "input": { "op": "capabilities" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.demo_recipes.0.recipe_id", "result.demo_recipes.0.genre"]
+      }
+    },
+    {
+      "label": "describe the fps recipe",
+      "tool": "director_game",
+      "input": { "op": "describe", "target": "demo_recipes.fps" },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.recipe.brief.requirement",
+          "result.recipe.bind_hints.0.role_id",
+          "result.recipe.acceptance_script.steps.0.frames"
+        ],
+        "result_equals": { "result.recipe.genre": "fps" }
+      }
+    },
+    {
+      "label": "plan from the recipe brief",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-demo-fps-01",
+        "brief": {
+          "requirement": "Clear a small target range: sprint between two cover blocks, fire at the dummy target, and reload once without leaving the range floor.",
+          "genre": "fps",
+          "perspective": "first",
+          "engine_target": "stage",
+          "style": "white-box clay (metric, untextured silhouettes)"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id"],
+        "result_equals": { "result.slice.status": "draft" }
+      }
+    },
+    {
+      "label": "bind the hinted roles",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-demo-fps-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "range-hero-1", "source": "catalog" },
+          { "role_id": "enemy-1", "object_id": "range-dummy-1", "source": "catalog" },
+          { "role_id": "spawn", "object_id": "range-spawn-1", "source": "project" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.suggested_playtest_script.steps"],
+        "result_equals": { "result.bind_complete": true, "result.slice.status": "bound" }
+      }
+    },
+    {
+      "label": "host-free playtest with the recipe acceptance script",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-demo-fps-01",
+        "script": {
+          "steps": [
+            { "frames": 16, "input": { "forward": true }, "expect": { "verb": "move" } },
+            { "frames": 10, "input": { "look_right": true }, "expect": { "verb": "look" } },
+            { "frames": 8, "input": { "jump": true }, "expect": { "verb": "jump" } },
+            { "frames": 12, "input": { "forward": true, "sprint": true }, "expect": { "verb": "sprint" } },
+            { "frames": 6, "input": { "fire": true }, "expect": { "verb": "fire" } },
+            { "frames": 6, "input": { "fire": true }, "expect": { "verb": "reload" } }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.trace.contract", "result.trace.samples.0.frame"],
+        "result_equals": { "result.evaluation.playable": true, "result.slice.status": "playable" }
+      }
+    },
+    {
+      "label": "evaluate the stored playable receipt",
+      "tool": "director_game",
+      "input": { "op": "evaluate", "slice_id": "game-eval-demo-fps-01" },
+      "expect": {
+        "success": true,
+        "result_equals": { "result.evaluation.playable": true }
+      }
+    }
+  ]
+}

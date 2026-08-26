@@ -75,6 +75,8 @@ npm run eval:reference
 
 `result_paths` 是针对整个 JSON 响应体解析的点号路径（数组按数字索引,如
 `result.issues.0`）;当解析到的值既不是 `undefined` 也不是 `null` 时路径通过。
+`result_equals` 将点号路径映射到精确的原始值,例如可玩回执必须字面等于 `true`,
+而不仅仅是存在。
 `expect.success: false` 的步骤在校验边界按预期报错时通过,与 HTTP 状态码无关。
 运行器是通用的——只需将新 JSON 文件放入 `tasks/` 即可添加任务。
 
@@ -103,3 +105,6 @@ possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角�
 | `tasks/14-game-slice-unbound-playtest-rejects.json` | 验证未绑定玩家角色时 playtest 被拒绝                                   |
 | `tasks/14-world-systems-observation.json`        | 设置 Living World 天气/风并添加一个效果,验证 `world` 观察投影            |
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | 无显式 trace 的 host-free playtest 评分                            |
+| `tasks/16-game-demo-fps-recipe-hostfree.json`    | 回放 fps 题材演示配方:capabilities/describe 发现、plan、按提示绑定、免宿主试玩至可玩 |
+| `tasks/17-game-demo-racing-recipe-hostfree.json` | 回放 racing 题材演示配方,含 enter/exit vehicle 动词,回执字面可玩          |
+| `tasks/18-game-demo-rpg-recipe-hostfree.json`    | 回放 rpg 题材演示配方,含 interact 与 attack 动词,回执字面可玩             |

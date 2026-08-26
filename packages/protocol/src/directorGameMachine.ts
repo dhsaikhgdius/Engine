@@ -18,6 +18,7 @@ import {
   type GameSlicePlayabilityCheck,
   type GameSliceVerb,
 } from "./gameSliceProtocol";
+import { gameDemoRecipeIndex } from "./gameDemoRecipes";
 import { suggestedPlaytestScriptForSlice } from "./gamePlaytestFixtures";
 
 /** In-memory slice table. Gateway persistence wraps this reducer. */
@@ -336,7 +337,10 @@ export async function executeDirectorGame(
   const operation = parsed.data;
   switch (operation.op) {
     case "capabilities":
-      return ok(directorGameCapabilities);
+      // `demo_recipes` is a compact additive index; the full recipe documents
+      // (brief template + bind hints + acceptance script) come from
+      // {"op":"describe","target":"demo_recipes.<genre>"}.
+      return ok({ ...directorGameCapabilities, demo_recipes: gameDemoRecipeIndex() });
     case "describe": {
       const described = describeDirectorGameTarget(operation.target);
       if ("error" in described) {

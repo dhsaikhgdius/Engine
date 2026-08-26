@@ -3,6 +3,12 @@ import {
   directorGameOperationNames,
   directorGameOperationSchema,
 } from "./directorGameProtocol";
+import {
+  GAME_DEMO_RECIPES,
+  gameDemoRecipeDescribeTargets,
+  getGameDemoRecipe,
+  type GameDemoRecipe,
+} from "./gameDemoRecipes";
 import { gameSliceBindPatchSchema, gameSliceBriefSchema, gameSliceHudSchema } from "./gameSliceProtocol";
 
 const DESCRIBE_SCHEMA_BUDGET_BYTES = 20_000;
@@ -14,12 +20,16 @@ const JSON_SCHEMA_OPTIONS = {
   io: "input",
 } as const;
 
-/** Result of describing one `director_game` operation. */
+/** Result of describing one `director_game` operation or data target. */
 export interface DirectorGameDescribeResult {
   target: string;
-  kind: "operation";
+  kind: "operation" | "data";
   json_schema?: unknown;
   fields?: string[];
+  /** Full demo recipe documents for the `demo_recipes` data target. */
+  recipes?: GameDemoRecipe[];
+  /** One demo recipe for a `demo_recipes.<genre>` data target. */
+  recipe?: GameDemoRecipe;
   note?: string;
 }
 
@@ -41,6 +51,21 @@ const EXTRA_TARGETS: Record<string, z.ZodType> = {
  */
 export function describeDirectorGameTarget(target: string): DirectorGameDescribeResult | { error: string } {
   const normalized = target.trim();
+  if (normalized === "demo_recipes") {
+    return {
+      target: normalized,
+      kind: "data",
+      recipes: [...GAME_DEMO_RECIPES],
+      note: "Copy a recipe brief into plan, bind the hinted roles to Stage object ids, then playtest with acceptance_script (the host-free runner fills the trace).",
+    };
+  }
+  if (normalized.startsWith("demo_recipes.")) {
+    const recipe = getGameDemoRecipe(normalized.slice("demo_recipes.".length));
+    if (recipe) return { target: normalized, kind: "data", recipe };
+    return {
+      error: `Unknown demo recipe "${target}". Valid targets: demo_recipes, ${gameDemoRecipeDescribeTargets().join(", ")}.`,
+    };
+  }
   const extra = EXTRA_TARGETS[normalized];
   if (extra) {
     const serialized = serializedJsonSchema(extra);
@@ -59,7 +84,7 @@ export function describeDirectorGameTarget(target: string): DirectorGameDescribe
   const option = directorGameOperationSchema.options.find((candidate) => candidate.shape.op.value === normalized);
   if (!option) {
     return {
-      error: `Unknown describe target "${target}". Valid operations: ${directorGameOperationNames.join(", ")}. Nested slices: ${Object.keys(EXTRA_TARGETS).join(", ")}.`,
+      error: `Unknown describe target "${target}". Valid operations: ${directorGameOperationNames.join(", ")}. Nested slices: ${Object.keys(EXTRA_TARGETS).join(", ")}. Data: demo_recipes, demo_recipes.<genre>.`,
     };
   }
   const serialized = serializedJsonSchema(option);
