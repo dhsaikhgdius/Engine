@@ -58,6 +58,34 @@ export function classifyFilmRunError(error: unknown): FilmRunErrorCode {
 }
 
 /**
+ * Reported readiness of one optional film pipeline capability. `configured`
+ * means the gateway can attempt the capability; runs that request an
+ * unconfigured capability stamp a typed {@link filmRunCapabilityOmissionSchema}
+ * record instead of silently skipping the work.
+ */
+export const filmPipelineCapabilityStateSchema = z.strictObject({
+  configured: z.boolean(),
+  /** Missing-config diagnostic (a reported state, not an error); null when configured. */
+  reason: z.string().max(500).nullable(),
+});
+/** Reported readiness of one optional film pipeline capability. */
+export type FilmPipelineCapabilityState = z.infer<typeof filmPipelineCapabilityStateSchema>;
+
+/**
+ * Optional film pipeline capabilities reported next to the core `configured`
+ * flag. The core pipeline (LLM + image + video) runs without them, so their
+ * absence never blocks create/resume — it only changes what a run can honor.
+ */
+export const filmPipelineCapabilitiesSchema = z.strictObject({
+  /** Dialogue TTS dubbing mixed into shot clips (`input.enableAudio`). */
+  dialogueAudio: filmPipelineCapabilityStateSchema,
+  /** Automatic white-box Stage anchor capture (`input.autoStageAnchors`); a connected workbench tab is still required at render time. */
+  stageAnchors: filmPipelineCapabilityStateSchema,
+});
+/** Reported optional film pipeline capabilities. */
+export type FilmPipelineCapabilities = z.infer<typeof filmPipelineCapabilitiesSchema>;
+
+/**
  * Reported configuration state of the film pipeline. An unconfigured
  * pipeline is an explicit reported state on the list surface — existing runs
  * stay readable and cancellable while create/resume/approve are refused.
@@ -67,6 +95,8 @@ export const filmPipelineAvailabilitySchema = z.strictObject({
   configured: z.boolean(),
   /** Missing-config diagnostic (a reported state, not an error); null when configured. */
   reason: z.string().max(500).nullable(),
+  /** Optional-capability readiness so agents learn before create whether enableAudio/autoStageAnchors can be honored. */
+  capabilities: filmPipelineCapabilitiesSchema,
 });
 /** Reported film pipeline configuration state. */
 export type FilmPipelineAvailability = z.infer<typeof filmPipelineAvailabilitySchema>;
@@ -241,6 +271,101 @@ export type FilmTimelineOmittedShot = z.infer<typeof filmTimelineOmittedShotSche
 export type FilmTimelineExportReceipt = z.infer<typeof filmTimelineExportReceiptSchema>;
 
 // ---------------------------------------------------------------------------
+// Capability omissions
+// ---------------------------------------------------------------------------
+
+/** Bounded window of typed capability-omission records on one run document. */
+export const FILM_RUN_CAPABILITY_OMISSION_LIMIT = 128;
+
+/** Optional capability a film run requested via its input. */
+export const filmRunCapabilitySchema = z.enum(["dialogue_audio", "stage_anchors"]);
+
+/** Stable classification of why a requested optional capability was skipped. */
+export const filmRunCapabilityOmissionCodeSchema = z.enum([
+  /** `input.enableAudio` was true but no TTS provider is configured; clips rendered without dialogue dubbing. */
+  "tts_unconfigured",
+  /** `input.autoStageAnchors` was true but the gateway has no workbench execution channel; scenes rendered without white-box grounding. */
+  "anchor_hook_unavailable",
+  /** Stage anchor resolution failed for one scene; that scene rendered without white-box grounding. */
+  "anchor_resolution_failed",
+]);
+
+/** Which capability each omission code belongs to; the schema rejects mismatched pairs. */
+export const FILM_RUN_CAPABILITY_FOR_OMISSION_CODE: Record<
+  z.infer<typeof filmRunCapabilityOmissionCodeSchema>,
+  z.infer<typeof filmRunCapabilitySchema>
+> = {
+  tts_unconfigured: "dialogue_audio",
+  anchor_hook_unavailable: "stage_anchors",
+  anchor_resolution_failed: "stage_anchors",
+};
+
+/** Omission codes scoped to one scene; every other code is run-level (sceneIdx null). */
+const SCENE_SCOPED_OMISSION_CODES = new Set<z.infer<typeof filmRunCapabilityOmissionCodeSchema>>([
+  "anchor_resolution_failed",
+]);
+
+/**
+ * One requested-but-skipped optional capability, stamped durably on the run
+ * the moment the pipeline decides to proceed without it. Agents read these
+ * instead of scraping free-text events: a completed run with
+ * `enableAudio: true` and no dialogue dubbing is a typed fact, not a
+ * silent divergence from the request.
+ */
+export const filmRunCapabilityOmissionSchema = z
+  .strictObject({
+    capability: filmRunCapabilitySchema,
+    code: filmRunCapabilityOmissionCodeSchema,
+    /** Scene the omission applies to; null for run-level omissions. */
+    sceneIdx: shotIndex.nullable().default(null),
+    reason: nonEmptyText(600),
+    /** When the pipeline decided to proceed without the capability. */
+    at: z.string(),
+  })
+  .superRefine((omission, context) => {
+    if (FILM_RUN_CAPABILITY_FOR_OMISSION_CODE[omission.code] !== omission.capability) {
+      context.addIssue({
+        code: "custom",
+        path: ["capability"],
+        message: `code ${omission.code} belongs to capability ${FILM_RUN_CAPABILITY_FOR_OMISSION_CODE[omission.code]}`,
+      });
+    }
+    if (SCENE_SCOPED_OMISSION_CODES.has(omission.code) !== (omission.sceneIdx !== null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["sceneIdx"],
+        message: `code ${omission.code} must carry sceneIdx ${
+          SCENE_SCOPED_OMISSION_CODES.has(omission.code) ? "for the affected scene" : "null (run-level)"
+        }`,
+      });
+    }
+  });
+
+/** Optional capability requested by a film run. */
+export type FilmRunCapability = z.infer<typeof filmRunCapabilitySchema>;
+/** Stable capability-omission classification. */
+export type FilmRunCapabilityOmissionCode = z.infer<typeof filmRunCapabilityOmissionCodeSchema>;
+/** One typed capability-omission record. */
+export type FilmRunCapabilityOmission = z.infer<typeof filmRunCapabilityOmissionSchema>;
+
+/**
+ * Appends one capability omission, keeping the list idempotent across
+ * resumes: a record with the same code and sceneIdx already present wins
+ * (the first decision keeps its timestamp), and the window stays bounded to
+ * {@link FILM_RUN_CAPABILITY_OMISSION_LIMIT}.
+ */
+export function appendFilmRunCapabilityOmission(
+  existing: readonly FilmRunCapabilityOmission[],
+  omission: FilmRunCapabilityOmission,
+): FilmRunCapabilityOmission[] {
+  const duplicate = existing.some(
+    (candidate) => candidate.code === omission.code && candidate.sceneIdx === omission.sceneIdx,
+  );
+  if (duplicate) return [...existing];
+  return [...existing, filmRunCapabilityOmissionSchema.parse(omission)].slice(-FILM_RUN_CAPABILITY_OMISSION_LIMIT);
+}
+
+// ---------------------------------------------------------------------------
 // Run state machine
 // ---------------------------------------------------------------------------
 
@@ -377,6 +502,12 @@ export const filmRunSchema = z.strictObject({
    * predates typed export receipts — never invented for legacy documents.
    */
   timelineExport: filmTimelineExportReceiptSchema.nullable().default(null),
+  /**
+   * Requested optional capabilities the pipeline decided to skip, stamped
+   * with stable codes when the decision happens. Empty for runs that never
+   * skipped anything and for documents that predate typed omissions.
+   */
+  capabilityOmissions: z.array(filmRunCapabilityOmissionSchema).max(FILM_RUN_CAPABILITY_OMISSION_LIMIT).default([]),
   approvedAt: z.string().nullable().default(null),
   error: z.string().nullable().default(null),
   /** Stable classification of `error`; null when the run carries no error. */

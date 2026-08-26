@@ -344,15 +344,20 @@ whose analysis status is `degraded` and mode is `local`. See
 | Legacy Stage      | `GET /api/stage`, `PUT /api/stage`                                                                                                            |
 
 Film routes report the pipeline's configuration state explicitly on the list response (`pipeline:
-{configured, reason}`), answer failures with frozen public codes
+{configured, reason, capabilities}`, where `capabilities` reports optional dialogue-TTS and
+Stage-anchoring readiness as `{configured, reason}` each), answer failures with frozen public codes
 (`film_pipeline_unconfigured`, `invalid_request`, `invalid_run_id`, `run_not_found`), and attach a
 normalized `director-film-run-receipt-v1` (phase receipts, stable error codes, artifact paths with
 live per-artifact `storagePresence` probed at read time — `present`/`absent`, null for unclaimed
 paths) to status, receipt, and action responses. The receipt's `artifacts.timelineExport` carries
 the durable typed OTIO export receipt stamped next to `timelinePath`: planned/exported shot counts
 plus per-shot `omittedShots[]` (code `clip_missing`), so a partial editorial handoff is a typed
-fact instead of a silent skip; it stays null for runs that predate typed export receipts. Cancel
-stays available while providers are unconfigured.
+fact instead of a silent skip; it stays null for runs that predate typed export receipts. The
+receipt's `capabilityOmissions[]` records requested optional capabilities the run skipped, with
+stable codes (`tts_unconfigured`, `anchor_hook_unavailable`, and per-scene
+`anchor_resolution_failed`), so a run that rendered without dialogue dubbing or white-box
+grounding is a typed fact instead of a free-text event. Cancel stays available while providers
+are unconfigured.
 
 Observability routes return redacted execution receipts, model-usage aggregates, and one unified
 progress shape for production jobs, multi-agent runs, and film runs; `/traces/sessions` lists

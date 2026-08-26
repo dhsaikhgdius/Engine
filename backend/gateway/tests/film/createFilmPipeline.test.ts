@@ -25,6 +25,28 @@ describe("createFilmPipeline", () => {
     expect(pipeline.orchestrator).toBeNull();
     expect(pipeline.unconfiguredReason).toContain("Film pipeline 未配置");
     expect(await pipeline.store.list()).toEqual([]);
+    // Optional capabilities report explicitly even while the core pipeline is unconfigured.
+    expect(pipeline.capabilities.dialogueAudio.configured).toBe(false);
+    expect(pipeline.capabilities.dialogueAudio.reason).toContain("DIRECTOR_FILM_TTS_API_KEY");
+    expect(pipeline.capabilities.stageAnchors.configured).toBe(false);
+    expect(pipeline.capabilities.stageAnchors.reason).toContain("director_workbench");
+  });
+
+  it("reports optional capabilities configured when TTS and the workbench channel are wired", async () => {
+    const config = loadDirectorControlPlaneConfig("/tmp/workspace", {
+      DIRECTOR_FILM_LLM_BASE_URL: "https://openrouter.ai/api/v1",
+      DIRECTOR_FILM_LLM_API_KEY: "film-secret",
+      DIRECTOR_FILM_LLM_MODEL: "google/gemini-2.5-flash",
+      DIRECTOR_FILM_TTS_API_KEY: "tts-secret",
+    });
+    const pipeline = createFilmPipeline(config, await dataDirectory(), {
+      workbenchExecute: async () => ({}),
+    });
+    expect(pipeline.orchestrator).not.toBeNull();
+    expect(pipeline.capabilities).toEqual({
+      dialogueAudio: { configured: true, reason: null },
+      stageAnchors: { configured: true, reason: null },
+    });
   });
 
   it("builds the orchestrator from one OpenRouter-style key set", async () => {
