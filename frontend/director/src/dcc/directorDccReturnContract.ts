@@ -280,6 +280,21 @@ export const directorDccImportPlanCameraOpticsSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, { message: "camera optics patch cannot be empty" });
 
+/**
+ * Typed warn-and-omit record for camera optics the return import plan declined
+ * to apply. Free-text `warnings` stay for humans; agents should prefer this
+ * array (mirrors engine send `omittedLights` / `omittedMaterials`).
+ */
+export const directorDccOmittedOpticsSchema = z.strictObject({
+  directorId: nonEmpty.max(200),
+  code: z.enum(["sensor_format"]),
+  field: z.literal("sensorFormat").optional(),
+  reason: nonEmpty.max(600),
+});
+
+/** A validated DCC return omitted-optics record. */
+export type DirectorDccOmittedOptics = z.infer<typeof directorDccOmittedOpticsSchema>;
+
 const directorVec3Schema = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
 
 /** The Director-side light patch of an import plan (Director space and units). */
@@ -371,10 +386,37 @@ export const directorDccImportPlanSchema = z
       )
       .max(20_000),
     warnings: z.array(z.string().max(2_000)).max(20_000),
+    /**
+     * Count of optics fields the planner declined to apply. Optional for plans
+     * built before typed omittedOptics; when omittedOptics is present, length
+     * must equal this count.
+     */
+    omittedOpticsCount: z.number().int().nonnegative().max(100_000).optional(),
+    /**
+     * Typed warn-and-omit records for optics the return plan strips
+     * (`sensor_format` today). Optional for older plans; when present, length
+     * must equal omittedOpticsCount.
+     */
+    omittedOptics: z.array(directorDccOmittedOpticsSchema).max(1_024).optional(),
   })
   .superRefine((plan, context) => {
     if (plan.ready && plan.conflicts.length > 0) {
       context.addIssue({ code: "custom", path: ["ready"], message: "ready plans cannot contain conflicts" });
+    }
+    if (plan.omittedOptics !== undefined) {
+      if (plan.omittedOpticsCount === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedOpticsCount"],
+          message: "omittedOpticsCount is required when omittedOptics is present",
+        });
+      } else if (plan.omittedOptics.length !== plan.omittedOpticsCount) {
+        context.addIssue({
+          code: "custom",
+          path: ["omittedOptics"],
+          message: "omittedOptics length must equal omittedOpticsCount",
+        });
+      }
     }
   });
 
