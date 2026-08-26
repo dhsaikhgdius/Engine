@@ -3,15 +3,14 @@
 
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { WebSocket } from "ws";
 import { z } from "zod";
 import type { ServerResponse } from "node:http";
 
 import agentPlanSchema from "./agentPlanSchema.json";
 import { writeJsonAtomic } from "./atomicJsonFile";
-import { createDefaultScene } from "@director/stage-protocol";
-import { parseStageScene } from "@director/stage-protocol";
+import { loadStageSceneWithRecovery, type StageSceneQuarantineRecord } from "./stageSceneFile";
 import type { StageScene } from "@director/stage-protocol";
 import { directorAuthoringActionSchema } from "@director/agent-engine";
 import { DIRECTOR_WORKBENCH_INPUT_JSON_DESCRIPTION } from "./plannerDraft";
@@ -179,6 +178,8 @@ export interface GatewayContext {
   previewMimeType: StageCapturePayload["mimeType"];
   /** The live stage scene object. */
   scene: StageScene;
+  /** Non-null when the durable scene snapshot was corrupt at startup and got quarantined. */
+  sceneRecovery: StageSceneQuarantineRecord | null;
 
   // Constants
   /** The terminal message types for browser command requests. */
@@ -394,12 +395,11 @@ export async function createGatewayContext(): Promise<GatewayContext> {
   );
   const productionArtifactStore = new ProductionArtifactStore(dataDirectory);
 
-  let scene: StageScene = await readFile(scenePath, "utf8")
-    .then((contents) => {
-      const parsed = parseStageScene(JSON.parse(contents));
-      return parsed.success ? parsed.scene : createDefaultScene();
-    })
-    .catch(() => createDefaultScene());
+  // A corrupt snapshot is quarantined (never silently replaced) and surfaced
+  // through the context so transports can report it.
+  const sceneLoadResult = await loadStageSceneWithRecovery(scenePath);
+  let scene: StageScene = sceneLoadResult.scene;
+  const sceneRecovery = sceneLoadResult.recovery;
 
   const defaultProduction = (): {
     productionId: string;
@@ -459,6 +459,7 @@ export async function createGatewayContext(): Promise<GatewayContext> {
     plannedAgentTargets: new Map(),
     previewMimeType: "image/png" as StageCapturePayload["mimeType"],
     scene,
+    sceneRecovery,
     BROWSER_COMMAND_REQUEST_TYPE: {
       workbench: "workbench-command-request",
       creative: "creative-workspace-command-request",

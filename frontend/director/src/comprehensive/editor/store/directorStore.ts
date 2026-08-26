@@ -118,6 +118,7 @@ import {
   repairDirectorCharacterAssetBindings,
 } from "../modelLibrary/mixamoCharacterCatalog";
 import { backfillDirectorAssetMetricScale } from "./directorScaleMigration";
+import { serializeProject } from "../io/exportProjectJson";
 import { normalizeDirectorViewportLayout, type DirectorViewportLayout } from "@director/protocol/workbench-ui";
 import { isDirectorObjectEffectivelyLocked } from "../schema/objectLayers";
 import { createDefaultDirectorFrameTimeline } from "../timeline/frameTime";
@@ -241,6 +242,22 @@ export interface DirectorClipboardEntry {
   camera?: DirectorCameraShot;
 }
 
+/**
+ * Live health of browser localStorage persistence for the Stage scene.
+ * Failed writes (quota exceeded, private mode) flip `status` to "failed" so
+ * the UI can distinguish a safely saved project from a tab-only project at
+ * risk of loss; the next successful write flips it back to "ok".
+ */
+export interface DirectorPersistenceHealth {
+  status: "ok" | "failed";
+  /** Number of consecutive failed writes; reset to 0 by a successful write. */
+  consecutiveFailures: number;
+  /** Epoch ms of the most recent failed write, or null when none failed yet. */
+  lastFailureAt: number | null;
+  /** Error message from the most recent failed write, or null. */
+  lastError: string | null;
+}
+
 interface DirectorInternalState {
   clipboard: DirectorClipboardEntry[];
   clipboardPasteCount: number;
@@ -253,6 +270,7 @@ interface DirectorInternalState {
   undoBatchDepth: number;
   undoBatchSnapshot: DirectorState | null;
   undoBatchHasTrackedChanges: boolean;
+  persistenceHealth: DirectorPersistenceHealth;
 }
 
 type DirectorHistoryEntry =
@@ -916,8 +934,16 @@ function backupCorruptDirectorSnapshot(storage: Storage, storageKey: string, sna
   }
 }
 
+/**
+ * Selects the persisted subset of the runtime state by reference (structural
+ * sharing) instead of a full JSON clone. The store updates immutably across
+ * the board, so undo entries and pending persistence snapshots stay valid
+ * while sharing every untouched subtree with the live document. Restores go
+ * through createRuntimeStateFromPersistedState, which deep-clones at that
+ * (rare) boundary, so history entries never alias post-restore runtime state.
+ */
 function extractPersistedDirectorState(state: DirectorState): DirectorState {
-  return cloneJsonValue({
+  return {
     viewMode: state.viewMode,
     selectedObjectId: state.selectedObjectId,
     selectedObjectIds: state.selectedObjectIds,
@@ -936,11 +962,60 @@ function extractPersistedDirectorState(state: DirectorState): DirectorState {
     viewportPilotLookSmoothing: state.viewportPilotLookSmoothing,
     viewportPilotBankStrength: state.viewportPilotBankStrength,
     project: state.project,
+  };
+}
+
+const DIRECTOR_PERSIST_FAILURE_NOTIFICATION_KEY = "director-store-persist-failed";
+
+export function createInitialDirectorPersistenceHealth(): DirectorPersistenceHealth {
+  return { status: "ok", consecutiveFailures: 0, lastFailureAt: null, lastError: null };
+}
+
+/**
+ * Downloads the current in-memory project as a JSON backup file. Used as the
+ * recovery action when browser persistence fails: the tab still holds the
+ * authoritative document even when localStorage rejects writes.
+ */
+export function exportDirectorProjectBackup() {
+  if (typeof document === "undefined") return;
+  const blob = new Blob([serializeProject(useDirectorStore.getState().project)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `director-project-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  anchor.rel = "noopener";
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function recordDirectorPersistenceFailure(error: unknown) {
+  const current = useDirectorStore.getState().persistenceHealth;
+  useDirectorStore.setState({
+    persistenceHealth: {
+      status: "failed",
+      consecutiveFailures: current.consecutiveFailures + 1,
+      lastFailureAt: Date.now(),
+      lastError: error instanceof Error ? error.message : String(error),
+    },
+  });
+  // Losing local autosave puts every later edit at risk, so warn on the first
+  // failed write instead of waiting for a streak; a transient blip is
+  // self-clearing because the next successful write dismisses the notice.
+  notifyDirector({
+    key: DIRECTOR_PERSIST_FAILURE_NOTIFICATION_KEY,
+    severity: "warning",
+    title: "3D 片场工程未能自动保存到本地",
+    detail:
+      "浏览器本地存储写入失败（可能是存储空间已满或处于隐私模式）。当前修改仅保留在本页面中，请立即导出工程文件备份。",
+    actions: [{ label: "导出工程", onSelect: exportDirectorProjectBackup }],
   });
 }
 
-const DIRECTOR_PERSIST_FAILURE_NOTICE_THRESHOLD = 3;
-let directorPersistFailureStreak = 0;
+function recordDirectorPersistenceSuccess() {
+  if (useDirectorStore.getState().persistenceHealth.status === "ok") return;
+  useDirectorStore.setState({ persistenceHealth: createInitialDirectorPersistenceHealth() });
+  dismissDirectorNotification(DIRECTOR_PERSIST_FAILURE_NOTIFICATION_KEY);
+}
 
 function writePersistedDirectorState(state: DirectorState, storageKey = getDirectorSceneStorageKey()) {
   const storage = getLocalStorageSafe();
@@ -948,22 +1023,11 @@ function writePersistedDirectorState(state: DirectorState, storageKey = getDirec
 
   try {
     storage.setItem(storageKey, JSON.stringify(state));
-    if (directorPersistFailureStreak >= DIRECTOR_PERSIST_FAILURE_NOTICE_THRESHOLD) {
-      dismissDirectorNotification("director-store-persist-failed");
-    }
-    directorPersistFailureStreak = 0;
-  } catch {
-    // Keep the editor usable if the browser storage quota is exceeded, but
-    // stop staying silent once the failure is clearly not transient.
-    directorPersistFailureStreak += 1;
-    if (directorPersistFailureStreak >= DIRECTOR_PERSIST_FAILURE_NOTICE_THRESHOLD) {
-      notifyDirector({
-        key: "director-store-persist-failed",
-        severity: "warning",
-        title: "3D 片场工程未能自动保存到本地",
-        detail: "浏览器本地存储连续写入失败（可能是存储空间已满或处于隐私模式）。建议立即导出工程文件备份。",
-      });
-    }
+    recordDirectorPersistenceSuccess();
+  } catch (error) {
+    // Keep the editor usable when the browser storage quota is exceeded, but
+    // record the failure in store state and surface an actionable warning.
+    recordDirectorPersistenceFailure(error);
   }
 }
 
@@ -1111,7 +1175,14 @@ function readPersistedDirectorState(options: DirectorStateOptions = {}): Directo
   }
 }
 
-function createRuntimeStateFromPersistedState(state: DirectorState): DirectorRuntimeState {
+/**
+ * Deep-clones a persisted or history snapshot into a fresh runtime state.
+ * This is the restore boundary that keeps structurally shared undo/redo
+ * entries isolated from the live document. persistenceHealth is deliberately
+ * omitted: restores replace the document, not the storage health, and
+ * Zustand's shallow merge preserves the current value.
+ */
+function createRuntimeStateFromPersistedState(state: DirectorState): Omit<DirectorRuntimeState, "persistenceHealth"> {
   const snapshot = cloneJsonValue(state);
   const objects = reconcileCameraRigObjects(snapshot.project.objects, snapshot.project.cameras);
 
@@ -2203,8 +2274,31 @@ function pasteClipboardEntries(state: DirectorRuntimeState): DirectorRuntimeStat
   };
 }
 
+/**
+ * Deep JSON-value equality that short-circuits on shared references. Undo
+ * snapshots share every untouched subtree with the live document (structural
+ * sharing), so a drag that ends where it started only walks the rebuilt spine
+ * and compares the few changed leaves instead of stringifying the whole
+ * project. Leaves fall back to JSON.stringify semantics (-0 equals 0,
+ * undefined-valued keys equal missing keys) so no-op detection matches what
+ * persistence would actually write.
+ */
+function structuralJsonEqual(previous: unknown, next: unknown): boolean {
+  if (Object.is(previous, next)) return true;
+  if (Array.isArray(previous) && Array.isArray(next)) {
+    return previous.length === next.length && previous.every((item, index) => structuralJsonEqual(item, next[index]));
+  }
+  if (isPlainJsonObject(previous) && isPlainJsonObject(next)) {
+    const previousKeys = Object.keys(previous).filter((key) => previous[key] !== undefined);
+    const nextKeys = Object.keys(next).filter((key) => next[key] !== undefined);
+    if (previousKeys.length !== nextKeys.length) return false;
+    return previousKeys.every((key) => structuralJsonEqual(previous[key], next[key]));
+  }
+  return JSON.stringify(previous) === JSON.stringify(next);
+}
+
 function isSameDirectorState(a: DirectorState, b: DirectorState) {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return structuralJsonEqual(a, b);
 }
 
 function trimUndoStack(stack: DirectorState[]) {
@@ -2843,6 +2937,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
   return {
     ...initialRuntimeState,
+    persistenceHealth: createInitialDirectorPersistenceHealth(),
     beginUndoBatch: () => {
       set((state) => {
         const currentState = state as DirectorRuntimeState;
@@ -3374,7 +3469,11 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     },
     upsertWorldWaterBody: (body) => {
       if (canUseAuthoringPath()) {
-        const mode = resolveWorldUpsertMode(get().project.world?.waterBodies ?? [], body, DIRECTOR_WORLD_MAX_WATER_BODIES);
+        const mode = resolveWorldUpsertMode(
+          get().project.world?.waterBodies ?? [],
+          body,
+          DIRECTOR_WORLD_MAX_WATER_BODIES,
+        );
         if (mode === "capacity") return false;
         if (mode === "update") {
           return dispatchUiAuthoring(
@@ -3446,11 +3545,14 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
     upsertWorldWildlifeGroup: (group) => {
       // add_world_wildlife_group injects a default flight band for aerial
       // species; an intentionally band-less aerial group keeps the local path.
-      const needsAltitudeFallback =
-        !group.altitude && (group.species === "birds" || group.species === "butterflies");
+      const needsAltitudeFallback = !group.altitude && (group.species === "birds" || group.species === "butterflies");
       const assetExists = !group.assetId || get().project.assets.some((asset) => asset.id === group.assetId);
       if (canUseAuthoringPath() && !needsAltitudeFallback && assetExists) {
-        const mode = resolveWorldUpsertMode(get().project.world?.wildlife ?? [], group, DIRECTOR_WORLD_MAX_WILDLIFE_GROUPS);
+        const mode = resolveWorldUpsertMode(
+          get().project.world?.wildlife ?? [],
+          group,
+          DIRECTOR_WORLD_MAX_WILDLIFE_GROUPS,
+        );
         if (mode === "capacity") return false;
         if (mode === "update") {
           return dispatchUiAuthoring(
@@ -3729,9 +3831,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       const currentProject = get().project;
       const applicable = updates.filter((update) => {
         const object = currentProject.objects.find((item) => item.id === update.id);
-        return (
-          object && !isObjectTransformEffectivelyLocked(currentProject.scene, currentProject.objects, object)
-        );
+        return object && !isObjectTransformEffectivelyLocked(currentProject.scene, currentProject.objects, object);
       });
       // Cameras sync their linked rig, composite parents propagate to children,
       // and object-focused cameras need the UI refresh helper, so any of those
@@ -3742,9 +3842,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         return (
           object.kind === "camera" ||
           object.isCompositeParent ||
-          currentProject.cameras.some(
-            (camera) => camera.targetMode === "object" && camera.targetObjectId === update.id,
-          )
+          currentProject.cameras.some((camera) => camera.targetMode === "object" && camera.targetObjectId === update.id)
         );
       });
       if (canUseAuthoringPath() && applicable.length && !needsUiOnlyHandling) {
@@ -5056,7 +5154,10 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         currentObject.kind !== "camera" &&
         !(currentObject.nativeSource?.engine === "blender" && currentObject.nativeSource.provisioned !== false)
       ) {
-        dispatchUiAuthoring([{ action: "update_object", object_id: id, patch: { color }, force: true }], `ui-color:${id}`);
+        dispatchUiAuthoring(
+          [{ action: "update_object", object_id: id, patch: { color }, force: true }],
+          `ui-color:${id}`,
+        );
         return;
       }
       commitMutation((state) =>
@@ -6053,3 +6154,10 @@ export const selectDirectorCanUndo = (state: DirectorStore) =>
   !state.historyBusy && (state.historyUndoStack.length > 0 || state.undoStack.length > 0);
 export const selectDirectorCanRedo = (state: DirectorStore) =>
   !state.historyBusy && (state.historyRedoStack.length > 0 || (state.redoStack ?? []).length > 0);
+
+/**
+ * Live localStorage persistence health. `status === "failed"` means the
+ * current document only lives in this tab; UI surfaces should offer an
+ * export path (see exportDirectorProjectBackup).
+ */
+export const selectDirectorPersistenceHealth = (state: DirectorStore) => state.persistenceHealth;
