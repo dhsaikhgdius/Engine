@@ -80,8 +80,16 @@ describe("semantic Director authoring", () => {
   });
 
   it("authors and clears a reusable toggle-transform proximity interaction", () => {
-    const closedTransform = { position: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [2, 3, 0.2] as [number, number, number] };
-    const openTransform = { position: [-1, 0, 1] as [number, number, number], rotation: [0, -Math.PI / 2, 0] as [number, number, number], scale: [2, 3, 0.2] as [number, number, number] };
+    const closedTransform = {
+      position: [0, 0, 0] as [number, number, number],
+      rotation: [0, 0, 0] as [number, number, number],
+      scale: [2, 3, 0.2] as [number, number, number],
+    };
+    const openTransform = {
+      position: [-1, 0, 1] as [number, number, number],
+      rotation: [0, -Math.PI / 2, 0] as [number, number, number],
+      scale: [2, 3, 0.2] as [number, number, number],
+    };
     const authored = applyDirectorAuthoringActions(createDefaultDirectorProject(), [
       {
         action: "add_object",
@@ -198,6 +206,8 @@ describe("semantic Director authoring", () => {
       world_water_body_ids: [],
       world_wildlife_group_ids: [],
       world_road_ids: [],
+      timeline_audio_clip_ids: [],
+      timeline_audio_track_ids: [],
     });
     expect(result.project.activeCameraId).toBe("agent-camera");
     expect(result.project.objects.find((object) => object.id === "agent-hero")?.animation?.motion).toBe("walk");
@@ -1586,9 +1596,11 @@ describe("living world authoring", () => {
     const widened = applyDirectorAuthoringActions(created.project, [
       { action: "update_world_effect", effect_id: "fx_camp", patch: { propagation: { enabled: true, radius_m: 24 } } },
     ]);
-    expect(
-      widened.project.world?.effects.find((effect) => effect.id === "fx_camp")?.propagation,
-    ).toEqual({ enabled: true, radiusM: 24, spreadRate: 1 });
+    expect(widened.project.world?.effects.find((effect) => effect.id === "fx_camp")?.propagation).toEqual({
+      enabled: true,
+      radiusM: 24,
+      spreadRate: 1,
+    });
 
     // null removes the block.
     const cleared = applyDirectorAuthoringActions(widened.project, [
@@ -2062,8 +2074,7 @@ describe("living world authoring", () => {
     expect(safeParseDirectorProject(patched.project).success).toBe(true);
 
     expect(
-      directorAuthoringActionSchema.safeParse({ action: "update_world_road", road_id: "road_ring", patch: {} })
-        .success,
+      directorAuthoringActionSchema.safeParse({ action: "update_world_road", road_id: "road_ring", patch: {} }).success,
     ).toBe(false);
     expect(directorAuthoringActionSchema.safeParse({ action: "add_world_road", points: [[0, 0, 0]] }).success).toBe(
       false,
@@ -2454,9 +2465,7 @@ describe("duplicate_objects authoring", () => {
 
   it("duplicates a prop with the sequential Stage id, offset position, and created ids", () => {
     const project = projectWithBox();
-    const result = applyDirectorAuthoringActions(project, [
-      { action: "duplicate_objects", object_ids: ["geo_box_1"] },
-    ]);
+    const result = applyDirectorAuthoringActions(project, [{ action: "duplicate_objects", object_ids: ["geo_box_1"] }]);
 
     const duplicate = result.project.objects.find((object) => object.id === "geo_box_copy_4");
     expect(duplicate).toBeDefined();
@@ -2503,7 +2512,9 @@ describe("duplicate_objects authoring", () => {
 
   it("duplicates a camera rig with a new shot, reset captures, and viewport activation", () => {
     const project = createDefaultDirectorProject();
-    project.cameras[0].captures = [{ id: "capture-1", index: 0, name: "Capture 1", dataUrl: "data:image/png;base64,x" }];
+    project.cameras[0].captures = [
+      { id: "capture-1", index: 0, name: "Capture 1", dataUrl: "data:image/png;base64,x" },
+    ];
     project.cameras[0].lastCaptureUrl = "data:image/png;base64,x";
 
     const result = applyDirectorAuthoringActions(project, [
@@ -2553,9 +2564,7 @@ describe("duplicate_objects authoring", () => {
     const [parentCopyId, childCopyId] = together.created.object_ids;
     expect(together.project.objects.find((object) => object.id === childCopyId)?.parentObjectId).toBe(parentCopyId);
 
-    const alone = applyDirectorAuthoringActions(base, [
-      { action: "duplicate_objects", object_ids: ["geo_box_child"] },
-    ]);
+    const alone = applyDirectorAuthoringActions(base, [{ action: "duplicate_objects", object_ids: ["geo_box_child"] }]);
     const lonelyCopy = alone.project.objects.find((object) => object.id === alone.created.object_ids[0]);
     expect(lonelyCopy?.parentObjectId).toBeUndefined();
     // The original child keeps its parent.
@@ -2621,5 +2630,64 @@ describe("duplicate_objects authoring", () => {
       ]),
     ).toThrow(/missing-object/);
     expect(project).toEqual(before);
+  });
+});
+
+describe("timeline audio authoring", () => {
+  it("adds, updates, mutes, and removes timeline audio through shared actions", () => {
+    const project = createDefaultDirectorProject();
+    const added = applyDirectorAuthoringActions(project, [
+      {
+        action: "add_timeline_audio_clip",
+        name: "氛围",
+        media_id: "creative-media:audio:demo",
+        duration_frames: 48,
+        start_frame: 12,
+      },
+    ]);
+    const clipId = added.created.timeline_audio_clip_ids[0];
+    expect(clipId).toMatch(/^audio_clip_/);
+    expect(added.created.timeline_audio_track_ids[0]).toMatch(/^audio_track_/);
+    const track = added.project.scene.timeline!.audioTracks![0]!;
+    expect(track.clips[0]).toMatchObject({
+      id: clipId,
+      name: "氛围",
+      mediaId: "creative-media:audio:demo",
+      startFrame: 12,
+      durationFrames: 48,
+    });
+
+    const moved = applyDirectorAuthoringActions(added.project, [
+      { action: "update_timeline_audio_clip", clip_id: clipId!, patch: { startFrame: 24, volume: 0.5 } },
+    ]);
+    expect(moved.project.scene.timeline!.audioTracks![0]!.clips[0]).toMatchObject({
+      startFrame: 24,
+      volume: 0.5,
+    });
+
+    const muted = applyDirectorAuthoringActions(moved.project, [
+      { action: "set_timeline_audio_track_muted", track_id: track.id, muted: true },
+    ]);
+    expect(muted.project.scene.timeline!.audioTracks![0]!.muted).toBe(true);
+
+    const removed = applyDirectorAuthoringActions(muted.project, [
+      { action: "remove_timeline_audio_clips", clip_ids: [clipId!] },
+    ]);
+    expect(removed.project.scene.timeline!.audioTracks![0]!.clips).toEqual([]);
+    expect(removed.deleted.timeline_audio_clip_ids).toEqual([clipId]);
+  });
+
+  it("rejects unknown clip and track targets", () => {
+    const project = createDefaultDirectorProject();
+    expect(() =>
+      applyDirectorAuthoringActions(project, [
+        { action: "update_timeline_audio_clip", clip_id: "missing", patch: { volume: 0.2 } },
+      ]),
+    ).toThrow(/missing/);
+    expect(() =>
+      applyDirectorAuthoringActions(project, [
+        { action: "set_timeline_audio_track_muted", track_id: "missing", muted: true },
+      ]),
+    ).toThrow(/missing/);
   });
 });

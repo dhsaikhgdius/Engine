@@ -26,9 +26,9 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 
 | 类别 | 数量 |
 | ------------------------------ | ----- |
-| shared Stage 项目 mutator | 70 |
-| ui-only Stage 项目 mutator | 17 |
-| 覆盖率（shared / 项目 mutator） | **70 / 87 ≈ 80%** |
+| shared Stage 项目 mutator | 75 |
+| ui-only Stage 项目 mutator | 12 |
+| 覆盖率（shared / 项目 mutator） | **75 / 87 ≈ 86%** |
 
 仍为 ui-only 的入口，要么尚无 semantic action（timeline 音频、object list、全景/capture/资产目录
 写入），要么在 store 中带注释、有意保持本地写入（快照相机、预置/人群/资产新建流程）。
@@ -114,7 +114,7 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 
 | Mutator | 文件 | Semantic action | 状态 |
 | --- | --- | --- | --- |
-| `addTimelineAudioClip` / `updateTimelineAudioClip` / `moveTimelineAudioClip` / `removeTimelineAudioClip` / `setTimelineAudioTrackMuted` | `directorStore.ts` | 尚无 semantic action（timeline 音频） | ui-only |
+| `addTimelineAudioClip` / `updateTimelineAudioClip` / `moveTimelineAudioClip` / `removeTimelineAudioClip` / `setTimelineAudioTrackMuted` | `directorStore.ts` | `add_timeline_audio_clip` / `update_timeline_audio_clip` / `remove_timeline_audio_clips` / `set_timeline_audio_track_muted` | shared |
 
 ## 资产与新建流程
 

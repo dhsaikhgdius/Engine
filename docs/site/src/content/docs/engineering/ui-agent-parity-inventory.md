@@ -29,11 +29,11 @@ Last verified: **2026-08-26**.
 
 | Category | Count |
 | ------------------------------------ | ----- |
-| shared Stage project mutators | 70 |
-| ui-only Stage project mutators | 17 |
-| Coverage (shared / project mutators) | **70 / 87 ≈ 80%** |
+| shared Stage project mutators | 75 |
+| ui-only Stage project mutators | 12 |
+| Coverage (shared / project mutators) | **75 / 87 ≈ 86%** |
 
-Everything still ui-only either has no semantic action yet (timeline audio, object lists,
+Everything still ui-only either has no semantic action yet (object lists,
 panorama/capture/catalog writes) or is deliberately local with a documented
 divergence reason in the store (snapshot cameras, preset/crowd/asset add flows).
 
@@ -118,7 +118,7 @@ Parity is regression-tested in
 
 | Mutator | File | Semantic action(s) | Status |
 | --- | --- | --- | --- |
-| `addTimelineAudioClip` / `updateTimelineAudioClip` / `moveTimelineAudioClip` / `removeTimelineAudioClip` / `setTimelineAudioTrackMuted` | `directorStore.ts` | no semantic actions yet (timeline audio) | ui-only |
+| `addTimelineAudioClip` / `updateTimelineAudioClip` / `moveTimelineAudioClip` / `removeTimelineAudioClip` / `setTimelineAudioTrackMuted` | `directorStore.ts` | `add_timeline_audio_clip` / `update_timeline_audio_clip` / `remove_timeline_audio_clips` / `set_timeline_audio_track_muted` | shared |
 
 ## Assets and creation flows
 

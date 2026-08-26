@@ -886,3 +886,46 @@ describe("clipboard paste parity", () => {
     expect(state.clipboardPasteCount).toBe(1);
   });
 });
+
+describe("timeline audio parity", () => {
+  beforeEach(() => {
+    resetDirectorStore();
+  });
+
+  function storeRevision() {
+    return getDirectorProjectRevision(useDirectorStore.getState().project);
+  }
+
+  it("routes one-shot timeline audio edits through shared authoring with revision parity", () => {
+    const clipId = useDirectorStore.getState().addTimelineAudioClip({
+      mediaId: "creative-media:audio:parity",
+      name: "对等音效",
+      durationFrames: 36,
+      startFrame: 6,
+    });
+    expect(clipId).toBeTruthy();
+
+    const afterAdd = structuredClone(useDirectorStore.getState().project);
+    const agentMove = applyDirectorAuthoringActions(afterAdd, [
+      { action: "update_timeline_audio_clip", clip_id: clipId!, patch: { startFrame: 18 } },
+    ]);
+    const agentRevision = getDirectorProjectRevision(agentMove.project);
+
+    useDirectorStore.getState().moveTimelineAudioClip(clipId!, 18);
+    expect(storeRevision()).toBe(agentRevision);
+
+    const trackId = useDirectorStore.getState().project.scene.timeline!.audioTracks![0]!.id;
+    const agentMute = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [
+      { action: "set_timeline_audio_track_muted", track_id: trackId, muted: true },
+    ]);
+    useDirectorStore.getState().setTimelineAudioTrackMuted(trackId, true);
+    expect(storeRevision()).toBe(getDirectorProjectRevision(agentMute.project));
+
+    const agentRemove = applyDirectorAuthoringActions(structuredClone(useDirectorStore.getState().project), [
+      { action: "remove_timeline_audio_clips", clip_ids: [clipId!] },
+    ]);
+    useDirectorStore.getState().removeTimelineAudioClip(clipId!);
+    expect(storeRevision()).toBe(getDirectorProjectRevision(agentRemove.project));
+    expect(useDirectorStore.getState().project.scene.timeline!.audioTracks![0]!.clips).toEqual([]);
+  });
+});

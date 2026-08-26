@@ -120125,6 +120125,27 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
     object_ids: external_exports.array(id3).min(1).max(64).refine((values) => new Set(values).size === values.length, { message: "object_ids must be unique" }),
     offset_m: external_exports.number().finite().min(-100).max(100).optional().describe("X/Z position offset in meters for every duplicate; defaults to 0.6.")
   }),
+  strictAction("add_timeline_audio_clip", {
+    id: id3.optional(),
+    track_id: id3.optional(),
+    name: name3,
+    media_id: external_exports.string().trim().min(1).max(512),
+    source_url: external_exports.string().trim().min(1).max(8192).optional(),
+    start_frame: external_exports.number().int().min(0).max(1e6).optional(),
+    duration_frames: external_exports.number().int().min(1).max(1e6),
+    source_duration_sec: external_exports.number().finite().positive().max(86400).optional()
+  }),
+  strictAction("update_timeline_audio_clip", {
+    clip_id: id3,
+    patch: directorTimelineAudioClipSchema.omit({ id: true, mediaId: true }).partial().refine((patch) => Object.keys(patch).length > 0, { message: "patch must not be empty" })
+  }),
+  strictAction("remove_timeline_audio_clips", {
+    clip_ids: external_exports.array(id3).min(1).max(128).refine((values) => new Set(values).size === values.length, { message: "clip_ids must be unique" })
+  }),
+  strictAction("set_timeline_audio_track_muted", {
+    track_id: id3,
+    muted: external_exports.boolean()
+  }),
   strictAction("add_light", { light: directorLightCreateSchema }),
   strictAction("update_light", {
     light_id: id3,

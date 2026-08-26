@@ -97,7 +97,7 @@ flowchart LR
 
 - [UI/Agent parity inventory](/engineering/ui-agent-parity-inventory/) covers every Stage
   `directorStore` mutation entry point with mutator, file, semantic action, and
-  `shared` / `ui-only` / `human-only-interactive` status (70 / 87 project mutators shared, ~80%).
+  `shared` / `ui-only` / `human-only-interactive` status (75 / 87 project mutators shared, ~86%).
 - Parity tests in `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` assert
   that store mutators and direct `applyDirectorAuthoringActions` produce the same
   `getDirectorProjectRevision` for deletes, transforms, camera update/activate, character
@@ -159,7 +159,7 @@ and Canvas/Video creation flows and continuous drag streams still patch state di
 | **1a** | Object CRUD, transforms | `add_object`, `update_object`, `delete_objects`        | Shared for delete/one-shot and multi-select transforms/toggles/edits and geometry primitives; asset/preset/crowd add flows stay deliberately local |
 | **1b** | Cameras and shots       | `add_camera`, `update_camera`, `set_active_camera`     | Shared                                            |
 | **1c** | Characters and motion   | `set_character_motion`, `set_character_pose_controls`, `set_character_ik` | Shared                          |
-| **1d** | Timeline / coverage     | `add_coverage_shot`, `add_performance_take`, timeline audio | Storyboard + entity animation shared; timeline audio open |
+| **1d** | Timeline / coverage     | `add_coverage_shot`, `add_performance_take`, timeline audio | Storyboard + entity animation shared; timeline audio shared |
 | **1e** | Canvas nodes / edges    | `canvas.node.*` / `canvas.edge.*` / `canvas.dag.layout` via `dispatchCreativeWorkspaceOperations` | **Shipped** |
 | **1f** | Video tracks / clips    | `edit.clip.*` / `edit.track.*` / `edit.settings.update` via `dispatchCreativeWorkspaceOperations` | **Shipped** |
 
@@ -178,7 +178,7 @@ and Canvas/Video creation flows and continuous drag streams still patch state di
 ### Acceptance
 
 - Parity harness covers batches **1a–1d** with matching revisions on UI and agent paths
-  (1a–1c plus lights/world/storyboard covered today; timeline audio open).
+  (1a–1c plus lights/world/storyboard covered today; timeline audio shared).
   Batches **1e–1f** are covered by `frontend/director/tests/agent/dispatchCreativeWorkspaceOperations.test.ts`, which diffs normalized snapshots between the UI dispatch and the agent envelope.
 - No new high-priority "UI-only, no agent twin" gaps.
 - Existing MCP / HTTP / CLI integration tests pass.
@@ -430,7 +430,7 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 | Metric                          | Today (2026-08-26)                                                        | After remaining M3         | After remaining M1 drag leftover |
 | ------------------------------- | ------------------------------------------------------------------------- | -------------------------- | -------------------------------- |
-| Parity coverage (top mutations) | all top edit mutations shared; ~80% of all Stage project mutators (70/87, see the [parity inventory](/engineering/ui-agent-parity-inventory/)) | ≥85%                       | ≥95%     |
+| Parity coverage (top mutations) | all top edit mutations shared; ~86% of all Stage project mutators (75/87, see the [parity inventory](/engineering/ui-agent-parity-inventory/)) | ≥85%                       | ≥95%     |
 | Documented human-only classes   | 0 required (file picker stays an optional local-file import convenience; OBJ/STL export-only) | 0 required                 | 0        |
 | Consistent gateway policy       | Yes (MCP / local / hosted / raw HTTP+CLI; role-gated UI shipped)           | Yes, including full read-only mode | Yes      |
 | In-product workspace            | **Yes (SQL-backed instructions/skills/memory shipped 2026-08-25)**         | Yes                        | Yes      |
