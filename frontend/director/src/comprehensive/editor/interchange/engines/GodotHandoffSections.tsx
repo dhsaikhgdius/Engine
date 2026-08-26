@@ -14,7 +14,7 @@ import { fetchDirectorGodotLiveLinkPreview } from "../../api/dccEngineHandoffCli
 
 /**
  * 结构化警告省略代码 → zh-CN 标签。来源：连接器灯光/镜头警告与网关姿态烘焙
- * 警告，均以 `warn-and-omit code: <code>` 结尾（绝不静默拍平）。
+ * 警告，均以 `warn-and-omit code: …` 结尾（绝不静默拍平）。
  */
 const GODOT_OMIT_CODE_LABELS: Record<string, string> = {
   light_rect_area_unsupported: "面光源不支持",
@@ -50,7 +50,7 @@ interface GodotStructuredOmission {
 
 /**
  * 从发送结果提取连接器侧结构化省略：优先使用回执里的 typed `omittedLights`，
- * 旧版连接器仍回退到警告文本中的 `warn-and-omit code: <code>`。
+ * 旧版连接器仍回退到警告文本中的 `warn-and-omit code: …`。
  * 网关烘焙通道以 `result.omittedAnimationChannels` 为准，不依赖自由文本摘要。
  */
 export function collectGodotStructuredOmissions(
