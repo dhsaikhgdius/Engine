@@ -15,13 +15,16 @@ export type FilmRunUsageScope = (typeof FILM_RUN_USAGE_SCOPES)[number];
 /**
  * Per-scope usage rollup stamped on a durable film run and its receipt.
  * `film-tts` defaults to zeros so run documents persisted before speech
- * metering existed still parse.
+ * metering existed still parse. The lazy wrapper defers touching
+ * `agentUsageSummarySchema` until parse time: this module participates in an
+ * import cycle with `agentObservabilityProtocol` (via `filmPipelineProtocol`),
+ * so the binding may still be uninitialized while this module evaluates.
  */
 export const filmRunUsageSchema = z.strictObject({
   "film-llm": agentUsageSummarySchema,
   "film-image": agentUsageSummarySchema,
   "film-video": agentUsageSummarySchema,
-  "film-tts": agentUsageSummarySchema.default(() => ({ ...EMPTY_AGENT_USAGE_SUMMARY })),
+  "film-tts": z.lazy(() => agentUsageSummarySchema).default(() => ({ ...EMPTY_AGENT_USAGE_SUMMARY })),
 });
 /** Per-scope film run usage rollup. */
 export type FilmRunUsage = z.infer<typeof filmRunUsageSchema>;
