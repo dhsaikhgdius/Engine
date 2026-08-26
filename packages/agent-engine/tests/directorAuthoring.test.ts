@@ -791,6 +791,72 @@ describe("semantic Director authoring", () => {
     ).toThrow(/crowd_label is only valid for crowd characters/);
   });
 
+  it("authors crowd-grouped characters through add_object crowd_id/crowd_label", () => {
+    const source = createDefaultDirectorProject();
+    const result = applyDirectorAuthoringActions(source, [
+      {
+        action: "add_object",
+        id: "crowd-extra-1",
+        name: "角色02",
+        kind: "character",
+        asset_id: "mixamo:x-bot",
+        placement_mode: "grounded",
+        body_type: "female",
+        color: "#7fb069",
+        crowd_id: "crowd_1",
+        crowd_label: "群众（1x2）",
+        transform: { position: [-1, 0, 4], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+      {
+        action: "add_object",
+        id: "crowd-extra-2",
+        name: "角色03",
+        kind: "character",
+        asset_id: "mixamo:x-bot",
+        placement_mode: "grounded",
+        body_type: "female",
+        color: "#c76d8e",
+        crowd_id: "crowd_1",
+        crowd_label: "群众（1x2）",
+        transform: { position: [1, 0, 4], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    ]);
+
+    const members = result.project.objects.filter((object) => object.crowdId === "crowd_1");
+    expect(members.map((object) => object.id)).toEqual(["crowd-extra-1", "crowd-extra-2"]);
+    expect(members.every((object) => object.crowdLabel === "群众（1x2）")).toBe(true);
+    expect(members.every((object) => object.kind === "character" && object.assetRefId === "mixamo:x-bot")).toBe(true);
+
+    const relabeled = applyDirectorAuthoringActions(result.project, [
+      { action: "update_object", object_id: "crowd-extra-1", patch: { crowd_label: "围观群众" }, force: true },
+    ]);
+    expect(relabeled.project.objects.find((object) => object.id === "crowd-extra-1")?.crowdLabel).toBe("围观群众");
+  });
+
+  it("rejects half-specified or non-character crowd fields on add_object", () => {
+    const source = createDefaultDirectorProject();
+    const before = structuredClone(source);
+    expect(() =>
+      applyDirectorAuthoringActions(source, [
+        { action: "add_object", id: "half-crowd", name: "半个人群", kind: "character", crowd_id: "crowd_9" },
+      ]),
+    ).toThrow(/crowd_id and crowd_label together/);
+    expect(() =>
+      applyDirectorAuthoringActions(source, [
+        {
+          action: "add_object",
+          id: "crowd-box",
+          name: "人群盒子",
+          kind: "prop",
+          geometry_type: "box",
+          crowd_id: "crowd_9",
+          crowd_label: "群众",
+        },
+      ]),
+    ).toThrow(/only valid on kind:"character"/);
+    expect(source).toEqual(before);
+  });
+
   it("starts a replacement scene without leaking objects from the previous case", () => {
     const source = createDefaultDirectorProject();
     source.assets.push({
