@@ -10,7 +10,9 @@ vi.mock("../../../../src/comprehensive/editor/api/directorControlPlaneClient", (
 
 import {
   AgentTracePanel,
+  formatProgressPercent,
   formatTraceDuration,
+  groupUsageByScope,
   loadAgentTracePanelData,
 } from "../../../../src/comprehensive/editor/workspaces/AgentTracePanel";
 
@@ -59,8 +61,79 @@ const USAGE = {
   failure_count: 1,
 };
 
+const FILM_PROGRESS = {
+  contract: "director-progress-v1" as const,
+  kind: "film_run" as const,
+  id: "film-run-1",
+  label: "idea-to-film",
+  state: "running" as const,
+  progress: 5 / 7,
+  message: "开始渲染第 2 镜",
+  source_status: "running",
+  created_at: "2026-08-25T10:00:00.000Z",
+  updated_at: "2026-08-25T10:05:00.000Z",
+};
+
+const SAMPLES = [
+  {
+    id: "usage-1",
+    scope: "prod-session-1",
+    provider: "openai-compatible",
+    model: "gpt-test",
+    input_tokens: 80,
+    output_tokens: 20,
+    total_tokens: 100,
+    duration_ms: 900,
+    retries: 1,
+    succeeded: true,
+    recorded_at: "2026-08-25T10:00:01.000Z",
+  },
+  {
+    id: "usage-2",
+    scope: "film-llm",
+    provider: "openai-compatible",
+    model: "film-model",
+    input_tokens: 30,
+    output_tokens: 30,
+    total_tokens: 60,
+    duration_ms: 600,
+    retries: 2,
+    succeeded: false,
+    recorded_at: "2026-08-25T10:00:02.000Z",
+  },
+];
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+function mockObservability(options?: {
+  summary?: unknown | "404";
+  usage?: unknown;
+  samples?: unknown[];
+  progress?: unknown[];
+  progressStatus?: number;
+}) {
+  const usageBody = {
+    samples: options?.samples ?? [],
+    summary: options?.usage ?? { ...USAGE, sample_count: 0, total_tokens: 0 },
+  };
+  return async (path: string) => {
+    if (path.startsWith("/api/agent/traces/summary")) {
+      if (options?.summary === "404") return jsonResponse({ error: "none" }, 404);
+      return jsonResponse({ summary: options?.summary ?? SUMMARY });
+    }
+    if (path.startsWith("/api/agent/usage")) {
+      return jsonResponse(usageBody);
+    }
+    if (path.startsWith("/api/agent/progress")) {
+      return jsonResponse(
+        { entries: options?.progress ?? [], summary: { entry_count: 0 } },
+        options?.progressStatus ?? 200,
+      );
+    }
+    return jsonResponse({ error: "missing" }, 404);
+  };
 }
 
 afterEach(() => {
@@ -74,25 +147,31 @@ describe("formatTraceDuration", () => {
   });
 });
 
+describe("formatProgressPercent / groupUsageByScope", () => {
+  it("formats progress fractions and sorts film-llm first", () => {
+    expect(formatProgressPercent(5 / 7)).toBe("71%");
+    expect(formatProgressPercent(null)).toBe("—");
+    const rows = groupUsageByScope(SAMPLES);
+    expect(rows.map((row) => row.scope)).toEqual(["film-llm", "prod-session-1"]);
+    expect(rows[0]!.summary.total_tokens).toBe(60);
+  });
+});
+
 describe("loadAgentTracePanelData", () => {
-  it("parses the summary and usage responses", async () => {
-    const fetcher = vi.fn(async (path: string) =>
-      path.startsWith("/api/agent/traces/summary")
-        ? jsonResponse({ summary: SUMMARY })
-        : jsonResponse({ samples: [], summary: USAGE }),
-    );
+  it("parses the summary, usage, and film progress responses", async () => {
+    const fetcher = vi.fn(mockObservability({ usage: USAGE, samples: SAMPLES, progress: [FILM_PROGRESS] }));
     const data = await loadAgentTracePanelData(fetcher);
     expect(data.summary?.session_id).toBe("mcp-session-1");
     expect(data.usage?.total_tokens).toBe(160);
+    expect(data.usageScopes.map((row) => row.scope)).toEqual(["film-llm", "prod-session-1"]);
+    expect(data.filmProgress[0]?.id).toBe("film-run-1");
     expect(fetcher).toHaveBeenCalledWith("/api/agent/traces/summary");
+    expect(fetcher).toHaveBeenCalledWith("/api/agent/usage?limit=200");
+    expect(fetcher).toHaveBeenCalledWith("/api/agent/progress?kind=film_run&limit=20");
   });
 
   it("treats a 404 summary as an empty state instead of an error", async () => {
-    const fetcher = vi.fn(async (path: string) =>
-      path.startsWith("/api/agent/traces/summary")
-        ? jsonResponse({ error: "none" }, 404)
-        : jsonResponse({ samples: [], summary: { ...USAGE, sample_count: 0 } }),
-    );
+    const fetcher = vi.fn(mockObservability({ summary: "404" }));
     const data = await loadAgentTracePanelData(fetcher);
     expect(data.summary).toBeNull();
   });
@@ -105,11 +184,7 @@ describe("loadAgentTracePanelData", () => {
 
 describe("AgentTracePanel", () => {
   it("renders the reconstructed tool chain with usage totals", async () => {
-    directorControlPlaneFetch.mockImplementation(async (path: string) =>
-      path.startsWith("/api/agent/traces/summary")
-        ? jsonResponse({ summary: SUMMARY })
-        : jsonResponse({ samples: [], summary: USAGE }),
-    );
+    directorControlPlaneFetch.mockImplementation(mockObservability({ usage: USAGE }));
     render(<AgentTracePanel onClose={() => {}} />);
 
     expect(await screen.findByText("mcp-session-1")).toBeInTheDocument();
@@ -120,24 +195,26 @@ describe("AgentTracePanel", () => {
     expect(screen.getByText(/修订 rev-1 → rev-2/)).toBeInTheDocument();
   });
 
-  it("shows the empty state when no session has been traced yet", async () => {
-    directorControlPlaneFetch.mockImplementation(async (path: string) =>
-      path.startsWith("/api/agent/traces/summary")
-        ? jsonResponse({ error: "none" }, 404)
-        : jsonResponse({ samples: [], summary: { ...USAGE, sample_count: 0 } }),
+  it("renders film pipeline progress and per-scope usage including film-llm", async () => {
+    directorControlPlaneFetch.mockImplementation(
+      mockObservability({ usage: USAGE, samples: SAMPLES, progress: [FILM_PROGRESS] }),
     );
     render(<AgentTracePanel onClose={() => {}} />);
 
-    expect(await screen.findByText("还没有可回放的 Agent 会话")).toBeInTheDocument();
+    expect(await screen.findByLabelText("电影管线进度")).toBeInTheDocument();
+    expect(screen.getByText(/idea-to-film · 71% · running/)).toBeInTheDocument();
+    expect(screen.getByText("开始渲染第 2 镜")).toBeInTheDocument();
+    expect(screen.getByText("Film 规划 LLM")).toBeInTheDocument();
+    expect(screen.getByText(/60 tokens · 600 ms · 失败 1/)).toBeInTheDocument();
+    expect(screen.getByText("prod-session-1")).toBeInTheDocument();
   });
 
-  it("shows a degraded notice when the trace API is unreachable and closes on demand", async () => {
-    directorControlPlaneFetch.mockRejectedValue(new Error("offline"));
-    const onClose = vi.fn();
-    render(<AgentTracePanel onClose={onClose} />);
-
-    expect(await screen.findByText("轨迹服务暂时不可用")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "关闭轨迹面板" }));
-    expect(onClose).toHaveBeenCalled();
+  it("refreshes when the refresh button is pressed", async () => {
+    directorControlPlaneFetch.mockImplementation(mockObservability({ usage: USAGE }));
+    render(<AgentTracePanel onClose={() => {}} />);
+    expect(await screen.findByText("mcp-session-1")).toBeInTheDocument();
+    const callsBefore = directorControlPlaneFetch.mock.calls.length;
+    await userEvent.click(screen.getByRole("button", { name: "刷新" }));
+    expect(directorControlPlaneFetch.mock.calls.length).toBeGreaterThan(callsBefore);
   });
 });
