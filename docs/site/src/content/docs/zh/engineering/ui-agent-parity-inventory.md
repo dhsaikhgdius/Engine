@@ -26,12 +26,12 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 
 | 类别                            | 数量              |
 | ------------------------------- | ----------------- |
-| shared Stage 项目 mutator       | 80                |
-| ui-only Stage 项目 mutator      | 7                 |
-| 覆盖率（shared / 项目 mutator） | **80 / 87 ≈ 92%** |
+| shared Stage 项目 mutator       | 84                |
+| ui-only Stage 项目 mutator      | 3                 |
+| 覆盖率（shared / 项目 mutator） | **84 / 87 ≈ 97%** |
 
-仍为 ui-only 的入口，要么尚无 semantic action（object list），
-要么在 store 中带注释、有意保持本地写入（快照相机、预置/人群角色新建）。
+仍为 ui-only 的入口均在 store 中带注释、有意保持本地写入
+（快照相机、预置/人群角色新建）。
 
 对等性由
 `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 回归保护：同一份
@@ -59,7 +59,7 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 | `setObjectVehicleProfile`                                                                               | `directorStore.ts` | `set_vehicle_profile` / `clear_vehicle_profile`                                                     | shared（仅未锁定的 prop/scene 对象可 author；其余仍走旧写入）                                                                                                                                                 |
 | `updateObjectReferenceBindings`                                                                         | `directorStore.ts` | `update_object` `reference_bindings`                                                                | shared（相机 rig 与已 provision 的原生 Blender 对象仍走旧写入）                                                                                                                                               |
 | `createCompositeObject` / `addObjectsToComposite` / `removeObjectsFromComposite`                        | `directorStore.ts` | `group_objects` / `update_object` `parent_id` patch                                                 | shared（已 provision 的原生 Blender 子对象仍走旧写入）                                                                                                                                                        |
-| `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | 无 semantic action；object list 是 UI 选择辅助，不是 composite 分组                                 | ui-only（有意保持本地）                                                                                                                                                                                       |
+| `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | `create_object_list` / `add_objects_to_object_list` / `remove_objects_from_object_lists` / `rename_object_list` | shared（编译后的 create 分配与旧写入完全相同的顺序 `object_list_N` id 与非人群成员集；空标签、未知列表与空的存活成员集仍走旧的 no-op）                                                                         |
 | `pasteClipboardObjects`                                                                                 | `directorStore.ts` | `duplicate_objects`（每次粘贴一个 action；两条路径以完全相同的规则分配 id、名称、偏移与人群重映射） | shared（与实时对象不再一致的过期剪贴板快照、缺失 linked shot 的相机对象、无 model 资产的原生 Blender 对象，以及有 object-focused 相机参与的粘贴——作为被复制源、聚焦被复制源或存储 target 已漂移——仍走旧写入） |
 
 ## 相机

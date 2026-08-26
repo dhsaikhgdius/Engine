@@ -43,18 +43,18 @@ query string 中的 `browser_token`，但 header 不会把凭据泄漏到 URL �
 
 ## 发现接口
 
-| Method | Path                               | 结果                                |
-| ------ | ---------------------------------- | ----------------------------------- |
-| `GET`  | `/health`                          | 无需鉴权的进程状态与 browser 数     |
-| `GET`  | `/api/control-plane/capabilities`  | 已脱敏的 Agent 与视频配置           |
-| `GET`  | `/api/control-plane/tool-manifest` | 机器可读的 Director tool catalog    |
-| `GET`  | `/api/control-plane/a2a-agent-card` | 仅用于发现的 A2A 风格 agent card   |
-| `GET`  | `/api/agent/providers`             | 本地/API session provider 可用性    |
-| `GET`  | `/api/agent/profiles`              | Profile 公开元数据与模型 capability |
-| `GET`  | `/api/video/providers`             | 视频 provider 的实时 capability     |
-| `GET`  | `/api/dcc/status`                  | Blender/DCC bridge 状态             |
-| `GET`  | `/api/stage`                       | 旧版 StageScene projection          |
-| `GET`  | `/api/preview`                     | 最近一次 capture，读取需要鉴权      |
+| Method | Path                                | 结果                                |
+| ------ | ----------------------------------- | ----------------------------------- |
+| `GET`  | `/health`                           | 无需鉴权的进程状态与 browser 数     |
+| `GET`  | `/api/control-plane/capabilities`   | 已脱敏的 Agent 与视频配置           |
+| `GET`  | `/api/control-plane/tool-manifest`  | 机器可读的 Director tool catalog    |
+| `GET`  | `/api/control-plane/a2a-agent-card` | 仅用于发现的 A2A 风格 agent card    |
+| `GET`  | `/api/agent/providers`              | 本地/API session provider 可用性    |
+| `GET`  | `/api/agent/profiles`               | Profile 公开元数据与模型 capability |
+| `GET`  | `/api/video/providers`              | 视频 provider 的实时 capability     |
+| `GET`  | `/api/dcc/status`                   | Blender/DCC bridge 状态             |
+| `GET`  | `/api/stage`                        | 旧版 StageScene projection          |
+| `GET`  | `/api/preview`                      | 最近一次 capture，读取需要鉴权      |
 
 ```bash
 curl -fsS "$BASE/api/agent/profiles" \
@@ -190,6 +190,12 @@ v1 只检查 Blender 的 active scene，并采样其 current frame。GLB 可以�
 Director 不会映射或播放它们；导入的透视相机是该帧的静态相机。manifest 中的 timebase/帧范围
 只用于审核，不会改写 Director 时间线。该 API 是批量上传、预览、应用，不是 Blender 实时同步。
 
+上传、预览、应用返回的每个计划都会在类型化的 `result.plan.omitted[]`（与 `omittedCount` 配对）中
+声明被放弃的内容：`unsupported_object`（extractor 跳过的数据块，附 Blender `kind`）、
+`hierarchy_flattened`（场景合并为单一 Director 场景对象导入）、`animation_actions`（内嵌动作未映射
+到时间线）与 `camera_roll_lens_shift`（逐台导入相机）。free-text `warnings` 仍面向人类；请读取
+类型化记录而不是解析警告文本。
+
 若要改变选择，预览一个新的服务端持久计划：
 
 ```bash
@@ -309,16 +315,17 @@ analysis status 为 `degraded`、mode 为 `local` 的计划。完整信任边界
 
 ## 其他 HTTP domain
 
-| Domain            | 路由                                                                          |
-| ----------------- | ----------------------------------------------------------------------------- |
-| Assistant planner | `POST /api/assistant/plan`、`POST /api/assistant/apply`                       |
-| Production job    | `POST /api/canvas-jobs`、`GET /api/canvas-jobs/{id}`、`GET .../{id}/artifact` |
-| Production state  | `/te-man/director/productions/{id}` 及其 `/scenes`；`/scenes/{id}/project`    |
-| Film 管线         | `GET/POST /api/film/runs`、`GET /api/film/runs/{id}`、`GET .../{id}/receipt`、`POST .../{id}/resume\|cancel\|approve` |
-| DCC               | `GET /api/dcc/status`，以及 bridge 文档中记录的版本化 DCC job 操作            |
-| 参考图重建        | `POST /api/reconstruction/reference-scene/analyze`                            |
+| Domain            | 路由                                                                                                                                          |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Assistant planner | `POST /api/assistant/plan`、`POST /api/assistant/apply`                                                                                       |
+| Production job    | `POST /api/canvas-jobs`、`GET /api/canvas-jobs/{id}`、`GET .../{id}/artifact`                                                                 |
+| Production state  | `/te-man/director/productions/{id}` 及其 `/scenes`；`/scenes/{id}/project`                                                                    |
+| Film 管线         | `GET/POST /api/film/runs`、`GET /api/film/runs/{id}`、`GET .../{id}/receipt`、`POST .../{id}/resume\|cancel\|approve`                         |
+| DCC               | `GET /api/dcc/status`，以及 bridge 文档中记录的版本化 DCC job 操作                                                                            |
+| 参考图重建        | `POST /api/reconstruction/reference-scene/analyze`                                                                                            |
 | 可观测性          | `GET /api/agent/traces`、`GET /api/agent/traces/summary`、`GET /api/agent/traces/sessions`、`GET /api/agent/usage`、`GET /api/agent/progress` |
-| 旧版 Stage        | `GET /api/stage`、`PUT /api/stage`                                            |
+| 存储运维          | `GET /api/storage/health`、试运行 `POST /api/storage/gc/plan`、需确认的 `POST /api/storage/gc/sweep`                                          |
+| 旧版 Stage        | `GET /api/stage`、`PUT /api/stage`                                                                                                            |
 
 Film 路由在列表响应上显式上报管线配置状态（`pipeline: {configured, reason}`），失败响应携带冻结的
 public code（`film_pipeline_unconfigured`、`invalid_request`、`invalid_run_id`、`run_not_found`），
@@ -331,6 +338,11 @@ provider 未配置时 cancel 仍然可用。
 零填充的计数。工具调用可通过 `x-director-trace-source: ui|mcp|http|cli` 头自报入口来源；
 未知或缺失的值记录为 `http`。轨迹回执从不包含提示词、工具载荷或密钥——错误文本与 capture 引用
 都在落盘前 redaction。
+
+存储健康执行两项实时检查而非默认后端健康：`capacity` 容量测量（文件系统后端经 `statfs` 实测；
+不可测时为 typed `capacity_unsupported`/`capacity_probe_failed` 省略）与报告确切失败步骤的
+put→verify→delete `writeProbe`。清扫是破坏性操作：`POST /api/storage/gc/sweep` 必须以 `confirm`
+回显所审阅的计划 id，且重放幂等。
 
 优先使用结构化工具而不是直接 `PUT /api/stage`：Workbench 操作会参与 revision、idempotency、精确
 target、quality、asset、audit 和 evidence contract。

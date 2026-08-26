@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
   DirectorBlendSceneImportPlanV1,
   DirectorBlendSceneManifestV1,
+  DirectorBlendSceneOmittedCode,
 } from "../../../dcc/directorBlendSceneImportContract";
 import type { DirectorDccImportPlanV1 } from "../../../dcc/directorDccReturnContract";
 import {
@@ -95,6 +96,13 @@ const MESH_OMIT_LABELS: Record<DirectorMeshExportOmittedCode, string> = {
   splat_no_triangle_mesh: "泼溅无三角网格",
   imported_asset_limit: "超出导入资产上限",
   model_materialization_failed: "模型实体化失败",
+};
+
+const BLEND_OMIT_LABELS: Record<DirectorBlendSceneOmittedCode, string> = {
+  unsupported_object: "不支持数据块未导入",
+  hierarchy_flattened: "层级合并为单一场景对象",
+  animation_actions: "动作未映射时间线",
+  camera_roll_lens_shift: "相机滚转/移轴未导入",
 };
 
 const FORMAT_GROUPS: Array<{ id: string; label: string; formats: DirectorInterchangeFormatEntry[] }> = [
@@ -478,11 +486,12 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   }
 
   function noteBlendPlan(plan: DirectorBlendSceneImportPlanV1) {
+    const omittedSegment = plan.omitted?.length ? ` · ${plan.omitted.length} ${t("项结构化省略")}` : "";
     note(
       plan.ready ? "success" : "warning",
       plan.ready
-        ? `${t("Blender 场景检查完成")} · ${t("可应用")}`
-        : `${t("Blender 场景存在冲突")} · ${plan.conflicts.length} ${t("项冲突")}`,
+        ? `${t("Blender 场景检查完成")} · ${t("可应用")}${omittedSegment}`
+        : `${t("Blender 场景存在冲突")} · ${plan.conflicts.length} ${t("项冲突")}${omittedSegment}`,
     );
   }
 
@@ -942,6 +951,22 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                             ))}
                             {blendManifest.unsupported.length > 4 ? (
                               <li className="director-interchange-more">+{blendManifest.unsupported.length - 4}</li>
+                            ) : null}
+                          </ul>
+                        ) : null}
+                        {blendPlan.omitted?.length ? (
+                          <ul aria-label={t("Blender 导入省略")} className="director-interchange-list is-warning">
+                            {blendPlan.omitted.slice(0, 6).map((entry) => (
+                              <li key={`${entry.code}:${entry.sourceId}:${entry.reason}`}>
+                                <code>{entry.code}</code>
+                                {` · ${t(BLEND_OMIT_LABELS[entry.code])} · `}
+                                <span data-i18n-user-content title={entry.reason}>
+                                  {entry.sourceId}
+                                </span>
+                              </li>
+                            ))}
+                            {blendPlan.omitted.length > 6 ? (
+                              <li className="director-interchange-more">+{blendPlan.omitted.length - 6}</li>
                             ) : null}
                           </ul>
                         ) : null}

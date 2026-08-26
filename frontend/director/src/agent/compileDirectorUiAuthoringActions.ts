@@ -46,6 +46,13 @@ type DuplicateObjectsAction = Extract<DirectorAuthoringAction, { action: "duplic
 type AddCameraAction = Extract<DirectorAuthoringAction, { action: "add_camera" }>;
 type SetSceneAction = Extract<DirectorAuthoringAction, { action: "set_scene" }>;
 type SetWorldSettingsAction = Extract<DirectorAuthoringAction, { action: "set_world_settings" }>;
+type CreateObjectListAction = Extract<DirectorAuthoringAction, { action: "create_object_list" }>;
+type AddObjectsToObjectListAction = Extract<DirectorAuthoringAction, { action: "add_objects_to_object_list" }>;
+type RemoveObjectsFromObjectListsAction = Extract<
+  DirectorAuthoringAction,
+  { action: "remove_objects_from_object_lists" }
+>;
+type RenameObjectListAction = Extract<DirectorAuthoringAction, { action: "rename_object_list" }>;
 
 /** Camera patch shape accepted by the DirectorStore updateCamera mutator. */
 export type DirectorCameraShotPatch = Partial<DirectorCameraShot> & {
@@ -411,6 +418,103 @@ export function compileDirectorSceneUpdateAction(patch: Partial<SceneSettings>):
   }
   if (!Object.keys(scenePatch).length) return null;
   return { action: "set_scene", patch: scenePatch } as SetSceneAction;
+}
+
+/** Contract bounds shared by the object-list authoring actions. */
+const OBJECT_LIST_LABEL_MAX_CHARS = 240;
+const OBJECT_LIST_MAX_MEMBERS_PER_ACTION = 256;
+
+/**
+ * Filter requested ids down to live project objects the object-list actions
+ * accept, in project order (the same membership the legacy writer computes).
+ * Crowd members are excluded when excludeCrowdMembers is set because the
+ * authoring contract rejects them.
+ */
+function collectObjectListMemberIds(
+  project: DirectorProject,
+  objectIds: string[],
+  options: { excludeCrowdMembers: boolean },
+): string[] | null {
+  const requested = new Set(objectIds);
+  const members = project.objects
+    .filter((object) => requested.has(object.id) && !(options.excludeCrowdMembers && object.crowdId))
+    .map((object) => object.id);
+  if (!members.length || members.length > OBJECT_LIST_MAX_MEMBERS_PER_ACTION) return null;
+  return members;
+}
+
+/**
+ * Compile the Stage tree "create object list" flow into a create_object_list
+ * authoring action, allocating the same sequential object_list_N id the
+ * legacy writer would. Returns null when the legacy writer would no-op
+ * (blank label, no live non-crowd member) or the input exceeds the contract
+ * bounds, so the caller keeps the historical mutation for that call.
+ */
+export function compileDirectorCreateObjectListAction(
+  project: DirectorProject,
+  objectIds: string[],
+  label: string,
+): { action: CreateObjectListAction; listId: string } | null {
+  const normalizedLabel = label.trim();
+  if (!normalizedLabel || normalizedLabel.length > OBJECT_LIST_LABEL_MAX_CHARS) return null;
+  const members = collectObjectListMemberIds(project, objectIds, { excludeCrowdMembers: true });
+  if (!members) return null;
+  const listId = getNextSequentialId(
+    project.objects.map((object) => object.objectListId).filter((value): value is string => typeof value === "string"),
+    "object_list_",
+  );
+  return {
+    listId,
+    action: { action: "create_object_list", list_id: listId, label: normalizedLabel, object_ids: members },
+  };
+}
+
+/**
+ * Compile a Stage tree "add to object list" into an add_objects_to_object_list
+ * authoring action. Returns null when the list does not exist or no live
+ * non-crowd member remains, matching the legacy writer's no-op.
+ */
+export function compileDirectorAddObjectsToObjectListAction(
+  project: DirectorProject,
+  objectIds: string[],
+  objectListId: string,
+): AddObjectsToObjectListAction | null {
+  const normalizedListId = objectListId.trim();
+  if (!normalizedListId || !project.objects.some((object) => object.objectListId === normalizedListId)) return null;
+  const members = collectObjectListMemberIds(project, objectIds, { excludeCrowdMembers: true });
+  if (!members) return null;
+  return { action: "add_objects_to_object_list", list_id: normalizedListId, object_ids: members };
+}
+
+/**
+ * Compile a Stage tree "remove from list" into a
+ * remove_objects_from_object_lists authoring action. Returns null when no
+ * requested id resolves to a live object, matching the legacy no-op.
+ */
+export function compileDirectorRemoveObjectsFromObjectListsAction(
+  project: DirectorProject,
+  objectIds: string[],
+): RemoveObjectsFromObjectListsAction | null {
+  const members = collectObjectListMemberIds(project, objectIds, { excludeCrowdMembers: false });
+  if (!members) return null;
+  return { action: "remove_objects_from_object_lists", object_ids: members };
+}
+
+/**
+ * Compile a Stage tree list rename into a rename_object_list authoring
+ * action. Returns null for blank/oversized labels and unknown lists,
+ * matching the legacy writer's no-op.
+ */
+export function compileDirectorRenameObjectListAction(
+  project: DirectorProject,
+  objectListId: string,
+  label: string,
+): RenameObjectListAction | null {
+  const normalizedListId = objectListId.trim();
+  const normalizedLabel = label.trim();
+  if (!normalizedListId || !normalizedLabel || normalizedLabel.length > OBJECT_LIST_LABEL_MAX_CHARS) return null;
+  if (!project.objects.some((object) => object.objectListId === normalizedListId)) return null;
+  return { action: "rename_object_list", list_id: normalizedListId, label: normalizedLabel };
 }
 
 /**

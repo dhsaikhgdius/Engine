@@ -31,7 +31,9 @@ function truncated<T>(values: readonly T[]) {
  * Read-only storage health plus explicit two-step GC:
  *
  * - `GET  /api/storage/health` — backend, retention policy in effect, usage
- *   estimates, current sweep candidates, and recent executed sweeps.
+ *   estimates, current sweep candidates, recent executed sweeps, plus live
+ *   `capacity` and `writeProbe` checks (typed omission/failure codes, never
+ *   an assumed-healthy claim).
  * - `POST /api/storage/gc/plan` — computes and retains a reviewable dry-run
  *   plan; nothing is deleted.
  * - `POST /api/storage/gc/sweep` — executes exactly one retained plan; the

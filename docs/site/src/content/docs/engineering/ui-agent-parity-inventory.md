@@ -29,13 +29,12 @@ Last verified: **2026-08-26**.
 
 | Category                             | Count             |
 | ------------------------------------ | ----------------- |
-| shared Stage project mutators        | 80                |
-| ui-only Stage project mutators       | 7                 |
-| Coverage (shared / project mutators) | **80 / 87 ≈ 92%** |
+| shared Stage project mutators        | 84                |
+| ui-only Stage project mutators       | 3                 |
+| Coverage (shared / project mutators) | **84 / 87 ≈ 97%** |
 
-Everything still ui-only either has no semantic action yet (object lists)
-or is deliberately local with a documented divergence reason in the store
-(snapshot cameras and preset/crowd character adds).
+Everything still ui-only is deliberately local with a documented divergence
+reason in the store (snapshot cameras and preset/crowd character adds).
 
 Parity is regression-tested in
 `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts`: the same
@@ -63,7 +62,7 @@ Parity is regression-tested in
 | `setObjectVehicleProfile`                                                                               | `directorStore.ts` | `set_vehicle_profile` / `clear_vehicle_profile`                                                                      | shared (only unlocked prop/scene objects are authorable; others keep the legacy writer)                                                                                                                                                                                                                                         |
 | `updateObjectReferenceBindings`                                                                         | `directorStore.ts` | `update_object` `reference_bindings`                                                                                 | shared (camera rigs and provisioned native Blender objects keep the legacy writer)                                                                                                                                                                                                                                              |
 | `createCompositeObject` / `addObjectsToComposite` / `removeObjectsFromComposite`                        | `directorStore.ts` | `group_objects` / `update_object` `parent_id` patches                                                                | shared (provisioned native Blender children keep the legacy writer)                                                                                                                                                                                                                                                             |
-| `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | no semantic action; object lists are a UI selection helper, not composite groups                                     | ui-only (deliberately local)                                                                                                                                                                                                                                                                                                    |
+| `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | `create_object_list` / `add_objects_to_object_list` / `remove_objects_from_object_lists` / `rename_object_list`      | shared (the compiled create allocates the same sequential `object_list_N` id and non-crowd membership the legacy writer computes; blank labels, unknown lists, and empty live membership keep the legacy no-op)                                                                                                                 |
 | `pasteClipboardObjects`                                                                                 | `directorStore.ts` | `duplicate_objects` (one action per paste; ids, names, offsets, and crowd remaps allocate identically on both paths) | shared (stale clipboard snapshots that no longer match the live objects, camera objects without a linked shot, Blender-native objects without a model asset, and pastes an object-focused camera participates in — as copied source, focus target of a copied source, or with a drifted stored target — keep the legacy writer) |
 
 ## Cameras

@@ -120238,6 +120238,22 @@ var directorAuthoringActionSchema = external_exports.discriminatedUnion("action"
     delete_group: external_exports.boolean().default(true),
     force: external_exports.boolean().optional()
   }),
+  strictAction("create_object_list", {
+    list_id: id3,
+    label: name3,
+    object_ids: objectIds
+  }),
+  strictAction("add_objects_to_object_list", {
+    list_id: id3,
+    object_ids: objectIds
+  }),
+  strictAction("remove_objects_from_object_lists", {
+    object_ids: objectIds
+  }),
+  strictAction("rename_object_list", {
+    list_id: id3,
+    label: name3
+  }),
   strictAction("add_annotation", { annotation: directorSceneAnnotationSchema }),
   strictAction("update_annotation", { annotation_id: id3, patch: annotationUpdateSchema }),
   strictAction("remove_annotations", { annotation_ids: external_exports.array(id3).min(1).max(512) }),
