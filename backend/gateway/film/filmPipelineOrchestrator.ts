@@ -9,6 +9,7 @@ import {
   type FilmRun,
   type FilmRunPhase,
   type FilmSceneState,
+  type FilmTimelineExportReceipt,
   type ShotSpec,
   type StageReference,
 } from "../../../packages/protocol/src/filmPipelineProtocol";
@@ -46,12 +47,12 @@ export type StageAnchorHook = (input: {
   signal?: AbortSignal;
 }) => Promise<StageReference[]>;
 
-/** Writes an OTIO timeline for the completed run and returns its path. */
+/** Writes an OTIO timeline for the completed run, returning its path plus the typed export receipt. */
 export type TimelineExportHook = (input: {
   run: FilmRun;
   runDirectory: string;
   signal?: AbortSignal;
-}) => Promise<string>;
+}) => Promise<{ outputPath: string; receipt: FilmTimelineExportReceipt }>;
 
 /** Configuration for the film pipeline orchestrator. */
 export type FilmPipelineOrchestratorOptions = {
@@ -427,9 +428,19 @@ export class FilmPipelineOrchestrator {
       // export logs an event instead of failing the whole run.
       if (!run.timelinePath && this.options.exportTimeline) {
         try {
-          const timelinePath = await this.options.exportTimeline({ run, runDirectory, signal });
-          run = await this.options.store.update(id, (current) => ({ ...current, timelinePath }));
-          await this.recordEvent(id, "assemble", "OTIO timeline exported for the Video Editor");
+          const exported = await this.options.exportTimeline({ run, runDirectory, signal });
+          run = await this.options.store.update(id, (current) => ({
+            ...current,
+            timelinePath: exported.outputPath,
+            timelineExport: exported.receipt,
+          }));
+          await this.recordEvent(
+            id,
+            "assemble",
+            exported.receipt.omittedShotCount === 0
+              ? "OTIO timeline exported for the Video Editor"
+              : `OTIO timeline exported with ${exported.receipt.omittedShotCount} of ${exported.receipt.shotCount} planned shots omitted (missing rendered clips)`,
+          );
         } catch (error) {
           if (signal.aborted) throw error;
           await this.recordEvent(

@@ -141,16 +141,46 @@ const ANIMATION_AUTHOR_ACTIONS = new Set<string>(["set_animation", "apply_animat
  */
 const FILLABLE_OBJECT_IDS_ACTIONS = new Set<string>(["batch_update_objects", "reset_transforms", "focus_objects"]);
 
+/** Why a possession-scoped session's operation was rejected. */
+export type DirectorPossessionScopeRejectionReason =
+  | "stage_wide_mutation"
+  | "unscoped_author_action"
+  | "target_not_possessed"
+  | "actor_id_omitted"
+  | "live_player_inactive";
+
+/**
+ * Typed detail carried next to the prose error on every possession-scope
+ * rejection, so a rejected caller learns its possessed set and the exact
+ * offending operation without parsing prose.
+ */
+export type DirectorPossessionScopeRejection = {
+  /** The rejected calling Agent session id. */
+  session_id: string;
+  /** Object ids of the characters this session possesses. */
+  possessed_object_ids: string[];
+  /** Dotted operation name, e.g. "author", "player.enter", "reconstruction.apply". */
+  operation: string;
+  reason: DirectorPossessionScopeRejectionReason;
+  /** Offending author action name, when the rejection is action-scoped. */
+  action?: string;
+  /** Offending target id, when the rejection names one. */
+  target_id?: string;
+};
+
 /** Verdict returned by {@link evaluateDirectorPossessionScope}. */
-export type DirectorPossessionScopeVerdict = { allowed: true } | { allowed: false; error: string };
+export type DirectorPossessionScopeVerdict =
+  { allowed: true } | { allowed: false; error: string; rejection: DirectorPossessionScopeRejection };
 
 function possessionScopeError(
   sessionId: string,
   possessedObjectIds: readonly string[],
   detail: string,
+  rejection: Pick<DirectorPossessionScopeRejection, "operation" | "reason" | "action" | "target_id">,
 ): {
   allowed: false;
   error: string;
+  rejection: DirectorPossessionScopeRejection;
 } {
   const scope = possessedObjectIds.map((id) => `"${id}"`).join(", ");
   return {
@@ -159,15 +189,26 @@ function possessionScopeError(
       `Agent session "${sessionId}" possesses character(s) ${scope}, so its workbench mutations are limited to ` +
       `those characters. ${detail} Run unbind_character_agent (from the Director inspector or an unpossessed ` +
       `session) to lift the restriction.`,
+    rejection: {
+      session_id: sessionId,
+      possessed_object_ids: [...possessedObjectIds],
+      ...rejection,
+    },
   };
 }
 
 function workbenchOperationName(operation: DirectorWorkbenchOperation): string {
   if (operation.op === "production") return `production.${operation.command.action}`;
-  if (operation.op === "generation" || operation.op === "transcription" || operation.op === "generated_3d") {
+  if (
+    operation.op === "generation" ||
+    operation.op === "transcription" ||
+    operation.op === "generated_3d" ||
+    operation.op === "reconstruction"
+  ) {
     return `${operation.op}.${operation.command.action}`;
   }
   if (operation.op === "storyboard_artifact") return `storyboard_artifact.${operation.command.action}`;
+  if (operation.op === "player" || operation.op === "pilot") return `${operation.op}.${operation.action}`;
   return operation.op;
 }
 
@@ -206,7 +247,9 @@ function authoringActionTargetIds(action: DirectorAuthoringAction): string[] | n
  * only when its character set is a subset of the possessed set. All other
  * mutations (patch, run_macro, correct, replace_project, undo, start_scene,
  * delete_objects, production edits, generated_3d promotion, storyboard
- * artifacts) are rejected with a readable error.
+ * artifacts, and `reconstruction.apply`, which appends or replaces scene
+ * objects stage-wide) are rejected with a readable error that also carries a
+ * typed {@link DirectorPossessionScopeRejection}.
  *
  * Player Mode and Camera Pilot session commands are scoped too: `player`
  * `enter`/`set_actor`/`teleport`/`walk_to` must explicitly name a possessed
@@ -235,6 +278,7 @@ export function evaluateDirectorPossessionScope(input: {
     ["patch", "author", "run_macro", "correct", "replace_project", "undo"].includes(operation.op) ||
     (operation.op === "production" && operation.command.action !== "observe") ||
     (operation.op === "generated_3d" && operation.command.action === "promote") ||
+    (operation.op === "reconstruction" && operation.command.action === "apply") ||
     operation.op === "storyboard_artifact" ||
     operation.op === "player" ||
     (operation.op === "pilot" && operation.action === "record_waypoint");
@@ -256,6 +300,7 @@ export function evaluateDirectorPossessionScope(input: {
           sessionId,
           possessedObjectIds,
           `player.${operation.action} omitted actor_id; name one of the possessed character ids explicitly.`,
+          { operation: workbenchOperationName(operation), reason: "actor_id_omitted" },
         );
       }
       if (!possessed.has(operation.actor_id)) {
@@ -263,6 +308,11 @@ export function evaluateDirectorPossessionScope(input: {
           sessionId,
           possessedObjectIds,
           `player.${operation.action} targets "${operation.actor_id}", which this session does not possess.`,
+          {
+            operation: workbenchOperationName(operation),
+            reason: "target_not_possessed",
+            target_id: operation.actor_id,
+          },
         );
       }
       return { allowed: true };
@@ -273,6 +323,7 @@ export function evaluateDirectorPossessionScope(input: {
           sessionId,
           possessedObjectIds,
           `player.${operation.action} requires an active Player Mode on a possessed character; call player.enter with actor_id first, then observe fields=["ui"] to confirm player_mode/player_actor_id.`,
+          { operation: workbenchOperationName(operation), reason: "live_player_inactive" },
         );
       }
       if (!possessed.has(livePlayer.playerActorId)) {
@@ -280,6 +331,11 @@ export function evaluateDirectorPossessionScope(input: {
           sessionId,
           possessedObjectIds,
           `player.${operation.action} would drive live actor "${livePlayer.playerActorId}", which this session does not possess.`,
+          {
+            operation: workbenchOperationName(operation),
+            reason: "target_not_possessed",
+            target_id: livePlayer.playerActorId,
+          },
         );
       }
       return { allowed: true };
@@ -291,6 +347,7 @@ export function evaluateDirectorPossessionScope(input: {
       sessionId,
       possessedObjectIds,
       `Operation "pilot.record_waypoint" writes camera keyframes outside the possessed characters and is rejected.`,
+      { operation: "pilot.record_waypoint", reason: "stage_wide_mutation" },
     );
   }
 
@@ -299,6 +356,7 @@ export function evaluateDirectorPossessionScope(input: {
       sessionId,
       possessedObjectIds,
       `Operation "${workbenchOperationName(operation)}" mutates state outside the possessed characters and is rejected.`,
+      { operation: workbenchOperationName(operation), reason: "stage_wide_mutation" },
     );
   }
 
@@ -309,6 +367,7 @@ export function evaluateDirectorPossessionScope(input: {
         sessionId,
         possessedObjectIds,
         `Author action "${action.action}" is not a character-scoped action and is rejected.`,
+        { operation: "author", reason: "unscoped_author_action", action: action.action },
       );
     }
     const outside = targetIds.find((id) => !possessed.has(id));
@@ -317,6 +376,7 @@ export function evaluateDirectorPossessionScope(input: {
         sessionId,
         possessedObjectIds,
         `Author action "${action.action}" targets "${outside}", which this session does not possess.`,
+        { operation: "author", reason: "target_not_possessed", action: action.action, target_id: outside },
       );
     }
   }

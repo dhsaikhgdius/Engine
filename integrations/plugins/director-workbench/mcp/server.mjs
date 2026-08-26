@@ -124758,6 +124758,19 @@ var directorBlendSceneImportSelectionSchema = external_exports.strictObject({
   includeScene: external_exports.boolean(),
   cameraSourceIds: external_exports.array(nonEmpty2.max(240)).max(512)
 });
+var DIRECTOR_BLEND_SCENE_OMITTED_CODES = [
+  "unsupported_object",
+  "hierarchy_flattened",
+  "animation_actions",
+  "camera_roll_lens_shift"
+];
+var directorBlendSceneOmittedSchema = external_exports.strictObject({
+  sourceId: nonEmpty2.max(240),
+  /** Blender datablock kind for `unsupported_object` records. */
+  kind: nonEmpty2.max(120).optional(),
+  code: external_exports.enum(DIRECTOR_BLEND_SCENE_OMITTED_CODES),
+  reason: nonEmpty2.max(2e3)
+});
 var directorBlendSceneImportPlanSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_BLEND_SCENE_IMPORT_PLAN_CONTRACT),
   planId: safeRelativePath,
@@ -124775,7 +124788,19 @@ var directorBlendSceneImportPlanSchema = external_exports.strictObject({
       reason: nonEmpty2.max(2e3)
     })
   ).max(2e3),
-  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4)
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4),
+  /**
+   * Count of typed omitted records. Optional for plans persisted before
+   * typed omits; when omitted is present, length must equal this count.
+   */
+  omittedCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed warn-and-omit records for Blender scene data the plan leaves
+   * behind. Optional for older stored plans; when present, length must
+   * equal omittedCount. The cap covers the manifest `unsupported` cap plus
+   * per-camera and per-scene records.
+   */
+  omitted: external_exports.array(directorBlendSceneOmittedSchema).max(21e3).optional()
 }).superRefine((plan, context) => {
   if (plan.ready && plan.conflicts.length > 0) {
     context.addIssue({ code: "custom", path: ["ready"], message: "ready plans cannot contain conflicts" });
@@ -124786,6 +124811,21 @@ var directorBlendSceneImportPlanSchema = external_exports.strictObject({
       path: ["selection", "cameraSourceIds"],
       message: "camera selection must be unique"
     });
+  }
+  if (plan.omitted !== void 0) {
+    if (plan.omittedCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedCount"],
+        message: "omittedCount is required when omitted is present"
+      });
+    } else if (plan.omitted.length !== plan.omittedCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omitted"],
+        message: "omitted length must equal omittedCount"
+      });
+    }
   }
 });
 

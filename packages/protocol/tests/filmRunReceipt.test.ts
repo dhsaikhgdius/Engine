@@ -56,7 +56,7 @@ describe("filmRunReceipt", () => {
       portraitsReady: true,
       awaitingApproval: false,
       phaseReceipts: run.phaseReceipts,
-      artifacts: { finalVideoPath: null, timelinePath: null },
+      artifacts: { finalVideoPath: null, timelinePath: null, timelineExport: null },
       timestamps: { createdAt: run.createdAt, updatedAt: run.updatedAt },
       usage: {
         "film-llm": {
@@ -210,17 +210,49 @@ describe("filmRunReceipt", () => {
   });
 
   it("exposes final artifacts once assembly and timeline export finish", () => {
+    const timelineExport = {
+      shotCount: 4,
+      clipCount: 3,
+      omittedShotCount: 1,
+      omittedShots: [{ sceneIdx: 1, shotIdx: 0, code: "clip_missing" as const, reason: "clip bytes were missing" }],
+    };
     const receipt = projectFilmRunReceipt(
       makeRun({
         status: "completed",
         phase: "completed",
         finalVideoPath: "/runs/final_video.mp4",
         timelinePath: "/runs/timeline.otio",
+        timelineExport,
       }),
     );
     expect(receipt.terminal).toBe(true);
     expect(receipt.progress).toBe(1);
-    expect(receipt.artifacts).toEqual({ finalVideoPath: "/runs/final_video.mp4", timelinePath: "/runs/timeline.otio" });
+    expect(receipt.artifacts).toEqual({
+      finalVideoPath: "/runs/final_video.mp4",
+      timelinePath: "/runs/timeline.otio",
+      timelineExport,
+    });
+  });
+
+  it("keeps timelineExport null for legacy runs that predate typed export receipts", () => {
+    const legacy = projectFilmRunReceipt(
+      makeRun({ status: "completed", phase: "completed", timelinePath: "/runs/timeline.otio" }),
+    );
+    // A complete handoff is never invented for documents without a receipt.
+    expect(legacy.artifacts.timelineExport).toBeNull();
+  });
+
+  it("rejects a timelineExport receipt without a claimed timelinePath", () => {
+    const receipt = projectFilmRunReceipt(makeRun());
+    expect(
+      filmRunReceiptSchema.safeParse({
+        ...receipt,
+        artifacts: {
+          ...receipt.artifacts,
+          timelineExport: { shotCount: 1, clipCount: 1, omittedShotCount: 0, omittedShots: [] },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it("stamps live artifact storagePresence only when probe results are provided", () => {

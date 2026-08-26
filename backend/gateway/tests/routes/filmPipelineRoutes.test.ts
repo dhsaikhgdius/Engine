@@ -156,6 +156,40 @@ describe("film pipeline routes", () => {
     expect(stale.receipt.artifacts.storagePresence).toEqual({ finalVideo: "absent", timeline: "absent" });
   });
 
+  it("serves the durable typed timeline export receipt on receipt responses", async () => {
+    const context = await harness(null);
+    const runDirectory = context.store.runDirectory("film-cccccccc-3333");
+    await mkdir(runDirectory, { recursive: true });
+    const timelinePath = join(runDirectory, "timeline.otio");
+    await writeFile(timelinePath, "{}");
+    const timelineExport = {
+      shotCount: 3,
+      clipCount: 2,
+      omittedShotCount: 1,
+      omittedShots: [{ sceneIdx: 0, shotIdx: 2, code: "clip_missing" as const, reason: "clip bytes were missing" }],
+    };
+    await context.store.create(
+      filmRunSchema.parse({
+        ...run("film-cccccccc-3333"),
+        status: "completed",
+        phase: "completed",
+        timelinePath,
+        timelineExport,
+      }),
+    );
+    await handleFilmPipelineRoute(
+      request("GET"),
+      context.response,
+      url("/api/film/runs/film-cccccccc-3333/receipt"),
+      context.dependencies,
+    );
+    const body = context.writes[0].body as {
+      receipt: { artifacts: { timelinePath: string; timelineExport: unknown } };
+    };
+    expect(body.receipt.artifacts.timelinePath).toBe(timelinePath);
+    expect(body.receipt.artifacts.timelineExport).toEqual(timelineExport);
+  });
+
   it("reports the unconfigured pipeline as an explicit state on the list surface", async () => {
     const context = await harness(null, { configured: false });
     await handleFilmPipelineRoute(request("GET"), context.response, url("/api/film/runs"), context.dependencies);

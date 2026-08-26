@@ -365,6 +365,26 @@ export function isWorkbenchEvidence(operation: DirectorWorkbenchOperation) {
   return operation.op === "capture" || operation.op === "shot_package" || operation.op === "deliver";
 }
 
+type WorkbenchReconstructionRequest = Extract<DirectorWorkbenchOperation, { op: "reconstruction" }>;
+export type WorkbenchReconstructionApplyMutation = Omit<WorkbenchReconstructionRequest, "command"> & {
+  command: Extract<WorkbenchReconstructionRequest["command"], { action: "apply" }>;
+};
+
+/**
+ * Type guard for `reconstruction.apply`, the one reconstruction command that
+ * mutates project state (it appends or replaces scene objects from an applied
+ * capture plan). It carries its own expected_revision/idempotency_key fields
+ * enforced by the browser executor, so it skips {@link prepareAgentMutation},
+ * but it is still a mutation for possession-scope and outcome-unknown
+ * handling. The remaining reconstruction commands are reads or durable job
+ * submissions and stay unrestricted.
+ */
+export function isWorkbenchReconstructionApplyMutation(
+  operation: DirectorWorkbenchOperation,
+): operation is WorkbenchReconstructionApplyMutation {
+  return operation.op === "reconstruction" && operation.command.action === "apply";
+}
+
 /**
  * Type guard for workbench operations that submit or retry durable generation,
  * transcription, or 3D asset jobs.

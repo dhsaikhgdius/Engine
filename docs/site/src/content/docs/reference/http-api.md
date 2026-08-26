@@ -348,8 +348,11 @@ Film routes report the pipeline's configuration state explicitly on the list res
 (`film_pipeline_unconfigured`, `invalid_request`, `invalid_run_id`, `run_not_found`), and attach a
 normalized `director-film-run-receipt-v1` (phase receipts, stable error codes, artifact paths with
 live per-artifact `storagePresence` probed at read time — `present`/`absent`, null for unclaimed
-paths) to status, receipt, and action responses. Cancel stays available while providers are
-unconfigured.
+paths) to status, receipt, and action responses. The receipt's `artifacts.timelineExport` carries
+the durable typed OTIO export receipt stamped next to `timelinePath`: planned/exported shot counts
+plus per-shot `omittedShots[]` (code `clip_missing`), so a partial editorial handoff is a typed
+fact instead of a silent skip; it stays null for runs that predate typed export receipts. Cancel
+stays available while providers are unconfigured.
 
 Observability routes return redacted execution receipts, model-usage aggregates, and one unified
 progress shape for production jobs, multi-agent runs, and film runs; `/traces/sessions` lists
@@ -381,6 +384,8 @@ idempotency, exact-target, quality, asset, audit, and evidence contracts.
 | `409 idempotency_key_conflict`  | Preserve the old receipt and use a new key for different input.                                                   |
 | `409 idempotency_replay_stale`  | The old mutation succeeded and the project advanced; observe and express only remaining work as a new intent.     |
 | `409 outcome_unknown`           | Observe/diff first. If the effect is absent, retry only with the injected revision and key from `agent_boundary`. |
+| `403 possession_scope_violation` | The session possesses characters and may only mutate them (stage-wide writes such as `replace_project` or `reconstruction.apply` are rejected). Read the typed `possession` block (possessed ids, offending operation, reason) and retarget, or unbind the character. |
+| `400 possession_target_ambiguous` | The session possesses several characters, so omitted character targets cannot be auto-filled. Read `possession.omitted_targets` and name one possessed id explicitly. |
 | `504 command_timeout`           | Do not claim success. Keep the target visible, observe if necessary, and retry the read/evidence operation.       |
 | `profile_unavailable`           | Select an available, provider-compatible Profile and verify credentials.                                          |
 | `profile_capability_mismatch`   | Select a tool-capable Profile; a visual Critic also requires vision.                                              |
