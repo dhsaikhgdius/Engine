@@ -555,8 +555,11 @@ async function parseInterchangeImport(
       format === "otio"
         ? interchange.importDirectorCreativeTimelineFromOtio(text(), { knownMediaIds })
         : await interchange.importDirectorCreativeTimelineFromOtioz(bytes, { knownMediaIds });
-    const videoOmitted = Array.isArray((imported as { omitted?: unknown }).omitted)
-      ? (imported as { omitted: Array<{ code: string; subject: string; reason: string }> }).omitted.slice(0, 50)
+    const videoOmitted = Array.isArray((imported as unknown as { omitted?: unknown }).omitted)
+      ? (imported as unknown as { omitted: Array<{ code: string; subject: string; reason: string }> }).omitted.slice(
+          0,
+          50,
+        )
       : [];
     return {
       kind: "video",
