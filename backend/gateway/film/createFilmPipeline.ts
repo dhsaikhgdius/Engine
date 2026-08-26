@@ -6,6 +6,7 @@ import { FilmPlanningAgents } from "./filmPlanningAgents";
 import { FilmPipelineOrchestrator, type StageAnchorHook, type TimelineExportHook } from "./filmPipelineOrchestrator";
 import { FilmRenderCoordinator, type ShotAudioMixHook } from "./filmRenderCoordinator";
 import { FilmRunStore } from "./filmRunStore";
+import { createFilmRunAttributingMeter } from "./filmRunUsageMeter";
 import { HostedImagesApiGenerator, HostedVideosApiGenerator } from "./filmMediaProviders";
 import { StageAnchorResolver } from "./filmStageAnchors";
 import { createFfprobeClipProbe, exportFilmTimeline } from "./filmTimelineExport";
@@ -69,9 +70,12 @@ export function createFilmPipeline(
     baseUrl: film.llm.baseUrl!,
     apiKey: film.llm.apiKey ?? "",
   });
+  // Attribute film-llm / film-image / film-video samples both to the shared
+  // Trace meter and to the active run's durable usage rollup (via ALS).
+  const usageMeter = createFilmRunAttributingMeter(store, integrations.usageMeter);
   const planningAgents = new FilmPlanningAgents(
     new FilmStructuredCaller(driver, film.llm.model!, undefined, {
-      meter: integrations.usageMeter,
+      meter: usageMeter,
       provider: film.llm.driver === "anthropic" ? "anthropic" : "openai-compatible",
     }),
   );
@@ -81,7 +85,7 @@ export function createFilmPipeline(
       baseUrl: film.image.baseUrl!,
       apiKey: film.image.apiKey,
       model: film.image.model,
-      meter: integrations.usageMeter,
+      meter: usageMeter,
     }),
     videoGenerator: new HostedVideosApiGenerator({
       baseUrl: film.video.baseUrl!,
@@ -89,7 +93,7 @@ export function createFilmPipeline(
       model: film.video.model,
       timeoutMs: film.videoTimeoutMs,
       pollIntervalMs: film.videoPollMs,
-      meter: integrations.usageMeter,
+      meter: usageMeter,
     }),
     ffmpegPath: film.ffmpegPath,
     imageConcurrency: film.imageConcurrency,

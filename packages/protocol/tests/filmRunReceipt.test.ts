@@ -58,9 +58,78 @@ describe("filmRunReceipt", () => {
       phaseReceipts: run.phaseReceipts,
       artifacts: { finalVideoPath: null, timelinePath: null },
       timestamps: { createdAt: run.createdAt, updatedAt: run.updatedAt },
+      usage: {
+        "film-llm": {
+          sample_count: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          total_tokens: 0,
+          total_duration_ms: 0,
+          retries: 0,
+          failure_count: 0,
+        },
+        "film-image": {
+          sample_count: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          total_tokens: 0,
+          total_duration_ms: 0,
+          retries: 0,
+          failure_count: 0,
+        },
+        "film-video": {
+          sample_count: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          total_tokens: 0,
+          total_duration_ms: 0,
+          retries: 0,
+          failure_count: 0,
+        },
+      },
     });
     // Deterministic: the same document always yields the same receipt.
     expect(projectFilmRunReceipt(makeRun())).toEqual(receipt);
+  });
+
+  it("projects durable per-scope usage onto the receipt", () => {
+    const receipt = projectFilmRunReceipt(
+      makeRun({
+        usage: {
+          "film-llm": {
+            sample_count: 2,
+            input_tokens: 100,
+            output_tokens: 40,
+            total_tokens: 140,
+            total_duration_ms: 900,
+            retries: 1,
+            failure_count: 0,
+          },
+          "film-image": {
+            sample_count: 1,
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            total_duration_ms: 1_200,
+            retries: 0,
+            failure_count: 0,
+          },
+          "film-video": {
+            sample_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            total_duration_ms: 0,
+            retries: 0,
+            failure_count: 0,
+          },
+        },
+      }),
+    );
+    expect(receipt.usage["film-llm"].sample_count).toBe(2);
+    expect(receipt.usage["film-llm"].total_tokens).toBe(140);
+    expect(receipt.usage["film-image"].total_duration_ms).toBe(1_200);
+    expect(receipt.usage["film-video"].sample_count).toBe(0);
   });
 
   it("reports the review gate and approval timestamps honestly", () => {

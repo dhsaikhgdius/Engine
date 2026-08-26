@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { emptyFilmRunUsage, filmRunUsageSchema } from "./filmRunUsage";
 import {
   FILM_RUN_PHASE_RECEIPT_LIMIT,
   filmRunErrorCodeSchema,
@@ -69,6 +70,13 @@ export const filmRunReceiptSchema = z
       updatedAt: z.string(),
       approvedAt: z.string().optional(),
     }),
+    /**
+     * Durable per-scope model/media usage for this run (`film-llm` /
+     * `film-image` / `film-video`). Always present — zeros when nothing has
+     * been metered yet — so Agent/HTTP/UI share one honesty surface with the
+     * Trace panel scopes without joining the global usage window.
+     */
+    usage: filmRunUsageSchema,
   })
   .superRefine((receipt, context) => {
     if (receipt.terminal !== isTerminalFilmRunStatus(receipt.status)) {
@@ -123,5 +131,6 @@ export function projectFilmRunReceipt(run: FilmRun): FilmRunReceipt {
       updatedAt: run.updatedAt,
       ...(run.approvedAt ? { approvedAt: run.approvedAt } : {}),
     },
+    usage: run.usage ?? emptyFilmRunUsage(),
   });
 }

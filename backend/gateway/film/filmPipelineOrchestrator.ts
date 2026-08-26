@@ -16,6 +16,7 @@ import { concatVideos } from "./filmFfmpeg";
 import type { FilmPlanningAgents } from "./filmPlanningAgents";
 import type { FilmRenderCoordinator, ShotAudioMixHook } from "./filmRenderCoordinator";
 import type { FilmRunStore } from "./filmRunStore";
+import { filmRunUsageContext } from "./filmRunUsageMeter";
 
 /**
  * Film pipeline orchestrator.
@@ -211,7 +212,8 @@ export class FilmPipelineOrchestrator {
     this.controllers.set(id, controller);
     const execution = new Promise<void>((resolveExecution) => {
       setTimeout(() => {
-        void this.execute(id, controller.signal).finally(resolveExecution);
+        // Bind meter attribution for the whole execute chain (including awaits).
+        void filmRunUsageContext.run(id, () => this.execute(id, controller.signal)).finally(resolveExecution);
       }, 0);
     });
     this.executions.set(id, execution);

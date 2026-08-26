@@ -286,6 +286,46 @@ export function summarizeAgentUsage(samples: readonly AgentUsageSample[]): Agent
   });
 }
 
+/** Empty usage summary (zero samples). */
+export const EMPTY_AGENT_USAGE_SUMMARY: AgentUsageSummary = {
+  sample_count: 0,
+  input_tokens: 0,
+  output_tokens: 0,
+  total_tokens: 0,
+  total_duration_ms: 0,
+  retries: 0,
+  failure_count: 0,
+};
+
+/** Fields from one sample that fold into an {@link AgentUsageSummary}. */
+export type AgentUsageAccumulationInput = Pick<
+  AgentUsageMeterInput,
+  "input_tokens" | "output_tokens" | "total_tokens" | "duration_ms" | "retries" | "succeeded"
+>;
+
+/**
+ * Folds one usage sample into a running summary (same totals as
+ * {@link summarizeAgentUsage} over the accumulating set).
+ *
+ * @param summary - Current aggregate.
+ * @param sample - Sample to add.
+ * @returns Updated aggregate.
+ */
+export function accumulateAgentUsageSummary(
+  summary: AgentUsageSummary,
+  sample: AgentUsageAccumulationInput,
+): AgentUsageSummary {
+  return agentUsageSummarySchema.parse({
+    sample_count: summary.sample_count + 1,
+    input_tokens: summary.input_tokens + sample.input_tokens,
+    output_tokens: summary.output_tokens + sample.output_tokens,
+    total_tokens: summary.total_tokens + sample.total_tokens,
+    total_duration_ms: summary.total_duration_ms + sample.duration_ms,
+    retries: summary.retries + sample.retries,
+    failure_count: summary.failure_count + (sample.succeeded ? 0 : 1),
+  });
+}
+
 // ---- Unified progress ----
 
 /** Contract marker for the unified progress shape. */
