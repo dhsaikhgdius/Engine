@@ -197,8 +197,12 @@ export function createBlenderLiveLinkReplayGuard(): BlenderLiveLinkReplayGuard {
       return { apply: fresh, resyncRequired: false, reason: "ok", droppedReplays };
     },
     markSynced(sceneEpochInput, seqInput) {
-      epoch = sceneEpoch.parse(sceneEpochInput);
-      seq = sequence.parse(seqInput);
+      // Validate both inputs before assigning either, so a rejected call
+      // can never leave the cursor half-updated (epoch moved, seq stale).
+      const parsedEpoch = sceneEpoch.parse(sceneEpochInput);
+      const parsedSeq = sequence.parse(seqInput);
+      epoch = parsedEpoch;
+      seq = parsedSeq;
     },
     cursor() {
       return { sceneEpoch: epoch, seq };

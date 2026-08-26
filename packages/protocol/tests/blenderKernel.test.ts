@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import {
   BLENDER_INVOKE_OPERATOR_CATEGORY_DENYLIST,
@@ -9,7 +11,18 @@ import {
   assertBlenderKernelPolicy,
   isAllowedBlenderOperator,
   isAllowedBlenderRnaWrite,
+  isAllowedBlenderTypedPropertyName,
 } from "../src/blenderKernel";
+
+const execFileAsync = promisify(execFile);
+const kernelPolicyPath = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../integrations/blender/live/addons/worldengine_studio/kernel_policy.py",
+);
+const kernelPolicyTestPath = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../integrations/blender/live/addons/worldengine_studio/tests/test_kernel_policy.py",
+);
 
 it("freezes typed kernel operations separately from the operator long tail", () => {
   expect(BLENDER_KERNEL_TYPED_OPERATION_NAMES).toContain("create_blockout");
@@ -18,6 +31,78 @@ it("freezes typed kernel operations separately from the operator long tail", () 
   expect(BLENDER_KERNEL_TYPED_OPERATION_NAMES).not.toContain("invoke_operator");
   expect(BLENDER_KERNEL_TYPED_OPERATION_NAMES).not.toContain("set_rna_property");
   expect(BLENDER_KERNEL_TYPED_OPERATION_NAMES).not.toContain("execute_code");
+});
+
+it("denies session-destroying mainfile loads on the same grounds as quitting", () => {
+  for (const operator of [
+    "wm.open_mainfile",
+    "wm.revert_mainfile",
+    "wm.read_homefile",
+    "wm.read_factory_settings",
+    "wm.recover_last_session",
+    "wm.recover_auto_save",
+  ]) {
+    expect(isAllowedBlenderOperator(operator), operator).toBe(false);
+    expect(() => assertBlenderKernelPolicy([{ op: "invoke_operator", operator }])).toThrow(
+      /outside the Director modeling kernel/,
+    );
+  }
+  // Saving never invalidates the live session and must stay allowed.
+  expect(isAllowedBlenderOperator("wm.save_as_mainfile")).toBe(true);
+  expect(isAllowedBlenderOperator("wm.save_mainfile")).toBe(true);
+});
+
+it("denies path-like typed modifier and geometry-node property names at the gateway boundary", () => {
+  for (const name of ["filepath", "FILEPATH", "filename", "directory", "library", "script", "expression"]) {
+    expect(isAllowedBlenderTypedPropertyName(name), name).toBe(false);
+  }
+  for (const name of ["width", "segments", "use_clamp_overlap", "filepath_extra", "my_filename"]) {
+    expect(isAllowedBlenderTypedPropertyName(name), name).toBe(true);
+  }
+  expect(() =>
+    assertBlenderKernelPolicy([
+      {
+        op: "add_modifier",
+        id: "cube-a",
+        modifierName: "Bevel",
+        modifierType: "BEVEL",
+        properties: { filepath: "/etc/passwd" },
+      },
+    ]),
+  ).toThrow(/outside the Director modeling kernel/);
+  expect(() =>
+    assertBlenderKernelPolicy([
+      { op: "set_modifier", id: "cube-a", modifierName: "Bevel", properties: { directory: "../.." } },
+    ]),
+  ).toThrow(/outside the Director modeling kernel/);
+  expect(() =>
+    assertBlenderKernelPolicy([
+      {
+        op: "create_geometry_node",
+        id: "cube-a",
+        nodeRef: "node-a",
+        nodeType: "MATH",
+        nodeProperties: { filename: "evil.py" },
+      },
+    ]),
+  ).toThrow(/outside the Director modeling kernel/);
+  expect(() =>
+    assertBlenderKernelPolicy([
+      {
+        op: "add_modifier",
+        id: "cube-a",
+        modifierName: "Bevel",
+        modifierType: "BEVEL",
+        properties: { width: 0.1, segments: 3 },
+      },
+    ]),
+  ).not.toThrow();
+  // invoke_operator properties stay open for import/export operators.
+  expect(() =>
+    assertBlenderKernelPolicy([
+      { op: "invoke_operator", operator: "import_scene.gltf", properties: { filepath: "/tmp/model.glb" } },
+    ]),
+  ).not.toThrow();
 });
 
 it("allows import, render, and save, and denies quitting Blender", () => {
@@ -118,13 +203,7 @@ it("allows file-path operator properties used for import and export", () => {
 });
 
 it("keeps the Python kernel policy sets in sync with the TS constants", () => {
-  const kernelPolicySource = readFileSync(
-    resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "../../../integrations/blender/live/addons/worldengine_studio/kernel_policy.py",
-    ),
-    "utf8",
-  );
+  const kernelPolicySource = readFileSync(kernelPolicyPath, "utf8");
   const pythonSetMembers = (name: string): string[] => {
     const literal = kernelPolicySource.match(new RegExp(`^${name} = \\{([^}]*)\\}`, "m"));
     if (!literal) {
@@ -135,3 +214,31 @@ it("keeps the Python kernel policy sets in sync with the TS constants", () => {
   expect(pythonSetMembers("OPERATOR_CATEGORY_DENYLIST")).toEqual([...BLENDER_INVOKE_OPERATOR_CATEGORY_DENYLIST].sort());
   expect(pythonSetMembers("OPERATOR_ID_DENYLIST")).toEqual([...BLENDER_INVOKE_OPERATOR_ID_DENYLIST].sort());
 });
+
+it("keeps the Python typed-property denylist behaviorally in sync with the TS predicate", () => {
+  const kernelPolicySource = readFileSync(kernelPolicyPath, "utf8");
+  const literal = kernelPolicySource.match(/_TYPED_PROPERTY_DENY = re\.compile\(\s*r"([^"]+)"/);
+  if (!literal) throw new Error("Python typed-property deny regex not found");
+  const pythonPattern = new RegExp(literal[1], "i");
+  for (const name of [
+    "filepath",
+    "FILEPATH",
+    "filename",
+    "directory",
+    "library",
+    "script",
+    "expression",
+    "width",
+    "segments",
+    "use_clamp_overlap",
+    "filepath_extra",
+    "my_filename",
+  ]) {
+    expect(isAllowedBlenderTypedPropertyName(name), name).toBe(!pythonPattern.test(name));
+  }
+});
+
+it("passes the host-free Python kernel policy unittest suite without Blender installed", async () => {
+  const { stderr } = await execFileAsync("python3", [kernelPolicyTestPath]);
+  expect(stderr).toContain("OK");
+}, 30_000);
