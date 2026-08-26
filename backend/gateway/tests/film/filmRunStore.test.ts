@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -79,6 +79,35 @@ describe("FilmRunStore", () => {
 
     await store.create(filmRunSchema.parse({ ...baseRun("film-ffffffff-6666"), status: "completed" }));
     expect((await store.markCancelled("film-ffffffff-6666")).status).toBe("completed");
+  });
+
+  it("probes live artifact byte presence for claimed paths only", async () => {
+    const store = await createStore();
+
+    // No claims yet: nothing to probe, nothing reported.
+    const queued = await store.create(baseRun("film-55555555-eeee"));
+    expect(await store.artifactStoragePresence(queued)).toEqual({});
+
+    const runDirectory = store.runDirectory("film-66666666-ffff");
+    await mkdir(runDirectory, { recursive: true });
+    const finalVideoPath = join(runDirectory, "final_video.mp4");
+    await writeFile(finalVideoPath, "mp4-bytes");
+    const completed = await store.create(
+      filmRunSchema.parse({
+        ...baseRun("film-66666666-ffff"),
+        status: "completed",
+        phase: "completed",
+        finalVideoPath,
+        timelinePath: join(runDirectory, "timeline.otio"),
+      }),
+    );
+
+    // The final video bytes exist; the claimed timeline was never written.
+    expect(await store.artifactStoragePresence(completed)).toEqual({ finalVideo: "present", timeline: "absent" });
+
+    // Cleanup after the run finished ages the video bytes out too.
+    await rm(finalVideoPath);
+    expect(await store.artifactStoragePresence(completed)).toEqual({ finalVideo: "absent", timeline: "absent" });
   });
 
   it("reconciles queued/running restart survivors into interrupted-failed runs", async () => {
