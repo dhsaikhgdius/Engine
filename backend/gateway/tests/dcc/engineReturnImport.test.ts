@@ -44,6 +44,8 @@ interface EngineFixtureOptions {
   mutateLive?: (project: DirectorProject) => void;
   /** Return change transform for the table (defaults to a real move). */
   tableReturnPosition?: [number, number, number];
+  /** Add an object_addition change (a new engine object with a fresh director_id). */
+  addition?: boolean;
 }
 
 async function engineFixture(options: EngineFixtureOptions = {}) {
@@ -77,6 +79,24 @@ async function engineFixture(options: EngineFixtureOptions = {}) {
       ),
     },
   ];
+  const fileHashes: Record<string, string> = {};
+  if (options.addition) {
+    const additionMesh = "fresh engine crate glb fixture";
+    await mkdir(resolve(packageDirectory, "meshes"), { recursive: true });
+    await writeFile(resolve(packageDirectory, "meshes", "crate-new.glb"), additionMesh);
+    fileHashes["meshes/crate-new.glb"] = digest(additionMesh);
+    changes.push({
+      kind: "object_addition",
+      directorId: "crate-new",
+      entityType: "object",
+      name: "Supply Crate",
+      meshFile: "meshes/crate-new.glb",
+      transform: directorTransformToCanonicalDcc(
+        { position: [0, 0.5, -3], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        exportWorld,
+      ),
+    });
+  }
   const manifest: DirectorDccReturnManifestV1 = {
     schemaVersion: 1,
     contract: "director-dcc-return-v1",
@@ -95,7 +115,7 @@ async function engineFixture(options: EngineFixtureOptions = {}) {
     },
     changes,
     warnings: [],
-    fileHashes: {},
+    fileHashes,
   };
   await writeFile(resolve(packageDirectory, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
 
@@ -232,6 +252,30 @@ describe("engine return import (canonical wire space)", () => {
         actions: [expect.objectContaining({ action: "update_object", object_id: "table", force: true })],
       }),
     );
+  });
+
+  it("stamps typed omittedAdditions for engine additions awaiting the include_new_objects opt-in", async () => {
+    const setup = await engineFixture({ addition: true });
+    const plan = await setup.importer.buildImportPlan(setup.packageDir, setup.project);
+    expect(plan.ready).toBe(true);
+    expect(plan.operations).not.toContainEqual(expect.objectContaining({ op: "create_prop" }));
+    expect(plan.omittedAdditionsCount).toBe(1);
+    expect(plan.omittedAdditions).toEqual([
+      {
+        directorId: "crate-new",
+        name: "Supply Crate",
+        meshFile: "meshes/crate-new.glb",
+        code: "opt_in_required",
+        reason: expect.stringContaining("include_new_objects"),
+      },
+    ]);
+
+    const optedIn = await setup.importer.buildImportPlan(setup.packageDir, setup.project, {
+      includeNewObjects: true,
+    });
+    expect(optedIn.operations).toContainEqual(expect.objectContaining({ op: "create_prop", objectId: "crate-new" }));
+    expect(optedIn.omittedAdditions).toBeUndefined();
+    expect(optedIn.omittedAdditionsCount).toBeUndefined();
   });
 
   it("camera targets in exchange baselines use canonical world points", () => {
