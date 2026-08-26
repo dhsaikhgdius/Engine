@@ -271,6 +271,44 @@ describe("DirectorCollaborationWebSocketHub room lifecycle policy", () => {
     hub.destroy();
   });
 
+  it("evicts the least-recently-active retained empty room instead of denying a new room at the cap", () => {
+    const timers = fakeTimers();
+    const clock = { value: 1_700_000_000_000 };
+    const hub = new DirectorCollaborationWebSocketHub({
+      emptyRoomRetentionMs: 60_000,
+      maxRooms: 2,
+      now: () => clock.value,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    const first = socket();
+    hub.handle(first, { type: "collab.join", room: "older-retained", awareness_client_id: 61 });
+    hub.disconnect(first);
+    clock.value += 1_000;
+    const second = socket();
+    hub.handle(second, { type: "collab.join", room: "newer-retained", awareness_client_id: 62 });
+    hub.disconnect(second);
+    expect(hub.roomCount).toBe(2);
+
+    // Both slots hold retained empty rooms; a new room reclaims the older one.
+    clock.value += 1_000;
+    const third = socket();
+    hub.handle(third, { type: "collab.join", room: "fresh-room", awareness_client_id: 63 });
+    expect(messages(third).at(0)).toMatchObject({ type: "collab.ready", room: "fresh-room" });
+    expect(hub.roomCount).toBe(2);
+    const rooms = hub.listRoomStatuses().map((status) => status.room);
+    expect(rooms).toEqual(["fresh-room", "newer-retained"]);
+
+    // With every room occupied by live peers the cap still denies a new room.
+    const fourth = socket();
+    hub.handle(fourth, { type: "collab.join", room: "newer-retained", awareness_client_id: 64 });
+    expect(messages(fourth).at(0)).toMatchObject({ type: "collab.ready", room: "newer-retained" });
+    const fifth = socket();
+    hub.handle(fifth, { type: "collab.join", room: "denied-room", awareness_client_id: 65 });
+    expect(messages(fifth).at(-1)).toMatchObject({ type: "collab.error", code: "room_full", room: "denied-room" });
+    hub.destroy();
+  });
+
   it("flushes pending durable updates into the snapshot when a room empties or closes", async () => {
     const compacted: string[] = [];
     const persistence = {
