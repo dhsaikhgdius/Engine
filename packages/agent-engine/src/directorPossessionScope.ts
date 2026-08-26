@@ -190,10 +190,10 @@ function authoringActionTargetIds(action: DirectorAuthoringAction): string[] | n
  * artifacts) are rejected with a readable error.
  *
  * Player Mode and Camera Pilot session commands are scoped too: `player`
- * `enter`/`set_actor` must explicitly name a possessed `actor_id` (the live
- * actor otherwise falls back to shared-tab state such as the user's
- * selection), the remaining `player` verbs then drive that constrained live
- * actor, and `pilot.record_waypoint` is rejected because it writes camera
+ * `enter`/`set_actor`/`teleport`/`walk_to` must explicitly name a possessed
+ * `actor_id` (Stage otherwise falls back to shared-tab state such as the
+ * user's selection), the remaining `player` verbs then drive that constrained
+ * live actor, and `pilot.record_waypoint` is rejected because it writes camera
  * keyframes outside any character. Transient pilot flight
  * (`start`/`stop`/`set_view`) stays available.
  *
@@ -218,7 +218,15 @@ export function evaluateDirectorPossessionScope(input: {
 
   const possessed = new Set(possessedObjectIds);
   if (operation.op === "player") {
-    if (operation.action === "enter" || operation.action === "set_actor") {
+    // enter/set_actor select the live actor; teleport/walk_to mutate a
+    // character transform and likewise fall back to shared-tab selection when
+    // actor_id is omitted — require an explicit possessed id for all four.
+    if (
+      operation.action === "enter" ||
+      operation.action === "set_actor" ||
+      operation.action === "teleport" ||
+      operation.action === "walk_to"
+    ) {
       if (!operation.actor_id) {
         return possessionScopeError(
           sessionId,
@@ -234,10 +242,9 @@ export function evaluateDirectorPossessionScope(input: {
         );
       }
     }
-    // The remaining player verbs (exit, teleport, walk_to, interact,
-    // enter_vehicle, exit_vehicle, record_start, record_stop) drive the live
-    // actor whose selection is constrained by the enter/set_actor rule above;
-    // their object_id/position fields are in-world references.
+    // The remaining player verbs (exit, interact, enter_vehicle, exit_vehicle,
+    // record_start, record_stop) drive the live actor constrained by
+    // enter/set_actor; their object_id/position fields are in-world references.
     return { allowed: true };
   }
   if (operation.op === "pilot") {

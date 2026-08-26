@@ -4679,7 +4679,9 @@ export function DirectorCanvas({
           }
           if (command.type === "teleport" || command.type === "walk_to") {
             const store = useDirectorStore.getState();
-            const actorId = playerActorId ?? store.selectedObjectId;
+            // Prefer the command's actor_id so possessed Agents cannot hijack
+            // the shared-tab selection when playerActorId is unset.
+            const actorId = command.actor_id ?? playerActorId ?? store.selectedObjectId;
             if (!actorId) {
               publishDirectorSessionCommandResult({
                 requestId: envelope.requestId,

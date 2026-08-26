@@ -891,6 +891,30 @@ describe("stage routes", () => {
       }),
     );
 
+    // player.teleport without actor_id would likewise hijack shared selection.
+    const teleportOmitted = createDependencies({
+      session_id: "dsh-possessed",
+      target_token: TARGET.token,
+      input: { op: "player", action: "teleport", position: [1, 0, 2] },
+    });
+    teleportOmitted.dependencies.requestWorkbenchCommand = vi.fn().mockResolvedValue(bindingProbe);
+    await handleStageRoute(
+      { method: "POST" } as IncomingMessage,
+      mockResponse(),
+      new URL("http://director.test/api/tools/director_workbench"),
+      teleportOmitted.dependencies,
+    );
+    expect(teleportOmitted.dependencies.requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(teleportOmitted.json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      403,
+      expect.objectContaining({
+        success: false,
+        code: "possession_scope_violation",
+        error: expect.stringContaining("actor_id"),
+      }),
+    );
+
     // player.enter naming another session's character is rejected the same way.
     const enterOutside = createDependencies({
       session_id: "dsh-possessed",

@@ -110,6 +110,13 @@
       "expect": { "success": false, "code": "possession_scope_violation", "error_includes": "actor_id" }
     },
     {
+      "label": "player teleport must name the possessed actor",
+      "tool": "director_workbench",
+      "session_id": "dsh-eval-possess",
+      "input": { "op": "player", "action": "teleport", "position": [1, 0, 2] },
+      "expect": { "success": false, "code": "possession_scope_violation", "error_includes": "actor_id" }
+    },
+    {
       "label": "pilot waypoint recording is outside the possession scope",
       "tool": "director_workbench",
       "session_id": "dsh-eval-possess",
