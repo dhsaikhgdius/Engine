@@ -641,6 +641,73 @@ export const creativeWorkspaceMediaProxyAttachSchema = strictOperation("media.pr
   path: ["proxy_media_id"],
 });
 
+/** How the persistent creative media library is currently backed. */
+export const creativeWorkspaceMediaStorageModeSchema = z.enum(["indexeddb", "memory"]);
+
+/** Typed outcome of one durable media byte probe. */
+export const creativeWorkspaceMediaDurabilityOutcomeSchema = z.enum([
+  "verified",
+  "size_mismatch",
+  "missing_bytes",
+  "not_cataloged",
+  "unverified",
+]);
+
+/** Typed reason a durable media byte probe was omitted instead of guessed. */
+export const creativeWorkspaceMediaDurabilityOmitReasonSchema = z.enum(["blob_reader_unavailable", "probe_failed"]);
+
+/**
+ * One probed durability claim for a cataloged media asset. `cataloged_bytes`
+ * comes from import-time metadata; `stored_bytes` is read back from the durable
+ * backend at probe time, so agents never have to trust an unprobed byte count.
+ */
+export const creativeWorkspaceMediaDurabilityProbeSchema = z.strictObject({
+  media_id: creativeWorkspaceIdSchema,
+  outcome: creativeWorkspaceMediaDurabilityOutcomeSchema,
+  cataloged_bytes: z.number().finite().nonnegative().nullable(),
+  stored_bytes: z.number().finite().nonnegative().nullable(),
+  object_url_present: z.boolean().nullable(),
+  proxy_of: z.string().nullable(),
+  omit_reason: creativeWorkspaceMediaDurabilityOmitReasonSchema.nullable(),
+  detail: z.string().max(500).nullable(),
+});
+
+/**
+ * Storage stanza stamped on probed media receipts. `durable` is false in
+ * memory mode: the library silently degrades when IndexedDB fails, and
+ * memory-backed media does not survive a reload.
+ */
+export const creativeWorkspaceMediaStorageStanzaSchema = z.strictObject({
+  mode: creativeWorkspaceMediaStorageModeSchema,
+  durable: z.boolean(),
+  warning: z.string().nullable(),
+});
+
+/** Typed result payload for a media.verify execution receipt. */
+export const creativeWorkspaceMediaVerifyResultSchema = z.strictObject({
+  storage: creativeWorkspaceMediaStorageStanzaSchema,
+  items: z.array(creativeWorkspaceMediaDurabilityProbeSchema).min(1).max(64),
+  counts: z.strictObject({
+    verified: z.number().int().nonnegative(),
+    size_mismatch: z.number().int().nonnegative(),
+    missing_bytes: z.number().int().nonnegative(),
+    not_cataloged: z.number().int().nonnegative(),
+    unverified: z.number().int().nonnegative(),
+  }),
+});
+
+/**
+ * Operation to probe whether cataloged media bytes are actually present in the
+ * durable browser store. Requires durable media IO, so it executes on the
+ * async browser path like media.relink.
+ */
+export const creativeWorkspaceMediaVerifySchema = strictOperation("media.verify", {
+  media_ids: z.array(creativeWorkspaceIdSchema).min(1).max(64),
+}).refine((value) => new Set(value.media_ids).size === value.media_ids.length, {
+  message: "media_ids values must be unique",
+  path: ["media_ids"],
+});
+
 /** Label colors available for gallery media items. */
 export const creativeWorkspaceGalleryColorSchema = z.enum([
   "none",
@@ -804,6 +871,7 @@ export const creativeWorkspaceAgentOperationSchema = z.discriminatedUnion("op", 
   editSeekSchema,
   creativeWorkspaceMediaPlaybackUpdateSchema,
   creativeWorkspaceMediaProxyAttachSchema,
+  creativeWorkspaceMediaVerifySchema,
   galleryMediaUpdateSchema,
   galleryMediaMoveSchema,
   galleryMediaTrashSchema,
@@ -832,6 +900,7 @@ export const creativeWorkspaceBatchExcludedOperations: readonly CreativeWorkspac
   "media.playback.update",
   "media.proxy.attach",
   "media.relink",
+  "media.verify",
   "gallery.media.purge",
   "workspace.switch",
   "workspace.undo",

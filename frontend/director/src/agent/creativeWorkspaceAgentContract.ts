@@ -57,6 +57,9 @@ import {
   creativeWorkspaceCollaborationToolResultSchema,
   describeCreativeWorkspaceTarget,
   creativeWorkspaceInterchangeToolResultSchema,
+  creativeWorkspaceMediaDurabilityProbeSchema,
+  creativeWorkspaceMediaStorageStanzaSchema,
+  creativeWorkspaceMediaVerifyResultSchema,
   creativeWorkspacePipelineToolResultSchema,
   creativeWorkspacePipelineRunSchema,
 } from "@director/protocol/creativeWorkspaceProtocol";
@@ -119,6 +122,8 @@ export interface CreativeWorkspaceAgentContext {
       id: string,
       preference: NonNullable<CreativeMediaAsset["playbackPreference"]>,
     ): CreativeMediaAsset | null;
+    /** Reads the durable bytes behind a cataloged media id; absent when the host cannot probe. */
+    readBlob?(id: string): Promise<Blob | null>;
   };
   getScopeId?(): string;
 }
@@ -131,6 +136,7 @@ const defaultContext: CreativeWorkspaceAgentContext = {
       persistentCreativeMediaLibrary.attachExistingProxy(originalId, proxyId),
     updatePlaybackPreference: (id, preference) =>
       persistentCreativeMediaLibrary.updatePlaybackPreference(id, preference),
+    readBlob: (id) => persistentCreativeMediaLibrary.getBlob(id),
   },
   getScopeId: getDirectorCreativeWorkspaceScope,
 };
@@ -684,6 +690,87 @@ function findMedia(context: CreativeWorkspaceAgentContext, mediaId: string): Cre
   return context.media.getState().assets.find((asset) => asset.id === mediaId) ?? null;
 }
 
+type CreativeMediaDurabilityProbe = z.infer<typeof creativeWorkspaceMediaDurabilityProbeSchema>;
+
+/** Storage stanza for probed media receipts; memory mode does not survive a reload. */
+function creativeMediaStorageStanza(
+  context: CreativeWorkspaceAgentContext,
+): z.infer<typeof creativeWorkspaceMediaStorageStanzaSchema> {
+  const state = context.media.getState();
+  return creativeWorkspaceMediaStorageStanzaSchema.parse({
+    mode: state.storageMode,
+    durable: state.storageMode === "indexeddb",
+    warning: state.warning,
+  });
+}
+
+/**
+ * Probes one cataloged media id against the durable backend instead of
+ * trusting catalog metadata: bytes are read back and compared to the cataloged
+ * size, and hosts that cannot read blobs stamp a typed omit reason.
+ */
+async function probeCreativeMediaDurability(
+  context: CreativeWorkspaceAgentContext,
+  mediaId: string,
+): Promise<CreativeMediaDurabilityProbe> {
+  const asset = findMedia(context, mediaId);
+  if (!asset) {
+    return {
+      media_id: mediaId,
+      outcome: "not_cataloged",
+      cataloged_bytes: null,
+      stored_bytes: null,
+      object_url_present: null,
+      proxy_of: null,
+      omit_reason: null,
+      detail: "This id is not in the persistent media library; import or relink it before verifying bytes.",
+    };
+  }
+  const base = {
+    media_id: mediaId,
+    cataloged_bytes: asset.size,
+    object_url_present: Boolean(asset.objectUrl),
+    proxy_of: asset.proxyOf ?? null,
+  };
+  const readBlob = context.media.readBlob;
+  if (!readBlob) {
+    return {
+      ...base,
+      outcome: "unverified",
+      stored_bytes: null,
+      omit_reason: "blob_reader_unavailable",
+      detail: "This creative media context cannot read durable blobs; byte presence was not probed.",
+    };
+  }
+  try {
+    const blob = await readBlob(mediaId);
+    if (!blob) {
+      return {
+        ...base,
+        outcome: "missing_bytes",
+        stored_bytes: null,
+        omit_reason: null,
+        detail: "The durable store returned no bytes for this cataloged id; relink the source file.",
+      };
+    }
+    return {
+      ...base,
+      outcome: blob.size === asset.size ? "verified" : "size_mismatch",
+      stored_bytes: blob.size,
+      omit_reason: null,
+      detail: null,
+    };
+  } catch (error) {
+    return {
+      ...base,
+      outcome: "unverified",
+      stored_bytes: null,
+      omit_reason: "probe_failed",
+      detail: `Durable byte probe failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 function directWorkspaceMediaReferenceCount(state: DirectorCreativeWorkspaceState, mediaId: string): number {
   const boardReferences = state.boardNodes.filter((node) => node.mediaId === mediaId).length;
   const clipReferences = state.editTracks.reduce(
@@ -1229,6 +1316,13 @@ export function executeCreativeWorkspaceAgentOperation(
         operation.op,
         "operation_rejected",
         "media.relink requires durable media IO; dispatch it through executeCreativeWorkspaceAgentOperationAsync.",
+      );
+    }
+    case "media.verify": {
+      return semanticFailure(
+        operation.op,
+        "operation_rejected",
+        "media.verify reads durable media bytes; dispatch it through executeCreativeWorkspaceAgentOperationAsync.",
       );
     }
     case "canvas.node.add": {
@@ -2340,6 +2434,9 @@ export async function executeCreativeWorkspaceMediaRelinkFile(
     const expected = findMedia(context, mediaId)?.kind;
     const receipt = await relinkDirectorCreativeMedia(mediaId, file, expected ?? undefined);
     const media = findMedia(context, receipt.newMediaId);
+    const durability = creativeWorkspaceMediaDurabilityProbeSchema.parse(
+      await probeCreativeMediaDurability(context, receipt.newMediaId),
+    );
     return success(
       "media.relink",
       `Relinked media "${mediaId}" to "${receipt.newMediaId}".`,
@@ -2349,6 +2446,8 @@ export async function executeCreativeWorkspaceMediaRelinkFile(
         references_updated: receipt.referencesUpdated,
         waveform_ready: receipt.waveformReady,
         media: media ? projectMediaAsset(media) : null,
+        storage: creativeMediaStorageStanza(context),
+        durability,
       },
       context,
     );
@@ -2361,7 +2460,39 @@ export async function executeCreativeWorkspaceMediaRelinkFile(
   }
 }
 
-/** Async execute path for operations that need durable media IO (media.relink). */
+/**
+ * Shared media.verify body: probes each requested id against the durable
+ * store so byte and link claims on receipts are measured, not assumed.
+ */
+export async function executeCreativeWorkspaceMediaVerify(
+  operation: Extract<CreativeWorkspaceAgentOperation, { op: "media.verify" }>,
+  context: CreativeWorkspaceAgentContext = defaultContext,
+): Promise<CreativeWorkspaceAgentExecutionResult> {
+  const items: CreativeMediaDurabilityProbe[] = [];
+  for (const mediaId of operation.media_ids) {
+    items.push(await probeCreativeMediaDurability(context, mediaId));
+  }
+  const counts = {
+    verified: items.filter((item) => item.outcome === "verified").length,
+    size_mismatch: items.filter((item) => item.outcome === "size_mismatch").length,
+    missing_bytes: items.filter((item) => item.outcome === "missing_bytes").length,
+    not_cataloged: items.filter((item) => item.outcome === "not_cataloged").length,
+    unverified: items.filter((item) => item.outcome === "unverified").length,
+  };
+  const result = creativeWorkspaceMediaVerifyResultSchema.parse({
+    storage: creativeMediaStorageStanza(context),
+    items,
+    counts,
+  });
+  return success(
+    "media.verify",
+    `Probed durable bytes for ${items.length} media asset(s): ${counts.verified} verified, ${counts.size_mismatch} size mismatch, ${counts.missing_bytes} missing bytes, ${counts.not_cataloged} not cataloged, ${counts.unverified} unverified.`,
+    result,
+    context,
+  );
+}
+
+/** Async execute path for operations that need durable media IO (media.relink, media.verify). */
 export async function executeCreativeWorkspaceAgentOperationAsync(
   input: unknown,
   context: CreativeWorkspaceAgentContext = defaultContext,
@@ -2375,6 +2506,9 @@ export async function executeCreativeWorkspaceAgentOperationAsync(
       error: parsed.error,
       issues: parsed.issues,
     };
+  }
+  if (parsed.operation.op === "media.verify") {
+    return executeCreativeWorkspaceMediaVerify(parsed.operation, context);
   }
   if (parsed.operation.op !== "media.relink") {
     return executeCreativeWorkspaceAgentOperation(parsed.operation, context);

@@ -41337,6 +41337,47 @@ var creativeWorkspaceMediaProxyAttachSchema = strictOperation("media.proxy.attac
   message: "original_media_id and proxy_media_id must be different",
   path: ["proxy_media_id"]
 });
+var creativeWorkspaceMediaStorageModeSchema = external_exports.enum(["indexeddb", "memory"]);
+var creativeWorkspaceMediaDurabilityOutcomeSchema = external_exports.enum([
+  "verified",
+  "size_mismatch",
+  "missing_bytes",
+  "not_cataloged",
+  "unverified"
+]);
+var creativeWorkspaceMediaDurabilityOmitReasonSchema = external_exports.enum(["blob_reader_unavailable", "probe_failed"]);
+var creativeWorkspaceMediaDurabilityProbeSchema = external_exports.strictObject({
+  media_id: creativeWorkspaceIdSchema,
+  outcome: creativeWorkspaceMediaDurabilityOutcomeSchema,
+  cataloged_bytes: external_exports.number().finite().nonnegative().nullable(),
+  stored_bytes: external_exports.number().finite().nonnegative().nullable(),
+  object_url_present: external_exports.boolean().nullable(),
+  proxy_of: external_exports.string().nullable(),
+  omit_reason: creativeWorkspaceMediaDurabilityOmitReasonSchema.nullable(),
+  detail: external_exports.string().max(500).nullable()
+});
+var creativeWorkspaceMediaStorageStanzaSchema = external_exports.strictObject({
+  mode: creativeWorkspaceMediaStorageModeSchema,
+  durable: external_exports.boolean(),
+  warning: external_exports.string().nullable()
+});
+var creativeWorkspaceMediaVerifyResultSchema = external_exports.strictObject({
+  storage: creativeWorkspaceMediaStorageStanzaSchema,
+  items: external_exports.array(creativeWorkspaceMediaDurabilityProbeSchema).min(1).max(64),
+  counts: external_exports.strictObject({
+    verified: external_exports.number().int().nonnegative(),
+    size_mismatch: external_exports.number().int().nonnegative(),
+    missing_bytes: external_exports.number().int().nonnegative(),
+    not_cataloged: external_exports.number().int().nonnegative(),
+    unverified: external_exports.number().int().nonnegative()
+  })
+});
+var creativeWorkspaceMediaVerifySchema = strictOperation("media.verify", {
+  media_ids: external_exports.array(creativeWorkspaceIdSchema).min(1).max(64)
+}).refine((value) => new Set(value.media_ids).size === value.media_ids.length, {
+  message: "media_ids values must be unique",
+  path: ["media_ids"]
+});
 var creativeWorkspaceGalleryColorSchema = external_exports.enum([
   "none",
   "red",
@@ -41466,6 +41507,7 @@ var creativeWorkspaceAgentOperationSchema = external_exports.discriminatedUnion(
   editSeekSchema,
   creativeWorkspaceMediaPlaybackUpdateSchema,
   creativeWorkspaceMediaProxyAttachSchema,
+  creativeWorkspaceMediaVerifySchema,
   galleryMediaUpdateSchema,
   galleryMediaMoveSchema,
   galleryMediaTrashSchema,
@@ -41487,6 +41529,7 @@ var creativeWorkspaceBatchExcludedOperations = [
   "media.playback.update",
   "media.proxy.attach",
   "media.relink",
+  "media.verify",
   "gallery.media.purge",
   "workspace.switch",
   "workspace.undo",
@@ -121998,6 +122041,18 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
         execution_surface: external_exports.literal("director_creative media.relink plus Assets panel file picker"),
         director_creative_operation: external_exports.literal("media.relink"),
         reason: external_exports.string()
+      }),
+      verify_bytes: external_exports.strictObject({
+        director_creative_operation: external_exports.literal("media.verify"),
+        example: creativeWorkspaceMediaVerifySchema,
+        outcomes: external_exports.tuple([
+          external_exports.literal("verified"),
+          external_exports.literal("size_mismatch"),
+          external_exports.literal("missing_bytes"),
+          external_exports.literal("not_cataloged"),
+          external_exports.literal("unverified")
+        ]),
+        reason: external_exports.string()
       })
     }),
     gallery: external_exports.strictObject({
@@ -137150,6 +137205,20 @@ var directorEngineSceneImportSelectionSchema = external_exports.strictObject({
   cameraSourceIds: external_exports.array(nonEmpty4.max(240)).max(512),
   lightSourceIds: external_exports.array(nonEmpty4.max(240)).max(1024)
 });
+var DIRECTOR_ENGINE_SCENE_OMITTED_CODES = [
+  "unsupported_object",
+  "hierarchy_flattened",
+  "animation_clips",
+  "skinned_mesh_rigs",
+  "camera_roll"
+];
+var directorEngineSceneOmittedSchema = external_exports.strictObject({
+  sourceId: nonEmpty4.max(240),
+  /** Engine element kind for `unsupported_object` records. */
+  kind: nonEmpty4.max(120).optional(),
+  code: external_exports.enum(DIRECTOR_ENGINE_SCENE_OMITTED_CODES),
+  reason: nonEmpty4.max(2e3)
+});
 var directorEngineSceneImportPlanSchema = external_exports.strictObject({
   contract: external_exports.literal(DIRECTOR_ENGINE_SCENE_IMPORT_PLAN_CONTRACT),
   planId: safeRelativePath3,
@@ -137168,7 +137237,19 @@ var directorEngineSceneImportPlanSchema = external_exports.strictObject({
       reason: nonEmpty4.max(2e3)
     })
   ).max(4e3),
-  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4)
+  warnings: external_exports.array(external_exports.string().max(2e3)).max(2e4),
+  /**
+   * Count of typed omitted records. Optional for plans persisted before
+   * typed omits; when omitted is present, length must equal this count.
+   */
+  omittedCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed warn-and-omit records for engine scene data the plan leaves
+   * behind. Optional for older stored plans; when present, length must
+   * equal omittedCount. The cap covers the manifest `unsupported` cap plus
+   * per-camera and per-scene records.
+   */
+  omitted: external_exports.array(directorEngineSceneOmittedSchema).max(21e3).optional()
 }).superRefine((plan, context) => {
   if (plan.ready && plan.conflicts.length > 0) {
     context.addIssue({ code: "custom", path: ["ready"], message: "ready plans cannot contain conflicts" });
@@ -137186,6 +137267,21 @@ var directorEngineSceneImportPlanSchema = external_exports.strictObject({
       path: ["selection", "lightSourceIds"],
       message: "light selection must be unique"
     });
+  }
+  if (plan.omitted !== void 0) {
+    if (plan.omittedCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedCount"],
+        message: "omittedCount is required when omitted is present"
+      });
+    } else if (plan.omitted.length !== plan.omittedCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omitted"],
+        message: "omitted length must equal omittedCount"
+      });
+    }
   }
 });
 
@@ -139361,6 +139457,42 @@ var characterReferenceSchema = external_exports.strictObject({
   imagePath: nonEmptyText12(2048),
   note: boundedText5(2e3).default("")
 });
+var FILM_TIMELINE_OMITTED_SHOT_LIMIT = 512;
+var filmTimelineOmittedShotCodeSchema = external_exports.enum([
+  /** The shot's rendered clip bytes were missing from the run directory at export time. */
+  "clip_missing"
+]);
+var filmTimelineOmittedShotSchema = external_exports.strictObject({
+  sceneIdx: shotIndex,
+  shotIdx: shotIndex,
+  code: filmTimelineOmittedShotCodeSchema,
+  reason: nonEmptyText12(600)
+});
+var filmTimelineExportReceiptSchema = external_exports.strictObject({
+  /** Planned shots visited at export time. */
+  shotCount: external_exports.number().int().positive().max(1e5),
+  /** Planned shots that became timeline clips; the export fails instead of writing an empty timeline. */
+  clipCount: external_exports.number().int().positive().max(1e5),
+  /** Exact number of planned shots absent from the timeline. */
+  omittedShotCount: external_exports.number().int().nonnegative().max(1e5),
+  /** Typed omit records, bounded to {@link FILM_TIMELINE_OMITTED_SHOT_LIMIT}. */
+  omittedShots: external_exports.array(filmTimelineOmittedShotSchema).max(FILM_TIMELINE_OMITTED_SHOT_LIMIT)
+}).superRefine((receipt, context) => {
+  if (receipt.clipCount + receipt.omittedShotCount !== receipt.shotCount) {
+    context.addIssue({
+      code: "custom",
+      path: ["shotCount"],
+      message: "clipCount plus omittedShotCount must equal shotCount"
+    });
+  }
+  if (receipt.omittedShots.length !== Math.min(receipt.omittedShotCount, FILM_TIMELINE_OMITTED_SHOT_LIMIT)) {
+    context.addIssue({
+      code: "custom",
+      path: ["omittedShots"],
+      message: "omittedShots must carry min(omittedShotCount, FILM_TIMELINE_OMITTED_SHOT_LIMIT) records"
+    });
+  }
+});
 var filmWorkflowSchema = external_exports.enum(["idea-to-film", "script-to-film"]);
 var filmRunStatusSchema = external_exports.enum([
   "queued",
@@ -139440,6 +139572,12 @@ var filmRunSchema = external_exports.strictObject({
   finalVideoPath: external_exports.string().nullable().default(null),
   /** OTIO timeline exported after assembly for Video Editor / NLE handoff. */
   timelinePath: external_exports.string().nullable().default(null),
+  /**
+   * Typed receipt of the OTIO timeline export stamped together with
+   * `timelinePath`. Null when no timeline was exported yet or the run
+   * predates typed export receipts — never invented for legacy documents.
+   */
+  timelineExport: filmTimelineExportReceiptSchema.nullable().default(null),
   approvedAt: external_exports.string().nullable().default(null),
   error: external_exports.string().nullable().default(null),
   /** Stable classification of `error`; null when the run carries no error. */
