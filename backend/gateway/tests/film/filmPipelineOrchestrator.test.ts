@@ -209,7 +209,10 @@ describe("FilmPipelineOrchestrator", () => {
       omittedShots: [{ sceneIdx: 0, shotIdx: 1, code: "clip_missing", reason: "clip bytes were missing" }],
     });
     expect(
-      run.events.some((event) => event.message === "OTIO timeline exported with 1 of 2 planned shots omitted (missing rendered clips)"),
+      run.events.some(
+        (event) =>
+          event.message === "OTIO timeline exported with 1 of 2 planned shots omitted (missing rendered clips)",
+      ),
     ).toBe(true);
   });
 
