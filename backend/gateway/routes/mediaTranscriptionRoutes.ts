@@ -8,7 +8,10 @@ import {
 } from "../../../packages/protocol/src/productionJobProtocol";
 import { ProductionJobIdempotencyConflictError, type ProductionJobStore } from "../jobs/productionJobStore";
 import type { MediaTranscriptionExecutor } from "../transcription/mediaTranscriptionExecutor";
-import type { MediaTranscriptionInputStore } from "../transcription/mediaTranscriptionInputStore";
+import {
+  MediaTranscriptionSourceMissingError,
+  type MediaTranscriptionInputStore,
+} from "../transcription/mediaTranscriptionInputStore";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
@@ -175,7 +178,11 @@ export async function handleMediaTranscriptionRoute(
     }
     const parsed = submitQuerySchema.safeParse(Object.fromEntries(url.searchParams));
     if (!parsed.success) {
-      json(response, 400, { message: "Transcription submit query is invalid", issues: parsed.error.issues });
+      json(response, 400, {
+        code: "invalid_request",
+        message: "Transcription submit query is invalid",
+        issues: parsed.error.issues,
+      });
       return true;
     }
     const sourceMimeType = String(request.headers["content-type"] ?? "")
@@ -183,7 +190,7 @@ export async function handleMediaTranscriptionRoute(
       .trim()
       .toLowerCase();
     if (!sourceMimeType.startsWith("audio/") && !sourceMimeType.startsWith("video/")) {
-      json(response, 415, { message: "Transcription source must be audio or video" });
+      json(response, 415, { code: "unsupported_source_type", message: "Transcription source must be audio or video" });
       return true;
     }
     let bytes: Uint8Array;
@@ -191,7 +198,9 @@ export async function handleMediaTranscriptionRoute(
       bytes = await readRawBody(request, dependencies.config.maxInputBytes);
       await dependencies.inputs.put(bytes, parsed.data.source_sha256);
     } catch (error) {
-      json(response, error instanceof RangeError ? 413 : 400, {
+      const tooLarge = error instanceof RangeError;
+      json(response, tooLarge ? 413 : 400, {
+        code: tooLarge ? "source_too_large" : "invalid_source",
         message: error instanceof Error ? error.message : "Transcription source upload failed",
       });
       return true;
@@ -229,13 +238,17 @@ export async function handleMediaTranscriptionRoute(
   if (request.method === "POST" && cancelId) {
     try {
       const job = await executor.cancel(cancelId);
-      if (!job) json(response, 404, { message: "Transcription job does not exist" });
+      if (!job)
+        json(response, 404, { code: "transcription_job_not_found", message: "Transcription job does not exist" });
       else json(response, 200, { job: productionJobRecordSchema.parse(job) });
     } catch (error) {
       if (error instanceof ProductionJobIdempotencyConflictError) {
         json(response, 409, { code: error.code, message: error.message, existingJobId: error.existingJobId });
       } else {
-        json(response, 409, { message: error instanceof Error ? error.message : String(error) });
+        json(response, 409, {
+          code: "transcription_cancel_conflict",
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     return true;
@@ -243,18 +256,31 @@ export async function handleMediaTranscriptionRoute(
 
   const retryId = transcriptionJobId(url.pathname, "/retry");
   if (request.method === "POST" && retryId) {
+    if (!executor.configured()) {
+      // Without this guard the retried job would enqueue and then sit queued
+      // forever, because the executor refuses to run before any transition.
+      json(response, 503, { code: "transcription_not_configured", message: "No transcription provider is configured" });
+      return true;
+    }
     const source = await store.get(retryId);
     if (!source || !isTranscriptionJob(source)) {
-      json(response, 404, { message: "Transcription job does not exist" });
+      json(response, 404, { code: "transcription_job_not_found", message: "Transcription job does not exist" });
       return true;
     }
     if (!new Set(["failed", "cancelled", "outcome_unknown"]).has(source.status)) {
-      json(response, 409, { message: "Only failed, cancelled, or interrupted transcription jobs can be retried" });
+      json(response, 409, {
+        code: "transcription_retry_conflict",
+        message: "Only failed, cancelled, or interrupted transcription jobs can be retried",
+      });
       return true;
     }
     const retryInput = retryRequestSchema.safeParse(await dependencies.readBody(request));
     if (!retryInput.success) {
-      json(response, 400, { message: "Transcription retry request is invalid", issues: retryInput.error.issues });
+      json(response, 400, {
+        code: "invalid_request",
+        message: "Transcription retry request is invalid",
+        issues: retryInput.error.issues,
+      });
       return true;
     }
     try {
@@ -270,7 +296,16 @@ export async function handleMediaTranscriptionRoute(
       start(executor, job, dependencies.onBackgroundError);
       json(response, 202, { job: productionJobRecordSchema.parse(job) });
     } catch (error) {
-      json(response, 409, { message: error instanceof Error ? error.message : String(error) });
+      if (error instanceof MediaTranscriptionSourceMissingError) {
+        json(response, 409, { code: error.code, message: error.message });
+      } else if (error instanceof ProductionJobIdempotencyConflictError) {
+        json(response, 409, { code: error.code, message: error.message, existingJobId: error.existingJobId });
+      } else {
+        json(response, 409, {
+          code: "transcription_retry_conflict",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     return true;
   }
@@ -278,8 +313,11 @@ export async function handleMediaTranscriptionRoute(
   const getId = transcriptionJobId(url.pathname);
   if (request.method === "GET" && getId) {
     const job = await store.get(getId);
-    if (!job || !isTranscriptionJob(job)) json(response, 404, { message: "Transcription job does not exist" });
-    else json(response, 200, { job: productionJobRecordSchema.parse(job) });
+    if (!job || !isTranscriptionJob(job)) {
+      json(response, 404, { code: "transcription_job_not_found", message: "Transcription job does not exist" });
+    } else {
+      json(response, 200, { job: productionJobRecordSchema.parse(job) });
+    }
     return true;
   }
 
