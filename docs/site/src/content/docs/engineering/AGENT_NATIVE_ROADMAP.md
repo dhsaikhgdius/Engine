@@ -440,7 +440,7 @@ At **~2 weeks per milestone** (adjust for capacity):
 
 ## Immediate next steps
 
-1. Remaining M1: Canvas/Video UI stores (1e/1f) and the leftover Stage ui-only writers in the [parity inventory](/engineering/ui-agent-parity-inventory/)
+1. Remaining M1: the still-direct Canvas/Video flows (overwrite placement, text/caption clips, relink rewrites) and the leftover Stage ui-only writers in the [parity inventory](/engineering/ui-agent-parity-inventory/)
 2. Finish remaining M3: the optional read-only mode (policy on raw HTTP/CLI, the unified audit trail, confirmation boundaries, and role-gated UI shipped 2026-08-25)
 3. Keep [Feature Status](/reference/feature-status/) and the [architecture assessment](/research/agent-native-architecture-assessment/) in the same change when those land
 4. M7 leftovers landed: ADR 0004 concluded the A2A spike (runtime no-go; discovery-only card served) and the cross-app receipt recipe is documented in Control surfaces

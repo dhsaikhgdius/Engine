@@ -758,10 +758,13 @@ export function VideoEditorWorkspace() {
   );
   const timelineZoom = useDirectorCreativeWorkspaceStore((state) => state.timelineZoom);
   const editSettings = useDirectorCreativeWorkspaceStore((state) => state.editSettings);
-  // Clip split/remove/transition, track management, and settings dispatch
+  // Clip add ("+" placement), split/remove/transition, discrete fade steps,
+  // track management, settings, import cataloging, and undo/redo dispatch
   // through the shared agent contract (dispatchCreativeWorkspaceOperations).
   // Only continuous interactions (drags, trims, fades, range sliders, live
-  // typing) and overwrite placement flows keep the direct store mutators.
+  // typing), overwrite placement flows (drop/nudge/duplicate resolved by
+  // commitClipPlacement), and media-less text/caption clips keep the direct
+  // store mutators.
   const addClip = useDirectorCreativeWorkspaceStore((state) => state.addClip);
   const updateClip = useDirectorCreativeWorkspaceStore((state) => state.updateClip);
   const moveClipToTrack = useDirectorCreativeWorkspaceStore((state) => state.moveClipToTrack);
@@ -773,9 +776,6 @@ export function VideoEditorWorkspace() {
   const endHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.endHistoryBatch);
   const canUndo = useDirectorCreativeWorkspaceStore((state) => state.canUndo);
   const canRedo = useDirectorCreativeWorkspaceStore((state) => state.canRedo);
-  const undo = useDirectorCreativeWorkspaceStore((state) => state.undo);
-  const redo = useDirectorCreativeWorkspaceStore((state) => state.redo);
-  const updateGalleryMedia = useDirectorCreativeWorkspaceStore((state) => state.updateGalleryMedia);
   const addRecording = useVideoRecordingStore((state) => state.addRecording);
   const loadCreativeWorkspace = useDirectorCreativeWorkspaceStore((state) => state.loadCreativeWorkspace);
   const [inspectorTab, setInspectorTab] = useState<"properties" | "effects">("properties");
@@ -896,7 +896,10 @@ export function VideoEditorWorkspace() {
   function updateEditFrameRate(serializedRate: string) {
     const rate = normalizeDirectorFrameRate(serializedRate, editTimebase.rate);
     dispatchVideo(
-      { op: "edit.settings.update", patch: { frame_rate: { numerator: rate.numerator, denominator: rate.denominator } } },
+      {
+        op: "edit.settings.update",
+        patch: { frame_rate: { numerator: rate.numerator, denominator: rate.denominator } },
+      },
       t("时间基准更新失败"),
     );
   }
@@ -1194,13 +1197,18 @@ export function VideoEditorWorkspace() {
       const key = event.key.toLowerCase();
       if ((event.metaKey || event.ctrlKey) && !event.altKey && key === "z") {
         event.preventDefault();
-        if (event.shiftKey) redo();
-        else undo();
+        // Empty history stays a silent no-op for shortcuts (the contract
+        // rejects with a conflict), matching the pre-dispatch behavior.
+        if (event.shiftKey) {
+          if (canRedo) dispatchVideo({ op: "workspace.redo" }, t("重做失败"));
+        } else if (canUndo) {
+          dispatchVideo({ op: "workspace.undo" }, t("撤销失败"));
+        }
         return;
       }
       if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && key === "y") {
         event.preventDefault();
-        redo();
+        if (canRedo) dispatchVideo({ op: "workspace.redo" }, t("重做失败"));
         return;
       }
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && key === "d") {
@@ -1373,7 +1381,14 @@ export function VideoEditorWorkspace() {
       for (const file of files) {
         const probe = await probeCreativeMediaFile(file);
         const asset = await persistentCreativeMediaLibrary.importFile(file, probe);
-        updateGalleryMedia(asset.id, { addedAt: new Date().toISOString() });
+        // Cataloging routes through the shared agent contract so UI imports
+        // produce the same gallery revision and receipts as agent imports.
+        const cataloged = dispatchCreativeWorkspaceOperations({
+          op: "gallery.media.update",
+          media_id: asset.id,
+          patch: { added_at: new Date().toISOString() },
+        });
+        if (!cataloged.ok) throw new Error(`${file.name}: ${cataloged.error}`);
         imported += 1;
       }
       setImportMessage(`${t("已导入")} ${imported} ${t("项素材")}`);
@@ -1483,22 +1498,42 @@ export function VideoEditorWorkspace() {
       setImportMessage(error instanceof Error ? error.message : t("素材写入媒体库失败"));
       return;
     }
-    const durationSec = item.durationSec || 3;
+    const durationSec = Math.min(Math.max(item.durationSec || 3, 0.1), 60 * 60);
     const desiredStart = snapDirectorTimelineSeconds(
       start ?? useDirectorCreativeWorkspaceStore.getState().playheadSec,
       exportFps,
       snapEnabled,
     );
+    if (!explicitPlacement) {
+      // "+" placement queues into the first free slot, so the add is a plain
+      // edit.clip.add with no overwrite and routes through the shared contract.
+      dispatchVideo(
+        {
+          op: "edit.clip.add",
+          track_id: targetTrackId,
+          media_id: mediaId,
+          name: item.name.trim().slice(0, 200) || t("未命名剪辑"),
+          start_sec: findTrackFreeStart(targetTrack, desiredStart, durationSec),
+          duration_sec: durationSec,
+          source_duration_sec: item.kind === "video" || item.kind === "audio" ? durationSec : 60 * 60,
+        },
+        t("加入时间线失败"),
+      );
+      return;
+    }
+    // Explicit drops land exactly where released and overwrite what they
+    // cover; commitClipPlacement resolves the overwrite, so this flow keeps
+    // the direct mutators inside one history batch.
     beginHistoryBatch();
     const created = addClip({
       trackId: targetTrackId,
       mediaId,
       name: item.name,
-      startSec: explicitPlacement ? desiredStart : findTrackFreeStart(targetTrack, desiredStart, durationSec),
+      startSec: desiredStart,
       durationSec,
       sourceDurationSec: item.kind === "video" || item.kind === "audio" ? durationSec : 60 * 60,
     });
-    if (created && explicitPlacement) commitClipPlacement(created.id);
+    if (created) commitClipPlacement(created.id);
     endHistoryBatch();
     if (!created) setImportMessage(t("目标轨道不可用，请先解锁或新建轨道"));
   }
@@ -1888,7 +1923,16 @@ export function VideoEditorWorkspace() {
     const maxFade = Math.max(0, clip.durationSec - (side === "in" ? clip.fadeOutSec : clip.fadeInSec));
     const next = current + 0.1 * (side === "in" ? direction : -direction);
     const clamped = Math.max(0, Math.min(maxFade, next));
-    updateClip(clip.id, side === "in" ? { fadeInSec: clamped } : { fadeOutSec: clamped });
+    // Each keypress is one discrete step, so it dispatches like the inspector
+    // fields; only the pointer drag stays a locally batched interaction.
+    dispatchVideo(
+      {
+        op: "edit.clip.update",
+        clip_id: clip.id,
+        patch: side === "in" ? { fade_in_sec: clamped } : { fade_out_sec: clamped },
+      },
+      t("剪辑更新失败"),
+    );
   }
 
   const rulerTicks = Array.from({ length: duration + 1 }, (_, index) => index);
@@ -2101,7 +2145,7 @@ export function VideoEditorWorkspace() {
             <button
               aria-label={t("撤销")}
               disabled={!canUndo}
-              onClick={undo}
+              onClick={() => dispatchVideo({ op: "workspace.undo" }, t("撤销失败"))}
               title={`${t("撤销")} (Ctrl/⌘+Z)`}
               type="button"
             >
@@ -2110,7 +2154,7 @@ export function VideoEditorWorkspace() {
             <button
               aria-label={t("重做")}
               disabled={!canRedo}
-              onClick={redo}
+              onClick={() => dispatchVideo({ op: "workspace.redo" }, t("重做失败"))}
               title={`${t("重做")} (Shift+Ctrl/⌘+Z)`}
               type="button"
             >
@@ -2910,9 +2954,7 @@ export function VideoEditorWorkspace() {
             )}
             <button
               className="creative-danger-button"
-              onClick={() =>
-                dispatchVideo({ op: "edit.clip.remove", clip_id: selected.clip.id }, t("剪辑删除失败"))
-              }
+              onClick={() => dispatchVideo({ op: "edit.clip.remove", clip_id: selected.clip.id }, t("剪辑删除失败"))}
               title={`${t("删除剪辑")} (Delete)`}
               type="button"
             >

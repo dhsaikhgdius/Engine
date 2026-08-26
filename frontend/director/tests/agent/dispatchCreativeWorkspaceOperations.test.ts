@@ -10,7 +10,7 @@
  * still match the legacy direct-store mutators they replaced.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDirectorCreativeWorkspaceStore } from "../../src/comprehensive/editor/workspaces/directorWorkspaceStore";
 import type {
   CreativeMediaAsset,
@@ -165,6 +165,10 @@ beforeEach(() => {
   resetWorkspace();
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("creative workspace UI/agent parity harness", () => {
   it("produces identical revisions for the Canvas batch (node add/remove, edge connect/remove, layout)", () => {
     const { uiRevision, agentRevision } = compareExecutors((execute) => {
@@ -193,6 +197,89 @@ describe("creative workspace UI/agent parity harness", () => {
         target_node_id: createdId(poster, "node"),
       });
     });
+    expect(uiRevision).toEqual(agentRevision);
+  });
+
+  it("produces identical revisions for the Gallery batch (folders, cataloging, review metadata, move)", () => {
+    // Folder creation and move-cataloging stamp wall-clock timestamps; freeze
+    // time so the two executor runs cannot diverge by milliseconds.
+    vi.useFakeTimers({ now: new Date("2026-08-02T10:00:00.000Z") });
+    const { uiRevision, agentRevision } = compareExecutors((execute) => {
+      const folder = execute({ op: "gallery.folder.add", name: "精选" });
+      execute({
+        op: "gallery.media.update",
+        media_id: "media:image:poster",
+        patch: { added_at: "2026-08-02T10:00:00.000Z", notes: "来自 Stage 相机截图" },
+      });
+      execute({
+        op: "gallery.media.update",
+        media_id: "media:image:poster",
+        patch: { rating: 4, tags: ["精选", "夜景"] },
+      });
+      execute({
+        op: "gallery.media.move",
+        media_ids: ["media:image:poster"],
+        folder_id: (folder.folder as { id: string }).id,
+      });
+    });
+    expect(uiRevision).toEqual(agentRevision);
+  });
+
+  it("produces identical revisions for undo/redo and workspace switches", () => {
+    const { uiRevision, agentRevision } = compareExecutors((execute) => {
+      execute({ op: "canvas.node.add", kind: "note", title: "第一稿", x: 0, y: 0 });
+      execute({ op: "canvas.node.add", kind: "note", title: "第二稿", x: 320, y: 0 });
+      execute({ op: "workspace.undo" });
+      execute({ op: "workspace.redo" });
+      execute({ op: "workspace.undo" });
+      execute({ op: "workspace.switch", workspace: "video" });
+    });
+    expect(uiRevision).toEqual(agentRevision);
+  });
+
+  it("matches the agent execute_batch envelope for the capture-import batch shape", () => {
+    // Same catalog + node-add pairs the Stage capture import dispatches.
+    const steps: CreativeWorkspaceOperationInput[] = [
+      {
+        op: "gallery.media.update",
+        media_id: "media:image:poster",
+        patch: { added_at: "2026-08-02T10:00:00.000Z", notes: "来自 Stage 相机截图" },
+      },
+      {
+        op: "canvas.node.add",
+        kind: "image",
+        title: "主全景",
+        body: "Stage camera capture",
+        media_id: "media:image:poster",
+        x: 80,
+        y: 80,
+        accent: "#45b3d6",
+      },
+    ];
+
+    resetWorkspace();
+    const uiRuntime = context();
+    const uiBatch = dispatchCreativeWorkspaceOperations(steps, { context: uiRuntime });
+    if (!uiBatch.ok) throw new Error(uiBatch.error);
+    const uiRevision = normalizedRevision(observeCreativeWorkspaceAgentSnapshot(uiRuntime));
+
+    resetWorkspace();
+    const agentRuntime = context();
+    const observed = observeCreativeWorkspaceAgentSnapshot(agentRuntime);
+    const agentBatch = executeCreativeWorkspaceAgentRequest(
+      creativeWorkspaceAgentRequestSchema.parse({
+        op: "execute_batch",
+        idempotency_key: `agent-parity:${(agentRequestCounter += 1)}`,
+        expected_snapshot_fingerprint: observed.snapshot_fingerprint,
+        steps: steps.map((operation, index) => ({ step_id: `agent-step-${index + 1}`, operation })),
+      }),
+      agentRuntime,
+    );
+    if (agentBatch.op !== "execute_batch" || !agentBatch.execution.success) {
+      throw new Error("agent execute_batch rejected the capture-import shape");
+    }
+    const agentRevision = normalizedRevision(observeCreativeWorkspaceAgentSnapshot(agentRuntime));
+
     expect(uiRevision).toEqual(agentRevision);
   });
 

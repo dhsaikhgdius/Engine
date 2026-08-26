@@ -420,7 +420,7 @@ flowchart LR
 
 ## 下一步行动
 
-1. M1 剩余：Canvas/Video UI store（1e/1f）以及[对等清单](/zh/engineering/ui-agent-parity-inventory/)中仍为 ui-only 的 Stage 写入
+1. M1 剩余：Canvas/Video 仍直接写入的流程（覆盖放置、文字/字幕剪辑、重连引用改写）以及[对等清单](/zh/engineering/ui-agent-parity-inventory/)中仍为 ui-only 的 Stage 写入
 2. 完成剩余 M3：可选的完整只读 mode（原始 HTTP/CLI 策略、统一审计轨迹、确认边界与 role 限制 UI 已于 2026-08-25 交付）
 3. 落地时在同一变更中更新 [Feature Status](/zh/reference/feature-status/) 与[架构符合性评估](/zh/research/agent-native-architecture-assessment/)
 4. M7 遗留已落地：ADR 0004 完成 A2A spike 结论（runtime no-go；已提供 discovery-only card），cross-app 回执 recipe 已写入 Control surfaces
