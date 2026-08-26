@@ -11,12 +11,17 @@
 
 import type { DirectorAuthoringAction } from "@director/agent-engine/authoring";
 import { isDirectorCharacterMotionId } from "@director/agent-engine/character-motions";
+import { clamp } from "@director/protocol/primitives";
 import type {
+  DirectorAssetRef,
   DirectorCameraShot,
   DirectorCharacterMotionState,
   DirectorLight,
   DirectorLightType,
   DirectorProject,
+  DirectorTimeline,
+  DirectorTimelineAudioClip,
+  DirectorTimelineAudioTrack,
   DirectorTransform,
   DirectorWorldEffect,
   DirectorWorldRoad,
@@ -641,4 +646,285 @@ export function compileDirectorSceneUpdateAction(patch: Partial<SceneSettings>):
   }
   if (!Object.keys(scenePatch).length) return null;
   return { action: "set_scene", patch: scenePatch } as SetSceneAction;
+}
+
+/*
+ * Timeline audio edits have no dedicated authoring action; both the UI and the
+ * Agent express them as a set_scene timeline replacement. These builders keep
+ * the historical DirectorStore semantics (track auto-creation, clamping,
+ * sanitizing) so the dispatched timeline is byte-identical to the legacy
+ * in-batch writer's result.
+ */
+
+const MAX_TIMELINE_AUDIO_TRACKS = 8;
+const MAX_TIMELINE_AUDIO_CLIPS_PER_TRACK = 128;
+const MAX_TIMELINE_AUDIO_FRAME = 1_000_000;
+
+/** Input shape for adding an audio clip to the stage timeline. */
+export type DirectorTimelineAudioClipAddInput = {
+  mediaId: string;
+  name: string;
+  sourceUrl?: string;
+  /** Defaults to the current playhead frame. */
+  startFrame?: number;
+  durationFrames: number;
+  sourceDurationSec?: number;
+};
+
+function sanitizeTimelineAudioClipPatch(
+  clip: DirectorTimelineAudioClip,
+  patch: Partial<Omit<DirectorTimelineAudioClip, "id" | "mediaId">>,
+): DirectorTimelineAudioClip {
+  const next: DirectorTimelineAudioClip = { ...clip };
+  if (patch.name !== undefined && patch.name.trim()) next.name = patch.name.trim().slice(0, 240);
+  if (patch.sourceUrl !== undefined) next.sourceUrl = patch.sourceUrl?.trim() || undefined;
+  if (patch.startFrame !== undefined && Number.isFinite(patch.startFrame)) {
+    next.startFrame = clamp(Math.round(patch.startFrame), 0, MAX_TIMELINE_AUDIO_FRAME);
+  }
+  if (patch.durationFrames !== undefined && Number.isFinite(patch.durationFrames)) {
+    next.durationFrames = clamp(Math.round(patch.durationFrames), 1, MAX_TIMELINE_AUDIO_FRAME);
+  }
+  if (patch.inSec !== undefined && Number.isFinite(patch.inSec)) next.inSec = clamp(patch.inSec, 0, 86_400);
+  if (patch.sourceDurationSec !== undefined) {
+    next.sourceDurationSec =
+      Number.isFinite(patch.sourceDurationSec) && patch.sourceDurationSec! > 0
+        ? Math.min(patch.sourceDurationSec!, 86_400)
+        : undefined;
+  }
+  if (patch.volume !== undefined && Number.isFinite(patch.volume)) next.volume = clamp(patch.volume, 0, 1);
+  if (patch.fadeInSec !== undefined && Number.isFinite(patch.fadeInSec)) {
+    next.fadeInSec = clamp(patch.fadeInSec, 0, 60);
+  }
+  if (patch.fadeOutSec !== undefined && Number.isFinite(patch.fadeOutSec)) {
+    next.fadeOutSec = clamp(patch.fadeOutSec, 0, 60);
+  }
+  if (patch.muted !== undefined) next.muted = patch.muted;
+  return next;
+}
+
+function withTimelineAudioTracks(timeline: DirectorTimeline, audioTracks: DirectorTimelineAudioTrack[]) {
+  return { ...timeline, audioTracks };
+}
+
+/**
+ * Compile a stage "add audio clip" edit into the next timeline. Returns null
+ * when the input is invalid or the track/clip capacity is exhausted.
+ */
+export function compileDirectorTimelineAudioClipAdd(
+  timeline: DirectorTimeline,
+  input: DirectorTimelineAudioClipAddInput,
+): { timeline: DirectorTimeline; clipId: string } | null {
+  const mediaId = input.mediaId.trim();
+  const name = input.name.trim().slice(0, 240);
+  if (!mediaId || !name || !Number.isFinite(input.durationFrames) || input.durationFrames < 1) return null;
+  const tracks = timeline.audioTracks ?? [];
+  let trackIndex = tracks.findIndex((track) => track.clips.length < MAX_TIMELINE_AUDIO_CLIPS_PER_TRACK);
+  let nextTracks = tracks;
+  if (trackIndex < 0) {
+    if (tracks.length >= MAX_TIMELINE_AUDIO_TRACKS) return null;
+    nextTracks = [
+      ...tracks,
+      {
+        id: getNextSequentialId(
+          tracks.map((track) => track.id),
+          "audio_track_",
+        ),
+        name: `音频轨 ${tracks.length + 1}`,
+        muted: false,
+        clips: [],
+      },
+    ];
+    trackIndex = nextTracks.length - 1;
+  }
+  const clipId = getNextSequentialId(
+    nextTracks.flatMap((track) => track.clips.map((clip) => clip.id)),
+    "audio_clip_",
+  );
+  const startFrame = clamp(
+    Math.round(
+      input.startFrame !== undefined && Number.isFinite(input.startFrame)
+        ? input.startFrame
+        : Math.max(timeline.currentFrame, 0),
+    ),
+    0,
+    MAX_TIMELINE_AUDIO_FRAME,
+  );
+  const clip: DirectorTimelineAudioClip = {
+    id: clipId,
+    name,
+    mediaId,
+    ...(input.sourceUrl?.trim() ? { sourceUrl: input.sourceUrl.trim() } : {}),
+    startFrame,
+    durationFrames: clamp(Math.round(input.durationFrames), 1, MAX_TIMELINE_AUDIO_FRAME),
+    inSec: 0,
+    ...(input.sourceDurationSec !== undefined && Number.isFinite(input.sourceDurationSec) && input.sourceDurationSec > 0
+      ? { sourceDurationSec: Math.min(input.sourceDurationSec, 86_400) }
+      : {}),
+    volume: 1,
+    fadeInSec: 0,
+    fadeOutSec: 0,
+    muted: false,
+  };
+  return {
+    clipId,
+    timeline: withTimelineAudioTracks(
+      timeline,
+      nextTracks.map((track, index) => (index === trackIndex ? { ...track, clips: [...track.clips, clip] } : track)),
+    ),
+  };
+}
+
+/** Compile a stage audio clip patch into the next timeline; null when the clip is missing. */
+export function compileDirectorTimelineAudioClipUpdate(
+  timeline: DirectorTimeline,
+  clipId: string,
+  patch: Partial<Omit<DirectorTimelineAudioClip, "id" | "mediaId">>,
+): DirectorTimeline | null {
+  const tracks = timeline.audioTracks ?? [];
+  if (!tracks.some((track) => track.clips.some((clip) => clip.id === clipId))) return null;
+  return withTimelineAudioTracks(
+    timeline,
+    tracks.map((track) =>
+      track.clips.some((clip) => clip.id === clipId)
+        ? {
+            ...track,
+            clips: track.clips.map((clip) => (clip.id === clipId ? sanitizeTimelineAudioClipPatch(clip, patch) : clip)),
+          }
+        : track,
+    ),
+  );
+}
+
+/** Compile a stage audio clip move into the next timeline; null when nothing changes. */
+export function compileDirectorTimelineAudioClipMove(
+  timeline: DirectorTimeline,
+  clipId: string,
+  startFrame: number,
+): DirectorTimeline | null {
+  if (!Number.isFinite(startFrame)) return null;
+  const tracks = timeline.audioTracks ?? [];
+  const nextStart = clamp(Math.round(startFrame), 0, MAX_TIMELINE_AUDIO_FRAME);
+  if (!tracks.some((track) => track.clips.some((clip) => clip.id === clipId && clip.startFrame !== nextStart))) {
+    return null;
+  }
+  return withTimelineAudioTracks(
+    timeline,
+    tracks.map((track) =>
+      track.clips.some((clip) => clip.id === clipId)
+        ? {
+            ...track,
+            clips: track.clips.map((clip) => (clip.id === clipId ? { ...clip, startFrame: nextStart } : clip)),
+          }
+        : track,
+    ),
+  );
+}
+
+/** Compile a stage audio clip removal into the next timeline; null when the clip is missing. */
+export function compileDirectorTimelineAudioClipRemoval(
+  timeline: DirectorTimeline,
+  clipId: string,
+): DirectorTimeline | null {
+  const tracks = timeline.audioTracks ?? [];
+  if (!tracks.some((track) => track.clips.some((clip) => clip.id === clipId))) return null;
+  return withTimelineAudioTracks(
+    timeline,
+    tracks.map((track) => ({ ...track, clips: track.clips.filter((clip) => clip.id !== clipId) })),
+  );
+}
+
+/** Compile a stage audio track mute toggle into the next timeline; null when nothing changes. */
+export function compileDirectorTimelineAudioTrackMute(
+  timeline: DirectorTimeline,
+  trackId: string,
+  muted: boolean,
+): DirectorTimeline | null {
+  const tracks = timeline.audioTracks ?? [];
+  const track = tracks.find((candidate) => candidate.id === trackId);
+  if (!track || track.muted === muted) return null;
+  return withTimelineAudioTracks(
+    timeline,
+    tracks.map((candidate) => (candidate.id === trackId ? { ...candidate, muted } : candidate)),
+  );
+}
+
+/** Wrap a rebuilt timeline into the set_scene replacement both UI and Agent dispatch. */
+export function compileDirectorTimelineSetSceneAction(timeline: DirectorTimeline): SetSceneAction {
+  return { action: "set_scene", patch: { timeline: structuredClone(timeline) } } as SetSceneAction;
+}
+
+/**
+ * Compile the Stage "remove imported asset" flow into authoring actions:
+ * children of removed instances are detached first (UI deletes never cascade
+ * into children), then remove_assets cascade-deletes the instances, clears
+ * texture bindings, and drops anchored annotations/measurements. Returns null
+ * when the asset is missing or not a model (the legacy writer no-ops there).
+ */
+export function compileDirectorRemoveImportedAssetActions(
+  project: DirectorProject,
+  assetId: string,
+): DirectorAuthoringAction[] | null {
+  const asset = project.assets.find((item) => item.id === assetId);
+  if (!asset || asset.sourceType !== "model") return null;
+  const removedObjectIds = new Set(
+    project.objects.filter((object) => object.assetRefId === assetId).map((object) => object.id),
+  );
+  const detachChildren: DirectorAuthoringAction[] = project.objects
+    .filter(
+      (object) =>
+        object.parentObjectId && removedObjectIds.has(object.parentObjectId) && !removedObjectIds.has(object.id),
+    )
+    .map((object) => ({
+      action: "update_object" as const,
+      object_id: object.id,
+      patch: { parent_id: null },
+      force: true,
+    }));
+  return [...detachChildren, { action: "remove_assets", asset_ids: [assetId], cascade: true }];
+}
+
+/**
+ * Compile the Stage "remove panorama" flow into a remove_assets action.
+ * Returns null (legacy writer) when there is no panorama asset in the catalog
+ * or something still references it, which authoring would reject or cascade.
+ */
+export function compileDirectorRemovePanoramaAssetAction(project: DirectorProject): DirectorAuthoringAction | null {
+  const panoramaAssetId = project.panoramaAssetId;
+  if (!panoramaAssetId) return null;
+  if (!project.assets.some((asset) => asset.id === panoramaAssetId)) return null;
+  const referenced = project.objects.some(
+    (object) =>
+      object.assetRefId === panoramaAssetId ||
+      Object.values(object.material?.textures ?? {}).some((textureAssetId) => textureAssetId === panoramaAssetId),
+  );
+  if (referenced) return null;
+  return { action: "remove_assets", asset_ids: [panoramaAssetId] };
+}
+
+/**
+ * Compile a real-world-size calibration into an upsert_asset replacement.
+ * Returns null for the same inputs the legacy writer ignores, and for clears
+ * (sizeM null): the authored landing point re-runs the metric-scale backfill,
+ * which would immediately re-estimate a cleared size.
+ */
+export function compileDirectorAssetRealWorldSizeAction(
+  project: DirectorProject,
+  assetId: string,
+  sizeM: number | null,
+  source: DirectorAssetRef["sizeSource"],
+): DirectorAuthoringAction | null {
+  const asset = project.assets.find((item) => item.id === assetId);
+  if (!asset || asset.sourceType !== "model" || asset.kind === "character") return null;
+  if (sizeM === null || !Number.isFinite(sizeM) || sizeM <= 0) return null;
+  const nextAsset: DirectorAssetRef = {
+    ...asset,
+    realWorldSizeM: sizeM,
+    sizeSource: source,
+  };
+  return { action: "upsert_asset", asset: structuredClone(nextAsset) } as DirectorAuthoringAction;
+}
+
+/** Compile a library-only asset import (no scene instancing) into upsert_asset. */
+export function compileDirectorImportedAssetUpsertAction(asset: DirectorAssetRef): DirectorAuthoringAction {
+  return { action: "upsert_asset", asset: structuredClone(asset) } as DirectorAuthoringAction;
 }

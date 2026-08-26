@@ -46,7 +46,6 @@ import type {
   DirectorStoryboard,
   DirectorTimeline,
   DirectorTimelineAudioClip,
-  DirectorTimelineAudioTrack,
   DirectorTransform,
   DirectorVehicleProfile,
   DirectorWorld,
@@ -142,6 +141,19 @@ import {
   compileDirectorDeleteObjectActions,
   dispatchDirectorAuthoringActions,
 } from "../../../agent/dispatchDirectorAuthoringActions";
+import {
+  compileDirectorAssetRealWorldSizeAction,
+  compileDirectorImportedAssetUpsertAction,
+  compileDirectorRemoveImportedAssetActions,
+  compileDirectorRemovePanoramaAssetAction,
+  compileDirectorSceneUpdateAction,
+  compileDirectorTimelineAudioClipAdd,
+  compileDirectorTimelineAudioClipMove,
+  compileDirectorTimelineAudioClipRemoval,
+  compileDirectorTimelineAudioClipUpdate,
+  compileDirectorTimelineAudioTrackMute,
+  compileDirectorTimelineSetSceneAction,
+} from "../../../agent/compileDirectorUiAuthoringActions";
 
 /** Input shape for importing an asset into the Director catalog. */
 export interface ImportedAssetInput {
@@ -1347,57 +1359,13 @@ function withProjectPatch(
   return { ...state, ...patch, project: { ...state.project, ...project } };
 }
 
-const MAX_TIMELINE_AUDIO_TRACKS = 8;
-const MAX_TIMELINE_AUDIO_CLIPS_PER_TRACK = 128;
-const MAX_TIMELINE_AUDIO_FRAME = 1_000_000;
-
 /**
- * Applies a mutation to the stage timeline audio tracks. Creates the default
- * timeline on demand so audio can be added before any camera animation exists;
- * returning the same array (or null) from `mutate` means "no edit".
+ * Writes a rebuilt stage timeline (see the compileDirectorTimelineAudio*
+ * builders) into the project. Used by the in-batch legacy path only; one-shot
+ * edits dispatch the same timeline through set_scene.
  */
-function withTimelineAudioTracksPatch(
-  state: DirectorRuntimeState,
-  mutate: (tracks: DirectorTimelineAudioTrack[]) => DirectorTimelineAudioTrack[] | null,
-): DirectorRuntimeState {
-  const timeline: DirectorTimeline = state.project.scene.timeline ?? createDefaultDirectorFrameTimeline();
-  const tracks = timeline.audioTracks ?? [];
-  const next = mutate(tracks);
-  if (next === null || next === tracks) return state;
-  return withProjectPatch(state, {
-    scene: { ...state.project.scene, timeline: { ...timeline, audioTracks: next } },
-  });
-}
-
-function sanitizeTimelineAudioClipPatch(
-  clip: DirectorTimelineAudioClip,
-  patch: Partial<Omit<DirectorTimelineAudioClip, "id" | "mediaId">>,
-): DirectorTimelineAudioClip {
-  const next: DirectorTimelineAudioClip = { ...clip };
-  if (patch.name !== undefined && patch.name.trim()) next.name = patch.name.trim().slice(0, 240);
-  if (patch.sourceUrl !== undefined) next.sourceUrl = patch.sourceUrl?.trim() || undefined;
-  if (patch.startFrame !== undefined && Number.isFinite(patch.startFrame)) {
-    next.startFrame = clamp(Math.round(patch.startFrame), 0, MAX_TIMELINE_AUDIO_FRAME);
-  }
-  if (patch.durationFrames !== undefined && Number.isFinite(patch.durationFrames)) {
-    next.durationFrames = clamp(Math.round(patch.durationFrames), 1, MAX_TIMELINE_AUDIO_FRAME);
-  }
-  if (patch.inSec !== undefined && Number.isFinite(patch.inSec)) next.inSec = clamp(patch.inSec, 0, 86_400);
-  if (patch.sourceDurationSec !== undefined) {
-    next.sourceDurationSec =
-      Number.isFinite(patch.sourceDurationSec) && patch.sourceDurationSec! > 0
-        ? Math.min(patch.sourceDurationSec!, 86_400)
-        : undefined;
-  }
-  if (patch.volume !== undefined && Number.isFinite(patch.volume)) next.volume = clamp(patch.volume, 0, 1);
-  if (patch.fadeInSec !== undefined && Number.isFinite(patch.fadeInSec)) {
-    next.fadeInSec = clamp(patch.fadeInSec, 0, 60);
-  }
-  if (patch.fadeOutSec !== undefined && Number.isFinite(patch.fadeOutSec)) {
-    next.fadeOutSec = clamp(patch.fadeOutSec, 0, 60);
-  }
-  if (patch.muted !== undefined) next.muted = patch.muted;
-  return next;
+function withTimelinePatch(state: DirectorRuntimeState, timeline: DirectorTimeline): DirectorRuntimeState {
+  return withProjectPatch(state, { scene: { ...state.project.scene, timeline } });
 }
 
 function withWorldPatch(
@@ -1459,6 +1427,15 @@ function worldEffectAuthoringFields(effect: DirectorWorldEffect) {
     speed_scale: effect.speedScale,
     wind_influence: effect.windInfluence,
     seed_offset: effect.seedOffset,
+  };
+}
+
+/** Snake_case fire-propagation input for add_world_effect / update_world_effect. */
+function worldFirePropagationAuthoringFields(propagation: NonNullable<DirectorWorldEffect["propagation"]>) {
+  return {
+    enabled: propagation.enabled,
+    radius_m: propagation.radiusM,
+    spread_rate: propagation.spreadRate,
   };
 }
 
@@ -3242,12 +3219,20 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         selectedObjectIds: [],
         selectedCrowdId: null,
       })),
-    updateScene: (patch) =>
+    updateScene: (patch) => {
+      if (canUseAuthoringPath()) {
+        const action = compileDirectorSceneUpdateAction(patch);
+        if (action) {
+          dispatchUiAuthoring([action], "ui-scene-update");
+          return;
+        }
+      }
       commitMutation((state) =>
         withProjectPatch(state, {
           scene: { ...state.project.scene, ...patch },
         }),
-      ),
+      );
+    },
     updateWorldSettings: (patch) => {
       if (canUseAuthoringPath()) {
         const wind = {
@@ -3312,6 +3297,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
                 patch: {
                   ...worldEffectAuthoringFields(effect),
                   color_tint: effect.colorTint ?? null,
+                  propagation: effect.propagation ? worldFirePropagationAuthoringFields(effect.propagation) : null,
                   visible: effect.visible,
                   locked: effect.locked,
                 },
@@ -3328,6 +3314,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
                 id: effect.id,
                 ...worldEffectAuthoringFields(effect),
                 ...(effect.colorTint ? { color_tint: effect.colorTint } : {}),
+                ...(effect.propagation ? { propagation: worldFirePropagationAuthoringFields(effect.propagation) } : {}),
               },
             ],
             `ui-world-effect:${effect.id}`,
@@ -3588,7 +3575,16 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       }
       commitMutation((state) => withProjectPatch(state, { storyboard: cloneJsonValue(storyboard) }));
     },
-    removePanoramaAsset: () =>
+    removePanoramaAsset: () => {
+      if (canUseAuthoringPath()) {
+        const action = compileDirectorRemovePanoramaAssetAction(get().project);
+        if (action) {
+          dispatchUiAuthoring([action], "ui-panorama-remove", "删除失败");
+          return;
+        }
+        // No removable catalog entry: the legacy writer still clears the
+        // panorama reference (a project write authoring cannot express).
+      }
       commitMutation((state) => {
         const panoramaAssetId = state.project.panoramaAssetId;
         if (!panoramaAssetId) return state;
@@ -3597,8 +3593,17 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
           assets: state.project.assets.filter((item) => item.id !== panoramaAssetId),
           panoramaAssetId: null,
         });
-      }),
-    removeImportedAsset: (assetId) =>
+      });
+    },
+    removeImportedAsset: (assetId) => {
+      if (canUseAuthoringPath()) {
+        const actions = compileDirectorRemoveImportedAssetActions(get().project, assetId);
+        // Null mirrors the legacy no-op: the asset is missing or not a model.
+        if (!actions) return;
+        removePersistedLocalModelAsset(assetId);
+        dispatchUiAuthoring(actions, `ui-asset-remove:${assetId}`, "删除失败");
+        return;
+      }
       commitMutation((state) => {
         const targetAsset = state.project.assets.find((item) => item.id === assetId);
         if (!targetAsset || targetAsset.sourceType !== "model") return state;
@@ -3647,7 +3652,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
             },
           }),
         };
-      }),
+      });
+    },
     updateObjectTransform: (id, patch) => {
       const currentState = get();
       const currentObject = currentState.project.objects.find((item) => item.id === id);
@@ -4393,138 +4399,62 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
       return removed;
     },
     addTimelineAudioClip: (input) => {
-      const mediaId = input.mediaId.trim();
-      const name = input.name.trim().slice(0, 240);
-      if (!mediaId || !name || !Number.isFinite(input.durationFrames) || input.durationFrames < 1) return null;
-      let clipId: string | null = null;
-      commitMutation((state) => {
-        const timeline = state.project.scene.timeline ?? createDefaultDirectorFrameTimeline();
-        return withTimelineAudioTracksPatch(state, (tracks) => {
-          let trackIndex = tracks.findIndex((track) => track.clips.length < MAX_TIMELINE_AUDIO_CLIPS_PER_TRACK);
-          let nextTracks = tracks;
-          if (trackIndex < 0) {
-            if (tracks.length >= MAX_TIMELINE_AUDIO_TRACKS) return null;
-            nextTracks = [
-              ...tracks,
-              {
-                id: getNextSequentialId(
-                  tracks.map((track) => track.id),
-                  "audio_track_",
-                ),
-                name: `音频轨 ${tracks.length + 1}`,
-                muted: false,
-                clips: [],
-              },
-            ];
-            trackIndex = nextTracks.length - 1;
-          }
-          clipId = getNextSequentialId(
-            nextTracks.flatMap((track) => track.clips.map((clip) => clip.id)),
-            "audio_clip_",
-          );
-          const startFrame = clamp(
-            Math.round(
-              input.startFrame !== undefined && Number.isFinite(input.startFrame)
-                ? input.startFrame
-                : Math.max(timeline.currentFrame, 0),
-            ),
-            0,
-            MAX_TIMELINE_AUDIO_FRAME,
-          );
-          const clip: DirectorTimelineAudioClip = {
-            id: clipId,
-            name,
-            mediaId,
-            ...(input.sourceUrl?.trim() ? { sourceUrl: input.sourceUrl.trim() } : {}),
-            startFrame,
-            durationFrames: clamp(Math.round(input.durationFrames), 1, MAX_TIMELINE_AUDIO_FRAME),
-            inSec: 0,
-            ...(input.sourceDurationSec !== undefined &&
-            Number.isFinite(input.sourceDurationSec) &&
-            input.sourceDurationSec > 0
-              ? { sourceDurationSec: Math.min(input.sourceDurationSec, 86_400) }
-              : {}),
-            volume: 1,
-            fadeInSec: 0,
-            fadeOutSec: 0,
-            muted: false,
-          };
-          return nextTracks.map((track, index) =>
-            index === trackIndex ? { ...track, clips: [...track.clips, clip] } : track,
-          );
-        });
-      });
-      return clipId;
+      const timeline = get().project.scene.timeline ?? createDefaultDirectorFrameTimeline();
+      const built = compileDirectorTimelineAudioClipAdd(timeline, input);
+      if (!built) return null;
+      if (canUseAuthoringPath()) {
+        return dispatchUiAuthoring(
+          [compileDirectorTimelineSetSceneAction(built.timeline)],
+          `ui-timeline-audio-add:${built.clipId}`,
+        )
+          ? built.clipId
+          : null;
+      }
+      commitMutation((state) => withTimelinePatch(state, built.timeline));
+      return built.clipId;
     },
     updateTimelineAudioClip: (clipId, patch) => {
-      let changed = false;
-      commitMutation((state) =>
-        withTimelineAudioTracksPatch(state, (tracks) => {
-          if (!tracks.some((track) => track.clips.some((clip) => clip.id === clipId))) return null;
-          changed = true;
-          return tracks.map((track) =>
-            track.clips.some((clip) => clip.id === clipId)
-              ? {
-                  ...track,
-                  clips: track.clips.map((clip) =>
-                    clip.id === clipId ? sanitizeTimelineAudioClipPatch(clip, patch) : clip,
-                  ),
-                }
-              : track,
-          );
-        }),
-      );
-      return changed;
+      const timeline = get().project.scene.timeline ?? createDefaultDirectorFrameTimeline();
+      const built = compileDirectorTimelineAudioClipUpdate(timeline, clipId, patch);
+      if (!built) return false;
+      if (canUseAuthoringPath()) {
+        return dispatchUiAuthoring([compileDirectorTimelineSetSceneAction(built)], `ui-timeline-audio:${clipId}`);
+      }
+      commitMutation((state) => withTimelinePatch(state, built));
+      return true;
     },
     moveTimelineAudioClip: (clipId, startFrame) => {
-      if (!Number.isFinite(startFrame)) return false;
-      let changed = false;
-      commitMutation((state) =>
-        withTimelineAudioTracksPatch(state, (tracks) => {
-          const nextStart = clamp(Math.round(startFrame), 0, MAX_TIMELINE_AUDIO_FRAME);
-          if (
-            !tracks.some((track) => track.clips.some((clip) => clip.id === clipId && clip.startFrame !== nextStart))
-          ) {
-            return null;
-          }
-          changed = true;
-          return tracks.map((track) =>
-            track.clips.some((clip) => clip.id === clipId)
-              ? {
-                  ...track,
-                  clips: track.clips.map((clip) => (clip.id === clipId ? { ...clip, startFrame: nextStart } : clip)),
-                }
-              : track,
-          );
-        }),
-      );
-      return changed;
+      const timeline = get().project.scene.timeline ?? createDefaultDirectorFrameTimeline();
+      const built = compileDirectorTimelineAudioClipMove(timeline, clipId, startFrame);
+      if (!built) return false;
+      if (canUseAuthoringPath()) {
+        return dispatchUiAuthoring([compileDirectorTimelineSetSceneAction(built)], `ui-timeline-audio-move:${clipId}`);
+      }
+      commitMutation((state) => withTimelinePatch(state, built));
+      return true;
     },
     removeTimelineAudioClip: (clipId) => {
-      let removed = false;
-      commitMutation((state) =>
-        withTimelineAudioTracksPatch(state, (tracks) => {
-          if (!tracks.some((track) => track.clips.some((clip) => clip.id === clipId))) return null;
-          removed = true;
-          return tracks.map((track) => ({
-            ...track,
-            clips: track.clips.filter((clip) => clip.id !== clipId),
-          }));
-        }),
-      );
-      return removed;
+      const timeline = get().project.scene.timeline ?? createDefaultDirectorFrameTimeline();
+      const built = compileDirectorTimelineAudioClipRemoval(timeline, clipId);
+      if (!built) return false;
+      if (canUseAuthoringPath()) {
+        return dispatchUiAuthoring(
+          [compileDirectorTimelineSetSceneAction(built)],
+          `ui-timeline-audio-remove:${clipId}`,
+        );
+      }
+      commitMutation((state) => withTimelinePatch(state, built));
+      return true;
     },
     setTimelineAudioTrackMuted: (trackId, muted) => {
-      let changed = false;
-      commitMutation((state) =>
-        withTimelineAudioTracksPatch(state, (tracks) => {
-          const track = tracks.find((candidate) => candidate.id === trackId);
-          if (!track || track.muted === muted) return null;
-          changed = true;
-          return tracks.map((candidate) => (candidate.id === trackId ? { ...candidate, muted } : candidate));
-        }),
-      );
-      return changed;
+      const timeline = get().project.scene.timeline ?? createDefaultDirectorFrameTimeline();
+      const built = compileDirectorTimelineAudioTrackMute(timeline, trackId, muted);
+      if (!built) return false;
+      if (canUseAuthoringPath()) {
+        return dispatchUiAuthoring([compileDirectorTimelineSetSceneAction(built)], `ui-timeline-audio-mute:${trackId}`);
+      }
+      commitMutation((state) => withTimelinePatch(state, built));
+      return true;
     },
     setObjectLayerState: (id, patch) => {
       const layerId = id.trim();
@@ -5380,60 +5310,77 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         return applyObjectTransformMutation(state, nextTransformState);
       }),
     addImportedAsset: (input) => {
-      let assetId = "";
+      const currentAssets = get().project.assets;
+      const claimsPackagedCharacter =
+        input.kind === "character" &&
+        (input.assetSource === "library" ||
+          Boolean(input.id?.startsWith("mixamo:")) ||
+          input.url.startsWith("/mixamo-characters/"));
+      const catalogById = input.id ? getMixamoCharacterCatalogItem(input.id) : null;
+      const catalogByUrl = getMixamoCharacterCatalogItemByUrl(input.url);
+      if (catalogById && catalogByUrl && catalogById.id !== catalogByUrl.id) {
+        throw new Error(`人物目录 ID "${input.id}" 与模型 URL "${input.url}" 不属于同一资产。`);
+      }
+      const catalogItem = catalogById ?? catalogByUrl;
+      if (claimsPackagedCharacter && !catalogItem) {
+        throw new Error(`人物资产不是 Mixamo 目录中的真实条目：${input.id ?? input.url}`);
+      }
+
+      const generatedAssetId = getNextSequentialId(
+        currentAssets.map((item) => item.id),
+        "asset_",
+        currentAssets.length + 1,
+      );
+      const sourceType = input.sourceType ?? (input.kind === "panorama" ? "image" : "model");
+      const estimatedFallbackSizeM =
+        sourceType === "model" && input.kind !== "character" && input.modelNormalization !== "preserve"
+          ? DIRECTOR_IMPORTED_MODEL_TARGET_MAX_SIZE
+          : undefined;
+      const realWorldSizeM = input.realWorldSizeM ?? estimatedFallbackSizeM;
+      const nextAsset = catalogItem
+        ? createMixamoCharacterAssetRef(catalogItem)
+        : ({
+            id: input.assetSource === "generated" && input.id ? input.id : generatedAssetId,
+            kind: input.kind,
+            sourceType,
+            fileName: input.fileName,
+            name: input.name,
+            url: input.url,
+            assetSource: input.kind === "panorama" ? undefined : (input.assetSource ?? "local"),
+            modelNormalization: input.modelNormalization,
+            realWorldSizeM,
+            sizeSource:
+              realWorldSizeM === undefined
+                ? undefined
+                : input.realWorldSizeM === undefined
+                  ? "estimated"
+                  : (input.sizeSource ?? "catalog"),
+            thumbnailUrl: input.thumbnailUrl,
+            generation: input.generation,
+            projectionMode: input.projectionMode,
+            characterMetadata: input.kind === "character" ? input.characterMetadata : undefined,
+            splatSequence: input.splatSequence,
+          } satisfies DirectorAssetRef);
+      const assetId = nextAsset.id;
+      const existingAssetNow = currentAssets.find((asset) => asset.id === assetId);
+      // A library-only import (no scene instancing, no panorama binding) is a
+      // pure catalog write that maps onto upsert_asset. Scene instancing and
+      // panorama binding keep the local writer: createSceneObjectFromAsset
+      // stamps Blender provisioning markers and rig defaults add_object does
+      // not author, and set-panorama has no authoring twin yet.
+      if (
+        canUseAuthoringPath() &&
+        !existingAssetNow &&
+        input.kind !== "panorama" &&
+        (input.addToScene === false || nextAsset.sourceType === "image")
+      ) {
+        persistLocalModelAsset(nextAsset);
+        return dispatchUiAuthoring([compileDirectorImportedAssetUpsertAction(nextAsset)], `ui-asset-import:${assetId}`)
+          ? assetId
+          : "";
+      }
 
       commitMutation((state) => {
-        const claimsPackagedCharacter =
-          input.kind === "character" &&
-          (input.assetSource === "library" ||
-            Boolean(input.id?.startsWith("mixamo:")) ||
-            input.url.startsWith("/mixamo-characters/"));
-        const catalogById = input.id ? getMixamoCharacterCatalogItem(input.id) : null;
-        const catalogByUrl = getMixamoCharacterCatalogItemByUrl(input.url);
-        if (catalogById && catalogByUrl && catalogById.id !== catalogByUrl.id) {
-          throw new Error(`人物目录 ID "${input.id}" 与模型 URL "${input.url}" 不属于同一资产。`);
-        }
-        const catalogItem = catalogById ?? catalogByUrl;
-        if (claimsPackagedCharacter && !catalogItem) {
-          throw new Error(`人物资产不是 Mixamo 目录中的真实条目：${input.id ?? input.url}`);
-        }
-
-        const generatedAssetId = getNextSequentialId(
-          state.project.assets.map((item) => item.id),
-          "asset_",
-          state.project.assets.length + 1,
-        );
-        const sourceType = input.sourceType ?? (input.kind === "panorama" ? "image" : "model");
-        const estimatedFallbackSizeM =
-          sourceType === "model" && input.kind !== "character" && input.modelNormalization !== "preserve"
-            ? DIRECTOR_IMPORTED_MODEL_TARGET_MAX_SIZE
-            : undefined;
-        const realWorldSizeM = input.realWorldSizeM ?? estimatedFallbackSizeM;
-        const nextAsset = catalogItem
-          ? createMixamoCharacterAssetRef(catalogItem)
-          : ({
-              id: input.assetSource === "generated" && input.id ? input.id : generatedAssetId,
-              kind: input.kind,
-              sourceType,
-              fileName: input.fileName,
-              name: input.name,
-              url: input.url,
-              assetSource: input.kind === "panorama" ? undefined : (input.assetSource ?? "local"),
-              modelNormalization: input.modelNormalization,
-              realWorldSizeM,
-              sizeSource:
-                realWorldSizeM === undefined
-                  ? undefined
-                  : input.realWorldSizeM === undefined
-                    ? "estimated"
-                    : (input.sizeSource ?? "catalog"),
-              thumbnailUrl: input.thumbnailUrl,
-              generation: input.generation,
-              projectionMode: input.projectionMode,
-              characterMetadata: input.kind === "character" ? input.characterMetadata : undefined,
-              splatSequence: input.splatSequence,
-            } satisfies DirectorAssetRef);
-        assetId = nextAsset.id;
         const existingAsset = state.project.assets.find((asset) => asset.id === assetId);
         if (existingAsset) {
           if (JSON.stringify(existingAsset) !== JSON.stringify(nextAsset)) {
@@ -5465,7 +5412,17 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
 
       return assetId;
     },
-    setAssetRealWorldSize: (assetId, sizeM, source = "user") =>
+    setAssetRealWorldSize: (assetId, sizeM, source = "user") => {
+      if (canUseAuthoringPath()) {
+        const action = compileDirectorAssetRealWorldSizeAction(get().project, assetId, sizeM, source);
+        if (action) {
+          dispatchUiAuthoring([action], `ui-asset-size:${assetId}`);
+          return;
+        }
+        // Null covers the legacy no-op guards plus size clears, which the
+        // authored landing point's metric backfill would re-estimate.
+        if (sizeM !== null) return;
+      }
       commitMutation((state) => {
         const asset = state.project.assets.find((item) => item.id === assetId);
         if (!asset || asset.sourceType !== "model" || asset.kind === "character") return state;
@@ -5478,7 +5435,8 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         return withProjectPatch(state, {
           assets: state.project.assets.map((item) => (item.id === assetId ? nextAsset : item)),
         });
-      }),
+      });
+    },
     // human-only: no authoring twin. createSceneObjectFromAsset stamps the
     // Blender nativeSource provisioning marker and character rig defaults that
     // add_object does not author; migrateDirectorProject backfills them only on

@@ -8,7 +8,7 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 `directorStore.ts`）上的全部变更入口、对应的 semantic authoring action，以及 UI 与 Agent 是否已经
 通过同一 executor 产出相同的项目 revision。
 
-最近核验：**2026-08-25**。
+最近核验：**2026-08-26**。
 
 ## 状态说明
 
@@ -18,7 +18,7 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
   `frontend/director/src/agent/compileDirectorUiAuthoringActions.ts`。所有 shared mutator 在
   滑块/gizmo 撤销批次内（`undoBatchDepth > 0`）以及行内注明的不可表达 patch 上，回退到旧的直接写入。
 - **ui-only** — 仍只通过 `commitMutation` / `withProjectPatch` 写项目。同一意图下 Agent 尚无
-  revision 一致性保证。
+  revision 一致性保证。标注「有意保持本地」的行在代码内有明确理由，不属于待补的编译缺口。
 - **human-only-interactive** — 有意不经 authoring：逐帧交互手感、DCC 投影、运行时测量、选择、
   历史与项目生命周期。
 
@@ -26,9 +26,9 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 
 | 类别 | 数量 |
 | ------------------------------ | ----- |
-| shared Stage 项目 mutator | 35 |
-| ui-only Stage 项目 mutator | 52 |
-| 覆盖率（shared / 项目 mutator） | **35 / 87 ≈ 40%** |
+| shared Stage 项目 mutator | 69 |
+| ui-only Stage 项目 mutator | 18 |
+| 覆盖率（shared / 项目 mutator） | **69 / 87 ≈ 79%** |
 
 对等性由
 `frontend/director/tests/agent/dispatchDirectorAuthoringActions.test.ts` 回归保护：同一份
@@ -44,19 +44,20 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 | `toggleObjectVisible` / `toggleObjectLocked` | `directorStore.ts` | `update_object` | shared（相机 rig 仍走旧写入） |
 | `toggleObjectInteraction` | `directorStore.ts` | `update_object`（经 `updateObjectTransform`） | shared |
 | `setObjectAnimation` | `directorStore.ts` | `set_animation` | shared |
-| `updateObjectTransforms`（多选） | `directorStore.ts` | `update_object` 批量（尚未编译） | ui-only |
-| `batchUpdateObjects` / `resetObjectTransforms` | `directorStore.ts` | `update_object` 批量（尚未编译） | ui-only |
-| `alignObjects` / `distributeObjects` | `directorStore.ts` | `align_objects` / `update_object` 批量（尚未编译） | ui-only |
-| `isolateObjects` / `showAllObjects` | `directorStore.ts` | `update_object` 批量（尚未编译） | ui-only |
-| `setObjectPivot` | `directorStore.ts` | `set_object_pivot`（尚未编译） | ui-only |
+| `updateObjectTransforms`（多选） | `directorStore.ts` | `update_object` 批量 | shared（批次含相机 rig、composite 父级或 object-focused 相机时仍走旧写入） |
+| `batchUpdateObjects` / `resetObjectTransforms` | `directorStore.ts` | `update_object` 批量 | shared（composite 父级变换传播与 object-focused 相机刷新仍走旧写入） |
+| `alignObjects` / `distributeObjects` | `directorStore.ts` | `align_objects` / `distribute_objects` | shared（被 object-focused 相机跟随的选区仍走旧写入） |
+| `isolateObjects` / `showAllObjects` | `directorStore.ts` | `isolate_objects` + `set_object_layer_state` / `show_all_objects` | shared（涉及隐藏相机对象的显示恢复仍走旧写入） |
+| `setObjectPivot` | `directorStore.ts` | `set_object_pivot` | shared |
 | `dropObjectToGround` / `updateCrowdTransform` / `dropCrowdToGround` | `directorStore.ts` | `update_object`（尚未编译） | ui-only |
-| `updateObjectName` / `updateCrowdLabel` | `directorStore.ts` | `update_object`（尚未编译） | ui-only |
-| `updateObjectColor` / `updateCrowdColor` | `directorStore.ts` | `update_object`（尚未编译） | ui-only |
-| `updateObjectMaterial` / `updateObjectMaterialTexture` | `directorStore.ts` | `update_object` 材质 patch（尚未编译） | ui-only |
-| `setObjectVehicleProfile` | `directorStore.ts` | `set_vehicle_profile` / `clear_vehicle_profile`（尚未编译） | ui-only |
-| `updateObjectReferenceBindings` | `directorStore.ts` | 尚无 semantic action | ui-only |
-| `createCompositeObject` / `addObjectsToComposite` / `removeObjectsFromComposite` | `directorStore.ts` | `group_objects` / `ungroup_objects`（尚未编译） | ui-only |
-| `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | 尚无 semantic action | ui-only |
+| `updateObjectName` | `directorStore.ts` | `update_object` / `update_camera`（相机 rig） | shared（fov 已漂移的 snapshot 相机与未绑定资产的角色仍走旧写入） |
+| `updateObjectColor` | `directorStore.ts` | `update_object` | shared（相机 rig 与已 provision 的 Blender 原生对象仍走旧写入） |
+| `updateCrowdLabel` / `updateCrowdColor` | `directorStore.ts` | `update_object` 群体扇出（尚未编译） | ui-only |
+| `updateObjectMaterial` / `updateObjectMaterialTexture` | `directorStore.ts` | `update_object` 材质 patch | shared（composite 父级、相机 rig 与已 provision 的 Blender 原生对象仍走旧写入） |
+| `setObjectVehicleProfile` | `directorStore.ts` | `set_vehicle_profile` / `clear_vehicle_profile` | shared（仅未锁定的 prop/scene 对象走共享路径；其余仍走旧写入） |
+| `updateObjectReferenceBindings` | `directorStore.ts` | `update_object`（`reference_bindings`） | shared（相机 rig 与已 provision 的 Blender 原生对象仍走旧写入） |
+| `createCompositeObject` / `addObjectsToComposite` / `removeObjectsFromComposite` | `directorStore.ts` | `group_objects` / `update_object` parent patch | shared（含已 provision 的 Blender 原生对象的 composite 仍走旧写入） |
+| `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | 无 semantic action（对象列表是 UI 选择辅助，不是 composite 组） | ui-only（有意保持本地） |
 | `pasteClipboardObjects` | `directorStore.ts` | `add_object` 批量（尚未编译；已记录 gap） | ui-only |
 
 ## 相机
@@ -65,7 +66,7 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 | --- | --- | --- | --- |
 | `updateCamera` | `directorStore.ts` | `update_camera`（同步 linked rig object） | shared（capture/动画 patch、旋转或缩放的 rig transform、frustum 深度内特写仍走旧写入） |
 | `setActiveCamera` | `directorStore.ts` | `set_active_camera` | shared |
-| `addCameraShot` | `directorStore.ts` | `add_camera` | shared |
+| `addCameraShot` | `directorStore.ts` | `add_camera`（未接入） | ui-only（有意保持本地：snapshot 相机要保留视口精确 fov 而 `add_camera` 由焦距推导 fov，顺序 `cam_N` id 与活动相机光学继承是 UI 约定，且选中态与写入在同一次提交内） |
 | `setCameraAnimation` | `directorStore.ts` | `set_animation` | shared |
 | `addCameraCaptures` | `directorStore.ts` | 尚无 semantic action（capture 证据写入） | ui-only |
 
@@ -95,31 +96,33 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 | --- | --- | --- | --- |
 | `updateScene` | `directorStore.ts` | `set_scene` | shared |
 | `updateWorldSettings` | `directorStore.ts` | `set_world_settings` | shared |
-| `upsertWorldEffect` | `directorStore.ts` | `add_world_effect` / `update_world_effect` | shared（锁定条目与非默认 add 标记仍走旧写入） |
+| `upsertWorldEffect` | `directorStore.ts` | `add_world_effect` / `update_world_effect`（含火势 `propagation`） | shared（锁定条目、隐藏/锁定的新增、锚定到缺失对象的条目仍走旧写入） |
 | `removeWorldEffects` | `directorStore.ts` | `remove_world_effects` | shared |
 | `upsertWorldWaterBody` / `removeWorldWaterBodies` | `directorStore.ts` | `add_world_water_body` / `update_world_water_body` / `remove_world_water_bodies` | shared |
 | `upsertWorldWildlifeGroup` / `removeWorldWildlifeGroups` | `directorStore.ts` | `add_world_wildlife_group` / `update_world_wildlife_group` / `remove_world_wildlife_groups` | shared（依赖默认飞行高度带的 add 仍走旧写入） |
 | `upsertWorldRoad` / `removeWorldRoads` | `directorStore.ts` | `add_world_road` / `update_world_road` / `remove_world_roads` | shared |
 | `updateStoryboard` | `directorStore.ts` | `set_storyboard` | shared |
-| `addSceneAnnotation` / `updateSceneAnnotation` / `removeSceneAnnotation` | `directorStore.ts` | `add_annotation` / `update_annotation` / `remove_annotations`（尚未编译） | ui-only |
-| `addSceneMeasurement` / `updateSceneMeasurement` / `removeSceneMeasurement` | `directorStore.ts` | `add_measurement` / `update_measurement` / `remove_measurements`（尚未编译） | ui-only |
-| `setObjectLayerState` | `directorStore.ts` | `set_object_layer_state`（尚未编译） | ui-only |
-| `moveObjectLayer` | `directorStore.ts` | `set_scene` 图层顺序 patch（尚未编译） | ui-only |
-| `removePanoramaAsset` | `directorStore.ts` | 尚无 semantic action | ui-only |
+| `addSceneAnnotation` / `updateSceneAnnotation` / `removeSceneAnnotation` | `directorStore.ts` | `add_annotation` / `update_annotation` / `remove_annotations` | shared |
+| `addSceneMeasurement` / `updateSceneMeasurement` / `removeSceneMeasurement` | `directorStore.ts` | `add_measurement` / `update_measurement` / `remove_measurements` | shared |
+| `setObjectLayerState` | `directorStore.ts` | `set_object_layer_state` | shared |
+| `moveObjectLayer` | `directorStore.ts` | `reorder_object_layer` | shared |
+| `removePanoramaAsset` | `directorStore.ts` | `remove_assets` | shared（没有目录条目的悬空 panorama 引用仍走旧写入） |
 
 ## 时间线音频
 
 | Mutator | 文件 | Semantic action | 状态 |
 | --- | --- | --- | --- |
-| `addTimelineAudioClip` / `updateTimelineAudioClip` / `moveTimelineAudioClip` / `removeTimelineAudioClip` / `setTimelineAudioTrackMuted` | `directorStore.ts` | 尚无 semantic action（timeline 音频） | ui-only |
+| `addTimelineAudioClip` / `updateTimelineAudioClip` / `moveTimelineAudioClip` / `removeTimelineAudioClip` / `setTimelineAudioTrackMuted` | `directorStore.ts` | `set_scene` timeline 整体替换 | shared（音量滑杆撤销批次仍走旧写入） |
 
 ## 资产与新建流程
 
 | Mutator | 文件 | Semantic action | 状态 |
 | --- | --- | --- | --- |
-| `addImportedAsset` / `setAssetRealWorldSize` | `directorStore.ts` | 尚无 semantic action（资产目录写入） | ui-only |
-| `removeImportedAsset` | `directorStore.ts` | `remove_assets`（尚未编译） | ui-only |
-| `addObjectFromAsset` / `addPresetCharacter` / `addCrowdCharacters` / `addGeometryPrimitive` | `directorStore.ts` | `add_object`（尚未编译；含 UI id/命名/放置约定） | ui-only |
+| `addImportedAsset` | `directorStore.ts` | `upsert_asset` | 仅库导入（不实例化进场景）走 shared；场景实例化与 panorama 绑定导入仍走旧写入（对象构建包含 authoring 无法表达的 UI 约定） |
+| `setAssetRealWorldSize` | `directorStore.ts` | `upsert_asset` | shared（清除尺寸仍走旧写入，避免米制 backfill 重新估算被清除的值） |
+| `removeImportedAsset` | `directorStore.ts` | `update_object`（脱离子级）+ `remove_assets` cascade | shared |
+| `addObjectFromAsset` / `addPresetCharacter` / `addCrowdCharacters` | `directorStore.ts` | `add_object`（未接入） | ui-only（有意保持本地：对象构建要写入 `add_object` 不表达的 Blender `nativeSource` provisioning 标记与 rig 默认值） |
+| `addGeometryPrimitive` | `directorStore.ts` | `add_object`（进程内 white-box `geometry_type`） | shared |
 
 ## Human-only 交互面
 

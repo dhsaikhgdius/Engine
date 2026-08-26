@@ -167,6 +167,7 @@ it("removes the connected panorama when the delete icon is clicked", async () =>
     project: {
       ...initialState.project,
       assets: [
+        ...initialState.project.assets,
         {
           id: "asset_panorama_1",
           kind: "panorama",
@@ -184,7 +185,7 @@ it("removes the connected panorama when the delete icon is clicked", async () =>
   await user.click(screen.getByRole("button", { name: "删除全景图" }));
 
   expect(useDirectorStore.getState().project.panoramaAssetId).toBeNull();
-  expect(useDirectorStore.getState().project.assets).toHaveLength(0);
+  expect(useDirectorStore.getState().project.assets.some((asset) => asset.id === "asset_panorama_1")).toBe(false);
   expect(screen.getByLabelText("全景图连接状态")).toBeInTheDocument();
 });
 
