@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import {
+  appendFilmRunCapabilityOmission,
   classifyFilmRunError,
   closeFilmRunPhaseReceipts,
   createFilmRunRequestSchema,
@@ -7,6 +8,7 @@ import {
   openFilmRunPhaseReceipt,
   type CreateFilmRunRequestInput,
   type FilmRun,
+  type FilmRunCapabilityOmission,
   type FilmRunPhase,
   type FilmSceneState,
   type FilmTimelineExportReceipt,
@@ -242,6 +244,23 @@ export class FilmPipelineOrchestrator {
     }));
   }
 
+  /**
+   * Durably records that a requested optional capability was skipped, then
+   * mirrors the decision into the event log. Idempotent across resumes: the
+   * first stamped record for a (code, sceneIdx) pair wins.
+   */
+  private async stampCapabilityOmission(id: string, omission: Omit<FilmRunCapabilityOmission, "at">): Promise<FilmRun> {
+    const stamped = await this.options.store.update(id, (run) => ({
+      ...run,
+      capabilityOmissions: appendFilmRunCapabilityOmission(run.capabilityOmissions, {
+        ...omission,
+        at: new Date().toISOString(),
+      }),
+    }));
+    await this.recordEvent(id, "render", omission.reason);
+    return stamped;
+  }
+
   private async execute(id: string, signal: AbortSignal) {
     try {
       // A cancel that lands between scheduling and this first write must not
@@ -329,6 +348,25 @@ export class FilmPipelineOrchestrator {
 
       // 6. Rendering: portraits, keyframes, clips.
       await this.setPhase(id, "render");
+      // Requested optional capabilities the pipeline cannot honor become
+      // typed run facts before any render budget is spent.
+      if (input.enableAudio && !this.options.mixShotAudio) {
+        run = await this.stampCapabilityOmission(id, {
+          capability: "dialogue_audio",
+          code: "tts_unconfigured",
+          sceneIdx: null,
+          reason: "enableAudio was requested but no TTS provider is configured; clips render without dialogue dubbing",
+        });
+      }
+      if (input.autoStageAnchors && !this.options.resolveStageAnchors) {
+        run = await this.stampCapabilityOmission(id, {
+          capability: "stage_anchors",
+          code: "anchor_hook_unavailable",
+          sceneIdx: null,
+          reason:
+            "autoStageAnchors was requested but the gateway has no workbench execution channel; scenes render without white-box grounding",
+        });
+      }
       await this.recordEvent(id, "render", "Ensuring character portraits");
       const registry = await this.options.renderCoordinator.ensurePortraits({
         runDirectory,
@@ -369,13 +407,14 @@ export class FilmPipelineOrchestrator {
           } catch (error) {
             if (signal.aborted) throw error;
             stageAnchors = [];
-            await this.recordEvent(
-              id,
-              "render",
-              `Stage anchor resolution failed for scene ${scene.idx}; rendering without white-box grounding: ${
-                error instanceof Error ? error.message.slice(0, 500) : String(error)
-              }`,
-            );
+            run = await this.stampCapabilityOmission(id, {
+              capability: "stage_anchors",
+              code: "anchor_resolution_failed",
+              sceneIdx: scene.idx,
+              reason: `Stage anchor resolution failed for scene ${scene.idx}; rendering without white-box grounding: ${
+                error instanceof Error ? error.message.slice(0, 480) : String(error).slice(0, 480)
+              }`.slice(0, 600),
+            });
           }
         }
 

@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendFilmRunCapabilityOmission,
   classifyFilmRunError,
   closeFilmRunPhaseReceipts,
   createFilmRunRequestSchema,
   FILM_PIPELINE_PUBLIC_ERROR_CODES,
+  FILM_RUN_CAPABILITY_OMISSION_LIMIT,
   FILM_RUN_PHASE_RECEIPT_LIMIT,
   FILM_TIMELINE_OMITTED_SHOT_LIMIT,
+  filmPipelineAvailabilitySchema,
+  filmRunCapabilityOmissionSchema,
   filmRunProgress,
   filmRunSchema,
   filmTimelineExportReceiptSchema,
@@ -13,6 +17,7 @@ import {
   openFilmRunPhaseReceipt,
   shotSpecSchema,
   validateCameraPlan,
+  type FilmRunCapabilityOmission,
   type FilmRunPhaseReceipt,
   type FilmTimelineOmittedShot,
   type ShotSpec,
@@ -95,7 +100,86 @@ describe("filmPipelineProtocol", () => {
     expect(run.errorCode).toBeNull();
     expect(run.phaseReceipts).toEqual([]);
     expect(run.timelineExport).toBeNull();
+    expect(run.capabilityOmissions).toEqual([]);
     expect(filmRunSchema.parse(JSON.parse(JSON.stringify(run)))).toEqual(run);
+  });
+
+  it("reports optional capabilities on the pipeline availability surface", () => {
+    const capabilities = {
+      dialogueAudio: { configured: false, reason: "对白 TTS 未配置" },
+      stageAnchors: { configured: true, reason: null },
+    };
+    expect(filmPipelineAvailabilitySchema.safeParse({ configured: true, reason: null, capabilities }).success).toBe(
+      true,
+    );
+    // The capability report is part of the contract, never silently dropped.
+    expect(filmPipelineAvailabilitySchema.safeParse({ configured: true, reason: null }).success).toBe(false);
+  });
+
+  it("rejects dishonest capability omission records", () => {
+    const valid: FilmRunCapabilityOmission = {
+      capability: "dialogue_audio",
+      code: "tts_unconfigured",
+      sceneIdx: null,
+      reason: "enableAudio was requested but no TTS provider is configured",
+      at: "2026-08-26T00:00:00.000Z",
+    };
+    expect(filmRunCapabilityOmissionSchema.safeParse(valid).success).toBe(true);
+    // A code cannot claim a capability it does not belong to.
+    expect(filmRunCapabilityOmissionSchema.safeParse({ ...valid, capability: "stage_anchors" }).success).toBe(false);
+    // Run-level codes carry no sceneIdx; scene-scoped codes must carry one.
+    expect(filmRunCapabilityOmissionSchema.safeParse({ ...valid, sceneIdx: 0 }).success).toBe(false);
+    expect(
+      filmRunCapabilityOmissionSchema.safeParse({
+        capability: "stage_anchors",
+        code: "anchor_resolution_failed",
+        sceneIdx: null,
+        reason: "anchor capture failed",
+        at: "2026-08-26T00:00:00.000Z",
+      }).success,
+    ).toBe(false);
+    expect(
+      filmRunCapabilityOmissionSchema.safeParse({
+        capability: "stage_anchors",
+        code: "anchor_resolution_failed",
+        sceneIdx: 3,
+        reason: "anchor capture failed",
+        at: "2026-08-26T00:00:00.000Z",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("appends capability omissions idempotently within a bounded window", () => {
+    const omission: FilmRunCapabilityOmission = {
+      capability: "dialogue_audio",
+      code: "tts_unconfigured",
+      sceneIdx: null,
+      reason: "enableAudio was requested but no TTS provider is configured",
+      at: "2026-08-26T00:00:00.000Z",
+    };
+    const once = appendFilmRunCapabilityOmission([], omission);
+    expect(once).toEqual([omission]);
+    // A resumed run re-enters the same decision; the first record keeps its timestamp.
+    expect(appendFilmRunCapabilityOmission(once, { ...omission, at: "2026-08-26T01:00:00.000Z" })).toEqual([omission]);
+
+    // Different scenes are distinct facts.
+    const perScene = (sceneIdx: number): FilmRunCapabilityOmission => ({
+      capability: "stage_anchors",
+      code: "anchor_resolution_failed",
+      sceneIdx,
+      reason: `anchor capture failed for scene ${sceneIdx}`,
+      at: "2026-08-26T00:00:00.000Z",
+    });
+    const two = appendFilmRunCapabilityOmission(appendFilmRunCapabilityOmission([], perScene(0)), perScene(1));
+    expect(two).toHaveLength(2);
+
+    // The window stays bounded; the newest records win.
+    let many: FilmRunCapabilityOmission[] = [];
+    for (let index = 0; index < FILM_RUN_CAPABILITY_OMISSION_LIMIT + 8; index += 1) {
+      many = appendFilmRunCapabilityOmission(many, perScene(index));
+    }
+    expect(many).toHaveLength(FILM_RUN_CAPABILITY_OMISSION_LIMIT);
+    expect(many.at(-1)?.sceneIdx).toBe(FILM_RUN_CAPABILITY_OMISSION_LIMIT + 7);
   });
 
   it("enforces the timeline export receipt accounting invariants", () => {
