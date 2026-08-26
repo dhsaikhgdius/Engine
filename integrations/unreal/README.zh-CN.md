@@ -40,6 +40,7 @@ Gateway 的 CI 测试会用 TypeScript 参考实现校验同一组黄金用例�
 | `director_space.py`          | 是（`--self-test`） | 规范空间 ↔ Unreal 基变换、相机 look-at 四元数                                            |
 | `director_timebase.py`       | 是（`--self-test`） | 有理帧率、Sequencer tick 分辨率、SMPTE NDF/DF 时间码（23.976 / 24 / 25 / 29.97 DF / 30） |
 | `director_bake.py`           | 是（`--self-test`） | 校验 Gateway 烘焙 sidecar 的哈希；将规范空间采样转换为 Unreal 关键帧并做旋转连续性展开   |
+| `director_lights.py`         | 是（CLI）             | Director 灯光 → Unreal 灯光类；ambient/hemisphere 结构化省略记录 |
 | `director_materials.py`      | 是（CLI）           | Director PBR 参数 → 材质实例覆盖、sRGB→线性、警告省略记录                                |
 | `director_gltf.py`           | 是（CLI）           | GLB 容器检查（仅 JSON 块），将带蒙皮的资产路由到骨骼网格导入                             |
 | `director_livelink.py`       | 是（CLI）           | 预览会话协议：令牌、序列号、乱序/重复丢弃、失联检测                                      |
