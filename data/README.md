@@ -36,6 +36,7 @@ This directory is the default local persistence root for Director sessions, jobs
 | `dcc-jobs/` | DCC job directory (see below) |
 | `dcc-ledgers/` | DCC operation ledger directory (see below) |
 | `film-runs/` | Film render run results storage (currently empty) |
+| `game-slices/` | Durable `director_game` slice documents (`<id>.json`): typed game-slice IR with brief, roles, loop, HUD, acceptance checks, and the last playtest evaluation |
 | `blender/` | Blender native `.blend` file storage (`director-native.blend`, etc.), including dedup backups |
 
 ### `dcc-jobs/` Subdirectories
@@ -57,11 +58,12 @@ This directory is the default local persistence root for Director sessions, jobs
 ## Git Tracking Rules
 
 ```
-data/**              # ignore all
-!data/               # keep the directory itself
-!data/*.schema.json  # only track JSON Schemas
-!data/README.md      # track this file
-!data/.gitkeep       # optional placeholder
+data/**                # ignore all
+!data/                 # keep the directory itself
+!data/*.schema.json    # only track JSON Schemas
+!data/README.md        # track this file
+!data/README.zh-CN.md  # track the Chinese translation
+!data/.gitkeep         # optional placeholder
 ```
 
 Do not commit runtime snapshots, job artifacts, or `.blend` files to the repository. Place deterministic test inputs under the relevant `__fixtures__/` directory instead.
