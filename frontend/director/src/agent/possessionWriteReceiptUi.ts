@@ -16,6 +16,7 @@ import { notifyDirector } from "../comprehensive/app/notifications/directorNotif
 const POSSESSION_NOTICE_KEY = "possession-write-feedback";
 const POSSESSION_NOTICE_DISMISS_MS = 8_000;
 
+/** Narrow an unknown value to a plain object record (arrays excluded). */
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -144,6 +145,10 @@ export function formatPossessionScopeRejectionNotice(possession: DirectorPossess
   };
 }
 
+/**
+ * A ready-to-show possession notice: zh-CN title/detail plus the severity
+ * that maps auto-fill → info, ambiguity → warning, scope rejection → error.
+ */
 export type DirectorPossessionFeedbackAnnouncement = {
   title: string;
   detail: string;

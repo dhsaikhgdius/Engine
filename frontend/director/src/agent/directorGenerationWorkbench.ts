@@ -1,3 +1,14 @@
+/**
+ * Gallery generation workbench command executor (`generation` operations).
+ *
+ * Bridges the Agent contract to the Comfy generation pipeline: node and
+ * workflow discovery, job lifecycle (list / get / submit / cancel / retry /
+ * reconcile), and promotion of a succeeded job's image/video/audio artifacts
+ * into the persistent Creative Media library. Promotion verifies byte counts
+ * and decoded media kinds before importing, and embeds the generation
+ * provenance (prompt, seed, workflow) into the asset metadata so promoted
+ * media stays traceable to its job.
+ */
 import type { ComfyGenerationSubmitRequest, ComfyWorkflowRecord } from "@director/protocol/comfyGenerationProtocol";
 import type { ProductionJobArtifact, ProductionJobRecord } from "@director/protocol/productionJobProtocol";
 import { probeCreativeMediaFile } from "../comprehensive/editor/media/creativeMediaProbe";
@@ -143,6 +154,7 @@ function submitRequest(
   };
 }
 
+/** Wrap a payload as a successful workbench execution. */
 function success(result: unknown): DirectorWorkbenchExecution {
   return { success: true, result };
 }

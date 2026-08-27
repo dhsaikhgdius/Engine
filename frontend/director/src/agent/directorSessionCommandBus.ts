@@ -7,6 +7,11 @@
 
 import type { GamePlaytestScriptInput } from "@director/protocol/game-slice";
 
+/**
+ * Player Mode session commands: possess/release an actor, drive locomotion
+ * (teleport, walk_to), interact with props and vehicles, and start/stop the
+ * session recorder. Position tuples are Director canonical metres.
+ */
 export type DirectorPlayerSessionCommand =
   | { type: "enter"; actor_id?: string }
   | { type: "exit" }
@@ -26,6 +31,10 @@ export type DirectorPlayerSessionCommand =
    */
   | { type: "play_script"; script: GamePlaytestScriptInput; actor_id?: string; slice_id?: string };
 
+/**
+ * Camera Pilot session commands: begin/end a piloting session, set the live
+ * view (position/target/fov), and record the current view as a waypoint.
+ */
 export type DirectorPilotSessionCommand =
   | { type: "start"; camera_id?: string }
   | { type: "stop" }
@@ -37,10 +46,20 @@ export type DirectorPilotSessionCommand =
     }
   | { type: "record_waypoint" };
 
+/**
+ * A routed session command envelope. `surface` selects the DirectorCanvas
+ * handler (Player Mode motor vs Camera Pilot); `requestId` correlates the
+ * asynchronous receipt published back through the bus.
+ */
 export type DirectorSessionCommand =
   | { surface: "player"; command: DirectorPlayerSessionCommand; requestId: string }
   | { surface: "pilot"; command: DirectorPilotSessionCommand; requestId: string };
 
+/**
+ * Receipt for one dispatched session command. `result` carries
+ * command-specific evidence (for example a playtest trace); `error` is a
+ * human-readable failure reason when `ok` is false.
+ */
 export type DirectorSessionCommandResult = {
   requestId: string;
   ok: boolean;
@@ -56,11 +75,21 @@ const pendingResults = new Map<
   { resolve: (value: DirectorSessionCommandResult) => void; timer: ReturnType<typeof setTimeout> }
 >();
 
+/**
+ * Register the live DirectorCanvas handler. Returns an unsubscribe function;
+ * while no listener is registered, dispatches fail fast with a typed error
+ * telling the caller to open a Stage viewport.
+ */
 export function subscribeDirectorSessionCommands(listener: Listener) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
+/**
+ * Publish the receipt for a previously dispatched command. Late or duplicate
+ * receipts (after the dispatch timed out or already resolved) are dropped
+ * silently — the promise has already settled.
+ */
 export function publishDirectorSessionCommandResult(result: DirectorSessionCommandResult) {
   const pending = pendingResults.get(result.requestId);
   if (!pending) return;

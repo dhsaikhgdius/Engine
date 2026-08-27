@@ -28,11 +28,15 @@ export interface DirectorAssistantPanelOffset {
   y: number;
 }
 
+/** Minimum gap kept between the floating panel and every viewport edge. */
 const PANEL_VIEWPORT_MARGIN = 8;
+/** Below this viewport width the panel is CSS-docked full-width, so dragging is disabled. */
 const COMPACT_PANEL_MAX_WIDTH = 720;
+// Split divider travel bounds: neither pane may shrink below ~22% of the host.
 const SPLIT_MIN_RATIO = 0.22;
 const SPLIT_MAX_RATIO = 0.78;
 
+/** Pointer-drag bookkeeping captured on pointerdown of the floating panel header. */
 type PanelDragState = {
   startX: number;
   startY: number;
@@ -49,6 +53,7 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+/** zh-CN label for the PTY lifecycle state shown next to the agent tabs. */
 function terminalStatusLabel(status: ReturnType<typeof useTerminalSession>["terminalStatus"]) {
   if (status === "ready") return "运行中";
   if (status === "starting") return "启动中";
@@ -57,6 +62,7 @@ function terminalStatusLabel(status: ReturnType<typeof useTerminalSession>["term
   return "连接中";
 }
 
+/** Tab bar for choosing the agent CLI, plus the PTY state chip and per-pane actions. */
 function AgentTabs({
   actions,
   embedded = false,
@@ -106,6 +112,11 @@ function AgentTabs({
   );
 }
 
+/**
+ * Connection summary row (Gateway / Codex / MCP / ComfyUI). Prefers the
+ * passed session's live values and falls back to the shared session runtime
+ * so the quartet stays meaningful when rendered without a terminal.
+ */
 function StatusQuartet({ session }: { session?: ReturnType<typeof useTerminalSession> }) {
   const runtimeGateway = useDirectorSessionRuntime((state) => state.gateway);
   const runtimeCodex = useDirectorSessionRuntime((state) => state.codex);
@@ -138,6 +149,10 @@ function StatusQuartet({ session }: { session?: ReturnType<typeof useTerminalSes
   );
 }
 
+/**
+ * The xterm host region plus the overlay banner shown while the PTY is
+ * starting, exited, or errored. Pointer-down anywhere refocuses the terminal.
+ */
 function TerminalSurface({
   embedded = false,
   session,
@@ -186,6 +201,11 @@ function TerminalSurface({
   );
 }
 
+/**
+ * One self-contained terminal pane: owns its own PTY session (via
+ * useTerminalSession) with clear/restart actions and optional split/close
+ * controls supplied by the surrounding layout.
+ */
 function TerminalPane({
   embedded = false,
   onClose,
@@ -270,6 +290,8 @@ export function EmbeddedTerminalPanel() {
   const [draggingSplit, setDraggingSplit] = useState(false);
   const [secondaryKey, setSecondaryKey] = useState(0);
 
+  // The divider drag uses window-level listeners (not React handlers) so the
+  // drag keeps tracking when the pointer leaves the thin handle element.
   function beginSplitDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     if (event.button !== 0) return;
     if (!splitRootRef.current) return;
@@ -408,6 +430,8 @@ export function DirectorAssistantPanel({
     };
   }, [dragging, onOffsetChange]);
 
+  // After a window resize the stored offset may leave the panel off-screen;
+  // nudge it back inside the margin without resetting the user's placement.
   useEffect(() => {
     function keepPanelInViewport() {
       const panel = panelRef.current;
