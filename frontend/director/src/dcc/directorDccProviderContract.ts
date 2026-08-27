@@ -1,6 +1,18 @@
 import { z } from "zod";
 
 /**
+ * DCC / engine provider vocabulary and the built-in capability catalog.
+ *
+ * Defines what a provider is (identity, integration style, exchange formats,
+ * per-capability maturity claims) and pins the built-in descriptors for
+ * Blender, the game engines, and the exchange-only DCCs. Capability claims
+ * are deliberately conservative and schema-enforced: every claim must name
+ * the layer that actually supplies it, so an agent can never mistake a
+ * portable-package feature for host-native connector support. Runtime
+ * installation state lives in the gateway registry, not here.
+ */
+
+/**
  * Stable provider identifiers used by HTTP, MCP, the editor and host connectors.
  * Keep these identifiers product-neutral: a connector may be implemented by a
  * native plug-in, a headless process, or an OpenUSD/glTF package consumer.
@@ -12,13 +24,16 @@ export const directorDccProviderIdSchema = z
   .max(120)
   .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/, "provider id must be a lowercase, namespaced identifier");
 
+/** A validated DCC provider identifier. */
 export type DirectorDccProviderId = z.infer<typeof directorDccProviderIdSchema>;
 
 /** Exchange formats a DCC provider can produce or consume. */
 export const directorDccExchangeFormatSchema = z.enum(["blend", "glb", "usda"]);
+/** A validated exchange format identifier. */
 export type DirectorDccExchangeFormat = z.infer<typeof directorDccExchangeFormatSchema>;
 /** Portable exchange formats (everything except native `.blend`). */
 export const directorDccPortableExchangeFormatSchema = z.enum(["glb", "usda"]);
+/** A validated portable exchange format identifier. */
 export type DirectorDccPortableExchangeFormat = z.infer<typeof directorDccPortableExchangeFormatSchema>;
 
 /** Granular capability identifiers for DCC providers. */
@@ -34,14 +49,17 @@ export const directorDccCapabilityIdSchema = z.enum([
   "live_link",
 ]);
 
+/** A validated DCC capability identifier. */
 export type DirectorDccCapabilityId = z.infer<typeof directorDccCapabilityIdSchema>;
 
 /** Maturity level of a DCC capability. */
 export const directorDccCapabilityLevelSchema = z.enum(["native", "exchange", "planned"]);
+/** A validated capability maturity level. */
 export type DirectorDccCapabilityLevel = z.infer<typeof directorDccCapabilityLevelSchema>;
 
 /** Which layer supplies a given capability. */
 export const directorDccCapabilityLayerSchema = z.enum(["connector", "exchange-format", "director-manifest"]);
+/** A validated capability-supplying layer. */
 export type DirectorDccCapabilityLayer = z.infer<typeof directorDccCapabilityLayerSchema>;
 
 /** A single capability advertised by a DCC provider. */
@@ -164,6 +182,7 @@ export const directorDccProviderDescriptorSchema = z
     });
   });
 
+/** A validated provider descriptor. */
 export type DirectorDccProviderDescriptor = z.infer<typeof directorDccProviderDescriptorSchema>;
 
 /** Runtime status of a single DCC provider as reported by the gateway. */
@@ -177,6 +196,7 @@ export const directorDccProviderStatusSchema = z.strictObject({
   reason: z.string().nullable(),
 });
 
+/** A validated provider runtime status. */
 export type DirectorDccProviderStatus = z.infer<typeof directorDccProviderStatusSchema>;
 
 /** The full catalog of DCC providers and their runtime statuses. */
@@ -185,6 +205,7 @@ export const directorDccProviderCatalogSchema = z.strictObject({
   providers: z.array(directorDccProviderStatusSchema),
 });
 
+/** A validated provider catalog response. */
 export type DirectorDccProviderCatalog = z.infer<typeof directorDccProviderCatalogSchema>;
 
 /**
@@ -263,6 +284,7 @@ export const directorDccConfiguredProviderSchema = z
     });
   });
 
+/** A validated user-configured provider entry. */
 export type DirectorDccConfiguredProvider = z.infer<typeof directorDccConfiguredProviderSchema>;
 
 /** Top-level provider configuration file schema. */
@@ -285,8 +307,15 @@ export const directorDccProviderConfigSchema = z
     });
   });
 
+/** A validated provider configuration file. */
 export type DirectorDccProviderConfig = z.infer<typeof directorDccProviderConfigSchema>;
 
+/**
+ * Build a conservative exchange-only descriptor for a DCC that Director talks
+ * to purely through the portable package: only scene, camera, and stable-id
+ * claims are made (supplied by the format and the Director manifest), and
+ * every connector-layer capability is declared "planned", never assumed.
+ */
 function exchangeProvider(
   id: DirectorDccProviderId,
   label: string,

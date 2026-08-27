@@ -1,3 +1,11 @@
+/**
+ * Engine coordinate-space math: the single source of truth for converting
+ * points, directions, and full transforms between Director's canonical space
+ * (right-handed, Y-up, metres, camera-forward -Z) and each supported engine's
+ * native space (Unreal, Unity, Godot), plus the canonical-DCC wire transform
+ * used by exchange packages. Both the editor and the gateway connectors rely
+ * on these exact basis matrices — changing one changes the round-trip.
+ */
 import { Euler, Matrix4, Quaternion, Vector3 } from "three";
 import { z } from "zod";
 import type { DirectorTransform } from "../comprehensive/editor/schema/directorProject";

@@ -5,6 +5,14 @@ import { directorCameraAspectRatioSchema } from "../../../../packages/protocol/s
 import { strictOperation } from "../../../../packages/protocol/src/strictProtocolVariant";
 import { directorDccTransformSchema } from "./directorDccSharedContract";
 
+/**
+ * Blender → Director scene import vocabulary: the manifest the Blender
+ * connector exports from a .blend file, the reviewable import plan the
+ * gateway derives from it, and the selection the human confirms before
+ * anything is applied to the project. Nothing in this contract mutates the
+ * Director project directly — the plan is evidence for a guarded import.
+ */
+
 /** Contract identifier for the Blender → Director scene manifest. */
 export const DIRECTOR_BLEND_SCENE_CONTRACT = "director-blend-scene-v1" as const;
 /** Contract identifier for the Blender scene import plan. */
