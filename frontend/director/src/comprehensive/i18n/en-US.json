@@ -3900,6 +3900,7 @@
   "计划后已改写": "Modified since plan",
   "已不存在": "Already absent",
   "删除失败": "Delete failed",
+  "跳过对象明细": "Skipped object details",
   "正在读取存储健康…": "Loading storage health…",
   "计划中…": "Planning…",
   "生成清扫计划（试运行）": "Create sweep plan (dry run)",
