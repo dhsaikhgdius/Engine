@@ -1,3 +1,13 @@
+/**
+ * Mixamo motion retargeting and per-frame character animation evaluation:
+ * rebinds animation clips onto a target skeleton via canonical bone names
+ * (with hip-height translation scaling so clips authored on one body work on
+ * another), and applies sampled motion frames — optionally as weighted layers
+ * blending several clips — followed by the IK/pose override layers from
+ * mixamoCharacterRig. Sampling is a pure function of the timeline frame, so
+ * scrubbing, playback, and deterministic frame export all reproduce the same
+ * skeletal pose.
+ */
 import {
   AnimationClip,
   LoopOnce,

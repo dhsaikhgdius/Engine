@@ -1,3 +1,11 @@
+/**
+ * Equirectangular panorama import: validates that an image is plausibly a
+ * 2:1 panorama, then normalizes it for use as a Stage sky/environment —
+ * resizing into the supported width range, blending the horizontal seam so
+ * the wrap point is invisible, and softening the poles where equirectangular
+ * projection stretches pixels. Pure canvas/bitmap processing with no three.js
+ * dependency; callers receive a ready-to-upload blob plus metadata.
+ */
 import { clamp } from "../../../../../../packages/protocol/src/primitives";
 
 const PANORAMA_IMAGE_EXTENSION_RE = /\.(jpe?g|png|webp)$/i;

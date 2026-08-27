@@ -1,3 +1,11 @@
+/**
+ * Typed HTTP client for the Blender live kernel behind the gateway: status,
+ * project binding, scene snapshots and GLB previews, live-link polling,
+ * command batches, native tool jobs (blockouts, openings), object inspection,
+ * and model asset upload. Every response is validated against the Blender
+ * live protocol schemas at this boundary, and error envelopes are converted
+ * into typed exceptions with the gateway's structured codes preserved.
+ */
 import { z } from "zod";
 import {
   BLENDER_LIVE_CONTRACT,

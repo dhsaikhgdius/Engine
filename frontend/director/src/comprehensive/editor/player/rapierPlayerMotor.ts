@@ -1,3 +1,13 @@
+/**
+ * Rapier-backed kinematic character motor for play mode: owns a private
+ * physics world mirroring Stage obstacles (boxes, cylinders, trimeshes with
+ * revision-based invalidation), and steps the player capsule with slope
+ * limits, step-up, crouch capsule resizing with stand-up headroom casts, and
+ * soft character-vs-character avoidance. Intent (speeds, jump, gait) comes
+ * from playerLocomotion.ts; this module only resolves collision-accurate
+ * translation. The WASM module loads lazily via createRapierPlayerMotor so
+ * the editor bundle never pays for physics until play mode starts.
+ */
 import type RAPIER from "@dimforge/rapier3d-compat";
 import { clamp } from "../../../../../../packages/protocol/src/primitives";
 import { Euler, Quaternion } from "three";

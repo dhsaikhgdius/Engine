@@ -1,3 +1,12 @@
+/**
+ * Custom water ShaderMaterial for authored world water bodies: Gerstner wave
+ * displacement in the vertex stage plus shoreline foam, depth-based
+ * murkiness, micro ripples, rain agitation, and environment-lit reflections
+ * in the fragment stage. All wave math shares GLSL with the CPU-side
+ * gerstner.ts sampler so buoyancy/queries and the rendered surface agree.
+ * Per-frame updates only mutate uniforms (time, wind, climate light) — the
+ * material itself is compiled once per water body configuration.
+ */
 import {
   Color,
   DoubleSide,

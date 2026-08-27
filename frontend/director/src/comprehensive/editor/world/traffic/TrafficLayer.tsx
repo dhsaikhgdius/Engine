@@ -1,3 +1,12 @@
+/**
+ * TrafficLayer: renders authored world roads (spline ribbons with lane
+ * markings) and their vehicle traffic as instanced meshes. Vehicle positions
+ * are a deterministic function of the world clock and road spline — no
+ * per-vehicle state — so scrubbing and frame export reproduce identical
+ * traffic. Climate feeds surface wetness/snow appearance and the time of day
+ * gates headlight glow; per-frame work happens in useFrame by mutating
+ * instance matrices, never through React state.
+ */
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {

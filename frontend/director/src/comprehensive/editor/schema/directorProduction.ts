@@ -1,3 +1,12 @@
+/**
+ * Pure helpers for the production layer of a Director project: performance
+ * takes (per-entity animation tracks recorded against the timeline) and
+ * coverage sequences (ordered camera shots over a take). Provides default
+ * take/sequence bootstrapping, migration of legacy timeline animation into
+ * takes, and an integrity checker that reports typed issues (duplicate ids,
+ * dangling refs, out-of-range frames) instead of throwing — the store and
+ * agent tools surface these as actionable diagnostics.
+ */
 import type {
   DirectorCoverageSequence,
   DirectorCoverageShot,

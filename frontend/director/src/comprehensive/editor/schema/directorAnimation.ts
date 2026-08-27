@@ -1,3 +1,13 @@
+/**
+ * Keyframe animation evaluation for Director entities: samples an entity's
+ * transform (and character rig state) at an arbitrary timeline frame by
+ * interpolating authored keyframes with easing/timing curves, layering
+ * trajectory motion blocks and procedural gait on top, and resolving camera
+ * action targets (orbit/track subjects) to world positions. Everything here
+ * is a pure function of (project data, frame) — the viewport, deterministic
+ * frame export, and agent-side evaluators all call the same code so poses
+ * never diverge between preview and delivery.
+ */
 import type {
   CharacterRigState,
   DirectorAnimationInterpolation,

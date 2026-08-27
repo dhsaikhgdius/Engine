@@ -1,3 +1,11 @@
+/**
+ * Real-time collaboration layer built on Yjs: mirrors the shared creative
+ * slices (board nodes/edges, edit tracks, edit settings), review states, and
+ * named project versions into CRDT documents, with Awareness for presence.
+ * Handles wire encode/decode with size caps, persistence-format versioning,
+ * and Zod validation of anything arriving from other collaborators before it
+ * touches local stores — remote payloads are untrusted input.
+ */
 import * as Y from "yjs";
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
 import { z } from "zod";

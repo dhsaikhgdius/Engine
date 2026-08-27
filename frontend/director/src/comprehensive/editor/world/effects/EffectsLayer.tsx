@@ -1,3 +1,12 @@
+/**
+ * EffectsLayer: GPU-instanced particle rendering for world ambient effects
+ * (fire, smoke, steam, sparks, fireflies, dust, rain, snow) plus the climate
+ * precipitation system. Each emitter compiles to an instanced shader material
+ * whose motion is computed entirely in the vertex shader from a seeded hash —
+ * deterministic per seed, so captures and playback reproduce identical
+ * particles. Fire emitters also drive a pooled point light with shadows, and
+ * per-frame uniforms (time, wind) update via useFrame without React state.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {

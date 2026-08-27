@@ -1,3 +1,12 @@
+/**
+ * Module-level registry decoupling capture requesters (panels, gateway/agent
+ * tool calls, export pipelines) from the single R3F component that can
+ * actually render: DirectorCanvas registers a ViewportCaptureHandler on mount,
+ * and requestViewportCapture routes requests to it. Also tracks readiness so
+ * callers that outlive React (the Agent Gateway) can wait briefly for the
+ * handler instead of failing, and exposes a "capture host needed" signal that
+ * lets a headless workbench tab mount the Stage on demand.
+ */
 import type { ScreenshotResult } from "./screenshotExport";
 import type { DirectorCaptureBackgroundMode } from "../render/renderPassCapture";
 import type { DirectorShotRenderPassId } from "../shot/shotPackage";

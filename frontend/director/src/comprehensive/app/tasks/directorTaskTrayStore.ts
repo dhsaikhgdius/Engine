@@ -1,3 +1,13 @@
+/**
+ * Task tray store: the app-shell surface that tracks long-running gateway work
+ * (production jobs and monitored production runs) for the current session.
+ * Owns adaptive polling (fast while anything is active, slow while the panel
+ * is idle-open, paused otherwise), merges job records with receipt probes,
+ * raises toast notifications on completion/failure, and exposes cancel/retry
+ * actions that call back into the gateway task clients. A vanilla Zustand
+ * store so the poller can run outside React while panels subscribe via
+ * useStore.
+ */
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import type {
