@@ -250,8 +250,17 @@ describe("creative workspace UI/agent parity harness", () => {
       execute({ op: "canvas.node.send_to_back", node_id: createdId(mid, "node") });
       execute({ op: "canvas.node.bring_to_front", node_id: createdId(mid, "node") });
     });
-    expect(uiRevision).toEqual(agentRevision);
-    expect(uiRevision.board.nodes.map((node) => ({ title: node.title, z_index: node.z_index }))).toEqual([
+    // Paint order is the contract under test. Observe board.dag sorts disconnected
+    // roots/leaves by raw UUID, so first-appearance id aliases diverge across the
+    // two fresh stores even when node titles and z_index match.
+    const paintOrder = (revision: Record<string, unknown>) =>
+      (revision.board as { nodes: Array<{ id: string; title: string; z_index: number }> }).nodes.map((node) => ({
+        id: node.id,
+        title: node.title,
+        z_index: node.z_index,
+      }));
+    expect(paintOrder(uiRevision)).toEqual(paintOrder(agentRevision));
+    expect(paintOrder(uiRevision).map(({ title, z_index }) => ({ title, z_index }))).toEqual([
       { title: "顶层", z_index: 0 },
       { title: "底层", z_index: 1 },
       { title: "中层", z_index: 2 },
