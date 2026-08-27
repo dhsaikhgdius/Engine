@@ -1,3 +1,34 @@
+/**
+ * `director_creative` agent-facing schemas: snapshot projection, execution
+ * results, capabilities, and preview contracts.
+ *
+ * The creative workspace (Canvas production DAG, Video Editor, Gallery,
+ * media library) lives in browser Zustand stores; agents never touch those
+ * stores directly. Instead the browser projects its state into the
+ * snake_case snapshot validated by
+ * {@link creativeWorkspaceAgentSnapshotSchema}, and every mutation flows
+ * back as an execution result validated here. The request/operation grammar
+ * itself lives in `@director/protocol/creativeWorkspaceProtocol` and is
+ * re-exported; this module owns the shapes that cross the browser/gateway
+ * boundary at runtime.
+ *
+ * Invariants:
+ * - Every snapshot carries a `snapshot_fingerprint`; mutating ops must echo
+ *   it, and a stale fingerprint is a typed `conflict` failure — never a
+ *   silent overwrite.
+ * - All schemas are strict: unknown keys are rejected with a corrective
+ *   message ({@link parseCreativeWorkspaceAgentOperation}) so agents learn
+ *   the exact field to remove.
+ * - The capabilities payload is data (`creativeWorkspaceAgentCapabilities
+ *   .json`) validated against {@link creativeWorkspaceAgentCapabilitiesSchema}
+ *   at read time, so the advertised vocabulary can never drift from the
+ *   schema that documents it.
+ * - Collection sizes are bounded (nodes, edges, clips, media, …) so a
+ *   snapshot can always fit a tool-result payload.
+ *
+ * @module creativeWorkspaceAgentSchemas
+ */
+
 import { z } from "zod";
 import creativeWorkspaceAgentCapabilities from "./creativeWorkspaceAgentCapabilities.json";
 import { creativeWorkspaceAuditReceiptSchema } from "./creativeWorkspaceAgentQuality";
@@ -45,6 +76,11 @@ import {
 } from "@director/protocol/creativeWorkspaceProtocol";
 import { strictKind, strictOperation, strictSuccess } from "@director/protocol/strictProtocolVariant";
 
+// ---------------------------------------------------------------------------
+// Request grammar re-exports (canonical definitions live in the protocol
+// package; re-exported here so agent-engine consumers have one import path).
+// ---------------------------------------------------------------------------
+
 export {
   creativeWorkspaceAgentOperationNames,
   creativeWorkspaceAgentOperationSchema,
@@ -57,14 +93,26 @@ export type {
   CreativeWorkspaceAgentRequest,
 };
 
+// ---------------------------------------------------------------------------
+// Typed failure vocabulary and parse results.
+// ---------------------------------------------------------------------------
+
+/**
+ * Typed failure classes for creative operations. `conflict` specifically
+ * means the snapshot fingerprint guard failed (state moved under the agent);
+ * `operation_rejected` means the input was valid but the workspace refused
+ * the semantics (e.g. removing a node with live pipeline outputs).
+ */
 export type CreativeWorkspaceAgentErrorCode =
   "invalid_input" | "not_found" | "locked" | "conflict" | "capacity" | "operation_rejected";
 
+/** One Zod issue projected into a dotted path plus corrective message. */
 export interface CreativeWorkspaceAgentParseIssue {
   path: string;
   message: string;
 }
 
+/** Result of parsing an operation: the typed operation, or per-path issues. */
 export type CreativeWorkspaceAgentParseResult =
   | { success: true; operation: CreativeWorkspaceAgentOperation }
   | {
@@ -73,6 +121,13 @@ export type CreativeWorkspaceAgentParseResult =
       error: string;
       issues: CreativeWorkspaceAgentParseIssue[];
     };
+
+// ---------------------------------------------------------------------------
+// Projected snapshot building blocks. Each `projected*` schema is the
+// agent-facing (snake_case) shape of one browser store slice; the browser is
+// responsible for projecting into these shapes, and the gateway re-validates
+// on receipt so a drifting projection fails loudly at the boundary.
+// ---------------------------------------------------------------------------
 
 const projectedCanvasProductionConfigSchema = z.strictObject({
   workflow_id: z.string().nullable(),
@@ -142,6 +197,9 @@ const projectedBoardEdgeSchema = z.strictObject({
   target_node_id: idSchema,
 });
 
+// Precomputed DAG analysis of the Canvas board (published with every
+// snapshot) so agents can reason about ordering and parallelism without
+// re-deriving graph structure from raw edges.
 const projectedCanvasDagSchema = z.strictObject({
   valid: z.boolean(),
   roots: z.array(idSchema).max(240),
@@ -240,7 +298,16 @@ const projectedGalleryFolderSchema = z.strictObject({
   created_at: z.string(),
 });
 
-/** Runtime contract for snapshots crossing the browser/gateway boundary. */
+// ---------------------------------------------------------------------------
+// The full observe snapshot.
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime contract for snapshots crossing the browser/gateway boundary.
+ * The `snapshot_fingerprint` is the concurrency guard every mutating
+ * `director_creative` call must echo; `counts` mirror the collection sizes
+ * so agents can gauge scale before requesting full collections.
+ */
 export const creativeWorkspaceAgentSnapshotSchema = z.strictObject({
   version: z.literal(1),
   snapshot_fingerprint: snapshotFingerprintSchema,
@@ -306,10 +373,18 @@ export const creativeWorkspaceAgentSnapshotSchema = z.strictObject({
 });
 
 type ParsedCreativeWorkspaceAgentSnapshot = z.infer<typeof creativeWorkspaceAgentSnapshotSchema>;
+/** Snapshot type with the fingerprint widened to `string` for producers. */
 export type CreativeWorkspaceAgentSnapshot = Omit<ParsedCreativeWorkspaceAgentSnapshot, "snapshot_fingerprint"> & {
   snapshot_fingerprint: string;
 };
 
+// ---------------------------------------------------------------------------
+// Execution results. Success always carries the post-mutation snapshot so
+// the agent's next decision is grounded in current state; failure carries a
+// typed code, optional issues, and often a `suggested_next` corrective call.
+// ---------------------------------------------------------------------------
+
+/** Discriminated execution outcome for `execute` / `execute_batch`. */
 export type CreativeWorkspaceAgentExecutionResult =
   | {
       success: true;
@@ -349,11 +424,23 @@ const creativeWorkspaceAgentExecutionFailureSchema = strictSuccess(false, {
   suggested_next: z.string().max(1_000).optional(),
 });
 
+/** Wire validation of the execution result union (success and failure arms). */
 export const creativeWorkspaceAgentExecutionResultSchema = z.discriminatedUnion("success", [
   creativeWorkspaceAgentExecutionSuccessSchema,
   creativeWorkspaceAgentExecutionFailureSchema,
 ]);
 
+// ---------------------------------------------------------------------------
+// Capabilities. This is the canonical vocabulary channel for
+// `director_creative`: everything an agent may assume about limits,
+// concurrency guards, batch semantics, DAG/editorial/gallery contracts,
+// interchange, collaboration, and pipelines is declared here, with the
+// values themselves in creativeWorkspaceAgentCapabilities.json. Literal
+// types pin contract facts (guard names, operation ids, defaults) so a JSON
+// edit that contradicts the schema fails at capabilities time.
+// ---------------------------------------------------------------------------
+
+/** Strict shape of the `director_creative` capabilities payload. */
 export const creativeWorkspaceAgentCapabilitiesSchema = z.strictObject({
   version: z.literal(2),
   tool: z.literal("director_creative"),
@@ -588,6 +675,12 @@ export const creativeWorkspaceAgentCapabilitiesSchema = z.strictObject({
   recommended_loop: z.array(z.string()),
 });
 
+/**
+ * Build the validated capabilities payload. Operation ids and batch
+ * exclusions are injected from the live operation registry rather than
+ * duplicated in the JSON, so the advertised list is always the parseable
+ * list. Throws if the JSON drifts from the schema.
+ */
 export function getCreativeWorkspaceAgentCapabilities() {
   return creativeWorkspaceAgentCapabilitiesSchema.parse({
     ...creativeWorkspaceAgentCapabilities,
@@ -598,6 +691,13 @@ export function getCreativeWorkspaceAgentCapabilities() {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Preview captures. `op:"preview"` renders a clean PNG frame of the Canvas
+// board or Video Editor at the agent's requested state; the capture embeds
+// the snapshot fingerprint it was rendered from, and a fingerprint mismatch
+// returns a typed `stale_snapshot` failure instead of a misleading image.
+// ---------------------------------------------------------------------------
 
 const creativeWorkspacePreviewBoundsSchema = z.strictObject({
   x: finiteNumber,
@@ -650,12 +750,20 @@ const creativeWorkspacePreviewFailureSchema = strictSuccess(false, {
   suggested_next: z.string().max(1_000),
 });
 
+/** Preview outcome: a clean-frame PNG capture, or a typed render/staleness failure. */
 export const creativeWorkspaceAgentPreviewResultSchema = z.discriminatedUnion("success", [
   creativeWorkspacePreviewCaptureSchema,
   creativeWorkspacePreviewFailureSchema,
 ]);
 export type CreativeWorkspaceAgentPreviewResult = z.infer<typeof creativeWorkspaceAgentPreviewResultSchema>;
 
+// ---------------------------------------------------------------------------
+// Tool result envelope: one discriminated union over every request op, so
+// transports (MCP, HTTP, DSH plugin) can validate any director_creative
+// response with a single schema.
+// ---------------------------------------------------------------------------
+
+/** Complete `director_creative` tool result union, discriminated by `op`. */
 export const creativeWorkspaceAgentToolResultSchema = z.discriminatedUnion("op", [
   strictOperation("capabilities", { capabilities: creativeWorkspaceAgentCapabilitiesSchema }),
   strictOperation("describe", { description: creativeWorkspaceDescribeResultSchema }),
@@ -671,6 +779,8 @@ export const creativeWorkspaceAgentToolResultSchema = z.discriminatedUnion("op",
 
 export type CreativeWorkspaceAgentToolResult = z.infer<typeof creativeWorkspaceAgentToolResultSchema>;
 
+// Rejection messages must carry the corrective call: name the exact
+// unrecognized keys instead of Zod's generic message.
 function creativeParseIssueMessage(issue: z.ZodError["issues"][number]): string {
   if (issue.code === "unrecognized_keys") {
     const keys = issue.keys.map((key) => `"${key}"`).join(", ");
@@ -679,6 +789,11 @@ function creativeParseIssueMessage(issue: z.ZodError["issues"][number]): string 
   return issue.message;
 }
 
+/**
+ * Parse an untrusted operation payload into the typed operation union.
+ * Failures return dotted-path issues plus a single aggregated error string
+ * suitable for a tool rejection message.
+ */
 export function parseCreativeWorkspaceAgentOperation(input: unknown): CreativeWorkspaceAgentParseResult {
   const parsed = creativeWorkspaceAgentOperationSchema.safeParse(input);
   if (parsed.success) return { success: true, operation: parsed.data };

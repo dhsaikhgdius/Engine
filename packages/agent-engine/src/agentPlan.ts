@@ -1,3 +1,22 @@
+/**
+ * Validation of model-drafted agent plans before any operation executes.
+ *
+ * The legacy JSON planner path lets a model propose a multi-step plan (up to
+ * 48 operations across the shared agent tool registry). This module turns
+ * that untrusted draft into a {@link DirectorAgentPlan}: every step is
+ * dry-run validated against the tool's real schema — Stage commands are
+ * actually executed against a cloned scene so later steps see earlier
+ * staged state — and the whole plan is rejected with a step-indexed error
+ * on the first invalid operation.
+ *
+ * Confirmation is a gateway decision, never a model claim: each step's
+ * `requiresConfirmation` is derived here from a per-tool destructive-verb
+ * taxonomy (deletes, removals, resets, render/submit, replace_project, …),
+ * and an unparseable input is conservatively treated as destructive.
+ *
+ * @module agentPlan
+ */
+
 import { executeStageTool } from "./commandEngine";
 import { validateVideoModelInput } from "./videoModelContract";
 import { cloneScene } from "@director/stage-protocol";
@@ -208,6 +227,8 @@ function changedObjectIds(input: Record<string, unknown>, result: unknown) {
   return ids;
 }
 
+// Parse the raw model draft and enforce the per-operation payload budget
+// before any per-tool validation runs.
 function normalizeDraft(value: unknown): AgentPlanDraft | { error: string } {
   const parsed = agentPlanDraftSchema.safeParse(value);
   if (!parsed.success) return { error: "Agent plan format invalid" };
@@ -222,7 +243,15 @@ function normalizeDraft(value: unknown): AgentPlanDraft | { error: string } {
   };
 }
 
-/** Checks that a planned operation matches the tool schema before execution. */
+/**
+ * Validate a model-drafted plan into an executable {@link DirectorAgentPlan}.
+ *
+ * Stage tool steps are executed against a clone of the live scene so each
+ * step is checked in the context its predecessors produced; workbench,
+ * creative, and Blender steps are schema-validated only (their execution is
+ * owned by the gateway/browser executors). Returns a step-indexed error for
+ * the first failing operation instead of a partial plan.
+ */
 export function validateDirectorAgentPlan(input: {
   draft: unknown;
   scene: StageScene;

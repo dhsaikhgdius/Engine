@@ -1,3 +1,16 @@
+/**
+ * Field-scoped, bounded diff between two persisted Director project revisions.
+ *
+ * Backs the observe/diff step of the agent loop: after an atomic author call
+ * the agent asks "what actually changed" and receives only the fields it
+ * requested (same vocabulary as observe `fields`), with per-collection
+ * added/updated/removed lists capped at `maxChanges` and an explicit
+ * `truncated` flag. Equality uses stable JSON serialization, so key order
+ * never produces phantom changes.
+ *
+ * @module directorRevisionDiff
+ */
+
 import type { DirectorProject } from "@director/project-schema";
 import { getProductionGraphFingerprint, createProductionGraphFromDirectorProject } from "@director/project-schema/production-graph";
 import { stableJson } from "@director/protocol/stableJson";
@@ -5,6 +18,9 @@ import type { DirectorWorkbenchObserveField } from "./directorWorkbenchContract"
 import { getDirectorProjectGraphIssues } from "./directorProjectGraph";
 import { directorProjectObservationCounts } from "./directorWorkbenchObserve";
 
+// Diff one id-keyed collection. The maxChanges budget is spent in order
+// (added, then updated, then removed); total_changes always reports the
+// unbounded count so callers can detect truncation.
 function collectionDiff<T extends { id: string }>(before: T[], after: T[], maxChanges: number) {
   const beforeById = new Map(before.map((item) => [item.id, item]));
   const afterById = new Map(after.map((item) => [item.id, item]));

@@ -1,15 +1,40 @@
+/**
+ * Pure projection of a session's scene-building activity for the run HUD.
+ *
+ * The Director UI shows a live "scene run" strip while an Agent works on the
+ * 3D scene. Rather than tracking state imperatively, this module re-derives
+ * the whole picture from the durable event log on every update: it isolates
+ * the latest user turn, keeps only `director_workbench` / `blender_native`
+ * tool calls, and classifies each call into the workbench loop phases
+ * (context → build → verify → repair) using the operation vocabulary alone.
+ *
+ * Invariants: the projection is a pure function of the event array (no
+ * hidden state, safe to replay); a mutation without a subsequent clean
+ * observation leaves the run in `verification_needed`; a failed call or a
+ * revision mismatch between mutation and verification flips the run into
+ * repair mode until a clean mutation lands. Unknown/malformed event payloads
+ * degrade to "context" classification rather than throwing.
+ *
+ * @module agentSceneRunProjection
+ */
+
 import type { AgentEvent } from "./agentSessionSchema";
 
+/** Workbench loop phases the HUD renders, in canonical order. */
 export type AgentSceneRunPhaseId = "context" | "build" | "verify" | "repair";
+/** Visual state of one phase lane. */
 export type AgentSceneRunPhaseState = "idle" | "active" | "complete" | "attention";
+/** Overall run status; `verification_needed` means a mutation has not been re-observed yet. */
 export type AgentSceneRunStatus = "idle" | "running" | "verification_needed" | "verified" | "complete" | "attention";
 
+/** One phase lane: current visual state plus completed call count. */
 export type AgentSceneRunPhase = {
   id: AgentSceneRunPhaseId;
   state: AgentSceneRunPhaseState;
   calls: number;
 };
 
+/** The most recent scene tool call, as shown in the HUD's activity line. */
 export type AgentSceneRunOperation = {
   eventId: string;
   tool: string;
@@ -18,11 +43,17 @@ export type AgentSceneRunOperation = {
   state: "running" | "complete" | "attention";
 };
 
+/**
+ * A scene revision marker with its authority. Director revisions are opaque
+ * strings; Blender revisions are monotonically increasing integers. Only
+ * same-authority revisions are ever compared.
+ */
 export type AgentSceneRunRevision = {
   authority: "director" | "blender";
   value: string | number;
 };
 
+/** Full HUD projection; `visible` is false until a scene tool call appears in the turn. */
 export type AgentSceneRunProjection = {
   visible: boolean;
   status: AgentSceneRunStatus;
@@ -30,10 +61,14 @@ export type AgentSceneRunProjection = {
   phases: AgentSceneRunPhase[];
   latestOperation: AgentSceneRunOperation | null;
   sceneRevision: AgentSceneRunRevision | null;
+  /** Up to six touched target ids for display; `targetCount` holds the true total. */
   targetIds: string[];
   targetCount: number;
 };
 
+// Operation vocabulary → phase classification. `inspect`/`observe`-family ops
+// appear in both VERIFY_OPS and CONTEXT_OPS: they count as verification only
+// while a mutation is awaiting re-observation, otherwise as context gathering.
 const MUTATION_OPS = new Set([
   "apply",
   "author",
@@ -101,6 +136,8 @@ function toolItem(event: AgentEvent) {
   return asRecord(event.data.item);
 }
 
+// Tool inputs arrive under different keys depending on the harness
+// (arguments/input/params); accept all of them.
 function toolInput(event: AgentEvent): Record<string, unknown> | null {
   const direct = asRecord(event.data.input);
   if (direct) return direct;
@@ -154,6 +191,8 @@ function numericRevision(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
+// Extract the scene revision a completed call reported. Director revisions
+// take precedence; Blender receipts/evidence carry integer revisions.
 function eventRevision(event: AgentEvent): AgentSceneRunRevision | null {
   const result = eventResult(event);
   const inner = asRecord(result?.result);
@@ -169,6 +208,9 @@ function eventRevision(event: AgentEvent): AgentSceneRunRevision | null {
   return native === null ? null : { authority: "blender", value: native };
 }
 
+// Harvest object/camera/track ids from a tool input, descending at most two
+// levels into `actions`/`operations` arrays. "ground" is filtered because it
+// is an implicit target of many operations, not a directed edit.
 function collectTargetIds(input: Record<string, unknown> | null) {
   const ids = new Set<string>();
   const add = (value: unknown) => {
@@ -191,6 +233,8 @@ function collectTargetIds(input: Record<string, unknown> | null) {
   return [...ids];
 }
 
+// The run strip covers only the latest real user turn. Compaction and
+// injected messages are not user turns and must not reset the run.
 function latestTurn(events: readonly AgentEvent[]) {
   let start = 0;
   for (let index = 0; index < events.length; index += 1) {
@@ -217,7 +261,15 @@ function operationPhase(op: string | null, pendingVerification: boolean, repairM
   return "context";
 }
 
-/** Pure, replayable projection of the latest 3D scene-building turn. */
+/**
+ * Pure, replayable projection of the latest 3D scene-building turn.
+ *
+ * Folds tool.started/tool.completed pairs (correlated by itemId) into phase
+ * lanes. A clean mutation arms `pendingVerification`; a subsequent clean
+ * verification whose revision matches the mutation's revision disarms it,
+ * while a mismatch or failure enters repair mode until the next clean
+ * mutation.
+ */
 export function deriveAgentSceneRun(events: readonly AgentEvent[]): AgentSceneRunProjection {
   const phases = createPhases();
   const openCalls = new Map<string, { descriptor: ToolDescriptor; phase: AgentSceneRunPhaseId }>();

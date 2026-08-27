@@ -1,12 +1,31 @@
+/**
+ * Bounded tree view over Director's flat `parent_id` object list.
+ *
+ * `director_workbench` observe stores objects flat; agents that ask for
+ * `layout: "hierarchy"` get this projection instead so parent/child scene
+ * structure is readable without a second query. The tree is size-capped and
+ * reports truncation explicitly, keeping observe responses within tool-result
+ * budgets.
+ *
+ * @module directorObjectHierarchy
+ */
+
+/** Minimal shape a scene object must expose to participate in the tree. */
 export interface DirectorHierarchyObject {
   id: string;
   parent_id?: string;
 }
 
+/** One tree node: the original object plus its resolved children. */
 export type DirectorHierarchyNode<T extends DirectorHierarchyObject> = T & {
   children: Array<DirectorHierarchyNode<T>>;
 };
 
+/**
+ * Hierarchy projection returned to observe callers. `truncated` is true when
+ * the `maxObjects` budget cut nodes; counts let the caller decide whether to
+ * re-query with a narrower filter.
+ */
 export interface DirectorObjectHierarchy<T extends DirectorHierarchyObject> {
   mode: "hierarchy";
   roots: Array<DirectorHierarchyNode<T>>;
@@ -43,6 +62,8 @@ export function buildDirectorObjectHierarchy<T extends DirectorHierarchyObject>(
     return { ...object, children };
   };
 
+  // Objects whose parent_id does not resolve are promoted to roots rather
+  // than dropped, so a dangling reference never hides a subtree.
   const roots = objects.flatMap((object) => {
     if (object.parent_id && byId.has(object.parent_id)) return [];
     const root = buildNode(object.id);

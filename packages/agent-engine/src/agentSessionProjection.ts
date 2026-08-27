@@ -1,3 +1,17 @@
+/**
+ * Pure reducer that materializes an {@link AgentSession} snapshot from its
+ * durable event log.
+ *
+ * The event log is the single source of truth for session lifecycle; this
+ * reducer is shared by the gateway's SQLite projection and the browser's
+ * live session view so status semantics (queued → running →
+ * waiting_approval → completed/failed/interrupted) cannot drift between
+ * processes. Events for other sessions are ignored, and malformed event
+ * payloads degrade to keeping the previous field value rather than throwing.
+ *
+ * @module agentSessionProjection
+ */
+
 import {
   agentProviderSchema,
   agentSessionCapabilitiesSchema,
@@ -17,6 +31,8 @@ function optionalId(value: unknown) {
   return typeof value === "string" ? value : undefined;
 }
 
+// Terminal turn status may arrive flat (`data.status`) or nested under
+// `data.turn`; anything unrecognized is treated as a clean completion.
 function completedTurnStatus(event: AgentEvent): Extract<AgentSessionStatus, "completed" | "failed" | "interrupted"> {
   const nestedTurn =
     event.data.turn && typeof event.data.turn === "object" ? (event.data.turn as Record<string, unknown>) : null;
@@ -62,6 +78,9 @@ export function applyAgentSessionEvent(session: AgentSession, event: AgentEvent)
   if (event.type === "queue.updated" && typeof event.data.count === "number" && Number.isFinite(event.data.count)) {
     const queuedMessageCount = Math.max(0, Math.floor(event.data.count));
     const action = event.data.action;
+    // Queue transitions only move status when they do not contradict a live
+    // turn: enqueue never demotes running/waiting_approval, and cancelling
+    // the last queued message from "queued" resolves to "interrupted".
     const status =
       action === "dequeued"
         ? "running"

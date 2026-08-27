@@ -1,3 +1,18 @@
+/**
+ * Structured feedback attached to every stage tool execution result.
+ *
+ * After a mutation the agent should not need a second observe just to learn
+ * what happened: the gateway diffs the scene before/after, summarizes scene
+ * health ({@link StageSceneHint}), and lists the objects/tracks the call
+ * touched or referenced. This module also defines the
+ * {@link agentBoundaryReceiptSchema} receipt that proves a call passed the
+ * public agent boundary guards (exact target, revision guard, idempotency
+ * key) and the {@link StageGatewayExecution} envelope that carries feedback,
+ * captures, and possession receipts back over the wire.
+ *
+ * @module stageFeedback
+ */
+
 import { z } from "zod";
 import type { DirectorAgentTargetWire } from "@director/protocol/agentGatewayProtocol";
 import type { StageScene, StageTrack, ToolExecution } from "@director/stage-protocol";

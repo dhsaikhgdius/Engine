@@ -1,3 +1,16 @@
+/**
+ * Wire schemas for Agent runtime configuration: profiles, hosted API
+ * providers, model capabilities, and film-role → profile routing.
+ *
+ * These are the public shapes shared by gateway config parsing, HTTP
+ * request validation, and the browser settings UI. The invariant across
+ * every schema here is credential hygiene: only booleans like
+ * `credentialConfigured` cross this boundary — API keys and raw secret
+ * references are resolved server-side and never appear in these payloads.
+ *
+ * @module agentRuntimeSchema
+ */
+
 import { z } from "zod";
 import { FILM_ROLE_IDS, type FilmRoleId } from "@director/protocol/filmRoles";
 

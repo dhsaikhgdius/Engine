@@ -1,3 +1,16 @@
+/**
+ * Factory for the canonical starter Director project.
+ *
+ * Both the browser bootstrap (first project a user sees) and gateway/agent
+ * tests build from this exact shape, so agent expectations about the default
+ * scene (one Mixamo-rigged character at the origin, one camera pair —
+ * `DirectorCameraShot` plus its linked scene object — default lights, and a
+ * frame timeline) hold in every environment. Deliberately store-free:
+ * browser-only persistence concerns are layered on by the frontend wrapper.
+ *
+ * @module directorDefaultProject
+ */
+
 import {
   createDefaultDirectorFrameTimeline,
   createDefaultDirectorLights,
@@ -34,6 +47,7 @@ function createTransform(
   return { position, rotation, scale };
 }
 
+// Default scene item names follow the UI source language (Simplified Chinese).
 function formatSceneItemName(prefix: "角色" | "机位", index: number) {
   return `${prefix}${String(index).padStart(2, "0")}`;
 }

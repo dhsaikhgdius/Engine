@@ -1,3 +1,18 @@
+/**
+ * Minimal, hardened JSON Patch (RFC 6902 subset) applier for workbench diffs.
+ *
+ * `director_workbench` author responses describe every mutation as a list of
+ * add/replace/remove patches ({@link DirectorWorkbenchPatch}); this module is
+ * the only code that materializes those patches into a project document, on
+ * both the gateway and the browser. It deliberately supports only the three
+ * ops the contract emits, never mutates the source document (deep clone
+ * first), and throws — rather than silently skipping — on invalid pointers,
+ * out-of-bounds indices, or prototype-pollution segments so a bad patch can
+ * never half-apply.
+ *
+ * @module jsonPatch
+ */
+
 import type { DirectorWorkbenchPatch } from "./directorWorkbenchContract";
 
 // Prototype-pollution guard: block keys that could mutate Object.prototype.

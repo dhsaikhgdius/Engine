@@ -1,3 +1,16 @@
+/**
+ * Shared limits and parsing for Director camera capture evidence.
+ *
+ * Camera captures are the visual acceptance channel of the workbench loop
+ * (a 35–65 mm capture, not `audit.ready`): the browser Stage renders them,
+ * the gateway persists them, and Agent tool results reference them. The
+ * budgets here are the single source of truth for all three sides, so a
+ * capture accepted by the UI can never be rejected by the gateway or
+ * overflow an Agent tool-result payload.
+ *
+ * @module directorCameraCaptures
+ */
+
 import type { StageCapturePayload } from "./stageFeedback.js";
 
 const SUPPORTED_IMAGE_TYPES = new Set<StageCapturePayload["mimeType"]>(["image/png", "image/jpeg", "image/webp"]);
@@ -27,14 +40,21 @@ export function parseDirectorCaptureDataUrl(dataUrl: string): StageCapturePayloa
   return { mimeType, data };
 }
 
+/**
+ * True when the data URL fits the wire budget and parses as a supported
+ * capture ({@link parseDirectorCaptureDataUrl}). Used as the cheap gate
+ * before a capture is attached to a tool result or persisted.
+ */
 export function isValidDirectorCaptureDataUrl(dataUrl: string): boolean {
   return dataUrl.length <= MAX_DIRECTOR_CAPTURE_DATA_URL_CHARS && parseDirectorCaptureDataUrl(dataUrl) !== null;
 }
 
+/** Human-facing capture name shown in the Gallery (UI copy is Simplified Chinese). */
 export function formatDirectorCameraCaptureName(cameraName: string, captureIndex: number) {
   return `${cameraName}-截图${String(captureIndex).padStart(2, "0")}`;
 }
 
+/** Stable capture id derived from the camera id, so re-captures are addressable. */
 export function formatDirectorCameraCaptureId(cameraId: string, captureIndex: number) {
   return `${cameraId}-capture-${String(captureIndex).padStart(2, "0")}`;
 }

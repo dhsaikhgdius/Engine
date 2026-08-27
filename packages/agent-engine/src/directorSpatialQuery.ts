@@ -1,3 +1,20 @@
+/**
+ * Read-only spatial object queries for `director_workbench` observe
+ * (`query_objects`).
+ *
+ * Lets an agent ask "what is near X / inside this box / visible from this
+ * camera" against the canonical project geometry instead of scraping the
+ * full object list. Supports four spatial modes — `radius`, `nearby`
+ * (around an existing object), `aabb`, and `frustum` (camera cone,
+ * conservative bounding-sphere test) — composable with name-pattern, kind,
+ * and object-list filters. Results are distance-sorted, bounded by
+ * `maxResults` with an explicit `truncated` flag, and never mutate the
+ * project. Unresolvable references (missing camera or nearby object) throw
+ * with the exact id so the rejection message can carry the corrective call.
+ *
+ * @module directorSpatialQuery
+ */
+
 import type {
   DirectorObject,
   DirectorProject,
@@ -9,6 +26,7 @@ import {
 } from "@director/project-schema";
 import type { DirectorObjectSpatialQuery } from "./directorWorkbenchContract";
 
+/** Composable query filters; all present filters must match (logical AND). */
 export type DirectorObjectQuery = {
   spatial?: DirectorObjectSpatialQuery;
   namePattern?: string;
@@ -86,6 +104,9 @@ function intersectsAabb(bounds: DirectorSpatialBounds, min: DirectorSpatialVec3,
   return [0, 1, 2].every((axis) => bounds.max[axis] >= min[axis] && bounds.min[axis] <= max[axis]);
 }
 
+// Build the view frustum for a camera (explicit id or the active camera),
+// deriving basis vectors from the camera's view snapshot and half-FOV
+// tangents from its optics. Throws when no camera can be resolved.
 function resolveFrustum(project: DirectorProject, cameraId?: string): Frustum {
   const resolvedCameraId = cameraId ?? project.activeCameraId;
   if (!resolvedCameraId) throw new Error("Frustum query requires camera_id or an active camera.");
@@ -111,6 +132,9 @@ function resolveFrustum(project: DirectorProject, cameraId?: string): Frustum {
   };
 }
 
+// Conservative sphere-vs-frustum test: the object's bounding sphere is
+// compared against the expanded frustum planes, so borderline objects are
+// included rather than dropped.
 function intersectsFrustum(bounds: DirectorSpatialBounds, frustum: Frustum) {
   const offset = subtract(bounds.center, frustum.origin);
   const depth = dot(offset, frustum.forward);
@@ -137,7 +161,14 @@ function pointBounds(position: DirectorSpatialVec3): DirectorSpatialBounds {
   return { min: position, max: position, center: position, size: [0, 0, 0] };
 }
 
-/** Executes a bounded, read-only object query against Director's canonical geometry and names. */
+/**
+ * Executes a bounded, read-only object query against Director's canonical geometry and names.
+ *
+ * Spatial matches sort by distance from the query's reference point; pure
+ * name/kind queries sort by locale-aware name. Objects without resolvable
+ * bounds fall back to their transform position for non-spatial queries but
+ * are excluded from spatial modes (no geometry to intersect).
+ */
 export function queryDirectorObjects(project: DirectorProject, query: DirectorObjectQuery, options: QueryOptions) {
   const spatial = query.spatial;
   const frustum = spatial?.mode === "frustum" ? resolveFrustum(project, spatial.camera_id) : null;
