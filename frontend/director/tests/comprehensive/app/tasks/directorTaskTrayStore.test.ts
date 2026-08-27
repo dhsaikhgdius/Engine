@@ -23,6 +23,7 @@ import {
   ACTIVE_TASK_POLL_MS,
   IDLE_TASK_POLL_MS,
   PANEL_OPEN_TASK_POLL_MS,
+  RECEIPT_PROBE_CONCURRENCY,
   __resetDirectorTaskTrayForTests,
   cancelDirectorProductionRun,
   cancelDirectorTask,
@@ -34,6 +35,7 @@ import {
   startDirectorTaskTrayPolling,
   visibleDirectorTasks,
 } from "../../../../src/comprehensive/app/tasks/directorTaskTrayStore";
+import { projectProductionJobReceipt } from "../../../../../../packages/protocol/src/productionJobReceipt";
 
 type JobOverrides = {
   id: string;
@@ -138,14 +140,42 @@ const jsonFail = (status: number, body: unknown = {}): MockResponse => ({
 let jobsPayload: ProductionJobRecord[] = [];
 let filmRunsPayload: FilmRun[] = [];
 let listHandler: () => MockResponse;
+let receiptHandler: (jobId: string) => MockResponse | Promise<MockResponse>;
 let actionHandler: (collection: string, jobId: string, action: string) => MockResponse;
 let runActionHandler: (source: "film", runId: string) => MockResponse;
 const requests: Array<{ url: string; method: string }> = [];
+
+function receiptForJob(job: ProductionJobRecord, presence: "present" | "absent" = "present") {
+  const artifact = {
+    id: `${job.id}-artifact`,
+    attemptId: `${job.id}-attempt-1`,
+    role: "primary",
+    mimeType: "image/png",
+    fileName: "output.png",
+    sha256: "b".repeat(64),
+    bytes: 256,
+    createdAt: job.createdAt,
+  };
+  const withArtifact = productionJobRecordSchema.parse({
+    ...job,
+    artifacts: [artifact],
+    attempts: job.attempts.map((attempt, index) =>
+      index === job.attempts.length - 1 ? { ...attempt, artifacts: [artifact] } : attempt,
+    ),
+  });
+  return projectProductionJobReceipt(withArtifact, {
+    artifactStoragePresence: new Map([[artifact.id, presence]]),
+  });
+}
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<MockResponse> => {
   const url = String(input);
   const method = init?.method ?? "GET";
   requests.push({ url, method });
+  if (method === "GET" && url.includes("/api/production-jobs") && url.includes("/receipt")) {
+    const jobId = decodeURIComponent(url.match(/\/api\/production-jobs\/([^/]+)\/receipt/)?.[1] ?? "");
+    return await receiptHandler(jobId);
+  }
   if (method === "GET" && url.includes("/api/production-jobs")) return listHandler();
   if (method === "GET" && url.includes("/api/film/runs")) return jsonOk({ runs: filmRunsPayload });
   const runAction = url.match(/\/api\/film\/runs\/([^/]+)\/cancel$/);
@@ -160,7 +190,14 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Pr
 });
 
 function listRequestCount() {
-  return requests.filter((request) => request.method === "GET" && request.url.includes("/api/production-jobs")).length;
+  return requests.filter((request) => request.method === "GET" && request.url.includes("/api/production-jobs?")).length;
+}
+
+function receiptRequestCount() {
+  return requests.filter(
+    (request) =>
+      request.method === "GET" && request.url.includes("/api/production-jobs") && request.url.includes("/receipt"),
+  ).length;
 }
 
 async function flushAsync() {
@@ -185,6 +222,11 @@ beforeEach(() => {
   jobsPayload = [];
   filmRunsPayload = [];
   listHandler = () => jsonOk({ jobs: jobsPayload });
+  receiptHandler = (jobId) => {
+    const job = jobsPayload.find((candidate) => candidate.id === jobId);
+    if (!job) return jsonFail(404, { message: "Production job 不存在" });
+    return jsonOk({ receipt: receiptForJob(job) });
+  };
   actionHandler = () => jsonFail(500, { message: "no action handler installed" });
   runActionHandler = () => jsonFail(500, { message: "no run action handler installed" });
 });
@@ -436,5 +478,94 @@ describe("tray projection", () => {
       "job-done-new",
       "job-done-old",
     ]);
+  });
+});
+
+describe("receipt probing", () => {
+  it("probes live receipts for terminal jobs and caches by updatedAt", async () => {
+    const succeeded = makeJob({ id: "job-done", status: "succeeded" });
+    const unknown = makeJob({ id: "job-unknown", status: "outcome_unknown" });
+    await startConnectedTray([makeJob({ id: "job-run", status: "running" }), succeeded, unknown]);
+    await flushAsync();
+    expect(receiptRequestCount()).toBe(2);
+    expect(directorTaskTrayStore.getState().jobReceipts["job-done"]?.phase).toBe("ready");
+    expect(directorTaskTrayStore.getState().jobReceipts["job-unknown"]?.phase).toBe("ready");
+    expect(directorTaskTrayStore.getState().jobReceipts["job-run"]).toBeUndefined();
+
+    const requestsBefore = receiptRequestCount();
+    await vi.advanceTimersByTimeAsync(IDLE_TASK_POLL_MS);
+    await flushAsync();
+    expect(receiptRequestCount()).toBe(requestsBefore);
+  });
+
+  it("re-probes when updatedAt changes", async () => {
+    const succeeded = makeJob({ id: "job-done", status: "succeeded" });
+    await startConnectedTray([succeeded]);
+    await flushAsync();
+    expect(receiptRequestCount()).toBe(1);
+
+    jobsPayload = [
+      productionJobRecordSchema.parse({
+        ...succeeded,
+        updatedAt: "2026-08-13T11:00:00.000Z",
+      }),
+    ];
+    await vi.advanceTimersByTimeAsync(IDLE_TASK_POLL_MS);
+    await flushAsync();
+    expect(receiptRequestCount()).toBe(2);
+  });
+
+  it("caps concurrent receipt fetches", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const releaseQueue: Array<() => void> = [];
+    const terminalJobs = Array.from({ length: RECEIPT_PROBE_CONCURRENCY + 2 }, (_, index) =>
+      makeJob({ id: `job-${index}`, status: "succeeded", createdAt: `2026-08-13T10:0${index}:00.000Z` }),
+    );
+    jobsPayload = terminalJobs;
+    receiptHandler = (jobId) => {
+      const job = jobsPayload.find((candidate) => candidate.id === jobId)!;
+      return new Promise((resolve) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        releaseQueue.push(() => {
+          inFlight -= 1;
+          resolve(jsonOk({ receipt: receiptForJob(job) }));
+        });
+      });
+    };
+
+    await startConnectedTray(terminalJobs);
+    await flushAsync();
+    expect(maxInFlight).toBeLessThanOrEqual(RECEIPT_PROBE_CONCURRENCY);
+    expect(releaseQueue.length).toBeGreaterThan(0);
+    expect(releaseQueue.length).toBeLessThanOrEqual(RECEIPT_PROBE_CONCURRENCY);
+
+    while (releaseQueue.length > 0) {
+      releaseQueue.shift()?.();
+      await flushAsync();
+    }
+    expect(receiptRequestCount()).toBe(terminalJobs.length);
+  });
+
+  it("stores absent artifact presence once the receipt resolves", async () => {
+    let releaseReceipt: (() => void) | undefined;
+    receiptHandler = (jobId) => {
+      const job = jobsPayload.find((candidate) => candidate.id === jobId)!;
+      return new Promise((resolve) => {
+        releaseReceipt = () => resolve(jsonOk({ receipt: receiptForJob(job, "absent") }));
+      });
+    };
+    await startConnectedTray([makeJob({ id: "job-done", status: "succeeded" })]);
+    await flushAsync();
+    expect(directorTaskTrayStore.getState().jobReceipts["job-done"]?.phase).toBe("loading");
+
+    releaseReceipt?.();
+    await flushAsync();
+    const entry = directorTaskTrayStore.getState().jobReceipts["job-done"];
+    expect(entry?.phase).toBe("ready");
+    if (entry?.phase === "ready") {
+      expect(entry.receipt.artifacts.some((artifact) => artifact.storagePresence === "absent")).toBe(true);
+    }
   });
 });
