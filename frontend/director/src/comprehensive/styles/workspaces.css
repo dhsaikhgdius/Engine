@@ -1944,6 +1944,13 @@
   background: transparent;
 }
 
+.creative-node-z-buttons {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.creative-node-z-button,
 .creative-node-front-button {
   display: grid;
   width: 22px;
@@ -1959,11 +1966,14 @@
   transition: opacity 120ms ease;
 }
 
+.creative-board-node:hover .creative-node-z-button,
+.creative-board-node.is-selected .creative-node-z-button,
 .creative-board-node:hover .creative-node-front-button,
 .creative-board-node.is-selected .creative-node-front-button {
   opacity: 1;
 }
 
+.creative-node-z-button:hover,
 .creative-node-front-button:hover {
   color: rgb(var(--text-rgb));
   background: rgb(var(--surface-hover-rgb) / 0.65);

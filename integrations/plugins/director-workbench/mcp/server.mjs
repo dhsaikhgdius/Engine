@@ -41158,6 +41158,9 @@ var canvasNodeRemoveSchema = strictOperation("canvas.node.remove", { node_id: cr
 var canvasNodeBringToFrontSchema = strictOperation("canvas.node.bring_to_front", {
   node_id: creativeWorkspaceIdSchema
 });
+var canvasNodeSendToBackSchema = strictOperation("canvas.node.send_to_back", {
+  node_id: creativeWorkspaceIdSchema
+});
 var canvasNodeAssignSectionSchema = strictOperation("canvas.node.assign_section", {
   node_id: creativeWorkspaceIdSchema,
   section_id: creativeWorkspaceIdSchema.nullable()
@@ -41488,6 +41491,7 @@ var creativeWorkspaceAgentOperationSchema = external_exports.discriminatedUnion(
   canvasNodeUpdateSchema,
   canvasNodeRemoveSchema,
   canvasNodeBringToFrontSchema,
+  canvasNodeSendToBackSchema,
   canvasNodeAssignSectionSchema,
   canvasSectionAddSchema,
   canvasSectionUpdateSchema,
@@ -121754,6 +121758,7 @@ var projectedBoardNodeSchema = external_exports.strictObject({
   body: external_exports.string(),
   media_id: external_exports.string().nullable(),
   section_id: external_exports.string().nullable(),
+  z_index: external_exports.number().int().nonnegative(),
   x: creativeWorkspaceFiniteNumberSchema,
   y: creativeWorkspaceFiniteNumberSchema,
   width: creativeWorkspaceFiniteNumberSchema.positive(),
@@ -122004,7 +122009,11 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
     layout_operation: external_exports.literal("canvas.dag.layout"),
     layout_directions: external_exports.tuple([external_exports.literal("horizontal"), external_exports.literal("vertical")]),
     layout_contract: external_exports.string(),
-    bring_to_front_operation: external_exports.literal("canvas.node.bring_to_front"),
+    z_order_operations: external_exports.tuple([
+      external_exports.literal("canvas.node.bring_to_front"),
+      external_exports.literal("canvas.node.send_to_back")
+    ]),
+    z_order_observe_field: external_exports.literal("board.nodes[].z_index"),
     z_order_contract: external_exports.string(),
     section_operations: external_exports.tuple([
       external_exports.literal("canvas.section.add"),
