@@ -2161,6 +2161,7 @@
   "时间线缩放失败": "Failed to zoom the timeline",
   "剪辑重命名失败": "Failed to rename clip",
   "剪辑微移失败": "Failed to nudge clip",
+  "剪辑落位失败": "Failed to place clip with overwrite",
   "复制剪辑失败": "Failed to duplicate clip",
   "剪辑删除失败": "Failed to delete clip",
   "剪辑分割失败": "Failed to split clip",

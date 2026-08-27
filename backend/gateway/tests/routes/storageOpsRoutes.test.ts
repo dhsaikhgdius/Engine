@@ -229,6 +229,10 @@ describe("storage ops routes", () => {
     expect(health.capacity.availableBytes).toBeLessThanOrEqual(health.capacity.freeBytes);
     expect(health.capacity.usedRatio).toBeGreaterThanOrEqual(0);
     expect(health.capacity.usedRatio).toBeLessThanOrEqual(1);
+    // Byte read-back evidence: the probe compared content, not just head size.
+    expect(health.writeProbe).toMatchObject({ status: "ok", bytesProbed: expect.any(Number) });
+    if (health.writeProbe.status !== "ok") throw new Error("expected an ok write probe");
+    expect(health.writeProbe.bytesProbed).toBeGreaterThan(0);
     // The write probe cleaned up after itself: no probe objects survive and
     // none leak into the usage the same report enumerates.
     expect(await context.storage.list(STORAGE_WRITE_PROBE_PREFIX)).toEqual([]);
@@ -521,9 +525,26 @@ describe("storage ops routes", () => {
         }),
       },
       {
+        // A head-only client that can no longer return bytes must fail verify,
+        // not pass on size metadata alone.
         code: "verify_failed",
         reason: /not readable/,
-        decorate: (client) => ({ ...client, headObject: async () => null }),
+        decorate: (client) => ({ ...client, getObject: async () => null }),
+      },
+      {
+        // Same-length divergent content must fail verify — size match is not honesty.
+        code: "verify_failed",
+        reason: /content diverged/,
+        decorate: (client) => ({
+          ...client,
+          getObject: async (key) => {
+            const real = await client.getObject(key);
+            if (!real) return null;
+            const tampered = Uint8Array.from(real);
+            tampered[0] = (tampered[0]! ^ 0xff) & 0xff;
+            return tampered;
+          },
+        }),
       },
       {
         code: "delete_failed",
@@ -540,6 +561,28 @@ describe("storage ops routes", () => {
       // A failed probe never breaks the rest of the report.
       expect(health.contract).toBe("director-storage-health-v1");
     }
+  });
+
+  it("rejects a head-only backend that never returns probe bytes", async () => {
+    // The pre-deepen probe trusted head() size; a backend whose get path is
+    // broken must no longer look healthy.
+    const filesystemDir = await mkdtemp(join(tmpdir(), "director-storage-ops-head-only-"));
+    tempDirs.push(filesystemDir);
+    const filesystem = new FilesystemArtifactStorage(filesystemDir);
+    const headOnly: ArtifactStorageBackend = {
+      kind: "filesystem",
+      put: (key, bytes) => filesystem.put(key, bytes),
+      get: async () => null,
+      head: (key) => filesystem.head(key),
+      delete: (key) => filesystem.delete(key),
+      list: (prefix) => filesystem.list(prefix),
+      capacity: () => filesystem.capacity(),
+    };
+    const health = await (await serviceOver(headOnly)).health();
+    expect(health.writeProbe).toMatchObject({ status: "failed", code: "verify_failed" });
+    if (health.writeProbe.status !== "failed") throw new Error("expected verify_failed");
+    expect(health.writeProbe.reason).toMatch(/not readable/);
+    expect(health.capacity).toMatchObject({ status: "measured" });
   });
 
   it("reports a typed capacity omission when the live measurement itself fails", async () => {
@@ -593,7 +636,7 @@ describe("storage ops routes", () => {
           // Object storage has no enumerable capacity: a typed omission, not
           // an invented number. The write probe still exercised the client.
           capacity: { status: "unavailable", code: "capacity_unsupported" },
-          writeProbe: { status: "ok" },
+          writeProbe: { status: "ok", bytesProbed: expect.any(Number) },
         },
       },
     });
@@ -601,6 +644,9 @@ describe("storage ops routes", () => {
     expect([...context.objectFake!.objects.keys()].filter((key) => key.startsWith(STORAGE_WRITE_PROBE_PREFIX))).toEqual(
       [],
     );
+    const objectHealth = (health.body as { health: StorageHealthReport }).health;
+    if (objectHealth.writeProbe.status !== "ok") throw new Error("expected ok write probe");
+    expect(objectHealth.writeProbe.bytesProbed).toBeGreaterThan(0);
 
     const plan = ((await context.call("POST", "/api/storage/gc/plan")).write!.body as { plan: { planId: string } })
       .plan;

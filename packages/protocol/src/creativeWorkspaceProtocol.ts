@@ -352,7 +352,9 @@ const editClipAddOptionalFields = {
    * When true, after the clip is added the same overwrite-with-trim resolver
    * the Video Editor UI uses (`resolveDirectorTrackOverwrite`) runs on the
    * landed clip: overlapping neighbours are truncated, head-trimmed, split,
-   * or removed. Omitted/false keeps today's non-destructive queue placement.
+   * or removed. Success receipts include `removed_clip_ids` /
+   * `trimmed_clip_ids` / `created_clip_ids` (empty when nothing overlapped).
+   * Omitted/false keeps today's non-destructive queue placement.
    */
   overwrite: z.boolean().optional(),
 };

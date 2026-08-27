@@ -177,10 +177,12 @@ Shared today:
   Agents reach after resolving a `media.relink` wire source to a `File`).
 - Video Editor proxy file picks: import the candidate, then `media.proxy.attach` through
   `dispatchCreativeWorkspaceOperations` (same linker Agents use on two cataloged ids).
-- Explicit Video overwrite placement: media drops, keyboard frame nudges, and duplicate-after
-  share `edit.clip.add` / `edit.clip.update` with `overwrite: true` (and optional `in_sec` /
-  `opacity` / `volume` on add so duplicate-after keeps the full clip look). Both paths run the
-  same `resolveDirectorTrackOverwrite` resolver via `commitClipPlacement`.
+- Explicit Video overwrite placement: media drops, keyboard frame nudges, duplicate-after, and
+  drag/trim pointer-up share `edit.clip.add` / `edit.clip.update` / `edit.clip.move` with
+  `overwrite: true` (and optional `in_sec` / `opacity` / `volume` on add so duplicate-after
+  keeps the full clip look). All paths run the same `resolveDirectorTrackOverwrite` resolver
+  via `commitClipPlacement`, and overwrite receipts report `removed_clip_ids` /
+  `trimmed_clip_ids` / `created_clip_ids` (empty when nothing overlapped).
 - Media-less text/caption clips: `edit.clip.add` accepts virtual `text:` / `text:caption:…`
   media ids without a Gallery asset (video tracks only). The Video Editor "标题文字" button and
   caption/SRT import / transcription promote dispatch the same ops Agents use; caption display
@@ -202,13 +204,12 @@ Shared today:
 
 Still direct, with reasons:
 
-- Continuous interactions — node drags, clip drags/trims, fade drags, range sliders, and
-  mid-typing clip-name states the contract cannot express (emptied, whitespace-edged, or
-  over-cap values) — keep locally batched history (`beginHistoryBatch`/`endHistoryBatch`) or
-  the direct writer, matching the Stage slider/gizmo policy. Clip drag/trim still resolve
-  overwrite locally via `commitClipPlacement` at pointer-up (discrete
-  nudges/duplicate-after/explicit drops are shared above). Continuous Canvas pointer
-  pan/wheel stay local.
+- Continuous interactions — node drags, mid-gesture clip drag/trim, fade drags, range
+  sliders, and mid-typing clip-name states the contract cannot express (emptied,
+  whitespace-edged, or over-cap values) — keep locally batched history
+  (`beginHistoryBatch`/`endHistoryBatch`) or the direct writer, matching the Stage
+  slider/gizmo policy. Clip drag/trim pointer-up commits through the shared overwrite ops
+  above; continuous Canvas pointer pan/wheel stay local.
 - Canvas board viewport discrete writes — `canvas.board.set_viewport` and
   `canvas.board.fit_content` (toolbar/post-layout fit) share the agent contract; continuous
   pan/wheel remain local. Zoom clamps to `[0.1, 2.5]`; fit defaults to a 1280×800 surface

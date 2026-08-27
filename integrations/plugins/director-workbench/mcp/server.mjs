@@ -41132,7 +41132,9 @@ var editClipAddOptionalFields = {
    * When true, after the clip is added the same overwrite-with-trim resolver
    * the Video Editor UI uses (`resolveDirectorTrackOverwrite`) runs on the
    * landed clip: overlapping neighbours are truncated, head-trimmed, split,
-   * or removed. Omitted/false keeps today's non-destructive queue placement.
+   * or removed. Success receipts include `removed_clip_ids` /
+   * `trimmed_clip_ids` / `created_clip_ids` (empty when nothing overlapped).
+   * Omitted/false keeps today's non-destructive queue placement.
    */
   overwrite: external_exports.boolean().optional()
 };
@@ -122072,6 +122074,21 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
       }),
       viewport_contract: external_exports.string()
     }),
+    clip_overwrite: external_exports.strictObject({
+      operations: external_exports.tuple([
+        external_exports.literal("edit.clip.add"),
+        external_exports.literal("edit.clip.update"),
+        external_exports.literal("edit.clip.move")
+      ]),
+      flag: external_exports.literal("overwrite"),
+      resolver: external_exports.literal("resolveDirectorTrackOverwrite"),
+      receipt_fields: external_exports.tuple([
+        external_exports.literal("removed_clip_ids"),
+        external_exports.literal("trimmed_clip_ids"),
+        external_exports.literal("created_clip_ids")
+      ]),
+      overwrite_contract: external_exports.string()
+    }),
     media: external_exports.strictObject({
       observe_path: external_exports.literal("media.assets"),
       observable_fields: external_exports.tuple([
@@ -138808,6 +138825,7 @@ var directorUnrealOmittedLightSchema = external_exports.strictObject({
 });
 var directorUnrealOmittedMaterialCodeSchema = external_exports.enum([
   "unsupported_channels",
+  "texture_import_failed",
   "no_mesh_target",
   "parent_unavailable",
   "apply_failed"
@@ -138868,8 +138886,11 @@ var directorDccEngineReportSchema = external_exports.strictObject({
   omittedMaterialCount: external_exports.number().int().nonnegative().max(1e5).optional(),
   /**
    * Unreal-only: typed material omit records (`unsupported_channels`,
-   * `no_mesh_target`, `parent_unavailable`, `apply_failed`). Optional for
-   * older connectors; when present, length must equal omittedMaterialCount.
+   * `texture_import_failed`, `no_mesh_target`, `parent_unavailable`,
+   * `apply_failed`). Optional for older connectors; when present, length
+   * must equal omittedMaterialCount. Connector ≥0.4.4 stamps
+   * `texture_import_failed` when a bundled hashed texture fails host import
+   * or MaterialInstance parameter bind (never free-text-only).
    */
   omittedMaterials: external_exports.array(directorUnrealOmittedMaterialSchema).max(1024).optional(),
   /**

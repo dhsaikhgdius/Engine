@@ -50,7 +50,7 @@ function healthBody(overrides: Record<string, unknown> = {}) {
         availableBytes: 38 * 1024 * 1024 * 1024,
         usedRatio: 0.6,
       },
-      writeProbe: { status: "ok", probedAt: "2026-08-25T12:00:00.000Z", latencyMs: 4 },
+      writeProbe: { status: "ok", probedAt: "2026-08-25T12:00:00.000Z", latencyMs: 4, bytesProbed: 48 },
       ...overrides,
     },
   };
@@ -69,7 +69,7 @@ describe("storageHealthClient", () => {
     expect(health.backend).toBe("filesystem");
     expect(health.sweepCandidates).toMatchObject({ count: 2, bytes: 2048 });
     expect(health.capacity).toMatchObject({ status: "measured", usedRatio: 0.6 });
-    expect(health.writeProbe).toMatchObject({ status: "ok", latencyMs: 4 });
+    expect(health.writeProbe).toMatchObject({ status: "ok", latencyMs: 4, bytesProbed: 48 });
   });
 
   it("accepts reports from older gateways without live-check stanzas", async () => {
@@ -77,6 +77,22 @@ describe("storageHealthClient", () => {
     const health = await fetchStorageHealth();
     expect(health.capacity).toBeUndefined();
     expect(health.writeProbe).toBeUndefined();
+  });
+
+  it("accepts pre-deepen ok write probes that omit bytesProbed", async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(
+        200,
+        healthBody({
+          writeProbe: { status: "ok", probedAt: "2026-08-25T12:00:00.000Z", latencyMs: 4 },
+        }),
+      ),
+    );
+    const health = await fetchStorageHealth();
+    expect(health.writeProbe).toMatchObject({ status: "ok", latencyMs: 4 });
+    expect(health.writeProbe && "bytesProbed" in health.writeProbe ? health.writeProbe.bytesProbed : undefined).toBe(
+      undefined,
+    );
   });
 
   it("parses typed capacity omissions and write-probe failures", async () => {
@@ -190,7 +206,7 @@ describe("StorageHealthSection", () => {
     expect(screen.getByText("剩余空间")).toBeTruthy();
     expect(screen.getByText("38.0 GB / 100 GB")).toBeTruthy();
     expect(screen.getByText("写入探针")).toBeTruthy();
-    expect(screen.getByText("可写 · 4 ms")).toBeTruthy();
+    expect(screen.getByText("可写 · 4 ms · 已回读 48 B")).toBeTruthy();
 
     // Planning is a dry run: it reports candidates without deleting.
     await user.click(screen.getByRole("button", { name: "生成清扫计划（试运行）" }));

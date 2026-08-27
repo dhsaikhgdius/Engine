@@ -124,7 +124,17 @@ export function StorageHealthSection() {
               <>
                 <span>{t("写入探针")}</span>
                 {health.writeProbe.status === "ok" ? (
-                  <span>{`${t("可写")} · ${Math.round(health.writeProbe.latencyMs)} ms`}</span>
+                  <span>
+                    {[
+                      t("可写"),
+                      `${Math.round(health.writeProbe.latencyMs)} ms`,
+                      health.writeProbe.bytesProbed !== undefined
+                        ? t(`已回读 ${formatStorageBytes(health.writeProbe.bytesProbed)}`)
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
                 ) : (
                   <span className="is-error" title={health.writeProbe.reason}>
                     {t(WRITE_PROBE_FAILURE_TEXT[health.writeProbe.code])}

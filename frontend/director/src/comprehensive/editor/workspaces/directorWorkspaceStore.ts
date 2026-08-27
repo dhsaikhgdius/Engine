@@ -131,6 +131,22 @@ interface AddClipInput {
   transitionInSec?: number;
 }
 
+/** Summary of neighbour clips affected by overwrite-with-trim placement. */
+export interface DirectorTrackOverwriteSummary {
+  /** Neighbours fully covered (or left as sub-minimum remnants) and dropped. */
+  removedClipIds: string[];
+  /** Neighbours that kept their id but changed start/duration/in/fades. */
+  trimmedClipIds: string[];
+  /** New clip ids allocated for the trailing half of a spanning split. */
+  createdClipIds: string[];
+}
+
+const EMPTY_TRACK_OVERWRITE_SUMMARY: DirectorTrackOverwriteSummary = {
+  removedClipIds: [],
+  trimmedClipIds: [],
+  createdClipIds: [],
+};
+
 /** Summary of clips affected by a timeline range removal operation. */
 export interface DirectorTimelineRangeRemovalSummary {
   /** IDs of clips fully removed by the operation. */
@@ -257,8 +273,11 @@ export interface DirectorCreativeWorkspaceState {
   splitClip: (clipId: string, atSec: number) => DirectorEditClip | null;
   /** Remove a clip from its track. */
   removeClip: (clipId: string) => void;
-  /** Resolve overwrite conflicts after a clip lands on a track. */
-  commitClipPlacement: (clipId: string) => void;
+  /**
+   * Resolve overwrite conflicts after a clip lands on a track. Returns the
+   * same removed/trimmed/created id lists Agents see on overwrite receipts.
+   */
+  commitClipPlacement: (clipId: string) => DirectorTrackOverwriteSummary;
   /** Remove a clip and ripple all later clips on the same track earlier. */
   rippleRemoveClip: (clipId: string) => void;
   /** Remove a time range across one or more tracks, rippling later clips. */
@@ -734,6 +753,45 @@ export function resolveDirectorTrackOverwrite(
     }
   }
   return changed ? resolved : null;
+}
+
+/**
+ * Diff pre/post overwrite clip lists into the same removed/trimmed/created
+ * id bags `edit.clip.*` overwrite receipts expose. Pass `null` for `after`
+ * when `resolveDirectorTrackOverwrite` reported no change.
+ */
+export function summarizeDirectorTrackOverwrite(
+  before: readonly DirectorEditClip[],
+  after: readonly DirectorEditClip[] | null,
+  landedClipId: string,
+): DirectorTrackOverwriteSummary {
+  if (!after) return { ...EMPTY_TRACK_OVERWRITE_SUMMARY };
+  const beforeById = new Map(before.map((clip) => [clip.id, clip]));
+  const afterById = new Map(after.map((clip) => [clip.id, clip]));
+  const removedClipIds: string[] = [];
+  const trimmedClipIds: string[] = [];
+  const createdClipIds: string[] = [];
+  for (const [id, clip] of beforeById) {
+    if (id === landedClipId) continue;
+    const next = afterById.get(id);
+    if (!next) {
+      removedClipIds.push(id);
+      continue;
+    }
+    if (
+      next.startSec !== clip.startSec ||
+      next.durationSec !== clip.durationSec ||
+      next.inSec !== clip.inSec ||
+      next.fadeInSec !== clip.fadeInSec ||
+      next.fadeOutSec !== clip.fadeOutSec
+    ) {
+      trimmedClipIds.push(id);
+    }
+  }
+  for (const id of afterById.keys()) {
+    if (id !== landedClipId && !beforeById.has(id)) createdClipIds.push(id);
+  }
+  return { removedClipIds, trimmedClipIds, createdClipIds };
 }
 
 /**
@@ -1722,12 +1780,14 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
         selectedClipId: state.selectedClipId === clipId ? null : state.selectedClipId,
       });
     }),
-  commitClipPlacement: (clipId) =>
+  commitClipPlacement: (clipId) => {
+    let summary: DirectorTrackOverwriteSummary = { ...EMPTY_TRACK_OVERWRITE_SUMMARY };
     set((state) => {
       const owner = state.editTracks.find((track) => track.clips.some((clip) => clip.id === clipId));
       if (!owner || owner.locked) return state;
       const resolved = resolveDirectorTrackOverwrite(owner.clips, clipId);
       if (!resolved) return state;
+      summary = summarizeDirectorTrackOverwrite(owner.clips, resolved, clipId);
       const keptClipIds = new Set(resolved.map((clip) => clip.id));
       const selectionRemoved =
         state.selectedClipId !== null &&
@@ -1737,7 +1797,9 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
         editTracks: state.editTracks.map((track) => (track.id === owner.id ? { ...track, clips: resolved } : track)),
         selectedClipId: selectionRemoved ? null : state.selectedClipId,
       });
-    }),
+    });
+    return summary;
+  },
   rippleRemoveClip: (clipId) =>
     set((state) => {
       const owner = state.editTracks.find((track) => track.clips.some((clip) => clip.id === clipId));

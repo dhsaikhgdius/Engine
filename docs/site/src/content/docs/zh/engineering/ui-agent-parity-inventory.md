@@ -171,9 +171,11 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
   之后进入的同一执行体）。
 - Video Editor 代理文件选择：先导入候选，再经 `dispatchCreativeWorkspaceOperations` 执行
   `media.proxy.attach`（与 Agent 在两个已入册 id 上使用的同一 linker）。
-- Video 显式覆盖放置：媒体落点、键盘逐帧微移、后接复制共用 `edit.clip.add` /
-  `edit.clip.update` 且 `overwrite: true`（add 可带 `in_sec`/`opacity`/`volume` 以保留复制后的
-  完整观感）。两条路径经 `commitClipPlacement` 跑同一 `resolveDirectorTrackOverwrite` 解析器。
+- Video 显式覆盖放置：媒体落点、键盘逐帧微移、后接复制，以及拖拽/裁剪 pointer-up 共用
+  `edit.clip.add` / `edit.clip.update` / `edit.clip.move` 且 `overwrite: true`（add 可带
+  `in_sec`/`opacity`/`volume` 以保留复制后的完整观感）。所有路径经 `commitClipPlacement` 跑同一
+  `resolveDirectorTrackOverwrite` 解析器；overwrite 回执报告 `removed_clip_ids` /
+  `trimmed_clip_ids` / `created_clip_ids`（无重叠时为空数组）。
 - 无媒体文字/字幕剪辑：`edit.clip.add` 接受虚拟 `text:` / `text:caption:…` media id（无需 Gallery
   资产，仅视频轨道）。Video「标题文字」与字幕/SRT 导入、转写入轨走与 Agent 相同的操作；字幕显示名受
   共享剪辑名 200 字上限约束。
@@ -190,10 +192,10 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 
 仍为直接写入，附原因：
 
-- 连续交互——节点拖拽、剪辑拖拽/裁剪、淡变拖拽、范围滑杆，以及契约无法表达的输入中剪辑名状态
+- 连续交互——节点拖拽、剪辑拖拽/裁剪过程中的手势、淡变拖拽、范围滑杆，以及契约无法表达的输入中剪辑名状态
   （清空、首尾空白、超限值）——保留本地批处理历史（`beginHistoryBatch`/`endHistoryBatch`）或
-  直写，与 Stage 滑块/gizmo 策略一致。拖拽/裁剪 pointer-up 仍本地 `commitClipPlacement`
-  （离散微移/后接复制/显式落点已共享，见上）。Canvas 连续指针平移/滚轮缩放保持本地。
+  直写，与 Stage 滑块/gizmo 策略一致。拖拽/裁剪 pointer-up 经上方共享 overwrite 操作提交；
+  Canvas 连续指针平移/滚轮缩放保持本地。
 - Canvas 画板视口离散写入——`canvas.board.set_viewport` 与 `canvas.board.fit_content`（工具栏/
   布局后适应）走共享 agent 契约；连续平移/滚轮仍本地。缩放钳制在 `[0.1, 2.5]`；无现场 DOM
   尺寸时 fit 默认 1280×800 表面。

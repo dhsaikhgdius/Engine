@@ -462,6 +462,21 @@ export const creativeWorkspaceAgentCapabilitiesSchema = z.strictObject({
       }),
       viewport_contract: z.string(),
     }),
+    clip_overwrite: z.strictObject({
+      operations: z.tuple([
+        z.literal("edit.clip.add"),
+        z.literal("edit.clip.update"),
+        z.literal("edit.clip.move"),
+      ]),
+      flag: z.literal("overwrite"),
+      resolver: z.literal("resolveDirectorTrackOverwrite"),
+      receipt_fields: z.tuple([
+        z.literal("removed_clip_ids"),
+        z.literal("trimmed_clip_ids"),
+        z.literal("created_clip_ids"),
+      ]),
+      overwrite_contract: z.string(),
+    }),
     media: z.strictObject({
       observe_path: z.literal("media.assets"),
       observable_fields: z.tuple([
