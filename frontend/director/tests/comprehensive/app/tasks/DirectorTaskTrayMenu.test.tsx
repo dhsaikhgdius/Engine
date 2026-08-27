@@ -4,6 +4,7 @@ import {
   productionJobRecordSchema,
   type ProductionJobRecord,
 } from "../../../../../../packages/protocol/src/productionJobProtocol";
+import { filmRunSchema } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
 import { projectProductionJobReceipt } from "../../../../../../packages/protocol/src/productionJobReceipt";
 import { LanguageProvider } from "../../../../src/comprehensive/i18n/language";
 import { DirectorTaskTrayMenu } from "../../../../src/comprehensive/app/tasks/DirectorTaskTrayMenu";
@@ -266,7 +267,7 @@ describe("DirectorTaskTrayMenu", () => {
     setTrayProductionRuns([
       {
         source: "film",
-        run: {
+        run: filmRunSchema.parse({
           id: "film-run-failed",
           workflow: "idea-to-film",
           status: "failed",
@@ -276,7 +277,7 @@ describe("DirectorTaskTrayMenu", () => {
           errorCode: "film_run_interrupted",
           createdAt: "2026-08-13T10:00:00.000Z",
           updatedAt: "2026-08-13T10:00:00.000Z",
-        },
+        }),
       },
     ]);
 
