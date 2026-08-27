@@ -3875,5 +3875,9 @@
   "嵌入工程清单无效": "Embedded project manifest invalid",
   "重复稳定 ID 已忽略": "Duplicate stable ID ignored",
   "无 Director 元数据": "No Director metadata",
-  "USD 导入省略": "USD import omissions"
+  "USD 导入省略": "USD import omissions",
+  "占有写入已自动填充目标": "Possession write auto-filled targets",
+  "占有目标不明确，无法自动填充": "Possession target ambiguous; cannot auto-fill",
+  "占有范围拒绝写入": "Possession scope rejected the write",
+  "（无）": "(none)"
 }
