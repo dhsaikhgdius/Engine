@@ -111,7 +111,7 @@ function TaskTrayItem({
       {failureDetail?.code ? (
         <p aria-label={t("失败错误码")} className="task-tray-item-error-code">
           <code>{failureDetail.code}</code>
-          {failureDetail.codeLabel ? <span> · {failureDetail.codeLabel}</span> : null}
+          {failureDetail.codeLabel ? <span> · {t(failureDetail.codeLabel)}</span> : null}
           {failureDetail.retryable ? <span className="task-tray-item-retryable">{t("可重试")}</span> : null}
         </p>
       ) : null}
@@ -222,7 +222,7 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
       {failureDetail?.code ? (
         <p aria-label={t("失败错误码")} className="task-tray-item-error-code">
           <code>{failureDetail.code}</code>
-          {failureDetail.codeLabel ? <span> · {failureDetail.codeLabel}</span> : null}
+          {failureDetail.codeLabel ? <span> · {t(failureDetail.codeLabel)}</span> : null}
         </p>
       ) : null}
       {failureDetail?.message ? <p className="task-tray-item-error">{failureDetail.message}</p> : null}
