@@ -16,13 +16,17 @@ import type {
   Generated3DProviderSource,
 } from "./generated3dProviders";
 
+/** Configuration for the local Infinigen runner. */
 export type InfinigenProviderConfig = {
   id: "infinigen";
   label: string;
+  /** Python interpreter with infinigen installed; unset means unconfigured. */
   pythonBin?: string;
+  /** Root of per-task work directories (status, logs, artifacts). */
   workDir: string;
   textureResolution: number;
   runnerScript: string;
+  /** JSON catalog mapping factory ids/keywords to infinigen modules. */
   catalogPath: string;
 };
 
@@ -62,6 +66,7 @@ const runnerStatusSchema = z.object({
   thumbnail: z.string().max(255).optional(),
 });
 
+/** Recorded at spawn time so a later inspect can liveness-check the runner. */
 const launchSchema = z.object({
   pid: z.number().int().positive(),
   factoryId: z.string(),
@@ -69,6 +74,7 @@ const launchSchema = z.object({
   startedAt: z.string(),
 });
 
+// Signal 0 probes liveness without delivering a signal.
 function processAlive(pid: number) {
   try {
     process.kill(pid, 0);
@@ -84,6 +90,12 @@ function assertTaskId(taskId: string) {
   return taskId;
 }
 
+/**
+ * Maps a free-text prompt onto one catalog factory: an exact id match wins,
+ * otherwise the longest matching keyword decides (longer keywords are more
+ * specific). An unmatched prompt fails with example factories rather than
+ * silently generating something unrelated.
+ */
 export function resolveInfinigenFactory(prompt: string, factories: readonly InfinigenFactoryEntry[]) {
   const trimmed = prompt.trim();
   const exact = factories.find((factory) => factory.id.toLowerCase() === trimmed.toLowerCase());
@@ -133,6 +145,7 @@ export class InfinigenGenerated3DProvider implements Generated3DProvider {
     });
   }
 
+  /** Lazily loads and caches the validated factory catalog. */
   async factories() {
     if (!this.catalog) {
       const parsed = factoryCatalogSchema.parse(JSON.parse(await readFile(this.config.catalogPath, "utf8")));
@@ -204,6 +217,12 @@ export class InfinigenGenerated3DProvider implements Generated3DProvider {
     }
   }
 
+  /**
+   * Reads the runner's status file and cross-checks it against process
+   * liveness: a runner that died without writing a terminal status is
+   * reported as failed (pointing at runner.log) instead of "running" forever.
+   * Success additionally requires both artifact files to be declared.
+   */
   async inspect(
     external: string,
     _input?: Generated3DJobInput,
@@ -249,6 +268,11 @@ export class InfinigenGenerated3DProvider implements Generated3DProvider {
     return { status: status.status, progress: status.progress, externalId: external };
   }
 
+  /**
+   * SIGTERMs the live runner (if any) and records a cancelled status so a
+   * later inspect reads a terminal state even when the runner cannot write
+   * one itself.
+   */
   async cancel(external: string, _input?: Generated3DJobInput, _signal?: AbortSignal): Promise<boolean> {
     const taskId = this.taskIdFrom(external);
     const launch = await this.readLaunch(taskId);

@@ -16,18 +16,36 @@ import { patchComfyWorkflow } from "./comfyWorkflow";
 import type { ComfyNodePool } from "./comfyNodePool";
 import type { ComfyWorkflowStore } from "./comfyWorkflowStore";
 
+/**
+ * Executor for ComfyUI-backed `image.generate` / `video.generate` /
+ * `audio.generate` production jobs. One execution acquires a slot on the
+ * chosen node (ComfyUI runs one prompt at a time per instance), patches the
+ * stored workflow with the request inputs, submits it, and treats the
+ * `/history/{promptId}` entry as the single source of truth for completion —
+ * the WebSocket stream is used only for advisory progress and its absence
+ * never fails a job.
+ *
+ * The prompt id is persisted on the job attempt before waiting begins, so a
+ * gateway restart mid-render can later resolve the real outcome through
+ * {@link ComfyGenerationExecutor.reconcile} instead of re-rendering blindly.
+ */
+
+/** One file location inside ComfyUI's output tree, as found in history JSON. */
 type ComfyOutputReference = {
   filename: string;
   subfolder: string;
   type: "input" | "output" | "temp";
 };
 
+/** Cancellation handle plus the identifiers needed to cancel remotely. */
 type ActiveExecution = {
   controller: AbortController;
   nodeId: string;
   promptId: string | null;
 };
 
+// Extension allowlist doubling as the MIME map; anything ComfyUI produces
+// outside this set is ignored rather than served with a guessed type.
 const OUTPUT_MIME_TYPES: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",
@@ -46,11 +64,15 @@ const OUTPUT_MIME_TYPES: Record<string, string> = {
   m4a: "audio/mp4",
 };
 
+/** Extension of a filename only when it maps to a supported output type. */
 function safeExtension(fileName: string) {
   const extension = fileName.split(".").at(-1)?.toLowerCase() ?? "";
   return Object.prototype.hasOwnProperty.call(OUTPUT_MIME_TYPES, extension) ? extension : null;
 }
 
+// History output layout varies by node pack, so instead of hardcoding shapes
+// this walks the whole entry and collects anything that looks like a file
+// reference, de-duplicated by (type, subfolder, filename).
 function collectOutputReferences(value: unknown, results = new Map<string, ComfyOutputReference>()) {
   if (Array.isArray(value)) value.forEach((entry) => collectOutputReferences(entry, results));
   else if (value && typeof value === "object") {
@@ -65,12 +87,14 @@ function collectOutputReferences(value: unknown, results = new Map<string, Comfy
   return [...results.values()];
 }
 
+/** Picks this prompt's entry out of the `/history/{id}` response, if present yet. */
 function historyEntry(history: unknown, promptId: string) {
   if (!history || typeof history !== "object") return null;
   const record = (history as Record<string, unknown>)[promptId];
   return record && typeof record === "object" ? (record as Record<string, unknown>) : null;
 }
 
+/** Extracts a bounded failure description from a history entry, or null when it succeeded. */
 function historyFailure(entry: Record<string, unknown>) {
   const status = entry.status;
   if (!status || typeof status !== "object") return null;
@@ -82,6 +106,7 @@ function historyFailure(entry: Record<string, unknown>) {
   return failure ? JSON.stringify(failure).slice(0, 12_000) : null;
 }
 
+/** Abortable sleep between history polls; rejects immediately on cancel. */
 function delay(milliseconds: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(resolve, milliseconds);
@@ -96,6 +121,7 @@ function delay(milliseconds: number, signal?: AbortSignal) {
   });
 }
 
+/** Derives the ComfyUI progress WebSocket URL from the node's HTTP base URL. */
 function websocketUrl(baseUrl: string, clientId: string) {
   const url = new URL(baseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -157,6 +183,10 @@ export class ComfyGenerationExecutor {
     }
   }
 
+  // Advisory progress via the ComfyUI WebSocket. Multi-sampler workflows
+  // (e.g. base + refiner) report per-sampler 0-100% ranges, so progress is
+  // mapped into equal phases to avoid the bar jumping back to zero between
+  // samplers. Updates are throttled to one per 200ms.
   private observeProgress(
     job: ProductionJobRecord,
     baseUrl: string,
@@ -215,6 +245,9 @@ export class ComfyGenerationExecutor {
     return () => socket?.close();
   }
 
+  // Downloads every discovered output. Files whose MIME class matches the job
+  // kind rank first (the first becomes the primary artifact); mismatched extras
+  // are kept as alternates because some workflows emit useful side outputs.
   private async downloadArtifacts(
     job: ProductionJobRecord,
     nodeId: string,
@@ -412,6 +445,8 @@ export class ComfyGenerationExecutor {
             : `ComfyUI submission returned HTTP ${response.status}`,
         );
       }
+      // Persist the prompt id before waiting: this is what lets reconciliation
+      // find the remote task again after a gateway crash mid-render.
       active.promptId = responseBody.prompt_id;
       await this.store.setCurrentAttemptExternalId(job.id, responseBody.prompt_id);
       const node = await this.nodes.get(input.nodeId);
@@ -444,6 +479,9 @@ export class ComfyGenerationExecutor {
     } catch (error) {
       const current = await this.store.get(job.id);
       if (current?.status === "cancelled") return current;
+      // A failure before the queued→running transition (e.g. missing workflow)
+      // still has to pass through "running" because the job state machine only
+      // allows failing a running job.
       let running = current;
       if (running?.status === "queued") {
         running = await this.store.update(

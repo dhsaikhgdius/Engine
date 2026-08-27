@@ -3,8 +3,19 @@ import type { DirectorAgentId } from "@director/agent-engine";
 import { BoundedTextBuffer } from "./boundedTextBuffer";
 import { redactSensitiveText } from "./redaction";
 
+/**
+ * Planner incident reporting with a hard split between what leaks to HTTP
+ * and what stays in gateway logs. Raw CLI diagnostics can contain prompts,
+ * file paths, or tokens, so the HTTP side only ever sees a fixed allowlisted
+ * category message plus a correlation incident id, while the full diagnostic
+ * — redacted and bounded to a tail — is written to the internal logger under
+ * the same id for operators to look up.
+ */
+
+/** Cap on the internally logged diagnostic; the head is dropped, tail kept. */
 const INTERNAL_DIAGNOSTIC_MAX_BYTES = 8 * 1024;
 
+/** Sink for the internal (non-HTTP) incident log line. */
 export type InternalPlannerLogger = (message: string) => void;
 
 type PlannerIncidentKind = "failure" | "invalid-output" | "output-limit";
@@ -34,6 +45,8 @@ export function safePlannerFailureSummary(stderr: string, agent: DirectorAgentId
   return `${label} 规划进程失败，请查看网关内部日志`;
 }
 
+// Shared incident path: one random id ties the public message to the
+// redacted, bounded internal log entry.
 function reportPlannerIncident(
   diagnosticValue: string,
   agent: DirectorAgentId,

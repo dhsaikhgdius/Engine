@@ -1,8 +1,20 @@
 import { spawn, type ChildProcess } from "node:child_process";
 
+/**
+ * Cross-platform child-process tree termination. Killing only the direct
+ * child leaks detached descendants (Python workers, ffmpeg, render
+ * pipelines), so spawn sites put POSIX children in their own process group
+ * and this module signals the whole group — or the Windows tree via
+ * taskkill — with SIGTERM → SIGKILL escalation. {@link terminateChildProcess}
+ * guarantees settlement even when a descendant inherited the child's stdio
+ * and keeps the `close` event from ever firing.
+ */
+
 /** POSIX children are placed in their own group so descendants inherit a killable boundary. */
 export const SPAWN_IN_OWN_PROCESS_GROUP = process.platform !== "win32";
 
+// Windows has no process groups; taskkill /t walks the tree, with a direct
+// child.kill fallback when taskkill is unavailable or fails.
 function signalWindowsProcessTree(child: ChildProcess, signal: NodeJS.Signals) {
   if (!child.pid) return false;
   try {
@@ -56,6 +68,7 @@ function destroyChildIo(child: ChildProcess) {
   child.stderr?.destroy();
 }
 
+// Signal 0 probes whether any member of the child's group is still alive.
 function posixProcessGroupExists(child: ChildProcess) {
   if (!SPAWN_IN_OWN_PROCESS_GROUP || !child.pid) return false;
   try {

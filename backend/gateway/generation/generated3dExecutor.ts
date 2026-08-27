@@ -23,8 +23,25 @@ import type { Generated3DProviderSnapshot } from "./generated3dProviders";
 import { Generated3DProviderRegistry } from "./generated3dProviders";
 import type { Generated3DSourceStore } from "./generated3dSourceStore";
 
+/**
+ * Executor for `model.generate` production jobs. Owns the full lifecycle of
+ * one generation: submit to a registered provider, poll until terminal,
+ * download the outputs within hard byte caps, normalize the GLB for the Stage
+ * runtime, and persist artifacts plus a signed receipt through the job store.
+ *
+ * Failure semantics are deliberately asymmetric: errors raised before the
+ * provider accepted the submission fail the job outright, while errors after
+ * acceptance transition to `outcome_unknown` because the provider may still be
+ * (or have finished) rendering — {@link Generated3DExecutor.reconcile} later
+ * resolves those against the provider's authoritative state. Artifact writes
+ * are immutable (`wx` + content compare) so reconciliation after a crash can
+ * never silently replace bytes a previous attempt already delivered.
+ */
+
+/** Cancellation handle for one in-flight execution keyed by job id. */
 type ActiveExecution = { controller: AbortController; externalId: string | null };
 
+/** Provider said "failed" definitively — no reconciliation needed, fail the job. */
 class ProviderTerminalError extends Error {
   constructor(message: string) {
     super(message);
@@ -32,6 +49,7 @@ class ProviderTerminalError extends Error {
   }
 }
 
+/** Abortable sleep between provider polls; rejects immediately on cancel. */
 function delay(milliseconds: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(resolve, milliseconds);
@@ -50,6 +68,7 @@ function sha256(bytes: Uint8Array | string) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+/** Loads a prior attempt's receipt if present; a malformed receipt is corruption, not absence. */
 async function readExistingReceipt(path: string) {
   try {
     return generated3dReceiptSchema.parse(JSON.parse(await readFile(path, "utf8"))) as Generated3DReceipt;
@@ -61,6 +80,11 @@ async function readExistingReceipt(path: string) {
   }
 }
 
+/**
+ * Write-once artifact persistence: `wx` refuses to overwrite, and an EEXIST
+ * with byte-identical content is treated as success so a reconciliation rerun
+ * is idempotent. Divergent existing content is an integrity error.
+ */
 async function writeImmutableArtifact(path: string, bytes: Uint8Array) {
   await mkdir(dirname(path), { recursive: true });
   try {
@@ -74,6 +98,7 @@ async function writeImmutableArtifact(path: string, bytes: Uint8Array) {
   }
 }
 
+/** Rejects credentialed URLs and plain HTTP (except loopback, used by local test doubles). */
 function assertProviderUrl(raw: string) {
   const url = new URL(raw);
   if (url.username || url.password) throw new Error("Provider artifact URL must not contain credentials");
@@ -91,6 +116,7 @@ async function readLocalArtifact(rawUrl: string, maximumBytes: number, label: st
   return bytes;
 }
 
+/** Downloads a provider artifact with size caps enforced both on the declared and actual byte counts. */
 async function downloadBounded(
   fetchImpl: typeof fetch,
   rawUrl: string,
@@ -101,6 +127,7 @@ async function downloadBounded(
   assertProviderUrl(rawUrl);
   const response = await fetchImpl(rawUrl, { signal, redirect: "follow" });
   if (!response.ok) throw new Error(`${label} download returned HTTP ${response.status}`);
+  // Redirects are followed, so the final URL must also pass the safety check.
   if (response.url) assertProviderUrl(response.url);
   const declaredBytes = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredBytes) && declaredBytes > maximumBytes) {
@@ -113,6 +140,7 @@ async function downloadBounded(
   return bytes;
 }
 
+/** Sniffs the actual image format from magic bytes; provider-declared MIME types are not trusted. */
 function thumbnailFormat(bytes: Buffer) {
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
     return { extension: "png", mimeType: "image/png" };
@@ -130,6 +158,7 @@ function thumbnailFormat(bytes: Buffer) {
   throw new Error("Generated 3D thumbnail is not PNG, JPEG, or WebP");
 }
 
+/** Most recent provider task id recorded for the current attempt (multi-phase providers append several). */
 function latestExternalId(job: ProductionJobRecord) {
   const attempt = job.attempts.at(-1);
   return attempt?.externalIds?.at(-1) ?? attempt?.externalId ?? null;
@@ -210,6 +239,8 @@ export class Generated3DExecutor {
     if (!current) throw new Error(`Generated 3D job ${job.id} disappeared`);
     const attempt = current.attempts.at(-1)!;
     const receiptPath = this.store.artifactFilePath(job.id, attempt.id, "generated-3d-receipt.json");
+    // A receipt from a previous (crashed) run of this same attempt makes the
+    // rerun idempotent — but only when it matches this exact provider output.
     const existingReceipt = await readExistingReceipt(receiptPath);
     if (
       existingReceipt &&
@@ -378,6 +409,9 @@ export class Generated3DExecutor {
             );
           }
         } catch (error) {
+          // Transient poll failures (network blips, provider 5xx) are tolerated
+          // up to a streak of 8; terminal provider verdicts and local aborts
+          // propagate immediately.
           if (error instanceof ProviderTerminalError || controller.signal.aborted) throw error;
           consecutiveErrors += 1;
           if (consecutiveErrors >= 8) throw error;
@@ -390,6 +424,9 @@ export class Generated3DExecutor {
       if (!current || current.status === "cancelled") return current;
       const message = error instanceof Error ? error.message : String(error);
       if (current.status === "running") {
+        // Once the provider accepted the submission, any non-terminal error
+        // leaves the remote task in an unknown state; report outcome_unknown so
+        // reconcile can recover a success instead of double-billing a retry.
         const uncertain = accepted && !(error instanceof ProviderTerminalError);
         return this.store.update(
           transitionProductionJob(current, uncertain ? "outcome_unknown" : "failed", {

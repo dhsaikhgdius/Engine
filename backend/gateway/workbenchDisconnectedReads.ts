@@ -20,11 +20,26 @@ import { queryDirectorObjects } from "@director/agent-engine/spatial-query";
 import directorWorkbenchCapabilities from "@director/agent-engine/workbench-capabilities";
 import type { BlenderLiveSceneSnapshot } from "../../packages/protocol/src/blenderLiveProtocol";
 
+/**
+ * Answers durable `director_workbench` reads when no Stage tab is connected,
+ * using the last persisted Director project and/or the live Blender kernel
+ * snapshot instead of failing the agent outright. Every result is stamped
+ * with `workbench_connected: false`, its exact source, and a note explaining
+ * what still requires the browser — the fallback never masquerades as a live
+ * read. Mutations, capture, and revision-delta observes are refused
+ * (`handled: false`) so the caller reports the disconnect honestly.
+ */
+
+/** The two disconnected data sources; either may be absent. */
 export type DisconnectedWorkbenchSources = {
   project: DirectorProject | null;
   blenderScene: BlenderLiveSceneSnapshot | null;
 };
 
+/**
+ * Three-way outcome: not answerable offline (`handled: false`), answered, or
+ * answered with a typed error message carrying the corrective call.
+ */
 export type DisconnectedWorkbenchExecution =
   | { handled: false }
   | { handled: true; success: true; result: Record<string, unknown> }
@@ -33,6 +48,8 @@ export type DisconnectedWorkbenchExecution =
 const DISCONNECTED_NOTE =
   "Stage tab is disconnected. This result is from the last persisted Director project and/or the live Blender kernel. Mutations, capture, and live viewport layout still need a visible Stage tab.";
 
+// The kernel snapshot has no assets or show data, so those counts are
+// honestly zero rather than omitted.
 function blenderCounts(scene: BlenderLiveSceneSnapshot) {
   return {
     assets: 0,
@@ -50,6 +67,10 @@ function blenderActiveCameraId(scene: BlenderLiveSceneSnapshot) {
   return scene.cameras.find((camera) => camera.active)?.id ?? scene.cameras[0]?.id ?? null;
 }
 
+/**
+ * Projects the Blender kernel snapshot into the observe result shape,
+ * honoring the caller's field selection the same way a live observe would.
+ */
 function observeBlenderScene(
   scene: BlenderLiveSceneSnapshot,
   fields?: DirectorWorkbenchObserveField[],
@@ -100,12 +121,16 @@ function observeBlenderScene(
   return selected;
 }
 
+// When both sources exist, the one with more objects is treated as ahead:
+// a live Blender session that grew past the last persisted project is the
+// fresher truth for structural reads.
 function preferBlenderKernel(sources: DisconnectedWorkbenchSources) {
   if (!sources.blenderScene) return false;
   if (!sources.project) return true;
   return sources.blenderScene.objects.length > sources.project.objects.length;
 }
 
+/** Provenance block stamped onto every disconnected result. */
 function disconnectedMeta(sources: DisconnectedWorkbenchSources, source: string) {
   return {
     workbench_connected: false,
@@ -117,6 +142,8 @@ function disconnectedMeta(sources: DisconnectedWorkbenchSources, source: string)
   };
 }
 
+// Capabilities are static and always answerable; only the connection flag
+// and provenance note change offline.
 function disconnectedCapabilities() {
   const capabilities = structuredClone(directorWorkbenchCapabilities) as Record<string, unknown>;
   return {
@@ -134,6 +161,8 @@ function disconnectedCapabilities() {
  */
 export function canServeDisconnectedWorkbenchRead(operation: DirectorWorkbenchOperation): boolean {
   if (operation.op === "observe") {
+    // Delta observes are anchored to the live tab's revision history, which
+    // the gateway cannot reconstruct offline.
     return !operation.since_revision && !operation.since_turn && !operation.since_audit;
   }
   return (
@@ -211,6 +240,8 @@ export function executeDisconnectedWorkbenchRead(
         subject_id: operation.subject_id,
         include_spatial: operation.include_spatial,
       });
+      // When the live kernel outgrew the persisted project, the audit result
+      // is prefixed with a warning: audit.ready reflects stale structure.
       const kernelAhead = sources.blenderScene && sources.blenderScene.objects.length > sources.project.objects.length;
       const issues = kernelAhead
         ? [
@@ -312,6 +343,9 @@ export function executeDisconnectedWorkbenchRead(
     }
   }
 
+  // Entity inspection prefers the persisted project (it carries kernel
+  // ownership); an id only present in Blender falls back to the raw kernel
+  // object marked as unmirrored.
   if (operation.op === "inspect" && operation.entity !== "catalog_asset") {
     if (!sources.project && !sources.blenderScene) return { handled: false };
     const project = sources.project;

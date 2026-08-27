@@ -15,12 +15,14 @@ import { agentWorkspaceSessionOverrideSchema, composeAgentWorkspacePrompt } from
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
+/** Injected body reader, JSON writer, and the workspace store. */
 export type AgentWorkspaceRouteDependencies = {
   readBody: (request: IncomingMessage) => Promise<unknown>;
   json: JsonWriter;
   store: AgentWorkspaceStore;
 };
 
+/** Query-string selector for one document (scope + kind). */
 const documentSelectorSchema = z.strictObject({
   scope: agentWorkspaceScopeSchema,
   kind: agentWorkspaceDocumentKindSchema,
@@ -164,6 +166,8 @@ export async function handleAgentWorkspaceRoute(
     return true;
   }
 
+  // Anything under the workspace prefix that matched no endpoint is a typed
+  // 404 here — it must not fall through to other route domains.
   json(response, 404, { error: "未知的 Agent 工作区接口", code: "not_found" });
   return true;
 }

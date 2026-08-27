@@ -2,8 +2,18 @@ import * as pty from "node-pty";
 import { WebSocket } from "ws";
 import type { TerminalMessage } from "./gatewaySchemas";
 
+/**
+ * PTY-backed terminal sessions for the in-browser agent CLI panel. Each
+ * websocket owns at most one PTY (opening a new one closes the previous),
+ * and output is micro-batched before being sent so fast-scrolling CLIs do
+ * not flood the socket with per-byte frames. PTY interactions race against
+ * process exit by design; those races are absorbed rather than surfaced,
+ * since a dead terminal is a normal terminal state.
+ */
+
 type TerminalInputMessage = Extract<TerminalMessage, { type: "term.open" | "term.input" | "term.resize" }>;
 
+/** Launch spec for one supported agent CLI. */
 interface TerminalSpec {
   command: string;
   args: string[];
@@ -15,6 +25,7 @@ interface TerminalSession {
   flushOutputBatch: () => void;
 }
 
+/** Output batching window and the byte threshold that flushes early. */
 const TERMINAL_OUTPUT_BATCH_MS = 16;
 const TERMINAL_OUTPUT_BATCH_MAX_BYTES = 64 * 1024;
 
@@ -52,6 +63,7 @@ export class TerminalSessionManager {
     private readonly environment: NodeJS.ProcessEnv = process.env,
   ) {}
 
+  /** Tears down the client's PTY (if any); safe to call repeatedly. */
   close(client: WebSocket) {
     const session = this.sessions.get(client);
     if (!session) return;
@@ -64,6 +76,7 @@ export class TerminalSessionManager {
     }
   }
 
+  /** Dispatches one validated terminal message from the websocket. */
   handle(client: WebSocket, message: TerminalInputMessage) {
     if (message.type === "term.open") {
       const error = this.open(client, message.agent, message.cols, message.rows);
@@ -90,6 +103,12 @@ export class TerminalSessionManager {
     }
   }
 
+  /**
+   * Spawns the agent CLI in a fresh PTY, replacing any previous session on
+   * this socket. Returns a user-facing error string instead of throwing so
+   * the caller can forward it as a `term.error` message; a missing binary is
+   * distinguished from other launch failures.
+   */
   private open(client: WebSocket, agent: string, cols: number, rows: number): string | null {
     this.close(client);
     const spec = this.agents.get(agent);
@@ -127,6 +146,8 @@ export class TerminalSessionManager {
       }
       pendingOutput = "";
     };
+    // Coalesce output for up to one batching window, flushing immediately
+    // when the pending buffer crosses the byte threshold.
     const queueOutput = (data: string) => {
       pendingOutput += data;
       if (pendingOutput.length >= TERMINAL_OUTPUT_BATCH_MAX_BYTES) {

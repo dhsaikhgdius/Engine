@@ -28,6 +28,7 @@ export interface ComfyUiVideoProviderOptions {
   model?: string;
 }
 
+/** In-memory tracking record: Director job plus the ComfyUI prompt id. */
 type ComfyJobRecord = {
   job: VideoProviderJob;
   promptId: string;
@@ -194,6 +195,8 @@ export class ComfyUiVideoProvider implements VideoProvider {
     const complete = Boolean(
       entry && typeof entry === "object" && (entry as { status?: { completed?: boolean } }).status?.completed,
     );
+    // Outputs are the source of truth: a history entry marked complete but
+    // yielding no video file is a failure, not a success.
     record.job = parseVideoProviderJob({
       ...record.job,
       status: outputs.length ? "completed" : complete ? "failed" : "running",

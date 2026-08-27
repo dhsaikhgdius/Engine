@@ -32,11 +32,14 @@ export type ComposeCapturePlanOptions = {
   meshSizeM?: [number, number, number];
 };
 
+// Shared clay-look material baseline for reconstructed geometry (white-box).
 const WALL_MATERIAL = { metalness: 0, roughness: 0.92, emissiveColor: "#000000", emissiveIntensity: 0, opacity: 1 };
 const FLOOR_THICKNESS_M = 0.1;
 const DOOR_LEAF_THICKNESS_M = 0.05;
+// Slabs and opening spans thinner than this are noise and are dropped.
 const MIN_SEGMENT_M = 0.05;
 
+// Display names for detected item categories (UI copy stays Chinese).
 const ITEM_LABEL_NAMES: Record<string, string> = {
   table: "桌状物体",
   seat: "座椅状物体",
@@ -49,6 +52,7 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+// Millimetre rounding keeps plan JSON diffs stable across reruns.
 function round(value: number) {
   return Math.round(value * 1_000) / 1_000;
 }
@@ -57,6 +61,7 @@ function roundVec3(value: [number, number, number]): [number, number, number] {
   return [round(value[0]), round(value[1]), round(value[2])];
 }
 
+/** One solid slab of a wall: a span along the wall with a vertical extent. */
 type Interval = { from: number; to: number; bottomM: number; topM: number };
 
 /**
@@ -98,6 +103,7 @@ export function segmentWall(wall: CaptureWall): Interval[] {
   return segments;
 }
 
+/** Local frame of a wall: unit direction, Y rotation, and a point-along helper. */
 function wallFrame(wall: CaptureWall) {
   const dx = wall.end[0] - wall.start[0];
   const dz = wall.end[1] - wall.start[1];
@@ -116,6 +122,7 @@ function planMaterial(baseColor: string, overrides: Partial<typeof WALL_MATERIAL
   return { baseColor, ...WALL_MATERIAL, ...overrides };
 }
 
+/** One box plan object per solid slab of the wall, positioned in world space. */
 function wallObjects(wall: CaptureWall, wallIndex: number): CapturePlanObject[] {
   const frame = wallFrame(wall);
   const objects: CapturePlanObject[] = [];
@@ -188,6 +195,7 @@ function doorLeafObject(
   };
 }
 
+/** A thin translucent pane filling a window opening. */
 function windowPaneObject(
   wall: CaptureWall,
   opening: CaptureWallOpening & { kind: "window" },
@@ -212,6 +220,7 @@ function windowPaneObject(
   };
 }
 
+/** Axis-aligned floor slab from the polygon's bounding box, top face at y=0. */
 function floorObject(report: CaptureReconstructionReport): CapturePlanObject | null {
   if (!report.floor) return null;
   const xs = report.floor.polygon.map((point) => point[0]);
@@ -237,6 +246,7 @@ function floorObject(report: CaptureReconstructionReport): CapturePlanObject | n
   };
 }
 
+/** A proxy box for one detected furniture item, replaceable by the agent loop. */
 function itemObject(item: CaptureDetectedObject, itemIndex: number): CapturePlanObject {
   const displayName = ITEM_LABEL_NAMES[item.label] ?? item.label;
   return {
@@ -277,6 +287,9 @@ function scaffoldObjects(): CapturePlanObject[] {
   ];
 }
 
+// One stage camera per key view whose keyframe artifact exists; views
+// without a persisted artifact are silently dropped because render-and-
+// compare would have nothing to compare against.
 function cameraEntries(keyViews: CaptureKeyView[], keyViewArtifactIds: Record<string, string>) {
   return keyViews.flatMap((view, index) => {
     const artifactId = keyViewArtifactIds[view.id];
@@ -297,6 +310,7 @@ function cameraEntries(keyViews: CaptureKeyView[], keyViewArtifactIds: Record<st
   });
 }
 
+/** Composes the full editable plan from a worker report (see module doc). */
 export function composeCaptureReconstructionPlan(
   report: CaptureReconstructionReport,
   options: ComposeCapturePlanOptions,

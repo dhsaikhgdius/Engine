@@ -12,8 +12,19 @@ import { fetchAgentApiModelsRequestSchema, fetchHostedAgentModels } from "../age
 import type { HostedAgentProfileConfig } from "../controlPlane/controlPlaneConfig";
 import { ModelDriverHttpError, ModelDriverResponseError } from "@director/model-provider/runtime";
 
+/**
+ * HTTP routes for user-configured hosted API providers
+ * (`/api/agent/api-providers`): listing, replacement, and remote model
+ * discovery. Saved providers are expanded into hosted profiles and merged
+ * over the environment-configured ones immediately, so a save takes effect
+ * without a gateway restart. API keys never round-trip: listings are public
+ * projections, and model discovery resolves the stored key server-side when
+ * the request omits one.
+ */
+
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
+/** Injected store, environment profiles, and the live-registry applier. */
 export type AgentApiProviderRouteDependencies = {
   readBody: (request: IncomingMessage) => Promise<unknown>;
   json: JsonWriter;
@@ -46,6 +57,8 @@ function publicError(error: unknown) {
   return "请求失败";
 }
 
+// The one validation failure users actually hit (model-count bounds) gets a
+// specific message; everything else collapses to the generic one.
 function saveProvidersError(error: z.ZodError) {
   if (
     error.issues.some(

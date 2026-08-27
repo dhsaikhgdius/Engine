@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+/**
+ * Decoding and retry-coaching helpers for planner CLI output. The planner
+ * CLIs emit transport envelopes (Claude wraps the plan in structured_output
+ * or a stringified `result`; the strict CLI carries per-operation
+ * `input_json` strings) that must be unwrapped here before the unified plan
+ * validator runs, so the validator only ever sees the logical plan shape.
+ */
+
 const plannerOperationEnvelopeSchema = z.looseObject({
   input_json: z.string(),
 });
@@ -10,6 +18,7 @@ const plannerDraftEnvelopeSchema = z.looseObject({
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
+/** Prompt-side contract for the per-operation `input_json` field. */
 export const DIRECTOR_WORKBENCH_INPUT_JSON_DESCRIPTION = [
   "A compact JSON object containing exactly one public tool input and an op field.",
   "For director_workbench author, actions must be non-empty.",

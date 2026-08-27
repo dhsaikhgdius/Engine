@@ -1,3 +1,11 @@
+/**
+ * Dependency-free PNG rendering for canvas.image placeholder artifacts. The
+ * encoder implements just enough of the PNG/zlib specs (stored-block deflate,
+ * CRC-32, Adler-32) to emit a valid image without pulling in an image
+ * library; output is fully deterministic for a given size so placeholder
+ * artifacts are reproducible and content-addressable.
+ */
+
 /** Minimal deterministic PNG for canvas.image jobs when no remote provider is configured. */
 export function renderCanvasPlaceholderPng(input: { width: number; height: number; title: string }) {
   const width = Math.max(64, Math.min(4096, input.width));
@@ -14,6 +22,7 @@ export function renderCanvasPlaceholderPng(input: { width: number; height: numbe
   return encodeRgbPng(pixels, width, height);
 }
 
+// Bitwise CRC-32 (PNG chunk checksum); slow but fine for placeholder sizes.
 function crc32(buffer: Buffer) {
   let crc = 0xffffffff;
   for (let index = 0; index < buffer.length; index += 1) {
@@ -25,6 +34,7 @@ function crc32(buffer: Buffer) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+/** Frames one PNG chunk: length, type, data, CRC over type + data. */
 function chunk(type: string, data: Buffer) {
   const typeBuffer = Buffer.from(type);
   const length = Buffer.alloc(4);
@@ -34,6 +44,7 @@ function chunk(type: string, data: Buffer) {
   return Buffer.concat([length, typeBuffer, data, crc]);
 }
 
+/** Encodes raw RGB pixels as an 8-bit truecolor PNG (filter type 0 rows). */
 function encodeRgbPng(rgb: Buffer, width: number, height: number) {
   const stride = width * 3;
   const raw = Buffer.alloc(height * (1 + stride));
@@ -52,6 +63,8 @@ function encodeRgbPng(rgb: Buffer, width: number, height: number) {
   return Buffer.concat([signature, chunk("IHDR", ihdr), chunk("IDAT", compressed), chunk("IEND", Buffer.alloc(0))]);
 }
 
+// Minimal zlib stream using uncompressed ("stored") deflate blocks: no real
+// compression, but valid everywhere and free of native dependencies.
 function deflateSync(input: Buffer) {
   const blocks: Buffer[] = [];
   const maxStored = 65535;

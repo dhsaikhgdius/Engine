@@ -69,10 +69,28 @@ import {
 import { buildAgentToolTraceEvent, describeAgentToolOperation } from "../agents/agentToolTrace";
 import type { AgentTraceEventInput } from "../agents/agentTraceStore";
 
+/**
+ * The Stage HTTP transport: `/api/stage`, `/api/preview`, and every
+ * `POST /api/tools/<name>` agent tool call. This file owns transport concerns
+ * only — governance/confirmation policy, scheduling leases, target discovery
+ * and stickiness, mutation preflights (observe → stamp revision → send), and
+ * honest failure codes — while tool semantics stay in the shared command
+ * engine (`@director/agent-engine`).
+ *
+ * Concurrency model: untargeted calls serialize on a per-(tool, session)
+ * scheduler so one agent session cannot interleave its own calls; calls bound
+ * to an exact target token skip that queue and serialize on the process-wide
+ * target scheduler instead. Every response passes through a single writer
+ * that records exactly one trace event per call.
+ */
+
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
+// blender_native is deliberately not routable over HTTP; it stays MCP/DSH-only.
 const toolNameSchema = z.enum(AGENT_TOOL_NAMES.filter((name) => name !== "blender_native"));
 
+// Transport envelope shared by all tools; loose so tool-specific fields can
+// ride at the top level for callers that do not wrap them in `input`.
 const toolEnvelopeSchema = z.looseObject({
   session_id: z.string().trim().min(1).max(160).optional(),
   /** Agent profile id of the caller; matches character bindings that name only a profile_id. */
@@ -88,6 +106,7 @@ const toolEnvelopeSchema = z.looseObject({
 // target tokens. Bound calls skip it and use the process-wide target scheduler.
 let sessionScheduler = new DirectorAgentTargetScheduler();
 
+/** True when the call is bound to an exact browser target and should skip the session queue. */
 function usesExactTargetLock(
   targetToken: string | undefined,
   scheduler: DirectorAgentTargetScheduler | undefined,
@@ -95,6 +114,7 @@ function usesExactTargetLock(
   return Boolean(targetToken && scheduler);
 }
 
+/** Lock key for untargeted calls: one queue per (tool, agent session). */
 function sessionCallKey(tool: string, sessionId: string) {
   return `session:${tool}:${sessionId}`;
 }
@@ -107,6 +127,11 @@ export function resetStageSessionLocksForTests() {
 const WORKBENCH_UNAVAILABLE_ERROR =
   "No responsive Director workbench is connected. Keep one visible Stage tab open and retry, or use blender_native scene/inspect for the live Blender kernel.";
 
+/**
+ * Serves a durable read from persisted sources when no browser tab is
+ * connected (see {@link executeDisconnectedWorkbenchRead}); returns false when
+ * the operation genuinely needs a live tab so the caller reports 503.
+ */
 async function respondDisconnectedWorkbenchRead(input: {
   operation: DirectorWorkbenchOperation;
   scene: StageScene;
@@ -134,6 +159,7 @@ async function respondDisconnectedWorkbenchRead(input: {
   return true;
 }
 
+/** Raw payload a browser tab returns for one workbench command. */
 type WorkbenchResponse = {
   success: boolean;
   stageScene?: unknown;
@@ -143,8 +169,10 @@ type WorkbenchResponse = {
   captureDataUrl?: string;
 };
 
+/** A workbench response plus which exact browser target produced it. */
 type WorkbenchRemote = { client: unknown; response: WorkbenchResponse; target: DirectorAgentTarget };
 
+/** A creative workspace response plus which exact browser target produced it. */
 type CreativeWorkspaceRemote = {
   client: unknown;
   target: DirectorAgentTarget;
@@ -155,6 +183,7 @@ type CreativeWorkspaceRemote = {
   };
 };
 
+/** Extracts the inline preview data URL from a creative `preview` result, if any. */
 function embeddedCreativePreviewDataUrl(value: unknown): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const result = value as Record<string, unknown>;
@@ -170,6 +199,9 @@ function embeddedCreativePreviewDataUrl(value: unknown): string | undefined {
   return typeof dataUrl === "string" ? dataUrl : undefined;
 }
 
+// The data URL is hoisted into the structured `capture` field and persisted
+// as the preview image, so the durable result replaces it with a marker
+// instead of duplicating megabytes of base64 in the JSON body.
 function withoutEmbeddedCreativePreviewDataUrl(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const result = value as Record<string, unknown>;
@@ -193,6 +225,7 @@ function withoutEmbeddedCreativePreviewDataUrl(value: unknown): unknown {
   };
 }
 
+/** Finds a structured result code at the top level or one nesting level down, for HTTP status mapping. */
 function directResultCode(value: unknown) {
   const root = record(value);
   if (!root) return undefined;
@@ -204,9 +237,15 @@ function directResultCode(value: unknown) {
   return undefined;
 }
 
+/** Narrows an unknown value to a plain object record, else null. */
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
+
+// The observed* helpers below read guard material (revisions, fingerprints,
+// character possession, live player state) out of untyped browser observe
+// results; each returns null/undefined when the field is absent or malformed
+// so preflights fail closed instead of trusting a partial observation.
 
 function observedWorkbenchRevision(value: unknown) {
   const revision = record(value)?.project_revision;
@@ -329,11 +368,18 @@ export type StageRouteDependencies = {
 
 const TOOL_ENVELOPE_KEYS = new Set(["session_id", "profile_id", "target_token", "omit_scene", "confirm_token"]);
 
+/** Effective tool input: the explicit `input` field, or the payload minus envelope keys. */
 function directToolInput(payload: z.infer<typeof toolEnvelopeSchema>) {
   if (Object.prototype.hasOwnProperty.call(payload, "input")) return payload.input ?? {};
   return Object.fromEntries(Object.entries(payload).filter(([key]) => !TOOL_ENVELOPE_KEYS.has(key)));
 }
 
+/**
+ * Waits for a scheduler lease while honoring client disconnects: a caller
+ * that goes away mid-queue releases its slot instead of holding the target.
+ * Returns undefined when no scheduling applies, null when the request was
+ * aborted (response already dead), or the acquired lease.
+ */
 async function acquireScheduledLease(
   request: IncomingMessage,
   response: ServerResponse,
@@ -373,6 +419,9 @@ async function acquireScheduledLease(
   }
 }
 
+// Maps a browser-command timeout onto an honest HTTP outcome: 409
+// outcome_unknown when the command may have executed (mutations must not be
+// blindly retried), 504 when it definitely did not reach the tab.
 function writeBrowserCommandTimeout(
   response: ServerResponse,
   json: JsonWriter,
@@ -1344,6 +1393,8 @@ export async function handleStageRoute(
     return true;
   }
 
+  // Remaining tools are legacy stage_* commands executed gateway-side against
+  // the in-memory scene; the browser only mirrors the broadcast state.
   const refs = refsForSession(sessionId);
   const beforeScene = scene;
   const execution = executeStageTool(scene, tool, toolInput, refs);

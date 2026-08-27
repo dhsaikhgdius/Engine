@@ -13,13 +13,25 @@ import {
   type VideoProviderJob,
 } from "./videoProvider";
 
+/**
+ * Hosted MiniMax H3 video provider. Unlike the local spawn providers this
+ * adapter is stateless: the MiniMax task id is embedded in the provider job
+ * id, so polling and delivery survive a gateway restart with no local job
+ * map. The H3 API accepts far fewer knobs than Director's request shape
+ * (whole-second durations, fixed resolutions/ratios, no seed, no negative
+ * prompt, always-on audio); every parameter that cannot be honored is
+ * reported as an explicit job warning instead of being silently dropped.
+ */
+
 type FetchLike = typeof fetch;
 
+/** Constructor options for {@link MinimaxH3Provider}. */
 export interface MinimaxH3ProviderOptions {
   apiKey: string;
   /** `https://api.minimax.io` (global) or `https://api.minimaxi.com` (CN). */
   baseUrl?: string;
   model?: string;
+  /** Injectable fetch for tests. */
   fetchImpl?: FetchLike;
   requestTimeoutMs?: number;
 }
@@ -44,6 +56,7 @@ const TEXT_TO_VIDEO_RATIOS = [
   { ratio: "9:16", value: 9 / 16 },
 ] as const;
 
+/** Untrusted shape of one task record from the MiniMax query endpoint. */
 type MinimaxTask = {
   id?: unknown;
   status?: unknown;
@@ -59,19 +72,24 @@ function trimBaseUrl(value: string) {
   return trimmed;
 }
 
+// Timeouts, throttles, and server errors are worth retrying; 4xx caller
+// mistakes are not.
 function isRetriableStatus(status: number) {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+/** Maps a frame count + rate onto H3's whole-second duration window. */
 export function minimaxH3Duration(numFrames: number, frameRate: number) {
   const requested = numFrames / Math.max(frameRate, 1);
   return Math.min(MAX_DURATION_S, Math.max(MIN_DURATION_S, Math.round(requested)));
 }
 
+/** Chooses the H3 resolution tier that best matches the requested pixels. */
 export function minimaxH3Resolution(width: number, height: number): "768P" | "2K" {
   return Math.max(width, height) >= 1_440 ? "2K" : "768P";
 }
 
+/** Picks the accepted text-to-video ratio closest to the requested aspect. */
 export function minimaxH3Ratio(width: number, height: number) {
   const requested = width / Math.max(height, 1);
   let closest: (typeof TEXT_TO_VIDEO_RATIOS)[number] = TEXT_TO_VIDEO_RATIOS[0];
@@ -81,6 +99,8 @@ export function minimaxH3Ratio(width: number, height: number) {
   return closest.ratio;
 }
 
+// An unknown vendor status is an error, not a guess: mapping it onto some
+// default could mark a live task as terminal (or vice versa).
 function taskStatusToJobStatus(status: string) {
   switch (status) {
     case "queued":
@@ -113,6 +133,7 @@ function imageMimeType(uri: string, declared?: string) {
   return "image/png";
 }
 
+/** Stateless adapter over MiniMax's hosted v2 video-generation API. */
 export class MinimaxH3Provider implements VideoProvider {
   readonly id = "minimax-h3" as const;
   private readonly apiKey: string;
@@ -158,6 +179,8 @@ export class MinimaxH3Provider implements VideoProvider {
 
   async submit(rawRequest: VideoGenerationRequest, signal?: AbortSignal): Promise<VideoProviderJob> {
     const request = parseVideoGenerationRequest(rawRequest);
+    // Each mismatch between Director's request shape and what H3 can honor
+    // is collected as a warning so the caller sees exactly what was rendered.
     const warnings: string[] = [];
 
     const duration = minimaxH3Duration(request.numFrames, request.frameRate);
@@ -173,6 +196,8 @@ export class MinimaxH3Provider implements VideoProvider {
       `MiniMax H3 renders at 768P or 2K; ${request.width}x${request.height} was submitted as ${resolution}.`,
     );
 
+    // H3 accepts a single first-frame image; any further conditioning inputs
+    // are dropped with an explicit warning.
     const reference = request.conditioning.find((input) => input.role === "clean-frame" || input.role === "reference");
     const skippedRoles = [
       ...new Set(request.conditioning.filter((input) => input !== reference).map((input) => input.role)),
@@ -192,6 +217,8 @@ export class MinimaxH3Provider implements VideoProvider {
       });
     }
 
+    // "adaptive" is only valid with image input; text-only tasks must pick a
+    // concrete ratio from the accepted list.
     const ratio = reference ? "adaptive" : minimaxH3Ratio(request.width, request.height);
     if (request.negativePrompt) {
       warnings.push("MiniMax H3 does not consume a negative prompt; it was retained only as job metadata.");
@@ -294,12 +321,20 @@ export class MinimaxH3Provider implements VideoProvider {
     });
   }
 
+  // Remote URLs and MiniMax file tokens pass through untouched; local file
+  // paths are inlined as data URLs because the hosted API cannot reach the
+  // gateway's disk.
   private async resolveImageUrl(uri: string, declaredMimeType?: string) {
     if (/^https?:\/\//i.test(uri) || uri.startsWith("data:") || uri.startsWith("mm_file://")) return uri;
     const bytes = await readFile(uri);
     return `data:${imageMimeType(uri, declaredMimeType)};base64,${bytes.toString("base64")}`;
   }
 
+  /**
+   * Sends one authenticated JSON request with the per-request timeout joined
+   * to the caller's abort signal, translating HTTP failures into
+   * {@link VideoProviderHttpError} with a retriability verdict.
+   */
   private async requestJson(method: "GET" | "POST", path: string, body: unknown, outerSignal?: AbortSignal) {
     const timeout = AbortSignal.timeout(this.requestTimeoutMs);
     const signal = outerSignal ? AbortSignal.any([outerSignal, timeout]) : timeout;
@@ -332,6 +367,7 @@ export class MinimaxH3Provider implements VideoProvider {
   }
 }
 
+/** Recovers the MiniMax task id embedded in a provider job id. */
 function parseTaskId(jobId: string) {
   if (!jobId.startsWith(JOB_ID_PREFIX)) {
     throw new Error(`Job ${jobId} was not created by the MiniMax H3 provider`);

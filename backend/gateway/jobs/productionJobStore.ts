@@ -23,11 +23,31 @@ import { writeJsonAtomic } from "../atomicJsonFile";
 import { stableJson } from "../../../packages/protocol/src/stableJson";
 import { renderCanvasPlaceholderPng } from "./canvasPlaceholderArtifact";
 
+/**
+ * Durable store backing every production job kind. On disk each job is one
+ * atomically written `production-jobs/<id>/job.json` plus per-attempt artifact
+ * files; in memory the store keeps a full index (by id and by idempotency
+ * key) built lazily on first access.
+ *
+ * Key invariants:
+ * - Enqueues are serialized globally and updates serialized per job id, so an
+ *   idempotency race can never create duplicates and concurrent transitions
+ *   can never interleave a lost write.
+ * - Jobs found in `running` state during load were interrupted by a gateway
+ *   restart; they are demoted to `outcome_unknown` immediately because no
+ *   executor is actually driving them anymore.
+ * - Legacy `canvas-jobs/` records are migrated in place on load (single
+ *   synthetic attempt, artifact copied into the new layout) so old data keeps
+ *   working without a separate migration step.
+ */
+
+/** In-memory index over all loaded jobs; both maps point at the same records. */
 type StoredJobIndex = {
   byId: Map<string, ProductionJobRecord>;
   byIdempotencyKey: Map<string, ProductionJobRecord>;
 };
 
+// Pre-production-job canvas record shapes, kept only to migrate old data.
 const legacyCanvasArtifactSchema = z.strictObject({
   mimeType: z.string().min(1),
   fileName: z.string().min(1),
@@ -73,6 +93,7 @@ function legacyArtifactPath(dataDirectory: string, jobId: string, fileName: stri
   return join(dataDirectory, "canvas-jobs", jobId, fileName);
 }
 
+/** Rejects traversal-capable path segments; ids and file names become directory names. */
 function safeSegment(value: string, label: string) {
   if (!value || value === "." || value === ".." || value.includes("/") || value.includes("\\")) {
     throw new Error(`Invalid ${label} path segment`);
@@ -91,6 +112,7 @@ function artifactPath(dataDirectory: string, jobId: string, attemptId: string, f
   );
 }
 
+/** Upgrades a legacy free-text error into the structured attempt error shape. */
 function structuredAttemptError(
   status: ProductionJobRecord["status"],
   message?: string,
@@ -103,6 +125,7 @@ function structuredAttemptError(
   };
 }
 
+/** Converts a legacy canvas job into a modern record with one synthetic attempt, or null when the shape doesn't match. */
 function migrateLegacyCanvasJob(raw: unknown): ProductionJobRecord | null {
   const parsed = legacyCanvasJobRecordSchema.safeParse(raw);
   if (!parsed.success) return null;
@@ -158,10 +181,12 @@ function migrateLegacyCanvasJob(raw: unknown): ProductionJobRecord | null {
   });
 }
 
+// Callers always receive clones so external mutation can never corrupt the index.
 function cloneJob(job: ProductionJobRecord): ProductionJobRecord {
   return structuredClone(job);
 }
 
+/** Deep structural equality via canonical JSON (key order does not matter). */
 function sameJson(left: unknown, right: unknown) {
   return stableJson(left) === stableJson(right);
 }
@@ -204,6 +229,9 @@ export class ProductionJobStore {
     this.indexJob(job);
   }
 
+  // Loads one on-disk root into the index. "production-jobs" is the modern
+  // layout; "canvas-jobs" entries are migrated (record + artifact copy) unless
+  // a modern record with the same id already won.
   private async loadRoot(rootName: "production-jobs" | "canvas-jobs") {
     const root = join(this.dataDirectory, rootName);
     let entries: string[] = [];
@@ -240,6 +268,9 @@ export class ProductionJobStore {
           await this.persist(job);
         }
 
+        // A "running" job on disk means the executor died with it: no process
+        // is polling the provider anymore, so the honest state is
+        // outcome_unknown until someone reconciles against the provider.
         if (job.status === "running") {
           job = transitionProductionJob(job, "outcome_unknown", {
             progress: job.progress,
@@ -350,6 +381,9 @@ export class ProductionJobStore {
       createId: () => string;
     },
   ): Promise<ProductionJobRecord> {
+    // Global enqueue serialization: the idempotency check and the insert must
+    // be atomic with respect to other enqueues or two racing callers with the
+    // same key would both pass findByIdempotency and create duplicates.
     let release!: () => void;
     const preceding = this.enqueueTail;
     this.enqueueTail = new Promise<void>((resolve) => {

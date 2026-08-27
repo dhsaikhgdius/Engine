@@ -27,6 +27,8 @@ import {
 
 const vec3Schema = z.tuple([z.number(), z.number(), z.number()]);
 
+// Strict schema: the manifest is the durable job receipt, so unknown fields
+// mean a version mismatch and must fail loudly rather than round-trip.
 const manifestSchema = z.strictObject({
   version: z.literal(2),
   jobId: z.string().regex(/^video-[a-z0-9-]{8,80}$/i),
@@ -105,6 +107,8 @@ export type VideoGenerationServiceOptions = {
   promptExpander?: Pick<VideoPromptExpander, "expand">;
 };
 
+// Default render sizes per record aspect: LTX needs multiples of 64, so its
+// defaults are pre-aligned; other providers get conventional HD framings.
 function ltxSafeDimensions(aspect: StageScene["recordAspect"]) {
   if (aspect === "9:16") return { width: 576, height: 1024 };
   if (aspect === "1:1") return { width: 768, height: 768 };
@@ -123,6 +127,7 @@ function legacyDimensions(aspect: StageScene["recordAspect"]) {
   return { width: 1280, height: 720 };
 }
 
+/** Decodes a base64 image data URL, or null when the shape is not one. */
 function decodeImageDataUrl(dataUrl: string) {
   const match = /^data:image\/(png|jpeg|webp);base64,([a-z0-9+/=]+)$/i.exec(dataUrl);
   if (!match) return null;
@@ -132,6 +137,7 @@ function decodeImageDataUrl(dataUrl: string) {
   };
 }
 
+/** Compact structural summary of the scene recorded into the manifest. */
 function sceneStructure(scene: StageScene) {
   return Object.entries(scene.objects)
     .filter(([, object]) => object.kind !== "target")
@@ -144,6 +150,7 @@ function sceneStructure(scene: StageScene) {
     }));
 }
 
+/** Per-camera plan (lens, blocking, timeline actions) for prompt expansion. */
 function sceneCameraPlan(scene: StageScene) {
   return Object.entries(scene.objects).flatMap(([id, object]) => {
     if (object.kind !== "camera") return [];
@@ -279,6 +286,15 @@ export class VideoGenerationService {
     return { defaultProvider: this.options.defaultProvider, providers };
   }
 
+  /**
+   * Builds and persists the durable job manifest before anything is
+   * submitted: resolves provider-legal dimensions/frame counts (recording
+   * both the requested and resolved values), derives a deterministic seed
+   * from the scene digest when none was given, captures an optional
+   * reference frame, and runs prompt expansion when requested. Expansion
+   * failures degrade to the verbatim prompt with a warning — preparing a job
+   * never fails because an LLM was unavailable.
+   */
   private async prepare(scene: StageScene, operation: Extract<VideoModelOperation, { op: "prepare" | "render" }>) {
     const provider = operation.provider ?? this.options.defaultProvider;
     const defaults =
@@ -411,6 +427,11 @@ export class VideoGenerationService {
     return provider;
   }
 
+  /**
+   * Translates the manifest into the provider request. The job id doubles as
+   * the idempotency key, so re-submitting the same manifest can never start
+   * a second render.
+   */
   private request(manifest: VideoJobManifest): VideoGenerationRequest {
     return parseVideoGenerationRequest({
       idempotencyKey: manifest.jobId,
@@ -446,6 +467,8 @@ export class VideoGenerationService {
     });
   }
 
+  // Submission outcomes — success or failure — are always persisted onto the
+  // manifest before the error propagates, keeping the receipt truthful.
   private async submit(manifest: VideoJobManifest) {
     try {
       const job = await this.provider(manifest).submit(this.request(manifest));
@@ -461,6 +484,7 @@ export class VideoGenerationService {
     }
   }
 
+  /** Polls the provider and folds the latest job state into the manifest. */
   private async refresh(manifest: VideoJobManifest) {
     if (!manifest.providerJob) return manifest;
     const job = await this.provider(manifest).getJob(manifest.providerJob.id);
@@ -471,6 +495,8 @@ export class VideoGenerationService {
     return manifest;
   }
 
+  // A job that never reached a provider can be cancelled purely locally;
+  // otherwise the provider decides the resulting status.
   private async cancel(manifest: VideoJobManifest) {
     if (!manifest.providerJob) {
       manifest.status = "cancelled";
@@ -484,6 +510,7 @@ export class VideoGenerationService {
     return manifest;
   }
 
+  /** Projects the manifest into the tool-execution result agents consume. */
   private result(scene: StageScene, manifest: VideoJobManifest): ToolExecution {
     return {
       scene,

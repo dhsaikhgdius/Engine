@@ -1,3 +1,25 @@
+/**
+ * HTTP transport for `director_dcc`: every `/api/dcc/*` route plus the
+ * `POST /api/tools/director_dcc` tool endpoint. This file is routing and
+ * validation only — all real DCC work (headless Blender/engine execution,
+ * package extraction, plan building, ledgered applies) lives in the
+ * `../dcc/*` services injected through {@link DccRouteDependencies}.
+ *
+ * Trust boundaries encoded here:
+ * - Live-link/preview transports (Unity, Godot, Unreal) are never
+ *   authoritative: connectors can push frames and command results but no
+ *   route lets an engine editor mutate the Director project directly.
+ *   Durable changes only enter through reviewed import plans applied via
+ *   the Director authoring transport (`applyAuthoring`).
+ * - Connector-facing endpoints (event polls, command results) require the
+ *   per-session bearer token; Director-side session lifecycle stays on the
+ *   gateway's local trust like every other `/api/dcc` route.
+ * - Every domain service is optional; a missing one degrades to a typed 503
+ *   rather than a crash, so a partially configured gateway still serves the
+ *   routes it can.
+ * - Typed DCC errors carry their own HTTP status, machine code, and recovery
+ *   steps; only genuinely unexpected failures fall through to a bare 500.
+ */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import {
@@ -43,6 +65,8 @@ import type { DirectorDccEngineFrameRenderer } from "../dcc/engineCapture";
 
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
+// Transport envelope shared with the other tool routes; loose so tool fields
+// can ride at the top level for callers that do not wrap them in `input`.
 const envelopeSchema = z.looseObject({
   input: z.unknown().optional(),
   session_id: z.string().trim().min(1).max(160).optional(),
@@ -82,9 +106,11 @@ function extractSkipDirectorIds(input: unknown): {
   return { operationInput, skipDirectorIds: parsed.data };
 }
 
+/** Injected services; every optional member degrades to a typed 503 when absent. */
 export interface DccRouteDependencies {
   readBody: (request: IncomingMessage) => Promise<unknown>;
   json: JsonWriter;
+  /** Live Director project supplier; validated per-request via {@link safeParseDirectorProject}. */
   getProject: () => Promise<unknown>;
   blender: BlenderBridge;
   providers?: DirectorDccProviderRegistry;
@@ -128,6 +154,7 @@ const unityLiveLinkPollQuerySchema = z.strictObject({
   wait_ms: z.coerce.number().int().min(0).max(55_000).default(25_000),
 });
 
+/** Extracts the `Bearer` token from the Authorization header, or null. */
 function bearerToken(request: IncomingMessage): string | null {
   const header = request.headers.authorization;
   if (typeof header !== "string") return null;
@@ -135,6 +162,7 @@ function bearerToken(request: IncomingMessage): string | null {
   return match?.[1] ?? null;
 }
 
+/** World matrix of one engine-snapshot entity (location, quaternion, scale). */
 function matrixFromReviewTransform(transform: DirectorEngineSessionSceneSnapshot["entities"][number]["transform"]) {
   return new Matrix4().compose(
     new Vector3(...transform.location),
@@ -143,6 +171,7 @@ function matrixFromReviewTransform(transform: DirectorEngineSessionSceneSnapshot
   );
 }
 
+/** Root transform of the Director scene, used to convert world ↔ local space. */
 function sceneMatrix(project: DirectorProject) {
   return new Matrix4().compose(
     new Vector3(...project.scene.position),
@@ -151,6 +180,7 @@ function sceneMatrix(project: DirectorProject) {
   );
 }
 
+/** Re-expresses an engine world transform in the Director scene's local space. */
 function localTransformFromEngine(
   transform: DirectorEngineSessionSceneSnapshot["entities"][number]["transform"],
   inverseScene: Matrix4,
@@ -168,6 +198,12 @@ function localTransformFromEngine(
   };
 }
 
+// Projects an engine scene snapshot onto a copy of the live project for
+// review sync: transforms of already-known objects/cameras/lights are updated
+// in place, unknown entities are skipped (never created — creation only
+// happens through reviewed import plans), and cameras/lights keep their
+// previous aim distance so the target follows the new forward vector. The
+// result is schema-validated before it can become a replace_project.
 function projectEngineSnapshotForReview(
   project: DirectorProject,
   snapshot: DirectorEngineSessionSceneSnapshot,
@@ -514,6 +550,8 @@ export async function handleDccRoute(
     return true;
   }
 
+  // Validates the live project lazily: only ops that actually need it pay the
+  // cost, and status/session ops keep working with no valid project loaded.
   async function liveProject() {
     const parsed = safeParseDirectorProject(await getProject());
     if (!parsed.success) {
@@ -648,6 +686,9 @@ export async function handleDccRoute(
     json(response, 200, { success: true, result: providerStatus });
     return true;
   }
+  // Raw-body upload endpoints: the request stream is handed straight to the
+  // importer, which enforces byte budgets and container signatures as data
+  // arrives (never buffered through readBody).
   if (url.pathname === "/api/dcc/blender-scene/uploads") {
     if (request.method !== "POST") {
       json(response, 405, { success: false, error: "Blender scene uploads require POST." });
@@ -832,6 +873,10 @@ export async function handleDccRoute(
     json(response, 200, { success: true, result: providerStatus });
     return true;
   }
+  // Unified engine session lifecycle over three transport-specific hubs. The
+  // hubs differ (Unity/Godot are connector-polled, Unreal is a gateway-side
+  // loopback client) but expose the same command/status surface, so one
+  // branch serves all providers.
   if (
     parsed.data.op === "start_engine_session" ||
     parsed.data.op === "engine_session_command" ||
@@ -1058,9 +1103,14 @@ export async function handleDccRoute(
     return true;
   }
 
+  // Everything below operates on the live project: exports, sends, and the
+  // reviewed import-plan flow (preview → apply) for Blender and engine scenes.
   const project = await liveProject();
   if (!project) return true;
   try {
+    // Review sync: a completed sync_scene snapshot is projected onto the live
+    // project and applied as one guarded replace_project through the normal
+    // authoring transport — the engine never writes the project directly.
     if (parsed.data.op === "sync_engine_session_to_director") {
       const sessionHub =
         parsed.data.provider === "unity"
@@ -1338,6 +1388,9 @@ export async function handleDccRoute(
       });
       return true;
     }
+    // Fall-through: apply_import_plan, the only remaining op. Blender and
+    // engine return packages share the importer interface; the provider picks
+    // which job root the plan is resolved against.
     const applyProvider = parsed.data.provider ?? "blender";
     const applyImporter = applyProvider === "blender" ? returnImporter : engineReturnImporters?.[applyProvider];
     if (!applyImporter) {

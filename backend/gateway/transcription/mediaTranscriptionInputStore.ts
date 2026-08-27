@@ -30,6 +30,11 @@ export class MediaTranscriptionInputStore {
     return join(this.dataDirectory, "transcription-inputs", `${assertSha256(sha256)}.bin`);
   }
 
+  /**
+   * Stores the bytes under their verified digest. Writing with `wx` makes
+   * re-uploads of identical content idempotent: an existing file under the
+   * same digest already holds the same bytes, so EEXIST is success.
+   */
   async put(bytes: Uint8Array, expectedSha256: string) {
     if (!bytes.byteLength) throw new Error("Transcription source is empty");
     if (bytes.byteLength > this.maxInputBytes)
@@ -46,6 +51,11 @@ export class MediaTranscriptionInputStore {
     return { sha256: actual, bytes: bytes.byteLength };
   }
 
+  /**
+   * Reads the cached bytes, re-verifying the digest so on-disk corruption is
+   * detected instead of being fed into a transcription provider. A missing
+   * file is the typed {@link MediaTranscriptionSourceMissingError}.
+   */
   async get(sha256: string) {
     let bytes: Buffer;
     try {

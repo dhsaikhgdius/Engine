@@ -12,6 +12,8 @@ import {
 
 let ioPromise: Promise<NodeIO> | null = null;
 
+// The glTF IO (with Draco/Meshopt decoders) is expensive to initialize, so
+// one shared instance is created lazily and reused for every normalization.
 async function nodeIo() {
   if (!ioPromise) {
     ioPromise = Promise.all([MeshoptDecoder.ready, draco3d.createDecoderModule()]).then(([, dracoDecoder]) =>
@@ -40,6 +42,9 @@ function bounds(scene: Scene) {
   return { min: tuple(value.min), max: tuple(value.max) };
 }
 
+// Counts triangles across TRIANGLES (mode 4), TRIANGLE_STRIP (5), and
+// TRIANGLE_FAN (6) primitives; other modes (points/lines) are tallied as
+// unsupported so the report can warn about them.
 function primitiveElementCount(document: Document) {
   let triangles = 0;
   let unsupported = 0;
@@ -54,6 +59,8 @@ function primitiveElementCount(document: Document) {
   return { triangles, unsupported };
 }
 
+// Some providers emit GLBs without a default scene; adopt the first scene or
+// build one from the parentless nodes so bounds and wrapping have a root.
 function ensureDefaultScene(document: Document) {
   const root = document.getRoot();
   const existing = root.getDefaultScene() ?? root.listScenes()[0];
@@ -149,6 +156,9 @@ export async function normalizeGenerated3DGlb(input: Uint8Array, options: Normal
     }
   }
 
+  // Scaling and grounding are applied on one wrapper node rather than by
+  // rewriting vertex data: the original geometry stays untouched and the
+  // transform is inspectable (and reversible) in the exported extras.
   const appliedScale = options.targetHeightMeters / sourceHeight;
   const wrapper = document
     .createNode(options.stableAssetId)

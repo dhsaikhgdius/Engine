@@ -1,3 +1,28 @@
+/**
+ * DCC return (round-trip) import: brings edits made in Blender or an engine
+ * editor back into the Director project through a reviewable plan. A return
+ * package (manifest + hash-verified files, produced by the connector's return
+ * export) is validated, matched against the live project by stable
+ * director_id, and applied as one guarded authoring operation.
+ *
+ * Trust and merge invariants:
+ * - Packages are only accepted from the provider's own job root; every file
+ *   is SHA-256-verified against the manifest and symlink escapes are
+ *   rejected both lexically and post-realpath.
+ * - Nothing is created implicitly: additions require the explicit
+ *   include_new_objects opt-in, and unknown or type-mismatched ids become
+ *   typed conflicts, never silent writes.
+ * - Stale-revision merges are three-way: with an export-time baseline
+ *   snapshot, an entity edited on both sides (Director and DCC) becomes a
+ *   conflict; entities edited on one side only merge cleanly.
+ * - Apply never trusts the submitted plan's operations. The plan pins
+ *   identity (packageId, manifestHash, targetRevision) and intent (skips,
+ *   addition opt-in); operations are rebuilt server-side against the
+ *   validated package and live project before anything executes.
+ * - Blender packages carry Blender Z-up transforms; engine connectors
+ *   convert to Director's canonical space at the provider boundary, so the
+ *   importer picks the wire space per provider.
+ */
 import { createHash } from "node:crypto";
 import { access, copyFile, mkdir, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -182,11 +207,13 @@ export interface CreateDccReturnImporterOptions {
 /** Backwards-compatible alias for the Blender-era options name. */
 export type CreateBlenderReturnImporterOptions = CreateDccReturnImporterOptions;
 
+/** Lexical containment check; callers pair it with realpath for symlink safety. */
 function isInside(parent: string, child: string): boolean {
   const value = relative(parent, child);
   return value === "" || (!value.startsWith(`..${sep}`) && value !== ".." && !isAbsolute(value));
 }
 
+/** Relative path with forward slashes, so plan/package keys are platform-stable. */
 function posixRelative(parent: string, child: string): string {
   return relative(parent, child).split(sep).join("/");
 }
@@ -199,6 +226,7 @@ async function sha256File(path: string): Promise<string> {
   return sha256(await readFile(path));
 }
 
+/** Sanitizes an id into a filesystem-safe segment for asset file names. */
 function safeSegment(value: string): string {
   const normalized = value
     .normalize("NFKD")
@@ -208,6 +236,7 @@ function safeSegment(value: string): string {
   return normalized || "director-asset";
 }
 
+/** The scene root as a transform, composed into every world-space conversion. */
 function sceneTransform(project: DirectorProject): DirectorTransform {
   return {
     position: project.scene.position,
@@ -216,6 +245,8 @@ function sceneTransform(project: DirectorProject): DirectorTransform {
   };
 }
 
+// Asset ids embed the content hash so re-importing identical bytes reuses the
+// same asset while a changed mesh mints a new id (immutable asset store).
 function refinedAssetId(directorId: string, hash: string): string {
   return `asset-${safeSegment(directorId)}-refined-${hash.slice(0, 12)}`;
 }
@@ -285,6 +316,8 @@ export interface DirectorDccImportPlanBuildOptions {
   includeNewObjects?: boolean;
 }
 
+// Float tolerance for "unchanged since export" checks; export/import round
+// trips introduce sub-micron noise that must not count as a Director edit.
 const BASELINE_TOLERANCE = 1e-6;
 
 function vectorsClose(left: readonly number[], right: readonly number[]): boolean {
@@ -326,6 +359,7 @@ const CANONICAL_RETURN_SPACE: DccReturnSpace = {
   worldPointToDirector: (point, world) => canonicalWorldPointToDirector(point, world),
 };
 
+/** Wire space of a provider's return packages: Blender Z-up vs canonical Director. */
 function returnSpaceForProvider(provider: DirectorDccConnectorProviderId): DccReturnSpace {
   return provider === "blender" ? BLENDER_RETURN_SPACE : CANONICAL_RETURN_SPACE;
 }
@@ -346,6 +380,7 @@ function liveCameraExportedOptics(camera: DirectorProject["cameras"][number]) {
   };
 }
 
+/** Relative-tolerance scalar comparison; undefined only equals undefined. */
 function scalarsClose(left: number | undefined, right: number | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
   return Math.abs(left - right) <= Math.max(Math.abs(left), Math.abs(right), 1) * 1e-6;
@@ -370,6 +405,8 @@ function cameraOpticsDiverged(
   );
 }
 
+// Pose control maps compare with missing keys treated as 0, matching how the
+// rig resolves absent controls.
 function poseControlsClose(
   left: Record<string, number> | undefined,
   right: Record<string, number> | undefined,
@@ -383,6 +420,12 @@ function poseControlsClose(
   return true;
 }
 
+// Three-way merge core: returns a human-readable reason when the live
+// Director entity diverged from the export-time baseline in the same aspect
+// the return change touches (a both-sides edit → conflict), or null when the
+// Director side is unchanged and the DCC change can merge cleanly. Only the
+// aspects the change updates are compared, so e.g. a Director transform edit
+// does not block a DCC pose-only update.
 function directorSideDivergence(
   change: DirectorDccReturnManifestV1["changes"][number],
   entity:
@@ -763,6 +806,9 @@ export function buildDirectorDccImportPlan(
   });
 }
 
+// Director cameras aim at a target point rather than storing a rotation, so
+// an imported camera rotation is converted to a target along the new forward
+// vector, preserving the current aim distance (or focus distance if larger).
 function cameraTargetForTransform(project: DirectorProject, cameraId: string, transform: DirectorTransform) {
   const camera = project.cameras.find((candidate) => candidate.id === cameraId);
   if (!camera) throw new DirectorDccImportError("unknown_director_id", `Camera ${cameraId} no longer exists.`, 409);
@@ -786,6 +832,10 @@ interface CameraPatchAccumulator {
   sensor_format?: DirectorDccImportPlanCameraOptics["sensor_format"];
 }
 
+// Lowers plan operations to Director authoring actions. Per-entity patches
+// are accumulated first (asset link + transform for objects, transform +
+// optics for cameras) so each entity receives exactly one update action —
+// keeping multi-facet changes atomic within the single authoring batch.
 function authoringActionsForPlan(
   plan: DirectorDccImportPlanV1,
   project: DirectorProject,
@@ -937,6 +987,7 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
   const exchangeJobRoot = resolve(options.dataDirectory, "dcc-jobs", "exchange", provider);
   const generatedImportRoot = resolve(workspaceRoot, "assets", "generated", "dcc-import");
 
+  /** Confines a caller-supplied package path to the job root, lexically and post-realpath. */
   async function resolvePackageDirectory(input: string): Promise<{ absolute: string; relative: string }> {
     const trimmed = input.trim();
     const candidate = isAbsolute(trimmed)
@@ -963,6 +1014,9 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
     return { absolute: canonical, relative: posixRelative(canonicalJobRoot, canonical) };
   }
 
+  // Full package validation: manifest parse, provider match, and a SHA-256 +
+  // containment check on every file the manifest names. Anything not listed
+  // in fileHashes is simply invisible to the importer.
   async function validatePackage(packageDir: string): Promise<ValidatedDirectorDccReturnPackage> {
     const directory = await resolvePackageDirectory(packageDir);
     const manifestPath = resolve(directory.absolute, "manifest.json");
@@ -1039,6 +1093,8 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
     };
   }
 
+  // LRU of validated packages so preview-then-apply does not re-hash every
+  // file twice; entries are revalidated cheaply via the manifest hash below.
   const MAX_VALIDATED_PACKAGE_CACHE_ENTRIES = 32;
   const validatedPackageCache = new Map<string, ValidatedDirectorDccReturnPackage>();
 
@@ -1052,6 +1108,8 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
     }
   }
 
+  // Cache hit is only trusted while the manifest bytes are unchanged; a
+  // rewritten manifest forces full re-validation of every file.
   async function validatePackageCached(packageDir: string): Promise<ValidatedDirectorDccReturnPackage> {
     const directory = await resolvePackageDirectory(packageDir);
     const cached = validatedPackageCache.get(directory.relative);
@@ -1096,6 +1154,10 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
     });
   }
 
+  // Finds the exchange package this return refers to by scanning the exchange
+  // job root for a manifest with the matching packageId + sourceRevision;
+  // absence just disables object-level conflict detection (plan-level
+  // stale_source_revision conflict applies instead).
   async function loadEngineSourceBaseline(
     manifest: DirectorDccReturnManifestV1,
   ): Promise<DirectorDccSourceBaseline | null> {
@@ -1120,6 +1182,8 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
     return null;
   }
 
+  // Blender exports write scene.director-dcc.json next to the .blend; engine
+  // exports derive the baseline from the exchange manifest instead.
   async function loadSourceBaseline(manifest: DirectorDccReturnManifestV1): Promise<DirectorDccSourceBaseline | null> {
     if (provider !== "blender") return loadEngineSourceBaseline(manifest);
     const canonicalJobRoot = await realpath(jobRoot).catch(() => null);
@@ -1201,6 +1265,9 @@ export function createDccReturnImporter(options: CreateDccReturnImporterOptions)
       );
     }
 
+    // Copy validated GLBs into the immutable generated-asset root. A file
+    // already present must be byte-identical (idempotent re-apply); divergent
+    // content is a collision that must fail rather than be overwritten.
     const immutableDirectory = sha256(validated.manifest.packageId).slice(0, 20);
     const destinationRoot = resolve(generatedImportRoot, immutableDirectory);
     await mkdir(destinationRoot, { recursive: true });

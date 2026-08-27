@@ -24,6 +24,23 @@ import {
 export { agentRoleProfileMapSchema };
 export type { AgentRoleProfileMap };
 
+/**
+ * The Director control plane: the single place where every backend
+ * integration setting (providers, credentials, endpoints, budgets) is read
+ * from the environment, validated, defaulted, and frozen into one typed
+ * config object at startup.
+ *
+ * Boundary rules this module enforces:
+ * - No other backend service reads `process.env` for integration settings,
+ *   and UI code never sees secrets — {@link publicControlPlaneCapabilities}
+ *   is the only shape allowed to cross to the browser.
+ * - The gateway refuses to bind to a non-loopback host; remote exposure must
+ *   go through a real authenticated reverse proxy.
+ * - "Configured" is derived from the presence of all required inputs, never
+ *   asserted: a provider missing its checkout, checkpoint, or key simply
+ *   reports unconfigured instead of failing at first use.
+ */
+
 const optionalText = z.string().trim().min(1).optional();
 const optionalHttpUrl = z
   .string()
@@ -32,6 +49,8 @@ const optionalHttpUrl = z
   .refine((value) => value.startsWith("http://") || value.startsWith("https://"), "must be an HTTP(S) URL")
   .optional();
 
+// Loose object: unknown environment variables are expected and ignored; only
+// the declared names are validated and consumed.
 const environmentSchema = z.looseObject({
   STAGE_GATEWAY_HOST: optionalText,
   STAGE_GATEWAY_PORT: optionalText,
@@ -141,6 +160,7 @@ export function resolveDefaultLtx2Source(options: { checkout?: string } = {}): s
   return existsSync(join(checkout, "packages", "ltx-pipelines", "src", "ltx_pipelines")) ? checkout : undefined;
 }
 
+/** Resolves the path only when it exists as the expected kind; misconfigured paths degrade to "unconfigured". */
 function existingPath(value: string | undefined, kind: "file" | "directory"): string | undefined {
   if (!value) return undefined;
   const path = resolve(value);
@@ -153,6 +173,7 @@ function existingPath(value: string | undefined, kind: "file" | "directory"): st
   return undefined;
 }
 
+/** Provenance from the LTX-2 submodule lock file (pinned repo + commit), for capability reporting. */
 function readLtx2LockMeta() {
   try {
     const lock = JSON.parse(readFileSync(join(repositoryRoot, "vendor/ltx-2.lock.json"), "utf8")) as {
@@ -180,12 +201,7 @@ function readLtx2LockMeta() {
  */
 export const DEFAULT_AGENT_MAX_TOOL_ROUNDS = 24;
 
-/**
- * A partial role override table. Missing roles deliberately fall back to the
- * profile selected by the production run (and ultimately `api-default`).
- * Profile existence and availability are runtime concerns because credentials
- * and local provider health can change after configuration is parsed.
- */
+/** Name of an environment variable holding a secret; the value is read at load time, never stored in config JSON. */
 const environmentVariableNameSchema = z
   .string()
   .trim()
@@ -233,6 +249,9 @@ export type HostedAgentProfileConfig = {
   capabilities: ModelCapabilities;
 };
 
+// Per-driver defaults: runtime adapter, endpoint, credential source, and the
+// conservative capability baseline used when the model is not in the builtin
+// descriptor catalog. Profile-level overrides always win over these.
 const HOSTED_AGENT_DEFAULTS = {
   openai: {
     runtime: "native-openai",
@@ -286,6 +305,8 @@ const HOSTED_AGENT_DEFAULTS = {
   }
 >;
 
+// Capability layering, weakest to strongest: driver defaults < builtin model
+// descriptor < explicit per-profile overrides.
 function resolveHostedModelCapabilities(
   driver: HostedAgentDriver,
   model: string,
@@ -310,11 +331,13 @@ function resolveHostedModelCapabilities(
   });
 }
 
+/** Parses an integer env value, clamping into [minimum, maximum]; anything non-integer takes the fallback. */
 function boundedInteger(value: string | undefined, fallback: number, minimum: number, maximum: number) {
   const parsed = Number(value);
   return Number.isInteger(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : fallback;
 }
 
+// Base URLs are normalized without a trailing slash so path joining is uniform.
 function stripTrailingSlash(value: string | undefined) {
   return value?.replace(/\/+$/, "");
 }
@@ -358,12 +381,14 @@ export function resolveHostedAgentProfileConfig(input: {
   };
 }
 
+/** Reads a secret by env-var name; empty or whitespace-only values count as absent. */
 function readEnvironmentSecret(environment: NodeJS.ProcessEnv, name: string) {
   if (!Object.prototype.hasOwnProperty.call(environment, name)) return undefined;
   const value = environment[name];
   return typeof value === "string" ? value.trim() || undefined : undefined;
 }
 
+/** Parses the ComfyUI node pool from JSON, or synthesizes a single-node pool from the legacy COMFYUI_URL. */
 function parseComfyNodes(raw: string | undefined, fallbackBaseUrl: string | undefined): ComfyNodeDefinition[] {
   if (!raw) {
     return fallbackBaseUrl
@@ -394,6 +419,7 @@ function parseComfyNodes(raw: string | undefined, fallbackBaseUrl: string | unde
   });
 }
 
+/** Parses `DIRECTOR_AGENT_PROFILES_JSON`, rejecting reserved and duplicate ids, and resolving credentials from the environment. */
 function parseHostedAgentProfiles(raw: string | undefined, environment: NodeJS.ProcessEnv): HostedAgentProfileConfig[] {
   if (!raw) return [];
   let decoded: unknown;
@@ -450,8 +476,10 @@ function parseHostedAgentProfiles(raw: string | undefined, environment: NodeJS.P
  * {@code DIRECTOR_AGENT_ROLE_PROFILES_JSON} environment variable.
  *
  * Roles not listed here fall back to the profile selected by the
- * production run. This is a partial override table, not a complete
- * assignment.
+ * production run (and ultimately `api-default`). This is a partial override
+ * table, not a complete assignment. Profile existence and availability are
+ * deliberately not checked here: credentials and local provider health can
+ * change after configuration is parsed, so those are runtime concerns.
  *
  * @param raw - The raw JSON string from the environment, or undefined.
  * @returns A validated {@link AgentRoleProfileMap} (empty object when no
@@ -519,6 +547,8 @@ export function loadDirectorControlPlaneConfig(workspaceRoot: string, environmen
     offload: values.LTX23_OFFLOAD ?? "none",
     ...readLtx2LockMeta(),
   };
+  // LTX-2.3 needs all four local pieces (source checkout, distilled
+  // checkpoint, upsampler, Gemma weights) — a partial install is unconfigured.
   const ltx23Configured = Boolean(
     ltx23.sourceRoot && ltx23.distilledCheckpointPath && ltx23.spatialUpsamplerPath && ltx23.gemmaRoot,
   );
@@ -530,9 +560,12 @@ export function loadDirectorControlPlaneConfig(workspaceRoot: string, environmen
       values.OPENAI_BASE_URL ??
       (transcriptionApiKey ? "https://api.openai.com/v1" : undefined),
   );
+  // Default provider preference when not pinned: local LTX (no network cost)
+  // beats hosted MiniMax beats ComfyUI (which needs its own server anyway).
   const configuredDefault = values.DIRECTOR_VIDEO_PROVIDER;
   const defaultVideoProvider =
     configuredDefault ?? (ltx23Configured ? "ltx-2.3" : values.DIRECTOR_MINIMAX_API_KEY ? "minimax-h3" : "comfyui");
+  // Pre-profiles single-endpoint configuration, kept as the `api-default` slot.
   const legacyAgentApi = {
     baseUrl: stripTrailingSlash(values.DIRECTOR_AGENT_API_BASE_URL),
     apiKey: values.DIRECTOR_AGENT_API_KEY,

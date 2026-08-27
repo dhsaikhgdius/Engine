@@ -362,7 +362,6 @@ export class CaptureReconstructionExecutor {
     }
   }
 
-  /** Reads the composed plan back from a succeeded job's artifacts. */
   /**
    * Reads the composed plan back from a succeeded job's artifacts.
    *

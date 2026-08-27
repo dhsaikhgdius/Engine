@@ -13,6 +13,24 @@ import { writeJsonAtomic } from "../atomicJsonFile";
 export { productionSceneProjectRecordSchema };
 export type { ProductionSceneProjectRecord };
 
+/**
+ * Durable store for the production record and its per-scene DirectorProject
+ * documents, persisted as one atomically written JSON file. All mutations
+ * are serialized through an internal queue and validated before persisting,
+ * so the on-disk state is always a schema-valid snapshot.
+ *
+ * Key invariants:
+ * - Every scene referenced by the production has a scene project; committing
+ *   a production that references a new scene without a validated seed is
+ *   rejected, and unreferenced scene projects are dropped on commit.
+ * - Scene projects are revision-guarded: writers must echo the current
+ *   revision, and a mismatch is a 409 with the corrective "observe and
+ *   retry" message rather than a silent overwrite.
+ * - A corrupt state file never blocks startup: the store salvages every
+ *   record that still validates, backs up the unreadable file, and continues
+ *   with the recovered (or default) state.
+ */
+
 const productionStateSchema = z
   .strictObject({
     version: z.literal(1),
@@ -20,6 +38,8 @@ const productionStateSchema = z
     sceneProjects: z.record(z.string(), productionSceneProjectRecordSchema),
   })
   .superRefine((state, context) => {
+    // The map key is the routing identity; a record whose sceneId disagrees
+    // would be reachable under the wrong scene.
     Object.entries(state.sceneProjects).forEach(([sceneId, record]) => {
       if (record.sceneId !== sceneId) {
         context.addIssue({
@@ -35,6 +55,7 @@ type ProductionState = z.infer<typeof productionStateSchema>;
 
 export type { ProductionSceneSeed };
 
+/** Typed store failure carrying the HTTP status and machine code routes map onto. */
 export class ProductionStateStoreError extends Error {
   constructor(
     message: string,
@@ -46,6 +67,7 @@ export class ProductionStateStoreError extends Error {
   }
 }
 
+/** Reads and parses a JSON file, treating a missing file as null. */
 async function readOptionalJson(path: string): Promise<unknown | null> {
   try {
     return JSON.parse(await readFile(path, "utf8")) as unknown;
@@ -59,12 +81,15 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+/** Renders the first Zod issue as a short human-readable path + message. */
 function describeIssue(error: z.ZodError): string {
   const issue = error.issues[0];
   if (!issue) return "unknown error";
   return issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message;
 }
 
+// Moves the unreadable file aside (timestamped) instead of deleting it, so
+// the corrupt bytes stay available for post-mortem inspection.
 async function backupCorruptStateFile(statePath: string): Promise<void> {
   const backupPath = `${statePath}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
   try {
@@ -108,6 +133,7 @@ function recoverPersistedState(persisted: unknown): ProductionState | null {
   return { version: 1, production: production.data, sceneProjects };
 }
 
+/** Serialized, schema-validated store for production + scene project state. */
 export class ProductionStateStore {
   private state: ProductionState;
   private queue: Promise<void> = Promise.resolve();
@@ -119,6 +145,12 @@ export class ProductionStateStore {
     this.state = state;
   }
 
+  /**
+   * Opens (or initializes) the store. Load order: fully valid persisted
+   * state → partial recovery of the persisted file (backing up the original)
+   * → a legacy production manifest → the provided default. Whatever wins is
+   * re-persisted immediately, so subsequent boots read a clean file.
+   */
   static async open(options: {
     statePath: string;
     legacyManifestPath?: string;
@@ -163,15 +195,24 @@ export class ProductionStateStore {
     return store;
   }
 
+  /** Deep-cloned snapshot; callers can never mutate the store's state. */
   getProduction(): ProductionRecord {
     return clone(this.state.production);
   }
 
+  /** Deep-cloned scene project record, or null when the scene has none. */
   getSceneProject(sceneId: string): ProductionSceneProjectRecord | null {
     const record = this.state.sceneProjects[sceneId];
     return record ? clone(record) : null;
   }
 
+  /**
+   * Replaces the production record atomically. Scene projects no longer
+   * referenced are dropped; newly referenced scenes must arrive with a seed
+   * project (seeding an existing scene is a conflict — updates go through
+   * the revision-guarded {@link saveSceneProject}); and each scene
+   * reference's `sourceRevision` is realigned to its project's revision.
+   */
   async commitProduction(nextProduction: ProductionRecord, seeds: ProductionSceneSeed[] = []): Promise<void> {
     return this.enqueue(async () => {
       const production = productionRecordSchema.parse(clone(nextProduction));
@@ -225,6 +266,12 @@ export class ProductionStateStore {
     });
   }
 
+  /**
+   * Saves one scene project under optimistic concurrency: the caller must
+   * echo the current revision (0 for a scene without a project yet) and gets
+   * the incremented record back. The production's scene reference is updated
+   * to point at the new revision in the same atomic write.
+   */
   async saveSceneProject(input: {
     sceneId: string;
     expectedRevision: number;
@@ -268,6 +315,8 @@ export class ProductionStateStore {
     });
   }
 
+  // Serializes mutations so concurrent commits cannot interleave their
+  // read-modify-write cycles; a failed operation never blocks the queue.
   private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.queue.then(operation, operation);
     this.queue = result.then(

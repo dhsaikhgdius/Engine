@@ -13,6 +13,7 @@ import { z } from "zod";
  * an expected state the UI must present as such.
  */
 
+/** Boundary schema for one generation request (validated from raw HTTP). */
 export const ardyGenerateRequestSchema = z.strictObject({
   prompt: z.string().trim().min(1).max(600),
   durationS: z.number().finite().min(1).max(30).default(5),

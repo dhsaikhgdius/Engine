@@ -10,6 +10,8 @@ import {
 } from "../../../packages/protocol/src/comfyGenerationProtocol";
 import { stableJson } from "../../../packages/protocol/src/stableJson";
 
+// Input names whose meaning Director understands regardless of node type;
+// these get an explicit semantic so submission can bind prompt/size/seed etc.
 const SEMANTIC_INPUTS = new Map<string, ComfyWorkflowParameter["semantic"]>([
   ["width", "width"],
   ["height", "height"],
@@ -36,6 +38,8 @@ const SEMANTIC_INPUTS = new Map<string, ComfyWorkflowParameter["semantic"]>([
   ["audio_mode", "audio_mode"],
 ]);
 
+// Allowlist of node inputs surfaced as editable parameters; everything else
+// in a workflow stays opaque so the form never exposes wiring internals.
 const EXPOSED_INPUTS = new Set([
   ...SEMANTIC_INPUTS.keys(),
   "text",
@@ -99,6 +103,9 @@ function inferType(inputName: string, value: unknown): ComfyWorkflowParameter["t
   return "text";
 }
 
+// Text-encode nodes rarely label their purpose; "negative" anywhere in the
+// node identity wins, and otherwise the first CLIP text input is treated as
+// the positive prompt with the second as the negative (ComfyUI convention).
 function inferTextSemantic(
   classType: string,
   title: string,
@@ -183,6 +190,9 @@ export function inspectComfyWorkflow(
   });
 }
 
+// Recursively replaces {{TOKEN}} placeholders: a string that IS a token is
+// replaced with the typed value (numbers stay numbers); strings merely
+// containing tokens get textual substitution.
 function replaceTokens(value: unknown, tokens: Readonly<Record<string, string | number>>): unknown {
   if (Array.isArray(value)) return value.map((entry) => replaceTokens(entry, tokens));
   if (value && typeof value === "object") {

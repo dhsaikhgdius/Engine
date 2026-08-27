@@ -1,3 +1,17 @@
+/**
+ * The Director gateway entry point: one Node process that owns the HTTP API,
+ * the browser WebSocket hub, planner subprocess execution, and the wiring of
+ * every domain service (DCC bridges, generation runtimes, film pipeline,
+ * collaboration, storage ops). Domain logic lives in the imported modules;
+ * this file's own responsibilities are transport plumbing — authentication
+ * and CORS at the socket boundary, browser target registration and stable
+ * target tokens, request/response correlation for browser commands, and
+ * dispatching each HTTP path to its route handler.
+ *
+ * Security posture: the gateway binds loopback-only, mints a fresh secret and
+ * epoch per process, and treats every WebSocket message and HTTP body as
+ * untrusted input validated at the boundary.
+ */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -923,6 +937,7 @@ async function persistScene() {
   await writeJsonAtomic(scenePath, scene);
 }
 
+/** Last persisted Director project: the durable workbench file first, then the active scene record. */
 async function readPersistedWorkbenchProject(): Promise<DirectorProject | null> {
   try {
     const parsed = safeParseDirectorProject(JSON.parse(await readFile(workbenchProjectPath, "utf8")));
@@ -934,6 +949,7 @@ async function readPersistedWorkbenchProject(): Promise<DirectorProject | null> 
   return sceneId ? (productionStateStore.getSceneProject(sceneId)?.project ?? null) : null;
 }
 
+/** Live Blender kernel snapshot for disconnected reads, or null when the kernel is unreachable. */
 async function loadNativeSceneSnapshot() {
   try {
     const status = await blenderNativeSession.status();
@@ -1986,6 +2002,7 @@ async function handleAssistantApplyRequest(payload: AssistantApplyRequest, respo
   });
 }
 
+/** Binds the live gateway state (scene, sockets, schedulers) into the Stage route dependency shape. */
 function liveStageRouteDependencies(): Omit<StageRouteDependencies, "readBody" | "headers" | "json"> {
   return {
     getScene: () => scene,

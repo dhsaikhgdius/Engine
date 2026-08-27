@@ -12,6 +12,25 @@ import {
 import type { AgentProfileRegistry, ResolvedAgentProfile } from "../agents/agentProfileRegistry";
 import { createModelDriver, type ModelCompletion, type ModelDriver } from "@director/model-provider/runtime";
 
+/**
+ * Reference-image scene analyzer: turns one uploaded photo into an editable
+ * Director primitive reconstruction plan, either through a vision-capable
+ * hosted model or a deterministic local scaffold.
+ *
+ * Boundary rules:
+ * - The uploaded image is untrusted: bytes must match the declared MIME
+ *   magic and the caller-supplied SHA-256 before anything is analyzed.
+ * - The model is forced through a strict structured tool call
+ *   ({@link PLAN_TOOL_NAME}) and its output re-validated with Zod; free-form
+ *   text is only accepted as a JSON fallback and never trusted verbatim.
+ * - Failure semantics honor the requested mode: `vision` fails loudly with
+ *   a 502 (never silently degrading), `auto` degrades to the local scaffold
+ *   with the failure recorded as a warning, and `local` skips vision
+ *   entirely. Degraded plans always say so in `analysis.status`.
+ * - Diagnostics are bounded and scrubbed of base64 image payloads so error
+ *   messages cannot leak the reference image.
+ */
+
 const PLAN_TOOL_NAME = "submit_reference_scene_plan";
 
 /**
@@ -37,6 +56,7 @@ export type ReferenceSceneAnalyzerDependencies = {
   createId?: () => string;
 };
 
+/** Builds the model driver matching the profile's hosted runtime kind. */
 function createHostedDriver(profile: ResolvedAgentProfile): ModelDriver {
   const config = profile.hostedConfig;
   if (!config)
@@ -57,6 +77,7 @@ function createHostedDriver(profile: ResolvedAgentProfile): ModelDriver {
   });
 }
 
+/** Checks the file magic against the declared MIME type (png/jpeg/webp). */
 function imageMagicMatches(bytes: Buffer, mimeType: ReferenceSceneAnalysisRequest["image"]["mimeType"]) {
   if (mimeType === "image/png") {
     return bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
@@ -65,6 +86,11 @@ function imageMagicMatches(bytes: Buffer, mimeType: ReferenceSceneAnalysisReques
   return bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
 }
 
+/**
+ * Validates size bounds, MIME magic, and the caller-declared SHA-256 before
+ * the bytes are forwarded anywhere. A digest mismatch means the upload was
+ * corrupted or mislabeled, so it is rejected instead of analyzed.
+ */
 function verifyImage(input: ReferenceSceneAnalysisRequest["image"]) {
   const bytes = Buffer.from(input.base64, "base64");
   if (!bytes.length || bytes.length > DIRECTOR_REFERENCE_IMAGE_MAX_BYTES) {
@@ -92,6 +118,7 @@ function verifyImage(input: ReferenceSceneAnalysisRequest["image"]) {
   return bytes;
 }
 
+/** Available hosted profiles with vision capability, in registry order. */
 function hostedVisionProfiles(registry: AgentProfileRegistry) {
   return registry
     .list()
@@ -102,6 +129,12 @@ function hostedVisionProfiles(registry: AgentProfileRegistry) {
     });
 }
 
+/**
+ * Chooses the vision profile per the requested mode: an explicit profile id
+ * must be usable or the request fails; otherwise the first available vision
+ * profile wins, and `vision` mode refuses to proceed without one (while
+ * `auto` quietly returns null for the local fallback).
+ */
 function resolveVisionProfile(request: ReferenceSceneAnalysisRequest, registry: AgentProfileRegistry) {
   if (request.analysisMode === "local") return null;
   if (request.profileId) {
@@ -131,6 +164,11 @@ function resolveVisionProfile(request: ReferenceSceneAnalysisRequest, registry: 
   return profile;
 }
 
+/**
+ * Extracts the structured plan from a completion: the strict tool call is
+ * preferred; failing that, the outermost JSON object in the text content is
+ * tried. Either path must pass the vision-output schema or null is returned.
+ */
 function completionOutput(completion: ModelCompletion): ReferenceSceneVisionOutput | null {
   const toolCall = completion.message.content.find(
     (item) => item.type === "tool-call" && item.name === PLAN_TOOL_NAME && item.arguments !== null,
@@ -155,6 +193,8 @@ function completionOutput(completion: ModelCompletion): ReferenceSceneVisionOutp
   }
 }
 
+// Error text is bounded and stripped of inline image payloads so a provider
+// echoing the request back cannot leak the reference image into diagnostics.
 function boundedDiagnostic(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=_-]+/gi, "[image omitted]").slice(0, 300);
@@ -164,6 +204,11 @@ function radians(degrees: number) {
   return (degrees * Math.PI) / 180;
 }
 
+/**
+ * Assembles the final reconstruction plan: stable per-plan entity ids,
+ * degree-to-radian conversion, the object cap from the request, and the
+ * provenance block (mode, profile, model, usage, bounded warnings).
+ */
 function makePlan(
   request: ReferenceSceneAnalysisRequest,
   output: ReferenceSceneVisionOutput,
@@ -233,6 +278,12 @@ function makePlan(
   });
 }
 
+/**
+ * Deterministic local scaffold used when no vision model runs: object count,
+ * proportions, and palette are derived purely from measured image metrics.
+ * The output explicitly warns that it is a composition scaffold, not an
+ * image-understanding claim, and carries a deliberately low confidence.
+ */
 function fallbackOutput(request: ReferenceSceneAnalysisRequest, diagnostic?: string): ReferenceSceneVisionOutput {
   const { metrics } = request.image;
   const palette = metrics.palette.length ? metrics.palette : ["#748091", "#d5dae2", "#28313f"];
@@ -292,6 +343,12 @@ function fallbackOutput(request: ReferenceSceneAnalysisRequest, diagnostic?: str
   });
 }
 
+/**
+ * Runs the structured vision completion. Temperature 0 and a forced tool
+ * choice keep the output deterministic and schema-shaped; the system prompt
+ * instructs the model to treat text visible inside the image as evidence,
+ * never as instructions (prompt-injection hardening at the image boundary).
+ */
 async function runVision(
   request: ReferenceSceneAnalysisRequest,
   profile: ResolvedAgentProfile,
@@ -409,6 +466,8 @@ export function createReferenceSceneAnalyzer(dependencies: ReferenceSceneAnalyze
         });
       } catch (error) {
         if (signal?.aborted) throw signal.reason;
+        // Explicit "vision" mode must fail loudly; "auto" degrades to the
+        // local scaffold with the failure preserved as a plan warning.
         if (request.analysisMode === "vision") {
           throw new ReferenceSceneAnalysisError(
             `Vision reconstruction failed: ${boundedDiagnostic(error)}`,
