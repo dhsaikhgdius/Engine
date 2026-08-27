@@ -10,6 +10,7 @@ import { parseDirectorWorkbenchInput, type DirectorWorkbenchOperation } from "@d
 import { describeDirectorWorkbenchTarget } from "@director/agent-engine";
 import {
   collectPossessedObjectIds,
+  buildDirectorPossessionWriteReceipt,
   describeDirectorPossessionTargetAmbiguity,
   evaluateDirectorPossessionScope,
   fillDirectorAuthorCharacterTargets,
@@ -932,6 +933,7 @@ export async function handleStageRoute(
       }
       let possessionCharacters = observedWorkbenchCharacters(discovery?.response.result);
       let possessionLivePlayer = observedLivePlayer(discovery?.response.result);
+      let possessionWriteReceipt: ReturnType<typeof buildDirectorPossessionWriteReceipt> | undefined;
       if (!operation) {
         // Possession fill-in: character-scoped author actions omitted their
         // object target. When the caller possesses exactly one character, fill
@@ -989,6 +991,12 @@ export async function handleStageRoute(
           return true;
         }
         const filled = fillDirectorAuthorCharacterTargets(toolInput, characterTargetGaps, possessedObjectIds[0]);
+        possessionWriteReceipt = buildDirectorPossessionWriteReceipt({
+          sessionId,
+          possessedObjectIds,
+          gaps: characterTargetGaps,
+          filledObjectId: possessedObjectIds[0],
+        });
         const reparsed = parseDirectorWorkbenchInput(filled);
         if (!reparsed.success) {
           respond(response, 400, { scene, success: false, error: reparsed.error });
@@ -1265,6 +1273,7 @@ export async function handleStageRoute(
         ...(capture ? { capture } : {}),
         target: remote.target,
         ...(agentBoundary ? { agent_boundary: agentBoundary } : {}),
+        ...(possessionWriteReceipt ? { possession: possessionWriteReceipt } : {}),
       };
       execution.feedback = createStageFeedback({
         before: beforeScene,

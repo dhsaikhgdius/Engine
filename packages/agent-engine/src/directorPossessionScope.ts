@@ -423,6 +423,25 @@ export type DirectorCharacterTargetGap = {
   field: "object_id" | "object_ids" | "target_id";
 };
 
+/** One auto-filled character target recorded on a successful possessed write. */
+export type DirectorPossessionFilledTarget = DirectorCharacterTargetGap & {
+  /** The possessed character id the gateway filled into the omitted field. */
+  object_id: string;
+};
+
+/**
+ * Typed receipt attached to successful workbench mutations when the gateway
+ * auto-filled omitted character targets for a sole-possessed session.
+ */
+export type DirectorPossessionWriteReceipt = {
+  /** The calling Agent session id. */
+  session_id: string;
+  /** Object ids of the characters this session possesses. */
+  possessed_object_ids: string[];
+  /** Every omitted target field the gateway filled before validation. */
+  filled_targets: DirectorPossessionFilledTarget[];
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -490,6 +509,25 @@ export function fillDirectorAuthorCharacterTargets(
       if (!gap || !action) return entry;
       return { ...action, [gap.field]: gap.field === "object_ids" ? [objectId] : objectId };
     }),
+  };
+}
+
+/**
+ * Build the write-depth receipt for a successful sole-possession auto-fill.
+ *
+ * @param input - The calling session, its possessed set, the scanned gaps, and the filled id.
+ * @returns A typed receipt naming every field the gateway filled.
+ */
+export function buildDirectorPossessionWriteReceipt(input: {
+  sessionId: string;
+  possessedObjectIds: readonly string[];
+  gaps: readonly DirectorCharacterTargetGap[];
+  filledObjectId: string;
+}): DirectorPossessionWriteReceipt {
+  return {
+    session_id: input.sessionId,
+    possessed_object_ids: [...input.possessedObjectIds],
+    filled_targets: input.gaps.map((gap) => ({ ...gap, object_id: input.filledObjectId })),
   };
 }
 

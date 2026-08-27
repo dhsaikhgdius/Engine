@@ -1353,7 +1353,18 @@ describe("stage routes", () => {
     };
     expect(forwarded).toMatchObject({ op: "author", expected_revision: REVISION_A });
     expect(forwarded.actions[0]).toEqual({ action: "set_character_motion", clip_id: "walk", object_id: "hero" });
-    expect(json).toHaveBeenLastCalledWith(expect.anything(), 200, expect.objectContaining({ success: true }));
+    expect(json).toHaveBeenLastCalledWith(
+      expect.anything(),
+      200,
+      expect.objectContaining({
+        success: true,
+        possession: {
+          session_id: "dsh-possessed",
+          possessed_object_ids: ["hero"],
+          filled_targets: [{ index: 0, action: "set_character_motion", field: "object_id", object_id: "hero" }],
+        },
+      }),
+    );
   });
 
   it("rejects an omitted object target readably when the session possesses several characters", async () => {
