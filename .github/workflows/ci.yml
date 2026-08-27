@@ -12,7 +12,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       # Type-aware ESLint over frontend + gateway + packages exceeds Node's
       # default ~2GB heap on GitHub-hosted runners.
@@ -27,6 +27,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
+      # --ignore-scripts skips node-pty's native build. Rebuild it so the
+      # gateway spawn integration tests run here instead of skipping
+      # (nodePtyAvailable.ts fails the suite in CI when the addon is missing).
+      - run: npm rebuild node-pty
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run repo:check
       - run: npm run lint
@@ -38,7 +42,14 @@ jobs:
         env:
           FORMAT_CHECK_BASE: origin/${{ github.base_ref || 'main' }}
       - run: npm run build
+      # `npm run build` regenerates the portable MCP plugin bundle; a diff here
+      # means the committed bundle is stale relative to the gateway source.
+      - name: Verify the committed MCP plugin bundle is fresh
+        run: git diff --exit-code integrations/plugins/director-workbench/mcp/server.mjs
       - run: npm run test:core
+      - name: Install Playwright chromium for agent evals
+        run: npx playwright install --with-deps chromium
+      - run: npm run eval
 
   docs:
     runs-on: ubuntu-latest
