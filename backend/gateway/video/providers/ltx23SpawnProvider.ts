@@ -16,15 +16,36 @@ import {
   type VideoProviderJob,
 } from "./videoProvider";
 
+/**
+ * Local LTX-2.3 video provider that spawns the vendored DistilledPipeline as
+ * a per-job child process under `uv run` — there is no resident inference
+ * worker, so a cold gateway holds no GPU memory between jobs. Job state is
+ * in-memory only: the tracked job map does not survive a restart, and the
+ * MP4 plus the exact request JSON are persisted under the job directory so a
+ * finished render remains inspectable after the process map is gone.
+ *
+ * Submission is idempotent on the request's idempotency key: replaying the
+ * same key with the same request returns the tracked job, while the same key
+ * with a *different* request is rejected instead of silently rendering
+ * something else. Requests are normalized to the pipeline's hard constraints
+ * (dimensions in multiples of 64, frame counts of the form 8k+1, integer
+ * frame rates) and every silent adjustment is surfaced as a job warning so
+ * callers learn what actually rendered.
+ */
+
 export type Ltx23SpawnProviderOptions = {
+  /** Root of the vendored LTX source tree (`uv run --project` target). */
   sourceRoot: string;
   distilledCheckpointPath: string;
   spatialUpsamplerPath: string;
   gemmaRoot: string;
+  /** Path to the generate entrypoint script executed per job. */
   generateScript: string;
+  /** Directory that owns per-job request/output files. */
   dataDirectory: string;
   uvBinary?: string;
   model?: string;
+  /** Wall-clock budget per render; the process group is killed past it. */
   timeoutMs?: number;
   device?: string;
   quantization?: string;
@@ -32,14 +53,18 @@ export type Ltx23SpawnProviderOptions = {
   repository?: string;
   commit?: string;
   pipelineVersion?: string;
+  /** Injectable spawn for tests. */
   spawnImpl?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
 };
 
+/** In-memory record of one spawned render: job state plus process handles. */
 type TrackedJob = {
   job: VideoProviderJob;
+  /** Digest of the normalized request, used to police idempotency-key reuse. */
   requestDigest: string;
   outputPath: string;
   child?: ChildProcess;
+  /** Bounded tail of stderr, kept for the failure message. */
   stderrTail: string[];
 };
 
@@ -51,11 +76,17 @@ function digestRequest(request: VideoGenerationRequest) {
   return createHash("sha256").update(JSON.stringify(request)).digest("hex");
 }
 
+/** Validates the job-id shape; the id doubles as an on-disk directory name. */
 function parseJobId(value: string) {
   if (!/^video-[a-z0-9-]{8,80}$/i.test(value)) throw new Error("Invalid video job id");
   return value;
 }
 
+/**
+ * Terminates the whole detached process group (the pipeline forks workers),
+ * escalating SIGTERM → SIGKILL after a grace period. Falls back to killing
+ * the direct child when group signalling is unavailable.
+ */
 function killGroup(child: ChildProcess) {
   if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
   try {
@@ -103,6 +134,8 @@ export class Ltx23SpawnProvider implements VideoProvider {
   }
 
   async health(_signal?: AbortSignal): Promise<VideoProviderHealth> {
+    // Spawn-per-job means the model is never resident between jobs: the
+    // provider is "cold" when idle and "loading" while a child is rendering.
     const running = [...this.jobs.values()].find((entry) => entry.job.status === "running");
     return {
       provider: "ltx-2.3",
@@ -116,6 +149,8 @@ export class Ltx23SpawnProvider implements VideoProvider {
 
   async submit(rawRequest: VideoGenerationRequest, signal?: AbortSignal): Promise<VideoProviderJob> {
     const request = parseVideoGenerationRequest(rawRequest);
+    // Normalize to the pipeline's hard constraints; every adjustment below
+    // becomes a warning so the caller learns what actually rendered.
     const width = normalizeLtxDimension(request.width);
     const height = normalizeLtxDimension(request.height);
     const numFrames = normalizeLtxFrameCount(request.numFrames);
@@ -135,6 +170,8 @@ export class Ltx23SpawnProvider implements VideoProvider {
     if (request.negativePrompt) {
       warnings.push("DistilledPipeline does not consume a negative prompt; it was retained only as job metadata.");
     }
+    // DistilledPipeline only consumes plain image conditioning; other control
+    // roles (depth, pose, …) are dropped with an explicit warning.
     const conditioning = request.conditioning.filter(
       (input) => input.role === "reference" || input.role === "clean-frame",
     );
@@ -155,6 +192,8 @@ export class Ltx23SpawnProvider implements VideoProvider {
       numFrames,
       conditioning,
     });
+    // Idempotency: the same key with the same normalized request replays the
+    // tracked job; the same key with different content is a caller bug.
     const requestDigest = digestRequest(normalized);
     const existing = this.jobs.get(normalized.idempotencyKey);
     if (existing) {
@@ -164,6 +203,8 @@ export class Ltx23SpawnProvider implements VideoProvider {
       return existing.job;
     }
 
+    // The request JSON is persisted next to the output so a finished render
+    // stays reproducible and inspectable after the in-memory job map is gone.
     const jobId = parseJobId(normalized.idempotencyKey);
     const jobDirectory = resolve(this.options.dataDirectory, "video-jobs", jobId);
     const outputPath = resolve(jobDirectory, "output.mp4");
@@ -229,6 +270,8 @@ export class Ltx23SpawnProvider implements VideoProvider {
     tracked.job.cancelRequested = true;
     tracked.job.updatedAt = nowIso();
     if (tracked.child) killGroup(tracked.child);
+    // Mark cancelled immediately; the exit handler checks this status so a
+    // late nonzero exit does not overwrite the cancellation with a failure.
     if (tracked.job.status === "running" || tracked.job.status === "queued") {
       tracked.job.status = "cancelled";
       tracked.job.progress = { phase: "cancelled", percent: tracked.job.progress?.percent ?? 0 };
@@ -236,6 +279,7 @@ export class Ltx23SpawnProvider implements VideoProvider {
     return tracked.job;
   }
 
+  /** Provenance of the vendored pipeline, reported only when fully known. */
   private get runtimeSource() {
     if (!this.options.repository || !this.options.commit) return undefined;
     return {
@@ -247,6 +291,11 @@ export class Ltx23SpawnProvider implements VideoProvider {
     };
   }
 
+  /**
+   * Launches the render child (detached, so the whole process group can be
+   * killed), wires the watchdog timeout and abort signal, and parses
+   * `PROGRESS <phase> <percent>` lines from stdout into live job progress.
+   */
   private spawnJob(tracked: TrackedJob, requestPath: string, signal?: AbortSignal) {
     const uvBinary = this.options.uvBinary?.trim() || "uv";
     const args = [
@@ -313,6 +362,8 @@ export class Ltx23SpawnProvider implements VideoProvider {
     child.once("exit", (code, exitSignal) => {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", onAbort);
+      // A cancelled job already carries its terminal state; the exit of the
+      // killed child must not rewrite it.
       if (tracked.job.status === "cancelled") return;
       if (code === 0) {
         void this.complete(tracked);
@@ -326,6 +377,11 @@ export class Ltx23SpawnProvider implements VideoProvider {
     });
   }
 
+  /**
+   * Verifies the render actually produced a non-empty MP4 before reporting
+   * success — a zero exit code alone is not trusted — and records the file's
+   * size and sha256 as the output artifact.
+   */
   private async complete(tracked: TrackedJob) {
     try {
       const info = await stat(tracked.outputPath);
@@ -351,6 +407,8 @@ export class Ltx23SpawnProvider implements VideoProvider {
     }
   }
 
+  // Terminal states are sticky: a late failure cannot demote a completed or
+  // cancelled job.
   private fail(tracked: TrackedJob, message: string) {
     if (tracked.job.status === "cancelled" || tracked.job.status === "completed") return;
     tracked.job.status = "failed";

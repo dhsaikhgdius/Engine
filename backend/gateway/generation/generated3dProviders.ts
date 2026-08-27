@@ -8,32 +8,66 @@ import {
 import type { DirectorControlPlaneConfig } from "../controlPlane/controlPlaneConfig";
 import { InfinigenGenerated3DProvider } from "./infinigenGenerated3dProvider";
 
+/**
+ * Generated-3D provider adapters (Meshy, Tripo) plus the registry that owns
+ * them and the local Infinigen provider. Each adapter translates Director's
+ * uniform submit → inspect → cancel lifecycle onto one vendor HTTP API and
+ * normalizes vendor status vocabularies into the shared
+ * {@link Generated3DProviderSnapshot} shape the executor polls.
+ *
+ * Invariants the adapters uphold:
+ * - External task ids are namespaced (`meshy:image:<id>`, `tripo:task:<id>`)
+ *   so a persisted job can never be inspected against the wrong vendor or
+ *   the wrong phase of a multi-phase pipeline.
+ * - A "succeeded" snapshot always carries both a model URL and a thumbnail
+ *   URL; a vendor success missing either is surfaced as an error instead of
+ *   a half-usable asset.
+ * - Capability records tell the truth about cancellation: providers without
+ *   a remote cancel endpoint declare `local-only` rather than pretending.
+ * - Vendor responses are validated with loose Zod schemas at the boundary;
+ *   unknown extra fields are tolerated, missing required ones are not.
+ */
+
+/** In-memory source image forwarded to image-to-3d submissions. */
 export type Generated3DProviderSource = {
   bytes: Buffer;
   mimeType: "image/jpeg" | "image/png";
 };
 
+/** Normalized point-in-time view of one provider task, shared across vendors. */
 export type Generated3DProviderSnapshot = {
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  /** Overall progress in [0, 1], already merged across provider phases. */
   progress: number;
+  /**
+   * Namespaced provider task id. Multi-phase providers (Meshy text preview →
+   * refine) may hand back a *new* id here; the executor must persist it and
+   * poll that id from then on.
+   */
   externalId: string;
   modelUrl?: string;
   thumbnailUrl?: string;
   error?: string;
 };
 
+/** Uniform submit → inspect → cancel contract every generated-3D provider implements. */
 export interface Generated3DProvider {
   readonly id: Generated3DProviderId;
   readonly capability: Generated3DProviderCapability;
   /** Local providers emit file:// artifact URLs that the executor reads from disk instead of fetching. */
   readonly localArtifacts?: boolean;
+  /** Starts a generation and returns the namespaced external task id. */
   submit(input: Generated3DJobInput, source: Generated3DProviderSource | null, signal: AbortSignal): Promise<string>;
+  /** Polls the vendor for the current task state, normalized to the shared snapshot. */
   inspect(externalId: string, input: Generated3DJobInput, signal: AbortSignal): Promise<Generated3DProviderSnapshot>;
+  /** Requests remote cancellation; returns false when the vendor cannot cancel. */
   cancel(externalId: string, input: Generated3DJobInput, signal: AbortSignal): Promise<boolean>;
 }
 
 type ProviderConfig = DirectorControlPlaneConfig["generation"]["generated3d"]["providers"]["meshy" | "tripo"];
 
+// Loose vendor-response schemas: unknown extra fields pass through, but the
+// fields Director actually reads are validated before use.
 const meshyTaskSchema = z.looseObject({
   id: z.string().optional(),
   status: z.string().default("PENDING"),
@@ -69,11 +103,13 @@ function clampProgress(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
+/** Builds a namespaced external id, rejecting blank or absurdly long vendor ids. */
 function externalId(prefix: string, taskId: string) {
   if (!taskId.trim() || taskId.length > 400) throw new Error("3D provider returned an invalid task id");
   return `${prefix}:${taskId}`;
 }
 
+/** Strips the namespace prefix, refusing ids that belong to another provider or phase. */
 function taskIdFromExternal(external: string, prefix: string) {
   const marker = `${prefix}:`;
   if (!external.startsWith(marker) || !external.slice(marker.length)) {
@@ -82,6 +118,10 @@ function taskIdFromExternal(external: string, prefix: string) {
   return external.slice(marker.length);
 }
 
+/**
+ * Parses a vendor response body as JSON and folds HTTP failures into one
+ * error message that keeps the vendor's own detail (bounded) for diagnosis.
+ */
 async function responseJson(response: Response, label: string) {
   const text = await response.text();
   let value: unknown;
@@ -102,6 +142,13 @@ function modelType(input: Generated3DJobInput) {
   return input.topology === "lowpoly" ? "lowpoly" : "standard";
 }
 
+/**
+ * Meshy adapter. Text-to-3d with texturing is a two-phase vendor pipeline
+ * (preview then refine); {@link MeshyGenerated3DProvider.inspect} chains the
+ * refine submission when the preview succeeds and reports the combined
+ * progress as preview 0–50% / refine 50–100%, so callers see one continuous
+ * job instead of two.
+ */
 class MeshyGenerated3DProvider implements Generated3DProvider {
   readonly id = "meshy" as const;
   readonly capability: Generated3DProviderCapability;
@@ -126,6 +173,7 @@ class MeshyGenerated3DProvider implements Generated3DProvider {
     return { authorization: `Bearer ${this.config.apiKey}`, "content-type": "application/json" };
   }
 
+  // Meshy splits text and image generation across different API versions.
   private endpoint(input: Generated3DJobInput, taskId?: string) {
     const path = input.mode === "text-to-3d" ? "/openapi/v2/text-to-3d" : "/openapi/v1/image-to-3d";
     return `${this.config.baseUrl}${path}${taskId ? `/${encodeURIComponent(taskId)}` : ""}`;
@@ -168,6 +216,8 @@ class MeshyGenerated3DProvider implements Generated3DProvider {
   }
 
   async inspect(external: string, input: Generated3DJobInput, signal: AbortSignal) {
+    // The phase is encoded in the external id so a restarted gateway can
+    // resume polling the correct vendor task without re-deriving state.
     const phase = external.startsWith("meshy:text-refine:")
       ? "text-refine"
       : external.startsWith("meshy:text-preview:")
@@ -178,6 +228,8 @@ class MeshyGenerated3DProvider implements Generated3DProvider {
     const task = meshyTaskSchema.parse(await responseJson(response, "Meshy task inspection"));
     const status = task.status.toUpperCase();
     const phaseProgress = clampProgress(task.progress / 100);
+    // Textured text-to-3d spans two vendor tasks; map each phase onto half
+    // of the overall progress bar so it never appears to jump backwards.
     const progress =
       input.mode === "text-to-3d" && input.texture
         ? phase === "text-preview"
@@ -185,6 +237,8 @@ class MeshyGenerated3DProvider implements Generated3DProvider {
           : 0.5 + phaseProgress * 0.5
         : phaseProgress;
 
+    // A finished preview immediately chains the refine submission; the new
+    // external id is returned so the executor persists and polls it next.
     if (status === "SUCCEEDED" && phase === "text-preview" && input.texture) {
       const refineResponse = await this.fetchImpl(this.endpoint(input), {
         method: "POST",
@@ -244,11 +298,19 @@ class MeshyGenerated3DProvider implements Generated3DProvider {
       headers: this.headers(),
       signal,
     });
+    // A 404 means the vendor task is already gone; treat it as "nothing to
+    // cancel" rather than a cancellation failure.
     if (!response.ok && response.status !== 404) throw new Error(`Meshy cancellation returned HTTP ${response.status}`);
     return response.ok;
   }
 }
 
+/**
+ * Tripo adapter. Every response is wrapped in a `{code, data}` envelope that
+ * must be unwrapped and checked before the payload is trusted; image sources
+ * are uploaded first to obtain a file token. Tripo has no remote cancel
+ * endpoint, which the capability record declares as `local-only`.
+ */
 class TripoGenerated3DProvider implements Generated3DProvider {
   readonly id = "tripo" as const;
   readonly capability: Generated3DProviderCapability;
@@ -273,6 +335,8 @@ class TripoGenerated3DProvider implements Generated3DProvider {
     return `Bearer ${this.config.apiKey}`;
   }
 
+  // Unwraps Tripo's {code, data} envelope; a non-zero code is an API-level
+  // failure even when the HTTP status was 200.
   private async envelope(response: Response, label: string) {
     const parsed = tripoEnvelopeSchema.parse(await responseJson(response, label));
     if (parsed.code !== 0) {
@@ -281,6 +345,8 @@ class TripoGenerated3DProvider implements Generated3DProvider {
     return parsed.data;
   }
 
+  // Stages the source image via Tripo's STS upload and returns the file
+  // reference the task submission expects.
   private async upload(source: Generated3DProviderSource, signal: AbortSignal) {
     const form = new FormData();
     const extension = source.mimeType === "image/png" ? "png" : "jpg";
@@ -336,6 +402,7 @@ class TripoGenerated3DProvider implements Generated3DProvider {
     const task = tripoTaskSchema.parse(await this.envelope(response, "Tripo task inspection"));
     const progress = clampProgress(task.progress / 100);
     if (task.status === "success") {
+      // Prefer the richest output variant available: PBR > standard > base.
       const modelUrl = task.output.pbr_model ?? task.output.model ?? task.output.base_model;
       if (!modelUrl || !task.output.rendered_image) {
         throw new Error("Tripo succeeded without both GLB and rendered thumbnail URLs");
@@ -371,6 +438,12 @@ class TripoGenerated3DProvider implements Generated3DProvider {
   }
 }
 
+/**
+ * Owns every configured generated-3D provider. All providers are constructed
+ * up front (even unconfigured ones) so {@link capabilities} can honestly
+ * report which are usable; a missing API key only fails at submit time with
+ * the exact environment variable to set.
+ */
 export class Generated3DProviderRegistry {
   readonly defaultProvider: Generated3DProviderId;
   private readonly providers: Map<Generated3DProviderId, Generated3DProvider>;
@@ -385,10 +458,12 @@ export class Generated3DProviderRegistry {
     this.providers = new Map(values.map((provider) => [provider.id, provider]));
   }
 
+  /** Capability records for every provider, configured or not. */
   capabilities() {
     return [...this.providers.values()].map((provider) => provider.capability);
   }
 
+  /** Resolves a provider by id, throwing on unknown ids. */
   get(id: Generated3DProviderId) {
     const provider = this.providers.get(id);
     if (!provider) throw new Error(`Generated 3D provider ${id} is unavailable`);
