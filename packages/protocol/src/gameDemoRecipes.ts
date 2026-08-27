@@ -162,7 +162,8 @@ export const GAME_DEMO_RECIPES: readonly GameDemoRecipe[] = [
         role_id: "vehicle",
         kind: "vehicle",
         source: "catalog",
-        suggestion: "Drivable vehicle mesh (kart/car) parked beside the spawn marker; the player enters it with enter_vehicle.",
+        suggestion:
+          "Drivable vehicle mesh (kart/car) parked beside the spawn marker; the player enters it with enter_vehicle.",
       },
       SPAWN_HINT,
     ],

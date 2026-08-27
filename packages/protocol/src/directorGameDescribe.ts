@@ -1,8 +1,5 @@
 import { z } from "zod";
-import {
-  directorGameOperationNames,
-  directorGameOperationSchema,
-} from "./directorGameProtocol";
+import { directorGameOperationNames, directorGameOperationSchema } from "./directorGameProtocol";
 import {
   GAME_DEMO_RECIPES,
   gameDemoRecipeDescribeTargets,

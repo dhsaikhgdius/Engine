@@ -55,11 +55,7 @@ describe("gameDemoRecipes", () => {
       const context = { now: NOW, runPlaytest: createHostFreePlaytestRunner() };
       const sliceId = `game-eval-${recipe.genre}-recipe`;
 
-      const planned = await executeDirectorGame(
-        state,
-        { op: "plan", slice_id: sliceId, brief: recipe.brief },
-        context,
-      );
+      const planned = await executeDirectorGame(state, { op: "plan", slice_id: sliceId, brief: recipe.brief }, context);
       expect(planned.success, recipe.recipe_id).toBe(true);
 
       const bound = await executeDirectorGame(
@@ -85,9 +81,7 @@ describe("gameDemoRecipes", () => {
       expect(playtested.success, `${recipe.recipe_id}: ${JSON.stringify(playtested)}`).toBe(true);
       if (!playtested.success) throw new Error("playtest failed");
       const result = playtested.result as { evaluation: GameEvaluationReport; slice: GameSlice };
-      expect(result.evaluation.playable, `${recipe.recipe_id}: ${JSON.stringify(result.evaluation.issues)}`).toBe(
-        true,
-      );
+      expect(result.evaluation.playable, `${recipe.recipe_id}: ${JSON.stringify(result.evaluation.issues)}`).toBe(true);
       expect(result.slice.status).toBe("playable");
       for (const verb of result.slice.acceptance.operations) {
         expect(result.evaluation.verbs_exercised, recipe.recipe_id).toContain(verb);
