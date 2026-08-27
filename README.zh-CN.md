@@ -235,14 +235,16 @@ npm run docs:dev
 
 ```bash
 npm run lint
-npm run format:check
+npm run format:check:changed
 npm run repo:check
 npm run build
 npm run test:core
 npm run docs:build
 ```
 
-CI 在 Node 22 上运行同样的检查。应用构建强制 800 KiB 的最大应用 chunk，并重建可移植 MCP 插件。
+CI 在 Node 22 上运行同样的检查。`format:check:changed` 只检查当前分支改动的文件（全树
+`format:check` 目前在 main 上是红的，因此 CI 按改动文件对 PR 把关）。应用构建强制 800 KiB
+的最大应用 chunk，并重建可移植 MCP 插件。
 
 二进制资产验收测试受 `DIRECTOR_LOCAL_ASSET_TESTS=1` 门控。在已还原所需本地资产的工作站上运行
 `npm run test:assets`。

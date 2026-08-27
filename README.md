@@ -248,15 +248,17 @@ Deep schemas and engineering notes remain under
 
 ```bash
 npm run lint
-npm run format:check
+npm run format:check:changed
 npm run repo:check
 npm run build
 npm run test:core
 npm run docs:build
 ```
 
-CI runs the same checks on Node 22. The application build enforces an 800 KiB maximum application
-chunk and rebuilds the portable MCP plugin.
+CI runs the same checks on Node 22. `format:check:changed` checks only the files your branch
+touches (the full-tree `format:check` is currently red on main, so CI gates PRs on changed
+files). The application build enforces an 800 KiB maximum application chunk and rebuilds the
+portable MCP plugin.
 
 Binary asset acceptance tests are gated behind `DIRECTOR_LOCAL_ASSET_TESTS=1`. Use
 `npm run test:assets` on a workstation that already has the required local assets.
