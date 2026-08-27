@@ -2274,12 +2274,12 @@ const CameraPictureInPictureOverlay = memo(function CameraPictureInPictureOverla
   const aspect = getDirectorCameraAspectValue(cameraShot.aspectRatio);
   const focalLength = Math.round(cameraShot.focalLengthMm ?? 35);
   const lockLabel = t(locked ? "解除相机视图锁定" : "锁定相机视图");
-  const project = useDirectorStore((state) => state.project);
   // The same shared film-language reading agents get from observe, so the
   // viewfinder and the workbench can never disagree about the framing.
-  const framingSlate = useMemo(
-    () => directorCameraShotLanguageReport(project, cameraShot)?.slate ?? null,
-    [project, cameraShot],
+  // Selecting the derived slate string (instead of the whole project) keeps
+  // this overlay from re-rendering on every unrelated project mutation.
+  const framingSlate = useDirectorStore(
+    (state) => directorCameraShotLanguageReport(state.project, cameraShot)?.slate ?? null,
   );
   const getBounds = useCallback(() => {
     const frame = panelRef.current?.closest(".canvas-frame") ?? panelRef.current?.parentElement;
