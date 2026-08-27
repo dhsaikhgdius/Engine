@@ -455,7 +455,7 @@ Film 路由在列表响应上显式上报管线配置状态（`pipeline: {config
 public code（`film_pipeline_unconfigured`、`invalid_request`、`invalid_run_id`、`run_not_found`），
 并在 status、receipt 与动作响应上附带归一化的 `director-film-run-receipt-v1`（阶段收据、稳定错误
 码、产物路径及读取时实测的按产物 `storagePresence`——`present`/`absent`，未声明路径为 null，另对
-每个声明了已渲染场景视频的场景附带一条 `sceneVideos[]` 实测结论）。
+每个声明了已渲染场景视频的场景附带一条 `sceneVideos[]` 实测结论）。resume 在重新渲染/拼装前清除字节缺失的场景/成片/时间线声明，使控制路径与同一探测一致。
 receipt 的 `artifacts.timelineExport` 携带与 `timelinePath` 一同落盘的类型化 OTIO 导出收据：
 计划/导出镜头计数与逐镜头 `omittedShots[]`（代码 `clip_missing`），部分交接是类型化事实而非静默
 跳过；早于类型化导出收据的 run 保持 null。receipt 的 `capabilityOmissions[]` 记录 run 请求了但

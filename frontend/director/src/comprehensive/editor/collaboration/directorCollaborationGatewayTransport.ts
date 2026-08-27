@@ -25,8 +25,22 @@ type GatewayTransportOptions = {
   inviteToken?: string;
 };
 
-/** Error codes that must not trigger reconnect loops (access denied or operator close). */
-const PERMANENT_COLLAB_ERROR_CODES = new Set(["unauthorized", "forbidden", "room_closed"]);
+/**
+ * Session-ending denials: access revoked/expired/missing, or the operator closed
+ * the room. Compliant clients must drop membership and stop reconnecting.
+ *
+ * `forbidden` is intentionally absent — the hub only emits it for an in-session
+ * viewer write refusal; the peer remains a valid room member and must keep
+ * awareness / catch-up flowing (and still reconnect on network drops).
+ */
+const PERMANENT_COLLAB_ERROR_CODES = new Set(["unauthorized", "room_closed"]);
+
+/**
+ * Join-time capacity conflicts. The peer was never admitted (or lost the race);
+ * close the socket so backoff reconnect can retry instead of leaving a half-open
+ * non-joined WebSocket that never re-sends `collab.join`.
+ */
+const TRANSIENT_JOIN_DENIAL_CODES = new Set(["room_full", "client_id_conflict"]);
 
 /** Resolves the deployment-provided invite token, if any. */
 function defaultCollaborationInviteToken(): string | undefined {
@@ -189,10 +203,16 @@ export class GatewayWebSocketDirectorTransport implements DirectorCollaborationT
               // Access denials and operator closes must not spin reconnect
               // loops against the gateway. Drop membership and stop reconnect.
               this.haltOnPermanentError();
-              if (parsed.data.code === "room_closed" || parsed.data.code === "unauthorized") {
-                socket.close(4000, parsed.data.code);
-              }
+              socket.close(4000, parsed.data.code);
+              return;
             }
+            if (TRANSIENT_JOIN_DENIAL_CODES.has(parsed.data.code) && !this.joined) {
+              // Capacity / awareness-id conflicts on join: close so the
+              // reconnect path re-sends collab.join after backoff.
+              socket.close(4001, parsed.data.code);
+            }
+            // `forbidden` and other in-session protocol errors leave membership
+            // and reconnect policy unchanged.
             return;
           }
           const payload = decodeDirectorCollaborationGatewayPayload(parsed.data.payload);
