@@ -7,12 +7,20 @@ import {
   type GamePlaytestTrace,
   type GameSliceVerb,
 } from "@director/protocol/game-slice";
+import {
+  GAME_PLAYTEST_MAX_PITCH_RAD,
+  GAME_PLAYTEST_STUCK_HOLD_S,
+  GAME_PLAYTEST_STUCK_SPEED_MPS,
+  GAME_PLAYTEST_TRACE_SAMPLE_BUDGET,
+  resolveGamePlaytestSessionVerb,
+} from "@director/protocol/game-playtest-host-free";
 import { clamp } from "@director/protocol/primitives";
 import {
   PLAYER_KEYBOARD_LOOK_PITCH_RAD_S,
   PLAYER_KEYBOARD_LOOK_YAW_RAD_S,
   type PlayerVehicleDriveInput,
 } from "./playerInput";
+import { selectNearestPlayerInteraction, type PlayerInteractionCandidate } from "./playerInteractions";
 import {
   createPlayerLocomotionState,
   getPlayerMoveAxes,
@@ -31,14 +39,17 @@ import {
  *
  * The same input mapping and trace recorder also drive the live Stage
  * session (`gamePlaytestSession.ts`), so a tape means the same thing in
- * vitest and in the running viewport.
+ * vitest and in the running viewport. Tape semantics constants (stuck
+ * thresholds, look rates, pitch clamp, session verbs) come from
+ * `@director/protocol/game-playtest-host-free` so this replay can never
+ * drift from the Gateway's kinematic runner.
  */
 
-/** Planar speed below which a held move input counts as making no progress. */
-export const GAME_PLAYTEST_STUCK_SPEED_MPS = 0.12;
-
-/** How long a held move input may stay at ~zero planar speed before `stuck`. */
-export const GAME_PLAYTEST_STUCK_HOLD_S = 0.5;
+export {
+  GAME_PLAYTEST_STUCK_HOLD_S,
+  GAME_PLAYTEST_STUCK_SPEED_MPS,
+  resolveGamePlaytestSessionVerb,
+} from "@director/protocol/game-playtest-host-free";
 
 /**
  * Longest recoverable fall. A ground jump arc completes in ~0.7 s, so a
@@ -50,35 +61,14 @@ export const GAME_PLAYTEST_FALL_LIMIT_S = 0.9;
 /** How far below the lowest reachable support a fall counts as fallen through. */
 const GAME_PLAYTEST_FALL_BELOW_SUPPORT_M = 0.25;
 
-/** Mirrors PlayerController's live look-pitch clamp. */
-const GAME_PLAYTEST_MAX_PITCH_RAD = 1.2;
-
-/** `gamePlaytestTraceSchema` caps samples; reject oversized tapes up front. */
-const GAME_PLAYTEST_TRACE_SAMPLE_BUDGET = 1_048_576;
-
 /** Default slice id used when a tape is replayed outside a stored slice. */
 export const GAME_PLAYTEST_REPLAY_SLICE_ID = "game-playtest-replay";
 
 /**
- * Session verbs are Player Mode actions, not locomotion inputs. The live
- * driver dispatches the matching player action on the first frame of the
- * step; both drivers record the verb on every sample of the held step.
+ * One interactable the replay probes each tick, mirroring the live
+ * controller's nearest-interaction sampling (`selectNearestPlayerInteraction`).
  */
-const GAME_PLAYTEST_SESSION_VERBS = [
-  "enter_vehicle",
-  "exit_vehicle",
-  "interact",
-  "fire",
-  "pause",
-] as const satisfies readonly GameSliceVerb[];
-
-/** The session verb held by a tape input, or undefined for pure locomotion. */
-export function resolveGamePlaytestSessionVerb(input: GamePlaytestInput): GameSliceVerb | undefined {
-  for (const verb of GAME_PLAYTEST_SESSION_VERBS) {
-    if (input[verb]) return verb;
-  }
-  return undefined;
-}
+export type GamePlaytestInteractable = Pick<PlayerInteractionCandidate, "id" | "position" | "radiusM">;
 
 /**
  * Maps one held tape input onto the Stage `PlayerInput` contract. Session
@@ -294,6 +284,13 @@ export type GamePlaytestReplayOptions = {
   initialState?: PlayerLocomotionState;
   /** Planar collision/support obstacles (boxes and circles only). */
   obstacles?: PlayerObstacle[];
+  /**
+   * Interactables probed once per tick, exactly like the live controller's
+   * nearest-interaction sampling. In-range hits stamp the sample's
+   * `interaction_object_id`, giving the evaluator honest range and
+   * objective-reach evidence without a browser tab.
+   */
+  interactables?: readonly GamePlaytestInteractable[];
   /** Director ground plane height, walkable when `groundEnabled`. */
   groundHeight?: number;
   groundEnabled?: boolean;
@@ -363,6 +360,10 @@ export function replayGamePlaytestScript(options: GamePlaytestReplayOptions): Ga
   const groundHeight = options.groundHeight ?? 0;
   const groundEnabled = options.groundEnabled ?? true;
   const obstacles = options.obstacles ?? [];
+  const interactionCandidates: PlayerInteractionCandidate[] = (options.interactables ?? []).map((interactable) => ({
+    ...interactable,
+    prompt: interactable.id,
+  }));
   const recorder = createGamePlaytestTraceRecorder({
     sliceId: options.sliceId ?? GAME_PLAYTEST_REPLAY_SLICE_ID,
     dt: script.dt,
@@ -402,6 +403,9 @@ export function replayGamePlaytestScript(options: GamePlaytestReplayOptions): Ga
         playerInput = { ...playerInput, jumpPressed: false };
       }
       const support = lowestSupportY(state.position, obstacles, groundHeight, groundEnabled);
+      const nearestInteraction = interactionCandidates.length
+        ? selectNearestPlayerInteraction(interactionCandidates, state.position)
+        : null;
       recorder.record({
         input: step.input,
         playerInput,
@@ -414,6 +418,7 @@ export function replayGamePlaytestScript(options: GamePlaytestReplayOptions): Ga
           flying: state.flying,
         },
         sessionVerb,
+        interactionObjectId: nearestInteraction?.id,
         belowSupport: support !== null && state.position[1] < support - GAME_PLAYTEST_FALL_BELOW_SUPPORT_M,
       });
     }

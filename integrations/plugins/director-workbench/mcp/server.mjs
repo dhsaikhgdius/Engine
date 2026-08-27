@@ -58489,6 +58489,7 @@ var gameSliceIssueSchema = external_exports.strictObject({
     "stuck",
     "verb_not_exercised",
     "interaction_out_of_range",
+    "vehicle_sequence_invalid",
     "hud_unbound",
     "player_unbound",
     "objective_unreachable",
