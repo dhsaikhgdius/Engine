@@ -40,7 +40,9 @@ Gateway 拒绝非 loopback 绑定。原生 CLI/MCP 客户端会自动 bootstrap 
 `room`（按范围设置吊销截止点：该范围内不晚于吊销时刻铸造的所有邀请都被拒绝，包括没有 `jti` 的
 旧版邀请），二者恰好提供一个。吊销同时会结束在线会话：已用该邀请加入的成员会收到永久性
 `unauthorized` 错误并被踢出，响应中的 `disconnected_peers` 与 `disconnected_rooms` 如实报告
-影响范围。只有在 `DIRECTOR_COLLAB_PERSISTENCE=1` 时吊销记录才跨重启存活。
+影响范围。邀请过期同样约束在线会话：已加入成员的邀请到达 `expires_at` 时，网关会用同样的
+永久性 `unauthorized` 错误将其踢出，而不是让会话超出 capability 的有效期继续存活。
+只有在 `DIRECTOR_COLLAB_PERSISTENCE=1` 时吊销记录才跨重启存活。
 
 房间生命周期与运维（全部位于 master gateway token 之后，只返回计数、哈希与时间戳——绝不返回
 文档内容、邀请 token 或文件系统路径）：
