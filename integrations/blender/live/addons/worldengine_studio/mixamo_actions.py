@@ -2,7 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Catalog-bound Mixamo action import and typed NLA editing."""
+"""Catalog-bound Mixamo action import and typed NLA editing.
+
+Motion clips come only from the packaged catalog under
+``assets/library/mixamo-animations`` (resolved through the Director
+application directory) — there is no network fetch here, which keeps clip
+provenance auditable and imports deterministic.
+
+Import pipeline: load the clip GLB into a throwaway armature, retarget its
+action onto the caller's armature by canonical bone name (Mixamo names with
+any ``namespace:`` prefix stripped, matched case-insensitively), then remove
+every datablock the import created except the retargeted action. Retargeting
+keeps rotation curves, keeps hips location (scaled by the ratio of hip-to-foot
+lengths so a short character doesn't stride like a tall one), and drops all
+other location/scale curves because those encode the source skeleton's
+proportions. ``IN_PLACE`` root motion additionally freezes the horizontal
+hips channels to their first-frame values so locomotion clips can loop on the
+spot.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +35,9 @@ from . import blockout, director_runtime, rig
 
 MOTION_CATALOG = Path("assets/library/mixamo-animations/catalog.json")
 MOTION_CLIPS = Path("assets/library/mixamo-animations/clips")
+# Minimum humanoid bone set a target armature must expose (canonical Mixamo
+# names). Missing any of these fails compatibility rather than importing a
+# clip that would silently leave limbs unanimated.
 CORE_BONES = (
     "Hips",
     "Spine",
@@ -40,16 +60,25 @@ CORE_BONES = (
     "RightLeg",
     "RightFoot",
 )
+# Matches the F-curve data paths retargeting understands; anything else
+# (custom properties, constraints…) is removed from the copied action.
 BONE_PATH = re.compile(
     r'^pose\.bones\["(?P<bone>.+)"\]\.(?P<channel>location|rotation_quaternion|scale)$'
 )
 
 
 def _canonical_bone_name(name: str) -> str:
+    """Strip a namespace prefix like ``mixamorig:`` — everything after the
+    last colon is the canonical Mixamo bone name."""
     return name.rsplit(":", 1)[-1]
 
 
 def _bone_index(obj: bpy.types.Object) -> dict[str, str]:
+    """Map casefolded canonical bone names to actual bone names.
+
+    Ambiguity (two bones collapsing to one canonical name) is a hard error:
+    retargeting could not know which bone should receive the curves.
+    """
     result: dict[str, str] = {}
     duplicates: set[str] = set()
     for bone in obj.data.bones:
@@ -67,6 +96,8 @@ def _bone_index(obj: bpy.types.Object) -> dict[str, str]:
 
 
 def inspect_compatibility(obj: bpy.types.Object) -> dict[str, Any]:
+    """Report whether an armature can receive Mixamo clips (used by
+    inspect_object so agents can check before importing)."""
     index = _bone_index(obj)
     missing = [name for name in CORE_BONES if name.casefold() not in index]
     return {
@@ -93,6 +124,8 @@ def _motion_entry(motion_id: str) -> tuple[dict[str, Any], Path]:
 
 
 def _new_data_snapshot() -> dict[str, set[Any]]:
+    """Record the datablock sets that a clip import may grow, so everything
+    it created can be removed afterwards (see _remove_imported_data)."""
     return {
         "objects": set(bpy.data.objects),
         "collections": set(bpy.data.collections),
@@ -105,6 +138,11 @@ def _new_data_snapshot() -> dict[str, set[Any]]:
 
 
 def _remove_imported_data(before: dict[str, set[Any]], keep_action: bpy.types.Action | None) -> None:
+    """Delete every datablock created since the snapshot except keep_action.
+
+    Objects are unlinked unconditionally; other datablocks only when unused
+    (users == 0) so nothing referenced by the kept action disappears.
+    """
     for obj in list(set(bpy.data.objects) - before["objects"]):
         bpy.data.objects.remove(obj, do_unlink=True)
     for collection in list(set(bpy.data.collections) - before["collections"]):
@@ -141,6 +179,8 @@ def _import_motion_source(path: Path) -> tuple[bpy.types.Object, bpy.types.Actio
 
 
 def _channelbags(action: bpy.types.Action) -> Iterable[Any]:
+    # Blender 4.4+ layered actions: F-curves live in channelbags under
+    # layer strips rather than directly on the action.
     for layer in action.layers:
         for strip in layer.strips:
             yield from strip.channelbags
@@ -158,6 +198,8 @@ def _remove_fcurve(action: bpy.types.Action, curve: Any) -> None:
 
 
 def _shift_action_to_frame_one(action: bpy.types.Action) -> None:
+    """Translate all keyframes (and their Bezier handles) so the earliest key
+    lands on frame 1, the NLA convention the strip builders assume."""
     curves = _fcurves(action)
     first = min(
         (float(point.co.x) for curve in curves for point in curve.keyframe_points),
@@ -174,6 +216,9 @@ def _shift_action_to_frame_one(action: bpy.types.Action) -> None:
 
 
 def _root_vertical_axis(obj: bpy.types.Object, bone_name: str) -> int:
+    """Which local axis (0/1/2) of the hips bone points most vertically in
+    world space. IN_PLACE freezing must keep this axis animated so crouches
+    and jumps survive while horizontal travel is removed."""
     bone_matrix = obj.data.bones[bone_name].matrix_local.to_3x3()
     object_matrix = obj.matrix_world.to_3x3()
     return max(
@@ -183,6 +228,8 @@ def _root_vertical_axis(obj: bpy.types.Object, bone_name: str) -> int:
 
 
 def _root_scale(source: bpy.types.Object, target: bpy.types.Object, source_index: dict[str, str], target_index: dict[str, str]) -> float:
+    """Ratio of target to source leg length (hips to feet, averaged), used to
+    scale hips translation so stride length matches the target's proportions."""
     source_hips = source.data.bones[source_index["hips"]]
     target_hips = target.data.bones[target_index["hips"]]
     source_feet = [source.data.bones[source_index[name]] for name in ("leftfoot", "rightfoot")]
@@ -199,6 +246,12 @@ def _retarget_action(
     action_name: str,
     root_motion: str,
 ) -> tuple[bpy.types.Action, dict[str, Any]]:
+    """Copy the source action onto the target armature, curve by curve.
+
+    See the module docstring for the retargeting rules. Works on a copy so a
+    failure partway leaves the packaged source action untouched, and returns
+    the mapped/dropped bone counts as agent-facing evidence.
+    """
     source_index = _bone_index(source)
     target_index = _bone_index(target)
     missing = [name for name in CORE_BONES if name.casefold() not in target_index]
@@ -263,6 +316,12 @@ def _retarget_action(
 
 
 def import_mixamo_action(operation: dict[str, Any]) -> dict[str, Any]:
+    """Execute one validated ``import_mixamo_action`` live operation.
+
+    Name collisions are an error unless replaceExisting is set, in which case
+    the old action is only removed after retargeting succeeded — a failed
+    import never destroys the existing animation.
+    """
     target = rig._armature(operation["id"])
     entry, clip_path = _motion_entry(operation["motionId"])
     action_name = operation.get("actionName") or f"Mixamo {entry['name']}"
@@ -376,6 +435,8 @@ def add_nla_strip(operation: dict[str, Any]) -> dict[str, Any]:
     if track.strips.get(operation["stripName"]) is not None:
         raise ValueError(f"NLA strip already exists: {operation['stripName']}")
     animation = obj.animation_data_create()
+    # An action playing as the active action would double with its own NLA
+    # strip; detach it so the strip becomes the single source of motion.
     if animation.action == action:
         animation.action = None
     strip = track.strips.new(operation["stripName"], operation["startFrame"], action)

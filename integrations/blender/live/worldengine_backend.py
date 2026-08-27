@@ -7,6 +7,13 @@
 The browser Director is the user-facing application. Blender stays alive in
 the background and exposes the native scene, modeling operators, undo stack,
 scene inspection, and preview export over the loopback session protocol.
+
+Run with ``blender --background --python worldengine_backend.py``. In this
+mode there is no window manager and no timer loop, so instead of the addon's
+UI-driven timers the main loop below blocks on the native session's pending
+queue: drain commands, wait for more, flush the debounced store save between
+batches. SIGTERM sets a flag and wakes the waiter so shutdown is prompt but
+still runs the unregister path.
 """
 
 from __future__ import annotations
@@ -19,6 +26,8 @@ from pathlib import Path
 import bpy
 
 
+# The addon package is imported straight from the repo tree (not installed
+# into Blender's addon directory), so its parent must be importable first.
 ADDONS = Path(__file__).resolve().parent / "addons"
 if str(ADDONS) not in sys.path:
     sys.path.insert(0, str(ADDONS))

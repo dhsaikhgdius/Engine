@@ -6,6 +6,22 @@
 
 The gateway already validates this contract.  Blender repeats only the
 checks needed to turn JSON into predictable Blender operator arguments.
+
+Design invariants:
+
+- Every check either normalizes a value (trimmed strings, floats coerced from
+  ints, defaults filled in) or raises :class:`LiveProtocolError` with the exact
+  JSON path of the offending field.  The error text is relayed verbatim to the
+  calling agent as the corrective message, so paths like
+  ``operations[2].transform.scale`` must stay precise.
+- Parsing is pure: no ``bpy`` import, no side effects.  This lets the
+  standalone protocol tests (and the gateway's mirror of this contract in
+  ``packages/stage-protocol``) exercise the same code outside Blender.
+- The operation vocabulary is owned by ``operation_manifest`` (single source
+  shared with the gateway manifest check); this module only adds per-operation
+  argument shapes.  Adding an op means updating the manifest first.
+- Booleans are explicitly rejected wherever a number is expected because
+  ``isinstance(True, int)`` is true in Python and would silently coerce.
 """
 
 from __future__ import annotations
@@ -29,6 +45,10 @@ except ImportError:  # Standalone protocol tests import this module directly.
         SUPPORTED_OPERATIONS,
     )
 
+# Closed allowlist of shader-node kinds an agent may create. Kept deliberately
+# small: each entry needs a stable socket mapping in material_nodes.py, and an
+# open vocabulary would let agents build node graphs the preview GLB exporter
+# cannot faithfully bake.
 MATERIAL_NODE_TYPES = {
     "PRINCIPLED_BSDF",
     "MATERIAL_OUTPUT",
@@ -47,6 +67,11 @@ _TRANSFORM_ONLY_SNAPSHOT_FIELDS = {"position", "rotation", "scale", "localTransf
 
 
 def _snapshot_entries_by_id(entries: Any) -> dict[str, dict[str, Any]] | None:
+    """Index snapshot entries by id, or None when the collection is malformed.
+
+    Returning None (rather than raising) lets the caller treat any structural
+    surprise as "content changed", the safe default for cache invalidation.
+    """
     if not isinstance(entries, list):
         return None
     result: dict[str, dict[str, Any]] = {}
@@ -61,6 +86,11 @@ def _snapshot_entries_by_id(entries: Any) -> dict[str, dict[str, Any]] | None:
 
 
 def _entries_equal_except_transforms(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    """Compare two snapshot entries ignoring transform-only fields.
+
+    Iterates the union of keys so a field appearing on only one side (added or
+    removed) still counts as a content difference.
+    """
     for key in before.keys() | after.keys():
         if key in _TRANSFORM_ONLY_SNAPSHOT_FIELDS:
             continue
@@ -94,6 +124,9 @@ def snapshots_differ_only_by_transforms(before: Any, after: Any) -> bool:
                 return False
     return True
 
+# Closed allowlist of geometry-node kinds, mirroring MATERIAL_NODE_TYPES:
+# every entry must have a bl_idname mapping on the Blender side, and the set
+# bounds what procedural geometry the live session will evaluate per edit.
 GEOMETRY_NODE_TYPES = {
     "GROUP_INPUT",
     "GROUP_OUTPUT",
@@ -135,7 +168,17 @@ GEOMETRY_NODE_TYPES = {
 
 
 class LiveProtocolError(ValueError):
-    pass
+    """Rejection of a live command batch.
+
+    The message is the agent-facing corrective text: it names the JSON path
+    and the constraint that failed, and the session relays it unchanged.
+    """
+
+
+# --- Scalar/shape validators -------------------------------------------------
+# Each helper takes the raw JSON value plus the dotted field path used in the
+# rejection message, and returns the normalized Python value. They are the only
+# place type coercion happens; _operation below composes them per op.
 
 
 def _number(value: Any, field: str) -> float:
@@ -163,6 +206,8 @@ def _vec4(value: Any, field: str) -> list[float]:
 
 
 def _integer(value: Any, field: str) -> int:
+    # The bounds match Blender's hard scene frame limits (±1,048,574); frames
+    # outside them would be silently clamped by bpy, hiding the caller's error.
     if isinstance(value, bool) or not isinstance(value, int):
         raise LiveProtocolError(f"{field} must be an integer")
     if value < -1_048_574 or value > 1_048_574:
@@ -216,6 +261,15 @@ def _text(value: Any, field: str) -> str:
 
 
 def _operation(value: Any, index: int) -> dict[str, Any]:
+    """Validate and normalize one operation object from a batch.
+
+    Structured as a flat sequence of ``if op == …`` / ``if op in {…}`` blocks
+    rather than a per-op dispatch table: many argument shapes are shared
+    across op families (ids, node refs, transforms), and the linear form keeps
+    each field's constraint next to its rejection message. The input dict is
+    shallow-copied so unknown extra fields pass through to the executor
+    untouched while every validated field is replaced by its normalized form.
+    """
     if not isinstance(value, dict):
         raise LiveProtocolError(f"operations[{index}] must be an object")
     op = _text(value.get("op"), f"operations[{index}].op")
@@ -223,6 +277,8 @@ def _operation(value: Any, index: int) -> dict[str, Any]:
         raise LiveProtocolError(f"unsupported operation: {op}")
     normalized = dict(value)
     normalized["op"] = op
+    # Ops in this set address one datablock and therefore require `id`
+    # (capture_render is listed for grouping but takes an optional cameraId).
     if op in {
         "import_asset",
         "create_primitive",
@@ -275,6 +331,10 @@ def _operation(value: Any, index: int) -> dict[str, Any]:
     }:
         if op != "capture_render":
             normalized["id"] = _text(value.get("id"), f"operations[{index}].id")
+    # import_asset carries both the Director asset identity (directorId /
+    # assetId, used for provenance and round-tripping back to the Stage) and
+    # the download source. `normalization` chooses whether the imported mesh
+    # is rescaled to metric conventions or preserved as authored.
     if op == "import_asset":
         normalized["directorId"] = _text(
             value.get("directorId"), f"operations[{index}].directorId"
@@ -1071,6 +1131,9 @@ def _operation(value: Any, index: int) -> dict[str, Any]:
         normalized["queries"] = normalized_queries
     if op == "create_primitive":
         primitive = value.get("primitive")
+        # Scale-on-create is rejected on purpose: primitives must be sized via
+        # metric `dimensions` so downstream exports and spatial queries never
+        # see non-identity object scale baked into fresh geometry.
         if isinstance(value.get("transform"), dict) and "scale" in value["transform"]:
             raise LiveProtocolError(
                 f"operations[{index}].transform.scale is not valid for create_primitive; use dimensions for metric size"
@@ -1134,6 +1197,8 @@ def _operation(value: Any, index: int) -> dict[str, Any]:
         normalized["nodeGroupName"] = _text(
             value.get("nodeGroupName"), f"operations[{index}].nodeGroupName"
         )
+    # Common vec3 fields shared by many ops are normalized last so the
+    # per-op blocks above may have already replaced them with stricter forms.
     for field in ("position", "origin", "dimensions", "color"):
         if field in value:
             normalized[field] = _vec3(value[field], f"operations[{index}].{field}")
@@ -1152,6 +1217,16 @@ def _operation(value: Any, index: int) -> dict[str, Any]:
 
 
 def parse_live_batch(body: bytes | str) -> dict[str, Any]:
+    """Parse one HTTP command body into a normalized live batch.
+
+    Concurrency contract: any batch containing a scene-mutating operation must
+    carry ``expectedSceneEpoch`` (the scene identity token issued with the last
+    snapshot). This is what prevents a stale agent from editing a scene that
+    was reloaded or replaced since it last observed — the executor compares the
+    epoch before running anything. Read-only and project-lifecycle operations
+    are exempt because they cannot corrupt scene state. ``expectedRevision``
+    is the optional finer-grained optimistic lock within one epoch.
+    """
     try:
         payload = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError) as error:

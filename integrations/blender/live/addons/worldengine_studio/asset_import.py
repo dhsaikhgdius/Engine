@@ -2,7 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Import Director model assets into the bound native Blender scene."""
+"""Import Director model assets into the bound native Blender scene.
+
+Every imported asset becomes a two-level empty hierarchy::
+
+    <asset root empty>            ← carries the Director identity + transform
+      └─ <normalization empty>    ← carries the metric offset/scale
+           └─ imported objects…   ← authored geometry, untouched
+
+The split matters: Director transforms (position/rotation/scale from the
+Stage) are applied to the root, while unit normalization (recentering,
+grounding, auto-scaling to a sane size) lives on the intermediate empty.
+That keeps the authored geometry byte-identical and lets a later transform
+update never fight with normalization math.
+
+Security invariant: assets are only downloaded from the loopback gateway.
+The gateway is the single authority for asset provenance; accepting arbitrary
+URLs here would turn every connected Blender into an SSRF proxy.
+"""
 
 from __future__ import annotations
 
@@ -18,9 +35,14 @@ from . import blockout
 from .coordinates import director_to_blender_point
 
 
+# Custom-property markers on the asset root empty. ASSET_ROOT_PROPERTY is how
+# delete/duplicate/visibility ops recognize that an object owns a subtree that
+# must be treated as one unit.
 ASSET_ROOT_PROPERTY = "director_asset_root"
 ASSET_ID_PROPERTY = "director_asset_id"
 SUPPORTED_EXTENSIONS = {".fbx", ".obj", ".glb", ".gltf"}
+# Auto normalization scales the largest bound to 2 m — a prop-scale default
+# that keeps arbitrary downloads visible next to human-scale blockouts.
 AUTO_TARGET_SIZE_M = 2.0
 
 
@@ -33,6 +55,12 @@ def _object_result(obj: bpy.types.Object) -> dict[str, object]:
 
 
 def _download_asset(source_url: str, file_name: str, directory: Path) -> Path:
+    """Stream the asset from the loopback gateway into a temp file.
+
+    The extension comes from the declared fileName (not the URL) because the
+    gateway serves assets from opaque storage-key URLs; it also selects the
+    Blender importer, so it is validated before any network I/O.
+    """
     extension = Path(file_name).suffix.lower()
     if extension not in SUPPORTED_EXTENSIONS:
         raise ValueError(f"Unsupported Director model format: {extension or file_name}")
@@ -51,6 +79,8 @@ def _download_asset(source_url: str, file_name: str, directory: Path) -> Path:
 
 
 def _import_file(path: Path) -> None:
+    """Dispatch to the right bpy importer; OBJ moved from import_scene.obj to
+    wm.obj_import in Blender 4.x, so probe for the new operator first."""
     extension = path.suffix.lower()
     if extension in {".glb", ".gltf"}:
         outcome = bpy.ops.import_scene.gltf(filepath=str(path))
@@ -65,6 +95,12 @@ def _import_file(path: Path) -> None:
 
 
 def _world_bounds(objects: list[bpy.types.Object]) -> tuple[Vector, Vector]:
+    """Axis-aligned world bounds of the renderable objects in the import.
+
+    Uses the evaluated depsgraph so modifier/instance geometry counts; empties
+    and armatures are ignored because normalization should size the visible
+    silhouette, not helper objects.
+    """
     minimum = Vector((float("inf"), float("inf"), float("inf")))
     maximum = Vector((float("-inf"), float("-inf"), float("-inf")))
     found = False
@@ -94,6 +130,11 @@ def _normalization(
 ) -> tuple[Vector, float]:
     size = maximum - minimum
     center = (minimum + maximum) * 0.5
+    # Precedence: an explicit metric target height always wins; otherwise
+    # "preserve" keeps authored units (optionally grounding to Z=0); otherwise
+    # auto-fit the largest dimension to AUTO_TARGET_SIZE_M. Scaled modes also
+    # recenter XY on the origin and rest the minimum Z on the ground plane so
+    # the root empty's transform is the asset's logical anchor.
     if target_height is not None:
         scale = target_height / size.z if size.z > 0 else 1.0
         return Vector((-center.x * scale, -center.y * scale, -minimum.z * scale)), scale
@@ -118,11 +159,19 @@ def _apply_director_transform(obj: bpy.types.Object, transform: dict[str, object
 
 
 def import_asset(operation: dict[str, object]) -> dict[str, object]:
+    """Execute one validated ``import_asset`` live operation.
+
+    Idempotent by object id: re-running a batch that already imported this id
+    returns the existing root with ``created: False`` instead of importing a
+    duplicate — required because the live session may retry batches.
+    """
     existing = blockout.find_object(str(operation["id"]))
     if existing is not None:
         return {**_object_result(existing), "created": False, "createdObjectIds": []}
 
     scene = bpy.context.scene
+    # bpy importers don't report what they created; diff the scene object set
+    # around the import to find out.
     before = set(scene.objects)
     with tempfile.TemporaryDirectory(prefix="director-native-asset-") as temporary:
         source = _download_asset(
@@ -152,6 +201,10 @@ def import_asset(operation: dict[str, object]) -> dict[str, object]:
     normalization_root.parent = root
     blockout.ensure_stable_id(normalization_root, "asset-data")
 
+    # Strip any identity markers the source file may have carried (e.g. a
+    # re-exported Director asset) so only the new root owns the binding, then
+    # reparent top-level imports under the normalization empty while
+    # preserving their world transforms.
     imported_set = set(imported)
     for obj in imported:
         obj[blockout.ID_PROPERTY] = blockout.new_stable_id("asset-object")
@@ -195,6 +248,8 @@ def import_asset(operation: dict[str, object]) -> dict[str, object]:
 
 
 def asset_subtree(root: bpy.types.Object) -> list[bpy.types.Object]:
+    """All descendants of an asset root, for whole-asset operations
+    (delete, duplicate, visibility)."""
     descendants: list[bpy.types.Object] = []
     pending = list(root.children)
     while pending:

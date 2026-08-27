@@ -2,6 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+"""Per-scene WorldEngine state stored as ``scene.worldengine_studio``.
+
+Mostly N-panel input fields (blockout dimensions, opening/light presets,
+relation targets) that native operators read at execute time. The one field
+with cross-process meaning is ``scene_revision``: a monotonic counter bumped
+after every semantic edit, which the native session publishes so Director
+clients know when to re-snapshot. Storing it on the scene (not a Python
+global) makes it survive undo/redo and file load consistently with the data
+it describes.
+"""
+
 import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
 from bpy.types import PropertyGroup

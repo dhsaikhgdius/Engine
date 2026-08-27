@@ -2,6 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+"""WorldEngine Studio: the Blender live kernel addon for Director.
+
+Registration deliberately excludes native UI menus (``include_ui=False``):
+this addon's primary consumers are the Director gateway and coding agents
+speaking the live contract over the loopback native session; the human uses
+Blender's own tools on the same data. ``register_backend`` is the even
+smaller registration used by ``worldengine_backend.py`` when Blender runs
+headless as a pure session host (no operators at all).
+"""
+
 bl_info = {
     "name": "WorldEngine Studio",
     "author": "OpenEnvision",
@@ -14,6 +24,9 @@ bl_info = {
 }
 
 
+# Standard Blender addon reload dance: on F8 / "Reload Scripts" the module
+# object survives, so submodules must be reloaded explicitly and in dependency
+# order (protocol/coordinates first, operators/session last).
 if "bpy" in locals():
     import importlib
     from . import asset_import, asset_libraries, asset_library_http, coordinates, director_project, material_nodes, mixamo_actions, modeling, semantic_geometry

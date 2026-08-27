@@ -2,7 +2,26 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Poly Haven and Sketchfab search/import for the live Blender kernel."""
+"""Poly Haven and Sketchfab search/import for the live Blender kernel.
+
+Unlike ``asset_import`` (which only trusts the loopback Director gateway),
+these operations intentionally reach the public Poly Haven and Sketchfab
+APIs — they are the agent-facing "asset library" surface, and the allowed
+hosts are pinned in ``asset_library_http``. Downloads always land in a
+temporary directory, get imported, and are packed into the .blend so the
+scene stays self-contained after the temp dir is deleted.
+
+Common conventions across importers here:
+
+- All network/JSON shape handling is defensive (isinstance checks with
+  fallbacks) because these are third-party APIs we do not control; a schema
+  drift should degrade to a clear ValueError, not a KeyError traceback.
+- Imported objects are grouped under a new root empty that carries the
+  stable WorldEngine id, mirroring the Director asset-import hierarchy so
+  downstream ops (delete/duplicate/snapshot) treat library assets uniformly.
+- Sketchfab requires a user API token (preference or SKETCHFAB_API_TOKEN);
+  Poly Haven is anonymous.
+"""
 
 from __future__ import annotations
 
@@ -16,10 +35,14 @@ from mathutils import Vector
 from . import asset_import, blockout
 from . import asset_library_http as library_http
 
+# Preference-ordered fallbacks: the requested resolution/format is tried
+# first, then these, so an asset missing the exact variant still imports.
 _RESOLUTION_FALLBACK = ("1k", "2k", "4k")
 _HDRI_FORMAT_FALLBACK = ("hdr", "exr", "jpg", "png")
 _TEXTURE_FORMAT_FALLBACK = ("exr", "png", "jpg", "jpeg")
 _MODEL_FORMAT_FALLBACK = ("gltf", "fbx", "blend")
+# Poly Haven names PBR maps inconsistently across assets; each alias tuple is
+# checked in order against the lower-cased file map keys.
 _COLOR_MAP_KEYS = ("diff", "diffuse", "col", "color", "albedo")
 _ROUGH_MAP_KEYS = ("rough", "roughness")
 _METAL_MAP_KEYS = ("metal", "metallic", "metalness")
@@ -28,6 +51,8 @@ _DISP_MAP_KEYS = ("disp", "displacement", "bump")
 
 
 def polyhaven_search(operation: dict[str, Any]) -> dict[str, Any]:
+    """List Poly Haven assets matching a query; filtering happens client-side
+    because the Poly Haven API has no text search endpoint."""
     asset_type = str(operation.get("assetType") or "models")
     limit = int(operation.get("limit") or 20)
     query = str(operation.get("query") or "")
@@ -48,6 +73,8 @@ def polyhaven_search(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def sketchfab_search(operation: dict[str, Any]) -> dict[str, Any]:
+    """Search downloadable Sketchfab models; the summary keeps license and
+    isDownloadable so the agent can pick an importable result up front."""
     token = library_http.sketchfab_api_token()
     if not token:
         raise ValueError("Set SKETCHFAB_API_TOKEN or the WorldEngine Studio Sketchfab API token preference.")
@@ -82,6 +109,9 @@ def sketchfab_search(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def polyhaven_import(operation: dict[str, Any]) -> dict[str, Any]:
+    """Route one Poly Haven import to the per-type importer: HDRIs become the
+    scene world, textures become a PBR material (optionally assigned to an
+    object), models become an object subtree under a new root empty."""
     asset_id = str(operation["assetId"])
     asset_type = str(operation["assetType"])
     resolution = str(operation.get("resolution") or "1k")
@@ -110,6 +140,12 @@ def polyhaven_import(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def sketchfab_import(operation: dict[str, Any]) -> dict[str, Any]:
+    """Download and import one Sketchfab model via its glTF archive.
+
+    Sketchfab's download endpoint returns short-lived signed URLs per format;
+    only the glTF variant is used because it round-trips materials most
+    reliably through Blender's importer.
+    """
     token = library_http.sketchfab_api_token()
     if not token:
         raise ValueError("Set SKETCHFAB_API_TOKEN or the WorldEngine Studio Sketchfab API token preference.")
@@ -148,6 +184,8 @@ def _resolution_keys(requested: str) -> tuple[str, ...]:
 
 
 def _pick_format_entry(formats: dict[str, Any], preferred: str | None, fallback: tuple[str, ...]) -> tuple[str, dict[str, Any]]:
+    """Pick the first format with a usable URL: preferred, then the fallback
+    order, then anything downloadable at all."""
     order = ((preferred,) if preferred else ()) + fallback
     for key in order:
         entry = formats.get(key)
@@ -171,6 +209,8 @@ def _pick_resolution(tree: dict[str, Any], requested: str) -> dict[str, Any]:
 
 
 def _import_polyhaven_hdri(asset_id: str, files: dict[str, Any], resolution: str, file_format: str | None) -> dict[str, Any]:
+    """Build a fresh world with an environment-texture chain and make it the
+    scene world. The image is packed before the temp file disappears."""
     hdri = files.get("hdri")
     if not isinstance(hdri, dict):
         raise ValueError(f"Poly Haven asset {asset_id} is not an HDRI")
@@ -236,6 +276,9 @@ def _import_polyhaven_texture(
     file_format: str | None,
     object_id: str | None,
 ) -> dict[str, Any]:
+    """Assemble a Principled BSDF material from whichever PBR maps the asset
+    provides; non-color maps get the Non-Color colorspace so roughness/normal
+    data is not gamma-corrected. Missing maps are simply skipped."""
     material = bpy.data.materials.new(f"PolyHaven {asset_id}")
     material.use_nodes = True
     nodes = material.node_tree.nodes
@@ -313,6 +356,11 @@ def _import_polyhaven_texture(
 
 
 def _download_includes(include: dict[str, Any], dest: Path) -> None:
+    """Fetch a glTF's sidecar files (.bin buffers, textures) next to it.
+
+    Relative paths come from the API response, so safe_join guards against
+    path traversal out of the temp directory.
+    """
     for relative, spec in include.items():
         url = spec.get("url") if isinstance(spec, dict) else None
         if not isinstance(url, str):
@@ -328,6 +376,8 @@ def _import_polyhaven_model(
     object_id: str | None,
     target_height_m: float | None,
 ) -> dict[str, Any]:
+    # Model files are grouped by kind (gltf/fbx/blend) then resolution; pick
+    # the first importable kind and let resolution fall back like textures do.
     model_tree = None
     chosen_kind = None
     for kind in _MODEL_FORMAT_FALLBACK:
@@ -375,6 +425,14 @@ def _import_model_file(
     target_size_m: float | None = None,
     target_height_m: float | None = None,
 ) -> list[str]:
+    """Import one downloaded model file and wrap it in a root empty.
+
+    Shared tail of both providers' model imports: diff the scene set to find
+    what the importer created, pack any new images into the .blend, reparent
+    top-level objects under a root empty carrying the stable id, then apply
+    either height-based normalization (reusing asset_import's math) or a
+    simple largest-dimension fit.
+    """
     scene = bpy.context.scene
     before = set(scene.objects)
     before_images = set(bpy.data.images)

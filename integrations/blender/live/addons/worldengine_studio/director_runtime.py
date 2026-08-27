@@ -2,7 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Lifecycle for the Director services bundled with Blender."""
+"""Lifecycle for the Director services bundled with Blender.
+
+Runs ``npm run dev`` (gateway + UI) as a child of the Blender process so the
+"Start Blender Studio" button can bring up the whole product. The child is
+started in its own process group / session: npm spawns a tree (vite, tsx,
+esbuild…) and stopping must signal the group, not just npm, or orphaned dev
+servers would keep the ports busy. A ring buffer of recent output lines is
+kept for the status panel instead of streaming to Blender's console.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +30,13 @@ _application_dir: Path | None = None
 
 
 def resolve_application_directory() -> Path:
+    """Locate the WorldEngine repository root.
+
+    WORLDENGINE_APP_DIR wins when set (installed addons live outside the
+    repo); otherwise walk up from this file looking for the repo's signature
+    layout. Also used by mixamo_actions to find the packaged motion catalog,
+    so it must work even when the dev services never start.
+    """
     configured = os.environ.get("WORLDENGINE_APP_DIR")
     if configured:
         application = Path(configured).expanduser().resolve()
@@ -106,6 +121,8 @@ def start(
 
 
 def stop() -> None:
+    """Terminate the dev-service tree: polite group signal first, hard kill
+    after a 5 s grace period. Safe to call when nothing is running."""
     global _process, _application_dir, _reader_thread
     process = _process
     _process = None

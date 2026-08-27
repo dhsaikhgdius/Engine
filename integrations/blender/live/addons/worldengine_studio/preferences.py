@@ -2,6 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+"""Addon preferences: the ports and URLs wiring Blender to Director.
+
+Defaults mirror the repository dev setup (UI :5175, gateway :8787, native
+session :8791) so a stock `npm run dev` connects with zero configuration.
+The Sketchfab token lives here (or in SKETCHFAB_API_TOKEN) because it is a
+per-user credential, not project state.
+"""
+
 import bpy
 from bpy.props import IntProperty, StringProperty
 from bpy.types import AddonPreferences
@@ -52,6 +60,8 @@ classes = (WORLDENGINE_AP_preferences,)
 
 
 def get_preferences(context=None):
+    """Preferences for this addon, or None when it is not registered as an
+    addon (e.g. imported directly by the headless backend script)."""
     context = context or bpy.context
     addon = context.preferences.addons.get(__package__)
     return addon.preferences if addon else None
