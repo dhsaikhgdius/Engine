@@ -54,6 +54,9 @@ export function MediaVerifyResultsList({ state, t }: { state: MediaVerifyUiState
     );
   }
 
+  // Narrow to `done` after idle / pending / error (type predicate + exhaustiveness).
+  if (state.status !== "done") return null;
+
   const rows = mediaVerifyResultRows(state.result.items);
   return (
     <div className="creative-media-verify-results" aria-label={t("字节验证结果")}>
