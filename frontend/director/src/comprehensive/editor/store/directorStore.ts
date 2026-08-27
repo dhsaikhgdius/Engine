@@ -1,3 +1,25 @@
+/**
+ * The Director store: the single Zustand store holding the whole authored
+ * project (objects, cameras, lights, timeline, storyboard, world systems,
+ * production) plus editor UI state (selection, view mode, inspector focus).
+ *
+ * Everything that edits the scene — panels, viewport gizmos, the agent engine,
+ * and MCP tools — ultimately goes through the actions defined here, so undo
+ * history, Blender live sync, and persistence see one consistent stream of
+ * mutations.
+ *
+ * Cross-cutting behaviours implemented in this module:
+ * - Undo/redo with batching (`beginUndoBatch`/`endUndoBatch`) and an entry cap.
+ * - Debounced localStorage persistence with schema validation, migration
+ *   (`migrateDirectorProject`), reference repair, and corrupt-snapshot backups.
+ * - Structural sharing on load (`reuseUnchangedJsonReferences`) so unchanged
+ *   subtrees keep identity and memoized selectors stay warm.
+ * - Local model-library assets persisted separately from the scene document.
+ * - Pending Blender-native sync bookkeeping for round-tripping DCC edits.
+ *
+ * Type definitions live in directorStoreTypes.ts and pure helpers in
+ * directorStoreUtils.ts; this file wires state and actions together.
+ */
 import { create } from "zustand";
 import { Color, Euler, Matrix4, Quaternion, SRGBColorSpace, Vector3 } from "three";
 import { dismissDirectorNotification, notifyDirector } from "../../app/notifications/directorNotificationStore";

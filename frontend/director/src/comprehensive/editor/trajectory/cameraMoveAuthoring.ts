@@ -1,3 +1,10 @@
+/**
+ * A/B camera-move authoring: given two sampled framings (position, target,
+ * focal length at two frames), classifies the dominant cinematic move (dolly,
+ * pan, orbit, push-in, dolly-zoom, …) and builds the keyframed camera
+ * animation that performs it. Pure math over protocol types — the CameraPanel
+ * UI and any agent path share this implementation.
+ */
 import type {
   DirectorCameraAspectRatio,
   DirectorCameraSensorFormat,

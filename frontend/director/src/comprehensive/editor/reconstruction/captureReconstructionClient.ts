@@ -1,3 +1,8 @@
+/**
+ * Typed HTTP client for the gateway's capture-reconstruction jobs: submit
+ * capture sets, poll job records, and fetch the resulting plan. Responses are
+ * Zod-validated at this boundary before entering the frontend.
+ */
 import { z } from "zod";
 import {
   captureReconstructionJobInputSchema,

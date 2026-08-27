@@ -1,3 +1,8 @@
+/**
+ * Applies a capture-reconstruction plan (objects, cameras, fused shell mesh)
+ * to a Director project through the same typed authoring actions agents use,
+ * so plan application shares validation and provenance with agent edits.
+ */
 import { applyDirectorAuthoringActions, type DirectorAuthoringAction } from "@director/agent-engine";
 import type {
   CapturePlanCamera,

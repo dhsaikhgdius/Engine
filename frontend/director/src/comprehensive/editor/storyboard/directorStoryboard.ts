@@ -1,3 +1,8 @@
+/**
+ * Pure storyboard helpers shared by the timeline dock, canvas playback, and
+ * exports: shot lookup by frame, active-camera resolution, and shot-range
+ * arithmetic over the project timeline. No store access — callers pass state.
+ */
 import type {
   DirectorProject,
   DirectorStoryboard,

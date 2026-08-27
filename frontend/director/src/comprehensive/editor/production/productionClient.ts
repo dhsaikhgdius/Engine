@@ -1,3 +1,9 @@
+/**
+ * HTTP client for the gateway's production domain: multi-scene production
+ * records, scene project snapshots, and editorial shot operations. All calls
+ * go through the shared agent-gateway fetch so the UI and agents hit the same
+ * endpoints with the same error semantics.
+ */
 import { directorAgentFetch, getDirectorAgentBasePath } from "../assistant/agentGatewayClient";
 import type { DirectorProject } from "../schema/directorProject";
 import type {

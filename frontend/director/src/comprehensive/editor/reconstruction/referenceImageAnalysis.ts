@@ -1,3 +1,9 @@
+/**
+ * Browser-side preparation of reference images for scene reconstruction:
+ * decode, downscale to the protocol's normalized edge, re-encode as JPEG,
+ * hash (sha256), and extract lightweight visual metrics (dominant colors,
+ * luminance distribution) that the analysis prompt consumes.
+ */
 import {
   DIRECTOR_REFERENCE_IMAGE_MAX_BYTES,
   referenceImageMetricsSchema,
