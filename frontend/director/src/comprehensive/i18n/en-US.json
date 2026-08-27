@@ -146,6 +146,8 @@
   "调整节点大小": "Resize node",
   "置于顶层": "Bring to front",
   "置于顶层失败": "Failed to bring to front",
+  "置于底层": "Send to back",
+  "置于底层失败": "Failed to send to back",
   "便签": "Note",
   "3D 分镜": "3D shot",
   "图片": "Image",

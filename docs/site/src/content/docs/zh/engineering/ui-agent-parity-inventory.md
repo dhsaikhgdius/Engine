@@ -155,11 +155,11 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 
 当前已共享：
 
-- Canvas 节点/边/布局/置顶/分区/视口创作（`canvas.node.*`、含 `canvas.node.bring_to_front` /
-  `canvas.node.assign_section`、`canvas.section.*`、`canvas.board.set_viewport` /
-  `canvas.board.fit_content`、`canvas.edge.*`、`canvas.dag.layout`）、素材导入入册
-  （`gallery.media.update`）以及撤销/重做按钮（`workspace.undo` / `workspace.redo`）。观察面暴露
-  `board.sections`、`node.section_id` 与 `board.viewport`。
+- Canvas 节点/边/布局/置顶与置底/分区/视口创作（`canvas.node.*`、含 `canvas.node.bring_to_front` /
+  `canvas.node.send_to_back` / `canvas.node.assign_section`、`canvas.section.*`、
+  `canvas.board.set_viewport` / `canvas.board.fit_content`、`canvas.edge.*`、`canvas.dag.layout`）、
+  素材导入入册（`gallery.media.update`）以及撤销/重做按钮（`workspace.undo` / `workspace.redo`）。
+  观察面暴露 `board.sections`、`node.section_id`、`node.z_index`（数组绘制顺序）与 `board.viewport`。
 - Video 剪辑检查器编辑、分割、删除（含 ripple）、交叉溶解、键盘离散淡变步进、“+”按钮加入首个
   空闲槽位（`edit.clip.add`）、轨道管理、设置、时间线离散缩放（`edit.timeline.set_zoom` /
   `edit.timeline.fit`）、导入入册，以及撤销/重做（按钮与快捷键）。

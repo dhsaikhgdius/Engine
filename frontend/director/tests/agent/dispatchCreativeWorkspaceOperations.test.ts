@@ -225,6 +225,7 @@ describe("creative workspace UI/agent parity harness", () => {
       });
       const doomed = execute({ op: "canvas.node.add", kind: "frame", title: "镜头组", x: 40, y: 400 });
       execute({ op: "canvas.node.bring_to_front", node_id: createdId(note, "node") });
+      execute({ op: "canvas.node.send_to_back", node_id: createdId(poster, "node") });
       execute({ op: "canvas.board.set_viewport", x: 12, y: 24, zoom: 1.1 });
       execute({ op: "canvas.board.fit_content", surface_width: 900, surface_height: 600 });
       execute({ op: "canvas.node.remove", node_id: createdId(doomed, "node") });
@@ -237,6 +238,24 @@ describe("creative workspace UI/agent parity harness", () => {
       });
     });
     expect(uiRevision).toEqual(agentRevision);
+  });
+
+  it("produces identical revisions for Canvas z-order raise and lower", () => {
+    const { uiRevision, agentRevision } = compareExecutors((execute) => {
+      const back = execute({ op: "canvas.node.add", kind: "note", title: "底层", x: 40, y: 40 });
+      const mid = execute({ op: "canvas.node.add", kind: "note", title: "中层", x: 80, y: 80 });
+      const front = execute({ op: "canvas.node.add", kind: "note", title: "顶层", x: 120, y: 120 });
+      execute({ op: "canvas.node.bring_to_front", node_id: createdId(back, "node") });
+      execute({ op: "canvas.node.send_to_back", node_id: createdId(front, "node") });
+      execute({ op: "canvas.node.send_to_back", node_id: createdId(mid, "node") });
+      execute({ op: "canvas.node.bring_to_front", node_id: createdId(mid, "node") });
+    });
+    expect(uiRevision).toEqual(agentRevision);
+    expect(uiRevision.board.nodes.map((node) => ({ title: node.title, z_index: node.z_index }))).toEqual([
+      { title: "顶层", z_index: 0 },
+      { title: "底层", z_index: 1 },
+      { title: "中层", z_index: 2 },
+    ]);
   });
 
   it("produces identical revisions for Canvas section update (collapse and orphan on remove)", () => {

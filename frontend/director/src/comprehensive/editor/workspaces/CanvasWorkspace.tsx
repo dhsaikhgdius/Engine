@@ -31,6 +31,7 @@ import {
   Plus,
   Redo2,
   RefreshCw,
+  SendToBack,
   Server,
   Sparkles,
   Square,
@@ -230,8 +231,8 @@ export function CanvasWorkspace() {
   // the shared agent contract (dispatchCreativeWorkspaceOperations /
   // dispatchCreativeWorkspaceMediaRelink); only drag-batch intermediate
   // samples and continuous pointer pan/wheel keep direct store mutators.
-  // Discrete fit/set_viewport, section collapse/remove, and section assignment
-  // at pointer-up are shared.
+  // Discrete fit/set_viewport, section collapse/remove, z-order raise/lower,
+  // and section assignment at pointer-up are shared.
   const updateBoardNode = useDirectorCreativeWorkspaceStore((state) => state.updateBoardNode);
   const selectBoardNode = useDirectorCreativeWorkspaceStore((state) => state.selectBoardNode);
   const setBoardViewport = useDirectorCreativeWorkspaceStore((state) => state.setBoardViewport);
@@ -1313,18 +1314,32 @@ export function CanvasWorkspace() {
                                   : "图片",
                       )}
                     </span>
-                    <button
-                      aria-label={t("置于顶层")}
-                      className="creative-node-front-button"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        dispatchCanvas({ op: "canvas.node.bring_to_front", node_id: node.id }, t("置于顶层失败"));
-                      }}
-                      type="button"
-                    >
-                      <BringToFront aria-hidden size={13} />
-                    </button>
+                    <span className="creative-node-z-buttons">
+                      <button
+                        aria-label={t("置于底层")}
+                        className="creative-node-z-button"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          dispatchCanvas({ op: "canvas.node.send_to_back", node_id: node.id }, t("置于底层失败"));
+                        }}
+                        type="button"
+                      >
+                        <SendToBack aria-hidden size={13} />
+                      </button>
+                      <button
+                        aria-label={t("置于顶层")}
+                        className="creative-node-z-button"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          dispatchCanvas({ op: "canvas.node.bring_to_front", node_id: node.id }, t("置于顶层失败"));
+                        }}
+                        type="button"
+                      >
+                        <BringToFront aria-hidden size={13} />
+                      </button>
+                    </span>
                   </header>
                   {node.kind !== "note" && node.kind !== "frame" ? (
                     <div className="creative-node-media">

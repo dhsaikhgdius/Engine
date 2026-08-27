@@ -108,6 +108,7 @@ const projectedBoardNodeSchema = z.strictObject({
   body: z.string(),
   media_id: z.string().nullable(),
   section_id: z.string().nullable(),
+  z_index: z.number().int().nonnegative(),
   x: finiteNumber,
   y: finiteNumber,
   width: finiteNumber.positive(),
@@ -403,7 +404,11 @@ export const creativeWorkspaceAgentCapabilitiesSchema = z.strictObject({
     layout_operation: z.literal("canvas.dag.layout"),
     layout_directions: z.tuple([z.literal("horizontal"), z.literal("vertical")]),
     layout_contract: z.string(),
-    bring_to_front_operation: z.literal("canvas.node.bring_to_front"),
+    z_order_operations: z.tuple([
+      z.literal("canvas.node.bring_to_front"),
+      z.literal("canvas.node.send_to_back"),
+    ]),
+    z_order_observe_field: z.literal("board.nodes[].z_index"),
     z_order_contract: z.string(),
     section_operations: z.tuple([
       z.literal("canvas.section.add"),

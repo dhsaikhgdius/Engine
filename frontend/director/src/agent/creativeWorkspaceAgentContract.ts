@@ -206,7 +206,7 @@ function rememberCreativeMutation(
   while (receipts.size > 128) receipts.delete(receipts.keys().next().value!);
 }
 
-function projectBoardNode(node: DirectorBoardNode) {
+function projectBoardNode(node: DirectorBoardNode, zIndex: number) {
   const config = node.productionConfig ? directorCanvasProductionConfigSchema.parse(node.productionConfig) : null;
   return {
     id: node.id,
@@ -215,6 +215,7 @@ function projectBoardNode(node: DirectorBoardNode) {
     body: node.body,
     media_id: node.mediaId,
     section_id: node.sectionId ?? null,
+    z_index: zIndex,
     x: node.x,
     y: node.y,
     width: node.width,
@@ -276,6 +277,10 @@ function projectBoardEdge(edge: DirectorBoardEdge) {
     source_node_id: edge.sourceNodeId,
     target_node_id: edge.targetNodeId,
   };
+}
+
+function boardNodeZIndex(nodes: readonly DirectorBoardNode[], nodeId: string): number {
+  return nodes.findIndex((candidate) => candidate.id === nodeId);
 }
 
 function projectCanvasDag(nodes: readonly DirectorBoardNode[], edges: readonly DirectorBoardEdge[]) {
@@ -436,7 +441,7 @@ export function observeCreativeWorkspaceAgentSnapshot(
       can_redo: workspace.canRedo,
     },
     board: {
-      nodes: workspace.boardNodes.map(projectBoardNode),
+      nodes: workspace.boardNodes.map((node, zIndex) => projectBoardNode(node, zIndex)),
       edges: workspace.boardEdges.map(projectBoardEdge),
       sections: workspace.boardSections.map(projectBoardSection),
       dag: projectCanvasDag(workspace.boardNodes, workspace.boardEdges),
@@ -1357,7 +1362,13 @@ export function executeCreativeWorkspaceAgentOperation(
       if (!node) {
         return semanticFailure(operation.op, "capacity", "The Canvas cannot accept another node.");
       }
-      return success(operation.op, `Added canvas node "${node.title}".`, { node: projectBoardNode(node) }, context);
+      const after = context.workspace.getState().boardNodes;
+      return success(
+        operation.op,
+        `Added canvas node "${node.title}".`,
+        { node: projectBoardNode(node, boardNodeZIndex(after, node.id)) },
+        context,
+      );
     }
     case "canvas.node.update": {
       const node = state.boardNodes.find((candidate) => candidate.id === operation.node_id);
@@ -1370,11 +1381,12 @@ export function executeCreativeWorkspaceAgentOperation(
       const mediaFailure = validateNodeMedia(operation.op, nextKind, nextMediaId, context);
       if (mediaFailure) return mediaFailure;
       state.updateBoardNode(node.id, mapNodePatch(operation.patch));
-      const updated = context.workspace.getState().boardNodes.find((candidate) => candidate.id === node.id)!;
+      const after = context.workspace.getState().boardNodes;
+      const updated = after.find((candidate) => candidate.id === node.id)!;
       return success(
         operation.op,
         `Updated canvas node "${updated.title}".`,
-        { node: projectBoardNode(updated) },
+        { node: projectBoardNode(updated, boardNodeZIndex(after, updated.id)) },
         context,
       );
     }
@@ -1394,16 +1406,41 @@ export function executeCreativeWorkspaceAgentOperation(
       const alreadyFront = index === state.boardNodes.length - 1;
       if (!alreadyFront) state.bringBoardNodeToFront(node.id);
       const after = context.workspace.getState().boardNodes;
-      const zIndex = after.findIndex((candidate) => candidate.id === node.id);
+      const zIndex = boardNodeZIndex(after, node.id);
       return success(
         operation.op,
         alreadyFront
           ? `Canvas node "${node.title}" is already at the front of the board z-order.`
           : `Brought canvas node "${node.title}" to the front of the board z-order.`,
         {
-          node: projectBoardNode(after.find((candidate) => candidate.id === node.id) ?? node),
+          node: projectBoardNode(after.find((candidate) => candidate.id === node.id) ?? node, zIndex),
           z_index: zIndex,
+          previous_z_index: index,
           already_front: alreadyFront,
+        },
+        context,
+      );
+    }
+    case "canvas.node.send_to_back": {
+      const index = state.boardNodes.findIndex((candidate) => candidate.id === operation.node_id);
+      if (index < 0) {
+        return semanticFailure(operation.op, "not_found", `Canvas node "${operation.node_id}" does not exist.`);
+      }
+      const node = state.boardNodes[index]!;
+      const alreadyBack = index === 0;
+      if (!alreadyBack) state.sendBoardNodeToBack(node.id);
+      const after = context.workspace.getState().boardNodes;
+      const zIndex = boardNodeZIndex(after, node.id);
+      return success(
+        operation.op,
+        alreadyBack
+          ? `Canvas node "${node.title}" is already at the back of the board z-order.`
+          : `Sent canvas node "${node.title}" to the back of the board z-order.`,
+        {
+          node: projectBoardNode(after.find((candidate) => candidate.id === node.id) ?? node, zIndex),
+          z_index: zIndex,
+          previous_z_index: index,
+          already_back: alreadyBack,
         },
         context,
       );
@@ -1420,12 +1457,13 @@ export function executeCreativeWorkspaceAgentOperation(
         return semanticFailure(operation.op, "not_found", `Canvas section "${operation.section_id}" does not exist.`);
       }
       const previousSectionId = node.sectionId ?? null;
+      const zIndex = boardNodeZIndex(state.boardNodes, node.id);
       if (previousSectionId === operation.section_id) {
         return success(
           operation.op,
           `Canvas node "${node.title}" already has the requested section assignment.`,
           {
-            node: projectBoardNode(node),
+            node: projectBoardNode(node, zIndex),
             previous_section_id: previousSectionId,
             section_id: operation.section_id,
             unchanged: true,
@@ -1434,14 +1472,15 @@ export function executeCreativeWorkspaceAgentOperation(
         );
       }
       state.assignBoardNodeSection(node.id, operation.section_id);
-      const updated = context.workspace.getState().boardNodes.find((candidate) => candidate.id === node.id)!;
+      const after = context.workspace.getState().boardNodes;
+      const updated = after.find((candidate) => candidate.id === node.id)!;
       return success(
         operation.op,
         operation.section_id
           ? `Assigned canvas node "${node.title}" to section "${operation.section_id}".`
           : `Cleared the section assignment for canvas node "${node.title}".`,
         {
-          node: projectBoardNode(updated),
+          node: projectBoardNode(updated, boardNodeZIndex(after, updated.id)),
           previous_section_id: previousSectionId,
           section_id: operation.section_id,
           unchanged: false,
@@ -1728,11 +1767,12 @@ export function executeCreativeWorkspaceAgentOperation(
         ...(operation.patch.parameters !== undefined ? { parameters: operation.patch.parameters } : {}),
       });
       state.updateBoardNode(node.id, { productionConfig: next });
-      const updated = context.workspace.getState().boardNodes.find((candidate) => candidate.id === node.id)!;
+      const after = context.workspace.getState().boardNodes;
+      const updated = after.find((candidate) => candidate.id === node.id)!;
       return success(
         operation.op,
         `Configured production runtime for Canvas node "${updated.title}".`,
-        { node: projectBoardNode(updated) },
+        { node: projectBoardNode(updated, boardNodeZIndex(after, updated.id)) },
         context,
       );
     }
