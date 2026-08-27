@@ -10,11 +10,11 @@ const tasksDirectory = join(dirname(fileURLToPath(import.meta.url)), "tasks");
 
 /** The `NN-game-demo-*` golden tasks replay every published genre demo recipe verbatim. */
 const RECIPE_TASKS = [
-  { file: "16-game-demo-fps-recipe-hostfree.json", genre: "fps" },
-  { file: "17-game-demo-racing-recipe-hostfree.json", genre: "racing" },
-  { file: "18-game-demo-rpg-recipe-hostfree.json", genre: "rpg" },
-  { file: "19-game-demo-exploration-recipe-hostfree.json", genre: "exploration" },
-  { file: "20-game-demo-fighting-recipe-hostfree.json", genre: "fighting" },
+  { file: "17-game-demo-fps-recipe-hostfree.json", genre: "fps" },
+  { file: "18-game-demo-racing-recipe-hostfree.json", genre: "racing" },
+  { file: "19-game-demo-rpg-recipe-hostfree.json", genre: "rpg" },
+  { file: "20-game-demo-exploration-recipe-hostfree.json", genre: "exploration" },
+  { file: "21-game-demo-fighting-recipe-hostfree.json", genre: "fighting" },
 ] as const;
 
 type TaskStep = {
