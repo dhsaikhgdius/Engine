@@ -55,6 +55,58 @@ function makeSucceededJob(id: string, prompt: string): ProductionJobRecord {
   });
 }
 
+function makeFailedJob(
+  id: string,
+  prompt: string,
+  error: { code: string; message: string; retryable: boolean },
+): ProductionJobRecord {
+  const createdAt = "2026-08-13T10:00:00.000Z";
+  return productionJobRecordSchema.parse({
+    contractVersion: 1,
+    id,
+    kind: "image.generate",
+    status: "failed",
+    progress: 0,
+    inputFingerprint: "fp-test",
+    idempotencyKey: `key-${id}`,
+    input: { prompt },
+    error: error.message,
+    attempts: [
+      {
+        id: `${id}-attempt-1`,
+        number: 1,
+        status: "failed",
+        provider: "test.provider",
+        inputFingerprint: "fp-test",
+        idempotencyKey: `key-${id}`,
+        sourceRevisions: {},
+        timestamps: { createdAt, startedAt: createdAt, finishedAt: createdAt },
+        error,
+        artifacts: [],
+      },
+    ],
+    createdAt,
+    updatedAt: createdAt,
+    artifacts: [],
+  });
+}
+
+function setTrayJobs(jobs: ProductionJobRecord[]) {
+  directorTaskTrayStore.setState({
+    jobs,
+    productionRuns: [],
+    jobReceipts: {},
+    phase: "ready",
+    error: null,
+    panelOpen: false,
+    dismissedIds: [],
+    dismissedRunKeys: [],
+    pendingActionIds: [],
+    pendingRunActionKeys: [],
+    lastSyncAt: Date.now(),
+  });
+}
+
 function renderTray() {
   return render(
     <LanguageProvider>
@@ -117,6 +169,80 @@ describe("DirectorTaskTrayMenu", () => {
     expect(within(tray).getByText("赛博朋克城市夜景")).toBeTruthy();
     const warning = within(tray).getByLabelText("产物字节已不可用 (GC)：primary · art-absent");
     expect(warning.textContent).toContain("产物字节已不可用 (GC)：primary · art-absent");
+  });
+
+  it("surfaces the structured attempt error code with its zh label and a retryable hint", () => {
+    setTrayJobs([
+      makeFailedJob("job-timeout", "转码超时的任务", {
+        code: "media_transcode_timeout",
+        message: "The media transcode timeout budget was exhausted",
+        retryable: true,
+      }),
+    ]);
+
+    renderTray();
+    fireEvent.click(screen.getByRole("button", { name: "任务中心" }));
+    const tray = screen.getByRole("dialog", { name: "任务中心" });
+    const codeRow = within(tray).getByLabelText("失败错误码");
+    expect(within(codeRow).getByText("media_transcode_timeout").tagName).toBe("CODE");
+    expect(codeRow.textContent).toContain("media_transcode_timeout");
+    expect(codeRow.textContent).toContain("· 媒体转码超时");
+    expect(within(codeRow).getByText("可重试")).toBeTruthy();
+    expect(within(tray).getByText("The media transcode timeout budget was exhausted")).toBeTruthy();
+  });
+
+  it("shows unknown machine codes raw without inventing a label or a retryable hint", () => {
+    setTrayJobs([
+      makeFailedJob("job-unknown", "未知错误码的任务", {
+        code: "provider_http_500",
+        message: "provider unreachable",
+        retryable: false,
+      }),
+    ]);
+
+    renderTray();
+    fireEvent.click(screen.getByRole("button", { name: "任务中心" }));
+    const tray = screen.getByRole("dialog", { name: "任务中心" });
+    const codeRow = within(tray).getByLabelText("失败错误码");
+    expect(within(codeRow).getByText("provider_http_500").tagName).toBe("CODE");
+    expect(codeRow.textContent).not.toContain("·");
+    expect(within(codeRow).queryByText("可重试")).toBeNull();
+    expect(within(tray).getByText("provider unreachable")).toBeTruthy();
+  });
+
+  it("does not render an error-code row for a failed job with only a legacy string error", () => {
+    const legacyJob = productionJobRecordSchema.parse({
+      ...makeFailedJob("job-legacy", "历史错误的任务", {
+        code: "job_failed",
+        message: "placeholder",
+        retryable: false,
+      }),
+      error: "renderer unavailable",
+      attempts: [
+        {
+          id: "job-legacy-attempt-1",
+          number: 1,
+          status: "failed",
+          provider: "test.provider",
+          inputFingerprint: "fp-test",
+          idempotencyKey: "key-job-legacy",
+          sourceRevisions: {},
+          timestamps: {
+            createdAt: "2026-08-13T10:00:00.000Z",
+            startedAt: "2026-08-13T10:00:00.000Z",
+            finishedAt: "2026-08-13T10:00:00.000Z",
+          },
+          artifacts: [],
+        },
+      ],
+    });
+    setTrayJobs([legacyJob]);
+
+    renderTray();
+    fireEvent.click(screen.getByRole("button", { name: "任务中心" }));
+    const tray = screen.getByRole("dialog", { name: "任务中心" });
+    expect(within(tray).queryByLabelText("失败错误码")).toBeNull();
+    expect(within(tray).getByText("renderer unavailable")).toBeTruthy();
   });
 
   it("does not show an absent-artifact warning while the receipt is still loading", () => {

@@ -55,7 +55,7 @@ import {
   taskAbsentArtifactAriaLabel,
   taskAbsentArtifactSummaries,
   taskDisplayName,
-  taskFailureReason,
+  taskFailureDetail,
   taskKindLabel,
   taskProgressPercent,
   taskStartedAt,
@@ -76,7 +76,7 @@ function TaskTrayItem({
   receiptEntry: DirectorTaskJobReceiptEntry | undefined;
 }) {
   const { t } = useLanguage();
-  const failureReason = job.status === "failed" ? taskFailureReason(job) : null;
+  const failureDetail = job.status === "failed" ? taskFailureDetail(job) : null;
   const percent = taskProgressPercent(job);
   const finished = taskIsFinished(job);
   const absentArtifacts = absentArtifactsFromReceiptEntry(receiptEntry);
@@ -106,7 +106,14 @@ function TaskTrayItem({
         </div>
       ) : null}
       {job.status === "running" && job.message ? <p className="task-tray-item-phase">{job.message}</p> : null}
-      {failureReason ? <p className="task-tray-item-error">{failureReason}</p> : null}
+      {failureDetail?.code ? (
+        <p aria-label={t("失败错误码")} className="task-tray-item-error-code">
+          <code>{failureDetail.code}</code>
+          {failureDetail.codeLabel ? <span> · {failureDetail.codeLabel}</span> : null}
+          {failureDetail.retryable ? <span className="task-tray-item-retryable">{t("可重试")}</span> : null}
+        </p>
+      ) : null}
+      {failureDetail?.message ? <p className="task-tray-item-error">{failureDetail.message}</p> : null}
       {absentArtifacts.length > 0 ? (
         <ul aria-label={absentArtifactAria} className="task-tray-item-artifact-warning">
           {absentArtifacts.map((summary) => (
