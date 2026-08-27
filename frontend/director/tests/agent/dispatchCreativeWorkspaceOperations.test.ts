@@ -368,6 +368,11 @@ describe("creative workspace UI/agent parity harness", () => {
         op: "edit.settings.update",
         patch: { frame_rate: { numerator: 24_000, denominator: 1_001 }, snap_enabled: false, aspect_ratio: "9 / 16" },
       });
+      // Discrete timeline viewport writes (zoom presets/buttons and fit)
+      // share the same executor as the Agent ops.
+      execute({ op: "edit.timeline.set_zoom", zoom: 1.5 });
+      const fitted = execute({ op: "edit.timeline.fit", surface_width: 600 });
+      expect(fitted).toMatchObject({ surface_width: 600, unchanged: false });
     });
     expect(uiRevision).toEqual(agentRevision);
   });

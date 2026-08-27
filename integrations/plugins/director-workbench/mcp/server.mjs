@@ -41313,6 +41313,12 @@ var editTrackRemoveSchema = strictOperation("edit.track.remove", { track_id: cre
 var editSeekSchema = strictOperation("edit.seek", {
   seconds: boundedNumber(0, MAX_TIMELINE_SEC)
 });
+var editTimelineSetZoomSchema = strictOperation("edit.timeline.set_zoom", {
+  zoom: boundedNumber(0.5, 4)
+});
+var editTimelineFitSchema = strictOperation("edit.timeline.fit", {
+  surface_width: boundedNumber(1, 16e3).optional()
+});
 var creativeWorkspaceEditSettingsUpdateSchema = strictOperation("edit.settings.update", {
   patch: external_exports.strictObject({
     aspect_ratio: creativeWorkspaceEditAspectRatioSchema.optional(),
@@ -41505,6 +41511,8 @@ var creativeWorkspaceAgentOperationSchema = external_exports.discriminatedUnion(
   editTrackRemoveSchema,
   creativeWorkspaceEditSettingsUpdateSchema,
   editSeekSchema,
+  editTimelineSetZoomSchema,
+  editTimelineFitSchema,
   creativeWorkspaceMediaPlaybackUpdateSchema,
   creativeWorkspaceMediaProxyAttachSchema,
   creativeWorkspaceMediaVerifySchema,
@@ -122035,6 +122043,18 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
       drop_frame_rates: external_exports.tuple([external_exports.literal("30000/1001"), external_exports.literal("60000/1001")]),
       timecode_contract: external_exports.string(),
       example: creativeWorkspaceEditSettingsUpdateSchema
+    }),
+    timeline_viewport: external_exports.strictObject({
+      observe_path: external_exports.literal("edit.timeline_zoom"),
+      set_zoom_operation: external_exports.literal("edit.timeline.set_zoom"),
+      fit_operation: external_exports.literal("edit.timeline.fit"),
+      zoom_range: external_exports.tuple([external_exports.literal(0.5), external_exports.literal(4)]),
+      base_pixels_per_second: external_exports.literal(72),
+      fit_defaults: external_exports.strictObject({
+        surface_width: external_exports.literal(960),
+        gutter: external_exports.literal(16)
+      }),
+      viewport_contract: external_exports.string()
     }),
     media: external_exports.strictObject({
       observe_path: external_exports.literal("media.assets"),

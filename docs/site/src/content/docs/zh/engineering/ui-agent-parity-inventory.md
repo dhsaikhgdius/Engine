@@ -161,7 +161,8 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
   （`gallery.media.update`）以及撤销/重做按钮（`workspace.undo` / `workspace.redo`）。观察面暴露
   `board.sections`、`node.section_id` 与 `board.viewport`。
 - Video 剪辑检查器编辑、分割、删除（含 ripple）、交叉溶解、键盘离散淡变步进、“+”按钮加入首个
-  空闲槽位（`edit.clip.add`）、轨道管理、设置、导入入册，以及撤销/重做（按钮与快捷键）。
+  空闲槽位（`edit.clip.add`）、轨道管理、设置、时间线离散缩放（`edit.timeline.set_zoom` /
+  `edit.timeline.fit`）、导入入册，以及撤销/重做（按钮与快捷键）。
 - Canvas 到时间线的桥（`edit.clip.add` + `workspace.switch`）、Stage 截图导入为单个原子
   `execute_batch`（入册 + 节点添加一起回滚），以及媒体评审星级/标签写入
   （`gallery.media.update`，仅当契约不认识该 media id 时回退直接写 store）。
@@ -196,4 +197,9 @@ mutation 现在经 `dispatchCreativeWorkspaceOperations`
 - Canvas 画板视口离散写入——`canvas.board.set_viewport` 与 `canvas.board.fit_content`（工具栏/
   布局后适应）走共享 agent 契约；连续平移/滚轮仍本地。缩放钳制在 `[0.1, 2.5]`；无现场 DOM
   尺寸时 fit 默认 1280×800 表面。
+- Video 时间线视口离散写入——缩放预设、放大/缩小按钮与「适配全片」走共享的
+  `edit.timeline.set_zoom` / `edit.timeline.fit`；连续 ctrl/cmd 滚轮缩放与把缩放瞬间锚定在
+  指针下的滚动逻辑仍本地。缩放钳制在 `[0.5, 4]`（zoom 1 时每秒 72 px）；fit 将已剪内容跨度
+  框入现场可见宽度，无 DOM 尺寸时默认 960 px 表面减 16 px 边距，空时间线按 5 秒最小窗口
+  适配。观察面暴露 `edit.timeline_zoom`。
 - Canvas 流水线产物入册、旧评审镜像迁移与批量清除评审——多 store 或迁移簿记流程。

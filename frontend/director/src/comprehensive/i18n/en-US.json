@@ -2156,6 +2156,7 @@
   "无法自动排列": "Cannot arrange automatically",
   "无法适应画布": "Cannot fit the board",
   "剪辑更新失败": "Failed to update clip",
+  "时间线缩放失败": "Failed to zoom the timeline",
   "剪辑重命名失败": "Failed to rename clip",
   "剪辑微移失败": "Failed to nudge clip",
   "复制剪辑失败": "Failed to duplicate clip",

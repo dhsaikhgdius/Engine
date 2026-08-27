@@ -604,6 +604,26 @@ const editSeekSchema = strictOperation("edit.seek", {
   seconds: boundedNumber(0, MAX_TIMELINE_SEC),
 });
 
+/**
+ * Set the Video Editor timeline zoom (horizontal scale). Zoom is clamped to
+ * [0.5, 4]; at zoom 1 the timeline renders 72 CSS pixels per second. Zoom is
+ * view state observed at `edit.timeline_zoom` and does not push undo history;
+ * continuous ctrl/cmd-wheel zoom stays local, like Canvas pointer pan.
+ */
+const editTimelineSetZoomSchema = strictOperation("edit.timeline.set_zoom", {
+  zoom: boundedNumber(0.5, 4),
+});
+
+/**
+ * Fit the whole edited content span into the visible timeline width. Defaults
+ * to the agent-side identity surface (960 px minus a 16 px gutter) when no
+ * live DOM measure is available; an empty timeline fits its 5-second minimum
+ * span instead of pinning zoom to the maximum.
+ */
+const editTimelineFitSchema = strictOperation("edit.timeline.fit", {
+  surface_width: boundedNumber(1, 16_000).optional(),
+});
+
 /** Operation to update Video Editor settings: aspect ratio, frame rate, timecode, and snap. */
 export const creativeWorkspaceEditSettingsUpdateSchema = strictOperation("edit.settings.update", {
   patch: z
@@ -869,6 +889,8 @@ export const creativeWorkspaceAgentOperationSchema = z.discriminatedUnion("op", 
   editTrackRemoveSchema,
   creativeWorkspaceEditSettingsUpdateSchema,
   editSeekSchema,
+  editTimelineSetZoomSchema,
+  editTimelineFitSchema,
   creativeWorkspaceMediaPlaybackUpdateSchema,
   creativeWorkspaceMediaProxyAttachSchema,
   creativeWorkspaceMediaVerifySchema,
