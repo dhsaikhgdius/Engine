@@ -1,3 +1,18 @@
+/**
+ * The single source of truth for built-in model provider families.
+ *
+ * Each profile bundles everything needed to talk to one vendor: the wire
+ * protocol (every family speaks either OpenAI Chat Completions or Anthropic
+ * Messages — there is deliberately no third dialect), the known model
+ * descriptors, the default endpoint, and which environment variable carries
+ * the API key. Package factories, the Gateway, and the UI all read this one
+ * table so a new model only needs to be declared here.
+ *
+ * Descriptor caveats: `capabilities` gate feature availability in callers
+ * (e.g. no tool loop for models with `tools: false`), and `pricing` is an
+ * approximate USD/1M-token snapshot used for cost estimation — it is not a
+ * billing source of truth and drifts as vendors reprice.
+ */
 import type { ModelDescriptor, ModelProvider, ModelProviderConfig, ModelProviderFactory } from "./types";
 import type { ModelProviderRegistry, RegisteredProvider } from "./registry";
 import { createModelDriver } from "./runtime/modelDriverFactory";
@@ -9,11 +24,16 @@ type BuiltinProviderProtocol = "openai-chat-compatible" | "anthropic-messages";
 type BuiltinProviderDefinition<Id extends string> = {
   id: Id;
   protocol: BuiltinProviderProtocol;
+  /** Descriptor of the family's default model, used when config omits `model`. */
   descriptor: ModelDescriptor;
+  /** All model variants this family is known to serve. */
   models: readonly ModelDescriptor[];
   defaultBaseUrl: string;
+  /** Environment variable the Gateway reads the API key from. */
   apiKeyEnvironmentVariable: string;
+  /** Placeholder key for endpoints that require a token but ignore its value (e.g. local Ollama). */
   fallbackApiKey?: string;
+  /** Extra per-request headers for vendors with non-Bearer auth (e.g. Gemini's x-goog-api-key). */
   defaultHeaders?: (config: ModelProviderConfig) => Record<string, string>;
   descriptorLabel?: (model: string) => string;
   providerLabel?: (model: string) => string;
@@ -367,6 +387,9 @@ export const createOllamaProvider = OLLAMA_PROFILE.factory;
 
 export const createDeepSeekR1Provider = createVariantFactory(DEEPSEEK_PROFILE, DEEPSEEK_R1_DESCRIPTOR.model);
 
+// Freezes one definition into the public profile shape and binds its factory.
+// The `const Id` generic preserves the literal id so BuiltinModelProviderId
+// stays a closed union rather than widening to string.
 function defineBuiltinModelProvider<const Id extends string>(
   definition: BuiltinProviderDefinition<Id>,
 ): BuiltinModelProviderProfile & { readonly id: Id } {
@@ -386,6 +409,14 @@ function createVariantFactory(profile: BuiltinModelProviderProfile, defaultModel
   return (config) => profile.factory({ ...config, model: config.model ?? defaultModel });
 }
 
+/**
+ * Instantiates a provider from a profile plus caller config. Resolution
+ * rules: an unknown model name still works (it inherits the default model's
+ * descriptor, so capabilities may be approximate), an empty baseUrl falls
+ * back to the vendor default, and an empty apiKey falls back to the profile's
+ * placeholder (if any) rather than failing here — auth errors surface on the
+ * first request, where they can be reported with full context.
+ */
 function createProviderFromProfile(
   profile: BuiltinProviderDefinition<string>,
   config: ModelProviderConfig,

@@ -43,6 +43,11 @@ export class ModelProviderRegistry {
   /**
    * Create or retrieve the active provider for a provider/model slot.
    * A changed connection configuration replaces the cached instance.
+   *
+   * The cache key is `provider:model`, so each model variant holds one live
+   * instance; the full config is compared field-by-field (not by reference)
+   * so callers can pass fresh config objects without churning instances,
+   * while a rotated API key or new base URL correctly rebuilds the provider.
    */
   create(providerId: string, config: ModelProviderConfig): ModelProvider {
     const instanceId = `${providerId}:${config.model ?? "default"}`;
