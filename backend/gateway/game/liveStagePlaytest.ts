@@ -71,8 +71,12 @@ function extractPlaytestTrace(result: unknown, slice: GameSlice): GamePlaytestTr
   const candidate = record.trace ?? result;
   const parsed = gamePlaytestTraceSchema.safeParse(candidate);
   if (!parsed.success) return null;
-  if (parsed.data.slice_id !== slice.id) {
-    return gamePlaytestTraceSchema.parse({ ...parsed.data, slice_id: slice.id });
+  // The Gateway is the provenance authority: this receipt arrived from a
+  // connected workbench tab over the live command bus, so it is `live_stage`
+  // regardless of what the (possibly older) tab stamped. slice_id is also
+  // restamped when the tab replied with a standalone session id.
+  if (parsed.data.slice_id !== slice.id || parsed.data.source !== "live_stage") {
+    return gamePlaytestTraceSchema.parse({ ...parsed.data, slice_id: slice.id, source: "live_stage" });
   }
   return parsed.data;
 }

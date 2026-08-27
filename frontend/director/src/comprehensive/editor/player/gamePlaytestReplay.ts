@@ -5,6 +5,7 @@ import {
   type GamePlaytestSample,
   type GamePlaytestScriptInput,
   type GamePlaytestTrace,
+  type GamePlaytestTraceSource,
   type GameSliceVerb,
 } from "@director/protocol/game-slice";
 import {
@@ -175,6 +176,12 @@ export function createGamePlaytestTraceRecorder(options: {
   sliceId: string;
   dt: number;
   projectRevision?: string;
+  /**
+   * Trace provenance: `live_stage` when the live PlayerController drives the
+   * tape, `host_free` for the pure vitest replay. The Gateway restamps
+   * receipts it relays, so this is honesty at the producer, not authority.
+   */
+  source?: GamePlaytestTraceSource;
 }): GamePlaytestTraceRecorder {
   const samples: GamePlaytestSample[] = [];
   const verbs = new Set<GameSliceVerb>();
@@ -268,6 +275,7 @@ export function createGamePlaytestTraceRecorder(options: {
         dt: options.dt,
         samples,
         verbs_exercised: [...verbs],
+        ...(options.source ? { source: options.source } : {}),
       });
     },
     frameCount: () => frame,
@@ -368,6 +376,9 @@ export function replayGamePlaytestScript(options: GamePlaytestReplayOptions): Ga
     sliceId: options.sliceId ?? GAME_PLAYTEST_REPLAY_SLICE_ID,
     dt: script.dt,
     projectRevision: options.projectRevision,
+    // The pure locomotion-model replay runs without a browser tab, so its
+    // provenance is host-free even though it shares live tape semantics.
+    source: "host_free",
   });
 
   let state = options.initialState ?? createPlayerLocomotionState([0, 0, 0], 0, groundEnabled ? groundHeight : 0);

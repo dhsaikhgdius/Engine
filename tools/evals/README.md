@@ -66,7 +66,7 @@ The eval entrypoint (`run.mjs`) logic:
 5. Starts headless Chromium and navigates to `http://127.0.0.1:5199`.
 6. Reads `tasks/*.json` in filename order, runs steps sequentially.
 7. Each step POSTs JSON to `POST /api/tools/<step.tool>` and checks the response
-   against expectations (`success`, `code`, `error_includes`, `result_paths`).
+   against expectations (`success`, `code`, `error_includes`, `result_paths`, `result_equals`).
 8. Summarizes pass/fail counts; exit code reflects the outcome.
 
 ## Task format
@@ -77,12 +77,16 @@ Each `tasks/*.json` file is one task, run sequentially with its own
 Every step names one public tool in `tool`: `director_workbench`, `director_creative`,
 `stage_video`, `blender_native`, `director_dcc`, or `director_game`. The task-schema test validates every
 expected-success input against that tool's strict contract before an isolated browser run.
-Game-slice tasks (`12`–`15`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
-and host-free playtest without an inline `trace`.
+Game-slice tasks (`12`–`18`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
+host-free playtest without an inline `trace`, racing/FPS full loops, and the live Stage playtest path
+(see "Live vs host-free playtest").
 
 `result_paths` are dot-paths resolved against the whole JSON response body
 (arrays index numerically, e.g. `result.issues.0`); a path passes when the resolved value is
-neither `undefined` nor `null`. Steps with `expect.success: false` pass when the boundary
+neither `undefined` nor `null`. `result_equals` maps the same dot-paths to exact expected
+JSON values (deep equality) for assertions where presence is not enough — e.g. a playtest
+trace source must equal `"live_stage"`, because a host-free fallback would still resolve the
+path. Steps with `expect.success: false` pass when the boundary
 reports the expected failure, regardless of HTTP status. The runner is generic — add a task
 by dropping a new JSON file into `tasks/`.
 
@@ -91,6 +95,28 @@ session of a character binding) to exercise possession scoping. Steps marked
 `gateway_fills_target: true` deliberately omit their character target so the gateway
 possession preflight fills it before validation; the task-schema test asserts those inputs
 really are incomplete.
+
+## Live vs host-free playtest
+
+`director_game {op:"playtest"}` without an inline `trace` prefers the live Stage path: the
+Gateway dispatches the tape to a connected workbench tab, the live PlayerController replays
+it frame by frame, and the receipt comes back stamped `trace.source: "live_stage"` (also
+persisted as `evaluation.trace_source`). When no tab answers — or the tab cannot run the
+tape, e.g. the bound player `object_id` does not exist in the Stage project — the Gateway
+falls back to the kinematic runner and the receipt honestly reports `"host_free"`. Inline
+traces always evaluate as `"inline"`; the machine restamps them so live provenance cannot be
+forged over the public boundary.
+
+In this harness, a headless workbench tab is always connected, so which path a task
+exercises is decided by its bindings:
+
+- Tasks `12`–`17` bind role ids to object ids that exist only in the slice document, so the
+  live tab rejects the tape and the Gateway falls back — they are host-free goldens (tasks
+  `12` and `13` additionally supply inline traces, which evaluate as `"inline"`).
+- Task `18` authors real Stage objects first and binds the slice to them, so the tape must
+  replay on the live player session. Its `result_equals` assertions require
+  `"live_stage"` provenance and a playable receipt: if the harness were silently forced to
+  host-free, the task fails.
 
 ## Task inventory
 
@@ -113,3 +139,6 @@ really are incomplete.
 | `tasks/14-game-slice-unbound-playtest-rejects.json` | Verify playtest rejects until the player role is bound to a Stage object                                          |
 | `tasks/14-world-systems-observation.json`        | Author Living World weather/wind plus one effect, then verify the `world` observation projection                     |
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | Host-free playtest scoring without an explicit trace                                                            |
+| `tasks/16-game-slice-racing-full-loop.json`      | Full racing loop with no inline trace, vehicle order enforced, export routed to `director_dcc`                        |
+| `tasks/17-game-slice-fps-full-loop.json`         | Full FPS loop with no inline trace, fire/reload verbs exercised, export routed to `director_dcc`                      |
+| `tasks/18-game-slice-live-stage-playtest.json`   | Live Stage playtest: author real actors, bind, replay the tape on the connected tab, require `live_stage` provenance  |

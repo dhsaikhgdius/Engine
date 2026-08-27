@@ -383,6 +383,66 @@ describe("director_game machine", () => {
     });
   });
 
+  it("restamps caller-supplied traces to inline so live provenance cannot be forged", async () => {
+    const { state, slice } = await planExploration();
+    await executeDirectorGame(
+      state,
+      {
+        op: "bind",
+        slice_id: slice.id,
+        bindings: [
+          { role_id: "player", object_id: "hero-1" },
+          { role_id: "spawn", object_id: "spawn-1" },
+          { role_id: "objective-1", object_id: "stele-1" },
+        ],
+      },
+      { now: NOW },
+    );
+    const playtested = await executeDirectorGame(
+      state,
+      {
+        op: "playtest",
+        slice_id: slice.id,
+        script: { steps: [{ frames: 8, input: { forward: true } }] },
+        // The wire accepts a source field, but a forged live claim must not
+        // survive the machine: inline submissions always evaluate as inline.
+        trace: groundedTrace(slice.id, { source: "live_stage" }),
+      },
+      { now: NOW },
+    );
+    expect(playtested.success).toBe(true);
+    expect(playtested).toMatchObject({
+      result: {
+        trace: { source: "inline" },
+        evaluation: { trace_source: "inline" },
+      },
+    });
+
+    const evaluated = await executeDirectorGame(
+      state,
+      { op: "evaluate", slice_id: slice.id, trace: groundedTrace(slice.id, { source: "live_stage" }) },
+      { now: NOW },
+    );
+    expect(evaluated.success).toBe(true);
+    expect(evaluated).toMatchObject({ result: { evaluation: { trace_source: "inline" } } });
+  });
+
+  it("stamps host-free kinematic traces with host_free provenance", () => {
+    const slice = createGameSliceFromBrief({
+      id: "game-hostfree-source-01",
+      now: NOW,
+      brief: { requirement: "walk", genre: "exploration" },
+    });
+    slice.roles = slice.roles.map((role) => ({ ...role, object_id: `stage-${role.id}` }));
+    const trace = runHostFreeGamePlaytest({
+      slice,
+      script: { steps: [{ frames: 8, input: { forward: true } }] },
+    });
+    expect(trace.source).toBe("host_free");
+    const report = evaluateGamePlaytest(slice, trace);
+    expect(report.trace_source).toBe("host_free");
+  });
+
   it("needs a Stage session when playtest has no trace and no runner", async () => {
     const { state, slice } = await planExploration();
     await executeDirectorGame(
