@@ -2,12 +2,15 @@ import { z } from "zod";
 import { directorControlPlaneFetch } from "../../editor/api/directorControlPlaneClient";
 
 /**
- * Minimal read-only client for the collaboration room ops surface:
+ * Minimal client for the collaboration room ops surface:
  * `GET /api/collab/rooms` (merged live + durable room status, invite
- * revocation durability counts, lifecycle policy) and the per-room
- * quarantine peek `GET /api/collab/rooms/quarantine?room=`. Both endpoints
- * return counts, hashes, and timestamps only — never document content or
- * invite tokens — and this client performs no mutations.
+ * revocation durability counts, lifecycle policy), the per-room quarantine
+ * peek `GET /api/collab/rooms/quarantine?room=`, and the explicitly
+ * confirmed `POST /api/collab/rooms/close` (optional `archive: true`). Read
+ * endpoints return counts, hashes, and timestamps only — never document
+ * content or invite tokens. The close mutation reports typed outcomes
+ * honestly: an HTTP 500 `archive_failed` body (room closed, history still in
+ * place) is surfaced as a typed result, never as an archive success.
  *
  * @module collaborationRoomsClient
  */
@@ -81,6 +84,51 @@ export const collaborationRoomQuarantineReportSchema = z.object({
 /** The quarantine report for one room. */
 export type CollaborationRoomQuarantineReport = z.infer<typeof collaborationRoomQuarantineReportSchema>;
 
+/**
+ * The HTTP 200 receipt from `POST /api/collab/rooms/close`. `archived` is
+ * `null` when no archive was requested, `true` when the durable history was
+ * moved aside, and `false` with `archive_reason: "no_durable_history"` for
+ * the benign no-op (nothing on disk to move).
+ */
+export const collaborationRoomCloseReceiptSchema = z.object({
+  room: z.string().min(1),
+  closed: z.boolean(),
+  disconnected_peers: z.number().int().nonnegative(),
+  archived: z.boolean().nullable(),
+  archive_reason: z.literal("no_durable_history").optional(),
+});
+
+/** The HTTP 200 close receipt. */
+export type CollaborationRoomCloseReceipt = z.infer<typeof collaborationRoomCloseReceiptSchema>;
+
+/**
+ * The HTTP 500 `archive_failed` body from `POST /api/collab/rooms/close`:
+ * the room close already happened (peers received `room_closed`), but the
+ * filesystem refused the archive rename, so the durable history is still in
+ * place. `archive_error_code` carries the errno name, never a path.
+ */
+export const collaborationRoomArchiveFailureSchema = z.object({
+  error: z.string(),
+  code: z.literal("archive_failed"),
+  room: z.string().min(1),
+  closed: z.boolean(),
+  disconnected_peers: z.number().int().nonnegative(),
+  archived: z.literal(false),
+  archive_error_code: z.string().min(1),
+});
+
+/** The HTTP 500 archive-failure body. */
+export type CollaborationRoomArchiveFailure = z.infer<typeof collaborationRoomArchiveFailureSchema>;
+
+/**
+ * The typed outcome of one explicit room close. `archive_failed` is a
+ * first-class result (not a thrown error) because it still carries honest
+ * close facts — the room is closed, the history is not archived.
+ */
+export type CollaborationRoomCloseResult =
+  | { outcome: "closed"; receipt: CollaborationRoomCloseReceipt }
+  | { outcome: "archive_failed"; failure: CollaborationRoomArchiveFailure };
+
 async function readJson(response: Response, fallbackMessage: string): Promise<Record<string, unknown>> {
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) {
@@ -118,4 +166,43 @@ export async function fetchCollaborationRoomQuarantine(
   });
   const body = await readJson(response, "协作隔离区信息请求失败");
   return collaborationRoomQuarantineReportSchema.parse(body);
+}
+
+/**
+ * Explicitly closes one collaboration room (every peer receives a
+ * `room_closed` error and is disconnected) and optionally archives its
+ * durable history. Callers must obtain explicit user confirmation before
+ * invoking this — the client never softens outcomes: an HTTP 500
+ * `archive_failed` returns a typed failure result, and a 409
+ * `collab_persistence_disabled` throws the gateway's refusal label.
+ *
+ * @param room - The collaboration room id to close.
+ * @param options - Set `archive: true` to also move the durable history aside.
+ * @param signal - Optional AbortSignal for request cancellation.
+ */
+export async function closeCollaborationRoom(
+  room: string,
+  options: { archive?: boolean } = {},
+  signal?: AbortSignal,
+): Promise<CollaborationRoomCloseResult> {
+  const response = await directorControlPlaneFetch("/api/collab/rooms/close", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ room, archive: options.archive === true }),
+    signal,
+  });
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (response.status === 500 && body.code === "archive_failed") {
+    return { outcome: "archive_failed", failure: collaborationRoomArchiveFailureSchema.parse(body) };
+  }
+  if (!response.ok) {
+    const message =
+      typeof body.error === "string"
+        ? body.error
+        : body.code === "collab_persistence_disabled"
+          ? "协作持久化未启用，无法归档房间"
+          : null;
+    throw new Error(message ?? `协作房间关闭请求失败（HTTP ${response.status}）`);
+  }
+  return { outcome: "closed", receipt: collaborationRoomCloseReceiptSchema.parse(body) };
 }

@@ -1,10 +1,13 @@
 /**
- * Minimal read-only collaboration rooms ops section for the task tray:
- * merged live + durable room status from `GET /api/collab/rooms` (member
- * counts, snapshot size/age, pending and quarantined updates) plus invite
- * revocation durability counters, with an optional per-room quarantine peek
- * via `GET /api/collab/rooms/quarantine`. Display only — no room close,
- * archive, or invite mutations.
+ * Collaboration rooms ops section for the task tray: merged live + durable
+ * room status from `GET /api/collab/rooms` (member counts, snapshot
+ * size/age, pending and quarantined updates) plus invite revocation
+ * durability counters, an optional per-room quarantine peek via
+ * `GET /api/collab/rooms/quarantine`, and an explicit two-step close confirm
+ * for `POST /api/collab/rooms/close`. Archiving durable history is a
+ * separate opt-in on the confirm, and the receipt mirrors the typed archive
+ * outcomes (`archived` / `no_durable_history` / `archive_failed`) — a
+ * filesystem failure is never rendered as an archive success.
  *
  * @module CollaborationRoomsSection
  */
@@ -12,8 +15,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLanguage } from "../../i18n/language";
 import {
+  closeCollaborationRoom,
   fetchCollaborationRoomQuarantine,
   fetchCollaborationRooms,
+  type CollaborationRoomCloseResult,
   type CollaborationRoomQuarantineReport,
   type CollaborationRoomStatus,
   type CollaborationRoomsReport,
@@ -43,6 +48,31 @@ function roomStatusLabel(room: CollaborationRoomStatus): string {
   return "仅持久化";
 }
 
+/**
+ * Compact " · "-joined typed facts of one close result (each part translated
+ * separately). Mirrors the API outcome exactly: close facts first, then the
+ * archive outcome — `archive_failed` reads as a failure with the errno code
+ * and never as an archived history.
+ */
+function closeReceiptParts(result: CollaborationRoomCloseResult, t: (text: string) => string): string[] {
+  const base = result.outcome === "archive_failed" ? result.failure : result.receipt;
+  const parts: string[] = [];
+  if (base.closed) {
+    parts.push(t("已关闭"));
+    parts.push(t(`断开成员 ${base.disconnected_peers}`));
+  } else {
+    parts.push(t("房间不在线（无成员断开）"));
+  }
+  if (result.outcome === "archive_failed") {
+    parts.push(t(`历史归档失败（${result.failure.archive_error_code}），历史仍在原位`));
+  } else if (result.receipt.archived === true) {
+    parts.push(t("历史已归档"));
+  } else if (result.receipt.archived === false && result.receipt.archive_reason === "no_durable_history") {
+    parts.push(t("无持久化历史可归档"));
+  }
+  return parts;
+}
+
 /** Compact " · "-joined durable-history facts for one room row (each part translated separately). */
 function roomSnapshotSummary(room: CollaborationRoomStatus, t: (text: string) => string): string | null {
   const parts: string[] = [];
@@ -57,11 +87,14 @@ function roomSnapshotSummary(room: CollaborationRoomStatus, t: (text: string) =>
 }
 
 /**
- * Renders the read-only collaboration room status rows so operators can see
- * which rooms are live or persisted, whether invite revocations survive a
- * gateway restart, and what sits in each room's quarantine index — without
- * grepping env or curling the ops endpoints. Values are shown exactly as the
- * API reports them; nothing here closes rooms or mutates invites.
+ * Renders the collaboration room status rows so operators can see which
+ * rooms are live or persisted, whether invite revocations survive a gateway
+ * restart, and what sits in each room's quarantine index — without grepping
+ * env or curling the ops endpoints. Values are shown exactly as the API
+ * reports them. The only mutation is the explicit two-step room close: the
+ * confirm copy states the `room_closed` peer disconnect semantics, archive
+ * is a separate opt-in checkbox, and the destructive call is never issued
+ * without the confirm click.
  */
 export function CollaborationRoomsSection() {
   const { t } = useLanguage();
@@ -70,6 +103,10 @@ export function CollaborationRoomsSection() {
   const [error, setError] = useState<string | null>(null);
   const [quarantine, setQuarantine] = useState<CollaborationRoomQuarantineReport | null>(null);
   const [quarantineBusyRoom, setQuarantineBusyRoom] = useState<string | null>(null);
+  const [closeConfirmRoom, setCloseConfirmRoom] = useState<string | null>(null);
+  const [closeArchive, setCloseArchive] = useState(false);
+  const [closeBusy, setCloseBusy] = useState(false);
+  const [closeResult, setCloseResult] = useState<CollaborationRoomCloseResult | null>(null);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -107,6 +144,30 @@ export function CollaborationRoomsSection() {
     [quarantine],
   );
 
+  const toggleCloseConfirm = useCallback((room: string) => {
+    setCloseArchive(false);
+    setCloseResult(null);
+    setCloseConfirmRoom((current) => (current === room ? null : room));
+  }, []);
+
+  const confirmClose = useCallback(
+    async (room: string) => {
+      setCloseBusy(true);
+      setError(null);
+      try {
+        const result = await closeCollaborationRoom(room, { archive: closeArchive });
+        setCloseResult(result);
+        setCloseConfirmRoom(null);
+        await refresh();
+      } catch (cause) {
+        setError(errorText(cause));
+      } finally {
+        setCloseBusy(false);
+      }
+    },
+    [closeArchive, refresh],
+  );
+
   const revocations = report?.invite_revocations;
   const revocationsAtRisk =
     revocations !== undefined && !revocations.durable && revocations.revoked_tokens + revocations.room_cutoffs > 0;
@@ -130,6 +191,18 @@ export function CollaborationRoomsSection() {
               {revocations?.durable ? t("已持久化") : t("仅进程内（重启即失效）")}
             </span>
           </div>
+          {closeResult ? (
+            <p
+              className={
+                closeResult.outcome === "archive_failed" ? "task-tray-notice is-error" : "task-tray-item-phase"
+              }
+            >
+              {[
+                closeResult.outcome === "archive_failed" ? closeResult.failure.room : closeResult.receipt.room,
+                ...closeReceiptParts(closeResult, t),
+              ].join(" · ")}
+            </p>
+          ) : null}
           {report.rooms.length === 0 ? (
             <p className="task-tray-item-phase">{t("暂无活跃或持久化的协作房间")}</p>
           ) : (
@@ -138,6 +211,7 @@ export function CollaborationRoomsSection() {
                 const snapshotSummary = roomSnapshotSummary(room, t);
                 const showQuarantinePeek = report.persistence && room.quarantined_updates > 0;
                 const peeking = quarantine?.room === room.room;
+                const confirmingClose = closeConfirmRoom === room.room;
                 return (
                   <li className="task-tray-collab-room" key={room.room}>
                     <div className="task-tray-item-top">
@@ -157,8 +231,8 @@ export function CollaborationRoomsSection() {
                       </p>
                     ) : null}
                     {snapshotSummary ? <p className="task-tray-item-phase">{snapshotSummary}</p> : null}
-                    {showQuarantinePeek ? (
-                      <span className="task-tray-item-actions">
+                    <span className="task-tray-item-actions">
+                      {showQuarantinePeek ? (
                         <button
                           disabled={quarantineBusyRoom !== null}
                           onClick={() => void toggleQuarantine(room.room)}
@@ -166,7 +240,37 @@ export function CollaborationRoomsSection() {
                         >
                           {t(quarantineBusyRoom === room.room ? "读取隔离区…" : peeking ? "收起隔离区" : "查看隔离区")}
                         </button>
-                      </span>
+                      ) : null}
+                      <button disabled={closeBusy} onClick={() => toggleCloseConfirm(room.room)} type="button">
+                        {t(confirmingClose ? "收起关闭确认" : "关闭房间…")}
+                      </button>
+                    </span>
+                    {confirmingClose ? (
+                      <div className="task-tray-collab-close-confirm">
+                        <p className="task-tray-item-phase">
+                          {t("关闭后所有在线成员会收到 room_closed 错误并被断开；之后重新加入会新建会话。")}
+                        </p>
+                        <label className="task-tray-collab-close-archive">
+                          <input
+                            checked={closeArchive}
+                            disabled={!report.persistence || closeBusy}
+                            onChange={(event) => setCloseArchive(event.target.checked)}
+                            type="checkbox"
+                          />
+                          {t("同时归档持久化历史（之后加入将从空文档开始）")}
+                        </label>
+                        {!report.persistence ? (
+                          <p className="task-tray-item-phase">{t("协作持久化未启用，无法归档房间")}</p>
+                        ) : null}
+                        <span className="task-tray-item-actions">
+                          <button disabled={closeBusy} onClick={() => void confirmClose(room.room)} type="button">
+                            {t(closeBusy ? "关闭中…" : closeArchive ? "确认关闭并归档" : "确认关闭")}
+                          </button>
+                          <button disabled={closeBusy} onClick={() => setCloseConfirmRoom(null)} type="button">
+                            {t("取消")}
+                          </button>
+                        </span>
+                      </div>
                     ) : null}
                     {peeking ? (
                       quarantine.records.length === 0 ? (
