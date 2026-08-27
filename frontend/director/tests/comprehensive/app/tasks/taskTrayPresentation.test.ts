@@ -99,9 +99,7 @@ describe("taskFailureDetail", () => {
   it("projects the structured attempt error with code, label, and retryable", () => {
     const job = stubJob({
       error: "legacy text",
-      attempts: [
-        { error: { code: "media_transcode_timeout", message: "The transcode timed out", retryable: true } },
-      ],
+      attempts: [{ error: { code: "media_transcode_timeout", message: "The transcode timed out", retryable: true } }],
     });
     expect(taskFailureDetail(job)).toEqual({
       code: "media_transcode_timeout",
