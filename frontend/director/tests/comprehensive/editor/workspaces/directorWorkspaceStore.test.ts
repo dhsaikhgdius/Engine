@@ -590,7 +590,9 @@ it("commitClipPlacement overwrites same-track overlaps as one undoable step", ()
       sourceDurationSec: 8,
     })!.id;
   });
-  act(() => { useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId); });
+  act(() => {
+    useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId);
+  });
 
   let state = useDirectorCreativeWorkspaceStore.getState();
   expect(findDirectorEditClip(state.editTracks, underId)?.clip.durationSec).toBeCloseTo(2, 10);
@@ -623,14 +625,18 @@ it("commitClipPlacement clears removed selections and records no history when no
     })!.id;
     store.selectClip(coveredId);
   });
-  act(() => { useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId); });
+  act(() => {
+    useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId);
+  });
   let state = useDirectorCreativeWorkspaceStore.getState();
   expect(findDirectorEditClip(state.editTracks, coveredId)).toBeNull();
   expect(state.selectedClipId).toBeNull();
 
   // The second commit finds no overlap, so the next undo must revert the
   // overwrite itself rather than an extra no-op history entry.
-  act(() => { useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId); });
+  act(() => {
+    useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId);
+  });
   act(() => useDirectorCreativeWorkspaceStore.getState().undo());
   state = useDirectorCreativeWorkspaceStore.getState();
   expect(findDirectorEditClip(state.editTracks, coveredId)?.clip).toMatchObject({ startSec: 1, durationSec: 2 });

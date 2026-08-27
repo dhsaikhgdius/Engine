@@ -545,7 +545,10 @@ const EMPTY_OVERWRITE_SUMMARY: DirectorTrackOverwriteSummary = {
 };
 
 /** Receipt fields shared by edit.clip.add/update/move when overwrite runs. */
-function overwritePlacementResult(overwrite: boolean, summary: DirectorTrackOverwriteSummary = EMPTY_OVERWRITE_SUMMARY) {
+function overwritePlacementResult(
+  overwrite: boolean,
+  summary: DirectorTrackOverwriteSummary = EMPTY_OVERWRITE_SUMMARY,
+) {
   if (!overwrite) return { overwrite: false as const };
   return {
     overwrite: true as const,
@@ -1989,7 +1992,11 @@ export function executeCreativeWorkspaceAgentOperation(
       }
       return success(
         operation.op,
-        overwritePlacementMessage(`Updated edit clip "${updated.name}"`, Boolean(operation.overwrite), overwriteSummary),
+        overwritePlacementMessage(
+          `Updated edit clip "${updated.name}"`,
+          Boolean(operation.overwrite),
+          overwriteSummary,
+        ),
         {
           clip: projectEditClip(updated),
           track_id: owner.track.id,
