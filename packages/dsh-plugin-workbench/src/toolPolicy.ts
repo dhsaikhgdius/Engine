@@ -1,3 +1,16 @@
+/**
+ * Shared execution policy for Director tools: per-call timeout budgets and
+ * the read/write concurrency classification.
+ *
+ * Both DSH (via `isConcurrencySafe` / `timeoutMs`), the MCP server, and the
+ * HTTP tool routes consume this module, so a given tool call gets the same
+ * abort budget and the same parallel/exclusive treatment on every surface.
+ * The classification is conservative: any op not explicitly listed as
+ * read-only is exclusive, so a new mutation can never accidentally run inside
+ * a parallel window.
+ *
+ * @module toolPolicy
+ */
 import { asRecord } from "@director/protocol/primitives";
 
 /** MCP / DSH abort budget for `blender_native` (Poly Haven, render, execute_code). */
@@ -62,6 +75,8 @@ const PARALLEL_BLENDER_OPS = new Set([
 
 const PARALLEL_JOB_ACTIONS = new Set(["get", "status", "providers", "list", "capabilities"]);
 
+// Job-style ops nest their verb under `action` (directly, or inside a
+// command/request envelope); pull it out so polls can classify as reads.
 function nestedAction(input: unknown): string | undefined {
   const values = asRecord(input);
   const direct = values?.action;

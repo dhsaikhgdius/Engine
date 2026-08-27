@@ -1,3 +1,21 @@
+/**
+ * Size projection for model-facing tool results.
+ *
+ * Gateway envelopes can be arbitrarily large (full object lists, Creative
+ * snapshots, audit reports). Before a result enters the conversation, this
+ * module decides whether it must be slimmed (heavy top-level collection or
+ * total byte budget exceeded), replaces large arrays with count + id samples
+ * while preserving the small structural metadata the model needs
+ * ({@link directorAgentModelEnvelope}, `METADATA_KEYS`), and optionally
+ * spills the full payload to disk with a locator the agent can follow.
+ *
+ * Every slimmed result carries a `retrieval_hint` pointing at the correct
+ * follow-up (`observe` fields, `inspect {entity, id}`) instead of re-fetching
+ * the dump — the projection teaches the bounded-read loop rather than hiding
+ * data. Shared by the DSH plugin, the MCP server, and gateway HTTP surfaces.
+ *
+ * @module toolResultProjection
+ */
 import { asRecord } from "@director/protocol/primitives";
 
 /**

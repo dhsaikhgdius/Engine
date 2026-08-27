@@ -1,3 +1,15 @@
+/**
+ * `stage_video` input validation against the shared video-generation
+ * operation schema, plus the scene-readiness gate.
+ *
+ * `prepare` and `render` are rejected before any provider call when the
+ * current Stage scene is not video-ready (no renderable object or no
+ * camera), so a generation job can never start against an empty frame. Also
+ * consumed by the plan dry-run ({@link validateVideoModelInput}) so invalid
+ * video steps are caught at plan validation time.
+ *
+ * @module videoModelContract
+ */
 import {
   videoModelOperationSchema,
   type VideoModelOperation,

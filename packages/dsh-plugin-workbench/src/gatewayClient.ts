@@ -1,6 +1,34 @@
+/**
+ * The plugin's only network hop: an authenticated HTTP client for the
+ * Director Gateway tool surface.
+ *
+ * Responsibilities kept deliberately small so DeepSeek Harness stays the
+ * owner of the agent loop:
+ *
+ * - **Auth**: a browser token is taken from config /
+ *   `DIRECTOR_GATEWAY_TOKEN`, or bootstrapped once per gateway URL via
+ *   `/te-man/director/agent/bootstrap` and cached; a 401 drops the cache and
+ *   re-bootstraps exactly once.
+ * - **Resilience**: transient socket failures (connection reset/refused,
+ *   undici timeouts) are retried once; aborts are never retried. Terminal
+ *   failures are rewrapped with a corrective message (start the gateway,
+ *   retry the same call) instead of a bare fetch error.
+ * - **Envelope**: `dispatchDirectorWorkbenchTool` posts the validated tool
+ *   input to `/api/tools/:name` with the DSH session id (prefixed `dsh-`),
+ *   optional possession profile, and the `mcp` tool-source audit tag.
+ *   `confirm_token` rides the envelope, not the strict tool input.
+ *
+ * @module gatewayClient
+ */
 import { asRecord } from "@director/protocol/primitives";
 import { z } from "zod";
 
+/**
+ * Connection settings for one gateway hop. Every field has an environment
+ * fallback (`STAGE_GATEWAY_URL`, `DIRECTOR_GATEWAY_TOKEN`,
+ * `DIRECTOR_TARGET_TOKEN`, `DIRECTOR_AGENT_SESSION_ID`,
+ * `DIRECTOR_AGENT_PROFILE_ID`) so a bare DSH process needs no explicit config.
+ */
 export type DirectorWorkbenchGatewayConfig = {
   gatewayUrl?: string;
   gatewayToken?: string;
@@ -17,6 +45,7 @@ export type DirectorWorkbenchGatewayConfig = {
   fetchImpl?: typeof fetch;
 };
 
+/** HTTP status plus the parsed JSON body (always an object, never null). */
 export type DirectorWorkbenchGatewayResult = {
   status: number;
   body: Record<string, unknown>;
@@ -33,6 +62,8 @@ function fetchCauseCode(error: unknown): string {
   return cause && typeof cause === "object" && typeof cause.code === "string" ? cause.code : "";
 }
 
+// Retry-worthy failures only: socket-level errors that a second attempt can
+// fix. Aborts (user cancellation, timeout budgets) must never be retried.
 function isTransientGatewayFetchError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === "AbortError") return false;
   const message = error instanceof Error ? error.message : String(error);
@@ -48,6 +79,8 @@ function isTransientGatewayFetchError(error: unknown): boolean {
   );
 }
 
+// Rewrap terminal network failures with the corrective next step; rejection
+// messages are one of the four teaching channels, so they must say what to do.
 function wrapGatewayFetchError(error: unknown, gatewayUrl: string): Error {
   const message = error instanceof Error ? error.message : String(error);
   const code = fetchCauseCode(error);
@@ -80,6 +113,8 @@ async function gatewayFetch(
 }
 
 const gatewayBootstrapSchema = z.looseObject({ browserToken: z.string().min(24) });
+// Token cache keyed by gateway URL; module-level so all tools in one DSH
+// process share the bootstrap instead of re-authenticating per call.
 const gatewayTokens = new Map<string, string>();
 
 async function bootstrapGatewayToken(gatewayUrl: string, fetchImpl: typeof fetch, signal?: AbortSignal) {

@@ -1,3 +1,19 @@
+/**
+ * @director/dsh-plugin-workbench — barrel export.
+ *
+ * This package is the Director workbench as a DeepSeek Harness (DSH)
+ * plugin: it registers the `director_workbench`, `director_creative`,
+ * `director_dcc`, `blender_native`, and `director_game` tools on a DSH
+ * process and forwards every call to the Director gateway over HTTP. DSH
+ * owns the agent loop, session store, jobs, and attachments; this package
+ * only contributes tool catalog entries, dispatch, result projection, and
+ * prompt sections. The Cordis entry point DSH actually loads is
+ * `./cordis.ts`; this barrel is for programmatic consumers (gateway tests,
+ * the portable plugin build).
+ *
+ * @module @director/dsh-plugin-workbench
+ */
+
 export {
   compactWireSchema,
   DIRECTOR_AGENT_WIRE_SCHEMAS,
