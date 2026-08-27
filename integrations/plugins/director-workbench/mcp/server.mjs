@@ -138416,6 +138416,18 @@ var directorUnityOmittedMaterialSchema = external_exports.strictObject({
   renderPipeline: external_exports.enum(["built-in", "urp", "hdrp", "custom"]),
   reason: external_exports.string().trim().min(1).max(600)
 });
+var directorUnityOmittedShotCodeSchema = external_exports.enum([
+  "shot_no_camera_binding",
+  "shot_camera_not_imported",
+  "shot_target_not_camera"
+]);
+var directorUnityOmittedShotSchema = external_exports.strictObject({
+  shotId: external_exports.string().trim().min(1).max(200),
+  code: directorUnityOmittedShotCodeSchema,
+  /** Bound camera id when known; null when the shot has no camera binding. */
+  cameraDirectorId: external_exports.string().trim().min(1).max(200).nullable(),
+  reason: external_exports.string().trim().min(1).max(600)
+});
 var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
   /** Project-relative Timeline asset path, or null when no shots/animation mapped. */
   timelinePath: external_exports.string().trim().min(1).max(1024).nullable(),
@@ -138462,6 +138474,23 @@ var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
    */
   omittedMaterials: external_exports.array(directorUnityOmittedMaterialSchema).max(1024).optional(),
   /**
+   * Storyboard shots that produced an ActivationTrack camera cut on the
+   * Timeline. Optional: connector builds before typed omittedShots omit
+   * this field.
+   */
+  mappedShotCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Unmappable storyboard shot count. Optional: connector builds before
+   * typed omittedShots omit this field and dropped such shots silently.
+   */
+  omittedShotCount: external_exports.number().int().nonnegative().max(1e5).optional(),
+  /**
+   * Typed shot omit records (`shot_no_camera_binding`,
+   * `shot_camera_not_imported`, `shot_target_not_camera`). Optional for
+   * older connectors; when present, length must equal omittedShotCount.
+   */
+  omittedShots: external_exports.array(directorUnityOmittedShotSchema).max(1024).optional(),
+  /**
    * Characters posed from Director semantic pose controls (static controls
    * applied to the imported skeleton, keyframed controls baked to clips).
    * Optional: connector 0.2.x reports predate pose baking.
@@ -138501,6 +138530,21 @@ var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
         code: "custom",
         path: ["omittedMaterials"],
         message: "omittedMaterials length must equal omittedMaterialCount"
+      });
+    }
+  }
+  if (receipt.omittedShots !== void 0) {
+    if (receipt.omittedShotCount === void 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedShotCount"],
+        message: "omittedShotCount is required when omittedShots is present"
+      });
+    } else if (receipt.omittedShots.length !== receipt.omittedShotCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["omittedShots"],
+        message: "omittedShots length must equal omittedShotCount"
       });
     }
   }
@@ -139382,11 +139426,24 @@ var filmRunErrorCodeSchema = external_exports.enum([
   /** Any other execution failure (planning validation, ffmpeg, filesystem, …). */
   "film_run_error"
 ]);
+var filmPipelineCapabilityStateSchema = external_exports.strictObject({
+  configured: external_exports.boolean(),
+  /** Missing-config diagnostic (a reported state, not an error); null when configured. */
+  reason: external_exports.string().max(500).nullable()
+});
+var filmPipelineCapabilitiesSchema = external_exports.strictObject({
+  /** Dialogue TTS dubbing mixed into shot clips (`input.enableAudio`). */
+  dialogueAudio: filmPipelineCapabilityStateSchema,
+  /** Automatic white-box Stage anchor capture (`input.autoStageAnchors`); a connected workbench tab is still required at render time. */
+  stageAnchors: filmPipelineCapabilityStateSchema
+});
 var filmPipelineAvailabilitySchema = external_exports.strictObject({
   /** True when the planning LLM plus image and video providers are configured. */
   configured: external_exports.boolean(),
   /** Missing-config diagnostic (a reported state, not an error); null when configured. */
-  reason: external_exports.string().max(500).nullable()
+  reason: external_exports.string().max(500).nullable(),
+  /** Optional-capability readiness so agents learn before create whether enableAudio/autoStageAnchors can be honored. */
+  capabilities: filmPipelineCapabilitiesSchema
 });
 var filmCharacterSchema = external_exports.strictObject({
   idx: shotIndex,
@@ -139493,6 +139550,48 @@ var filmTimelineExportReceiptSchema = external_exports.strictObject({
     });
   }
 });
+var FILM_RUN_CAPABILITY_OMISSION_LIMIT = 128;
+var filmRunCapabilitySchema = external_exports.enum(["dialogue_audio", "stage_anchors"]);
+var filmRunCapabilityOmissionCodeSchema = external_exports.enum([
+  /** `input.enableAudio` was true but no TTS provider is configured; clips rendered without dialogue dubbing. */
+  "tts_unconfigured",
+  /** `input.autoStageAnchors` was true but the gateway has no workbench execution channel; scenes rendered without white-box grounding. */
+  "anchor_hook_unavailable",
+  /** Stage anchor resolution failed for one scene; that scene rendered without white-box grounding. */
+  "anchor_resolution_failed"
+]);
+var FILM_RUN_CAPABILITY_FOR_OMISSION_CODE = {
+  tts_unconfigured: "dialogue_audio",
+  anchor_hook_unavailable: "stage_anchors",
+  anchor_resolution_failed: "stage_anchors"
+};
+var SCENE_SCOPED_OMISSION_CODES = /* @__PURE__ */ new Set([
+  "anchor_resolution_failed"
+]);
+var filmRunCapabilityOmissionSchema = external_exports.strictObject({
+  capability: filmRunCapabilitySchema,
+  code: filmRunCapabilityOmissionCodeSchema,
+  /** Scene the omission applies to; null for run-level omissions. */
+  sceneIdx: shotIndex.nullable().default(null),
+  reason: nonEmptyText12(600),
+  /** When the pipeline decided to proceed without the capability. */
+  at: external_exports.string()
+}).superRefine((omission, context) => {
+  if (FILM_RUN_CAPABILITY_FOR_OMISSION_CODE[omission.code] !== omission.capability) {
+    context.addIssue({
+      code: "custom",
+      path: ["capability"],
+      message: `code ${omission.code} belongs to capability ${FILM_RUN_CAPABILITY_FOR_OMISSION_CODE[omission.code]}`
+    });
+  }
+  if (SCENE_SCOPED_OMISSION_CODES.has(omission.code) !== (omission.sceneIdx !== null)) {
+    context.addIssue({
+      code: "custom",
+      path: ["sceneIdx"],
+      message: `code ${omission.code} must carry sceneIdx ${SCENE_SCOPED_OMISSION_CODES.has(omission.code) ? "for the affected scene" : "null (run-level)"}`
+    });
+  }
+});
 var filmWorkflowSchema = external_exports.enum(["idea-to-film", "script-to-film"]);
 var filmRunStatusSchema = external_exports.enum([
   "queued",
@@ -139578,6 +139677,12 @@ var filmRunSchema = external_exports.strictObject({
    * predates typed export receipts — never invented for legacy documents.
    */
   timelineExport: filmTimelineExportReceiptSchema.nullable().default(null),
+  /**
+   * Requested optional capabilities the pipeline decided to skip, stamped
+   * with stable codes when the decision happens. Empty for runs that never
+   * skipped anything and for documents that predate typed omissions.
+   */
+  capabilityOmissions: external_exports.array(filmRunCapabilityOmissionSchema).max(FILM_RUN_CAPABILITY_OMISSION_LIMIT).default([]),
   approvedAt: external_exports.string().nullable().default(null),
   error: external_exports.string().nullable().default(null),
   /** Stable classification of `error`; null when the run carries no error. */
