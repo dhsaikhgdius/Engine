@@ -1,11 +1,22 @@
 import type { DirectorWorkbenchOperation } from "@director/agent-engine";
 
+/**
+ * Pure routing policy for choosing which connected browser tab executes an
+ * unbound workbench operation. Capture-producing ops must only reach tabs
+ * that can actually render (a hidden or non-stage tab would return a blank
+ * frame), so the ranking is: capture-ready > stage workspace > anything,
+ * then visible over hidden, then most recently seen.
+ */
+
+/** Which Director workspace a connected browser tab is showing. */
 export type DirectorBrowserWorkspace = "canvas" | "stage" | "video" | "unknown";
 
+/** What a tab last reported about itself, used purely for ranking. */
 export type WorkbenchClientRoutingRegistration = {
   visible: boolean;
   lastSeenAt: number;
   workspace: DirectorBrowserWorkspace;
+  /** True when the tab can produce real captures (visible stage viewport). */
   captureReady: boolean;
 };
 
@@ -19,6 +30,7 @@ export type WorkbenchRoutingOperation =
   | Pick<Extract<DirectorWorkbenchOperation, { op: "compare" }>, "op" | "reference" | "candidate">
   | Pick<Exclude<DirectorWorkbenchOperation, { op: "compare" }>, "op">;
 
+/** True when the op needs a rendering-capable tab (capture or stage compare). */
 export function workbenchOperationRequiresCapture(operation: WorkbenchRoutingOperation): boolean {
   if (operation.op === "compare") {
     return operation.reference.kind === "stage" || operation.candidate.kind === "stage";
