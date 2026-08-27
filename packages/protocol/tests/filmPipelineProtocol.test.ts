@@ -10,6 +10,7 @@ import {
   FILM_TIMELINE_OMITTED_SHOT_LIMIT,
   filmPipelineAvailabilitySchema,
   filmRunCapabilityOmissionSchema,
+  filmRunIntraPhaseSceneProgress,
   filmRunProgress,
   filmRunSchema,
   filmTimelineExportReceiptSchema,
@@ -333,5 +334,24 @@ describe("filmPipelineProtocol", () => {
       }),
     ).toBeCloseTo(floor + span * 0.5);
     expect(filmRunProgress({ phase: "plan-scenes", scenes: [] })).toBeCloseTo(floor);
+  });
+
+  it("reports intra-phase scene counts only inside plan-scenes and render", () => {
+    const scenes = [
+      { storyboard: [], shotSpecs: [], cameraPlan: [], videoPath: "/a.mp4" },
+      { storyboard: [], shotSpecs: null, cameraPlan: null, videoPath: null },
+    ];
+    expect(filmRunIntraPhaseSceneProgress({ phase: "develop-story", scenes })).toBeNull();
+    expect(filmRunIntraPhaseSceneProgress({ phase: "plan-scenes", scenes: [] })).toBeNull();
+    expect(filmRunIntraPhaseSceneProgress({ phase: "plan-scenes", scenes })).toEqual({
+      phase: "plan-scenes",
+      completed: 1,
+      total: 2,
+    });
+    expect(filmRunIntraPhaseSceneProgress({ phase: "render", scenes })).toEqual({
+      phase: "render",
+      completed: 1,
+      total: 2,
+    });
   });
 });

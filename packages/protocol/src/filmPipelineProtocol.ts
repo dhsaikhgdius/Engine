@@ -590,6 +590,16 @@ export type CreateFilmRunRequestInput = z.input<typeof createFilmRunRequestSchem
 /** Durable scene fields used to refine progress inside long film phases. */
 type FilmRunProgressScene = Pick<FilmSceneState, "storyboard" | "shotSpecs" | "cameraPlan" | "videoPath">;
 
+/** Long-running film phases that advance per durable scene completion. */
+export type FilmRunIntraPhaseSceneProgressPhase = Extract<FilmRunPhase, "plan-scenes" | "render">;
+
+/** Per-scene completion counts inside plan-scenes or render. */
+export type FilmRunIntraPhaseSceneProgress = {
+  phase: FilmRunIntraPhaseSceneProgressPhase;
+  completed: number;
+  total: number;
+};
+
 /**
  * Whether one scene has finished the plan-scenes artifacts (storyboard,
  * shot specs, and camera plan). Missing any of the three keeps the scene
@@ -638,6 +648,29 @@ export function filmRunProgress(
     return floor + span * scenePhaseFraction(scenes, (scene) => scene.videoPath !== null);
   }
   return floor;
+}
+
+/**
+ * Per-scene completion counts for the current long-running film phase.
+ * Returns null outside plan-scenes/render or when no scenes exist yet —
+ * the same guard {@link filmRunProgress} uses before inventing intra-phase
+ * completion from an empty array.
+ */
+export function filmRunIntraPhaseSceneProgress(
+  run: Pick<FilmRun, "phase" | "scenes">,
+): FilmRunIntraPhaseSceneProgress | null {
+  if (run.phase !== "plan-scenes" && run.phase !== "render") return null;
+  const scenes = run.scenes ?? [];
+  if (scenes.length === 0) return null;
+  const isComplete =
+    run.phase === "plan-scenes"
+      ? scenePlanComplete
+      : (scene: FilmRunProgressScene) => scene.videoPath !== null;
+  return {
+    phase: run.phase,
+    completed: scenes.filter(isComplete).length,
+    total: scenes.length,
+  };
 }
 
 /** Groups shots into cameras by camIdx, preserving shot order. */
