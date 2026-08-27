@@ -239,6 +239,16 @@
   text-overflow: ellipsis;
 }
 
+.task-tray-item-warning {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: rgb(var(--director-warning-rgb, 222 170 74));
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .task-tray-item-error {
   margin: 0;
   color: rgb(var(--director-danger-rgb, 230 96 96));

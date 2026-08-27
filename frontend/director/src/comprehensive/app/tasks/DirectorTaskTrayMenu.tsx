@@ -31,6 +31,8 @@ import { monitoredProductionRunKey, type DirectorMonitoredProductionRun } from "
 import { StorageHealthSection } from "./StorageHealthSection";
 import {
   formatProductionRunUsageLine,
+  productionRunAbsentArtifactWarnings,
+  productionRunArtifactPresencePending,
   productionRunCanCancel,
   productionRunDisplayName,
   productionRunFailureReason,
@@ -145,6 +147,8 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
   const failureReason = status === "failed" ? productionRunFailureReason(entry) : null;
   const finished = productionRunIsFinished(entry);
   const usageLines = productionRunUsageLines(entry);
+  const artifactPresencePending = productionRunArtifactPresencePending(entry);
+  const absentArtifactWarnings = productionRunAbsentArtifactWarnings(entry);
 
   return (
     <li className={`task-tray-item is-${status}`}>
@@ -177,6 +181,14 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
         <ul aria-label={t("本运行用量")} className="task-tray-item-usage">
           {usageLines.map((line) => (
             <li key={line.scope}>{formatProductionRunUsageLine(line, t)}</li>
+          ))}
+        </ul>
+      ) : null}
+      {artifactPresencePending ? <p className="task-tray-item-phase">{t("正在检查产物存储状态…")}</p> : null}
+      {absentArtifactWarnings.length > 0 ? (
+        <ul aria-label={t("产物存储警告")} className="task-tray-item-warning">
+          {absentArtifactWarnings.map((warning) => (
+            <li key={warning.key}>{t(warning.message)}</li>
           ))}
         </ul>
       ) : null}

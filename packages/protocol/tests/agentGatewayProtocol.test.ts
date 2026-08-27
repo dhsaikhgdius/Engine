@@ -69,6 +69,17 @@ describe("shared agent gateway websocket protocol", () => {
     ).toBe(true);
     expect(
       directorGatewayInboundMessageSchema.safeParse({
+        type: "possession-write-feedback",
+        code: "possession_write_filled",
+        possession: {
+          session_id: "agent-1",
+          possessed_object_ids: ["hero"],
+          filled_targets: [{ index: 0, action: "set_character_motion", field: "object_id", object_id: "hero" }],
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      directorGatewayInboundMessageSchema.safeParse({
         type: "workbench-command-request",
         requestId: "request-shot-ir",
         target: TARGET,
