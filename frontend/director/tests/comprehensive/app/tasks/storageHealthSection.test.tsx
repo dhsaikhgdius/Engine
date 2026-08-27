@@ -413,7 +413,7 @@ describe("StorageHealthSection", () => {
       await screen.findByText("已清扫 1 个对象，回收 1.0 KB；跳过 2 个 · 重新可达 1 · 计划后已改写 1"),
     ).toBeTruthy();
     // Refreshed health replaces the prior recent-sweep skip summary.
-    expect(await screen.findByText(/跳过 2 个 · 重新可达 1 · 计划后已改写 1/)).toBeTruthy();
+    expect(screen.getByText(/1\.0 KB · 跳过 2 个 · 重新可达 1 · 计划后已改写 1/)).toBeTruthy();
   });
 
   it("renders typed capacity omissions and write-probe failures instead of hiding them", async () => {
