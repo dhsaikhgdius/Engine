@@ -391,13 +391,20 @@ it("renders the Unity bake summary with structured omitted channels and never of
           humanoidAvatarCount: 1,
           genericAvatarCount: 1,
           materialFallbackCount: 3,
-          omittedMaterialCount: 1,
+          omittedMaterialCount: 2,
           omittedMaterials: [
             {
               directorId: "prop-hdrp",
               code: "pipeline_unsupported",
               renderPipeline: "hdrp",
               reason: "HDRP has no Director PBR fallback; omitted.",
+            },
+            {
+              directorId: "prop-glass",
+              code: "unsupported_channels",
+              renderPipeline: "urp",
+              reason:
+                "Object prop-glass: Director material channels transmission have no faithful URP/Built-in Lit binding; omitted (warn-and-omit code: unsupported_channels).",
             },
           ],
           mappedShotCount: 3,
@@ -437,9 +444,12 @@ it("renders the Unity bake summary with structured omitted channels and never of
   const factOf = (label: string) => within(facts).getByText(label).closest("div")!;
   expect(factOf("映射镜头")).toHaveTextContent("3");
   expect(factOf("省略镜头")).toHaveTextContent("1");
+  expect(factOf("省略材质")).toHaveTextContent("2");
   const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
   expect(within(omittedMaterials).getByText("prop-hdrp")).toBeInTheDocument();
   expect(omittedMaterials).toHaveTextContent("管线不支持材质回退");
+  expect(within(omittedMaterials).getByText("prop-glass")).toBeInTheDocument();
+  expect(omittedMaterials).toHaveTextContent("不支持的材质通道");
   const omittedShots = screen.getByRole("list", { name: "结构化省略镜头" });
   expect(within(omittedShots).getByText("shot-orphan")).toBeInTheDocument();
   expect(omittedShots).toHaveTextContent("镜头缺少相机绑定");

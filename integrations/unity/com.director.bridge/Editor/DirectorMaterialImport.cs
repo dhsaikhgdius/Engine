@@ -10,7 +10,7 @@ namespace Director.Bridge.Editor
     /// <summary>
     /// Director PBR manifest material fallback for URP and the Built-in
     /// pipeline. GLB payload materials are translated by the project's glTF
-    /// importer; this pass only covers the explicit `material` override a
+    /// importer; this pass only covers the explicit <c>material</c> override a
     /// Director object may carry in the exchange manifest (glTF
     /// metallic-roughness parameterization). Unsupported material graphs
     /// (transmission, clearcoat, IOR, HDRP/custom pipelines) warn-and-omit
@@ -20,14 +20,15 @@ namespace Director.Bridge.Editor
     public static class DirectorMaterialImport
     {
         /// <summary>
-        /// Result of one Director PBR fallback attempt: either a saved Material
-        /// or a typed omit record when the active pipeline/shader cannot host
-        /// the override. Partial feature/texture warnings stay free-text.
+        /// Result of one Director PBR fallback attempt: a saved Material when
+        /// the pipeline can host it, plus zero or more typed omit records
+        /// (whole-fallback failures and/or unsupported_channels while the
+        /// Lit/Standard fallback still applies).
         /// </summary>
         public sealed class MaterialImportResult
         {
             public Material Material;
-            public JObject OmittedMaterial;
+            public readonly List<JObject> OmittedMaterials = new List<JObject>();
         }
 
         /// <summary>The render pipeline the fallback targets, as reported to the Gateway.</summary>
@@ -46,9 +47,11 @@ namespace Director.Bridge.Editor
 
         /// <summary>
         /// Creates and saves a fallback material for one Director object, or
-        /// returns a typed omit when the active pipeline has no supported lit
-        /// shader. The material asset lives under the package folder so
-        /// re-imports overwrite deterministically.
+        /// returns typed omits when the active pipeline has no supported lit
+        /// shader. Unsupported graph features / unbound texture slots still
+        /// emit typed <c>unsupported_channels</c> while the fallback Material
+        /// is created for channels Unity can carry. The material asset lives
+        /// under the package folder so re-imports overwrite deterministically.
         /// </summary>
         public static MaterialImportResult CreateFallbackMaterial(
             JObject materialJson,
@@ -64,7 +67,7 @@ namespace Director.Bridge.Editor
             Shader shader = FindLitShader(renderPipeline, directorId, warnings, out JObject omit);
             if (shader == null)
             {
-                result.OmittedMaterial = omit;
+                result.OmittedMaterials.Add(omit);
                 return result;
             }
             bool universal = renderPipeline == "urp";
@@ -81,21 +84,41 @@ namespace Director.Bridge.Editor
             }
             if (materialJson["roughness"] != null)
             {
-                // glTF metallic-roughness to Unity smoothness.
                 float smoothness = 1f - (float)(double)materialJson["roughness"];
                 material.SetFloat(universal ? "_Smoothness" : "_Glossiness", smoothness);
             }
             ApplyOpacity(material, materialJson, universal, directorId, warnings);
             ApplyEmission(material, materialJson, universal);
             ApplySides(material, materialJson, universal, directorId, warnings);
-            appliedTextureCount = ApplyTextures(material, materialJson, universal, resolveTexture, directorId, warnings);
-            WarnUnsupportedGraphFeatures(materialJson, directorId, warnings);
+            var unboundSlots = new List<string>();
+            appliedTextureCount = ApplyTextures(
+                material, materialJson, universal, resolveTexture, directorId, warnings, unboundSlots);
+            JObject channelsOmit = CollectUnsupportedChannelsOmit(
+                materialJson, unboundSlots, directorId, renderPipeline, warnings);
+            if (channelsOmit != null)
+            {
+                result.OmittedMaterials.Add(channelsOmit);
+            }
 
             System.IO.Directory.CreateDirectory(materialFolder);
             string assetPath = $"{materialFolder}/{DirectorGlbImport.SafeFileStem(directorId)}.mat";
             AssetDatabase.CreateAsset(material, assetPath);
             result.Material = material;
             return result;
+        }
+
+        /// <summary>
+        /// Typed omit when a Director material was authored but the GameObject
+        /// has no Renderer to receive the fallback (empty / missing mesh).
+        /// </summary>
+        public static JObject MakeNoMeshTargetOmit(string directorId, string renderPipeline, List<string> warnings)
+        {
+            const string code = "no_mesh_target";
+            string reason =
+                $"Object {directorId}: a Director material was authored but the payload has no mesh " +
+                $"Renderer to apply it to (warn-and-omit code: {code}).";
+            warnings.Add(reason);
+            return MakeOmit(directorId, code, renderPipeline, reason);
         }
 
         private static JObject MakeOmit(string directorId, string code, string renderPipeline, string reason)
@@ -168,8 +191,8 @@ namespace Director.Bridge.Editor
             material.SetColor(colorProperty, color);
             if (universal)
             {
-                material.SetFloat("_Surface", 1f); // transparent
-                material.SetFloat("_Blend", 0f); // alpha
+                material.SetFloat("_Surface", 1f);
+                material.SetFloat("_Blend", 0f);
                 material.SetOverrideTag("RenderType", "Transparent");
                 material.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
                 material.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
@@ -178,7 +201,7 @@ namespace Director.Bridge.Editor
             }
             else
             {
-                material.SetFloat("_Mode", 2f); // fade
+                material.SetFloat("_Mode", 2f);
                 material.SetOverrideTag("RenderType", "Transparent");
                 material.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
                 material.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
@@ -238,7 +261,8 @@ namespace Director.Bridge.Editor
             bool universal,
             Func<string, Texture2D> resolveTexture,
             string directorId,
-            List<string> warnings)
+            List<string> warnings,
+            List<string> unboundSlots)
         {
             var textures = (JObject)materialJson["textures"];
             if (textures == null) return 0;
@@ -280,8 +304,7 @@ namespace Director.Bridge.Editor
                         }
                         break;
                     default:
-                        // Unity's lit shaders expect packed metallic-smoothness;
-                        // loose roughness/metalness/alpha maps cannot bind 1:1.
+                        unboundSlots.Add(binding.Key);
                         warnings.Add(
                             $"Object {directorId}: texture slot {binding.Key} has no 1:1 Unity binding " +
                             "(Unity packs metallic and smoothness into one map); omitted (warn-and-omit).");
@@ -313,22 +336,36 @@ namespace Director.Bridge.Editor
             return true;
         }
 
-        private static void WarnUnsupportedGraphFeatures(
-            JObject materialJson, string directorId, List<string> warnings)
+        private static JObject CollectUnsupportedChannelsOmit(
+            JObject materialJson,
+            List<string> unboundSlots,
+            string directorId,
+            string renderPipeline,
+            List<string> warnings)
         {
+            var unsupported = new List<string>();
             foreach (string feature in new[] { "transmission", "ior", "clearcoat", "clearcoatRoughness" })
             {
                 if (materialJson[feature] != null)
                 {
-                    warnings.Add(
-                        $"Object {directorId}: material feature {feature} has no URP/Built-in Lit equivalent; " +
-                        "omitted (warn-and-omit).");
+                    unsupported.Add(feature);
                 }
             }
             if (materialJson["wireframe"] != null && (bool)materialJson["wireframe"])
             {
-                warnings.Add($"Object {directorId}: wireframe rendering is a Director viewport effect; omitted.");
+                unsupported.Add("wireframe");
             }
+            foreach (string slot in unboundSlots)
+            {
+                unsupported.Add(slot);
+            }
+            if (unsupported.Count == 0) return null;
+            const string code = "unsupported_channels";
+            string reason =
+                $"Object {directorId}: Director material channels {string.Join(", ", unsupported)} have no " +
+                $"faithful URP/Built-in Lit binding; omitted (warn-and-omit code: {code}).";
+            warnings.Add(reason);
+            return MakeOmit(directorId, code, renderPipeline, reason);
         }
     }
 }
