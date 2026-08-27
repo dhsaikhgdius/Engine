@@ -95,6 +95,38 @@ def _round_color(color: RgbaLinear) -> List[float]:
     return [round(component, 9) for component in color]
 
 
+def make_texture_import_failed_omit(
+    director_id: str,
+    parameters: List[str],
+    *,
+    stage: str = "import",
+) -> dict:
+    """Build a typed ``texture_import_failed`` omit for Agent-facing receipts.
+
+    Bundled hashed textures that fail host import or MaterialInstance parameter
+    bind must never stay free-text-only. The MaterialInstance may still apply
+    for channels Unreal can carry; failed slots stay unbound.
+
+    @param director_id: Director object id that owns the material override.
+    @param parameters: Parent texture parameter names that failed (e.g. BaseColorMap).
+    @param stage: ``import`` (AssetImportTask produced no Texture) or ``bind``
+        (set_material_instance_texture_parameter_value failed).
+    """
+    names = ", ".join(parameters)
+    if stage == "bind":
+        reason = (
+            f"Object {director_id}: bundled texture parameter(s) {names} failed to bind on the "
+            f"MaterialInstance; those slots stay unbound (warn-and-omit code: texture_import_failed)."
+        )
+    else:
+        reason = (
+            f"Object {director_id}: bundled texture parameter(s) {names} failed to import into "
+            f"Unreal; the MaterialInstance stays unbound for those slots "
+            f"(warn-and-omit code: texture_import_failed)."
+        )
+    return {"directorId": director_id, "code": "texture_import_failed", "reason": reason}
+
+
 def map_material(material: dict, entity_name: str = "", texture_files: Optional[Dict[str, str]] = None) -> dict:
     """Map one Director PBR material stanza to Unreal instance overrides.
 
@@ -210,6 +242,20 @@ def map_material(material: dict, entity_name: str = "", texture_files: Optional[
 def _run_cli(argv: list) -> int:
     """JSON-in/JSON-out CLI used by the host-free Gateway tests."""
     payload = json.loads(sys.stdin.read())
+    if isinstance(payload, dict) and payload.get("op") == "texture_import_failed_omit":
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "result": make_texture_import_failed_omit(
+                        str(payload.get("directorId", "")),
+                        list(payload.get("parameters") or []),
+                        stage=str(payload.get("stage") or "import"),
+                    ),
+                }
+            )
+        )
+        return 0
     if isinstance(payload, list):
         results = [
             map_material(entry.get("material", {}), entry.get("name", ""), entry.get("textureFiles"))

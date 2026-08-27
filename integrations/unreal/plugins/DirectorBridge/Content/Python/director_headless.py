@@ -55,7 +55,7 @@ import director_package as dpkg  # noqa: E402
 import director_sequencer as dsequencer  # noqa: E402
 import director_space as dspace  # noqa: E402
 
-CONNECTOR_VERSION = "0.4.3"
+CONNECTOR_VERSION = "0.4.4"
 PROVIDER = "unreal"
 DIRECTOR_TAG_PREFIX = "director_id:"
 # Lights are tagged with their own prefix so the transform-echo export loop
@@ -356,10 +356,22 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
                 if material_parents is None:
                     material_parents = dhostmat.ensure_parent_materials(unreal, CONTENT_ROOT, warnings)
                 try:
-                    texture_assets = {
-                        parameter: texture_asset_for(asset_ref)
-                        for parameter, asset_ref in mapped.get("textures", {}).items()
-                    }
+                    texture_assets = {}
+                    failed_import_parameters = []
+                    for parameter, asset_ref in mapped.get("textures", {}).items():
+                        texture = texture_asset_for(asset_ref)
+                        if texture is None:
+                            # Bundled file was present but host import produced no
+                            # Texture asset — typed texture_import_failed (never
+                            # a silent unbound slot).
+                            failed_import_parameters.append(parameter)
+                        else:
+                            texture_assets[parameter] = texture
+                    if failed_import_parameters:
+                        omit = dmaterials.make_texture_import_failed_omit(
+                            entity["id"], failed_import_parameters, stage="import"
+                        )
+                        stats["omittedMaterials"].append(omit)
                     applied = dhostmat.apply_material(
                         unreal,
                         mesh_component,
@@ -387,6 +399,12 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
                                 "reason": reason,
                             }
                         )
+                    failed_bind_parameters = list(applied.get("failedTextureParameters") or [])
+                    if failed_bind_parameters:
+                        omit = dmaterials.make_texture_import_failed_omit(
+                            entity["id"], failed_bind_parameters, stage="bind"
+                        )
+                        stats["omittedMaterials"].append(omit)
                     stats["appliedTextureCount"] += applied["boundTextureCount"]
                 except Exception as error:  # noqa: BLE001 - material failure must not sink the import
                     reason = (

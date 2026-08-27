@@ -207,13 +207,14 @@ def apply_material(
     @param parents: The result of ``ensure_parent_materials``.
     @param texture_assets: Texture parameter name -> imported ``unreal.Texture``
         for the slots ``mapped["textures"]`` bound. Each bind also enables the
-        matching ``Use<Parameter>`` static switch.
-    @returns ``{"applied": bool, "boundTextureCount": int}``.
+        matching ``Use<Parameter>`` static switch. ``None`` values are skipped
+        (caller stamps typed ``texture_import_failed`` for those parameters).
+    @returns ``{"applied": bool, "boundTextureCount": int, "failedTextureParameters": list}``.
     """
     parent = parents.get(mapped["parent"])
     if parent is None:
         warnings.append(f"Material instance {instance_name} was skipped: no {mapped['parent']} parent material.")
-        return {"applied": False, "boundTextureCount": 0}
+        return {"applied": False, "boundTextureCount": 0, "failedTextureParameters": []}
     library = unreal.MaterialEditingLibrary
     asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
     instance = asset_tools.create_asset(
@@ -227,6 +228,7 @@ def apply_material(
             instance, parameter_name, unreal.LinearColor(value[0], value[1], value[2], value[3])
         )
     bound_texture_count = 0
+    failed_texture_parameters: list = []
     for parameter_name, texture in (texture_assets or {}).items():
         if texture is None:
             continue
@@ -236,6 +238,7 @@ def apply_material(
             bound_texture_count += 1
         except Exception as error:  # noqa: BLE001 - one bad texture must not sink the instance
             warnings.append(f"Texture parameter {parameter_name} failed to bind on {instance_name}: {error}")
+            failed_texture_parameters.append(parameter_name)
     if mapped.get("twoSided"):
         try:
             overrides = instance.get_editor_property("base_property_overrides")
@@ -253,7 +256,15 @@ def apply_material(
         slot_count = 0
     if slot_count == 0:
         warnings.append(f"Material instance {instance_name} was authored but the component has no material slots.")
-        return {"applied": True, "boundTextureCount": bound_texture_count}
+        return {
+            "applied": True,
+            "boundTextureCount": bound_texture_count,
+            "failedTextureParameters": failed_texture_parameters,
+        }
     for slot in range(slot_count):
         mesh_component.set_material(slot, instance)
-    return {"applied": True, "boundTextureCount": bound_texture_count}
+    return {
+        "applied": True,
+        "boundTextureCount": bound_texture_count,
+        "failedTextureParameters": failed_texture_parameters,
+    }
