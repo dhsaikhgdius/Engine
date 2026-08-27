@@ -37,6 +37,10 @@ MAX_CAMERAS = 512
 MAX_SOURCE_BYTES = 2_147_483_648
 RENDERABLE_TYPES = {"MESH", "CURVE", "SURFACE", "META", "FONT"}
 DEPENDENCY_TYPES = {"EMPTY", "ARMATURE"}
+# Object types the Stage cannot represent. Each entry becomes a typed
+# `unsupported` record in the manifest (kind/name/reason) — Director's UI and
+# agents surface these as the omitted-channel report, so the reasons are
+# user-facing copy, not internal notes. Silent omission is forbidden.
 UNSUPPORTED_OBJECT_TYPES = {
     "LIGHT": "Director scene import v1 does not model Blender lights.",
     "VOLUME": "Volumes are not represented by the Director GLB scene importer.",
@@ -49,6 +53,8 @@ UNSUPPORTED_OBJECT_TYPES = {
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    # Inside Blender, script arguments follow a "--" separator on the Blender
+    # command line; standalone (tests, --help) they are plain argv.
     raw = list(sys.argv if argv is None else argv)
     separator = raw.index("--") if "--" in raw else 0
     arguments = raw[separator + 1 :] if separator else raw[1:]
@@ -60,6 +66,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def ensure_inside(parent: Path, child: Path) -> Path:
+    """Refuse any output path that resolves outside the job directory —
+    the scene (via director_id strings etc.) must not choose write targets."""
     resolved_parent = parent.resolve()
     resolved_child = child.resolve()
     try:
@@ -90,6 +98,8 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 
 def bounded_text(value: Any, maximum: int = 2_000) -> str:
+    # Scene-provided names flow into the manifest and UI; bound their length
+    # so a pathological .blend cannot bloat the report.
     text = str(value).strip() or "Unknown Blender item"
     return text[:maximum]
 
@@ -111,6 +121,10 @@ def append_unsupported(unsupported: list[dict[str, str]], kind: Any, name: Any, 
 
 
 def source_id_for_camera(camera_object: Any, used: set[str], warnings: list[str]) -> str:
+    """Stable source id for a camera: an explicit unique ``director_id`` wins
+    (round-tripped scenes keep identity); otherwise derive a deterministic id
+    from the object+data names so re-exports of an unchanged scene produce
+    the same ids and Director can match cameras across imports."""
     explicit = camera_object.get("director_id")
     if isinstance(explicit, str) and explicit.strip():
         candidate = explicit.strip()[:240]
@@ -144,6 +158,14 @@ def effective_unit_scale(scene: Any, warnings: list[str]) -> float:
 
 
 def exact_timebase(scene: Any) -> tuple[int, int, float]:
+    """Recover the scene frame rate as an exact rational (numerator, denominator, float).
+
+    A previously stamped exact timebase (round-tripped scene) is trusted
+    verbatim; otherwise the float fps is snapped to the known NTSC
+    24000/1001-family rates, then to integers, then approximated with a
+    bounded-denominator fraction. Director's timeline math is rational, so
+    shipping a float here would accumulate drift over long timelines.
+    """
     stored_numerator = scene.get("director_timebase_numerator")
     stored_denominator = scene.get("director_timebase_denominator")
     if (
@@ -171,6 +193,9 @@ def exact_timebase(scene: Any) -> tuple[int, int, float]:
 
 
 def is_renderable_seed(item: Any) -> bool:
+    """Does this object contribute visible geometry (mesh-like types and
+    collection-instance empties)? hide_render is the artist's own exclusion
+    switch and is honored over everything else."""
     if bool(getattr(item, "hide_render", False)):
         return False
     if item.type in RENDERABLE_TYPES:
@@ -179,6 +204,14 @@ def is_renderable_seed(item: Any) -> bool:
 
 
 def export_objects(scene: Any) -> tuple[list[Any], list[Any]]:
+    """Choose (seeds, selected) for the GLB export.
+
+    Seeds are the renderable objects themselves; ``selected`` additionally
+    pulls in every ancestor and armature dependency (and the armatures'
+    ancestors) so exported transforms and skinning stay correct — but never
+    cameras or lights, which travel through their own manifest channels.
+    Both lists are name-sorted for deterministic exports.
+    """
     seeds = [item for item in scene.objects if is_renderable_seed(item)]
     selected = set(seeds)
     for item in list(seeds):
@@ -238,6 +271,9 @@ def has_animation(owner: Any) -> bool:
 
 @contextmanager
 def selected_for_export(objects: list[Any]):
+    """Temporarily select exactly the export set (unhiding as needed) because
+    the glTF exporter works on selection; the artist's original selection,
+    hide state, and active object are restored afterwards even on failure."""
     if bpy is None:
         raise RuntimeError("Blender Python API is unavailable")
     scene_objects = list(bpy.context.scene.objects)
@@ -262,6 +298,13 @@ def selected_for_export(objects: list[Any]):
 
 
 def rebuild_glb_json(path: Path, mutate: Any) -> None:
+    """Apply ``mutate`` to a GLB's JSON chunk and rewrite the container.
+
+    Parses the GLB 2.0 chunk table by hand (no glTF library dependency
+    inside Blender), replaces only the first JSON chunk, re-pads to the
+    4-byte alignment the spec requires, and fixes the total-length header.
+    Binary chunks pass through untouched.
+    """
     payload = bytearray(path.read_bytes())
     if len(payload) < 20 or bytes(payload[:4]) != b"glTF" or int.from_bytes(payload[4:8], "little") != 2:
         raise ValueError(f"Blender did not produce a GLB 2.0 file at {path}")
@@ -330,6 +373,12 @@ def apply_meter_root(path: Path, scale_length: float) -> None:
 
 
 def export_scene_glb(objects: list[Any], destination: Path, unit_scale: float) -> None:
+    """Export the selected objects as one Y-up GLB with animations sampled.
+
+    Exporter options that only exist in newer Blender versions are probed via
+    the operator's RNA before being passed, so one script supports the full
+    supported Blender range without version branching.
+    """
     if bpy is None:
         raise RuntimeError("director_scene_export.py must run inside Blender")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -397,6 +446,15 @@ def camera_record(
     render_aspect_ratio: float,
     warnings: list[str],
 ) -> dict[str, Any]:
+    """One manifest camera: world transform plus physical optics in meters.
+
+    Every optical value is clamped to Director's accepted ranges with a
+    warning (never a hard failure — one odd camera must not sink the whole
+    scene import). The vertical FOV is derived from the sensor-fit-effective
+    sensor height so Director reproduces Blender's framing at the scene's
+    render aspect ratio. Lens shift and camera object scale are reported as
+    compatibility warnings because the Stage cannot represent them.
+    """
     data = camera_object.data
     location, rotation, scale = camera_object.matrix_world.decompose()
     rotation.normalize()
@@ -451,6 +509,14 @@ def camera_record(
 
 
 def collect_compatibility(scene: Any, warnings: list[str], unsupported: list[dict[str, str]]) -> None:
+    """Populate the manifest's omitted-channel report.
+
+    Walks the scene for objects the Stage cannot model (lights, volumes,
+    ortho cameras…) and scene-level features that will not survive the GLB
+    (compositor nodes, world HDRI, linked libraries, unpacked images). This
+    is the honesty channel: Director shows these to the user instead of
+    letting content disappear silently.
+    """
     for item in sorted(scene.objects, key=lambda candidate: candidate.name_full):
         if item.type == "CAMERA":
             if item.data.type != "PERSP":
@@ -477,6 +543,14 @@ def collect_compatibility(scene: Any, warnings: list[str], unsupported: list[dic
 
 
 def build_manifest(source_path: Path, output_dir: Path) -> dict[str, Any]:
+    """Produce the strict ``director-blend-scene-v1`` manifest and its GLB.
+
+    The manifest is the contract the gateway validates with Zod: source file
+    provenance (sha256), the explicit coordinate-system mapping, an exact
+    rational timebase, per-camera optics, scene statistics, and the bounded
+    warning/unsupported channels. ``bundleFile`` stays None for a scene with
+    no renderable geometry — a valid, empty import.
+    """
     if bpy is None:
         raise RuntimeError("director_scene_export.py must run inside Blender")
     scene = bpy.context.scene
@@ -568,6 +642,13 @@ def build_manifest(source_path: Path, output_dir: Path) -> dict[str, Any]:
 
 
 def validate_source(source_path: Path) -> None:
+    """Sanity-check that Blender actually loaded the requested .blend.
+
+    Checks size bounds, a recognizable container header (raw BLENDER magic or
+    zstd/gzip compression), and — decisively — that ``bpy.data.filepath``
+    resolves to the requested source, guarding against Blender silently
+    falling back to an empty startup scene when a load fails.
+    """
     if bpy is None:
         raise RuntimeError("Blender Python API is unavailable")
     if not source_path.is_file():
@@ -613,6 +694,10 @@ def success_report(manifest: dict[str, Any], manifest_path: Path) -> dict[str, A
 
 
 def run() -> int:
+    """CLI entry point: validate, extract, and always leave a machine-readable
+    trail — report.json plus a RESULT_PREFIX line on stdout that the gateway
+    parses even when Blender's own output is noisy. Failures still attempt to
+    write the failure report before re-raising for a nonzero exit."""
     args = parse_args()
     output_dir = Path(args.output_dir).resolve()
     source_path = Path(args.source_blend).resolve()

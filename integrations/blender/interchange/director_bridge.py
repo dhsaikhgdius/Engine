@@ -96,6 +96,7 @@ def material_for(name: str, color: str | None = None):
 
 
 def apply_transform(target, transform: dict[str, Any]) -> None:
+    # Package quaternions are (x, y, z, w); Blender stores (w, x, y, z).
     target.location = transform["location"]
     x, y, z, w = transform["rotationQuaternion"]
     target.rotation_mode = "QUATERNION"
@@ -268,6 +269,14 @@ def keyframe_transform(target, keyframe: dict[str, Any]) -> None:
 
 
 def add_object(item: dict[str, Any], warnings: list[str]) -> Any:
+    """Build one Director scene object as a `director_id`-tagged empty root.
+
+    The empty is the stable handle the return exporter diffs against; the
+    imported GLB (or a proxy primitive when the asset is missing or fails to
+    import) hangs underneath it. Transform keyframes and portable pose
+    controls from the package are applied to the root, never to the asset
+    geometry.
+    """
     root = bpy.data.objects.new(item["name"], None)
     bpy.context.scene.collection.objects.link(root)
     root.empty_display_type = "PLAIN_AXES"
@@ -315,6 +324,13 @@ def aim_camera(camera_object, target: list[float]) -> None:
 
 
 def add_camera(item: dict[str, Any]) -> Any:
+    """Build one physical Blender camera from Director optics.
+
+    The sensor is resized so its aspect matches the shot's declared aspect
+    ratio (fit within the declared physical sensor); combined with the fixed
+    HORIZONTAL sensor fit this reproduces Director's field of view exactly at
+    the render resolution chosen by configure_output_aspect.
+    """
     camera_data = bpy.data.cameras.new(name=f"{item['name']}_Data")
     camera_data.lens = item["focalLengthMm"]
     camera_data.sensor_fit = "HORIZONTAL"
@@ -378,6 +394,10 @@ def light_baseline(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def add_light(item: dict[str, Any], warnings: list[str]) -> Any:
+    """Build one Blender light from a Director light record, stamping the
+    import-time baseline the return exporter needs to detect edits. Types
+    without a Blender equivalent are warned about and skipped — the warning
+    list is the omitted-lights channel surfaced back to Director."""
     blender_type = BLENDER_LIGHT_TYPES.get(item["type"])
     if blender_type is None:
         warnings.append(f"{item['id']}: light type {item['type']!r} has no Blender equivalent; skipped.")
@@ -422,6 +442,13 @@ def add_ground(scene_payload: dict[str, Any]) -> None:
 
 
 def configure_scene(payload: dict[str, Any]) -> None:
+    """Apply the package timeline, render engine, and world background.
+
+    The exact rational timebase is preserved as scene metadata (numerator/
+    denominator custom properties) because Blender's fps/fps_base pair is
+    float-based; the return trip reads those properties back rather than
+    re-deriving the rate from floats.
+    """
     scene = bpy.context.scene
     timeline = payload["timeline"]
     timebase = timeline.get("timebase")
@@ -510,6 +537,10 @@ def apply_previz_preview_materials(payload: dict[str, Any]) -> None:
 
 
 def main() -> dict[str, Any]:
+    """Build the .blend from a package: clear → configure → objects/lights/
+    cameras → return to currentFrame → stamp baselines → save, then render
+    the optional previz preview *after* saving so preview-only material
+    overrides never leak into the handoff file."""
     args = parse_args()
     package_path = Path(args.package).resolve()
     output_blend = Path(args.output_blend).resolve()
