@@ -18,6 +18,23 @@ const sweepReasonCountsSchema = z.object({
   retentionExpired: z.number().int().nonnegative(),
 });
 
+/** Per-reason counts of planned-sweep keys that were skipped, not deleted. */
+export const storageGcSkipReasonCountsSchema = z.object({
+  becameReachable: z.number().int().nonnegative(),
+  modifiedSincePlan: z.number().int().nonnegative(),
+  alreadyAbsent: z.number().int().nonnegative(),
+  deleteFailed: z.number().int().nonnegative(),
+});
+
+/** Per-reason counts of planned-sweep keys that were skipped, not deleted. */
+export type StorageGcSkipReasonCounts = z.infer<typeof storageGcSkipReasonCountsSchema>;
+
+/** One typed skip from a sweep response (key lists may be truncated by the gateway). */
+const storageGcSweepSkipSchema = z.object({
+  key: z.string(),
+  code: z.enum(["became-reachable", "modified-since-plan", "already-absent", "delete-failed"]),
+});
+
 /** Live capacity measurement, or the gateway's typed omission. */
 export const storageCapacityCheckSchema = z.discriminatedUnion("status", [
   z.object({
@@ -96,6 +113,10 @@ export const storageHealthSummarySchema = z.object({
         sweptAt: z.string(),
         deletedCount: z.number().int().nonnegative(),
         reclaimedBytes: z.number().nonnegative(),
+        // Optional so older audit rows / gateways still parse; new sweeps stamp
+        // skip honesty so the tray never implies a full delete when keys were skipped.
+        skippedCount: z.number().int().nonnegative().optional(),
+        skippedByReason: storageGcSkipReasonCountsSchema.optional(),
       }),
     )
     .default([]),
@@ -132,6 +153,10 @@ export const storageGcSweepOutcomeSchema = z.object({
   deletedCount: z.number().int().nonnegative(),
   reclaimedBytes: z.number().nonnegative(),
   skippedCount: z.number().int().nonnegative(),
+  // Optional so a tray talking to a pre-skip-reason gateway still parses;
+  // prefer these counts over the optional truncated `skipped` key list.
+  skippedByReason: storageGcSkipReasonCountsSchema.optional(),
+  skipped: z.array(storageGcSweepSkipSchema).optional(),
 });
 
 /** The outcome of one confirmed sweep. */
