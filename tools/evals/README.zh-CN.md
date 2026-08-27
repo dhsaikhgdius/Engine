@@ -71,9 +71,12 @@ npm run eval:reference
 
 每个步骤都通过 `tool` 指定一个公开工具:`director_workbench`、`director_creative`、
 `stage_video`、`blender_native`、`director_dcc` 或 `director_game`。在启动隔离浏览器前,任务 schema 测试会先用
-对应工具的严格合同校验所有预期成功的输入。游戏切片任务（`12`–`18`）覆盖规划/绑定/试玩、
-导出到 `director_dcc` 的路由、未绑定拒绝、无内联 `trace` 的 host-free playtest、实时 Stage
-试玩路径（见"实时（live）与 host-free 试玩"）、harness 与代码生成的诚实契约（Stage 是默认运行时;`export_slice` 拒绝生成引擎代码），以及从 `packages/protocol/src/gameDemoRecipes.ts` 逐字回放的 fps/racing/rpg 题材演示配方。这些诚实
+对应工具的严格合同校验所有预期成功的输入。游戏切片任务（`12`–`24`）覆盖规划/绑定/试玩、
+导出到 `director_dcc` 的路由、未绑定拒绝、无内联 `trace` 的 host-free playtest、harness 与
+代码生成的诚实契约（Stage 是默认运行时;`export_slice` 拒绝生成引擎代码）、从
+`packages/protocol/src/gameDemoRecipes.ts` 逐字回放的全部五个题材演示配方
+（fps、racing、rpg、exploration、fighting）、以 `export_slice` 拒绝收尾的 racing/fps 完整循环,
+以及实时 Stage 试玩路径（见"实时（live）与 host-free 试玩"）。这些诚实
 断言背后的对比记录在 `docs/site/src/content/docs/zh/research/game-harness-vs-codegen.md`。
 
 `result_paths` 是针对整个 JSON 响应体解析的点号路径（数组按数字索引,如
@@ -134,8 +137,10 @@ Player Mode 在 `player enter` 之后需要片刻才能就绪。
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | 无显式 trace 的 host-free playtest 评分                            |
 | `tasks/16-game-demo-fps-recipe-hostfree.json`    | 回放 fps 题材演示配方:capabilities/describe 发现、plan、按提示绑定、免宿主试玩至可玩 |
 | `tasks/16-game-harness-vs-codegen-honesty.json`  | harness vs 代码生成诚实性:capabilities 报告 `runtime.default = "stage"`,`export_slice` 在可玩回执之前（`game_export_not_playable`）与之后（`game_export_via_dcc`）都拒绝代码生成 |
-| `tasks/16-game-slice-racing-full-loop.json`      | 无内联 trace 的完整竞速闭环,强制载具顺序,导出路由到 `director_dcc`       |
+| `tasks/16-game-slice-racing-full-loop.json`      | racing 完整循环（无内联 trace）:plan → bind → playtest → evaluate,`export_slice` 拒绝生成代码并路由到 `director_dcc` |
 | `tasks/17-game-demo-racing-recipe-hostfree.json` | 回放 racing 题材演示配方,含 enter/exit vehicle 动词,回执字面可玩          |
-| `tasks/17-game-slice-fps-full-loop.json`         | 无内联 trace 的完整 FPS 闭环,覆盖 fire/reload 动词,导出路由到 `director_dcc` |
+| `tasks/17-game-slice-fps-full-loop.json`         | fps 完整循环(无内联 trace):sprint/fire/reload 免宿主评分,`export_slice` 拒绝生成代码并路由到 `director_dcc` |
 | `tasks/18-game-demo-rpg-recipe-hostfree.json`    | 回放 rpg 题材演示配方,含 interact 与 attack 动词,回执字面可玩             |
 | `tasks/18-game-slice-live-stage-playtest.json`   | 实时 Stage 试玩:创建真实对象、绑定并在已连接标签页上回放,要求 `live_stage` 来源 |
+| `tasks/19-game-demo-exploration-recipe-hostfree.json` | 回放 exploration 题材演示配方(走过庭院、跃过石阶、与石碑交互),回执字面可玩 |
+| `tasks/20-game-demo-fighting-recipe-hostfree.json` | 回放 fighting 题材演示配方,含 attack 与 dash 动词,回执字面可玩            |

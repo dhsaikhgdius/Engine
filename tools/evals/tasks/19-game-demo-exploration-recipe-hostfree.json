@@ -1,0 +1,88 @@
+{
+  "name": "game-demo-exploration-recipe-hostfree",
+  "description": "Discover the exploration demo recipe, plan from its brief template, bind player/spawn/objective per the hints, then score the recipe acceptance script (walk, hop, interact with the stele) to a literally playable receipt through the host-free runner — no inline trace.",
+  "steps": [
+    {
+      "label": "describe the exploration recipe",
+      "tool": "director_game",
+      "input": { "op": "describe", "target": "demo_recipes.exploration" },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.recipe.brief.requirement",
+          "result.recipe.bind_hints.2.role_id",
+          "result.recipe.acceptance_script.steps.3.input.interact"
+        ],
+        "result_equals": { "result.recipe.genre": "exploration" }
+      }
+    },
+    {
+      "label": "plan from the recipe brief",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-demo-exploration-01",
+        "brief": {
+          "requirement": "Walk across the courtyard, hop over the low stone step, and interact with the stele to read it.",
+          "genre": "exploration",
+          "perspective": "third",
+          "engine_target": "stage",
+          "style": "white-box clay (metric, untextured silhouettes)"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id"],
+        "result_equals": { "result.slice.status": "draft" }
+      }
+    },
+    {
+      "label": "bind the hinted roles",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-demo-exploration-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "courtyard-hero-1", "source": "catalog" },
+          { "role_id": "spawn", "object_id": "courtyard-spawn-1", "source": "project" },
+          { "role_id": "objective-1", "object_id": "courtyard-stele-1", "source": "catalog" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.suggested_playtest_script.steps"],
+        "result_equals": { "result.bind_complete": true, "result.slice.status": "bound" }
+      }
+    },
+    {
+      "label": "host-free playtest with the recipe acceptance script",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-demo-exploration-01",
+        "script": {
+          "steps": [
+            { "frames": 16, "input": { "forward": true }, "expect": { "verb": "move" } },
+            { "frames": 10, "input": { "look_right": true }, "expect": { "verb": "look" } },
+            { "frames": 8, "input": { "jump": true }, "expect": { "verb": "jump" } },
+            { "frames": 6, "input": { "interact": true }, "expect": { "verb": "interact" } }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.trace.contract", "result.trace.samples.0.frame"],
+        "result_equals": { "result.evaluation.playable": true, "result.slice.status": "playable" }
+      }
+    },
+    {
+      "label": "evaluate the stored playable receipt",
+      "tool": "director_game",
+      "input": { "op": "evaluate", "slice_id": "game-eval-demo-exploration-01" },
+      "expect": {
+        "success": true,
+        "result_equals": { "result.evaluation.playable": true }
+      }
+    }
+  ]
+}

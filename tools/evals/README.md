@@ -77,11 +77,13 @@ Each `tasks/*.json` file is one task, run sequentially with its own
 Every step names one public tool in `tool`: `director_workbench`, `director_creative`,
 `stage_video`, `blender_native`, `director_dcc`, or `director_game`. The task-schema test validates every
 expected-success input against that tool's strict contract before an isolated browser run.
-Game-slice tasks (`12`–`18`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
-host-free playtest without an inline `trace`, racing/FPS full loops, the live Stage playtest path
-(see "Live vs host-free playtest"), the harness-vs-codegen honesty contract
-(Stage as the default runtime; `export_slice` refusing engine code generation), and the fps/racing/rpg genre demo recipes replayed
-verbatim from `packages/protocol/src/gameDemoRecipes.ts`. The harness-vs-codegen comparison is documented in
+Game-slice tasks (`12`–`24`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
+host-free playtest without an inline `trace`, the harness-vs-codegen honesty contract
+(Stage as the default runtime; `export_slice` refusing engine code generation), all five genre
+demo recipes (fps, racing, rpg, exploration, fighting) replayed verbatim from
+`packages/protocol/src/gameDemoRecipes.ts`, the racing/fps full loops ending in the
+`export_slice` refusal, and the live Stage playtest path (see "Live vs host-free playtest").
+The harness-vs-codegen comparison is documented in
 `docs/site/src/content/docs/research/game-harness-vs-codegen.md`.
 
 `result_paths` are dot-paths resolved against the whole JSON response body
@@ -152,8 +154,10 @@ exercises is decided by its bindings:
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | Host-free playtest scoring without an explicit trace                                                            |
 | `tasks/16-game-demo-fps-recipe-hostfree.json`    | Replay the fps demo recipe: discover via capabilities/describe, plan, bind hinted roles, host-free playtest to playable |
 | `tasks/16-game-harness-vs-codegen-honesty.json`  | Harness-vs-codegen honesty: capabilities report `runtime.default = "stage"`, and `export_slice` rejects codegen both before (`game_export_not_playable`) and after (`game_export_via_dcc`) a playable receipt |
-| `tasks/16-game-slice-racing-full-loop.json`      | Full racing loop with no inline trace, vehicle order enforced, export routed to `director_dcc`                        |
+| `tasks/16-game-slice-racing-full-loop.json`      | Full racing loop with no inline trace: plan → bind → playtest → evaluate, then `export_slice` refuses codegen and routes to `director_dcc` |
 | `tasks/17-game-demo-racing-recipe-hostfree.json` | Replay the racing demo recipe with enter/exit vehicle verbs to a literally playable receipt                          |
-| `tasks/17-game-slice-fps-full-loop.json`         | Full FPS loop with no inline trace, fire/reload verbs exercised, export routed to `director_dcc`                      |
+| `tasks/17-game-slice-fps-full-loop.json`         | Full fps loop with no inline trace: sprint/fire/reload scored host-free, then `export_slice` refuses codegen and routes to `director_dcc` |
 | `tasks/18-game-demo-rpg-recipe-hostfree.json`    | Replay the rpg demo recipe with interact plus attack verbs to a literally playable receipt                            |
 | `tasks/18-game-slice-live-stage-playtest.json`   | Live Stage playtest: author real actors, bind, replay the tape on the connected tab, require `live_stage` provenance  |
+| `tasks/19-game-demo-exploration-recipe-hostfree.json` | Replay the exploration demo recipe (walk, hop, interact with the stele) to a literally playable receipt          |
+| `tasks/20-game-demo-fighting-recipe-hostfree.json` | Replay the fighting demo recipe with attack plus dash verbs to a literally playable receipt                         |
