@@ -1,10 +1,8 @@
 /**
  * Director browser entry point.
  *
- * Route-aware boot: the research portal and the main creative workbench are
- * separate SPA surfaces served from the same origin. The entry decides which
- * one to mount based on the pathname, then lazy-loads only the chunks needed
- * for that surface.
+ * The entry lazy-loads the creative workbench chunks so the browser entry
+ * chunk stays minimal.
  *
  * The Agent bridge (gatewayClient) is loaded after first paint so that the
  * control-plane WebSocket does not inflate or block the browser entry chunk.
@@ -13,27 +11,16 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 
-const isResearchPortal = window.location.pathname === "/research" || window.location.pathname === "/research/docs";
 const root = createRoot(document.getElementById("root")!);
 
 /**
- * Lazy-loads and mounts the correct SPA surface, then initializes the
- * Agent gateway bridge independently of first paint.
+ * Lazy-loads and mounts the Director App, then initializes the Agent
+ * gateway bridge independently of first paint.
  *
  * On failure, renders a static recovery card without relying on any lazy
  * chunk — the chunk network path is exactly what may be broken.
  */
 async function bootstrap() {
-  if (isResearchPortal) {
-    const { default: ResearchPortal } = await import("./research/ResearchPortal");
-    root.render(
-      <StrictMode>
-        <ResearchPortal />
-      </StrictMode>,
-    );
-    return;
-  }
-
   const [{ default: App }, { initializeDirectorTheme }, { WorkspaceErrorBoundary }] = await Promise.all([
     import("./comprehensive/App"),
     import("./comprehensive/app/theme/directorTheme"),

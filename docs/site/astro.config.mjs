@@ -123,7 +123,6 @@ export default defineConfig({
             page("Pipeline System Design", "engineering/pipeline_system_design", "管线系统设计"),
             page("Reference Reuse Ledger", "engineering/reference_reuse_ledger", "参考复用台账"),
             page("Replication Spec", "engineering/replication_spec", "复刻规范"),
-            page("Research Portal", "engineering/research_portal", "研究门户"),
             page("Third-party Notices", "engineering/third_party_notices", "第三方声明"),
             page("UI/Agent Parity Inventory", "engineering/ui-agent-parity-inventory", "UI/Agent 对等清单"),
             page("White-box to Video", "engineering/video_gen_pipeline", "白模到视频"),
