@@ -41,6 +41,9 @@ export default defineConfig({
           page("Quick Start", "getting-started/quick-start", "快速上手"),
         ]),
         group("Concepts", "核心概念", [
+          page("Why Director", "concepts/why-director", "为什么选 Director"),
+          page("Product Constitution", "concepts/product-constitution", "产品宪法"),
+          page("Golden Journey", "concepts/golden-journey", "黄金旅程"),
           page("Agent-native Production", "concepts/agent-native-production", "Agent-native 制片"),
           page("Glossary", "concepts/glossary", "术语表"),
         ]),
