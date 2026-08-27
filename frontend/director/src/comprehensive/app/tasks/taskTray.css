@@ -373,6 +373,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+.task-tray-collab-close-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+  padding: 4px 5px;
+  border: 1px solid rgb(var(--border-rgb) / 0.2);
+  border-radius: var(--director-radius-sm);
+}
+
+.task-tray-collab-close-archive {
+  display: flex;
+  gap: 5px;
+  align-items: flex-start;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.task-tray-collab-close-archive input {
+  margin: 1px 0 0;
+}
+
 .task-tray-storage-rows {
   display: grid;
   grid-template-columns: auto 1fr;

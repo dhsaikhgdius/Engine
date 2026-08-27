@@ -12,6 +12,7 @@ vi.mock("../../../../src/comprehensive/editor/api/directorControlPlaneClient", (
 
 import { CollaborationRoomsSection } from "../../../../src/comprehensive/app/tasks/CollaborationRoomsSection";
 import {
+  closeCollaborationRoom,
   fetchCollaborationRoomQuarantine,
   fetchCollaborationRooms,
 } from "../../../../src/comprehensive/app/tasks/collaborationRoomsClient";
@@ -133,6 +134,103 @@ describe("collaborationRoomsClient", () => {
     expect(report.room).toBe("ops/idle-room");
     expect(report.records[0]).toMatchObject({ byte_length: 512, reason: "empty update payload" });
   });
+
+  it("posts an explicit close (archive off by default) and validates the receipt", async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(200, { room: "ops/live-room", closed: true, disconnected_peers: 3, archived: null }),
+    );
+    const result = await closeCollaborationRoom("ops/live-room");
+    expect(mocks.fetch).toHaveBeenCalledWith("/api/collab/rooms/close", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room: "ops/live-room", archive: false }),
+      signal: undefined,
+    });
+    expect(result).toEqual({
+      outcome: "closed",
+      receipt: { room: "ops/live-room", closed: true, disconnected_peers: 3, archived: null },
+    });
+  });
+
+  it("parses the typed archive outcomes: archived and no_durable_history", async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(200, { room: "ops/idle-room", closed: false, disconnected_peers: 0, archived: true }),
+    );
+    const archivedResult = await closeCollaborationRoom("ops/idle-room", { archive: true });
+    expect(JSON.parse((mocks.fetch.mock.calls[0]?.[1]?.body as string) ?? "")).toEqual({
+      room: "ops/idle-room",
+      archive: true,
+    });
+    expect(archivedResult).toEqual({
+      outcome: "closed",
+      receipt: { room: "ops/idle-room", closed: false, disconnected_peers: 0, archived: true },
+    });
+
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        room: "ops/live-room",
+        closed: true,
+        disconnected_peers: 2,
+        archived: false,
+        archive_reason: "no_durable_history",
+      }),
+    );
+    const noHistory = await closeCollaborationRoom("ops/live-room", { archive: true });
+    expect(noHistory).toEqual({
+      outcome: "closed",
+      receipt: {
+        room: "ops/live-room",
+        closed: true,
+        disconnected_peers: 2,
+        archived: false,
+        archive_reason: "no_durable_history",
+      },
+    });
+  });
+
+  it("returns a typed archive_failed outcome on HTTP 500 instead of claiming success", async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(500, {
+        error: "协作房间历史归档失败，房间已关闭但历史仍在原位",
+        code: "archive_failed",
+        room: "ops/live-room",
+        closed: true,
+        disconnected_peers: 3,
+        archived: false,
+        archive_error_code: "EACCES",
+      }),
+    );
+    const result = await closeCollaborationRoom("ops/live-room", { archive: true });
+    expect(result.outcome).toBe("archive_failed");
+    if (result.outcome !== "archive_failed") throw new Error("expected a typed archive_failed result");
+    expect(result.failure).toMatchObject({
+      room: "ops/live-room",
+      closed: true,
+      disconnected_peers: 3,
+      archived: false,
+      archive_error_code: "EACCES",
+    });
+  });
+
+  it("surfaces the persistence-disabled close refusal with its zh label", async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(409, { error: "协作持久化未启用，无法归档房间", code: "collab_persistence_disabled" }),
+    );
+    await expect(closeCollaborationRoom("ops/live-room", { archive: true })).rejects.toThrow(
+      "协作持久化未启用，无法归档房间",
+    );
+
+    // Defensive: a refusal body carrying only the code still maps to the zh label.
+    mocks.fetch.mockResolvedValueOnce(jsonResponse(409, { code: "collab_persistence_disabled" }));
+    await expect(closeCollaborationRoom("ops/live-room", { archive: true })).rejects.toThrow(
+      "协作持久化未启用，无法归档房间",
+    );
+  });
+
+  it("rejects malformed close receipts at the boundary", async () => {
+    mocks.fetch.mockResolvedValueOnce(jsonResponse(200, { room: "ops/live-room", closed: "yes" }));
+    await expect(closeCollaborationRoom("ops/live-room")).rejects.toThrow();
+  });
 });
 
 describe("CollaborationRoomsSection", () => {
@@ -222,6 +320,166 @@ describe("CollaborationRoomsSection", () => {
     mocks.fetch.mockImplementation(async () => jsonResponse(200, roomsBody({ rooms: [] })));
     render(<CollaborationRoomsSection />);
     expect(await screen.findByText("暂无活跃或持久化的协作房间")).toBeTruthy();
+  });
+
+  it("never issues the close call without the explicit confirm step", async () => {
+    const user = userEvent.setup();
+    mocks.fetch.mockImplementation(async (path) => {
+      if (path === "/api/collab/rooms") return jsonResponse(200, roomsBody());
+      throw new Error(`Unexpected path ${path}`);
+    });
+    render(<CollaborationRoomsSection />);
+    await screen.findByText("ops/live-room");
+
+    // Step one only opens the confirm panel with the room_closed semantics.
+    await user.click(screen.getAllByRole("button", { name: "关闭房间…" })[0]!);
+    expect(
+      screen.getByText("关闭后所有在线成员会收到 room_closed 错误并被断开；之后重新加入会新建会话。"),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "确认关闭" })).toBeTruthy();
+
+    // Cancel dismisses the confirm; no mutation was ever sent.
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("button", { name: "确认关闭" })).toBeNull();
+    for (const [, init] of mocks.fetch.mock.calls) {
+      expect(init?.method ?? "GET").toBe("GET");
+    }
+  });
+
+  it("closes a room after confirm, reports typed close facts, and refreshes the list", async () => {
+    const user = userEvent.setup();
+    const posts: unknown[] = [];
+    mocks.fetch.mockImplementation(async (path, init) => {
+      if (path === "/api/collab/rooms") return jsonResponse(200, roomsBody());
+      if (path === "/api/collab/rooms/close") {
+        posts.push(JSON.parse((init?.body as string) ?? ""));
+        return jsonResponse(200, { room: "ops/live-room", closed: true, disconnected_peers: 3, archived: null });
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+    render(<CollaborationRoomsSection />);
+    await screen.findByText("ops/live-room");
+
+    await user.click(screen.getAllByRole("button", { name: "关闭房间…" })[0]!);
+    await user.click(screen.getByRole("button", { name: "确认关闭" }));
+
+    expect(await screen.findByText("ops/live-room · 已关闭 · 断开成员 3")).toBeTruthy();
+    expect(posts).toEqual([{ room: "ops/live-room", archive: false }]);
+    const listCalls = mocks.fetch.mock.calls.filter(([path]) => path === "/api/collab/rooms");
+    expect(listCalls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("archives only when opted in and reports the archived outcome", async () => {
+    const user = userEvent.setup();
+    const posts: unknown[] = [];
+    mocks.fetch.mockImplementation(async (path, init) => {
+      if (path === "/api/collab/rooms") return jsonResponse(200, roomsBody());
+      if (path === "/api/collab/rooms/close") {
+        posts.push(JSON.parse((init?.body as string) ?? ""));
+        return jsonResponse(200, { room: "ops/live-room", closed: true, disconnected_peers: 3, archived: true });
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+    render(<CollaborationRoomsSection />);
+    await screen.findByText("ops/live-room");
+
+    await user.click(screen.getAllByRole("button", { name: "关闭房间…" })[0]!);
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "确认关闭并归档" }));
+
+    expect(await screen.findByText("ops/live-room · 已关闭 · 断开成员 3 · 历史已归档")).toBeTruthy();
+    expect(posts).toEqual([{ room: "ops/live-room", archive: true }]);
+  });
+
+  it("reports the no_durable_history archive outcome honestly", async () => {
+    const user = userEvent.setup();
+    mocks.fetch.mockImplementation(async (path) => {
+      if (path === "/api/collab/rooms") return jsonResponse(200, roomsBody());
+      if (path === "/api/collab/rooms/close") {
+        return jsonResponse(200, {
+          room: "ops/live-room",
+          closed: true,
+          disconnected_peers: 3,
+          archived: false,
+          archive_reason: "no_durable_history",
+        });
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+    render(<CollaborationRoomsSection />);
+    await screen.findByText("ops/live-room");
+
+    await user.click(screen.getAllByRole("button", { name: "关闭房间…" })[0]!);
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "确认关闭并归档" }));
+
+    expect(await screen.findByText("ops/live-room · 已关闭 · 断开成员 3 · 无持久化历史可归档")).toBeTruthy();
+    expect(screen.queryByText(/历史已归档/)).toBeNull();
+  });
+
+  it("surfaces archive_failed as a failure and never claims archive success", async () => {
+    const user = userEvent.setup();
+    mocks.fetch.mockImplementation(async (path) => {
+      if (path === "/api/collab/rooms") return jsonResponse(200, roomsBody());
+      if (path === "/api/collab/rooms/close") {
+        return jsonResponse(500, {
+          error: "协作房间历史归档失败，房间已关闭但历史仍在原位",
+          code: "archive_failed",
+          room: "ops/live-room",
+          closed: true,
+          disconnected_peers: 3,
+          archived: false,
+          archive_error_code: "EACCES",
+        });
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+    render(<CollaborationRoomsSection />);
+    await screen.findByText("ops/live-room");
+
+    await user.click(screen.getAllByRole("button", { name: "关闭房间…" })[0]!);
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "确认关闭并归档" }));
+
+    const failure = await screen.findByText(
+      "ops/live-room · 已关闭 · 断开成员 3 · 历史归档失败（EACCES），历史仍在原位",
+    );
+    expect(failure.className).toContain("is-error");
+    expect(screen.queryByText(/历史已归档/)).toBeNull();
+  });
+
+  it("disables the archive opt-in when persistence is off", async () => {
+    const user = userEvent.setup();
+    mocks.fetch.mockImplementation(async (path) => {
+      if (path === "/api/collab/rooms") return jsonResponse(200, roomsBody({ persistence: false }));
+      throw new Error(`Unexpected path ${path}`);
+    });
+    render(<CollaborationRoomsSection />);
+    await screen.findByText("ops/live-room");
+
+    await user.click(screen.getAllByRole("button", { name: "关闭房间…" })[0]!);
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.disabled).toBe(true);
+    expect(screen.getByText("协作持久化未启用，无法归档房间")).toBeTruthy();
+  });
+
+  it("shows the persistence-disabled refusal inline when the gateway rejects the archive", async () => {
+    const user = userEvent.setup();
+    mocks.fetch.mockImplementation(async (path) => {
+      if (path === "/api/collab/rooms") return jsonResponse(200, roomsBody());
+      if (path === "/api/collab/rooms/close") {
+        return jsonResponse(409, { error: "协作持久化未启用，无法归档房间", code: "collab_persistence_disabled" });
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+    render(<CollaborationRoomsSection />);
+    await screen.findByText("ops/live-room");
+
+    await user.click(screen.getAllByRole("button", { name: "关闭房间…" })[0]!);
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "确认关闭并归档" }));
+
+    expect(await screen.findByText("协作持久化未启用，无法归档房间")).toBeTruthy();
   });
 
   it("shows gateway refusals inline and recovers on refresh", async () => {

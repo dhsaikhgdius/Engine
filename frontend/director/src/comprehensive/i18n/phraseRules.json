@@ -360,6 +360,15 @@
     "pattern": "^协作隔离区信息请求失败（HTTP (\\d+)）$",
     "replacement": "Collaboration quarantine request failed (HTTP $1)"
   },
+  {
+    "pattern": "^协作房间关闭请求失败（HTTP (\\d+)）$",
+    "replacement": "Collaboration room close request failed (HTTP $1)"
+  },
+  { "pattern": "^断开成员 (\\S+)$", "replacement": "Disconnected peers $1" },
+  {
+    "pattern": "^历史归档失败（(\\S+)），历史仍在原位$",
+    "replacement": "History archive failed ($1); the history remains in place"
+  },
   { "pattern": "^(.+) · (.+) 滑杆$", "handler": "compositeSlider" },
   { "pattern": "^(.+) · (.+)$", "handler": "composite" },
   { "pattern": "^(.+)：(.+)$", "replacement": "$1: $2" }
