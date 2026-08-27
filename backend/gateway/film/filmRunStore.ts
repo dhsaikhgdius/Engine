@@ -132,7 +132,9 @@ export class FilmRunStore {
    * bytes out while the run document keeps the path claim; live receipt reads
    * pass this to `projectFilmRunReceipt` so every control surface reports
    * honest `storagePresence` instead of trusting the stored paths (mirrors
-   * `ProductionJobStore.artifactBytesPresent`).
+   * `ProductionJobStore.artifactBytesPresent`). The orchestrator also consults
+   * these probes on resume/execute to clear absent claims before the
+   * render/assemble checkpoints skip finished work.
    *
    * @param run - The durable film run document.
    * @returns Probe verdicts for each claimed path; unclaimed paths are omitted.

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -370,6 +370,127 @@ describe("FilmPipelineOrchestrator", () => {
     expect(completed.status).toBe("completed");
     // Characters were reused from the durable document; extraction ran once.
     expect(agents.calls.filter((call) => call === "extractCharacters")).toHaveLength(1);
+  });
+
+  it("reclaims absent scene/final video claims on resume so wiped clips re-render and reassemble", async () => {
+    const { store, orchestrator, coordinator } = await harness();
+    const created = await orchestrator.create({
+      workflow: "idea-to-film",
+      input: { idea: "磁盘清理后还能续拍的片子", userRequirement: "两个场景" },
+    });
+    const completed = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(completed.status).toBe("completed");
+    expect(coordinator.renders).toEqual([0, 1]);
+    const scene0Path = completed.scenes[0]?.videoPath;
+    const scene1Path = completed.scenes[1]?.videoPath;
+    const finalPath = completed.finalVideoPath;
+    expect(scene0Path).toBeTruthy();
+    expect(scene1Path).toBeTruthy();
+    expect(finalPath).toBeTruthy();
+
+    // Disk cleanup ages out scene 0 and the assembled final while the durable
+    // path claims remain — the honesty gap #137 stamped on receipts but resume
+    // previously trusted videoPath and skipped re-render.
+    await unlink(scene0Path!);
+    await unlink(finalPath!);
+
+    await store.update(created.id, (current) => ({
+      ...current,
+      status: "failed",
+      error: "simulated post-run artifact wipe",
+      errorCode: "film_run_error",
+    }));
+
+    await orchestrator.resume(created.id);
+    const resumed = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(resumed.status).toBe("completed");
+    // Scene 0 re-rendered; scene 1's present bytes were reused.
+    expect(coordinator.renders).toEqual([0, 1, 0]);
+    expect(resumed.scenes[0]?.videoPath).toBeTruthy();
+    expect(resumed.scenes[1]?.videoPath).toBe(scene1Path);
+    expect(resumed.finalVideoPath).toBeTruthy();
+    expect(resumed.events.some((event) => event.message.includes("Scene 0 claimed video absent"))).toBe(true);
+    expect(resumed.events.some((event) => event.message.includes("reassembl"))).toBe(true);
+    expect(await store.artifactStoragePresence(resumed)).toEqual({
+      finalVideo: "present",
+      sceneVideos: [
+        { sceneIdx: 0, presence: "present" },
+        { sceneIdx: 1, presence: "present" },
+      ],
+    });
+  });
+
+  it("reassembles when only the final video bytes are absent without re-rendering present scenes", async () => {
+    const { store, orchestrator, coordinator } = await harness();
+    const created = await orchestrator.create({
+      workflow: "idea-to-film",
+      input: { idea: "成片被删但分镜还在", userRequirement: "两个场景" },
+    });
+    const completed = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(completed.status).toBe("completed");
+    expect(coordinator.renders).toEqual([0, 1]);
+    await unlink(completed.finalVideoPath!);
+
+    await store.update(created.id, (current) => ({
+      ...current,
+      status: "failed",
+      error: "final video wiped",
+      errorCode: "film_run_error",
+    }));
+
+    await orchestrator.resume(created.id);
+    const resumed = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(resumed.status).toBe("completed");
+    expect(coordinator.renders).toEqual([0, 1]);
+    expect(resumed.finalVideoPath).toBeTruthy();
+    expect(await store.artifactStoragePresence(resumed)).toMatchObject({ finalVideo: "present" });
+    expect(resumed.events.some((event) => event.message.includes("Final video claim absent"))).toBe(true);
+  });
+
+  it("re-exports the timeline when only timeline bytes are absent", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "director-film-orchestrator-"));
+    tempDirs.push(dir);
+    const store = new FilmRunStore(dir);
+    let exportCount = 0;
+    const orchestrator = new FilmPipelineOrchestrator({
+      store,
+      planningAgents: fakePlanningAgents(),
+      renderCoordinator: fakeRenderCoordinator(),
+      ffmpegPath: "ffmpeg",
+      exportTimeline: async ({ runDirectory }) => {
+        exportCount += 1;
+        const outputPath = join(runDirectory, "timeline.otio");
+        await mkdir(dirname(outputPath), { recursive: true });
+        await writeFile(outputPath, `{"export":${exportCount}}`);
+        return {
+          outputPath,
+          receipt: { shotCount: 1, clipCount: 1, omittedShotCount: 0, omittedShots: [] },
+        };
+      },
+    });
+    const created = await orchestrator.create({
+      workflow: "script-to-film",
+      input: { script: "INT. 剪辑室 - 日" },
+    });
+    const completed = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(completed.status).toBe("completed");
+    expect(exportCount).toBe(1);
+    expect(completed.timelinePath).toBeTruthy();
+    await unlink(completed.timelinePath!);
+
+    await store.update(created.id, (current) => ({
+      ...current,
+      status: "failed",
+      error: "timeline wiped",
+      errorCode: "film_run_error",
+    }));
+
+    await orchestrator.resume(created.id);
+    const resumed = await waitForStatus(store, created.id, ["completed", "failed"]);
+    expect(resumed.status).toBe("completed");
+    expect(exportCount).toBe(2);
+    expect(await store.artifactStoragePresence(resumed)).toMatchObject({ timeline: "present" });
+    expect(resumed.events.some((event) => event.message.includes("Timeline claim absent"))).toBe(true);
   });
 
   it("cancels a queued run", async () => {
