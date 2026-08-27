@@ -242,6 +242,10 @@ describe("CollaborationRoomsSection", () => {
     render(<CollaborationRoomsSection />);
 
     expect(await screen.findByText("需邀请 · 持久化已启用")).toBeTruthy();
+    expect(screen.getByText("空房间 TTL")).toBeTruthy();
+    expect(screen.getByText("120 秒")).toBeTruthy();
+    expect(screen.getByText("邀请速率限制")).toBeTruthy();
+    expect(screen.getByText("30 / 分钟")).toBeTruthy();
     expect(screen.getByText("已吊销邀请")).toBeTruthy();
     expect(screen.getByText("2")).toBeTruthy();
     expect(screen.getByText("房间级吊销截止")).toBeTruthy();
