@@ -1,3 +1,12 @@
+/**
+ * The Canvas pipeline executor: runs the board's dependency DAG as generation
+ * jobs. Nodes execute level-by-level (parallel within a level), reuse cached
+ * outputs when inputs are unchanged (content-hash keyed), pass upstream media
+ * into downstream ComfyUI submissions, and record per-node runs into the
+ * workspace store. A failure blocks only its downstream branch. The module
+ * keeps a single active pipeline handle so the UI can reattach after remount,
+ * and dependencies are injectable for tests.
+ */
 import type {
   ComfyGenerationInputImage,
   ComfyGenerationSubmitRequest,

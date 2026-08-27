@@ -1,3 +1,23 @@
+/**
+ * Video Editor workspace — the NLE surface where generated and imported media
+ * become a cut: multitrack timeline (video/audio/caption layers), program
+ * preview, media browser, clip inspector, and export.
+ *
+ * Core areas:
+ * - Timeline editing: clip trim/move/split/ripple, transitions, snapping,
+ *   filmstrip thumbnails, waveforms, caption cues, and per-clip properties
+ *   (transform, opacity, volume, playback rate).
+ * - Playback: SMPTE-timecode transport (drop-frame aware) with a preview that
+ *   composites active layers at the playhead.
+ * - I/O: media import/relink through the persistent library (with proxy
+ *   candidates for heavy sources), caption file import, project bundle
+ *   export/import, and timeline video export.
+ *
+ * Agent parity: discrete edit operations dispatch through
+ * dispatchCreativeWorkspaceOperations — the same typed contract MCP agents
+ * use — so UI cuts and agent cuts share validation and undo history;
+ * continuous gestures commit at pointer-up.
+ */
 import {
   useCallback,
   useEffect,

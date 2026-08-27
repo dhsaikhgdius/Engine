@@ -1,3 +1,10 @@
+/**
+ * Timeline compositing and export math for the video editor: which layers and
+ * audio clips are active at a given time (with transition-aware opacity),
+ * content duration, render sizes per aspect/quality, and the frame-by-frame
+ * canvas render loop behind `exportDirectorTimelineVideo`. Pure functions are
+ * shared by the live preview and the exporter so what you see is what renders.
+ */
 import type { DirectorVideoRecording } from "../video/directorVideoExport";
 import { clamp } from "../../../../../../packages/protocol/src/primitives";
 import type { DirectorMediaItem } from "./directorMediaLibrary";

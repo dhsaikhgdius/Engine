@@ -1,3 +1,8 @@
+/**
+ * Zod schemas and history limits for the Canvas pipeline's persisted state:
+ * per-node production configs, node outputs, and pipeline run records. Shared
+ * by the workspace store (persistence) and the pipeline executor.
+ */
 import { z } from "zod";
 import { comfyGenerationParametersSchema } from "../../../../../../packages/protocol/src/comfyGenerationProtocol";
 

@@ -1,3 +1,11 @@
+/**
+ * Creative project bundle export/import: a single ZIP containing the workspace
+ * state (board, edit, gallery), the Stage project document, media bytes with
+ * waveforms/transcripts/proxies, and splat sequences — everything needed to
+ * move a project between browsers. Import validates every part with Zod and
+ * repairs/reports rather than failing wholesale; a legacy JSON-only format is
+ * still readable for older exports.
+ */
 import JSZip, { type JSZipObject } from "jszip";
 import { z } from "zod";
 import {
