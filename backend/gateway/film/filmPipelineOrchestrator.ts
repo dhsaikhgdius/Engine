@@ -261,6 +261,71 @@ export class FilmPipelineOrchestrator {
     return stamped;
   }
 
+  /**
+   * Clears durable artifact path claims whose bytes are gone on disk so resume
+   * re-renders / reassembles instead of treating a wiped clip as finished work.
+   * Live receipts already stamp `storagePresence` for the same probes; this
+   * makes the control path honor them (otherwise `if (scene.videoPath) continue`
+   * skips re-render and assemble hits an opaque ffmpeg ENOENT).
+   *
+   * Clearing any absent scene video also clears the final video and timeline
+   * claims: a concat built from wiped scene clips is stale even when its own
+   * bytes still exist.
+   *
+   * @param id - The film run id.
+   * @param run - The durable run document before reclaim.
+   * @returns The run after any absent claims were cleared (or the input when every probe is present).
+   */
+  private async reclaimAbsentArtifactClaims(id: string, run: FilmRun): Promise<FilmRun> {
+    const presence = await this.options.store.artifactStoragePresence(run);
+    const absentSceneIdxs = (presence.sceneVideos ?? [])
+      .filter((video) => video.presence === "absent")
+      .map((video) => video.sceneIdx)
+      .sort((left, right) => left - right);
+    const finalAbsent = presence.finalVideo === "absent";
+    const timelineAbsent = presence.timeline === "absent";
+    const clearFinal = finalAbsent || absentSceneIdxs.length > 0;
+    const clearTimeline = timelineAbsent || clearFinal;
+    if (absentSceneIdxs.length === 0 && !finalAbsent && !timelineAbsent) return run;
+
+    const next = await this.options.store.update(id, (current) => ({
+      ...current,
+      scenes: current.scenes.map((scene) =>
+        absentSceneIdxs.includes(scene.idx) ? { ...scene, videoPath: null } : scene,
+      ),
+      finalVideoPath: clearFinal ? null : current.finalVideoPath,
+      timelinePath: clearTimeline ? null : current.timelinePath,
+      timelineExport: clearTimeline ? null : current.timelineExport,
+    }));
+
+    for (const sceneIdx of absentSceneIdxs) {
+      await this.recordEvent(
+        id,
+        "render",
+        `Scene ${sceneIdx} claimed video absent on disk; clearing path claim and re-rendering`,
+      );
+    }
+    if (clearFinal && run.finalVideoPath !== null) {
+      await this.recordEvent(
+        id,
+        "assemble",
+        finalAbsent
+          ? "Final video claim absent on disk; clearing path claim and reassembling"
+          : "Final video claim cleared after absent scene clips; will reassemble",
+      );
+    }
+    if (clearTimeline && run.timelinePath !== null) {
+      await this.recordEvent(
+        id,
+        "assemble",
+        timelineAbsent && !clearFinal
+          ? "Timeline claim absent on disk; clearing path claim and re-exporting"
+          : "Timeline claim cleared after absent rendered artifacts; will re-export",
+      );
+    }
+    return next;
+  }
+
   private async execute(id: string, signal: AbortSignal) {
     try {
       // A cancel that lands between scheduling and this first write must not
@@ -376,6 +441,9 @@ export class FilmPipelineOrchestrator {
         signal,
       });
       run = await this.options.store.update(id, (current) => ({ ...current, portraitsReady: true }));
+
+      // Honor live storagePresence before trusting path claims as finished work.
+      run = await this.reclaimAbsentArtifactClaims(id, run);
 
       for (const scene of run.scenes) {
         signal.throwIfAborted();
