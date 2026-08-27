@@ -93,11 +93,7 @@ function makeFailedJob(
   });
 }
 
-function makeFailedFilmRun(
-  id: string,
-  error: string,
-  errorCode: string,
-): FilmRun {
+function makeFailedFilmRun(id: string, error: string, errorCode: string): FilmRun {
   return filmRunSchema.parse({
     version: 1,
     id,
@@ -294,11 +290,7 @@ describe("DirectorTaskTrayMenu", () => {
     setTrayProductionRuns([
       {
         source: "film",
-        run: makeFailedFilmRun(
-          "film-run-failed",
-          "gateway restarted during render",
-          "film_run_interrupted",
-        ),
+        run: makeFailedFilmRun("film-run-failed", "gateway restarted during render", "film_run_interrupted"),
       },
     ]);
 
