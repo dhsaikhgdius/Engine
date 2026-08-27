@@ -9,15 +9,6 @@ import {
 } from "./directorUnrealSequencerContract";
 import { directorGodotImportReceiptSchema } from "./directorGodotAnimationContract";
 
-/**
- * Engine connector receipt vocabulary: the connector manifest, the per-run
- * engine report (import counts plus structured warn-and-omit details for
- * Unity and Unreal), the health check that gates `nativeReady`, and the send
- * result the editor renders after an engine handoff. Every omission carries a
- * typed code and entity identifiers so agents can see exactly which channels
- * the host dropped — free-text warnings are a supplement, never the record.
- */
-
 /** Contract identifier for a Director-authored engine connector manifest. */
 export const DIRECTOR_DCC_CONNECTOR_MANIFEST_CONTRACT = "director-dcc-connector-v1" as const;
 
