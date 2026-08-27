@@ -4,6 +4,11 @@ import type { StageScene, StageTrack, ToolExecution } from "@director/stage-prot
 import { isRecord as isObject } from "@director/protocol/primitives";
 import { validateStageScene } from "./commandEngine";
 import { directorCameraAspectRatioSchema } from "@director/protocol/directorCameraProtocol";
+import type {
+  DirectorPossessionScopeRejection,
+  DirectorPossessionTargetAmbiguity,
+  DirectorPossessionWriteReceipt,
+} from "./directorPossessionScope";
 
 type JsonObject = Record<string, unknown>;
 
@@ -102,6 +107,8 @@ export interface StageGatewayExecution extends ToolExecution {
   capture?: StageCapturePayload;
   target?: DirectorAgentTarget;
   agent_boundary?: AgentBoundaryReceipt;
+  /** Sole-possession auto-fill receipt on successful writes, ambiguity detail, or rejection detail on scope violations. */
+  possession?: DirectorPossessionWriteReceipt | DirectorPossessionTargetAmbiguity | DirectorPossessionScopeRejection;
 }
 
 function sameJson(left: unknown, right: unknown) {

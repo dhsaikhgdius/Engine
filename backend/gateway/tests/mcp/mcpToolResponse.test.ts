@@ -348,4 +348,62 @@ describe("MCP tool response", () => {
       suggested_next: expect.stringContaining("3D Stage"),
     });
   });
+
+  it("surfaces possession write-depth receipts on successful sole-possession auto-fill", () => {
+    const response = createMcpToolResponse({
+      scene: createDefaultScene(),
+      success: true,
+      result: { updated: { object_ids: ["hero"] } },
+      possession: {
+        session_id: "dsh-possessed",
+        possessed_object_ids: ["hero"],
+        filled_targets: [{ index: 0, action: "set_character_motion", field: "object_id", object_id: "hero" }],
+      },
+    });
+
+    expect(mcpToolStructuredOutputSchema.safeParse(response.structuredContent).success).toBe(true);
+    expect(response.structuredContent).toMatchObject({
+      ok: true,
+      possession: {
+        filled_targets: [{ index: 0, action: "set_character_motion", field: "object_id", object_id: "hero" }],
+      },
+    });
+  });
+
+  it("maps possession scope violations to reason-specific recovery guidance", () => {
+    const conflict = createMcpToolResponse({
+      scene: createDefaultScene(),
+      success: false,
+      code: "possession_scope_violation",
+      error: "Live actor conflict",
+      possession: {
+        session_id: "dsh-possessed",
+        possessed_object_ids: ["hero"],
+        operation: "player.enter",
+        reason: "live_actor_conflict",
+        target_id: "villain",
+      },
+    });
+    expect(conflict.structuredContent).toMatchObject({
+      ok: false,
+      code: "possession_scope_violation",
+      suggested_next: expect.stringContaining('fields=["ui"]'),
+      possession: { reason: "live_actor_conflict", target_id: "villain" },
+    });
+
+    const ambiguous = createMcpToolResponse({
+      scene: createDefaultScene(),
+      success: false,
+      code: "possession_target_ambiguous",
+      error: "Several possessed characters",
+      possession: {
+        session_id: "dsh-possessed",
+        possessed_object_ids: ["hero", "sidekick"],
+        omitted_targets: [{ index: 0, action: "set_character_motion", field: "object_id" }],
+      },
+    });
+    expect(ambiguous.structuredContent).toMatchObject({
+      suggested_next: expect.stringContaining("omitted_targets"),
+    });
+  });
 });
