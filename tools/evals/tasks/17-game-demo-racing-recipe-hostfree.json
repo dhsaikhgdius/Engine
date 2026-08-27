@@ -1,0 +1,88 @@
+{
+  "name": "game-demo-racing-recipe-hostfree",
+  "description": "Discover the racing demo recipe, plan from its brief template, bind player/vehicle/spawn per the hints, then score the recipe acceptance script (enter_vehicle/exit_vehicle included) to a literally playable receipt through the host-free runner — no inline trace.",
+  "steps": [
+    {
+      "label": "describe the racing recipe",
+      "tool": "director_game",
+      "input": { "op": "describe", "target": "demo_recipes.racing" },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.recipe.brief.requirement",
+          "result.recipe.bind_hints.1.role_id",
+          "result.recipe.acceptance_script.steps.2.input.enter_vehicle"
+        ],
+        "result_equals": { "result.recipe.genre": "racing" }
+      }
+    },
+    {
+      "label": "plan from the recipe brief",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-demo-racing-01",
+        "brief": {
+          "requirement": "Enter the parked kart, drive one lap around a short circuit marked by corner gates, then exit the vehicle at the finish line.",
+          "genre": "racing",
+          "perspective": "third",
+          "engine_target": "stage",
+          "style": "white-box clay (metric, untextured silhouettes)"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id"],
+        "result_equals": { "result.slice.status": "draft" }
+      }
+    },
+    {
+      "label": "bind the hinted roles",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-demo-racing-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "circuit-driver-1", "source": "catalog" },
+          { "role_id": "vehicle", "object_id": "circuit-kart-1", "source": "catalog" },
+          { "role_id": "spawn", "object_id": "circuit-grid-1", "source": "project" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.suggested_playtest_script.steps"],
+        "result_equals": { "result.bind_complete": true, "result.slice.status": "bound" }
+      }
+    },
+    {
+      "label": "host-free playtest with the recipe acceptance script",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-demo-racing-01",
+        "script": {
+          "steps": [
+            { "frames": 16, "input": { "forward": true }, "expect": { "verb": "move" } },
+            { "frames": 10, "input": { "look_right": true }, "expect": { "verb": "look" } },
+            { "frames": 4, "input": { "enter_vehicle": true }, "expect": { "verb": "enter_vehicle" } },
+            { "frames": 4, "input": { "exit_vehicle": true }, "expect": { "verb": "exit_vehicle" } }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.trace.contract", "result.trace.samples.0.frame"],
+        "result_equals": { "result.evaluation.playable": true, "result.slice.status": "playable" }
+      }
+    },
+    {
+      "label": "evaluate the stored playable receipt",
+      "tool": "director_game",
+      "input": { "op": "evaluate", "slice_id": "game-eval-demo-racing-01" },
+      "expect": {
+        "success": true,
+        "result_equals": { "result.evaluation.playable": true }
+      }
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "name": "game-demo-rpg-recipe-hostfree",
+  "description": "Discover the rpg demo recipe, plan from its brief template, bind player/enemy/spawn/objective per the hints, then score the recipe acceptance script (interact plus attack) to a literally playable receipt through the host-free runner — no inline trace.",
+  "steps": [
+    {
+      "label": "describe the rpg recipe",
+      "tool": "director_game",
+      "input": { "op": "describe", "target": "demo_recipes.rpg" },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.recipe.brief.requirement",
+          "result.recipe.bind_hints.3.role_id",
+          "result.recipe.acceptance_script.steps.3.input.interact"
+        ],
+        "result_equals": { "result.recipe.genre": "rpg" }
+      }
+    },
+    {
+      "label": "plan from the recipe brief",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-demo-rpg-01",
+        "brief": {
+          "requirement": "Walk to the quest giver by the well, interact to accept the task, then defeat the training dummy behind the well.",
+          "genre": "rpg",
+          "perspective": "third",
+          "engine_target": "stage",
+          "style": "white-box clay (metric, untextured silhouettes)"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id"],
+        "result_equals": { "result.slice.status": "draft" }
+      }
+    },
+    {
+      "label": "bind the hinted roles",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-demo-rpg-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "quest-hero-1", "source": "catalog" },
+          { "role_id": "enemy-1", "object_id": "quest-dummy-1", "source": "catalog" },
+          { "role_id": "spawn", "object_id": "quest-spawn-1", "source": "project" },
+          { "role_id": "objective-1", "object_id": "quest-npc-1", "source": "catalog" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.suggested_playtest_script.steps"],
+        "result_equals": { "result.bind_complete": true, "result.slice.status": "bound" }
+      }
+    },
+    {
+      "label": "host-free playtest with the recipe acceptance script",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-demo-rpg-01",
+        "script": {
+          "steps": [
+            { "frames": 16, "input": { "forward": true }, "expect": { "verb": "move" } },
+            { "frames": 10, "input": { "look_right": true }, "expect": { "verb": "look" } },
+            { "frames": 8, "input": { "jump": true }, "expect": { "verb": "jump" } },
+            { "frames": 6, "input": { "interact": true }, "expect": { "verb": "interact" } },
+            { "frames": 6, "input": { "fire": true }, "expect": { "verb": "attack" } }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.trace.contract", "result.trace.samples.0.frame"],
+        "result_equals": { "result.evaluation.playable": true, "result.slice.status": "playable" }
+      }
+    },
+    {
+      "label": "evaluate the stored playable receipt",
+      "tool": "director_game",
+      "input": { "op": "evaluate", "slice_id": "game-eval-demo-rpg-01" },
+      "expect": {
+        "success": true,
+        "result_equals": { "result.evaluation.playable": true }
+      }
+    }
+  ]
+}
