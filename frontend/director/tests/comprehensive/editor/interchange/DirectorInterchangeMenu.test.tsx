@@ -599,6 +599,7 @@ it("surfaces typed omittedOptics / omittedAdditions on DCC return preview and de
   expect(screen.getByRole("button", { name: "应用 DCC 回传" })).toBeEnabled();
 });
 
+it("summarizes rich Blender return plans (camera optics, lights, poses) and lists bake warnings", async () => {
   const user = userEvent.setup();
   vi.spyOn(dccReturnClient, "previewDirectorDccReturnPackage").mockResolvedValue({
     ready: true,

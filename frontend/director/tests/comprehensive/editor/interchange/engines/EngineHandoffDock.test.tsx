@@ -640,8 +640,7 @@ it("previews an engine return as a dry run and guards apply behind an explicit r
 });
 
 it("lists typed omittedOptics / omittedAdditions on engine return preview without echoing them as free-text warnings", async () => {
-  const opticsReason =
-    "Camera cam-1 sensor format 'imax65' was omitted from the return plan (warn-and-omit).";
+  const opticsReason = "Camera cam-1 sensor format 'imax65' was omitted from the return plan (warn-and-omit).";
   const additionReason =
     'New DCC object "Prop" (prop-new) is available but not imported; rebuild the plan with include_new_objects.';
   returnClient.preview.mockResolvedValue({

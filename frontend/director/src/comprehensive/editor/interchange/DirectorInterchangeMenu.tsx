@@ -41,10 +41,7 @@ import { DirectorTemplateDialog } from "../templates/DirectorTemplateDialog";
 import { useDirectorMediaLibrary } from "../workspaces/directorMediaLibrary";
 import { useDirectorCreativeWorkspaceStore, type DirectorWorkspaceMode } from "../workspaces/directorWorkspaceStore";
 import { DccProviderBrowser } from "./DccProviderBrowser";
-import {
-  DccReturnOmittedLists,
-  filterDccReturnWarningsWithoutTypedEchoes,
-} from "./dccReturnOmittedUi";
+import { DccReturnOmittedLists, filterDccReturnWarningsWithoutTypedEchoes } from "./dccReturnOmittedUi";
 import { EngineHandoffDock } from "./engines/EngineHandoffDock";
 import { EngineHostStatusDots } from "./engines/EngineHostStatusDots";
 import type { DirectorInterchangeImportResult } from "./contract";
