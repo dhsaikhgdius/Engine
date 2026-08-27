@@ -14,7 +14,7 @@
 **Functions:**
 - Use `camelCase` for TypeScript functions, methods, callbacks, and hooks: `parseStageScene`, `createDefaultDirectorProject`, `handleAgentSessionRoute`, and `useDirectorStore`.
 - Prefix constructors/factories with `create`, parsers with `parse` or `safeParse`, normalizers with `normalize`, and boolean queries with `is`, `has`, or `can`.
-- Use `PascalCase` for React component functions, for example `ObjectTreePanel` and `ResearchPortal`.
+- Use `PascalCase` for React component functions, for example `ObjectTreePanel` and `WorkspaceErrorBoundary`.
 - Use `snake_case` for Python functions and methods: `create_app`, `sha256_file`, `request_cancel`, and `test_http_v1_contract_and_idempotency`.
 - Add return types to public boundaries and asynchronous TypeScript functions when the contract benefits from being explicit. Python production code uses annotations throughout; follow `pipelines/video-generation/worker/src/director_ltx23_worker/app.py`.
 
@@ -115,7 +115,7 @@
 
 ## Module Design
 
-**Exports:** Prefer named exports for domain functions, types, constants, and components. Default exports are used primarily for application entry components such as `src/comprehensive/App.tsx` and `src/research/ResearchPortal.tsx`.
+**Exports:** Prefer named exports for domain functions, types, constants, and components. Default exports are used primarily for application entry components such as `src/comprehensive/App.tsx`.
 
 **Barrel Files:** Use barrels only at stable feature boundaries. Keep implementation imports direct within a feature to avoid hidden dependencies and circular imports. Existing examples are `src/comprehensive/editor/interchange/index.ts`, `src/comprehensive/editor/timeline/index.ts`, and `src/comprehensive/editor/productionGraph/index.ts`.
 
