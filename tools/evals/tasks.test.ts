@@ -30,6 +30,8 @@ type GoldenTask = {
     session_id?: string;
     /** The gateway possession preflight fills this input's omitted character target before validation. */
     gateway_fills_target?: boolean;
+    /** Retry budget for steps waiting on asynchronous readiness (e.g. the live player session). */
+    retry?: { attempts: number; delay_ms?: number };
     input: unknown;
     expect: { success: boolean };
   }>;

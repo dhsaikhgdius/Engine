@@ -72,19 +72,44 @@ npm run eval:reference
 每个步骤都通过 `tool` 指定一个公开工具:`director_workbench`、`director_creative`、
 `stage_video`、`blender_native`、`director_dcc` 或 `director_game`。在启动隔离浏览器前,任务 schema 测试会先用
 对应工具的严格合同校验所有预期成功的输入。游戏切片任务（`12`–`18`）覆盖规划/绑定/试玩、
-导出到 `director_dcc` 的路由、未绑定拒绝、无内联 `trace` 的 host-free playtest、harness 与代码生成的诚实契约（Stage 是默认运行时;`export_slice` 拒绝生成引擎代码），以及从 `packages/protocol/src/gameDemoRecipes.ts` 逐字回放的 fps/racing/rpg 题材演示配方。这些诚实
+导出到 `director_dcc` 的路由、未绑定拒绝、无内联 `trace` 的 host-free playtest、实时 Stage
+试玩路径（见"实时（live）与 host-free 试玩"）、harness 与代码生成的诚实契约（Stage 是默认运行时;`export_slice` 拒绝生成引擎代码），以及从 `packages/protocol/src/gameDemoRecipes.ts` 逐字回放的 fps/racing/rpg 题材演示配方。这些诚实
 断言背后的对比记录在 `docs/site/src/content/docs/zh/research/game-harness-vs-codegen.md`。
 
 `result_paths` 是针对整个 JSON 响应体解析的点号路径（数组按数字索引,如
 `result.issues.0`）;当解析到的值既不是 `undefined` 也不是 `null` 时路径通过。
-`result_equals` 把相同的点号路径映射到精确的预期 JSON 值,用于"存在还不够"的断言
-（例如 `runtime.default` 必须等于 `"stage"`,而非仅存在）。
+`result_equals` 把相同的点号路径映射到精确的预期 JSON 值（深度相等）,用于"存在还不够"的断言
+——例如 `runtime.default` 必须等于 `"stage"` 而非仅存在,试玩 trace 的 source 必须等于
+`"live_stage"`,因为 host-free 回退同样会让路径存在。
 `expect.success: false` 的步骤在校验边界按预期报错时通过,与 HTTP 状态码无关。
 运行器是通用的——只需将新 JSON 文件放入 `tasks/` 即可添加任务。
 
 步骤可通过 `session_id` 冒充特定 Agent 会话（例如角色绑定的占有会话）以验证
 possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角色目标,
 由网关 possession 预检在校验前补全,任务 schema 测试会断言该输入确实不完整。
+
+等待异步就绪的步骤可声明 `retry: { attempts, delay_ms }`（延迟默认 2000 ms）:该步骤会
+重跑,直到全部预期通过或次数用尽。任务 `18` 的实时试玩步骤使用它,因为无头标签页的
+Player Mode 在 `player enter` 之后需要片刻才能就绪。
+
+## 实时（live）与 host-free 试玩
+
+不带内联 `trace` 的 `director_game {op:"playtest"}` 优先走实时 Stage 路径:网关把输入带
+派发给已连接的工作台标签页,实时 PlayerController 逐帧回放,回执带
+`trace.source: "live_stage"`（并持久化为 `evaluation.trace_source`）。当没有标签页应答——
+或标签页无法运行该带,例如绑定的玩家 `object_id` 在 Stage 工程中不存在——网关回退到
+运动学运行器,回执如实标注 `"host_free"`。内联 trace 一律按 `"inline"` 评估;机器会重新
+盖章,公开边界无法伪造实时来源。
+
+在本评测中,无头工作台标签页始终已连接,任务走哪条路径由绑定决定:
+
+- 任务 `12`–`17` 绑定的 object id 只存在于切片文档,实时标签页会拒绝该带,网关回退——
+  它们是 host-free 黄金任务（任务 `12` 与 `13` 另外提供内联 trace,按 `"inline"` 评估）。
+- 任务 `18` 先在 Stage 上创建真实对象再绑定,输入带必须在实时玩家会话上回放。其
+  `result_equals` 断言要求 `"live_stage"` 来源与可玩回执:若被强制回退到 host-free
+  （包括实时派发超时——回退回执会如实标注 `"host_free"`）,该任务失败。它先用公开的
+  `player {"action":"enter"}` 预热会话,避免 Player Mode 冷启动吃掉实时派发预算,
+  结束后退出 Player Mode。
 
 ## 任务清单
 
@@ -107,9 +132,10 @@ possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角�
 | `tasks/14-game-slice-unbound-playtest-rejects.json` | 验证未绑定玩家角色时 playtest 被拒绝                                   |
 | `tasks/14-world-systems-observation.json`        | 设置 Living World 天气/风并添加一个效果,验证 `world` 观察投影            |
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | 无显式 trace 的 host-free playtest 评分                            |
-| `tasks/16-game-harness-vs-codegen-honesty.json`  | harness vs 代码生成诚实性:capabilities 报告 `runtime.default = "stage"`,`export_slice` 在可玩回执之前（`game_export_not_playable`）与之后（`game_export_via_dcc`）都拒绝代码生成 |
-| `tasks/16-game-slice-racing-full-loop.json`      | racing 题材全环 host-free playtest 黄金任务                                                              |
 | `tasks/16-game-demo-fps-recipe-hostfree.json`    | 回放 fps 题材演示配方:capabilities/describe 发现、plan、按提示绑定、免宿主试玩至可玩 |
-| `tasks/17-game-slice-fps-full-loop.json`         | fps 题材全环 host-free playtest 黄金任务                                                                 |
+| `tasks/16-game-harness-vs-codegen-honesty.json`  | harness vs 代码生成诚实性:capabilities 报告 `runtime.default = "stage"`,`export_slice` 在可玩回执之前（`game_export_not_playable`）与之后（`game_export_via_dcc`）都拒绝代码生成 |
+| `tasks/16-game-slice-racing-full-loop.json`      | 无内联 trace 的完整竞速闭环,强制载具顺序,导出路由到 `director_dcc`       |
 | `tasks/17-game-demo-racing-recipe-hostfree.json` | 回放 racing 题材演示配方,含 enter/exit vehicle 动词,回执字面可玩          |
+| `tasks/17-game-slice-fps-full-loop.json`         | 无内联 trace 的完整 FPS 闭环,覆盖 fire/reload 动词,导出路由到 `director_dcc` |
 | `tasks/18-game-demo-rpg-recipe-hostfree.json`    | 回放 rpg 题材演示配方,含 interact 与 attack 动词,回执字面可玩             |
+| `tasks/18-game-slice-live-stage-playtest.json`   | 实时 Stage 试玩:创建真实对象、绑定并在已连接标签页上回放,要求 `live_stage` 来源 |

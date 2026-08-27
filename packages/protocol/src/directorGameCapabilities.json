@@ -47,6 +47,11 @@
     "objective_reachable",
     "no_stuck"
   ],
+  "trace_sources": {
+    "live_stage": "A connected workbench tab replayed the tape on the live Stage player session.",
+    "host_free": "The Gateway kinematic runner scored the tape without a browser tab.",
+    "inline": "The caller supplied the trace; the machine restamps it so provenance cannot be forged."
+  },
   "status": ["draft", "bound", "playtested", "playable", "exported"],
   "working_order": [
     "capabilities or describe when vocabulary is unknown",

@@ -70,6 +70,9 @@ describe("liveStagePlaytest", () => {
     );
     expect(trace.samples).toHaveLength(1);
     expect(trace.verbs_exercised).toContain("move");
+    // The tab receipt did not stamp a source; the Gateway bridge is the
+    // authority and labels everything relayed from a live tab `live_stage`.
+    expect(trace.source).toBe("live_stage");
   });
 
   it("falls back to host-free when no workbench client is connected", async () => {
@@ -87,6 +90,7 @@ describe("liveStagePlaytest", () => {
     });
     expect(trace.samples.length).toBe(12);
     expect(trace.samples.every((sample) => sample.on_ground)).toBe(true);
+    expect(trace.source).toBe("host_free");
   });
 
   it("falls back to host-free when the live tab returns a malformed trace", async () => {
@@ -120,12 +124,63 @@ describe("liveStagePlaytest", () => {
         },
       });
       // The malformed live receipt is discarded; the host-free kinematic
-      // runner still produces a scoreable trace for the same tape.
+      // runner still produces a scoreable trace for the same tape, and its
+      // provenance honestly reports the fallback rather than the live tab.
       expect(requestWorkbenchCommand).toHaveBeenCalledTimes(1);
       expect(trace.contract).toBe("director-game-playtest-trace-v1");
       expect(trace.slice_id).toBe(slice.id);
       expect(trace.samples).toHaveLength(6);
+      expect(trace.source).toBe("host_free");
     }
+  });
+
+  it("cannot be spoofed by a tab receipt that claims a non-live source", async () => {
+    const slice = boundSlice();
+    const requestWorkbenchCommand = vi.fn().mockResolvedValue({
+      success: true,
+      result: {
+        trace: {
+          contract: "director-game-playtest-trace-v1",
+          slice_id: slice.id,
+          dt: 1 / 30,
+          verbs_exercised: ["move"],
+          source: "inline",
+          samples: [
+            { frame: 0, time_s: 0, position: [0, 0, 0], yaw: 0, velocity: [0, 0, 1], on_ground: true, verb: "move" },
+          ],
+        },
+      },
+    });
+    const runner = createLiveStagePlaytestRunner({ requestWorkbenchCommand });
+    const trace = await runner!({
+      slice,
+      operation: {
+        op: "playtest",
+        slice_id: slice.id,
+        script: gamePlaytestScriptSchema.parse({ steps: [{ frames: 1, input: { forward: true } }] }),
+      },
+    });
+    expect(trace.source).toBe("live_stage");
+  });
+
+  it("falls back to host-free when the live dispatch throws (e.g. command timeout)", async () => {
+    const slice = boundSlice();
+    const requestWorkbenchCommand = vi
+      .fn()
+      .mockRejectedValue(new Error('workbench command "game_playtest" timed out after 12000 ms and was cancelled.'));
+    const runner = createLiveStagePlaytestRunner({ requestWorkbenchCommand });
+    const trace = await runner!({
+      slice,
+      operation: {
+        op: "playtest",
+        slice_id: slice.id,
+        script: gamePlaytestScriptSchema.parse({ steps: [{ frames: 10, input: { forward: true } }] }),
+      },
+    });
+    expect(requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(trace.samples).toHaveLength(10);
+    // The degradation stays visible on the receipt instead of a hard failure.
+    expect(trace.source).toBe("host_free");
   });
 
   it("falls back to host-free when the live tape fails on the tab", async () => {

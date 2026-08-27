@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evaluateGamePlaytest } from "@director/protocol/director-game-machine";
 import { runHostFreeGamePlaytest } from "@director/protocol/game-playtest-host-free";
+import { suggestedPlaytestScriptForSlice } from "@director/protocol/game-playtest-fixtures";
 import {
   createGameSliceFromBrief,
   gamePlaytestInputSchema,
@@ -215,6 +216,36 @@ describe("replayGamePlaytestScript", () => {
     // Both runners import GAME_PLAYTEST_LOOK_YAW_RAD_S from the protocol, so
     // a pure look tape must land on the same yaw in vitest and on the Gateway.
     expect(replayed.samples.at(-1)!.yaw).toBeCloseTo(hostFree.samples.at(-1)!.yaw, 10);
+  });
+
+  it("keeps parity with the Gateway kinematic runner for the canonical exploration tape", () => {
+    const slice = boundSlice();
+    const tape = suggestedPlaytestScriptForSlice(slice);
+
+    // Stage-locomotion-model replay (the live driver's semantics) with the
+    // bound objective in interaction range, exactly like the live probe.
+    const replayed = replayGamePlaytestScript({
+      script: tape,
+      sliceId: slice.id,
+      interactables: [{ id: "stage-objective-1", position: [0, 0, 1], radiusM: 6 }],
+    });
+    // Gateway kinematic runner for the identical tape, no tab at all.
+    const hostFree = runHostFreeGamePlaytest({ slice, script: tape });
+
+    // The same canonical tape satisfies evaluate on both drivers: one tape,
+    // one meaning, two runtimes.
+    const replayedReport = evaluateGamePlaytest(slice, replayed);
+    const hostFreeReport = evaluateGamePlaytest(slice, hostFree);
+    expect(replayedReport.playable, JSON.stringify(replayedReport.issues)).toBe(true);
+    expect(hostFreeReport.playable, JSON.stringify(hostFreeReport.issues)).toBe(true);
+    expect(replayedReport.checks).toEqual(hostFreeReport.checks);
+    expect([...replayedReport.verbs_exercised].sort()).toEqual([...hostFreeReport.verbs_exercised].sort());
+
+    // Both stamp honest host-free provenance: neither ran in a live tab.
+    expect(replayed.source).toBe("host_free");
+    expect(hostFree.source).toBe("host_free");
+    expect(replayedReport.trace_source).toBe("host_free");
+    expect(hostFreeReport.trace_source).toBe("host_free");
   });
 
   it("keeps honest yaw during a strafe so the evaluator can flag facing_mismatch", () => {

@@ -241,6 +241,7 @@ export function runHostFreeGamePlaytest(input: RunHostFreeGamePlaytestInput): Ga
     dt: script.dt,
     samples,
     verbs_exercised: [...verbs],
+    source: "host_free",
   });
 }
 

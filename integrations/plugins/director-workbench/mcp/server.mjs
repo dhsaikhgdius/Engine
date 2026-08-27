@@ -58473,13 +58473,16 @@ var gamePlaytestSampleSchema = external_exports.strictObject({
   camera_clip: external_exports.boolean().default(false),
   stuck: external_exports.boolean().default(false)
 });
+var GAME_PLAYTEST_TRACE_SOURCES = ["live_stage", "host_free", "inline"];
+var gamePlaytestTraceSourceSchema = external_exports.enum(GAME_PLAYTEST_TRACE_SOURCES);
 var gamePlaytestTraceSchema = external_exports.strictObject({
   contract: external_exports.literal("director-game-playtest-trace-v1"),
   slice_id: gameSliceIdSchema,
   project_revision: nonEmptyText3(240).optional(),
   dt: finite9.min(1 / 240).max(1 / 10),
   samples: external_exports.array(gamePlaytestSampleSchema).min(1).max(1048576),
-  verbs_exercised: external_exports.array(gameSliceVerbSchema).max(GAME_SLICE_VERBS.length).default([])
+  verbs_exercised: external_exports.array(gameSliceVerbSchema).max(GAME_SLICE_VERBS.length).default([]),
+  source: gamePlaytestTraceSourceSchema.optional()
 });
 var gameSliceIssueSchema = external_exports.strictObject({
   code: external_exports.enum([
@@ -58517,7 +58520,9 @@ var gameEvaluationReportSchema = external_exports.strictObject({
     })
   ),
   issues: external_exports.array(gameSliceIssueSchema).max(128),
-  notes: external_exports.array(nonEmptyText3(500)).max(32).default([])
+  notes: external_exports.array(nonEmptyText3(500)).max(32).default([]),
+  /** Provenance of the scored tape, copied from `trace.source` (see there). */
+  trace_source: gamePlaytestTraceSourceSchema.optional()
 });
 var gameSliceSchema = external_exports.strictObject({
   contract: external_exports.literal(GAME_SLICE_CONTRACT),
