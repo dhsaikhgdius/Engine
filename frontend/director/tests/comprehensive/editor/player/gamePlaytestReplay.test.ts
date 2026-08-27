@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateGamePlaytest } from "@director/protocol/director-game-machine";
+import { runHostFreeGamePlaytest } from "@director/protocol/game-playtest-host-free";
 import {
   createGameSliceFromBrief,
   gamePlaytestInputSchema,
@@ -157,18 +158,63 @@ describe("replayGamePlaytestScript", () => {
         { frames: 10, input: { interact: true } },
       ]),
       sliceId: "game-playtest-replay",
+      // The bound objective sits on the walked path, in interaction range.
+      interactables: [{ id: "stage-objective-1", position: [0, 0, 1], radiusM: 6 }],
     });
 
     const parsed = gamePlaytestTraceSchema.safeParse(trace);
     expect(parsed.success).toBe(true);
     expect(trace.verbs_exercised).toEqual(expect.arrayContaining(["move", "look", "jump", "interact"]));
+    // The nearest in-range interactable is stamped on samples, exactly like
+    // the live controller's nearest-interaction probe.
+    expect(trace.samples.some((sample) => sample.interaction_object_id === "stage-objective-1")).toBe(true);
 
     const report = evaluateGamePlaytest(boundSlice(), trace);
     expect(report.contract).toBe("director-game-evaluation-v1");
-    // Exploration acceptance (move/look/jump/interact) is fully exercised by
-    // the tape, and forward walking keeps facing aligned with motion.
+    // Exploration acceptance (move/look/jump/interact plus interaction range
+    // and objective reach) is fully exercised by the tape.
     expect(report.playable).toBe(true);
     expect(report.checks.every((check) => check.passed)).toBe(true);
+    expect(report.checks.map((check) => check.check)).toEqual(
+      expect.arrayContaining(["interaction_in_range", "objective_reachable"]),
+    );
+  });
+
+  it("fails interaction range and objective reach when interacting far from every interactable", () => {
+    const trace = replayGamePlaytestScript({
+      script: script([
+        { frames: 20, input: { forward: true } },
+        { frames: 10, input: { look_right: true } },
+        { frames: 20, input: { forward: true, jump: true } },
+        { frames: 10, input: { interact: true } },
+      ]),
+      sliceId: "game-playtest-replay",
+      // The objective exists but is far outside interaction range.
+      interactables: [{ id: "stage-objective-1", position: [40, 0, 40], radiusM: 2.5 }],
+    });
+
+    expect(trace.samples.every((sample) => sample.interaction_object_id === undefined)).toBe(true);
+
+    const report = evaluateGamePlaytest(boundSlice(), trace);
+    expect(report.playable).toBe(false);
+    expect(report.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["interaction_out_of_range", "objective_unreachable"]),
+    );
+    expect(report.checks.find((check) => check.check === "interaction_in_range")?.passed).toBe(false);
+    expect(report.checks.find((check) => check.check === "objective_reachable")?.passed).toBe(false);
+  });
+
+  it("integrates look yaw at exactly the shared protocol host-free rate", () => {
+    const tape = script([{ frames: 24, input: { look_right: true } }]);
+    const replayed = replayGamePlaytestScript({ script: tape });
+    const hostFree = runHostFreeGamePlaytest({
+      slice: { id: "game-playtest-replay", roles: boundSlice().roles },
+      script: tape,
+    });
+
+    // Both runners import GAME_PLAYTEST_LOOK_YAW_RAD_S from the protocol, so
+    // a pure look tape must land on the same yaw in vitest and on the Gateway.
+    expect(replayed.samples.at(-1)!.yaw).toBeCloseTo(hostFree.samples.at(-1)!.yaw, 10);
   });
 
   it("keeps honest yaw during a strafe so the evaluator can flag facing_mismatch", () => {

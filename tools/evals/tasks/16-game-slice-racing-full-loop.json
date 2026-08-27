@@ -1,0 +1,88 @@
+{
+  "name": "game-slice-racing-full-loop",
+  "description": "Full racing loop with no inline trace: plan → bind → playtest (Gateway host-free runner scores the enter_vehicle → drive → exit_vehicle tape) → evaluate → export_slice, which must refuse codegen and route to director_dcc. The playable proof is result.evaluation.notes.0, which only exists when every error-severity check passed.",
+  "steps": [
+    {
+      "label": "plan racing slice",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-racing-01",
+        "brief": {
+          "requirement": "Enter the kart, drive one lap, exit at the finish line.",
+          "genre": "racing"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id", "result.slice.status"]
+      }
+    },
+    {
+      "label": "bind driver, kart, and grid slot",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-racing-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "driver-1" },
+          { "role_id": "vehicle", "object_id": "kart-1" },
+          { "role_id": "spawn", "object_id": "grid-slot-1" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.bind_complete", "result.suggested_playtest_script.steps"]
+      }
+    },
+    {
+      "label": "playtest ordered vehicle tape without inline trace",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-racing-01",
+        "script": {
+          "steps": [
+            { "frames": 16, "input": { "forward": true }, "expect": { "verb": "move" } },
+            { "frames": 10, "input": { "look_right": true }, "expect": { "verb": "look" } },
+            { "frames": 4, "input": { "enter_vehicle": true }, "expect": { "verb": "enter_vehicle" } },
+            { "frames": 20, "input": { "forward": true } },
+            { "frames": 4, "input": { "exit_vehicle": true }, "expect": { "verb": "exit_vehicle" } }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": [
+          "result.evaluation.playable",
+          "result.evaluation.notes.0",
+          "result.trace.contract",
+          "result.slice.status"
+        ]
+      }
+    },
+    {
+      "label": "evaluate stored playable receipt",
+      "tool": "director_game",
+      "input": { "op": "evaluate", "slice_id": "game-eval-racing-01" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.evaluation.playable", "result.evaluation.notes.0"]
+      }
+    },
+    {
+      "label": "export_slice routes to director_dcc",
+      "tool": "director_game",
+      "input": {
+        "op": "export_slice",
+        "slice_id": "game-eval-racing-01",
+        "provider": "godot"
+      },
+      "expect": {
+        "success": false,
+        "code": "game_export_via_dcc",
+        "error_includes": "director_dcc"
+      }
+    }
+  ]
+}

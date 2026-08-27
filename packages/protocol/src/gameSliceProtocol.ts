@@ -262,7 +262,10 @@ export type GamePlaytestStepInput = z.input<typeof gamePlaytestStepSchema>;
  * 1/30 to match the living-world tick). A compile is not a playtest.
  */
 export const gamePlaytestScriptSchema = z.strictObject({
-  dt: finite.min(1 / 240).max(1 / 10).default(1 / 30),
+  dt: finite
+    .min(1 / 240)
+    .max(1 / 10)
+    .default(1 / 30),
   steps: z.array(gamePlaytestStepSchema).min(1).max(256),
 });
 export type GamePlaytestScript = z.infer<typeof gamePlaytestScriptSchema>;
@@ -305,6 +308,7 @@ export const gameSliceIssueSchema = z.strictObject({
     "stuck",
     "verb_not_exercised",
     "interaction_out_of_range",
+    "vehicle_sequence_invalid",
     "hud_unbound",
     "player_unbound",
     "objective_unreachable",
@@ -384,12 +388,19 @@ const DEFAULT_HUD_BY_GENRE: Record<GameSliceGenre, GameSliceHudWidgetKind[]> = {
   rpg: ["health", "prompt", "dialogue"],
 };
 
-const DEFAULT_CHECKS: GameSlicePlayabilityCheck[] = [
-  "on_ground",
-  "facing_matches_move",
-  "verb_exercised",
-  "no_stuck",
-];
+const DEFAULT_CHECKS: GameSlicePlayabilityCheck[] = ["on_ground", "facing_matches_move", "verb_exercised", "no_stuck"];
+
+/**
+ * Genres whose default roles include an objective also accept on interaction
+ * evidence: the tape must interact in range and reach the objective object.
+ */
+const EXTRA_CHECKS_BY_GENRE: Record<GameSliceGenre, GameSlicePlayabilityCheck[]> = {
+  exploration: ["interaction_in_range", "objective_reachable"],
+  fps: [],
+  racing: [],
+  fighting: [],
+  rpg: ["interaction_in_range", "objective_reachable"],
+};
 
 function defaultPerspective(genre: GameSliceGenre, requested?: GameSlicePerspective): GameSlicePerspective {
   if (requested) return requested;
@@ -475,7 +486,7 @@ export function createGameSliceFromBrief(input: {
     assets: [],
     acceptance: {
       operations: verbs,
-      playability_checks: DEFAULT_CHECKS,
+      playability_checks: [...DEFAULT_CHECKS, ...EXTRA_CHECKS_BY_GENRE[brief.genre]],
       style: brief.style,
     },
     notes,

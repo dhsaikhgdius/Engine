@@ -123,8 +123,14 @@ import {
   type DirectorEditClip,
   type DirectorEditTrack,
 } from "./directorWorkspaceStore";
+import {
+  DIRECTOR_TIMELINE_BASE_PIXELS_PER_SECOND,
+  DIRECTOR_TIMELINE_ZOOM_MAX,
+  DIRECTOR_TIMELINE_ZOOM_MIN,
+  clampDirectorTimelineZoom,
+} from "./videoTimelineViewport";
 
-const BASE_PIXELS_PER_SECOND = 72;
+const BASE_PIXELS_PER_SECOND = DIRECTOR_TIMELINE_BASE_PIXELS_PER_SECOND;
 const TRACK_HEIGHT = 66;
 const VIDEO_TITLEBAR_HEIGHT = 44;
 const VIDEO_TRANSPORT_HEIGHT = 40;
@@ -136,8 +142,8 @@ const ASPECT_RATIO_OPTIONS = [
   { id: "1 / 1", label: "1:1" },
 ] as const;
 // The workspace store clamps timeline zoom to [0.5, 4]; presets must stay inside.
-const MIN_TIMELINE_ZOOM = 0.5;
-const MAX_TIMELINE_ZOOM = 4;
+const MIN_TIMELINE_ZOOM = DIRECTOR_TIMELINE_ZOOM_MIN;
+const MAX_TIMELINE_ZOOM = DIRECTOR_TIMELINE_ZOOM_MAX;
 const TIMELINE_ZOOM_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 const CLIP_DRAG_THRESHOLD_PX = 4;
 const MAGNETIC_SNAP_PX = 8;
@@ -169,10 +175,6 @@ export function magneticSnapDirectorTimelineSeconds(seconds: number, edges: read
     }
   }
   return best;
-}
-
-function clampTimelineZoom(zoom: number) {
-  return Math.min(MAX_TIMELINE_ZOOM, Math.max(MIN_TIMELINE_ZOOM, zoom));
 }
 
 function formatTime(seconds: number) {
@@ -771,13 +773,14 @@ export function VideoEditorWorkspace() {
   // Only continuous interactions (drags, trims, fades, range sliders) and
   // mid-typing name states the contract cannot express keep the direct store
   // mutators. Explicit media drops, keyboard nudges, and duplicate-after share
-  // overwrite placement.
+  // overwrite placement. Discrete timeline zoom (presets, +/- buttons, fit)
+  // shares edit.timeline.set_zoom / edit.timeline.fit; continuous
+  // ctrl/cmd-wheel zoom and scroll anchoring stay local.
   const updateClip = useDirectorCreativeWorkspaceStore((state) => state.updateClip);
   const moveClipToTrack = useDirectorCreativeWorkspaceStore((state) => state.moveClipToTrack);
   const commitClipPlacement = useDirectorCreativeWorkspaceStore((state) => state.commitClipPlacement);
   const selectClip = useDirectorCreativeWorkspaceStore((state) => state.selectClip);
   const setPlayhead = useDirectorCreativeWorkspaceStore((state) => state.setPlayhead);
-  const setTimelineZoom = useDirectorCreativeWorkspaceStore((state) => state.setTimelineZoom);
   const beginHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.beginHistoryBatch);
   const endHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.endHistoryBatch);
   const canUndo = useDirectorCreativeWorkspaceStore((state) => state.canUndo);
@@ -949,9 +952,14 @@ export function VideoEditorWorkspace() {
     if (!receipt.ok) setStartTimecodeDraft(editTimebase.startTimecode);
   }
 
-  /** Keep the anchored timeline instant under the same viewport pixel across a zoom change. */
+  /**
+   * Keep the anchored timeline instant under the same viewport pixel across a
+   * discrete zoom change. The zoom write itself dispatches the shared
+   * `edit.timeline.set_zoom`, the same op Agents send; only the scroll anchor
+   * stays a local DOM concern.
+   */
   function applyTimelineZoom(zoomInput: number, anchor?: { timeSec: number; offsetPx: number }) {
-    const nextZoom = clampTimelineZoom(zoomInput);
+    const nextZoom = clampDirectorTimelineZoom(zoomInput);
     if (nextZoom === timelineZoom) return;
     const scroller = timelineScrollRef.current;
     if (scroller) {
@@ -962,7 +970,8 @@ export function VideoEditorWorkspace() {
         offsetPx: Math.min(Math.max(playheadOffset, 0), scroller.clientWidth),
       };
     }
-    setTimelineZoom(nextZoom);
+    const receipt = dispatchVideo({ op: "edit.timeline.set_zoom", zoom: nextZoom }, t("时间线缩放失败"));
+    if (!receipt.ok) pendingZoomAnchorRef.current = null;
   }
 
   const followPlayhead = useCallback((seconds: number, mode: "playback" | "seek") => {
@@ -995,17 +1004,27 @@ export function VideoEditorWorkspace() {
     followPlayhead(next, "seek");
   }
 
-  /** Fit the whole edited content into the visible timeline viewport. */
+  /**
+   * Fit the whole edited content into the visible timeline viewport through
+   * the shared `edit.timeline.fit` (the executor derives the content span the
+   * same way for the UI and for Agents; only the live width is measured here).
+   */
   function zoomTimelineToFit() {
     const scroller = timelineScrollRef.current;
     if (!scroller || scroller.clientWidth <= 0) return;
-    const span = Math.max(1, contentDuration > 0 ? contentDuration : duration);
-    const fitZoom = clampTimelineZoom((scroller.clientWidth - 16) / (span * BASE_PIXELS_PER_SECOND));
-    if (fitZoom === timelineZoom) {
-      scroller.scrollLeft = 0;
+    pendingZoomAnchorRef.current = { timeSec: 0, offsetPx: 0 };
+    const receipt = dispatchVideo(
+      { op: "edit.timeline.fit", surface_width: scroller.clientWidth },
+      t("时间线缩放失败"),
+    );
+    if (!receipt.ok) {
+      pendingZoomAnchorRef.current = null;
       return;
     }
-    applyTimelineZoom(fitZoom, { timeSec: 0, offsetPx: 0 });
+    if ((receipt.execution.result as { unchanged?: boolean }).unchanged) {
+      pendingZoomAnchorRef.current = null;
+      scroller.scrollLeft = 0;
+    }
   }
 
   function collectTimelineSnapEdges(excludeClipId?: string) {
@@ -1115,7 +1134,7 @@ export function VideoEditorWorkspace() {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       const store = useDirectorCreativeWorkspaceStore.getState();
-      const nextZoom = clampTimelineZoom(store.timelineZoom * Math.exp(-event.deltaY * 0.0024));
+      const nextZoom = clampDirectorTimelineZoom(store.timelineZoom * Math.exp(-event.deltaY * 0.0024));
       if (nextZoom === store.timelineZoom || !scroller) return;
       const offsetX = event.clientX - scroller.getBoundingClientRect().left;
       pendingZoomAnchorRef.current = {

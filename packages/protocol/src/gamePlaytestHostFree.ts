@@ -34,25 +34,37 @@ export const HOST_FREE_SPRINT_SPEED_MPS = 2.4;
 /** Planar dash burst speed (m/s). */
 export const HOST_FREE_DASH_SPEED_MPS = 4.0;
 
-/** Keyboard look yaw rate (rad/s), aligned with Stage player look. */
-export const HOST_FREE_LOOK_YAW_RAD_S = 2.2;
+/**
+ * Shared tape semantics. Both playtest drivers — this host-free kinematic
+ * runner and the frontend Stage locomotion replay/live recorder — import the
+ * constants below so a tape means exactly the same thing everywhere. Do not
+ * redeclare them in the frontend.
+ */
 
-/** Keyboard look pitch rate (rad/s). */
-export const HOST_FREE_LOOK_PITCH_RAD_S = 1.6;
+/** Keyboard look yaw rate (rad/s); the live Stage keyboard look rate. */
+export const GAME_PLAYTEST_LOOK_YAW_RAD_S = 2.4;
+
+/** Keyboard look pitch rate (rad/s); the live Stage keyboard look rate. */
+export const GAME_PLAYTEST_LOOK_PITCH_RAD_S = 1.9;
 
 /** Pitch clamp matching the live PlayerController. */
-const HOST_FREE_MAX_PITCH_RAD = 1.2;
+export const GAME_PLAYTEST_MAX_PITCH_RAD = 1.2;
 
 /** Held move below this planar speed accrues stuck time. */
-const HOST_FREE_STUCK_SPEED_MPS = 0.12;
+export const GAME_PLAYTEST_STUCK_SPEED_MPS = 0.12;
 
 /** Stuck hold threshold in seconds. */
-const HOST_FREE_STUCK_HOLD_S = 0.5;
+export const GAME_PLAYTEST_STUCK_HOLD_S = 0.5;
 
 /** Trace sample budget (matches `gamePlaytestTraceSchema`). */
-const HOST_FREE_TRACE_SAMPLE_BUDGET = 1_048_576;
+export const GAME_PLAYTEST_TRACE_SAMPLE_BUDGET = 1_048_576;
 
-const SESSION_VERBS = [
+/**
+ * Session verbs are Player Mode actions, not locomotion inputs. Drivers
+ * dispatch the matching player action and record the verb on every sample of
+ * the held step.
+ */
+export const GAME_PLAYTEST_SESSION_VERBS = [
   "enter_vehicle",
   "exit_vehicle",
   "interact",
@@ -69,8 +81,8 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /** Session verb held by a tape input, or undefined for pure locomotion. */
-export function resolveHostFreeSessionVerb(input: GamePlaytestInput): GameSliceVerb | undefined {
-  for (const verb of SESSION_VERBS) {
+export function resolveGamePlaytestSessionVerb(input: GamePlaytestInput): GameSliceVerb | undefined {
+  for (const verb of GAME_PLAYTEST_SESSION_VERBS) {
     if (input[verb]) return verb;
   }
   return undefined;
@@ -97,11 +109,7 @@ function planarSpeedForInput(input: GamePlaytestInput, moveHeld: boolean): numbe
   return HOST_FREE_WALK_SPEED_MPS;
 }
 
-function locomotionVerb(
-  input: GamePlaytestInput,
-  moveHeld: boolean,
-  jumpHeld: boolean,
-): GameSliceVerb | undefined {
+function locomotionVerb(input: GamePlaytestInput, moveHeld: boolean, jumpHeld: boolean): GameSliceVerb | undefined {
   if (jumpHeld) return "jump";
   if (input.dash && moveHeld) return "dash";
   if (input.crouch) return "crouch";
@@ -141,17 +149,15 @@ export function hostFreePlaytestTimeoutMs(script: GamePlaytestScriptInput | Game
 export function runHostFreeGamePlaytest(input: RunHostFreeGamePlaytestInput): GamePlaytestTrace {
   const script = gamePlaytestScriptSchema.parse(input.script);
   const totalFrames = script.steps.reduce((total, step) => total + step.frames, 0);
-  if (totalFrames > HOST_FREE_TRACE_SAMPLE_BUDGET) {
+  if (totalFrames > GAME_PLAYTEST_TRACE_SAMPLE_BUDGET) {
     throw new Error(
-      `Playtest script would emit ${totalFrames} samples; the trace budget is ${HOST_FREE_TRACE_SAMPLE_BUDGET}. Split the tape.`,
+      `Playtest script would emit ${totalFrames} samples; the trace budget is ${GAME_PLAYTEST_TRACE_SAMPLE_BUDGET}. Split the tape.`,
     );
   }
 
   const objectiveId = input.slice.roles.find((role) => role.kind === "objective")?.object_id;
 
-  let position: [number, number, number] = input.initial?.position
-    ? [...input.initial.position]
-    : [0, 0, 0];
+  let position: [number, number, number] = input.initial?.position ? [...input.initial.position] : [0, 0, 0];
   let yaw = input.initial?.yaw ?? 0;
   let pitch = input.initial?.pitch ?? 0;
   let stuckElapsedS = 0;
@@ -162,15 +168,25 @@ export function runHostFreeGamePlaytest(input: RunHostFreeGamePlaytestInput): Ga
   let frame = 0;
 
   for (const step of script.steps) {
-    const sessionVerb = resolveHostFreeSessionVerb(step.input);
+    const sessionVerb = resolveGamePlaytestSessionVerb(step.input);
     for (let i = 0; i < step.frames; i += 1) {
       const { forward, right } = moveAxes(step.input);
       const moveHeld = Math.hypot(forward, right) > 0.0001;
 
-      if (step.input.look_left) yaw = wrapAngle(yaw + HOST_FREE_LOOK_YAW_RAD_S * script.dt);
-      if (step.input.look_right) yaw = wrapAngle(yaw - HOST_FREE_LOOK_YAW_RAD_S * script.dt);
-      if (step.input.look_up) pitch = clamp(pitch + HOST_FREE_LOOK_PITCH_RAD_S * script.dt, -HOST_FREE_MAX_PITCH_RAD, HOST_FREE_MAX_PITCH_RAD);
-      if (step.input.look_down) pitch = clamp(pitch - HOST_FREE_LOOK_PITCH_RAD_S * script.dt, -HOST_FREE_MAX_PITCH_RAD, HOST_FREE_MAX_PITCH_RAD);
+      if (step.input.look_left) yaw = wrapAngle(yaw + GAME_PLAYTEST_LOOK_YAW_RAD_S * script.dt);
+      if (step.input.look_right) yaw = wrapAngle(yaw - GAME_PLAYTEST_LOOK_YAW_RAD_S * script.dt);
+      if (step.input.look_up)
+        pitch = clamp(
+          pitch + GAME_PLAYTEST_LOOK_PITCH_RAD_S * script.dt,
+          -GAME_PLAYTEST_MAX_PITCH_RAD,
+          GAME_PLAYTEST_MAX_PITCH_RAD,
+        );
+      if (step.input.look_down)
+        pitch = clamp(
+          pitch - GAME_PLAYTEST_LOOK_PITCH_RAD_S * script.dt,
+          -GAME_PLAYTEST_MAX_PITCH_RAD,
+          GAME_PLAYTEST_MAX_PITCH_RAD,
+        );
 
       const speed = planarSpeedForInput(step.input, moveHeld);
       const sin = Math.sin(yaw);
@@ -185,13 +201,10 @@ export function runHostFreeGamePlaytest(input: RunHostFreeGamePlaytestInput): Ga
       if (jumpCooldownFrames > 0) jumpCooldownFrames -= 1;
 
       const planar = Math.hypot(vx, vz);
-      stuckElapsedS = moveHeld && planar < HOST_FREE_STUCK_SPEED_MPS ? stuckElapsedS + script.dt : 0;
-      const stuck = stuckElapsedS > HOST_FREE_STUCK_HOLD_S;
+      stuckElapsedS = moveHeld && planar < GAME_PLAYTEST_STUCK_SPEED_MPS ? stuckElapsedS + script.dt : 0;
+      const stuck = stuckElapsedS > GAME_PLAYTEST_STUCK_HOLD_S;
 
-      const verb =
-        step.expect?.verb ??
-        sessionVerb ??
-        locomotionVerb(step.input, moveHeld, jumpHeld);
+      const verb = step.expect?.verb ?? sessionVerb ?? locomotionVerb(step.input, moveHeld, jumpHeld);
       if (verb) verbs.add(verb);
       // Fire input also counts session fire when expect overrides to attack/reload.
       if (sessionVerb) verbs.add(sessionVerb);

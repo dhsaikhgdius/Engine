@@ -55,7 +55,7 @@ import director_package as dpkg  # noqa: E402
 import director_sequencer as dsequencer  # noqa: E402
 import director_space as dspace  # noqa: E402
 
-CONNECTOR_VERSION = "0.4.2"
+CONNECTOR_VERSION = "0.4.3"
 PROVIDER = "unreal"
 DIRECTOR_TAG_PREFIX = "director_id:"
 # Lights are tagged with their own prefix so the transform-echo export loop
@@ -573,9 +573,18 @@ def run_import(unreal, arguments) -> int:
         for entity in bake["entities"]:
             warnings.extend(entity.get("warnings", []))
 
+    # Typed shot honesty: classify storyboard shots before authoring so
+    # unmappable shots surface as structured omissions even when no
+    # LevelSequence is written (static import) or authoring fails.
+    mapped_shots, omitted_shots = dsequencer.classify_shots(
+        manifest["project"].get("storyboard"), spawned, cameras, warnings
+    )
+
     sequencer_receipt = None
     try:
-        sequencer_receipt = dsequencer.build_sequence(unreal, manifest, bake, spawned, cameras, CONTENT_ROOT, warnings)
+        sequencer_receipt = dsequencer.build_sequence(
+            unreal, manifest, bake, mapped_shots, spawned, cameras, CONTENT_ROOT, warnings
+        )
     except Exception as error:  # noqa: BLE001 - sequencer failure downgrades to a static import
         warnings.append(f"Sequencer authoring was skipped: {error}")
     if sequencer_receipt:
@@ -642,6 +651,8 @@ def run_import(unreal, arguments) -> int:
             "importedLightCount": imported_light_count,
             "omittedLightCount": len(omitted_lights) or None,
             "omittedLights": omitted_lights or None,
+            "omittedShotCount": len(omitted_shots) or None,
+            "omittedShots": omitted_shots or None,
             "omittedAnimationChannels": omitted_animation_channels or None,
         },
     )

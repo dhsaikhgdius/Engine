@@ -119,7 +119,7 @@ function throwIfAborted(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException("Timeline export aborted", "AbortError");
 }
 
-function isAudibleMedia(media: DirectorMediaItem | undefined) {
+function isAudibleMedia(media: Pick<DirectorMediaItem, "kind"> | undefined) {
   return media?.kind === "audio" || media?.kind === "video";
 }
 
@@ -136,7 +136,7 @@ function isAudibleMedia(media: DirectorMediaItem | undefined) {
  */
 export function getDirectorTimelineContentDuration(
   tracks: DirectorEditTrack[],
-  mediaById?: ReadonlyMap<string, DirectorMediaItem>,
+  mediaById?: ReadonlyMap<string, Pick<DirectorMediaItem, "kind">>,
 ) {
   let duration = 0;
   tracks.forEach((track) => {
