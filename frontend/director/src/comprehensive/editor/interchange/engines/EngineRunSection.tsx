@@ -12,12 +12,12 @@ import type { DirectorDccEngineRunStatus } from "../../../../dcc/directorDccEngi
 import type { DirectorDccEngineId } from "../../../../dcc/directorDccEngineSpace";
 import { useLanguage } from "../../../i18n/language";
 import {
-  DirectorDccEngineRunClientError,
   fetchDirectorEngineRunStatus,
   launchDirectorEngineEditor,
   runDirectorEngineProject,
   stopDirectorEngineProject,
 } from "../../api/dccEngineRunClient";
+import { ENGINE_RUN_ERROR_CODE_LABELS, engineRunErrorView, type EngineRunErrorView } from "./engineRunPresentation";
 
 /** Poll cadence for the run status while a run is active. */
 const RUN_POLL_INTERVAL_MS = 2_000;
@@ -29,13 +29,6 @@ const RUN_STATE_LABELS: Record<DirectorDccEngineRunStatus["state"], string> = {
   failed: "已失败",
 };
 
-function errorView(error: unknown, fallback: string): { message: string; recovery: string[] } {
-  if (error instanceof DirectorDccEngineRunClientError) {
-    return { message: error.message, recovery: error.recovery };
-  }
-  return { message: error instanceof Error ? error.message : fallback, recovery: [] };
-}
-
 /**
  * 打开引擎编辑器 + Godot 运行控制。运行输出是有界尾部(带截断标记),
  * 每 2 秒轮询一次直到运行结束。
@@ -44,7 +37,7 @@ export function EngineRunSection({ engine }: { engine: DirectorDccEngineId }) {
   const { t } = useLanguage();
   const [launching, setLaunching] = useState(false);
   const [launchNote, setLaunchNote] = useState("");
-  const [error, setError] = useState<{ message: string; recovery: string[] } | null>(null);
+  const [error, setError] = useState<EngineRunErrorView | null>(null);
   const [scene, setScene] = useState("");
   const [headless, setHeadless] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -92,7 +85,7 @@ export function EngineRunSection({ engine }: { engine: DirectorDccEngineId }) {
       const receipt = await launchDirectorEngineEditor(engine);
       setLaunchNote(`${t("编辑器已启动")} · PID ${receipt.pid}`);
     } catch (launchError) {
-      setError(errorView(launchError, t("引擎编辑器启动失败")));
+      setError(engineRunErrorView(launchError, t("引擎编辑器启动失败")));
     } finally {
       setLaunching(false);
     }
@@ -109,7 +102,7 @@ export function EngineRunSection({ engine }: { engine: DirectorDccEngineId }) {
       setRun(status);
       startPolling();
     } catch (runError) {
-      setError(errorView(runError, t("引擎项目运行启动失败")));
+      setError(engineRunErrorView(runError, t("引擎项目运行启动失败")));
     } finally {
       setStarting(false);
     }
@@ -123,7 +116,7 @@ export function EngineRunSection({ engine }: { engine: DirectorDccEngineId }) {
       setRun(status);
       stopPolling();
     } catch (stopError) {
-      setError(errorView(stopError, t("引擎项目停止失败")));
+      setError(engineRunErrorView(stopError, t("引擎项目停止失败")));
     } finally {
       setStopping(false);
     }
@@ -198,10 +191,21 @@ export function EngineRunSection({ engine }: { engine: DirectorDccEngineId }) {
       ) : (
         <p className="director-engine-handoff-hint">
           {t("项目运行暂不支持该引擎（需要引擎侧支持）；先打开编辑器，在引擎内运行验证")}
+          <span className="director-engine-run-unsupported-note">
+            {`${t("项目运行目前仅限 Godot；经 Agent/API 调用 run_engine_project 会返回类型化代码")} `}
+            <code>engine_run_unsupported</code>
+            {` · ${t(ENGINE_RUN_ERROR_CODE_LABELS.engine_run_unsupported)}`}
+          </span>
         </p>
       )}
       {error ? (
         <div className="director-engine-handoff-error" role="alert">
+          {error.code ? (
+            <p className="director-engine-run-error-code">
+              <code>{error.code}</code>
+              {error.codeLabel ? ` · ${t(error.codeLabel)}` : null}
+            </p>
+          ) : null}
           <p>{error.message}</p>
           {error.recovery.length ? (
             <ul className="director-engine-handoff-list">
