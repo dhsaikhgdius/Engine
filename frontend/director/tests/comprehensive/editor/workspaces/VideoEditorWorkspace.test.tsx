@@ -73,6 +73,7 @@ vi.mock("../../../../src/comprehensive/editor/media/persistentCreativeMediaStore
 });
 
 const exportVideoMock = vi.hoisted(() => vi.fn());
+const mediaVerifyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../src/comprehensive/editor/workspaces/directorTimelineVideoExport", async (importOriginal) => {
   const actual =
@@ -82,6 +83,14 @@ vi.mock("../../../../src/comprehensive/editor/workspaces/directorTimelineVideoEx
   return {
     ...actual,
     exportDirectorTimelineVideo: exportVideoMock,
+  };
+});
+
+vi.mock("../../../../src/agent/dispatchCreativeWorkspaceOperations", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../src/agent/dispatchCreativeWorkspaceOperations")>();
+  return {
+    ...actual,
+    dispatchCreativeWorkspaceMediaVerify: mediaVerifyMock,
   };
 });
 
@@ -323,6 +332,7 @@ beforeEach(() => {
   }));
   mediaImportMocks.setPlaybackPreference.mockReset().mockResolvedValue(undefined);
   exportVideoMock.mockReset();
+  mediaVerifyMock.mockReset();
   Object.defineProperty(HTMLMediaElement.prototype, "play", {
     configurable: true,
     value: vi.fn().mockResolvedValue(undefined),
@@ -773,6 +783,63 @@ describe("VideoEditorWorkspace", () => {
 
     expect(videoTrack().clips[0].name).toBe("开场镜头");
     expect(timelineClipNames(container)).toContain("开场镜头");
+  });
+
+  it("runs media.verify from 验证字节 and lists typed outcomes without claiming verified while pending", async () => {
+    const user = userEvent.setup();
+    let resolveVerify: ((value: unknown) => void) | undefined;
+    mediaVerifyMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveVerify = resolve;
+        }),
+    );
+    render(<VideoEditorWorkspace />);
+    await user.click(screen.getByRole("button", { name: "添加 Reference still" }));
+
+    const verifyButton = screen.getByRole("button", { name: /验证字节/ });
+    await user.click(verifyButton);
+
+    expect(mediaVerifyMock).toHaveBeenCalledWith(["import:image"]);
+    expect(
+      screen.getByText((_, node) => node?.classList.contains("creative-media-verify-pending") ?? false),
+    ).toHaveTextContent("正在验证字节…");
+    expect(screen.queryByText("已验证")).not.toBeInTheDocument();
+    expect(verifyButton).toBeDisabled();
+
+    await act(async () => {
+      resolveVerify?.({
+        ok: true,
+        execution: {
+          success: true,
+          operation: "media.verify",
+          result: {
+            storage: { mode: "memory", durable: false, warning: null },
+            counts: { verified: 1, size_mismatch: 0, missing_bytes: 0, not_cataloged: 0, unverified: 0 },
+            items: [
+              {
+                media_id: "import:image",
+                outcome: "verified",
+                cataloged_bytes: 12,
+                stored_bytes: 12,
+                object_url_present: true,
+                proxy_of: null,
+                omit_reason: null,
+                detail: null,
+              },
+            ],
+          },
+        },
+        idempotency_key: "ui-verify-test",
+        snapshot_fingerprint_before: "a",
+        snapshot_fingerprint_after: "a",
+      });
+    });
+
+    expect(await screen.findByLabelText("字节验证结果")).toBeInTheDocument();
+    expect(screen.getByText("已验证")).toBeInTheDocument();
+    expect(screen.getByText("内存模式（不可持久，刷新后丢失）")).toBeInTheDocument();
+    expect(screen.queryByText("正在验证字节…")).not.toBeInTheDocument();
   });
 
   it("keeps mid-typing name states the contract cannot express on the legacy writer", async () => {
