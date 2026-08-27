@@ -159,6 +159,7 @@ static func warn_on_custom_shaders(root: Node, warnings: Array) -> Dictionary:
 	return {"found": found, "omittedMaterials": omitted_materials}
 
 
+## Breadth-first collection of every MeshInstance3D under a root.
 static func collect_mesh_instances(root: Node) -> Array:
 	var found: Array = []
 	var queue: Array = [root]
@@ -171,6 +172,7 @@ static func collect_mesh_instances(root: Node) -> Array:
 	return found
 
 
+## Records one typed omittedMaterials entry and its human-readable warning.
 static func _omit_material(
 	omitted_materials: Array, warnings: Array, director_id: String, code: String, reason: String
 ) -> void:
@@ -188,6 +190,9 @@ static func _director_id_from_label(entity_label: String, target: Node) -> Strin
 	return entity_label
 
 
+## Saves each in-memory (non-res://) texture on a material to disk once,
+## deduplicated by RID; embedded GLB textures would otherwise bloat the
+## saved .tscn or fail to serialize.
 static func _externalize_material_textures(material, externalized: Dictionary, warnings: Array) -> int:
 	if material == null or not (material is BaseMaterial3D):
 		return 0
@@ -209,6 +214,9 @@ static func _externalize_material_textures(material, externalized: Dictionary, w
 	return written
 
 
+## Writes one texture to a content-hashed res:// path (idempotent across
+## re-imports) and repoints the texture at it via take_over_path so the
+## packed scene references the file instead of embedding pixels.
 static func _save_texture(texture: Texture2D, warnings: Array) -> String:
 	var image := texture.get_image()
 	if image == null:

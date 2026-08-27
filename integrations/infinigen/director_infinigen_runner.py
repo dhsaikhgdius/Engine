@@ -37,6 +37,12 @@ def write_status(
     model: str = "",
     thumbnail: str = "",
 ) -> None:
+    """Atomically replace status.json with the current stage snapshot.
+
+    The gateway polls this file, so a torn write would surface as a JSON
+    parse error mid-generation; write-to-temp + os.replace keeps every
+    observed snapshot complete. Errors are truncated to keep the file small.
+    """
     assert _OUTPUT_DIR is not None
     payload = {"status": status, "progress": round(progress, 4), "warnings": warnings or []}
     if message:
@@ -53,11 +59,17 @@ def write_status(
 
 
 def _handle_sigterm(_signum, _frame):  # noqa: ANN001
+    """Record a cancelled terminal state before dying on gateway cancellation.
+
+    os._exit skips bpy teardown on purpose: Blender atexit handlers can hang
+    and the work directory is discarded anyway.
+    """
     write_status("cancelled", 0, message="Runner received SIGTERM")
     os._exit(143)
 
 
 def load_factory(module_path: str, factory_id: str):
+    """Import an Infinigen factory class by the module/name pair from factory_catalog.json."""
     module = importlib.import_module(module_path)
     factory = getattr(module, factory_id, None)
     if factory is None:
@@ -75,6 +87,7 @@ def load_factory(module_path: str, factory_id: str):
 
 
 def _lattice(ix, iy, seed: int):
+    """Deterministic integer-lattice hash to [0, 1); same mix as worldclaw noise."""
     import numpy as np
 
     h = (
@@ -85,6 +98,7 @@ def _lattice(ix, iy, seed: int):
 
 
 def _value_noise(x, y, seed: int):
+    """Smoothstep-interpolated 2D value noise over the lattice hash."""
     import numpy as np
 
     x0 = np.floor(x)
@@ -103,6 +117,7 @@ def _value_noise(x, y, seed: int):
 
 
 def _fbm(x, y, octaves: int, seed: int):
+    """Fractal Brownian motion: octave-summed value noise normalized to [0, 1]."""
     import numpy as np
 
     total = np.zeros_like(x, dtype=np.float64)
@@ -116,6 +131,7 @@ def _fbm(x, y, octaves: int, seed: int):
 
 
 def _ridged(x, y, octaves: int, seed: int):
+    """Ridged multifractal noise (folded value noise) for sharp mountain crests."""
     import numpy as np
 
     total = np.zeros_like(x, dtype=np.float64)
@@ -130,6 +146,7 @@ def _ridged(x, y, octaves: int, seed: int):
 
 
 def _smoothstep(edge0: float, edge1: float, value):
+    """GLSL-style smoothstep used for radial masks and altitude color bands."""
     import numpy as np
 
     t = np.clip((value - edge0) / (edge1 - edge0), 0.0, 1.0)
@@ -181,6 +198,15 @@ _ENVIRONMENT_SHAPES = {
 
 
 def create_environment(preset: str, seed: int, resolution: int = 220):
+    """Build one environment preset as a vertex-colored heightfield mesh.
+
+    Resets Blender to an empty scene, samples the preset height function on a
+    resolution^2 grid, and colors vertices by altitude band plus a slope
+    darkening term so the terrain reads without any texture bake. The GLB
+    export step downstream carries vertex colors through a Principled BSDF
+    wired to the Col attribute. Real-world proportions come from
+    _ENVIRONMENT_SHAPES; Director's normalizer rescales afterwards.
+    """
     import bpy
     import numpy as np
 
@@ -272,6 +298,11 @@ def _initialize_infinigen(warnings: list[str]) -> None:
 
 
 def _fixed_seed_context(seed: int):
+    """Return Infinigen's FixedSeed context, or seed stdlib random as a fallback.
+
+    Determinism per seed is part of the provider contract: the same
+    factory + seed must reproduce the same asset across runs.
+    """
     try:
         from infinigen.core.util.math import FixedSeed
 
@@ -285,6 +316,13 @@ def _fixed_seed_context(seed: int):
 
 
 def create_asset(factory_class, seed: int, warnings: list[str]):
+    """Instantiate one Infinigen factory asset in a fresh scene.
+
+    Tries the modern spawn_asset API first and falls back to the older
+    create_asset, because the catalog spans factories from several Infinigen
+    generations. finalize_assets is best-effort: some factories finalize
+    inside spawn_asset and raise when called twice.
+    """
     import bpy
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -338,6 +376,12 @@ def bake_and_export_glb(output_dir: Path, texture_res: int, warnings: list[str])
 
 
 def render_thumbnail(output_dir: Path) -> Path:
+    """Render a 512x512 transparent EEVEE thumbnail of the current scene.
+
+    Frames the combined mesh bounds with a three-quarter camera and a single
+    sun so both centimeter-scale props and kilometer-scale terrain presets
+    photograph without manual staging.
+    """
     import bpy
     from mathutils import Vector
 
@@ -383,6 +427,12 @@ def render_thumbnail(output_dir: Path) -> Path:
 
 
 def main() -> int:
+    """Run one generation task and always leave a terminal status.json.
+
+    Every path — environment preset, factory asset, or crash — ends in a
+    succeeded/failed/cancelled snapshot, because the gateway has no other
+    channel to learn the outcome.
+    """
     global _OUTPUT_DIR
     parser = argparse.ArgumentParser(prog="director_infinigen_runner")
     parser.add_argument("--factory", required=True)

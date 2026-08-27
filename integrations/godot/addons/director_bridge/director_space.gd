@@ -13,27 +13,33 @@
 ## global class cache, so every module is referenced through `preload`.
 
 
+## Identity map: canonical [x, y, z] metres -> Godot Vector3.
 static func director_point_to_godot(point: Array) -> Vector3:
 	return Vector3(point[0], point[1], point[2])
 
 
+## Identity map: Godot Vector3 -> canonical [x, y, z] metres.
 static func godot_point_to_director(point: Vector3) -> Array:
 	return [point.x, point.y, point.z]
 
 
+## Canonical [x, y, z, w] -> normalized Godot Quaternion (same basis).
 static func director_quat_to_godot(q: Array) -> Quaternion:
 	return Quaternion(q[0], q[1], q[2], q[3]).normalized()
 
 
+## Godot Quaternion -> canonical [x, y, z, w], normalized for the wire.
 static func godot_quat_to_director(q: Quaternion) -> Array:
 	var normalized := q.normalized()
 	return [normalized.x, normalized.y, normalized.z, normalized.w]
 
 
+## Identity map: canonical per-axis scale -> Godot Vector3.
 static func director_scale_to_godot(scale: Array) -> Vector3:
 	return Vector3(scale[0], scale[1], scale[2])
 
 
+## Identity map: Godot Vector3 scale -> canonical per-axis scale array.
 static func godot_scale_to_director(scale: Vector3) -> Array:
 	return [scale.x, scale.y, scale.z]
 

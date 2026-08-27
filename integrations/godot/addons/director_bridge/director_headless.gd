@@ -43,6 +43,8 @@ const TRANSFORM_TOLERANCE := 1e-6
 const MAX_PARENT_DEPTH := 4_096
 
 
+## SceneTree entry point: dispatches on --mode and quits with the runner's
+## exit code (1 for failures, 2 for invocation errors).
 func _initialize() -> void:
 	var arguments := _parse_arguments(OS.get_cmdline_user_args())
 	var mode: String = arguments.get("mode", "")
@@ -59,6 +61,7 @@ func _initialize() -> void:
 	quit(exit_code)
 
 
+## Minimal --key value parser over the post-"--" argv slice.
 func _parse_arguments(raw: PackedStringArray) -> Dictionary:
 	var arguments := {}
 	var index := 0
@@ -72,11 +75,13 @@ func _parse_arguments(raw: PackedStringArray) -> Dictionary:
 	return arguments
 
 
+## "Godot <major>.<minor>.<patch>" string for reports and return manifests.
 func _host_version() -> String:
 	var info := Engine.get_version_info()
 	return "Godot %s.%s.%s" % [info.major, info.minor, info.patch]
 
 
+## Prints the JSON health line the Gateway parses to detect the connector.
 func _run_health() -> int:
 	print(
 		JSON.stringify(
@@ -91,6 +96,10 @@ func _run_health() -> int:
 	return 0
 
 
+## Shared preamble for import/export: validates required arguments and
+## hash-verifies the exchange package before handing the manifest to the
+## runner. Every failure still writes a report so the Gateway job fails
+## with a reason instead of timing out.
 func _run_guarded(arguments: Dictionary, runner: Callable) -> int:
 	var report_path: String = arguments.get("report", "")
 	if not arguments.has("package") or report_path.is_empty():
@@ -106,6 +115,12 @@ func _run_guarded(arguments: Dictionary, runner: Callable) -> int:
 	return runner.call(arguments, manifest)
 
 
+## Full import pass. Order matters: objects are created with composed world
+## transforms first, then reparented (locals recomputed from captured
+## worlds), then cameras and lights are added, then the pinned animation
+## bake is keyed against the final hierarchy, and finally textures are
+## externalized and the scene is saved. The receipt tallies every applied
+## and omitted channel so the Gateway can report degradations.
 func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 	var warnings: Array = []
 	var project: Dictionary = manifest["project"]
@@ -336,6 +351,9 @@ func _run_import(arguments: Dictionary, manifest: Dictionary) -> int:
 	return 0
 
 
+## Reopens the imported scene and diffs every director_id-tagged
+## object/camera node against the manifest baselines, returning a
+## director-dcc-return-v1 package with only the transforms that moved.
 func _run_export(arguments: Dictionary, manifest: Dictionary) -> int:
 	var warnings: Array = []
 	if not arguments.has("return-dir"):
@@ -415,6 +433,11 @@ func _run_export(arguments: Dictionary, manifest: Dictionary) -> int:
 	return 0
 
 
+## Instantiates one object's GLB payload, loading each assetRefId once and
+## duplicating the generated scene for further instances. Missing, non-GLB,
+## or unloadable payloads become empty Node3Ds plus a warning so the
+## director_id and transform still round-trip. instanced[0] reports whether
+## a real payload was placed (array because GDScript lacks out-params).
 func _instantiate_payload(
 	entity: Dictionary,
 	asset_paths: Dictionary,
@@ -457,6 +480,7 @@ func _instantiate_payload(
 	return instance
 
 
+## Counts AnimationPlayers a GLB payload brought along, for the receipt.
 func _count_animation_players(root: Node) -> int:
 	var count := 0
 	var queue: Array = [root]
@@ -469,6 +493,8 @@ func _count_animation_players(root: Node) -> int:
 	return count
 
 
+## Detects parentObjectId cycles (and absurdly deep chains) before
+## reparenting, because add_child on a cycle would corrupt the tree.
 func _in_parent_cycle(start_id: String, parent_of: Dictionary) -> bool:
 	var current = parent_of.get(start_id)
 	var depth := 0
@@ -480,6 +506,7 @@ func _in_parent_cycle(start_id: String, parent_of: Dictionary) -> bool:
 	return depth >= MAX_PARENT_DEPTH
 
 
+## Breadth-first collection of every Node3D carrying director_id metadata.
 func _collect_tagged(root: Node) -> Array:
 	var found: Array = []
 	var queue: Array = [root]
@@ -492,6 +519,9 @@ func _collect_tagged(root: Node) -> Array:
 	return found
 
 
+## World transform relative to the imported scene root, composed manually
+## because the instantiated scene is never added to a live tree (so
+## global_transform is unavailable).
 func _world_transform_of(node: Node3D, root: Node) -> Transform3D:
 	var world := node.transform
 	var current := node.get_parent()
@@ -517,6 +547,8 @@ func _moved(world: Transform3D, baseline_canonical: Dictionary) -> bool:
 	return false
 
 
+## Assigns every descendant's owner so PackedScene.pack serializes the
+## whole subtree; nodes without an owner would silently vanish on save.
 func _set_owner_recursive(node: Node, owner: Node) -> void:
 	for child in node.get_children():
 		child.owner = owner
