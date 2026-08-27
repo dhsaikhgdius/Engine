@@ -52,12 +52,14 @@ else:
 
 
 def register():
+    """Interactive-Blender registration: properties, operators (no UI menus), session."""
     properties.register()
     operators.register(include_ui=False)
     native_session.register()
 
 
 def unregister():
+    """Mirror of register(); also stops any dev services this addon launched."""
     director_runtime.stop()
     native_session.unregister()
     operators.unregister(include_ui=False)
@@ -65,11 +67,13 @@ def unregister():
 
 
 def register_backend():
+    """Headless registration used by worldengine_backend.py: no operators at all."""
     properties.register()
     native_session.register()
 
 
 def unregister_backend():
+    """Mirror of register_backend() for headless shutdown."""
     director_runtime.stop()
     native_session.unregister()
     properties.unregister()

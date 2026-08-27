@@ -69,6 +69,7 @@ def operator_category(identifier: str) -> str | None:
 
 
 def is_allowed_operator(identifier: str) -> bool:
+    """True when the operator id parses and hits neither denylist."""
     category = operator_category(identifier)
     if category is None or category in OPERATOR_CATEGORY_DENYLIST:
         return False
@@ -78,6 +79,7 @@ def is_allowed_operator(identifier: str) -> bool:
 
 
 def is_allowed_rna_write(operation: dict[str, Any]) -> bool:
+    """True when the RNA write targets an allowlisted kind and no denied path segment."""
     target = operation.get("target")
     path = operation.get("path")
     if not isinstance(target, dict) or not isinstance(path, list):

@@ -54,12 +54,14 @@ def open_store(path: str | Path) -> bool:
 
 
 def current_project_id(scene=None) -> str | None:
+    """Director project id bound to a scene (defaults to the active scene), or None."""
     scene = scene or bpy.context.scene
     value = scene.get(PROJECT_ID_PROPERTY) if scene is not None else None
     return value if isinstance(value, str) and value else None
 
 
 def _managed_scenes(project_id: str) -> list[bpy.types.Scene]:
+    """All scenes tagged with this project id (more than one only after a crash)."""
     return [scene for scene in bpy.data.scenes if current_project_id(scene) == project_id]
 
 
@@ -102,6 +104,7 @@ def deduplicate_managed_scenes() -> int:
 
 
 def _configure_scene(scene) -> None:
+    """Pin a managed scene to Director's canonical units and preview render size."""
     # The Director contract fixes metric meters and 24 fps; render size is a
     # preview-friendly default (1080p at 50%), not a delivery setting.
     scene.unit_settings.system = 'METRIC'
@@ -114,6 +117,7 @@ def _configure_scene(scene) -> None:
 
 
 def save_store() -> bool:
+    """Immediately write the managed .blend and clear any pending debounce."""
     global _save_due_at
     if _store_path is None:
         return False
@@ -133,10 +137,12 @@ def request_save() -> bool:
 
 
 def has_pending_save() -> bool:
+    """True while a debounced save is scheduled but not yet flushed."""
     return _save_due_at is not None
 
 
 def flush_pending_save(*, force: bool = False) -> bool:
+    """Perform the debounced save once its deadline passed (or immediately with force)."""
     global _save_due_at
     if _save_due_at is None:
         return False

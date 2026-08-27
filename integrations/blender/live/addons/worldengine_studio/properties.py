@@ -19,6 +19,8 @@ from bpy.types import PropertyGroup
 
 
 class WORLDENGINE_PG_scene_state(PropertyGroup):
+    """N-panel operator inputs plus the cross-process scene_revision counter."""
+
     blockout_width: FloatProperty(
         name="Width",
         description="Width of the next room, corridor, floor, or stair flight",
@@ -103,12 +105,14 @@ classes = (WORLDENGINE_PG_scene_state,)
 
 
 def register():
+    """Register the property group and attach it to every Scene."""
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.worldengine_studio = PointerProperty(type=WORLDENGINE_PG_scene_state)
 
 
 def unregister():
+    """Detach the scene pointer and unregister the property group."""
     del bpy.types.Scene.worldengine_studio
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

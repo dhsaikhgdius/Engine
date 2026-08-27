@@ -16,6 +16,8 @@ from bpy.types import AddonPreferences
 
 
 class WORLDENGINE_AP_preferences(AddonPreferences):
+    """User-editable connection settings shown in Blender's addon preferences."""
+
     bl_idname = __package__
 
     director_url: StringProperty(
@@ -45,6 +47,7 @@ class WORLDENGINE_AP_preferences(AddonPreferences):
     )
 
     def draw(self, _context):
+        """Standard single-column property layout for the preferences panel."""
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
@@ -68,10 +71,12 @@ def get_preferences(context=None):
 
 
 def register():
+    """Register the preferences class with Blender."""
     for cls in classes:
         bpy.utils.register_class(cls)
 
 
 def unregister():
+    """Unregister the preferences class in reverse order."""
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

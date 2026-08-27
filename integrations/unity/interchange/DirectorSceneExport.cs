@@ -44,6 +44,13 @@ using UnityEngine.SceneManagement;
 
 namespace DirectorInterchange
 {
+    /// <summary>
+    /// Standalone director-engine-scene-v1 exporter. Deliberately independent
+    /// of com.director.bridge (any Unity project can export without the
+    /// connector installed), which is why it carries its own space conversion
+    /// and a dependency-free JSON writer instead of reusing DirectorSpace or
+    /// Newtonsoft.Json.
+    /// </summary>
     public static class DirectorSceneExport
     {
         private const string ExporterName = "director-unity-scene-export";
@@ -52,6 +59,11 @@ namespace DirectorInterchange
         private const int MaxNodes = 20000;
         private const float DefaultLookDistance = 10f;
 
+        /// <summary>
+        /// Batch-mode entry point (-executeMethod). Reads -directorOutputDir,
+        /// optional -directorScene, and -directorZip from the process command
+        /// line; failures exit the editor with code 1 so the Gateway job fails.
+        /// </summary>
         public static void ExportFromCommandLine()
         {
             try
@@ -80,6 +92,15 @@ namespace DirectorInterchange
             }
         }
 
+        /// <summary>
+        /// Builds the whole package: walks the hierarchy depth-first collecting
+        /// typed node/camera/light records under hard caps (the manifest stays
+        /// bounded; the GLB keeps the full scene), exports geometry through
+        /// gltfast, inventories animation clips, and writes manifest.json with
+        /// SHA-256 file hashes. Parent links pointing at truncated nodes are
+        /// dropped so the manifest never references a node it does not contain.
+        /// Returns the manifest path.
+        /// </summary>
         public static string Export(string outputDir, string scenePath, bool makeZip)
         {
             if (!string.IsNullOrWhiteSpace(scenePath))
@@ -270,6 +291,11 @@ namespace DirectorInterchange
         private static double[] ToDirectorDirection(Vector3 direction) =>
             new double[] { -direction.x, direction.y, direction.z };
 
+        /// <summary>
+        /// Converts a Unity rotation to Director intrinsic XYZ Euler radians by
+        /// conjugating the rotation matrix into the right-handed basis first;
+        /// negating a quaternion component alone would not change handedness.
+        /// </summary>
         private static double[] ToDirectorEulerXyz(Quaternion rotation)
         {
             var r = Matrix4x4.Rotate(rotation);
@@ -294,6 +320,10 @@ namespace DirectorInterchange
             return new[] { x, y, z };
         }
 
+        /// <summary>
+        /// World transform as manifest position/rotation/scale; lossyScale is
+        /// used because manifest transforms are world-space, not local.
+        /// </summary>
         private static Dictionary<string, object> BuildTransformRecord(Transform transform)
         {
             var scale = transform.lossyScale;
@@ -307,6 +337,7 @@ namespace DirectorInterchange
 
         // --- Node classification ---------------------------------------------------
 
+        /// <summary>Maps a GameObject onto the manifest's kind vocabulary by component.</summary>
         private static string ClassifyNode(GameObject gameObject)
         {
             if (gameObject.GetComponent<Camera>() != null) return "camera";
@@ -329,11 +360,21 @@ namespace DirectorInterchange
             }
         }
 
+        /// <summary>
+        /// Stable source id from Unity's GlobalObjectId, which survives scene
+        /// reloads and re-exports (unlike instance ids or hierarchy paths).
+        /// </summary>
         private static string StableId(GameObject gameObject) =>
             Truncate(GlobalObjectId.GetGlobalObjectIdSlow(gameObject).ToString(), 240);
 
         // --- Cameras -----------------------------------------------------------------
 
+        /// <summary>
+        /// Builds one camera record: optics come from physical camera
+        /// properties when enabled (otherwise Director defaults with a
+        /// warning), the look target sits along forward at the focus distance,
+        /// and headless NaN aspect ratios fall back to 16:9.
+        /// </summary>
         private static Dictionary<string, object> BuildCameraRecord(GameObject gameObject, List<object> warnings)
         {
             var camera = gameObject.GetComponent<Camera>();
@@ -384,6 +425,13 @@ namespace DirectorInterchange
 
         // --- Lights --------------------------------------------------------------
 
+        /// <summary>
+        /// Builds one light record for the four mappable Unity light types.
+        /// Directional/spot/rect lights aim through a synthetic target point
+        /// (Director lights aim at targets); spot penumbra derives from the
+        /// inner/outer angle ratio. Other types return null plus a typed
+        /// unsupported record.
+        /// </summary>
         private static Dictionary<string, object> BuildLightRecord(
             GameObject gameObject,
             List<object> warnings,
@@ -450,6 +498,11 @@ namespace DirectorInterchange
             }
         }
 
+        /// <summary>
+        /// Maps flat ambient RenderSettings onto a Director ambient light;
+        /// skybox/gradient ambient modes only warn because they have no
+        /// color+intensity representation in the manifest.
+        /// </summary>
         private static Dictionary<string, object> BuildAmbientLightRecord(List<object> warnings)
         {
             if (RenderSettings.ambientMode == AmbientMode.Flat)
@@ -470,6 +523,12 @@ namespace DirectorInterchange
 
         // --- Geometry (GLB via com.unity.cloud.gltfast, looked up reflectively) ----
 
+        /// <summary>
+        /// Writes assets/scene.glb through gltfast's GameObjectExport, located
+        /// by reflection so this file compiles in projects without the package
+        /// (a hard using would break compilation, not just export). Every
+        /// failure path becomes a typed "geometry" unsupported record.
+        /// </summary>
         private static bool ExportGlb(
             List<GameObject> rootObjects,
             string sceneName,
@@ -547,6 +606,10 @@ namespace DirectorInterchange
 
         // --- Animation inventory ---------------------------------------------------
 
+        /// <summary>
+        /// Inventories Animator and legacy Animation clips by name (deduplicated,
+        /// capped at 512); keyframe data rides inside the GLB, not the manifest.
+        /// </summary>
         private static List<object> CollectAnimationClips(List<object> warnings)
         {
             var seen = new HashSet<string>();
@@ -581,6 +644,7 @@ namespace DirectorInterchange
 
         // --- Utilities ---------------------------------------------------------------
 
+        /// <summary>Reads the value following a named command-line flag, or null.</summary>
         private static string ReadArgumentValue(string[] args, string flag)
         {
             for (var i = 0; i < args.Length - 1; i += 1)
@@ -602,6 +666,7 @@ namespace DirectorInterchange
         private static string Truncate(string value, int maxLength) =>
             value.Length <= maxLength ? value : value.Substring(0, maxLength);
 
+        /// <summary>Range clamp that also maps NaN/Infinity to the minimum, keeping the manifest schema-valid.</summary>
         private static double Clamp(double value, double minimum, double maximum)
         {
             if (double.IsNaN(value) || double.IsInfinity(value)) return minimum;
@@ -637,6 +702,7 @@ namespace DirectorInterchange
             return builder.ToString();
         }
 
+        /// <summary>Zips the package directory with forward-slash entry names for the upload endpoint.</summary>
         private static void WriteZip(string sourceDir, string zipPath)
         {
             if (File.Exists(zipPath)) File.Delete(zipPath);

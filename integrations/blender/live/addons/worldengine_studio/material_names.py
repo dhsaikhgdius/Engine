@@ -31,15 +31,18 @@ SIGNIFICANT_TOKEN_LENGTH = 3
 
 
 def blender_material_base_name(name: str) -> str:
+    """Strip Blender's ``.001`` duplicate suffix to the canonical base name."""
     match = BLENDER_DUP_SUFFIX.match(name)
     return match.group(1) if match else name
 
 
 def normalize_material_key(name: str) -> str:
+    """Casefolded alphanumeric-only key for order-insensitive name comparison."""
     return "".join(character for character in name.casefold() if character.isalnum())
 
 
 def material_name_tokens(name: str) -> frozenset[str]:
+    """Significant tokens of a name: CJK runs always, Latin runs of 3+ chars."""
     tokens: set[str] = set()
     for token in MATERIAL_TOKEN.findall(name):
         folded = token.casefold()
@@ -60,6 +63,7 @@ def unique_material_names(
     seen_bases: set[str] = set()
 
     def take(name: str) -> None:
+        """Record one name per base, preferring the clean base name when it exists."""
         if not name:
             return
         base = blender_material_base_name(name)
