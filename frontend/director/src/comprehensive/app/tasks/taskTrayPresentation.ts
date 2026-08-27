@@ -3,6 +3,10 @@ import type {
   ProductionJobRecord,
   ProductionJobStatus,
 } from "../../../../../../packages/protocol/src/productionJobProtocol";
+import type {
+  ProductionJobReceipt,
+  ProductionJobReceiptArtifact,
+} from "../../../../../../packages/protocol/src/productionJobReceipt";
 
 /** Human-readable labels for every production job kind. */
 export const TASK_KIND_LABELS: Record<ProductionJobKind, string> = {
@@ -156,4 +160,45 @@ export function formatTaskRelativeTime(iso: string, now = Date.now()): string {
   return `${date.getMonth() + 1}月${date.getDate()}日 ${String(date.getHours()).padStart(2, "0")}:${String(
     date.getMinutes(),
   ).padStart(2, "0")}`;
+}
+
+/** Summary of one receipt artifact whose bytes were GC-swept. */
+export type TaskAbsentArtifactSummary = {
+  id: string;
+  role: string;
+  label: string;
+};
+
+/**
+ * Formats one absent artifact line for the task tray (zh-CN source copy).
+ *
+ * @param artifact - Receipt artifact with `storagePresence === "absent"`.
+ */
+export function formatTaskAbsentArtifactLine(artifact: Pick<ProductionJobReceiptArtifact, "id" | "role">): string {
+  return `产物字节已不可用 (GC)：${artifact.role} · ${artifact.id}`;
+}
+
+/**
+ * Collects absent artifact summaries from a live normalized receipt.
+ *
+ * @param receipt - A probed production job receipt.
+ */
+export function taskAbsentArtifactSummaries(receipt: ProductionJobReceipt): TaskAbsentArtifactSummary[] {
+  return receipt.artifacts
+    .filter((artifact) => artifact.storagePresence === "absent")
+    .map((artifact) => ({
+      id: artifact.id,
+      role: artifact.role,
+      label: formatTaskAbsentArtifactLine(artifact),
+    }));
+}
+
+/**
+ * Builds an aria-label for absent artifact warnings on one tray row.
+ *
+ * @param summaries - Absent artifact summaries from {@link taskAbsentArtifactSummaries}.
+ */
+export function taskAbsentArtifactAriaLabel(summaries: readonly TaskAbsentArtifactSummary[]): string {
+  if (summaries.length === 0) return "";
+  return summaries.map((summary) => summary.label).join("；");
 }

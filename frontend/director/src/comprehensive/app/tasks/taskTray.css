@@ -247,6 +247,20 @@
   overflow-wrap: anywhere;
 }
 
+.task-tray-item-artifact-warning {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: rgb(var(--director-warning-rgb, 222 170 74));
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.task-tray-item-artifact-warning > li + li {
+  margin-top: 2px;
+}
+
 .task-tray-item-meta {
   display: flex;
   gap: 8px;

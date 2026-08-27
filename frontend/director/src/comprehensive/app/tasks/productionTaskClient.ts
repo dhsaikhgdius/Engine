@@ -3,7 +3,12 @@ import {
   productionJobRecordSchema,
   type ProductionJobKind,
   type ProductionJobRecord,
+  type ProductionJobStatus,
 } from "../../../../../../packages/protocol/src/productionJobProtocol";
+import {
+  productionJobReceiptSchema,
+  type ProductionJobReceipt,
+} from "../../../../../../packages/protocol/src/productionJobReceipt";
 import { directorControlPlaneFetch } from "../../editor/api/directorControlPlaneClient";
 import { cancelGenerated3DJob, retryGenerated3DJob } from "../../editor/generated3d/generated3dClient";
 import { cancelMediaTranscriptionJob, retryMediaTranscriptionJob } from "../../editor/media/mediaTranscriptionBridge";
@@ -76,6 +81,41 @@ export function taskSupportsRetry(job: ProductionJobRecord): boolean {
  */
 export function taskIsFinished(job: ProductionJobRecord): boolean {
   return isTerminalProductionJobStatus(job.status);
+}
+
+/** Statuses whose normalized receipts may carry live artifact byte presence. */
+const RECEIPT_PROBE_STATUSES: ReadonlySet<ProductionJobStatus> = new Set([
+  "succeeded",
+  "failed",
+  "cancelled",
+  "outcome_unknown",
+]);
+
+/**
+ * Returns whether the tray should probe `GET /api/production-jobs/:id/receipt`
+ * for live artifact `storagePresence`.
+ *
+ * @param job - The production job record.
+ */
+export function taskNeedsReceiptProbe(job: ProductionJobRecord): boolean {
+  return RECEIPT_PROBE_STATUSES.has(job.status);
+}
+
+/**
+ * Fetches the normalized live receipt for one production job.
+ *
+ * @param jobId - The durable job id.
+ * @param signal - Optional AbortSignal for request cancellation.
+ */
+export async function fetchProductionJobReceipt(jobId: string, signal?: AbortSignal): Promise<ProductionJobReceipt> {
+  const response = await directorControlPlaneFetch(`/api/production-jobs/${encodeURIComponent(jobId)}/receipt`, {
+    signal,
+  });
+  const body = (await response.json().catch(() => ({}))) as { message?: unknown; receipt?: unknown };
+  if (!response.ok) {
+    throw new Error(typeof body.message === "string" ? body.message : `任务回执请求失败（HTTP ${response.status}）`);
+  }
+  return productionJobReceiptSchema.parse(body.receipt);
 }
 
 /**
