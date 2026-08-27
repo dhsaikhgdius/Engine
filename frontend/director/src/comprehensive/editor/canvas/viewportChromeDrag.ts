@@ -1,3 +1,11 @@
+/**
+ * Drag/position infrastructure for floating viewport chrome (camera PiP,
+ * properties cards, toolbars): pointer-driven dragging with viewport-bounds
+ * clamping, per-panel persisted offsets, and a module-level suppression
+ * registry so overlays like fullscreen previews can hide all chrome at once.
+ * Positions live outside React state where dragging is in flight so a move
+ * never re-renders the 3D canvas beneath it.
+ */
 import {
   useCallback,
   useEffect,

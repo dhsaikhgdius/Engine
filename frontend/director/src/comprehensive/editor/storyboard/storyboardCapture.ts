@@ -1,3 +1,10 @@
+/**
+ * Storyboard thumbnail capture: renders a shot's camera framing through the
+ * viewport capture bridge at a bounded thumbnail size, stores the image in
+ * the persistent creative media library, and returns the thumbnail reference
+ * persisted on the storyboard shot. Dependencies (capture function, media
+ * library) are injectable so tests run without a live viewport.
+ */
 import type { ScreenshotResult } from "../io/screenshotExport";
 import { requestViewportCapture, type ViewportCaptureRequest } from "../io/captureBridge";
 import {

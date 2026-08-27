@@ -1,3 +1,10 @@
+/**
+ * Media review state (ratings/tags/notes on gallery media): reads through the
+ * shared creative workspace store and writes via the same dispatch path the
+ * agent tools use, so human review edits and MCP `director_creative` edits
+ * stay in one history. Also performs a one-way migration from the legacy
+ * localStorage mirror kept only for old projects.
+ */
 import { useSyncExternalStore } from "react";
 import { dispatchCreativeWorkspaceOperations } from "../../../agent/dispatchCreativeWorkspaceOperations";
 import {

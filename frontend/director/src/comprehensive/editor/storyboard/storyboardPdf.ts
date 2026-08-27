@@ -1,3 +1,11 @@
+/**
+ * Storyboard PDF export: lays out storyboard shots (thumbnail, shot size,
+ * movement, dialogue/notes) onto paginated A4/letter pages, builds the PDF
+ * in the browser, and optionally wraps it in a verification ZIP with
+ * per-page renders and a manifest keyed by the versioned contract id. The
+ * contract id and manifest let downstream tooling and agents verify a
+ * package was produced by a known layout version.
+ */
 import JSZip from "jszip";
 import {
   DIRECTOR_STORYBOARD_MOVEMENTS,
