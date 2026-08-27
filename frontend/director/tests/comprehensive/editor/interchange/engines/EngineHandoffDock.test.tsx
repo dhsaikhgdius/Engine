@@ -917,6 +917,137 @@ it("imports an uploaded Godot scene package after review with a rebuilt selectio
   expect(within(panel).getByRole("button", { name: "已导入当前场景" })).toBeDisabled();
 });
 
+it("lists typed engine-scene omitted records without echoing them as free-text plan warnings", async () => {
+  const rollReason = "Engine camera roll on MainCamera is not represented by Director's target-based camera model.";
+  const hierarchyReason =
+    "The 6 engine scene nodes import as one flattened Director scene object; per-node editing requires the planned engine round trip.";
+  const clampWarning = "Camera MainCamera focal length was clamped to Director's 12–200 mm range.";
+  const manifest = {
+    schemaVersion: 1,
+    contract: "director-engine-scene-v1",
+    packageId: "godot-scene-omitted",
+    provider: "godot",
+    exportedAt: "2026-08-26T00:00:00Z",
+    engineVersion: "Godot 4.7.2",
+    exporter: { name: "director-godot-scene-export", version: "1.0.0" },
+    source: { projectName: "OmitFixture", sceneName: "main" },
+    coordinateSystem: {
+      source: "right-handed-y-up-negative-z-forward-meter",
+      destination: "right-handed-y-up-negative-z-forward",
+      unit: "meter",
+      linearMap: "(x,y,z)->(x,y,z)",
+    },
+    timeline: { frameStart: 0, frameEnd: 0, currentFrame: 0, fps: 30 },
+    scene: {
+      name: "main",
+      bundleFile: "assets/scene.glb",
+      nodeCount: 6,
+      meshCount: 1,
+      skinnedMeshCount: 1,
+      materialCount: 0,
+      animationClipCount: 2,
+    },
+    nodes: [],
+    cameras: [
+      {
+        sourceId: "MainCamera",
+        name: "MainCamera",
+        position: [0, 1.7, 5],
+        lookTarget: [0, 1.7, -5],
+        verticalFovDegrees: 40,
+        nearClipM: 0.05,
+        farClipM: 4000,
+        renderAspectRatio: 16 / 9,
+      },
+    ],
+    lights: [],
+    animationClips: [{ name: "Idle" }, { name: "Walk" }],
+    unsupported: [{ kind: "light", name: "AreaLamp", reason: "Rect-area lights are not mapped." }],
+    warnings: ["package note"],
+    fileHashes: { "assets/scene.glb": hash },
+  };
+  const omitted = [
+    {
+      sourceId: "AreaLamp",
+      kind: "light",
+      code: "unsupported_object" as const,
+      reason: "Rect-area lights are not mapped.",
+    },
+    { sourceId: "scene", code: "hierarchy_flattened" as const, reason: hierarchyReason },
+    { sourceId: "MainCamera", code: "camera_roll" as const, reason: rollReason },
+    {
+      sourceId: "scene",
+      code: "animation_clips" as const,
+      reason:
+        "2 animation clip(s) remain embedded in the GLB; Director v1 imports the scene at the exported frame and does not map them onto its editable timeline.",
+    },
+    {
+      sourceId: "scene",
+      code: "skinned_mesh_rigs" as const,
+      reason:
+        "1 skinned mesh(es) keep their skeletons inside the GLB bundle; Director does not rebind them to its character rig system on import.",
+    },
+  ];
+  const plan = {
+    contract: "director-engine-scene-import-plan-v1",
+    planId: "godot-job/plans/omitted.json",
+    ready: true,
+    provider: "godot",
+    packageId: "godot-scene-omitted",
+    packageDir: "godot-job/package",
+    manifestHash: hash,
+    targetRevision: revision,
+    selection: { includeScene: true, cameraSourceIds: ["MainCamera"], lightSourceIds: [] },
+    operations: [{ op: "create_scene_asset" }, { op: "create_camera" }],
+    conflicts: [],
+    warnings: [
+      "package note",
+      "light AreaLamp: Rect-area lights are not mapped.",
+      hierarchyReason,
+      rollReason,
+      omitted[3]!.reason,
+      omitted[4]!.reason,
+      clampWarning,
+    ],
+    omittedCount: omitted.length,
+    omitted,
+  };
+  sceneClient.upload.mockResolvedValue({
+    jobId: "godot-job",
+    provider: "godot",
+    packagePath: "godot-job/package",
+    manifest,
+    plan,
+  });
+  renderDock();
+  const user = await openTab("Godot");
+  const panel = screen.getByRole("tabpanel");
+
+  await user.upload(
+    within(panel).getByLabelText("选择引擎场景包"),
+    new File(["zip-bytes"], "director-engine-scene.zip", { type: "application/zip" }),
+  );
+  await within(panel).findByText("包已校验");
+
+  expect(within(panel).getByText(/2 项操作 · 0 项冲突 · 5 项省略 · 3 条提示/)).toBeInTheDocument();
+
+  const omittedList = within(panel).getByRole("list", { name: "引擎场景导入省略" });
+  expect(within(omittedList).getByText("AreaLamp")).toBeInTheDocument();
+  expect(omittedList).toHaveTextContent("不支持对象未导入");
+  expect(within(omittedList).getByText("MainCamera")).toBeInTheDocument();
+  expect(omittedList).toHaveTextContent("相机滚转未导入");
+  expect(omittedList).toHaveTextContent("层级合并为单一场景对象");
+  expect(omittedList).toHaveTextContent("动画剪辑未映射时间线");
+  expect(omittedList).toHaveTextContent("蒙皮骨骼未绑定角色系统");
+
+  const planNotices = within(panel).getByRole("list", { name: "引擎场景导入提示" });
+  expect(planNotices).toHaveTextContent(clampWarning);
+  expect(planNotices).toHaveTextContent("light AreaLamp: Rect-area lights are not mapped.");
+  expect(planNotices).not.toHaveTextContent("camera roll");
+  expect(planNotices).not.toHaveTextContent("flattened Director scene object");
+  expect(planNotices).not.toHaveTextContent("package note");
+});
+
 it("opens an Unreal live preview session against the entered port and closes it with bye", async () => {
   const sessionStatus = (forwarded: number, closed = false) => ({
     contract: "director-unreal-live-preview-status-v1" as const,
