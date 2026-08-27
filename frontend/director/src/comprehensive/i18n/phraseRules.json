@@ -327,6 +327,7 @@
   },
   { "pattern": "^确认清扫 (\\S+) 个对象（(.+)）$", "replacement": "Confirm sweep: $1 objects ($2)" },
   { "pattern": "^已清扫 (\\S+) 个对象，回收 (.+)$", "replacement": "Swept $1 objects, reclaimed $2" },
+  { "pattern": "^已回读 (.+)$", "replacement": "Read back $1" },
   { "pattern": "^(\\S+) 个对象（(.+)）$", "replacement": "$1 objects ($2)" },
   { "pattern": "^(.+) · (.+) 滑杆$", "handler": "compositeSlider" },
   { "pattern": "^(.+) · (.+)$", "handler": "composite" },

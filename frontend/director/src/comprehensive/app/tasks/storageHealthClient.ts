@@ -34,12 +34,15 @@ export const storageCapacityCheckSchema = z.discriminatedUnion("status", [
   }),
 ]);
 
-/** Result of the gateway's live put → verify → delete write probe. */
+/** Result of the gateway's live put → get (byte equality) → delete write probe. */
 export const storageWriteProbeSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("ok"),
     probedAt: z.string(),
     latencyMs: z.number().nonnegative(),
+    // Optional so a tray talking to a pre-deepen gateway still parses; new
+    // gateways always stamp the compared byte count as read-back evidence.
+    bytesProbed: z.number().int().nonnegative().optional(),
   }),
   z.object({
     status: z.literal("failed"),
