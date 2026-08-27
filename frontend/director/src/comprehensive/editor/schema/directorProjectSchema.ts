@@ -1,3 +1,15 @@
+/**
+ * The Zod schema for the entire Director project document: objects, cameras,
+ * lights, timeline, storyboard, world, production, assets, and every nested
+ * enum. This is the validation boundary for untrusted project data —
+ * localStorage snapshots, bundle imports, agent payloads, and collaboration
+ * frames all parse through here.
+ *
+ * Two parse strictness variants exist (strict for tests/CI, lenient
+ * structural for load paths), plus `repairDirectorProjectReferences`, which
+ * fixes dangling cross-references (deleted assets, cameras, list members)
+ * and reports each repair instead of rejecting the whole document.
+ */
 import { z } from "zod";
 import {
   createDefaultDirectorProduction,
