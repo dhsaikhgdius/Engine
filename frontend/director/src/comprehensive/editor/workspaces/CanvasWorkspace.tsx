@@ -1,3 +1,25 @@
+/**
+ * Canvas workspace — the infinite production board where a human (or agent)
+ * arranges media/idea nodes into a dependency DAG and runs it as a generation
+ * pipeline.
+ *
+ * Responsibilities:
+ * - Board authoring: add/drag/resize/connect nodes, sections, and frames on a
+ *   pannable/zoomable surface, with Fountain script import that expands into
+ *   storyboard nodes.
+ * - Pipeline execution: validates the DAG (canvasDag), runs it level-by-level
+ *   through canvasPipeline, reports progress/cancellation in the status bar,
+ *   and optionally auto-sends succeeded outputs to the video timeline.
+ * - Media library integration: imports/relinks files through the persistent
+ *   creative media store and previews drops before they land.
+ *
+ * Agent parity: every discrete board mutation goes through
+ * dispatchCreativeWorkspaceOperations — the same typed contract MCP agents
+ * use — so UI edits and agent edits share validation, capacity limits, and
+ * undo history. Only continuous gestures (drag-in-progress, pointer pan,
+ * wheel zoom) touch store mutators directly, committing through the contract
+ * at pointer-up.
+ */
 import {
   useCallback,
   useEffect,
@@ -117,6 +139,7 @@ const COMPLETED_PIPELINE_NODE_STATUSES = new Set([
   "stale",
 ]);
 
+/** Maps a media-library item to the board node kind that will host it. */
 function getMediaNodeKind(item: DirectorMediaItem): DirectorBoardNode["kind"] {
   return item.kind === "audio" ? "audio" : item.kind === "video" ? "video" : item.kind === "shot" ? "shot" : "image";
 }
@@ -132,6 +155,11 @@ function getNodeAccent(item: DirectorMediaItem) {
         : "#8f83d9";
 }
 
+/**
+ * Finds the media item backing a board node. Prefers the stable mediaId link;
+ * falls back to title/subtitle matching for legacy nodes created before ids
+ * were persisted, and only accepts a title-only match when it is unambiguous.
+ */
 function resolveBoardMediaItem(
   node: DirectorBoardNode,
   itemById: Map<string, DirectorMediaItem>,
@@ -145,6 +173,7 @@ function resolveBoardMediaItem(
   return sameTitle.length === 1 ? sameTitle[0] : undefined;
 }
 
+/** Icon for a board section's semantic kind (character / scene / generation / final / generic). */
 function SectionKindIcon({ kind }: { kind: DirectorBoardSection["kind"] }) {
   const size = 14;
   switch (kind) {
@@ -161,6 +190,11 @@ function SectionKindIcon({ kind }: { kind: DirectorBoardSection["kind"] }) {
   }
 }
 
+/**
+ * Renders the media preview inside a board node: offline warning, image,
+ * video, audio player, or a kind-appropriate placeholder icon when the node
+ * has no resolvable media yet (e.g. an idea/prompt node awaiting generation).
+ */
 function BoardNodeMedia({ node, item }: { node: DirectorBoardNode; item: DirectorMediaItem | undefined }) {
   const { t } = useLanguage();
   if (item?.availability === "offline" && item.kind !== "shot")
@@ -196,6 +230,7 @@ function BoardNodeMedia({ node, item }: { node: DirectorBoardNode; item: Directo
   return <Image aria-hidden size={26} />;
 }
 
+/** Adapts a persisted creative-media asset into the media-item shape the timeline bridge expects. */
 function persistentAssetToDirectorMediaItem(asset: CreativeMediaAsset): DirectorMediaItem {
   return {
     id: asset.id,
@@ -215,6 +250,13 @@ function persistentAssetToDirectorMediaItem(asset: CreativeMediaAsset): Director
   };
 }
 
+/**
+ * The Canvas production-board workspace: media browser sidebar, board toolbar,
+ * and the infinite node surface. See the file header for the authoring/agent
+ * parity model. Renders sections, bezier dependency edges, nodes (with z-order
+ * and resize affordances), the asset drop preview, and the Fountain import and
+ * ComfyUI node-pool dialogs.
+ */
 export function CanvasWorkspace() {
   const { t } = useLanguage();
   const panelLayout = useCreativeWorkspacePanelLayout();
@@ -287,6 +329,7 @@ export function CanvasWorkspace() {
     },
     [],
   );
+  /** Derives status-bar progress (completed nodes + current DAG level) from a live pipeline run snapshot. */
   const updatePipelineProgress = (run: (typeof boardPipelineRuns)[number]) => {
     if (!pipelineMountedRef.current) return;
     const completed = run.nodeRuns.filter((nodeRun) => COMPLETED_PIPELINE_NODE_STATUSES.has(nodeRun.status)).length;
@@ -366,6 +409,7 @@ export function CanvasWorkspace() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [dispatchCanvas, selectedNodeId, t]);
 
+  /** Converts client (screen) coordinates into board-plane coordinates under the current pan/zoom. */
   function canvasPoint(clientX: number, clientY: number) {
     const bounds = surfaceRef.current?.getBoundingClientRect();
     return {
@@ -374,6 +418,10 @@ export function CanvasWorkspace() {
     };
   }
 
+  /**
+   * Persists the media item (so the node survives reloads) and adds a board
+   * node for it, centred on the viewport unless an explicit drop point is given.
+   */
   async function addMediaNode(item: DirectorMediaItem, x?: number, y?: number) {
     const bounds = surfaceRef.current?.getBoundingClientRect();
     const fallback = canvasPoint(
@@ -466,6 +514,14 @@ export function CanvasWorkspace() {
     setAddMenuOpen(false);
   }
 
+  /**
+   * Runs the board DAG through the shared canvas pipeline. With no arguments
+   * it executes the whole graph; `targetNodeIds` restricts execution to a
+   * branch and `forceNodeIds` bypasses caching for specific nodes. Reattaches
+   * to an already-running pipeline instead of starting a second one, streams
+   * progress into the status bar, and on completion optionally auto-appends
+   * succeeded outputs to the video timeline per workspace prefs.
+   */
   async function runCanvasPipeline(targetNodeIds: readonly string[] = [], forceNodeIds: readonly string[] = []) {
     if (pipelineRunning) return;
     if (!dagAnalysis.valid || !boardNodes.length) {
@@ -622,6 +678,11 @@ export function CanvasWorkspace() {
     dispatchCanvas({ op: "canvas.section.remove", section_id: sectionId }, t("删除分区失败"));
   }
 
+  /**
+   * Imports OS files into the persistent media library and creates a board node
+   * per file (staggered around the drop point). Failures are collected per-file
+   * so one bad import never aborts the batch.
+   */
   async function importMediaFiles(files: File[], dropPoint?: { x: number; y: number }) {
     showImportMessage(t("正在导入素材…"), "info", { autoDismiss: false });
     setAddMenuOpen(false);
@@ -679,6 +740,7 @@ export function CanvasWorkspace() {
     );
   }
 
+  /** Completes an offline-media relink with the file the user just picked, reporting updated reference counts. */
   async function relinkPendingMedia(file: File) {
     const target = pendingRelinkTargetRef.current;
     pendingRelinkTargetRef.current = null;
@@ -698,6 +760,11 @@ export function CanvasWorkspace() {
     );
   }
 
+  /**
+   * Starts a viewport pan on middle-drag anywhere or left-drag on empty surface
+   * (or any left-drag in hand-tool mode). Continuous panning writes the viewport
+   * directly — it is view state, not undoable content.
+   */
   function beginPan(event: ReactPointerEvent) {
     if (event.button !== 0 && event.button !== 1) return;
     if (event.button === 0 && tool !== "hand" && event.currentTarget !== event.target) return;
@@ -717,6 +784,12 @@ export function CanvasWorkspace() {
     installWindowPointerDrag(dragCleanupRef, move);
   }
 
+  /**
+   * Pointer-down on a node. In connect mode this picks the edge source/target
+   * pair; otherwise it starts a move drag whose intermediate positions mutate
+   * the store inside one history batch, then commits section reassignment
+   * through the agent contract at pointer-up.
+   */
   function beginNodeDrag(event: ReactPointerEvent, node: DirectorBoardNode) {
     event.stopPropagation();
     if (tool === "connect") {
@@ -766,6 +839,7 @@ export function CanvasWorkspace() {
     });
   }
 
+  /** Starts a corner-handle resize drag, batched into a single undo entry. */
   function beginResize(event: ReactPointerEvent, node: DirectorBoardNode) {
     event.preventDefault();
     event.stopPropagation();
@@ -784,6 +858,7 @@ export function CanvasWorkspace() {
     installWindowPointerDrag(dragCleanupRef, move, endHistoryBatch);
   }
 
+  /** Wheel zoom anchored at the cursor: the board point under the pointer stays fixed while zoom changes. */
   function zoomAt(event: WheelEvent<HTMLDivElement>) {
     event.preventDefault();
     const bounds = surfaceRef.current?.getBoundingClientRect();
@@ -803,6 +878,7 @@ export function CanvasWorkspace() {
     });
   }
 
+  /** Fits all board content into the visible surface via the shared fit_content operation. */
   function fitBoard() {
     const bounds = surfaceRef.current?.getBoundingClientRect();
     const receipt = dispatchCreativeWorkspaceOperations({
@@ -816,6 +892,7 @@ export function CanvasWorkspace() {
     }
   }
 
+  /** Auto-arranges nodes by dependency level (parallel nodes share a column), then refits the viewport. */
   function autoLayoutDag() {
     const receipt = dispatchCreativeWorkspaceOperations({ op: "canvas.dag.layout", direction: "horizontal" });
     if (!receipt.ok) {
@@ -829,6 +906,11 @@ export function CanvasWorkspace() {
     window.requestAnimationFrame(fitBoard);
   }
 
+  /**
+   * Tracks a media/file drag over the board and shows a ghost node preview at
+   * the would-be drop position. Returns whether the drag is a recognised asset
+   * drag (so callers can accept the drop).
+   */
   function updateAssetDropPreview(event: ReactDragEvent<HTMLDivElement>) {
     const isAssetDrag =
       event.dataTransfer.types.includes(DIRECTOR_MEDIA_DRAG_TYPE) || event.dataTransfer.types.includes("Files");
