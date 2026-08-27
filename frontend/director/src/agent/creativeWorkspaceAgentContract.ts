@@ -1970,10 +1970,11 @@ export function executeCreativeWorkspaceAgentOperation(
         }
       }
       if (operation.overwrite) state.beginHistoryBatch();
+      let overwriteSummary: DirectorTrackOverwriteSummary = EMPTY_OVERWRITE_SUMMARY;
       try {
         state.updateClip(owner.clip.id, mapClipPatch(operation.patch));
         if (operation.overwrite) {
-          state.commitClipPlacement(owner.clip.id);
+          overwriteSummary = state.commitClipPlacement(owner.clip.id);
         }
       } finally {
         if (operation.overwrite) state.endHistoryBatch();
@@ -1988,10 +1989,12 @@ export function executeCreativeWorkspaceAgentOperation(
       }
       return success(
         operation.op,
-        operation.overwrite
-          ? `Updated edit clip "${updated.name}" with overwrite placement.`
-          : `Updated edit clip "${updated.name}".`,
-        { clip: projectEditClip(updated), track_id: owner.track.id, overwrite: Boolean(operation.overwrite) },
+        overwritePlacementMessage(`Updated edit clip "${updated.name}"`, Boolean(operation.overwrite), overwriteSummary),
+        {
+          clip: projectEditClip(updated),
+          track_id: owner.track.id,
+          ...overwritePlacementResult(Boolean(operation.overwrite), overwriteSummary),
+        },
         context,
       );
     }
@@ -2013,10 +2016,11 @@ export function executeCreativeWorkspaceAgentOperation(
         );
       }
       if (operation.overwrite) state.beginHistoryBatch();
+      let overwriteSummary: DirectorTrackOverwriteSummary = EMPTY_OVERWRITE_SUMMARY;
       try {
         state.moveClipToTrack(owner.clip.id, destination.id, operation.start_sec);
         if (operation.overwrite) {
-          state.commitClipPlacement(owner.clip.id);
+          overwriteSummary = state.commitClipPlacement(owner.clip.id);
         }
       } finally {
         if (operation.overwrite) state.endHistoryBatch();
@@ -2031,10 +2035,16 @@ export function executeCreativeWorkspaceAgentOperation(
       }
       return success(
         operation.op,
-        operation.overwrite
-          ? `Moved clip "${owner.clip.name}" to track "${destination.name}" with overwrite placement.`
-          : `Moved clip "${owner.clip.name}" to track "${destination.name}".`,
-        { clip: projectEditClip(moved.clip), track_id: moved.track.id, overwrite: Boolean(operation.overwrite) },
+        overwritePlacementMessage(
+          `Moved clip "${owner.clip.name}" to track "${destination.name}"`,
+          Boolean(operation.overwrite),
+          overwriteSummary,
+        ),
+        {
+          clip: projectEditClip(moved.clip),
+          track_id: moved.track.id,
+          ...overwritePlacementResult(Boolean(operation.overwrite), overwriteSummary),
+        },
         context,
       );
     }
