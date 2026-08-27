@@ -419,6 +419,23 @@ it("renders the Unity bake summary with structured omitted channels and never of
           humanoidAvatarCount: 1,
           genericAvatarCount: 1,
           materialFallbackCount: 3,
+          omittedLightCount: 2,
+          omittedLights: [
+            {
+              directorId: "light_ambient_1",
+              code: "light_ambient_render_settings",
+              lightType: "ambient",
+              reason:
+                "Light light_ambient_1: ambient light has no scene GameObject equivalent; mapped onto RenderSettings.ambientLight (flat mode) and recorded as an omitted GameObject spawn (warn-and-omit code: light_ambient_render_settings).",
+            },
+            {
+              directorId: "light_hemi_1",
+              code: "light_hemisphere_render_settings",
+              lightType: "hemisphere",
+              reason:
+                "Light light_hemi_1: hemisphere light has no scene GameObject equivalent; mapped onto RenderSettings trilight ambient (sky/ground) and recorded as an omitted GameObject spawn (warn-and-omit code: light_hemisphere_render_settings).",
+            },
+          ],
           omittedMaterialCount: 2,
           omittedMaterials: [
             {
@@ -473,6 +490,12 @@ it("renders the Unity bake summary with structured omitted channels and never of
   expect(factOf("映射镜头")).toHaveTextContent("3");
   expect(factOf("省略镜头")).toHaveTextContent("1");
   expect(factOf("省略材质")).toHaveTextContent("2");
+  expect(factOf("省略灯光")).toHaveTextContent("2");
+  const omittedLights = screen.getByRole("list", { name: "结构化省略灯光" });
+  expect(within(omittedLights).getByText("light_ambient_1")).toBeInTheDocument();
+  expect(omittedLights).toHaveTextContent("环境光写入 RenderSettings");
+  expect(within(omittedLights).getByText("light_hemi_1")).toBeInTheDocument();
+  expect(omittedLights).toHaveTextContent("半球光写入 RenderSettings");
   const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
   expect(within(omittedMaterials).getByText("prop-hdrp")).toBeInTheDocument();
   expect(omittedMaterials).toHaveTextContent("管线不支持材质回退");

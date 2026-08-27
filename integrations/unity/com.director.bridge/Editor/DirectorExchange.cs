@@ -17,7 +17,7 @@ namespace Director.Bridge.Editor
         public const string ReturnContract = "director-dcc-return-v1";
         public const string ReportContract = "director-dcc-engine-report-v1";
         public const string Provider = "unity";
-        public const string ConnectorVersion = "0.3.4";
+        public const string ConnectorVersion = "0.3.5";
 
         public static string Sha256File(string path)
         {

@@ -148,6 +148,69 @@ describe("Director Unity engine report details", () => {
     ).toBe(false);
   });
 
+  it("accepts ambient/hemisphere RenderSettings omit codes (connector ≥0.3.5)", () => {
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedLightCount: 2,
+        omittedLights: [
+          {
+            directorId: "light_ambient_1",
+            code: "light_ambient_render_settings",
+            lightType: "ambient",
+            reason:
+              "Light light_ambient_1: ambient light has no scene GameObject equivalent; mapped onto RenderSettings.ambientLight (flat mode) and recorded as an omitted GameObject spawn (warn-and-omit code: light_ambient_render_settings).",
+          },
+          {
+            directorId: "light_hemi_1",
+            code: "light_hemisphere_render_settings",
+            lightType: "hemisphere",
+            reason:
+              "Light light_hemi_1: hemisphere light has no scene GameObject equivalent; mapped onto RenderSettings trilight ambient (sky/ground) and recorded as an omitted GameObject spawn (warn-and-omit code: light_hemisphere_render_settings).",
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects unknown omitted-light codes and extra omitted-light fields", () => {
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedLights: [
+          {
+            directorId: "light-x",
+            code: "light_ambient_duplicate",
+            lightType: "ambient",
+            reason: "not a code the Unity light path owns",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedLights: [
+          {
+            directorId: "light-weird",
+            code: "light_type_unknown",
+            lightType: "portal",
+            reason: "unknown type",
+            severity: "warning",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedLights: [
+          { directorId: "", code: "light_type_unknown", lightType: "portal", reason: "empty id must fail" },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects omittedMaterials whose length disagrees with omittedMaterialCount", () => {
     expect(
       directorDccUnityEngineReportDetailsSchema.safeParse({

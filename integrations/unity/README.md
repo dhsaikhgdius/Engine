@@ -45,8 +45,10 @@ never used as an exchange format and is never parsed by the Director Gateway.
     Anamorphic squeeze is warned and omitted. Unknown light types surface as typed `omittedLights[]` (`directorId` / `code` / `lightType` / `reason`) with matching `omittedLightCount`.
   - **Lights** (point / spot / directional / area) become Unity `Light`
     GameObjects with their own `DirectorId`; ambient and hemisphere lights map
-    onto `RenderSettings` with a warning. Lights do not round-trip (the return
-    contract has no light entity type).
+    onto `RenderSettings` and are also stamped as typed `omittedLights[]`
+    (`light_ambient_render_settings` / `light_hemisphere_render_settings`) so
+    agents see that no GameObject was spawned (connector ≥0.3.5; warn-and-document).
+    Lights do not round-trip (the return contract has no light entity type).
   - **Timeline**: one `TimelineAsset` under `Assets/Director/Timelines/` with a
     single `PlayableDirector` host. Storyboard shots become `ActivationTrack`
     clips over their cameras, and Director keyframe / trajectory animation is
