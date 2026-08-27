@@ -498,7 +498,11 @@ it("relinks offline media through the shared async media.relink contract", async
   await user.upload(screen.getByLabelText("选择重连素材"), replacement);
 
   expect(mediaLibraryMock.relink).toHaveBeenCalledWith(offlineVideoItem.id, replacement, "video");
-  expect(await screen.findByText("素材已重连 · 2 处引用 · 波形已缓存")).toBeInTheDocument();
+  // Mocked relink does not catalog the replacement id, so the shared probe stamps
+  // not_cataloged; memory-mode storage honesty still surfaces on the toast.
+  expect(
+    await screen.findByText("素材已重连 · 2 处引用 · 波形已缓存 · 未入册 · 内存模式（不可持久，刷新后丢失）"),
+  ).toBeInTheDocument();
 });
 
 it("marks an offline Canvas node explicitly instead of presenting a missing asset as cached", () => {
