@@ -308,6 +308,47 @@ describe("Godot import receipt and connector health", () => {
     expect(directorGodotImportReceiptSchema.safeParse(base).success).toBe(false);
   });
 
+  it("rejects unknown omitted-material codes and extra omitted-material fields", () => {
+    const base = {
+      animationPlayerPath: null,
+      animationLibrary: null,
+      displayRate: null,
+      bakedKeyCount: 0,
+      transformTrackCount: 0,
+      fovTrackCount: 0,
+      shotCutTrackCount: 0,
+      mappedShotCount: 0,
+      payloadAnimationPlayerCount: 0,
+      importedSkeletonCount: 0,
+      importedLightCount: 0,
+      worldEnvironmentAmbient: false,
+      omittedLightCount: 0,
+      appliedMaterialCount: 0,
+      omittedMaterialCount: 1,
+      omittedMaterials: [
+        {
+          directorId: "prop-x",
+          code: "no_mesh_target" as const,
+          reason:
+            "Object prop-x: a Director material was authored but the payload has no meshes to apply it to (warn-and-omit code: no_mesh_target).",
+        },
+      ],
+      externalizedTextureCount: 0,
+    };
+    expect(
+      directorGodotImportReceiptSchema.safeParse({
+        ...base,
+        omittedMaterials: [{ ...base.omittedMaterials[0], code: "subsurface_scatter" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorGodotImportReceiptSchema.safeParse({
+        ...base,
+        omittedMaterials: [{ ...base.omittedMaterials[0], extra: "field" }],
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects omittedShots whose length disagrees with omittedShotCount", () => {
     const base = {
       animationPlayerPath: null,
