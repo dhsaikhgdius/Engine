@@ -50,10 +50,9 @@ UI control exists.
 
 ## Research and release evidence
 
-| Document                                                 | Scope                                               |
-| -------------------------------------------------------- | --------------------------------------------------- |
-| [Research portal](/engineering/research_portal/)         | Public research portal behavior and release policy. |
-| [Third-party notices](/engineering/third_party_notices/) | Third-party source and asset notices.               |
+| Document                                                 | Scope                                 |
+| -------------------------------------------------------- | ------------------------------------- |
+| [Third-party notices](/engineering/third_party_notices/) | Third-party source and asset notices. |
 
 ## Documentation rules
 

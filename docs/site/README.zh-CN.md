@@ -149,7 +149,6 @@ Director 文档站基于 **Astro 7** 与 **Starlight** 构建，采用 **Nova �
 | `engineering/PIPELINE_SYSTEM_DESIGN.md` | 管线系统设计 |
 | `engineering/REFERENCE_REUSE_LEDGER.md` | 参考复用台账 |
 | `engineering/REPLICATION_SPEC.md` | 复刻规范 |
-| `engineering/RESEARCH_PORTAL.md` | 研究门户 |
 | `engineering/THIRD_PARTY_NOTICES.md` | 第三方声明 |
 | `engineering/VIDEO_GEN_PIPELINE.md` | 白模到视频管线 |
 | `engineering/architecture/control-plane.md` | 工程级控制面架构 |
