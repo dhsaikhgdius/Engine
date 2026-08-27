@@ -597,13 +597,13 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
   expect(within(omittedChannels).getByText("hero")).toBeInTheDocument();
   expect(omittedChannels).toHaveTextContent("姿态控制");
   expect(omittedChannels).toHaveTextContent("动作片段");
-  // Connector-side material+shot omits keep entities in the generic list (lights have a dedicated list).
+  // Connector-side shot omits keep entities in the generic list (lights/materials have dedicated lists).
   const omissions = screen.getByRole("list", { name: "结构化省略" });
-  expect(omissions).toHaveTextContent("unsupported_channels");
-  expect(omissions).toHaveTextContent("不支持的材质通道");
   expect(omissions).toHaveTextContent("shot_no_camera_binding");
   expect(omissions).toHaveTextContent("镜头缺少相机绑定");
   expect(within(omissions).queryByText("light-panel")).not.toBeInTheDocument();
+  expect(omissions).not.toHaveTextContent("unsupported_channels");
+  expect(omissions).not.toHaveTextContent("prop-glass");
 });
 
 it("previews an engine return as a dry run and guards apply behind an explicit review confirmation", async () => {

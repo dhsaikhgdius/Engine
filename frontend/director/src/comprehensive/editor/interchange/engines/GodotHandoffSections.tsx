@@ -1,6 +1,6 @@
 /**
  * Godot 交接专属区块：AnimationPlayer / 相机切换回执、WorldEnvironment 环境光与
- * 结构化省略灯光、姿态/动作省略详情，以及仅出站的实时预览快照（Godot 从不监听端口）。
+ * 结构化省略灯光/材质/镜头、姿态/动作省略详情，以及仅出站的实时预览快照（Godot 从不监听端口）。
  *
  * @module godot-handoff-sections
  */
@@ -71,10 +71,11 @@ interface GodotStructuredOmission {
 }
 
 /**
- * 从发送结果提取连接器侧结构化省略：优先使用回执里的 typed `omittedMaterials` /
- * `omittedShots`（typed `omittedLights` 由专用列表呈现）。旧版连接器仍回退到
- * 警告文本中的 `warn-and-omit code: …`。网关烘焙通道以
- * `result.omittedAnimationChannels` 为准，不依赖自由文本摘要。
+ * 从发送结果提取连接器侧结构化省略：优先使用回执里的 typed `omittedShots`
+ * （typed `omittedLights` / `omittedMaterials` 由专用列表呈现）。传入
+ * `omittedMaterials` 仅用于标记新连接器、抑制自由文本回退，避免灯光/材质
+ * 警告再次进入通用列表。旧版连接器仍回退到 `warn-and-omit code: …`。
+ * 网关烘焙通道以 `result.omittedAnimationChannels` 为准。
  */
 export function collectGodotStructuredOmissions(
   warnings: string[],
@@ -87,18 +88,11 @@ export function collectGodotStructuredOmissions(
   }> = [],
 ): GodotStructuredOmission[] {
   if (omittedMaterials.length || omittedShots.length) {
-    return [
-      ...omittedMaterials.map((material) => ({
-        code: material.code,
-        detail: material.reason,
-        key: `material:${material.code}:${material.directorId}`,
-      })),
-      ...omittedShots.map((shot) => ({
-        code: shot.code,
-        detail: shot.reason,
-        key: `shot:${shot.code}:${shot.shotId}`,
-      })),
-    ];
+    return omittedShots.map((shot) => ({
+      code: shot.code,
+      detail: shot.reason,
+      key: `shot:${shot.code}:${shot.shotId}`,
+    }));
   }
   const omissions: GodotStructuredOmission[] = [];
   for (const warning of warnings) {
