@@ -341,6 +341,9 @@ export function evaluateGamePlaytest(slice: GameSlice, trace: GamePlaytestTrace)
       blocking.length === 0
         ? ["Playtest tape passed every error-severity check. Visual style still needs a Stage capture image block."]
         : [],
+    // Durable provenance: the stored evaluation says which driver produced
+    // the tape it scored (live Stage tab, host-free kinematics, or inline).
+    ...(trace.source ? { trace_source: trace.source } : {}),
   });
 }
 
@@ -559,8 +562,14 @@ export async function executeDirectorGame(
           result: { issues: [issue] },
         });
       }
-      const trace =
-        operation.trace ?? (context.runPlaytest ? await context.runPlaytest({ slice, operation }) : undefined);
+      // Caller-supplied traces are always restamped `inline`: the machine is
+      // the provenance authority, so an agent cannot claim `live_stage` for a
+      // tape the Stage runtime never played.
+      const trace = operation.trace
+        ? { ...operation.trace, source: "inline" as const }
+        : context.runPlaytest
+          ? await context.runPlaytest({ slice, operation })
+          : undefined;
       if (!trace) {
         return rejection(
           "game_playtest_needs_stage",
@@ -601,7 +610,8 @@ export async function executeDirectorGame(
     case "evaluate": {
       const slice = requireSlice(state, operation.slice_id);
       if (!("id" in slice)) return slice;
-      const trace = operation.trace;
+      // Same provenance rule as playtest: inline traces evaluate as `inline`.
+      const trace = operation.trace ? { ...operation.trace, source: "inline" as const } : undefined;
       if (!trace && !slice.last_evaluation) {
         return rejection(
           "game_evaluation_missing_trace",

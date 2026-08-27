@@ -1,0 +1,129 @@
+{
+  "name": "game-slice-live-stage-playtest",
+  "description": "Prove the live Stage playtest path end to end: author a real player actor and an interactable objective on the Stage, plan and bind an exploration slice to those objects, warm the player session with a public player enter, then playtest with no inline trace while the headless workbench tab is connected. The Gateway must replay the tape through the live player session — result.trace.source must equal live_stage, so a host-free fallback fails this task. The stored evaluation keeps the live provenance for a later evaluate.",
+  "steps": [
+    {
+      "label": "author live stage actors",
+      "tool": "director_workbench",
+      "input": {
+        "op": "author",
+        "actions": [
+          {
+            "action": "add_object",
+            "id": "eval-live-hero",
+            "name": "Live playtest hero",
+            "kind": "character",
+            "body_type": "mannequin",
+            "transform": { "position": [40, 0, 40], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+            "placement_mode": "grounded"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-live-spawn",
+            "name": "Live playtest spawn marker",
+            "kind": "character",
+            "body_type": "mannequin",
+            "transform": { "position": [37, 0, 40], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+            "placement_mode": "grounded"
+          },
+          {
+            "action": "add_object",
+            "id": "eval-live-stele",
+            "name": "Live playtest stele",
+            "kind": "character",
+            "body_type": "mannequin",
+            "transform": { "position": [41.5, 0, 42.5], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+            "placement_mode": "grounded",
+            "interaction": {
+              "prompt": "石碑",
+              "radius_m": 6,
+              "open_transform": { "position": [41.5, 0, 42.5], "rotation": [0, 1.2, 0], "scale": [1, 1, 1] }
+            }
+          }
+        ]
+      },
+      "expect": { "success": true, "result_paths": ["result.project_revision"] }
+    },
+    {
+      "label": "plan exploration slice",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-live-01",
+        "brief": {
+          "requirement": "Walk to the stele and interact with it on the live Stage.",
+          "genre": "exploration"
+        }
+      },
+      "expect": { "success": true, "result_paths": ["result.slice.id"] }
+    },
+    {
+      "label": "bind roles to real stage objects",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-live-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "eval-live-hero" },
+          { "role_id": "spawn", "object_id": "eval-live-spawn" },
+          { "role_id": "objective-1", "object_id": "eval-live-stele" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.bind_complete", "result.suggested_playtest_script.steps"]
+      }
+    },
+    {
+      "label": "enter player mode on the bound actor",
+      "tool": "director_workbench",
+      "input": { "op": "player", "action": "enter", "actor_id": "eval-live-hero" },
+      "expect": { "success": true, "result_paths": ["result.player_mode"] }
+    },
+    {
+      "label": "playtest replays live on the stage tab",
+      "tool": "director_game",
+      "retry": { "attempts": 5, "delay_ms": 3000 },
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-live-01",
+        "script": {
+          "steps": [
+            { "frames": 16, "input": { "forward": true }, "expect": { "verb": "move" } },
+            { "frames": 10, "input": { "look_right": true }, "expect": { "verb": "look" } },
+            { "frames": 8, "input": { "jump": true }, "expect": { "verb": "jump" } },
+            { "frames": 6, "input": { "interact": true }, "expect": { "verb": "interact" } }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.trace.contract", "result.evaluation.checks.0"],
+        "result_equals": {
+          "result.trace.source": "live_stage",
+          "result.evaluation.trace_source": "live_stage",
+          "result.evaluation.playable": true,
+          "result.slice.status": "playable"
+        }
+      }
+    },
+    {
+      "label": "stored evaluation keeps live provenance",
+      "tool": "director_game",
+      "input": { "op": "evaluate", "slice_id": "game-eval-live-01" },
+      "expect": {
+        "success": true,
+        "result_equals": {
+          "result.evaluation.trace_source": "live_stage",
+          "result.evaluation.playable": true
+        }
+      }
+    },
+    {
+      "label": "exit player mode",
+      "tool": "director_workbench",
+      "input": { "op": "player", "action": "exit" },
+      "expect": { "success": true }
+    }
+  ]
+}

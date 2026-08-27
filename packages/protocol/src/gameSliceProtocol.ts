@@ -289,6 +289,19 @@ export const gamePlaytestSampleSchema = z.strictObject({
 export type GamePlaytestSample = z.infer<typeof gamePlaytestSampleSchema>;
 export type GamePlaytestSampleInput = z.input<typeof gamePlaytestSampleSchema>;
 
+/**
+ * Which driver actually produced a playtest tape. `live_stage` is the running
+ * Stage player session in a connected workbench tab, `host_free` is the
+ * kinematic runner (Gateway default or vitest replay), and `inline` is a
+ * trace supplied by the caller. The Gateway is the authority: the live bridge
+ * restamps every tab receipt to `live_stage` and the machine restamps every
+ * caller-supplied trace to `inline`, so provenance cannot be forged over the
+ * public boundary.
+ */
+export const GAME_PLAYTEST_TRACE_SOURCES = ["live_stage", "host_free", "inline"] as const;
+export const gamePlaytestTraceSourceSchema = z.enum(GAME_PLAYTEST_TRACE_SOURCES);
+export type GamePlaytestTraceSource = z.infer<typeof gamePlaytestTraceSourceSchema>;
+
 export const gamePlaytestTraceSchema = z.strictObject({
   contract: z.literal("director-game-playtest-trace-v1"),
   slice_id: gameSliceIdSchema,
@@ -296,6 +309,7 @@ export const gamePlaytestTraceSchema = z.strictObject({
   dt: finite.min(1 / 240).max(1 / 10),
   samples: z.array(gamePlaytestSampleSchema).min(1).max(1_048_576),
   verbs_exercised: z.array(gameSliceVerbSchema).max(GAME_SLICE_VERBS.length).default([]),
+  source: gamePlaytestTraceSourceSchema.optional(),
 });
 export type GamePlaytestTrace = z.infer<typeof gamePlaytestTraceSchema>;
 export type GamePlaytestTraceInput = z.input<typeof gamePlaytestTraceSchema>;
@@ -339,6 +353,8 @@ export const gameEvaluationReportSchema = z.strictObject({
   ),
   issues: z.array(gameSliceIssueSchema).max(128),
   notes: z.array(nonEmptyText(500)).max(32).default([]),
+  /** Provenance of the scored tape, copied from `trace.source` (see there). */
+  trace_source: gamePlaytestTraceSourceSchema.optional(),
 });
 export type GameEvaluationReport = z.infer<typeof gameEvaluationReportSchema>;
 

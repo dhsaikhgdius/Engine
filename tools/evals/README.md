@@ -78,7 +78,8 @@ Every step names one public tool in `tool`: `director_workbench`, `director_crea
 `stage_video`, `blender_native`, `director_dcc`, or `director_game`. The task-schema test validates every
 expected-success input against that tool's strict contract before an isolated browser run.
 Game-slice tasks (`12`–`18`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
-host-free playtest without an inline `trace`, the harness-vs-codegen honesty contract
+host-free playtest without an inline `trace`, racing/FPS full loops, the live Stage playtest path
+(see "Live vs host-free playtest"), the harness-vs-codegen honesty contract
 (Stage as the default runtime; `export_slice` refusing engine code generation), and the fps/racing/rpg genre demo recipes replayed
 verbatim from `packages/protocol/src/gameDemoRecipes.ts`. The harness-vs-codegen comparison is documented in
 `docs/site/src/content/docs/research/game-harness-vs-codegen.md`.
@@ -86,8 +87,9 @@ verbatim from `packages/protocol/src/gameDemoRecipes.ts`. The harness-vs-codegen
 `result_paths` are dot-paths resolved against the whole JSON response body
 (arrays index numerically, e.g. `result.issues.0`); a path passes when the resolved value is
 neither `undefined` nor `null`. `result_equals` maps the same dot-paths to exact expected JSON
-values for assertions where existence is not enough (e.g. `runtime.default` must be `"stage"`,
-not merely present). Steps with `expect.success: false` pass when the boundary
+values (deep equality) for assertions where existence is not enough — e.g. `runtime.default`
+must be `"stage"`, not merely present, and a playtest trace source must equal `"live_stage"`,
+because a host-free fallback would still resolve the path. Steps with `expect.success: false` pass when the boundary
 reports the expected failure, regardless of HTTP status. The runner is generic — add a task
 by dropping a new JSON file into `tasks/`.
 
@@ -96,6 +98,36 @@ session of a character binding) to exercise possession scoping. Steps marked
 `gateway_fills_target: true` deliberately omit their character target so the gateway
 possession preflight fills it before validation; the task-schema test asserts those inputs
 really are incomplete.
+
+A step waiting on asynchronous readiness may declare `retry: { attempts, delay_ms }` (delay
+defaults to 2000 ms): the step re-runs until its full expectations pass or the attempts are
+exhausted. Task `18` uses this on its live playtest step because the headless tab's Player
+Mode needs a moment to become live after `player enter`.
+
+## Live vs host-free playtest
+
+`director_game {op:"playtest"}` without an inline `trace` prefers the live Stage path: the
+Gateway dispatches the tape to a connected workbench tab, the live PlayerController replays
+it frame by frame, and the receipt comes back stamped `trace.source: "live_stage"` (also
+persisted as `evaluation.trace_source`). When no tab answers — or the tab cannot run the
+tape, e.g. the bound player `object_id` does not exist in the Stage project — the Gateway
+falls back to the kinematic runner and the receipt honestly reports `"host_free"`. Inline
+traces always evaluate as `"inline"`; the machine restamps them so live provenance cannot be
+forged over the public boundary.
+
+In this harness, a headless workbench tab is always connected, so which path a task
+exercises is decided by its bindings:
+
+- Tasks `12`–`17` bind role ids to object ids that exist only in the slice document, so the
+  live tab rejects the tape and the Gateway falls back — they are host-free goldens (tasks
+  `12` and `13` additionally supply inline traces, which evaluate as `"inline"`).
+- Task `18` authors real Stage objects first and binds the slice to them, so the tape must
+  replay on the live player session. Its `result_equals` assertions require
+  `"live_stage"` provenance and a playable receipt: if the harness were forced to
+  host-free (including a timed-out live dispatch, which falls back with honest `"host_free"`
+  provenance), the task fails. It warms the session with a public
+  `player {"action":"enter"}` first so cold Player Mode startup never eats the live
+  dispatch budget, and exits Player Mode when done.
 
 ## Task inventory
 
@@ -118,9 +150,10 @@ really are incomplete.
 | `tasks/14-game-slice-unbound-playtest-rejects.json` | Verify playtest rejects until the player role is bound to a Stage object                                          |
 | `tasks/14-world-systems-observation.json`        | Author Living World weather/wind plus one effect, then verify the `world` observation projection                     |
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | Host-free playtest scoring without an explicit trace                                                            |
-| `tasks/16-game-harness-vs-codegen-honesty.json`  | Harness-vs-codegen honesty: capabilities report `runtime.default = "stage"`, and `export_slice` rejects codegen both before (`game_export_not_playable`) and after (`game_export_via_dcc`) a playable receipt |
-| `tasks/16-game-slice-racing-full-loop.json`      | Racing genre full-loop host-free playtest golden                                                                     |
 | `tasks/16-game-demo-fps-recipe-hostfree.json`    | Replay the fps demo recipe: discover via capabilities/describe, plan, bind hinted roles, host-free playtest to playable |
-| `tasks/17-game-slice-fps-full-loop.json`         | FPS genre full-loop host-free playtest golden                                                                        |
+| `tasks/16-game-harness-vs-codegen-honesty.json`  | Harness-vs-codegen honesty: capabilities report `runtime.default = "stage"`, and `export_slice` rejects codegen both before (`game_export_not_playable`) and after (`game_export_via_dcc`) a playable receipt |
+| `tasks/16-game-slice-racing-full-loop.json`      | Full racing loop with no inline trace, vehicle order enforced, export routed to `director_dcc`                        |
 | `tasks/17-game-demo-racing-recipe-hostfree.json` | Replay the racing demo recipe with enter/exit vehicle verbs to a literally playable receipt                          |
+| `tasks/17-game-slice-fps-full-loop.json`         | Full FPS loop with no inline trace, fire/reload verbs exercised, export routed to `director_dcc`                      |
 | `tasks/18-game-demo-rpg-recipe-hostfree.json`    | Replay the rpg demo recipe with interact plus attack verbs to a literally playable receipt                            |
+| `tasks/18-game-slice-live-stage-playtest.json`   | Live Stage playtest: author real actors, bind, replay the tape on the connected tab, require `live_stage` provenance  |

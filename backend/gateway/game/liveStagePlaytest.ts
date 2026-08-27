@@ -46,15 +46,23 @@ export function createLiveStagePlaytestRunner(
   return async ({ slice, operation }) => {
     const actorId = playerRole(slice)?.object_id;
     const timeoutMs = hostFreePlaytestTimeoutMs(operation.script);
-    const remote = await dependencies.requestWorkbenchCommand(
-      {
-        op: "game_playtest",
-        script: operation.script,
-        ...(actorId ? { actor_id: actorId } : {}),
-        slice_id: slice.id,
-      },
-      timeoutMs,
-    );
+    let remote: LiveWorkbenchCommandResult = null;
+    try {
+      remote = await dependencies.requestWorkbenchCommand(
+        {
+          op: "game_playtest",
+          script: operation.script,
+          ...(actorId ? { actor_id: actorId } : {}),
+          slice_id: slice.id,
+        },
+        timeoutMs,
+      );
+    } catch {
+      // A timed-out or dropped live dispatch is "the live tape failed", not a
+      // reason to hard-fail the public op: fall back to host-free kinematics.
+      // The receipt's `source: "host_free"` keeps the degradation visible.
+      remote = null;
+    }
 
     if (remote?.success) {
       const trace = extractPlaytestTrace(remote.result, slice);
@@ -71,8 +79,12 @@ function extractPlaytestTrace(result: unknown, slice: GameSlice): GamePlaytestTr
   const candidate = record.trace ?? result;
   const parsed = gamePlaytestTraceSchema.safeParse(candidate);
   if (!parsed.success) return null;
-  if (parsed.data.slice_id !== slice.id) {
-    return gamePlaytestTraceSchema.parse({ ...parsed.data, slice_id: slice.id });
+  // The Gateway is the provenance authority: this receipt arrived from a
+  // connected workbench tab over the live command bus, so it is `live_stage`
+  // regardless of what the (possibly older) tab stamped. slice_id is also
+  // restamped when the tab replied with a standalone session id.
+  if (parsed.data.slice_id !== slice.id || parsed.data.source !== "live_stage") {
+    return gamePlaytestTraceSchema.parse({ ...parsed.data, slice_id: slice.id, source: "live_stage" });
   }
   return parsed.data;
 }

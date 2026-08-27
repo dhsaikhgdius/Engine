@@ -112,6 +112,9 @@ export function startGamePlaytestSession(options: StartGamePlaytestSessionOption
       sliceId: options.sliceId ?? GAME_PLAYTEST_SESSION_SLICE_ID,
       dt: script.dt,
       projectRevision: options.projectRevision,
+      // The live PlayerController consumes and samples this tape, so the
+      // receipt honestly reports live Stage provenance.
+      source: "live_stage",
     });
     let stepIndex = 0;
     let frameInStep = 0;
