@@ -657,7 +657,7 @@ export function filmRunProgress(
  * completion from an empty array.
  */
 export function filmRunIntraPhaseSceneProgress(
-  run: Pick<FilmRun, "phase" | "scenes">,
+  run: Pick<FilmRun, "phase"> & { scenes?: readonly FilmRunProgressScene[] },
 ): FilmRunIntraPhaseSceneProgress | null {
   if (run.phase !== "plan-scenes" && run.phase !== "render") return null;
   const scenes = run.scenes ?? [];
