@@ -336,6 +336,19 @@ it("sends clean_frame for Unreal and renders the skipped receipt with its reason
               "Shot shot-orphan has no camera binding; no camera cut section was added (warn-and-omit code: shot_no_camera_binding).",
           },
         ],
+        omittedLightCount: 2,
+        omittedLights: [
+          {
+            directorId: "light_ambient_1",
+            lightType: "ambient",
+            reason: "Uniform ambient light has no single-actor Unreal equivalent (warn-and-omit).",
+          },
+          {
+            directorId: "light_hemi_1",
+            lightType: "hemisphere",
+            reason: "Hemisphere light has no single-actor Unreal equivalent (warn-and-omit).",
+          },
+        ],
       },
       cleanFrame: {
         contract: "director-unreal-clean-frame-v1",
@@ -368,6 +381,13 @@ it("sends clean_frame for Unreal and renders the skipped receipt with its reason
   expect(sequencer).toHaveTextContent("省略材质");
   expect(sequencer).toHaveTextContent("2");
   expect(sequencer).toHaveTextContent("省略镜头");
+  expect(sequencer).toHaveTextContent("省略灯光");
+  const omittedLights = screen.getByRole("list", { name: "结构化省略灯光" });
+  expect(within(omittedLights).getByText("light_ambient_1")).toBeInTheDocument();
+  expect(omittedLights).toHaveTextContent("环境光");
+  expect(within(omittedLights).getByText("light_hemi_1")).toBeInTheDocument();
+  expect(omittedLights).toHaveTextContent("半球光");
+  expect(omittedLights).toHaveTextContent("no single-actor Unreal equivalent");
   const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
   expect(within(omittedMaterials).getByText("prop-glass")).toBeInTheDocument();
   expect(omittedMaterials).toHaveTextContent("不支持的材质通道");
