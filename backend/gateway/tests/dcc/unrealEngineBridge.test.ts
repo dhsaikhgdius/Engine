@@ -429,7 +429,23 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
 
   it("fails the job when the connector reports a malformed omitted-light record", async () => {
     const harness = await createSendHarness({
+      omittedLightCount: 1,
       omittedLights: [{ directorId: "light-1", lightType: "laser", reason: "not a Director light type" }],
+    });
+    await expect(harness.send()).rejects.toMatchObject({ code: "engine_report_invalid" });
+  });
+
+  it("fails the job when an omitted-light record carries extra fields", async () => {
+    const harness = await createSendHarness({
+      omittedLightCount: 1,
+      omittedLights: [
+        {
+          directorId: "light_ambient_1",
+          lightType: "ambient",
+          reason: "Uniform ambient light has no single-actor Unreal equivalent (warn-and-omit).",
+          code: "light_ambient_unsupported",
+        },
+      ],
     });
     await expect(harness.send()).rejects.toMatchObject({ code: "engine_report_invalid" });
   });

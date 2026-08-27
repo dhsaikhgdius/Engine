@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   directorDccEngineReportSchema,
+  directorUnrealOmittedLightSchema,
   directorUnrealOmittedMaterialSchema,
 } from "../src/directorDccEngineContract";
 
@@ -72,13 +73,10 @@ describe("Director Unreal engine report omittedMaterials honesty", () => {
         "Object prop-crate: bundled texture parameter(s) BaseColorMap failed to import into Unreal; the MaterialInstance stays unbound for those slots (warn-and-omit code: texture_import_failed).",
     };
     expect(
-      directorDccEngineReportSchema.safeParse(
-        unrealReport({ omittedMaterialCount: 0, omittedMaterials: [entry] }),
-      ).success,
+      directorDccEngineReportSchema.safeParse(unrealReport({ omittedMaterialCount: 0, omittedMaterials: [entry] }))
+        .success,
     ).toBe(false);
-    expect(
-      directorDccEngineReportSchema.safeParse(unrealReport({ omittedMaterials: [entry] })).success,
-    ).toBe(false);
+    expect(directorDccEngineReportSchema.safeParse(unrealReport({ omittedMaterials: [entry] })).success).toBe(false);
   });
 
   it("rejects unknown omitted-material codes and extra omitted-material fields", () => {
@@ -107,6 +105,82 @@ describe("Director Unreal engine report omittedMaterials honesty", () => {
               directorId: "prop-x",
               code: "shader_graph_missing",
               reason: "not an Unreal material omit code",
+            },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
+  });
+});
+
+describe("Director Unreal engine report omittedLights honesty", () => {
+  it("accepts ambient and hemisphere omittedLights with matching omittedLightCount", () => {
+    const omittedLights = [
+      {
+        directorId: "light_ambient_1",
+        lightType: "ambient" as const,
+        reason: "Uniform ambient light has no single-actor Unreal equivalent (warn-and-omit).",
+      },
+      {
+        directorId: "light_hemi_1",
+        lightType: "hemisphere" as const,
+        reason: "Hemisphere light has no single-actor Unreal equivalent (warn-and-omit).",
+      },
+    ];
+    const parsed = directorDccEngineReportSchema.parse(
+      unrealReport({
+        importedLightCount: 2,
+        omittedLightCount: 2,
+        omittedLights,
+      }),
+    );
+    expect(parsed.omittedLightCount).toBe(2);
+    expect(parsed.omittedLights).toEqual(omittedLights);
+  });
+
+  it("keeps omittedLights optional so connectors before typed light omits still validate", () => {
+    const parsed = directorDccEngineReportSchema.parse(unrealReport());
+    expect(parsed.omittedLights).toBeUndefined();
+    expect(parsed.omittedLightCount).toBeUndefined();
+  });
+
+  it("rejects omittedLights whose length disagrees with omittedLightCount", () => {
+    const entry = {
+      directorId: "light_ambient_1",
+      lightType: "ambient" as const,
+      reason: "Uniform ambient light has no single-actor Unreal equivalent (warn-and-omit).",
+    };
+    expect(
+      directorDccEngineReportSchema.safeParse(unrealReport({ omittedLightCount: 0, omittedLights: [entry] })).success,
+    ).toBe(false);
+    expect(directorDccEngineReportSchema.safeParse(unrealReport({ omittedLights: [entry] })).success).toBe(false);
+  });
+
+  it("rejects unknown omitted-light types and extra omitted-light fields", () => {
+    expect(
+      directorUnrealOmittedLightSchema.safeParse({
+        directorId: "light-1",
+        lightType: "laser",
+        reason: "not a Director light type",
+      }).success,
+    ).toBe(false);
+    expect(
+      directorUnrealOmittedLightSchema.safeParse({
+        directorId: "light_ambient_1",
+        lightType: "ambient",
+        reason: "Uniform ambient light has no single-actor Unreal equivalent (warn-and-omit).",
+        code: "light_ambient_unsupported",
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccEngineReportSchema.safeParse(
+        unrealReport({
+          omittedLightCount: 1,
+          omittedLights: [
+            {
+              directorId: "light-1",
+              lightType: "laser",
+              reason: "not a Director light type",
             },
           ],
         }),
