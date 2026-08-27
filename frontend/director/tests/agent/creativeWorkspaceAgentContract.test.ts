@@ -471,14 +471,46 @@ describe("creative workspace agent operation contract", () => {
     const broughtFront = expectSuccess(
       executeCreativeWorkspaceAgentOperation({ op: "canvas.node.bring_to_front", node_id: imageId }, runtime),
     );
-    expect(broughtFront.result).toMatchObject({ already_front: false, z_index: 1 });
+    expect(broughtFront.result).toMatchObject({
+      already_front: false,
+      z_index: 1,
+      previous_z_index: 0,
+    });
+    expect(broughtFront.result.node).toMatchObject({ id: imageId, z_index: 1 });
     expect(useDirectorCreativeWorkspaceStore.getState().boardNodes.map((node) => node.id)).toEqual([noteId, imageId]);
+    expect(broughtFront.snapshot.board.nodes.map((node) => ({ id: node.id, z_index: node.z_index }))).toEqual([
+      { id: noteId, z_index: 0 },
+      { id: imageId, z_index: 1 },
+    ]);
     const alreadyFront = expectSuccess(
       executeCreativeWorkspaceAgentOperation({ op: "canvas.node.bring_to_front", node_id: imageId }, runtime),
     );
-    expect(alreadyFront.result).toMatchObject({ already_front: true, z_index: 1 });
+    expect(alreadyFront.result).toMatchObject({ already_front: true, z_index: 1, previous_z_index: 1 });
     expectFailure(
       executeCreativeWorkspaceAgentOperation({ op: "canvas.node.bring_to_front", node_id: "missing-node" }, runtime),
+      "not_found",
+    );
+
+    const sentBack = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "canvas.node.send_to_back", node_id: imageId }, runtime),
+    );
+    expect(sentBack.result).toMatchObject({
+      already_back: false,
+      z_index: 0,
+      previous_z_index: 1,
+    });
+    expect(sentBack.result.node).toMatchObject({ id: imageId, z_index: 0 });
+    expect(useDirectorCreativeWorkspaceStore.getState().boardNodes.map((node) => node.id)).toEqual([imageId, noteId]);
+    expect(sentBack.snapshot.board.nodes.map((node) => ({ id: node.id, z_index: node.z_index }))).toEqual([
+      { id: imageId, z_index: 0 },
+      { id: noteId, z_index: 1 },
+    ]);
+    const alreadyBack = expectSuccess(
+      executeCreativeWorkspaceAgentOperation({ op: "canvas.node.send_to_back", node_id: imageId }, runtime),
+    );
+    expect(alreadyBack.result).toMatchObject({ already_back: true, z_index: 0, previous_z_index: 0 });
+    expectFailure(
+      executeCreativeWorkspaceAgentOperation({ op: "canvas.node.send_to_back", node_id: "missing-node" }, runtime),
       "not_found",
     );
 
@@ -1485,6 +1517,7 @@ describe("creative workspace agent operation contract", () => {
           "gallery.preferences.update",
           "canvas.production.configure",
           "canvas.node.bring_to_front",
+          "canvas.node.send_to_back",
           "canvas.section.add",
           "canvas.node.assign_section",
           "canvas.board.set_viewport",
@@ -1501,7 +1534,8 @@ describe("creative workspace agent operation contract", () => {
           analysis: ["topological_order", "parallel_levels", "roots", "leaves", "cycle_path", "issues"],
           layout_operation: "canvas.dag.layout",
           layout_directions: ["horizontal", "vertical"],
-          bring_to_front_operation: "canvas.node.bring_to_front",
+          z_order_operations: ["canvas.node.bring_to_front", "canvas.node.send_to_back"],
+          z_order_observe_field: "board.nodes[].z_index",
           section_operations: [
             "canvas.section.add",
             "canvas.section.update",

@@ -25,7 +25,12 @@
   },
   "concurrency": {
     "guard": "snapshot_fingerprint",
-    "required_for": ["execute", "execute_batch", "preview", "pipeline.start"]
+    "required_for": [
+      "execute",
+      "execute_batch",
+      "preview",
+      "pipeline.start"
+    ]
   },
   "batch": {
     "atomic": true,
@@ -33,12 +38,26 @@
   },
   "canvas_dag": {
     "edge_contract": "canvas.edge.add rejects self-edges, missing endpoints, duplicate directed edges, and every cycle before mutation.",
-    "analysis": ["topological_order", "parallel_levels", "roots", "leaves", "cycle_path", "issues"],
+    "analysis": [
+      "topological_order",
+      "parallel_levels",
+      "roots",
+      "leaves",
+      "cycle_path",
+      "issues"
+    ],
     "layout_operation": "canvas.dag.layout",
-    "layout_directions": ["horizontal", "vertical"],
+    "layout_directions": [
+      "horizontal",
+      "vertical"
+    ],
     "layout_contract": "Deterministic topological layers preserve node dimensions, use bounded gaps, own one atomic undo snapshot, and refuse invalid graphs.",
-    "bring_to_front_operation": "canvas.node.bring_to_front",
-    "z_order_contract": "Board paint order is the boardNodes array; canvas.node.bring_to_front moves a node to the array tail (idempotent when already front) and owns one atomic undo snapshot.",
+    "z_order_operations": [
+      "canvas.node.bring_to_front",
+      "canvas.node.send_to_back"
+    ],
+    "z_order_observe_field": "board.nodes[].z_index",
+    "z_order_contract": "Board paint order is the boardNodes array (observe board.nodes[].z_index is the array index; higher paints above). canvas.node.bring_to_front moves a node to the array tail; canvas.node.send_to_back moves it to the array head. Both are idempotent when already at that extreme, report previous_z_index/z_index, and own one atomic undo snapshot.",
     "execution_boundary": "Canvas executes supported image, video, and audio nodes through durable provider jobs; note/frame nodes pass context, media-backed nodes are cached, and unsupported arbitrary code is never evaluated.",
     "section_operations": [
       "canvas.section.add",
@@ -47,9 +66,15 @@
       "canvas.node.assign_section"
     ],
     "section_contract": "Board sections are observeable lanes; add/update/remove own one atomic undo snapshot; assign_section sets or clears node.section_id (null clears); removing a section orphans member nodes.",
-    "viewport_operations": ["canvas.board.set_viewport", "canvas.board.fit_content"],
+    "viewport_operations": [
+      "canvas.board.set_viewport",
+      "canvas.board.fit_content"
+    ],
     "viewport_observe_path": "board.viewport",
-    "viewport_zoom_range": [0.1, 2.5],
+    "viewport_zoom_range": [
+      0.1,
+      2.5
+    ],
     "viewport_fit_defaults": {
       "surface_width": 1280,
       "surface_height": 800,
@@ -61,7 +86,11 @@
     "script_contract": "Parses Fountain text into the preset workflow lanes plus one note node per storyboard shot in one atomic undo snapshot; replaces the current section list (result.replaced_section_ids), appends nodes up to the 240-node cap, and reports dropped nodes and importer omissions as typed result.omitted (board_capacity, character_dialogue, …) instead of silently truncating; a full board rejects with capacity before any mutation."
   },
   "preview": {
-    "workspaces": ["auto", "canvas", "video"],
+    "workspaces": [
+      "auto",
+      "canvas",
+      "video"
+    ],
     "format": "image/png",
     "clean_frame": true,
     "mutates_playhead": false,
@@ -75,7 +104,10 @@
       "observe_path": "edit.settings.timebase",
       "update_operation": "edit.settings.update",
       "rate_contract": "exact rational numerator/denominator; never infer an integer from fps",
-      "drop_frame_rates": ["30000/1001", "60000/1001"],
+      "drop_frame_rates": [
+        "30000/1001",
+        "60000/1001"
+      ],
       "timecode_contract": "SMPTE HH:MM:SS:FF for NDF and HH:MM:SS;FF for DF",
       "example": {
         "op": "edit.settings.update",
@@ -93,7 +125,10 @@
       "observe_path": "edit.timeline_zoom",
       "set_zoom_operation": "edit.timeline.set_zoom",
       "fit_operation": "edit.timeline.fit",
-      "zoom_range": [0.5, 4],
+      "zoom_range": [
+        0.5,
+        4
+      ],
       "base_pixels_per_second": 72,
       "fit_defaults": {
         "surface_width": 960,
@@ -103,7 +138,13 @@
     },
     "media": {
       "observe_path": "media.assets",
-      "observable_fields": ["available", "waveform_ready", "proxy_of", "playback_preference", "proxy_profile"],
+      "observable_fields": [
+        "available",
+        "waveform_ready",
+        "proxy_of",
+        "playback_preference",
+        "proxy_profile"
+      ],
       "attach_proxy_operation": "media.proxy.attach",
       "set_playback_operation": "media.playback.update",
       "attach_proxy_example": {
@@ -126,9 +167,17 @@
         "director_creative_operation": "media.verify",
         "example": {
           "op": "media.verify",
-          "media_ids": ["<media-id>"]
+          "media_ids": [
+            "<media-id>"
+          ]
         },
-        "outcomes": ["verified", "size_mismatch", "missing_bytes", "not_cataloged", "unverified"],
+        "outcomes": [
+          "verified",
+          "size_mismatch",
+          "missing_bytes",
+          "not_cataloged",
+          "unverified"
+        ],
         "reason": "Observed media.assets available and size are catalog claims; media.verify reads bytes back from the durable browser store and returns typed per-item outcomes with omit reasons, plus a storage stanza (memory mode does not survive reload). media.relink receipts carry the same probed storage and durability stanzas."
       }
     },
@@ -157,60 +206,82 @@
     "formats": [
       {
         "id": "otio",
-        "extensions": [".otio"],
+        "extensions": [
+          ".otio"
+        ],
         "payload": "text",
         "scope": "Stage storyboard or Video Editor A/V timeline"
       },
       {
         "id": "otioz",
-        "extensions": [".otioz"],
+        "extensions": [
+          ".otioz"
+        ],
         "payload": "binary",
         "scope": "Stage storyboard or Video Editor A/V timeline"
       },
       {
         "id": "fountain",
-        "extensions": [".fountain"],
+        "extensions": [
+          ".fountain"
+        ],
         "payload": "text",
         "scope": "Stage screenplay and stable storyboard beat IDs"
       },
       {
         "id": "gltf",
-        "extensions": [".gltf"],
+        "extensions": [
+          ".gltf"
+        ],
         "payload": "text",
         "scope": "Stage scene, cameras, transforms, and stable IDs"
       },
       {
         "id": "glb",
-        "extensions": [".glb"],
+        "extensions": [
+          ".glb"
+        ],
         "payload": "binary",
         "scope": "Stage scene, cameras, transforms, and stable IDs"
       },
       {
         "id": "usd",
-        "extensions": [".usd", ".usda"],
+        "extensions": [
+          ".usd",
+          ".usda"
+        ],
         "payload": "text",
         "scope": "Stage scene, metric Y-up transforms, cameras, and stable IDs"
       },
       {
         "id": "usdz",
-        "extensions": [".usdz"],
+        "extensions": [
+          ".usdz"
+        ],
         "payload": "binary",
         "scope": "Portable Stage USD archive"
       },
       {
         "id": "obj",
-        "extensions": [".zip"],
+        "extensions": [
+          ".zip"
+        ],
         "payload": "binary",
         "scope": "All or selected Stage primitives as metric Y-up OBJ/MTL plus a loss manifest"
       },
       {
         "id": "stl",
-        "extensions": [".zip"],
+        "extensions": [
+          ".zip"
+        ],
         "payload": "binary",
         "scope": "All or selected Stage primitives as metric Y-up ASCII STL plus a loss manifest"
       }
     ],
-    "directions": ["import", "export"],
+    "directions": [
+      "import",
+      "export"
+    ],
     "preserves": [
       "stable IDs",
       "exact rational timebase",
@@ -220,8 +291,17 @@
     ],
     "execution_surface": "director_creative interchange plus DirectorInterchangeMenu",
     "director_creative_operation": "interchange",
-    "agent_actions": ["capabilities", "plan-export", "export", "plan-import", "import"],
-    "agent_directions": ["export", "import"],
+    "agent_actions": [
+      "capabilities",
+      "plan-export",
+      "export",
+      "plan-import",
+      "import"
+    ],
+    "agent_directions": [
+      "export",
+      "import"
+    ],
     "import_mode": "agent-transfer",
     "agent_transfer": "enabled for bounded inline, Gallery media_id, and workspace_path imports/exports up to 8 MiB",
     "reason": "JSON receipts carry UTF-8 text or base64 binary up to 8 MiB. Import uses plan-import then confirm:true import; the human file picker remains available."
@@ -259,7 +339,12 @@
     "observe_path": "board.pipeline_runs",
     "request_op": "pipeline",
     "configure_operation": "canvas.production.configure",
-    "actions": ["capabilities", "start", "status", "cancel"],
+    "actions": [
+      "capabilities",
+      "start",
+      "status",
+      "cancel"
+    ],
     "execution": "topological-levels-with-bounded-parallelism",
     "failure_semantics": "A failed node blocks only its descendants; independent branches continue, active provider jobs are cancelled on request, and completed outputs keep node/job/artifact/media lineage."
   },

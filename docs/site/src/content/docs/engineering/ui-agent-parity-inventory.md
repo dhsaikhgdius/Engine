@@ -159,11 +159,11 @@ produce the same revision (roadmap M1 batches 1e/1f). Parity is regression-teste
 Shared today:
 
 - Canvas node/edge/layout/z-order/section/viewport authoring (`canvas.node.*` including
-  `canvas.node.bring_to_front` / `canvas.node.assign_section`, `canvas.section.*`,
-  `canvas.board.set_viewport` / `canvas.board.fit_content`, `canvas.edge.*`,
+  `canvas.node.bring_to_front` / `canvas.node.send_to_back` / `canvas.node.assign_section`,
+  `canvas.section.*`, `canvas.board.set_viewport` / `canvas.board.fit_content`, `canvas.edge.*`,
   `canvas.dag.layout`), media import cataloging (`gallery.media.update`), and the undo/redo
   buttons (`workspace.undo` / `workspace.redo`). Observe exposes `board.sections`,
-  `node.section_id`, and `board.viewport`.
+  `node.section_id`, `node.z_index` (array paint order), and `board.viewport`.
 - Video clip inspector edits, split, remove (including ripple), cross dissolve, discrete
   keyboard fade steps, the "+" placement into the first free slot (`edit.clip.add`), track
   management, settings, discrete timeline zoom (`edit.timeline.set_zoom` /

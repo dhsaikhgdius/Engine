@@ -217,6 +217,8 @@ export interface DirectorCreativeWorkspaceState {
   upsertBoardPipelineRun: (run: DirectorCanvasPipelineRun) => void;
   /** Move a board node to the end of the render order (on top). */
   bringBoardNodeToFront: (nodeId: string) => void;
+  /** Move a board node to the start of the render order (behind every other node). */
+  sendBoardNodeToBack: (nodeId: string) => void;
   /** Remove a board node and all edges incident to it. */
   removeBoardNode: (nodeId: string) => void;
   /** Set the selected board node. Pass null to deselect. */
@@ -1365,6 +1367,15 @@ export const useDirectorCreativeWorkspaceStore = create<DirectorCreativeWorkspac
       const node = state.boardNodes[index]!;
       return withHistory(state, {
         boardNodes: [...state.boardNodes.slice(0, index), ...state.boardNodes.slice(index + 1), node],
+      });
+    }),
+  sendBoardNodeToBack: (nodeId) =>
+    set((state) => {
+      const index = state.boardNodes.findIndex((node) => node.id === nodeId);
+      if (index < 0 || index === 0) return state;
+      const node = state.boardNodes[index]!;
+      return withHistory(state, {
+        boardNodes: [node, ...state.boardNodes.slice(0, index), ...state.boardNodes.slice(index + 1)],
       });
     }),
   removeBoardNode: (nodeId) =>
