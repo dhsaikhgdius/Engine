@@ -1556,6 +1556,12 @@ describe("creative workspace agent operation contract", () => {
             base_pixels_per_second: 72,
             fit_defaults: { surface_width: 960, gutter: 16 },
           },
+          clip_overwrite: {
+            operations: ["edit.clip.add", "edit.clip.update", "edit.clip.move"],
+            flag: "overwrite",
+            resolver: "resolveDirectorTrackOverwrite",
+            receipt_fields: ["removed_clip_ids", "trimmed_clip_ids", "created_clip_ids"],
+          },
           timebase: {
             source_of_truth: "edit.settings.timebase",
             observe_path: "edit.settings.timebase",

@@ -136,6 +136,21 @@
       },
       "viewport_contract": "Timeline zoom is observeable at edit.timeline_zoom (72 CSS px per second at zoom 1); edit.timeline.set_zoom clamps zoom to [0.5, 4] and does not push undo history; edit.timeline.fit frames the edited content span into an optional visible surface_width (default 960 px minus a 16 px gutter; an empty timeline fits its 5-second minimum span); continuous ctrl/cmd-wheel zoom and horizontal scroll stay local."
     },
+    "clip_overwrite": {
+      "operations": [
+        "edit.clip.add",
+        "edit.clip.update",
+        "edit.clip.move"
+      ],
+      "flag": "overwrite",
+      "resolver": "resolveDirectorTrackOverwrite",
+      "receipt_fields": [
+        "removed_clip_ids",
+        "trimmed_clip_ids",
+        "created_clip_ids"
+      ],
+      "overwrite_contract": "When overwrite:true, the landed clip runs the same overwrite-with-trim resolver the Video Editor uses (truncate, head-trim, split spanning neighbours, or remove covered clips). Success receipts always include removed_clip_ids / trimmed_clip_ids / created_clip_ids (empty when nothing overlapped). Explicit media drops, keyboard nudges, duplicate-after, and drag/trim pointer-up share these ops; continuous mid-drag/mid-trim stay locally batched."
+    },
     "media": {
       "observe_path": "media.assets",
       "observable_fields": [

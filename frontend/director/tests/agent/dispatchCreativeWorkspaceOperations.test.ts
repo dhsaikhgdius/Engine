@@ -569,7 +569,7 @@ describe("creative workspace UI/agent parity harness", () => {
   it("edit.clip.add overwrite trims covered neighbours the same way commitClipPlacement does", () => {
     const runtime = context();
     const executed = uiExecutor(runtime);
-    executed({
+    const covered = executed({
       op: "edit.clip.add",
       track_id: "video-1",
       media_id: "media:image:poster",
@@ -578,7 +578,7 @@ describe("creative workspace UI/agent parity harness", () => {
       duration_sec: 3,
       source_duration_sec: 3,
     });
-    executed({
+    const overwritten = executed({
       op: "edit.clip.add",
       track_id: "video-1",
       media_id: "media:video:take",
@@ -587,6 +587,12 @@ describe("creative workspace UI/agent parity harness", () => {
       duration_sec: 4,
       source_duration_sec: 12,
       overwrite: true,
+    });
+    expect(overwritten).toMatchObject({
+      overwrite: true,
+      removed_clip_ids: [createdId(covered, "clip")],
+      trimmed_clip_ids: [],
+      created_clip_ids: [],
     });
     const track = useDirectorCreativeWorkspaceStore.getState().editTracks.find((item) => item.id === "video-1");
     expect(track?.clips).toHaveLength(1);
@@ -671,11 +677,17 @@ describe("creative workspace UI/agent parity harness", () => {
       duration_sec: 2,
       source_duration_sec: 12,
     });
-    executed({
+    const nudged = executed({
       op: "edit.clip.update",
       clip_id: createdId(second, "clip"),
       patch: { start_sec: 1 },
       overwrite: true,
+    });
+    expect(nudged).toMatchObject({
+      overwrite: true,
+      removed_clip_ids: [],
+      trimmed_clip_ids: [createdId(first, "clip")],
+      created_clip_ids: [],
     });
     const track = useDirectorCreativeWorkspaceStore.getState().editTracks.find((item) => item.id === "video-1");
     expect(track?.clips).toHaveLength(2);
@@ -687,6 +699,53 @@ describe("creative workspace UI/agent parity harness", () => {
       name: "Right take",
       startSec: 1,
       durationSec: 2,
+    });
+  });
+
+  it("edit.clip.move overwrite reports split-created neighbour halves on the receipt", () => {
+    const runtime = context();
+    const executed = uiExecutor(runtime);
+    const spanning = executed({
+      op: "edit.clip.add",
+      track_id: "video-1",
+      media_id: "media:video:take",
+      name: "Spanning take",
+      start_sec: 0,
+      duration_sec: 8,
+      source_duration_sec: 12,
+    });
+    const mover = executed({
+      op: "edit.clip.add",
+      track_id: "video-2",
+      media_id: "media:image:poster",
+      name: "Landing still",
+      start_sec: 0,
+      duration_sec: 2,
+      source_duration_sec: 3,
+    });
+    const moved = executed({
+      op: "edit.clip.move",
+      clip_id: createdId(mover, "clip"),
+      track_id: "video-1",
+      start_sec: 3,
+      overwrite: true,
+    });
+    expect(moved.overwrite).toBe(true);
+    expect(moved.removed_clip_ids).toEqual([]);
+    expect(moved.trimmed_clip_ids).toEqual([createdId(spanning, "clip")]);
+    expect(moved.created_clip_ids).toHaveLength(1);
+    const createdHalfId = (moved.created_clip_ids as string[])[0]!;
+    const track = useDirectorCreativeWorkspaceStore.getState().editTracks.find((item) => item.id === "video-1");
+    expect(track?.clips.map((clip) => clip.id).sort()).toEqual(
+      [createdId(spanning, "clip"), createdId(mover, "clip"), createdHalfId].sort(),
+    );
+    expect(track?.clips.find((clip) => clip.id === createdId(spanning, "clip"))).toMatchObject({
+      startSec: 0,
+      durationSec: 3,
+    });
+    expect(track?.clips.find((clip) => clip.id === createdHalfId)).toMatchObject({
+      startSec: 5,
+      durationSec: 3,
     });
   });
 

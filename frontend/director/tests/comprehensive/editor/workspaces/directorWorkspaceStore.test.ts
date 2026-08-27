@@ -7,6 +7,7 @@ import {
   getDirectorEditDuration,
   parseDirectorCreativeWorkspacePersistedState,
   resolveDirectorTrackOverwrite,
+  summarizeDirectorTrackOverwrite,
   serializeDirectorCreativeWorkspacePersistedState,
   setDirectorCreativeWorkspaceScope,
   subscribeDirectorCreativeWorkspaceScope,
@@ -452,6 +453,39 @@ it("overwrite resolution truncates a tail overlap and shrinks its fade-out", () 
   expect(resolved[0]!.durationSec).toBeCloseTo(2, 10);
   expect(resolved[0]!.fadeOutSec).toBeCloseTo(2, 10);
   expect(resolved[1]).toBe(clips[1]);
+  expect(summarizeDirectorTrackOverwrite(clips, resolved, "landed")).toEqual({
+    removedClipIds: [],
+    trimmedClipIds: ["under"],
+    createdClipIds: [],
+  });
+});
+
+it("summarizeDirectorTrackOverwrite reports removed and split-created neighbours", () => {
+  const covered = [
+    overwriteClip({ id: "gone", startSec: 1, durationSec: 2 }),
+    overwriteClip({ id: "landed", startSec: 0, durationSec: 4 }),
+  ];
+  const coveredResolved = resolveDirectorTrackOverwrite(covered, "landed")!;
+  expect(summarizeDirectorTrackOverwrite(covered, coveredResolved, "landed")).toEqual({
+    removedClipIds: ["gone"],
+    trimmedClipIds: [],
+    createdClipIds: [],
+  });
+
+  const spanning = [
+    overwriteClip({ id: "span", startSec: 0, durationSec: 8, sourceDurationSec: 20 }),
+    overwriteClip({ id: "landed", startSec: 3, durationSec: 2 }),
+  ];
+  const spanningResolved = resolveDirectorTrackOverwrite(spanning, "landed")!;
+  const summary = summarizeDirectorTrackOverwrite(spanning, spanningResolved, "landed");
+  expect(summary.removedClipIds).toEqual([]);
+  expect(summary.trimmedClipIds).toEqual(["span"]);
+  expect(summary.createdClipIds).toHaveLength(1);
+  expect(summarizeDirectorTrackOverwrite(spanning, null, "landed")).toEqual({
+    removedClipIds: [],
+    trimmedClipIds: [],
+    createdClipIds: [],
+  });
 });
 
 it("overwrite resolution trims head overlaps and advances inSec by playback rate", () => {
@@ -556,7 +590,9 @@ it("commitClipPlacement overwrites same-track overlaps as one undoable step", ()
       sourceDurationSec: 8,
     })!.id;
   });
-  act(() => useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId));
+  act(() => {
+    useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId);
+  });
 
   let state = useDirectorCreativeWorkspaceStore.getState();
   expect(findDirectorEditClip(state.editTracks, underId)?.clip.durationSec).toBeCloseTo(2, 10);
@@ -589,14 +625,18 @@ it("commitClipPlacement clears removed selections and records no history when no
     })!.id;
     store.selectClip(coveredId);
   });
-  act(() => useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId));
+  act(() => {
+    useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId);
+  });
   let state = useDirectorCreativeWorkspaceStore.getState();
   expect(findDirectorEditClip(state.editTracks, coveredId)).toBeNull();
   expect(state.selectedClipId).toBeNull();
 
   // The second commit finds no overlap, so the next undo must revert the
   // overwrite itself rather than an extra no-op history entry.
-  act(() => useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId));
+  act(() => {
+    useDirectorCreativeWorkspaceStore.getState().commitClipPlacement(landedId);
+  });
   act(() => useDirectorCreativeWorkspaceStore.getState().undo());
   state = useDirectorCreativeWorkspaceStore.getState();
   expect(findDirectorEditClip(state.editTracks, coveredId)?.clip).toMatchObject({ startSec: 1, durationSec: 2 });

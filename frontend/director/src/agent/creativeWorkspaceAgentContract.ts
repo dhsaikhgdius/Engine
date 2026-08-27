@@ -33,6 +33,7 @@ import {
   type DirectorCanvasPipelineRun,
   type DirectorEditClip,
   type DirectorEditTrack,
+  type DirectorTrackOverwriteSummary,
 } from "../comprehensive/editor/workspaces/directorWorkspaceStore";
 import {
   persistentCreativeMediaLibrary,
@@ -535,6 +536,32 @@ function success(
   context: CreativeWorkspaceAgentContext,
 ): CreativeWorkspaceAgentExecutionResult {
   return { success: true, operation, message, result, snapshot: observeCreativeWorkspaceAgentSnapshot(context) };
+}
+
+const EMPTY_OVERWRITE_SUMMARY: DirectorTrackOverwriteSummary = {
+  removedClipIds: [],
+  trimmedClipIds: [],
+  createdClipIds: [],
+};
+
+/** Receipt fields shared by edit.clip.add/update/move when overwrite runs. */
+function overwritePlacementResult(
+  overwrite: boolean,
+  summary: DirectorTrackOverwriteSummary = EMPTY_OVERWRITE_SUMMARY,
+) {
+  if (!overwrite) return { overwrite: false as const };
+  return {
+    overwrite: true as const,
+    removed_clip_ids: summary.removedClipIds,
+    trimmed_clip_ids: summary.trimmedClipIds,
+    created_clip_ids: summary.createdClipIds,
+  };
+}
+
+function overwritePlacementMessage(base: string, overwrite: boolean, summary: DirectorTrackOverwriteSummary) {
+  if (!overwrite) return base;
+  const effects = `${summary.removedClipIds.length} removed, ${summary.trimmedClipIds.length} trimmed, ${summary.createdClipIds.length} created`;
+  return `${base} with overwrite placement (${effects}).`;
 }
 
 function findClip(state: DirectorCreativeWorkspaceState, clipId: string) {
@@ -1825,6 +1852,7 @@ export function executeCreativeWorkspaceAgentOperation(
         Boolean(operation.overwrite);
       if (needsFollowUp) state.beginHistoryBatch();
       let clip: ReturnType<typeof state.addClip> = null;
+      let overwriteSummary: DirectorTrackOverwriteSummary = EMPTY_OVERWRITE_SUMMARY;
       try {
         clip = state.addClip({
           trackId: track.id,
@@ -1856,7 +1884,7 @@ export function executeCreativeWorkspaceAgentOperation(
         }
         if (operation.overwrite) {
           // Same overwrite-with-trim the Video Editor runs after an explicit drop.
-          state.commitClipPlacement(clip.id);
+          overwriteSummary = state.commitClipPlacement(clip.id);
         }
       } finally {
         if (needsFollowUp) state.endHistoryBatch();
@@ -1864,13 +1892,15 @@ export function executeCreativeWorkspaceAgentOperation(
       const projected = findClip(context.workspace.getState(), clip.id)?.clip ?? clip;
       return success(
         operation.op,
-        operation.overwrite
-          ? `Added clip "${projected.name}" to track "${track.name}" with overwrite placement.`
-          : `Added clip "${projected.name}" to track "${track.name}".`,
+        overwritePlacementMessage(
+          `Added clip "${projected.name}" to track "${track.name}"`,
+          Boolean(operation.overwrite),
+          overwriteSummary,
+        ),
         {
           clip: projectEditClip(projected),
           track_id: track.id,
-          overwrite: Boolean(operation.overwrite),
+          ...overwritePlacementResult(Boolean(operation.overwrite), overwriteSummary),
           ...(virtualText ? { virtual_text: true } : {}),
         },
         context,
@@ -1943,10 +1973,11 @@ export function executeCreativeWorkspaceAgentOperation(
         }
       }
       if (operation.overwrite) state.beginHistoryBatch();
+      let overwriteSummary: DirectorTrackOverwriteSummary = EMPTY_OVERWRITE_SUMMARY;
       try {
         state.updateClip(owner.clip.id, mapClipPatch(operation.patch));
         if (operation.overwrite) {
-          state.commitClipPlacement(owner.clip.id);
+          overwriteSummary = state.commitClipPlacement(owner.clip.id);
         }
       } finally {
         if (operation.overwrite) state.endHistoryBatch();
@@ -1961,10 +1992,16 @@ export function executeCreativeWorkspaceAgentOperation(
       }
       return success(
         operation.op,
-        operation.overwrite
-          ? `Updated edit clip "${updated.name}" with overwrite placement.`
-          : `Updated edit clip "${updated.name}".`,
-        { clip: projectEditClip(updated), track_id: owner.track.id, overwrite: Boolean(operation.overwrite) },
+        overwritePlacementMessage(
+          `Updated edit clip "${updated.name}"`,
+          Boolean(operation.overwrite),
+          overwriteSummary,
+        ),
+        {
+          clip: projectEditClip(updated),
+          track_id: owner.track.id,
+          ...overwritePlacementResult(Boolean(operation.overwrite), overwriteSummary),
+        },
         context,
       );
     }
@@ -1986,10 +2023,11 @@ export function executeCreativeWorkspaceAgentOperation(
         );
       }
       if (operation.overwrite) state.beginHistoryBatch();
+      let overwriteSummary: DirectorTrackOverwriteSummary = EMPTY_OVERWRITE_SUMMARY;
       try {
         state.moveClipToTrack(owner.clip.id, destination.id, operation.start_sec);
         if (operation.overwrite) {
-          state.commitClipPlacement(owner.clip.id);
+          overwriteSummary = state.commitClipPlacement(owner.clip.id);
         }
       } finally {
         if (operation.overwrite) state.endHistoryBatch();
@@ -2004,10 +2042,16 @@ export function executeCreativeWorkspaceAgentOperation(
       }
       return success(
         operation.op,
-        operation.overwrite
-          ? `Moved clip "${owner.clip.name}" to track "${destination.name}" with overwrite placement.`
-          : `Moved clip "${owner.clip.name}" to track "${destination.name}".`,
-        { clip: projectEditClip(moved.clip), track_id: moved.track.id, overwrite: Boolean(operation.overwrite) },
+        overwritePlacementMessage(
+          `Moved clip "${owner.clip.name}" to track "${destination.name}"`,
+          Boolean(operation.overwrite),
+          overwriteSummary,
+        ),
+        {
+          clip: projectEditClip(moved.clip),
+          track_id: moved.track.id,
+          ...overwritePlacementResult(Boolean(operation.overwrite), overwriteSummary),
+        },
         context,
       );
     }
