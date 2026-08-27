@@ -10,6 +10,9 @@ import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { DirectorAnimationTimingCurve } from "../schema/directorProject";
 import { DIRECTOR_TIMING_CURVE_PRESETS } from "../schema/animationEasing";
 
+// SVG viewBox geometry. The plot area is inset so control handles at the
+// extremes stay fully visible; Y extends past [0,1] because bezier easing
+// handles may legitimately overshoot (anticipation / follow-through).
 const VIEW_WIDTH = 220;
 const VIEW_HEIGHT = 150;
 const PLOT_LEFT = 18;
@@ -28,27 +31,34 @@ const PRESETS = [
 
 interface TimingCurveEditorProps {
   disabled?: boolean;
+  /** Curve shown when the keyframe has no explicit easing (`value` undefined). */
   fallbackValue?: DirectorAnimationTimingCurve;
+  /** Explicit easing; undefined means "not customized yet". */
   value?: DirectorAnimationTimingCurve;
   onChange: (value: DirectorAnimationTimingCurve) => void;
   onReset?: () => void;
+  /** Bracket a drag/edit so the parent can batch it into one undo entry. */
   onInteractionStart?: () => void;
   onInteractionEnd?: () => void;
 }
 
+/** Persisted precision: 3 decimals is plenty for easing and keeps diffs small. */
 function roundCurveValue(value: number) {
   return Math.round(value * 1000) / 1000;
 }
 
+/** Maps curve-space x (0..1) to SVG pixel space. */
 function graphX(value: number) {
   return PLOT_LEFT + clamp(value, 0, 1) * (PLOT_RIGHT - PLOT_LEFT);
 }
 
+/** Maps curve-space y (allowing overshoot) to SVG pixel space, flipped so +y is up. */
 function graphY(value: number) {
   const normalized = (clamp(value, GRAPH_Y_MIN, GRAPH_Y_MAX) - GRAPH_Y_MIN) / (GRAPH_Y_MAX - GRAPH_Y_MIN);
   return PLOT_BOTTOM - normalized * (PLOT_BOTTOM - PLOT_TOP);
 }
 
+/** Epsilon comparison so preset highlighting survives the 3-decimal rounding. */
 function curvesEqual(left: DirectorAnimationTimingCurve | undefined, right: DirectorAnimationTimingCurve) {
   return (
     Boolean(left) &&
@@ -69,6 +79,8 @@ export function TimingCurveEditor({
   onInteractionEnd,
 }: TimingCurveEditorProps) {
   const curve = value ?? fallbackValue;
+  // Guards against unbalanced start/end callbacks when pointer capture and
+  // focus events overlap (e.g. pointer-up while a field is still focused).
   const interactionActive = useRef(false);
 
   function startInteraction() {
@@ -93,6 +105,8 @@ export function TimingCurveEditor({
     onChange(next);
   }
 
+  // Inverse of graphX/graphY: pointer position -> curve space. Uses the SVG's
+  // client rect so the math holds regardless of the rendered size.
   function updateHandleFromPointer(handle: "first" | "second", event: ReactPointerEvent<SVGCircleElement>) {
     const svg = event.currentTarget.ownerSVGElement;
     if (!svg) return;

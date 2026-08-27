@@ -3,6 +3,21 @@
  * a939ec5fd84ae32fcbb3b6b6cb5865216f6d7195.
  * Copyright (c) 2026 YZ. Licensed under the MIT License.
  */
+/**
+ * Bottom timeline dock of the 3D Stage workspace.
+ *
+ * One component hosts three tab views: the multitrack frame timeline
+ * (storyboard clip row, transform/pose tracks, character motion blocks,
+ * audio tracks, record markers), the scene thumbnail browser, and the
+ * storyboard editor. The dock reads project data from the Director store
+ * and writes every edit back through store actions, so agent-driven edits
+ * through the gateway and human edits through this UI stay in sync.
+ *
+ * Playhead position is deliberately NOT React state here: it lives in
+ * `timelineRuntimeStore` and is subscribed to only by the few leaf
+ * components that render it (playhead, timecode field), so 60 fps playback
+ * does not re-render the whole track tree.
+ */
 import {
   Box,
   Camera,
@@ -127,8 +142,10 @@ import type { DirectorShotRenderPassId } from "../shot/shotPackage";
 import { DirectorDatasetOptions } from "./DirectorDatasetOptions";
 import { useLanguage } from "../../i18n/language";
 
+/** Container format requested for realtime video export; "auto" lets the encoder pick. */
 export type DirectorVideoFormat = "auto" | "webm" | "mp4";
 
+/** Hard cap so extreme zoom x frame counts cannot create an unrenderable DOM canvas. */
 const MAX_TIMELINE_CANVAS_WIDTH_PX = 200_000;
 const MAX_TIMELINE_TICKS = 240;
 const TIMELINE_TICK_LABEL_MIN_SPACING_PX = 64;
@@ -154,6 +171,11 @@ const TRAJECTORY_PRESET_ICONS = {
 
 const TOOLBAR_ICON = { size: 14, strokeWidth: 1.75 } as const;
 
+/**
+ * Outcome of one export run, reported back so the toolbar can surface the
+ * produced file name/range. `packageFingerprint` identifies deterministic
+ * frame packages; `fallbackFrom` marks an mp4 request that fell back to webm.
+ */
 export interface DirectorTimelineExportResult {
   extension: "webm" | "mp4" | "zip";
   frameStart: number;
@@ -165,6 +187,11 @@ export interface DirectorTimelineExportResult {
   fallbackFrom?: "mp4";
 }
 
+/**
+ * Playback, recording, and export are owned by the Stage workspace (which
+ * drives the actual render loop); the dock only reflects their state and
+ * requests transitions through these callbacks.
+ */
 interface DirectorTimelineDockProps {
   height: number;
   isPlaying: boolean;
@@ -222,6 +249,14 @@ function useTimelineEvent<Args extends unknown[], Result>(handler: (...args: Arg
   return useCallback((...args: Args) => handlerRef.current(...args), []);
 }
 
+/**
+ * Editable SMPTE timecode readout for the playhead.
+ *
+ * Isolated into its own component so that the per-frame playhead updates from
+ * `timelineRuntimeStore` re-render only this input, not the toolbar. While the
+ * field is focused it shows the user's draft instead of the live timecode;
+ * an unparseable draft reverts on commit rather than moving the playhead.
+ */
 function TimelineTimecodeField({
   exporting,
   onFrameChange,
@@ -277,6 +312,11 @@ function TimelineTimecodeField({
   );
 }
 
+/**
+ * The vertical playhead line over the track canvas. Subscribes to the runtime
+ * store directly so playback moves only this element (and the timecode field),
+ * leaving the memoized track rows untouched.
+ */
 function TimelinePlayhead({
   frameSpan,
   onPointerDown,
@@ -304,11 +344,16 @@ function TimelinePlayhead({
   );
 }
 
+/** Bridges the runtime playhead into the storyboard panel's `currentFrame` prop. */
 function PlayheadStoryboardPanel(props: Omit<ComponentProps<typeof DirectorStoryboardPanel>, "currentFrame">) {
   const currentFrame = useTimelineRuntimeStore((state) => state.playheadFrame);
   return <DirectorStoryboardPanel {...props} currentFrame={currentFrame} />;
 }
 
+/**
+ * Second-based ruler label for a frame, or null when the frame does not land
+ * close enough to a whole/tenth second to deserve a label at all.
+ */
 function formatTimelineRulerLabel(frame: number, fps: number) {
   const seconds = frame / fps;
   const whole = Math.round(seconds);
@@ -318,6 +363,7 @@ function formatTimelineRulerLabel(frame: number, fps: number) {
   return null;
 }
 
+/** Human-readable summary of what an animation track contains (for labels/aria). */
 function motionLabel(animation: DirectorEntityAnimation) {
   if (animation.motionBlocks?.length) return `${animation.motionBlocks.length} 段动作`;
   const action = animation.actionPresetId
@@ -335,10 +381,12 @@ function motionLabel(animation: DirectorEntityAnimation) {
   return "位移";
 }
 
+/** Whether a track has anything to render (keyframes or motion blocks). */
 function hasTimelineTrackContent(animation: DirectorEntityAnimation | undefined) {
   return Boolean(animation?.keyframes.length || animation?.motionBlocks?.length);
 }
 
+/** Converts a pointer position over the track canvas into a clamped frame number. */
 function frameAtClientX(clientX: number, rect: DOMRect, timeline: DirectorTimeline) {
   const progress = Math.min(1, Math.max(0, (clientX - rect.left) / Math.max(1, rect.width)));
   return clampTimelineFrame(
@@ -356,6 +404,10 @@ function frameToCanvasPixels(frame: number, timeline: DirectorTimeline, frameSpa
   return ((frame - timeline.frameStart) / frameSpan) * canvasWidth;
 }
 
+/**
+ * Assigns each record marker (IN/OUT/manual) a stacking lane so labels of
+ * markers that sit close together do not overlap. Bounded to 3 lanes.
+ */
 function assignRecordMarkerLabelLanes(markerPositions: number[]) {
   const placedMarkers: Array<{ lane: number; position: number }> = [];
   return markerPositions.map((position) => {
@@ -374,6 +426,11 @@ function assignRecordMarkerLabelLanes(markerPositions: number[]) {
   });
 }
 
+/**
+ * Alternates crowded keyframe markers between two vertical lanes so adjacent
+ * diamonds stay individually clickable when they are closer than the marker
+ * hit area.
+ */
 function computeKeyframeLanes(
   keyframes: DirectorEntityAnimation["keyframes"],
   timeline: DirectorTimeline,
@@ -400,6 +457,12 @@ function computeKeyframeLanes(
   return lanes;
 }
 
+/**
+ * One draggable keyframe diamond. During a drag the marker renders a local
+ * draft frame and streams scrub feedback via `onFrameChange`; the project
+ * store is only written on pointer-up through `onCommit`, keeping undo
+ * history to one entry per drag.
+ */
 function KeyframeMarker({
   frame,
   index,
@@ -483,6 +546,8 @@ function KeyframeMarker({
   );
 }
 
+// Custom comparator: event handlers are intentionally excluded because the
+// parent wraps them in stable identities via useTimelineEvent.
 const MemoizedKeyframeMarker = memo(
   KeyframeMarker,
   (previous, next) =>
@@ -494,6 +559,12 @@ const MemoizedKeyframeMarker = memo(
     previous.track === next.track,
 );
 
+/**
+ * Left-hand column of track name rows: static camera row, then one row per
+ * animation track with enable toggle, "add action" affordance for empty
+ * tracks, and a delete button. Row order must mirror TimelineTrackRows so the
+ * shared grid template keeps labels and canvases aligned.
+ */
 function TimelineTrackLabels({
   onCommitAnimation,
   onRemoveTrack,
@@ -597,6 +668,12 @@ function TimelineTrackLabels({
 
 const MemoizedTimelineTrackLabels = memo(TimelineTrackLabels);
 
+/**
+ * The track canvas rows: for each animation track it renders the keyframe
+ * span clip, character motion blocks, and individual keyframe markers.
+ * Memoized (with stable handlers from useTimelineEvent) so playhead movement
+ * and unrelated toolbar state never re-render this potentially large tree.
+ */
 function TimelineTrackRows({
   canvasWidth,
   frameSpan,
@@ -746,9 +823,15 @@ function TimelineTrackRows({
 
 const MemoizedTimelineTrackRows = memo(TimelineTrackRows);
 
+/** Drag gestures shared by storyboard clips and motion blocks. */
 type StoryboardEditMode = "move" | "trim-start" | "trim-end";
 type MotionBlockEditMode = StoryboardEditMode;
 
+/**
+ * One storyboard shot rendered as a draggable/trim-able clip on the storyboard
+ * row. Drafts the range locally during the gesture and commits once on
+ * pointer-up; the parent then clamps the range against neighbouring shots.
+ */
 function StoryboardTimelineClip({
   cameraLabel,
   index,
@@ -878,6 +961,11 @@ function StoryboardTimelineClip({
   );
 }
 
+/**
+ * One audio clip on an audio track. Only horizontal movement is a drag
+ * gesture; duration/volume/fades are edited through the toolbar settings
+ * popover. Commits only when the start frame actually changed.
+ */
 function StageAudioTimelineClip({
   clip,
   muted,
@@ -968,6 +1056,12 @@ function StageAudioTimelineClip({
   );
 }
 
+/**
+ * One character motion block (a clip of catalog motion such as walk/idle)
+ * rendered above the transform clip. Move/trim drags draft locally and commit
+ * once; `onRangeCommit` may return a corrected range (overlap clamping), which
+ * is what the playhead is finally parked on.
+ */
 function CharacterMotionTimelineBlock({
   block,
   color,
@@ -1101,6 +1195,12 @@ function CharacterMotionTimelineBlock({
   );
 }
 
+/**
+ * The timeline dock itself. Sections below: store wiring, local UI state,
+ * derived layout math (ticks/labels/lanes), track CRUD, storyboard editing,
+ * motion-block editing, animation recipes, timebase editing, pointer drags,
+ * exports, and finally the three tab views.
+ */
 export function DirectorTimelineDock({
   height,
   isPlaying,
@@ -1122,6 +1222,8 @@ export function DirectorTimelineDock({
   recordingStatus,
 }: DirectorTimelineDockProps) {
   const { locale, t } = useLanguage();
+  // -- Store wiring: project mutations go through directorStore actions (undoable);
+  // transient selection/scrub state goes through timelineRuntimeStore (not undoable).
   const selectedObjectId = useDirectorStore((state) => state.selectedObjectId);
   const updateScene = useDirectorStore((state) => state.updateScene);
   const updateStoryboard = useDirectorStore((state) => state.updateStoryboard);
@@ -1144,6 +1246,9 @@ export function DirectorTimelineDock({
   const selectTrack = useTimelineRuntimeStore((state) => state.selectTrack);
   const beginDrawing = useTimelineRuntimeStore((state) => state.beginDrawing);
   const cancelDrawing = useTimelineRuntimeStore((state) => state.cancelDrawing);
+  // -- Local UI state: zoom, open popovers, and edit drafts. Drafts (fps,
+  // timecode, frame end) buffer keystrokes and only write to the project on
+  // blur/Enter so partial input never produces an invalid timeline.
   const [pixelsPerFrame, setPixelsPerFrame] = useState(4);
   const [trajectoryMenuOpen, setTrajectoryMenuOpen] = useState(false);
   const [recipePanelOpen, setRecipePanelOpen] = useState(false);
@@ -1188,6 +1293,8 @@ export function DirectorTimelineDock({
   });
   const exporting = useTimelineRuntimeStore((state) => state.exporting);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
+  // -- Derived data: track targets, storyboard, and audio all recompute from
+  // the project snapshot so external (agent/gateway) edits appear immediately.
   const tracks = useMemo(() => getDirectorFrameTracks(project), [project]);
   const effectiveFrameEnd = useMemo(() => getEffectiveTimelineEndFrame(project), [project]);
   const recordableFrameEnd = Math.max(timeline.frameStart, effectiveFrameEnd);
@@ -1206,6 +1313,8 @@ export function DirectorTimelineDock({
   );
   const storyboard = useMemo(() => project.storyboard ?? createEmptyDirectorStoryboard(), [project.storyboard]);
   const storyboardShots = useMemo(() => sortStoryboardShots(storyboard.shots), [storyboard.shots]);
+  // The active camera without an animation track still gets a read-only
+  // "static camera" row, so the shot's camera is always visible in the dock.
   const staticCameraTrack =
     activeCameraTarget && !tracks.some((track) => track.key === activeCameraTarget.key) ? activeCameraTarget : null;
   const audioTracks = useMemo(() => timeline.audioTracks ?? [], [timeline.audioTracks]);
@@ -1245,6 +1354,8 @@ export function DirectorTimelineDock({
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const [timelineScrollViewportHeight, setTimelineScrollViewportHeight] = useState(0);
 
+  // Track the scroll viewport height so rowTemplate can stretch a small number
+  // of tracks to fill the dock instead of leaving dead space below them.
   useLayoutEffect(() => {
     if (bottomView !== "timeline") return;
     const node = timelineScrollRef.current;
@@ -1264,6 +1375,9 @@ export function DirectorTimelineDock({
   const selectedMotionBlockValue = selectedMotionTrack?.animation?.motionBlocks?.find(
     (block) => block.id === selectedMotionBlock?.blockId,
   );
+  // -- Layout math: canvas width follows zoom, and marker/tick/label placement
+  // derives from it. Everything is plain arithmetic per render; only the tick
+  // and label lists are memoized because they allocate arrays/maps.
   const frameSpan = Math.max(1, timeline.frameEnd - timeline.frameStart);
   const canvasWidth = Math.min(MAX_TIMELINE_CANVAS_WIDTH_PX, Math.max(760, (frameSpan + 1) * pixelsPerFrame));
   const recordMarkerLabelLanes = assignRecordMarkerLabelLanes(
@@ -1293,6 +1407,8 @@ export function DirectorTimelineDock({
   }, [tickStep, timeline.frameEnd, timeline.frameStart]);
   const tickPixelSpacing = (tickStep / frameSpan) * canvasWidth;
   const tickLabelStride = Math.max(1, Math.ceil(TIMELINE_TICK_LABEL_MIN_SPACING_PX / tickPixelSpacing));
+  // Greedy left-to-right label placement: keep a label only when it fits after
+  // the previous one; the terminal frame label is right-aligned and always wins.
   const timelineRulerLabels = useMemo(() => {
     const labels = new Map<number, string>();
     let previousLabelEnd = Number.NEGATIVE_INFINITY;
@@ -1315,6 +1431,8 @@ export function DirectorTimelineDock({
     return labels;
   }, [canvasWidth, frameSpan, tickLabelStride, ticks, timeline.frameEnd, timeline.frameStart, timelineFps]);
 
+  // Resync drafts and prune stale selections whenever the project changes
+  // underneath the dock (undo, agent edit, collaboration).
   useEffect(() => setFpsDraft(serializeDirectorFrameRate(timelineTimebase.rate)), [timelineTimebase]);
   useEffect(() => setStartTimecodeDraft(timelineTimebase.startTimecode), [timelineTimebase.startTimecode]);
   useEffect(() => setFrameEndDraft(String(timeline.frameEnd)), [timeline.frameEnd]);
@@ -1331,6 +1449,9 @@ export function DirectorTimelineDock({
     if (selectedStoryboardShotId && storyboardShots.some((shot) => shot.id === selectedStoryboardShotId)) return;
     setSelectedStoryboardShotId(storyboardShots[0]?.id ?? null);
   }, [selectedStoryboardShotId, storyboardShots]);
+  // Deep link: `?storyboardShot=<id>` (e.g. from the Canvas workspace) opens
+  // the storyboard tab on that shot exactly once, then strips the parameter so
+  // refreshes and later navigation are unaffected.
   useEffect(() => {
     if (sourceShotNavigationHandledRef.current || typeof window === "undefined") return;
     const shotId = new URLSearchParams(window.location.search).get("storyboardShot");
@@ -1346,6 +1467,10 @@ export function DirectorTimelineDock({
     url.searchParams.delete("storyboardShot");
     window.history.replaceState(window.history.state, "", url);
   }, [storyboardShots]);
+
+  // -- Track CRUD and selection. A "track" is derived from the entity's
+  // animation plus timeline.trackKeys; committing an animation routes to the
+  // camera or object store action depending on the track owner.
 
   function commitAnimation(target: DirectorFrameTrackTarget, animation: DirectorEntityAnimation | undefined) {
     if (target.ownerType === "camera") setCameraAnimation(target.ownerId, animation);
@@ -1368,6 +1493,8 @@ export function DirectorTimelineDock({
     setMotionBlockMessage("");
   }
 
+  // Registers the track key so an entity with no keyframes yet still shows an
+  // (empty) row that the user can drop an action onto.
   function ensureTimelineTrack(target: DirectorFrameTrackTarget) {
     const trackKeys = timeline.trackKeys ?? [];
     if (!trackKeys.includes(target.key)) {
@@ -1390,6 +1517,8 @@ export function DirectorTimelineDock({
     if (target.key === selectedMotionBlock?.trackKey) setSelectedMotionBlock(null);
   }
 
+  // A camera that just received a trajectory must also be switched into
+  // path-follow mode, otherwise the new keyframes would not drive the shot.
   function activateCameraPath(target: DirectorFrameTrackTarget) {
     if (target.ownerType !== "camera") return;
     const camera = project.cameras.find((item) => item.id === target.ownerId);
@@ -1404,6 +1533,9 @@ export function DirectorTimelineDock({
       },
     });
   }
+
+  // -- Storyboard editing. Shots are kept sorted on every write so the clip
+  // row and neighbour-clamping logic can assume chronological order.
 
   function writeStoryboard(next: DirectorStoryboard) {
     updateStoryboard({ ...next, shots: sortStoryboardShots(next.shots) });
@@ -1423,6 +1555,11 @@ export function DirectorTimelineDock({
     return project.cameras.find((camera) => camera.id === shot.cameraId)?.name ?? "未指定机位";
   }
 
+  /**
+   * Clamps a dragged shot range against its chronological neighbours (shots
+   * may not overlap) and the timeline bounds, preserving duration for "move"
+   * and the untouched edge for trims, then writes the storyboard.
+   */
   function commitStoryboardClipRange(
     shotId: string,
     requested: Pick<DirectorStoryboardShot, "frameStart" | "frameEnd">,
@@ -1456,10 +1593,16 @@ export function DirectorTimelineDock({
     });
   }
 
+  // -- Trajectory presets, pose actions, and motion blocks: each compiles a
+  // parametric description into concrete keyframes/blocks via trajectoryMath
+  // and characterMotionBlocks helpers, then commits through the store.
+
   function applyPreset(preset: DirectorTrajectoryPreset) {
     if (!selectedTarget) return;
     setTrajectoryMenuOpen(false);
     ensureTimelineTrack(selectedTarget);
+    // "custom" switches the Stage viewport into ground-click drawing mode;
+    // the trajectory is only compiled when the user finishes the drawing.
     if (preset === "custom") {
       beginDrawing(selectedTarget.key, selectedTarget.baseTransform.position);
       return;
@@ -1512,6 +1655,11 @@ export function DirectorTimelineDock({
     selectTimelineTrack(selectedTarget, 0);
   }
 
+  /**
+   * Inserts a motion block at the playhead. Blocks on one track may not
+   * overlap, so the new block is truncated at the next block's start; landing
+   * inside an existing block selects it instead of inserting.
+   */
   function addCharacterMotionBlock() {
     if (!selectedTarget || selectedTarget.kind !== "character") return;
     const frameStart = clampTimelineFrame(
@@ -1551,6 +1699,7 @@ export function DirectorTimelineDock({
       return;
     }
 
+    // Track registration + block insertion must undo as a single step.
     beginUndoBatch();
     try {
       ensureTimelineTrack(selectedTarget);
@@ -1611,6 +1760,11 @@ export function DirectorTimelineDock({
     setMotionBlockMessage("");
   }
 
+  /**
+   * Clamps a dragged motion-block range between its neighbours and commits it.
+   * Returns the actually-applied range (the drag component parks the playhead
+   * on it), or null when the edit was rejected.
+   */
   function commitCharacterMotionBlockRange(
     target: DirectorFrameTrackTarget,
     blockId: string,
@@ -1644,6 +1798,9 @@ export function DirectorTimelineDock({
     return range;
   }
 
+  // Compiles the recipe form (orbit/wave/bounce) through the same shared
+  // compiler that agent-authored recipes use, so both paths produce identical
+  // keyframes for identical parameters.
   function applyAnimationRecipe() {
     if (!selectedTarget) return;
     const recipe: DirectorAnimationRecipeInput =
@@ -1691,6 +1848,9 @@ export function DirectorTimelineDock({
     setRecipePanelOpen(false);
   }
 
+  // Converts the freehand ground-click points into a trajectory: resample to
+  // one waypoint per frame, spread waypoints evenly over the timeline range,
+  // then compile like any other trajectory.
   function finishCustomDrawing() {
     const target = getDirectorTrackTargetByKey(project, drawingTrackKey);
     if (!target || drawingPoints.length < 2) return;
@@ -1719,6 +1879,10 @@ export function DirectorTimelineDock({
     cancelDrawing();
     selectTrack(target.key, 0);
   }
+
+  // -- Timebase editing. Frame rate, drop-frame flag, and start timecode are
+  // interdependent: changing the rate can invalidate drop-frame, and the
+  // start timecode separator (":" vs ";") must match the drop-frame flag.
 
   function commitFpsDraft() {
     const rate = normalizeDirectorFrameRate(fpsDraft, timelineTimebase.rate);
@@ -1795,6 +1959,12 @@ export function DirectorTimelineDock({
     if (useTimelineRuntimeStore.getState().playheadFrame > frameEnd) onFrameChange(frameEnd);
   }
 
+  // -- Pointer drags. All drag gestures attach window-level listeners so the
+  // gesture survives leaving the element, and unregister on up/cancel.
+
+  // Scrubbing routes frame changes through a rAF scheduler: pointermove can
+  // fire faster than the display refresh, and evaluating the 3D scene more
+  // than once per frame is wasted work.
   function beginPlayheadDrag(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault();
     const canvas = event.currentTarget.closest("[data-timeline-canvas]") as HTMLElement | null;
@@ -1910,6 +2080,9 @@ export function DirectorTimelineDock({
     updateManualRecordStart(next);
   }
 
+  // Sash drag with two special releases: a plain click (no meaningful drag)
+  // toggles collapse, and over-dragging below the minimum height collapses the
+  // dock instead of pinning it at MIN_TIMELINE_HEIGHT.
   function beginTimelineResize(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -1976,6 +2149,10 @@ export function DirectorTimelineDock({
     onHeightChange(Math.min(maximum, Math.max(MIN_TIMELINE_HEIGHT, nextHeight)));
   }
 
+  // -- Exports. All three modes share the IN/OUT record range and the same
+  // progress plumbing; the heavy lifting happens in the workspace-provided
+  // callbacks, this component only mirrors progress into the toolbar.
+
   async function exportVideo() {
     setActiveExportMode("realtime");
     setExportProgress(0);
@@ -2035,6 +2212,8 @@ export function DirectorTimelineDock({
     }
   }
 
+  // Stable identities for everything passed into the memoized track tree; see
+  // useTimelineEvent for why plain useCallback would not be enough here.
   const handleSelectTimelineTrack = useTimelineEvent(selectTimelineTrack);
   const handleSelectMotionBlock = useTimelineEvent(selectMotionTimelineBlock);
   const handleCommitAnimation = useTimelineEvent(commitAnimation);
@@ -2059,6 +2238,8 @@ export function DirectorTimelineDock({
     },
   );
 
+  // One shared grid template drives both the label column and the canvas so
+  // rows stay pixel-aligned; rows stretch to fill the viewport when few.
   const rowTemplate = useMemo(() => {
     const trackRowCount =
       (storyboardShots.length ? 1 : 0) + (staticCameraTrack ? 1 : 0) + tracks.length + audioTracks.length;

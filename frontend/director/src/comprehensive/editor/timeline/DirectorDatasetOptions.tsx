@@ -30,11 +30,18 @@ const RENDER_PASS_LABELS: Record<DirectorShotRenderPassId, string> = {
   motion: "光流",
 };
 
+/** Removes an optional flag entirely instead of writing `false`, keeping the selection payload minimal. */
 function omitFlag<T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> {
   const { [key]: _removed, ...rest } = value;
   return rest;
 }
 
+/**
+ * Toggles one render pass with two invariants: at least one pass stays
+ * selected, and the result preserves catalog order (not click order) so the
+ * exported package layout is deterministic. Deselecting "depth" also drops
+ * the dependent depth-EXR flag.
+ */
 function toggleRenderPass(
   current: DirectorMultimodalFrameExportSelection,
   renderPass: DirectorShotRenderPassId,
@@ -48,6 +55,7 @@ function toggleRenderPass(
   return { ...current, renderPasses };
 }
 
+/** One labelled checkbox chip in the dataset panel. */
 function DatasetChip({
   ariaLabel,
   checked,
@@ -78,6 +86,12 @@ function DatasetChip({
   );
 }
 
+/**
+ * Controlled options popover: the parent owns the selection (it is passed to
+ * the multimodal export) and this component only proposes replacements via
+ * `onChange`. Uses a native `<details>` element with manual light-dismiss
+ * (outside pointer / Escape) since `<details>` has no built-in popover close.
+ */
 export function DirectorDatasetOptions({
   disabled,
   selection,
