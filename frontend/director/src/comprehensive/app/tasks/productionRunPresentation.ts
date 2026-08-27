@@ -4,6 +4,7 @@ import {
   filmRunProgress,
   type FilmRunCapabilityOmission,
   type FilmRunCapabilityOmissionCode,
+  type FilmRunErrorCode,
   type FilmRunPhase,
   type FilmTimelineOmittedShot,
   type FilmTimelineOmittedShotCode,
@@ -28,7 +29,51 @@ export type ProductionRunReceiptOmissionWarning = {
   message: string;
 };
 
-/** zh-CN source lines for stable film-run capability omission codes. */
+/** zh-CN labels for stable film-run `errorCode` values stamped on failed runs. */
+export const FILM_RUN_ERROR_CODE_LABELS: Record<FilmRunErrorCode, string> = {
+  film_run_interrupted: "运行被中断",
+  film_provider_error: "提供方调用失败",
+  film_run_error: "运行失败",
+};
+
+/** Structured failure detail projected from a failed film run's `errorCode` + `error`. */
+export type ProductionRunFailureDetail = {
+  /** Machine error code, or null when only a free-text error exists. */
+  code: string | null;
+  /** zh-CN label for a known code; null for unknown codes (show the raw code). */
+  codeLabel: string | null;
+  /** Human error message from the run document. */
+  message: string | null;
+};
+
+/**
+ * Returns the zh-CN label for a structured film-run error code.
+ *
+ * @param code - The machine code from `run.errorCode`.
+ * @returns The label, or null when the code has no known label.
+ */
+export function productionRunErrorCodeLabel(code: string): string | null {
+  return code in FILM_RUN_ERROR_CODE_LABELS ? FILM_RUN_ERROR_CODE_LABELS[code as FilmRunErrorCode] : null;
+}
+
+/**
+ * Returns structured failure detail for a failed film production run.
+ * The typed `errorCode` is surfaced beside the free-text `error` message.
+ *
+ * @param entry - The monitored production run.
+ * @returns The failure detail, or null when the run carries no error at all.
+ */
+export function productionRunFailureDetail(entry: DirectorMonitoredProductionRun): ProductionRunFailureDetail | null {
+  const message = entry.run.error?.trim() || null;
+  const code = entry.run.errorCode?.trim() || null;
+  if (!message && !code) return null;
+  return {
+    code: code || null,
+    codeLabel: code ? productionRunErrorCodeLabel(code) : null,
+    message,
+  };
+}
+
 const CAPABILITY_OMISSION_MESSAGES: Record<FilmRunCapabilityOmissionCode, (sceneIdx: number | null) => string> = {
   tts_unconfigured: () => "对白配音已跳过：未配置 TTS",
   anchor_hook_unavailable: () => "舞台锚点已跳过：无工作台执行通道",

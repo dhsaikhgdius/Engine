@@ -4035,6 +4035,9 @@
   "历史任务错误": "Legacy job error",
   "核对确认未被提供方接受": "Reconciled as not accepted by the provider",
   "本地执行器失败": "Local executor failed",
+  "运行被中断": "Run interrupted",
+  "提供方调用失败": "Provider call failed",
+  "运行失败": "Run failed",
   "可重试": "Retryable",
   "失败错误码": "Failure error code"
 }

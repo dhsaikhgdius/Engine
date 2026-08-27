@@ -4,6 +4,7 @@ import {
   productionJobRecordSchema,
   type ProductionJobRecord,
 } from "../../../../../../packages/protocol/src/productionJobProtocol";
+import { filmRunSchema, type FilmRun } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
 import { projectProductionJobReceipt } from "../../../../../../packages/protocol/src/productionJobReceipt";
 import { LanguageProvider } from "../../../../src/comprehensive/i18n/language";
 import { DirectorTaskTrayMenu } from "../../../../src/comprehensive/app/tasks/DirectorTaskTrayMenu";
@@ -11,6 +12,7 @@ import {
   __resetDirectorTaskTrayForTests,
   directorTaskTrayStore,
 } from "../../../../src/comprehensive/app/tasks/directorTaskTrayStore";
+import type { DirectorMonitoredProductionRun } from "../../../../src/comprehensive/app/tasks/productionRunTaskClient";
 import {
   resetDirectorSessionRuntime,
   updateDirectorSessionRuntime,
@@ -88,6 +90,45 @@ function makeFailedJob(
     createdAt,
     updatedAt: createdAt,
     artifacts: [],
+  });
+}
+
+function makeFailedFilmRun(id: string, error: string, errorCode: string): FilmRun {
+  return filmRunSchema.parse({
+    version: 1,
+    id,
+    workflow: "idea-to-film",
+    status: "failed",
+    phase: "render",
+    input: { idea: "雨夜电车" },
+    story: null,
+    characters: null,
+    scenes: [],
+    portraitsReady: false,
+    finalVideoPath: null,
+    timelinePath: null,
+    approvedAt: null,
+    error,
+    errorCode,
+    events: [],
+    createdAt: "2026-08-13T10:00:00.000Z",
+    updatedAt: "2026-08-13T10:00:00.000Z",
+  });
+}
+
+function setTrayProductionRuns(runs: DirectorMonitoredProductionRun[]) {
+  directorTaskTrayStore.setState({
+    jobs: [],
+    productionRuns: runs,
+    jobReceipts: {},
+    phase: "ready",
+    error: null,
+    panelOpen: false,
+    dismissedIds: [],
+    dismissedRunKeys: [],
+    pendingActionIds: [],
+    pendingRunActionKeys: [],
+    lastSyncAt: Date.now(),
   });
 }
 
@@ -243,6 +284,23 @@ describe("DirectorTaskTrayMenu", () => {
     const tray = screen.getByRole("dialog", { name: "任务中心" });
     expect(within(tray).queryByLabelText("失败错误码")).toBeNull();
     expect(within(tray).getByText("renderer unavailable")).toBeTruthy();
+  });
+
+  it("surfaces structured film-run errorCode with its zh label on failed production runs", () => {
+    setTrayProductionRuns([
+      {
+        source: "film",
+        run: makeFailedFilmRun("film-run-failed", "gateway restarted during render", "film_run_interrupted"),
+      },
+    ]);
+
+    renderTray();
+    fireEvent.click(screen.getByRole("button", { name: "任务中心" }));
+    const tray = screen.getByRole("dialog", { name: "任务中心" });
+    const codeRow = within(tray).getByLabelText("失败错误码");
+    expect(within(codeRow).getByText("film_run_interrupted").tagName).toBe("CODE");
+    expect(codeRow.textContent).toContain("· 运行被中断");
+    expect(within(tray).getByText("gateway restarted during render")).toBeTruthy();
   });
 
   it("does not show an absent-artifact warning while the receipt is still loading", () => {

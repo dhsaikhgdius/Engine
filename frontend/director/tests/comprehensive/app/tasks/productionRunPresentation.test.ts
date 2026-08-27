@@ -11,6 +11,8 @@ import {
   productionRunCapabilityOmissionWarnings,
   productionRunCountsAsActive,
   productionRunDisplayName,
+  productionRunErrorCodeLabel,
+  productionRunFailureDetail,
   productionRunIntraPhaseDetail,
   productionRunLatestMessage,
   productionRunProgressPercent,
@@ -455,5 +457,51 @@ describe("production run task presentation", () => {
     expect(productionRunCapabilityOmissionWarnings(pending)).toEqual([]);
     expect(productionRunTimelineOmittedShotWarnings(pending)).toEqual([]);
     expect(productionRunArtifactPresencePending(pending)).toBe(true);
+  });
+
+  it("projects structured film-run errorCode with zh labels beside the free-text error", () => {
+    const failed = entry({
+      source: "film",
+      run: {
+        id: "film-failed",
+        workflow: "idea-to-film",
+        status: "failed",
+        phase: "render",
+        input: { idea: "雨夜电车" },
+        error: "ModelDriverHttpError: upstream 503",
+        errorCode: "film_provider_error",
+        createdAt: "2026-08-13T12:00:00.000Z",
+        updatedAt: "2026-08-13T12:00:00.000Z",
+      },
+    });
+    expect(productionRunFailureDetail(failed)).toEqual({
+      code: "film_provider_error",
+      codeLabel: "提供方调用失败",
+      message: "ModelDriverHttpError: upstream 503",
+    });
+    expect(productionRunErrorCodeLabel("film_run_interrupted")).toBe("运行被中断");
+    expect(productionRunErrorCodeLabel("not_a_film_code")).toBeNull();
+  });
+
+  it("returns message-only failure detail when errorCode is absent", () => {
+    const legacy = entry({
+      source: "film",
+      run: {
+        id: "film-legacy",
+        workflow: "script-to-film",
+        status: "failed",
+        phase: "assemble",
+        input: { script: "INT. ROOM - DAY" },
+        error: "ffmpeg ENOENT",
+        errorCode: null,
+        createdAt: "2026-08-13T12:00:00.000Z",
+        updatedAt: "2026-08-13T12:00:00.000Z",
+      },
+    });
+    expect(productionRunFailureDetail(legacy)).toEqual({
+      code: null,
+      codeLabel: null,
+      message: "ffmpeg ENOENT",
+    });
   });
 });

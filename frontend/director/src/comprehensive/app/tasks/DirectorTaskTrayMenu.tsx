@@ -38,7 +38,7 @@ import {
   productionRunCanCancel,
   productionRunCapabilityOmissionWarnings,
   productionRunDisplayName,
-  productionRunFailureReason,
+  productionRunFailureDetail,
   productionRunIntraPhaseDetail,
   productionRunIsFinished,
   productionRunLatestMessage,
@@ -111,7 +111,7 @@ function TaskTrayItem({
       {failureDetail?.code ? (
         <p aria-label={t("失败错误码")} className="task-tray-item-error-code">
           <code>{failureDetail.code}</code>
-          {failureDetail.codeLabel ? <span> · {failureDetail.codeLabel}</span> : null}
+          {failureDetail.codeLabel ? <span> · {t(failureDetail.codeLabel)}</span> : null}
           {failureDetail.retryable ? <span className="task-tray-item-retryable">{t("可重试")}</span> : null}
         </p>
       ) : null}
@@ -155,7 +155,7 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
   const percent = productionRunProgressPercent(entry);
   const intraPhaseDetail = productionRunIntraPhaseDetail(entry);
   const latestMessage = productionRunShowsLatestMessage(entry) ? productionRunLatestMessage(entry) : null;
-  const failureReason = status === "failed" ? productionRunFailureReason(entry) : null;
+  const failureDetail = status === "failed" ? productionRunFailureDetail(entry) : null;
   const finished = productionRunIsFinished(entry);
   const usageLines = productionRunUsageLines(entry);
   const artifactPresencePending = productionRunArtifactPresencePending(entry);
@@ -219,7 +219,13 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
           ))}
         </ul>
       ) : null}
-      {failureReason ? <p className="task-tray-item-error">{failureReason}</p> : null}
+      {failureDetail?.code ? (
+        <p aria-label={t("失败错误码")} className="task-tray-item-error-code">
+          <code>{failureDetail.code}</code>
+          {failureDetail.codeLabel ? <span> · {t(failureDetail.codeLabel)}</span> : null}
+        </p>
+      ) : null}
+      {failureDetail?.message ? <p className="task-tray-item-error">{failureDetail.message}</p> : null}
       <div className="task-tray-item-meta">
         <span className="task-tray-item-time">{formatTaskRelativeTime(entry.run.createdAt)}</span>
         <span className="task-tray-item-actions">
