@@ -249,6 +249,16 @@ export const directorGatewayInboundMessageSchema = z.discriminatedUnion("type", 
     target: directorAgentTargetWireSchema,
     reason: browserCommandCancelReasonSchema,
   }),
+  /**
+   * Possession write-depth honesty: sole-possession auto-fill receipts and
+   * ambiguity/scope rejection payloads for the bound Stage tab's notification
+   * layer (humans debugging Agent possession writes).
+   */
+  strictType("possession-write-feedback", {
+    code: z.enum(["possession_write_filled", "possession_target_ambiguous", "possession_scope_violation"]),
+    possession: z.record(z.string(), z.unknown()),
+    error: z.string().max(4_000).optional(),
+  }),
 ]);
 
 /** Browser-to-server result for one validated workbench operation. */

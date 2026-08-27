@@ -43,6 +43,7 @@ import {
 } from "@director/protocol/agentGatewayProtocol";
 import { createDefaultScene } from "@director/stage-protocol";
 import type { AgentToolName, StageAgentEvent, StageScene, ToolExecution } from "@director/stage-protocol";
+import { announceDirectorPossessionFeedback } from "./possessionWriteReceiptUi";
 import {
   directorProjectToStageScene,
   stageManagedDirectorObjectIds,
@@ -850,6 +851,13 @@ async function connectSocket() {
         abortCommand(workbenchCommandControllers, message.requestId, message.reason);
         return;
       }
+      if (message.type === "possession-write-feedback") {
+        announceDirectorPossessionFeedback({
+          code: message.code === "possession_write_filled" ? undefined : message.code,
+          possession: message.possession,
+        });
+        return;
+      }
       if (message.type === "creative-workspace-command-cancel") {
         abortCommand(creativeCommandControllers, message.requestId, message.reason);
         return;
@@ -1412,7 +1420,14 @@ export async function runRemoteTool(
   const execution = (await response.json()) as ToolExecution & {
     code?: string;
     target?: DirectorAgentTargetWire;
+    possession?: unknown;
   };
+  if (execution.possession !== undefined) {
+    announceDirectorPossessionFeedback({
+      code: execution.code,
+      possession: execution.possession,
+    });
+  }
   if (!response.ok) {
     if (
       requestTarget &&

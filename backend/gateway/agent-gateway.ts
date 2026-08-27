@@ -2010,6 +2010,18 @@ function liveStageRouteDependencies(): Omit<StageRouteDependencies, "readBody" |
     requestWorkbenchCommand,
     requestWorkbenchCapture,
     requestCreativeWorkspaceCommand,
+    notifyPossessionWriteFeedback: ({ targetToken, code, possession, error }) => {
+      const client = clientForTarget(targetToken);
+      if (!client || client.readyState !== WebSocket.OPEN) return;
+      client.send(
+        JSON.stringify({
+          type: "possession-write-feedback",
+          code,
+          possession,
+          ...(error ? { error } : {}),
+        }),
+      );
+    },
     isTargetContractStale: (targetToken) => {
       const client = clientForTarget(targetToken);
       const registration = client ? workbenchClients.get(client) : undefined;
