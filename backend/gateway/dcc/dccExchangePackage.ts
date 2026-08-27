@@ -1,3 +1,23 @@
+/**
+ * Portable DCC exchange packaging: exports the live Director project into a
+ * self-contained package (GLB/USDA scene layout, copied model and texture
+ * assets, and a hash-signed manifest) that any DCC connector can import
+ * without gateway access.
+ *
+ * Package invariants:
+ * - Every artifact is SHA-256 hashed in the manifest and a canonical package
+ *   digest binds the whole set, so downstream import/return flows can detect
+ *   any tampering or partial copy.
+ * - Byte budgets (per file, per package, per export concurrency) are enforced
+ *   as data is written, protecting the gateway host from runaway exports.
+ * - Referenced .gltf assets are converted to self-contained GLB after their
+ *   dependency URIs pass strict local-relative-path validation (no schemes,
+ *   traversal, or absolute paths), so a crafted glTF cannot exfiltrate files.
+ * - Packages are staged in a temp directory and atomically renamed into
+ *   place: a package directory either exists completely or not at all.
+ * - Unresolvable assets warn-and-omit rather than failing the export; the
+ *   warning list travels inside the manifest.
+ */
 import { createReadStream } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { copyFile, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -114,6 +134,7 @@ class DirectorDccExchangeBudgetError extends DirectorDccExchangePackageError {
   }
 }
 
+/** Sanitizes an id into a filesystem-safe file-name stem. */
 function safeStem(value: string) {
   return (
     value
@@ -131,6 +152,7 @@ function positiveSafeInteger(value: number, label: string) {
   return value;
 }
 
+/** Merges caller overrides onto the defaults, rejecting non-positive values at startup. */
 function normalizeBudgets(input: Partial<DirectorDccExchangePackageBudgets> | undefined) {
   const budgets = { ...DEFAULT_EXCHANGE_PACKAGE_BUDGETS, ...input };
   return {
@@ -141,6 +163,7 @@ function normalizeBudgets(input: Partial<DirectorDccExchangePackageBudgets> | un
   } satisfies DirectorDccExchangePackageBudgets;
 }
 
+/** Lexical containment check; callers pair it with realpath for symlink safety. */
 function isInside(parent: string, child: string) {
   const path = relative(parent, child);
   return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
@@ -154,6 +177,7 @@ function assertFileBudget(label: string, byteLength: number, budgets: DirectorDc
   }
 }
 
+/** Running package-size accumulator; throws when a file would bust either budget. */
 function addPackageBytes(
   label: string,
   byteLength: number,
@@ -170,6 +194,7 @@ function addPackageBytes(
   return next;
 }
 
+/** Non-data URIs referenced by a glTF document's buffers and images. */
 function localGltfUris(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("glTF root must be a JSON object.");
@@ -195,6 +220,9 @@ function localGltfUris(value: unknown) {
   return uris;
 }
 
+// Strict validation of one glTF dependency URI: no URL schemes, query/hash
+// parts, backslashes, drive letters, or dot segments survive — both before
+// and after percent-decoding, so encoded traversal cannot slip through.
 function decodeSafeGltfDependencyUri(uri: string) {
   if (
     uri.includes("\\") ||
@@ -224,6 +252,9 @@ function decodeSafeGltfDependencyUri(uri: string) {
   return decoded;
 }
 
+// Pre-conversion gate: every local dependency must stay inside the asset's
+// own directory (post-realpath) and the cumulative input bytes must fit the
+// package budget before the glTF→GLB conversion is allowed to read them.
 async function validateGltfDependencies(sourcePath: string, budgets: DirectorDccExchangePackageBudgets) {
   const sourceStat = await stat(sourcePath);
   assertFileBudget(`glTF source ${sourcePath}`, sourceStat.size, budgets);
@@ -248,6 +279,7 @@ async function validateGltfDependencies(sourcePath: string, budgets: DirectorDcc
   }
 }
 
+/** Streaming SHA-256 so large artifacts never load fully into memory. */
 async function sha256File(path: string) {
   return new Promise<string>((resolveHash, rejectHash) => {
     const hash = createHash("sha256");
@@ -258,6 +290,8 @@ async function sha256File(path: string) {
   });
 }
 
+// Canonical whole-package digest: entries are sorted by path so the digest
+// is stable regardless of write order, binding manifest + files together.
 function packageDigest(
   manifestSha256: string,
   formats: ReadonlyArray<{ format: string; relativePath: string; sha256: string; byteLength: number }>,
@@ -280,12 +314,16 @@ function packageDigest(
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
+/** Writes one artifact and returns its recorded hash + size. */
 async function writeArtifact(path: string, contents: string | Uint8Array) {
   await writeFile(path, contents);
   const fileStat = await stat(path);
   return { sha256: await sha256File(path), byteLength: fileStat.size };
 }
 
+// Applies the export-time camera/frame selection to a project copy. When a
+// playback frame is in effect, animated objects and cameras are evaluated to
+// their posed state so the package captures the chosen moment, not frame 0.
 function selectedProject(project: DirectorProject, cameraId?: string, frame?: number) {
   const selected = structuredClone(project);
   if (cameraId) {
@@ -363,6 +401,8 @@ function bundlesMaterialTextures(provider: string): boolean {
   return provider === "unreal" || provider === "unity";
 }
 
+// Resolves the format list: explicit requests must all be advertised by the
+// provider; with no request the provider's preferred format leads the list.
 function requestedFormats(descriptor: DirectorDccProviderDescriptor, input?: DirectorDccPortableExchangeFormat[]) {
   const supported = [
     ...new Set(
