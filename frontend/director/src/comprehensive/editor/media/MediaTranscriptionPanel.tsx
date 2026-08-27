@@ -20,7 +20,10 @@ import {
   submitMediaTranscription,
   type MediaTranscriptionJob,
 } from "./mediaTranscriptionBridge";
-import { friendlyErrorMessage } from "../api/friendlyError";
+import {
+  formatMediaTranscriptionErrorMessage,
+  MEDIA_TRANSCRIPTION_UNCONFIGURED_CAPABILITIES_MESSAGE,
+} from "./mediaTranscriptionPresentation";
 import { useSuppressViewportChromeWhileMounted } from "../canvas/viewportChromeSuppression";
 import { persistentCreativeMediaLibrary, type CreativeMediaAsset } from "./persistentCreativeMediaStore";
 import "../../styles/mediaTranscription.css";
@@ -102,7 +105,7 @@ export function MediaTranscriptionPanel({
       })
       .catch((loadError) => {
         if (!controller.signal.aborted)
-          setError(loadError instanceof Error ? friendlyErrorMessage(loadError) : t("转录服务不可用"));
+          setError(formatMediaTranscriptionErrorMessage(loadError, { fallbackZh: t("转录服务不可用"), t }));
       });
     return () => controller.abort();
   }, [asset.id, t]);
@@ -123,7 +126,7 @@ export function MediaTranscriptionPanel({
           if (controller.signal.aborted) return;
           // Transient blips are retried silently; the error surfaces only after
           // MAX_POLL_FAILURES consecutive failures (with a retry button).
-          setPollErrorDetail(friendlyErrorMessage(pollError));
+          setPollErrorDetail(formatMediaTranscriptionErrorMessage(pollError, { t }));
           setPollFailures((count) => count + 1);
         });
     }, 900);
@@ -148,7 +151,7 @@ export function MediaTranscriptionPanel({
       .catch((promoteError) => {
         promotedJobRef.current = null;
         if (!controller.signal.aborted)
-          setError(promoteError instanceof Error ? friendlyErrorMessage(promoteError) : t("转录结果写入失败"));
+          setError(formatMediaTranscriptionErrorMessage(promoteError, { fallbackZh: t("转录结果写入失败"), t }));
       })
       .finally(() => {
         if (!controller.signal.aborted) setBusy(false);
@@ -179,7 +182,7 @@ export function MediaTranscriptionPanel({
       setJobs((current) => [job, ...current.filter((candidate) => candidate.id !== job.id)]);
       setNotice(t("转录任务已提交"));
     } catch (submitError) {
-      setError(submitError instanceof Error ? friendlyErrorMessage(submitError) : t("转录提交失败"));
+      setError(formatMediaTranscriptionErrorMessage(submitError, { fallbackZh: t("转录提交失败"), t }));
     } finally {
       setBusy(false);
     }
@@ -194,7 +197,7 @@ export function MediaTranscriptionPanel({
       setActiveJob(job);
       setJobs((current) => [job, ...current.filter((candidate) => candidate.id !== job.id)]);
     } catch (cancelError) {
-      setError(cancelError instanceof Error ? friendlyErrorMessage(cancelError) : t("取消转录失败"));
+      setError(formatMediaTranscriptionErrorMessage(cancelError, { fallbackZh: t("取消转录失败"), t }));
     } finally {
       setBusy(false);
     }
@@ -210,11 +213,13 @@ export function MediaTranscriptionPanel({
       setActiveJob(job);
       setJobs((current) => [job, ...current.filter((candidate) => candidate.id !== job.id)]);
     } catch (retryError) {
-      setError(retryError instanceof Error ? friendlyErrorMessage(retryError) : t("重试转录失败"));
+      setError(formatMediaTranscriptionErrorMessage(retryError, { fallbackZh: t("重试转录失败"), t }));
     } finally {
       setBusy(false);
     }
   }
+
+  const transcriptionConfigured = capabilities?.configured !== false;
 
   function insertCaptions() {
     if (!transcript) return;
@@ -265,9 +270,7 @@ export function MediaTranscriptionPanel({
           <div>
             <button
               className="is-primary"
-              disabled={
-                busy || capabilities?.configured === false || asset.size > (capabilities?.maxInputBytes ?? Infinity)
-              }
+              disabled={busy || !transcriptionConfigured || asset.size > (capabilities?.maxInputBytes ?? Infinity)}
               onClick={() => void submit()}
               type="button"
             >
@@ -279,16 +282,19 @@ export function MediaTranscriptionPanel({
               </button>
             ) : null}
             {activeJob && new Set(["failed", "cancelled", "outcome_unknown"]).has(activeJob.status) ? (
-              <button disabled={busy} onClick={() => void retry()} type="button">
+              <button disabled={busy || !transcriptionConfigured} onClick={() => void retry()} type="button">
                 <RotateCcw aria-hidden size={12} /> {t("重试")}
               </button>
             ) : null}
           </div>
-          <small>
+          <small
+            className={capabilities && !capabilities.configured ? "is-unconfigured" : undefined}
+            role={capabilities && !capabilities.configured ? "status" : undefined}
+          >
             {capabilities
               ? capabilities.configured
                 ? `${capabilities.provider} · ${capabilities.model} · ${Math.round(capabilities.maxInputBytes / 1024 / 1024)} MB`
-                : t("尚未配置转录服务，请在网关设置 DIRECTOR_TRANSCRIPTION_API_KEY（或 OPENAI_API_KEY）后重启网关")
+                : t(MEDIA_TRANSCRIPTION_UNCONFIGURED_CAPABILITIES_MESSAGE)
               : t("正在读取转录能力…")}
           </small>
         </div>
