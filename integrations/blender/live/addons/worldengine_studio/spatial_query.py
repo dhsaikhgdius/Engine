@@ -31,6 +31,7 @@ _GROUND_MAX_DISTANCE = 100_000.0
 
 
 def _resolve_object(identifier: str) -> bpy.types.Object:
+    """Resolve a stable id to a scene object or fail with the unknown id."""
     obj = blockout.find_object(identifier)
     if obj is None:
         raise ValueError(f"Unknown WorldEngine object: {identifier}")
@@ -38,14 +39,17 @@ def _resolve_object(identifier: str) -> bpy.types.Object:
 
 
 def _resolve_exclusions(identifiers: Any) -> set[bpy.types.Object]:
+    """Resolve optional excludeIds; unknown ids fail rather than silently pass."""
     return {_resolve_object(identifier) for identifier in (identifiers or [])}
 
 
 def _blender_vector(value: Any) -> Vector:
+    """Director Y-up wire triple to a Blender Z-up Vector."""
     return Vector(director_to_blender_point([float(component) for component in value]))
 
 
 def _director_list(vector: Vector) -> list[float]:
+    """Blender Z-up Vector back to a Director Y-up wire triple."""
     return list(blender_to_director_point((float(vector.x), float(vector.y), float(vector.z))))
 
 
@@ -76,6 +80,7 @@ def _cast_ray(
 
 
 def _evaluated_world_bounds(obj: bpy.types.Object, depsgraph) -> tuple[Vector, Vector]:
+    """World-space AABB of the evaluated object (modifiers included)."""
     evaluated = obj.evaluated_get(depsgraph)
     corners = [evaluated.matrix_world @ Vector(corner) for corner in evaluated.bound_box]
     minimum = Vector(tuple(min(corner[index] for corner in corners) for index in range(3)))
@@ -84,6 +89,7 @@ def _evaluated_world_bounds(obj: bpy.types.Object, depsgraph) -> tuple[Vector, V
 
 
 def _raycast(depsgraph, query: dict[str, Any]) -> dict[str, Any]:
+    """RAYCAST: first visible hit along a ray, skipping excluded objects."""
     origin = _blender_vector(query["origin"])
     direction = _blender_vector(query["direction"])
     if direction.length == 0.0:
@@ -106,6 +112,11 @@ def _raycast(depsgraph, query: dict[str, Any]) -> dict[str, Any]:
 
 
 def _closest_point(depsgraph, query: dict[str, Any]) -> dict[str, Any]:
+    """CLOSEST_POINT: nearest surface point on one mesh to a world point.
+
+    The normal is transformed with the inverse-transpose so non-uniform
+    scaling on the target does not skew the reported surface direction.
+    """
     obj = _resolve_object(query["targetId"])
     evaluated = obj.evaluated_get(depsgraph)
     if evaluated.type != 'MESH':
@@ -130,6 +141,7 @@ def _closest_point(depsgraph, query: dict[str, Any]) -> dict[str, Any]:
 
 
 def _world_bvh_tree(obj: bpy.types.Object, depsgraph) -> BVHTree:
+    """Build a world-space BVH of the evaluated mesh for overlap testing."""
     if obj.evaluated_get(depsgraph).type != 'MESH':
         raise ValueError(f"OVERLAP requires mesh objects: {blockout.ensure_stable_id(obj)}")
     bm = bmesh.new()
@@ -142,6 +154,11 @@ def _world_bvh_tree(obj: bpy.types.Object, depsgraph) -> BVHTree:
 
 
 def _overlap(depsgraph, query: dict[str, Any]) -> dict[str, Any]:
+    """OVERLAP: surface-level triangle intersection test between two meshes.
+
+    BVH overlap detects intersecting surfaces, not full containment: one mesh
+    entirely inside another (no touching triangles) reports no overlap.
+    """
     tree_a = _world_bvh_tree(_resolve_object(query["idA"]), depsgraph)
     tree_b = _world_bvh_tree(_resolve_object(query["idB"]), depsgraph)
     pairs = tree_a.overlap(tree_b)
@@ -153,6 +170,13 @@ def _overlap(depsgraph, query: dict[str, Any]) -> dict[str, Any]:
 
 
 def _ground(depsgraph, query: dict[str, Any]) -> dict[str, Any]:
+    """GROUND: find the surface below an object and suggest a resting height.
+
+    Casts straight down from the object's bounding-box bottom center,
+    excluding the object and its own subtree so it cannot "land" on itself.
+    ``suggestedPositionY`` is the object's current Director Y plus the drop
+    delta -- the value to write into set_transform to rest it on the hit.
+    """
     obj = _resolve_object(query["id"])
     excluded = {obj, *obj.children_recursive}
     excluded |= _resolve_exclusions(query.get("excludeIds"))
@@ -183,6 +207,12 @@ def _ground(depsgraph, query: dict[str, Any]) -> dict[str, Any]:
 
 
 def _name_search(_depsgraph, query: dict[str, Any]) -> dict[str, Any]:
+    """NAME: case-insensitive substring search across names and ids.
+
+    Matches against display name, Blender datablock name, stable id, and
+    director_id so an agent can find an object however it was last referred
+    to. Dimensions are reported in Director axis order (x, height, depth).
+    """
     pattern = str(query["namePattern"]).casefold()
     limit = int(query.get("maxResults", 50))
     matches = []

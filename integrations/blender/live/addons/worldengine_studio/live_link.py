@@ -38,6 +38,7 @@ _LIGHT_FIELDS = ("position", "rotation", "color", "energy")
 
 
 def _entries_by_id(entries: Any) -> dict[str, dict[str, Any]] | None:
+    """Index snapshot entries by id; None (not a guess) on malformed/duplicate ids."""
     if not isinstance(entries, list):
         return None
     result: dict[str, dict[str, Any]] = {}
@@ -52,6 +53,7 @@ def _entries_by_id(entries: Any) -> dict[str, dict[str, Any]] | None:
 
 
 def _object_update(entry: dict[str, Any]) -> dict[str, Any]:
+    """Project one object entry onto the transform-delta wire fields."""
     update: dict[str, Any] = {
         "id": entry["id"],
         "position": entry.get("position"),
@@ -65,6 +67,7 @@ def _object_update(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def _camera_update(entry: dict[str, Any]) -> dict[str, Any]:
+    """Project one camera entry onto the camera delta wire fields."""
     return {
         "id": entry["id"],
         "position": entry.get("position"),
@@ -75,6 +78,7 @@ def _camera_update(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def _light_update(entry: dict[str, Any]) -> dict[str, Any]:
+    """Project one light entry onto the light delta wire fields."""
     return {
         "id": entry["id"],
         "position": entry.get("position"),

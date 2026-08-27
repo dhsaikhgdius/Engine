@@ -6,6 +6,14 @@
 
 Deliberately excludes NODES (geometry-node graphs have their own typed
 operations in semantic_geometry) and all physics/simulation modifier types.
+
+MODIFIER_TYPES is the closed allowlist of creatable modifiers. Properties are
+edited generically through RNA introspection with strict per-type coercion:
+enums must match the RNA enum items, numbers must arrive as the exact JSON
+type, and object-pointer properties (e.g. a Boolean modifier's operand) cross
+the wire as stable WorldEngine ids rather than Blender datablock names. Every
+property key also passes the kernel_policy denylist so this generic surface
+cannot write outside the Director modeling kernel.
 """
 
 from __future__ import annotations
@@ -38,6 +46,7 @@ MODIFIER_TYPES = {
 
 
 def _object(identifier: str) -> bpy.types.Object:
+    """Resolve a stable id to a scene object or fail with the unknown id."""
     obj = blockout.find_object(identifier)
     if obj is None:
         raise ValueError(f"Unknown WorldEngine object: {identifier}")
@@ -45,6 +54,7 @@ def _object(identifier: str) -> bpy.types.Object:
 
 
 def _modifier(obj: bpy.types.Object, name: str) -> bpy.types.Modifier:
+    """Resolve a modifier by name on the object or fail with the unknown name."""
     modifier = obj.modifiers.get(name)
     if modifier is None:
         raise ValueError(f"Unknown Blender modifier: {name}")
@@ -52,6 +62,7 @@ def _modifier(obj: bpy.types.Object, name: str) -> bpy.types.Modifier:
 
 
 def _json_value(value: Any) -> Any:
+    """Best-effort JSON coercion; unrepresentable values fall back to str()."""
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, dict):
@@ -91,6 +102,11 @@ def _modifier_properties(modifier: bpy.types.Modifier) -> dict[str, Any]:
 
 
 def _resolved_pointer_value(modifier: bpy.types.Modifier, prop, value: Any) -> bpy.types.Object:
+    """Resolve an object-pointer property value from a stable WorldEngine id.
+
+    Only Object pointers are supported; other pointer types (collections,
+    textures) have no stable-id vocabulary and are rejected by name.
+    """
     field = f"{modifier.type}.{prop.identifier}"
     pointer_type = getattr(bpy.types, prop.fixed_type.identifier, None)
     if pointer_type is None or not issubclass(pointer_type, bpy.types.Object):
@@ -104,6 +120,12 @@ def _resolved_pointer_value(modifier: bpy.types.Modifier, prop, value: Any) -> b
 
 
 def _coerced_property_value(modifier: bpy.types.Modifier, prop, value: Any) -> Any:
+    """Validate and coerce a JSON value against the RNA property's type.
+
+    Strict on purpose: booleans are not accepted as integers, enum strings
+    must match the RNA items, and arrays must carry the exact length, so a
+    typo'd payload rejects with the offending field instead of half-applying.
+    """
     field = f"{modifier.type}.{prop.identifier}"
     if prop.type == 'ENUM':
         if not isinstance(value, str):
@@ -136,6 +158,7 @@ def _coerced_property_value(modifier: bpy.types.Modifier, prop, value: Any) -> A
 
 
 def _apply_properties(modifier: bpy.types.Modifier, properties: dict[str, Any]) -> None:
+    """Write validated properties onto the modifier (kernel policy enforced)."""
     for key, value in properties.items():
         if kernel_policy._TYPED_PROPERTY_DENY.match(key):
             raise ValueError(
@@ -154,6 +177,7 @@ def _apply_properties(modifier: bpy.types.Modifier, properties: dict[str, Any]) 
 
 
 def _stack_summary(obj: bpy.types.Object) -> list[dict[str, Any]]:
+    """Ordered (name, type, index) view of the whole modifier stack."""
     return [
         {"name": modifier.name, "type": modifier.type, "index": index}
         for index, modifier in enumerate(obj.modifiers)
@@ -161,6 +185,7 @@ def _stack_summary(obj: bpy.types.Object) -> list[dict[str, Any]]:
 
 
 def _result(obj: bpy.types.Object, **extra: Any) -> dict[str, Any]:
+    """Result envelope: dirty object plus the post-mutation stack order."""
     object_id = blockout.ensure_stable_id(obj)
     return {
         "objectId": object_id,
@@ -171,6 +196,7 @@ def _result(obj: bpy.types.Object, **extra: Any) -> dict[str, Any]:
 
 
 def _modifier_summary(obj: bpy.types.Object, modifier: bpy.types.Modifier) -> dict[str, Any]:
+    """One modifier's identity, stack position, and full property dump."""
     return {
         "name": modifier.name,
         "type": modifier.type,
@@ -180,6 +206,7 @@ def _modifier_summary(obj: bpy.types.Object, modifier: bpy.types.Modifier) -> di
 
 
 def add_modifier(operation: dict[str, Any]) -> dict[str, Any]:
+    """Append an allowlisted modifier and apply initial properties atomically."""
     obj = _object(operation["id"])
     name = operation["modifierName"]
     modifier_type = operation["modifierType"]
@@ -196,6 +223,7 @@ def add_modifier(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def set_modifier(operation: dict[str, Any]) -> dict[str, Any]:
+    """Update properties of an existing modifier by name."""
     obj = _object(operation["id"])
     modifier = _modifier(obj, operation["modifierName"])
     _apply_properties(modifier, operation["properties"])
@@ -203,6 +231,7 @@ def set_modifier(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def remove_modifier(operation: dict[str, Any]) -> dict[str, Any]:
+    """Delete a modifier without applying it (non-destructive removal)."""
     obj = _object(operation["id"])
     modifier = _modifier(obj, operation["modifierName"])
     name = modifier.name
@@ -211,6 +240,7 @@ def remove_modifier(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def reorder_modifier(operation: dict[str, Any]) -> dict[str, Any]:
+    """Move a modifier to a new stack index (stack order changes the result mesh)."""
     obj = _object(operation["id"])
     modifier = _modifier(obj, operation["modifierName"])
     index = operation["index"]
@@ -223,6 +253,7 @@ def reorder_modifier(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def _activate_in_object_mode(obj: bpy.types.Object) -> None:
+    """Make ``obj`` sole-selected and active in Object mode for the apply operator."""
     active = bpy.context.view_layer.objects.active
     if active is not None and active.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -233,6 +264,12 @@ def _activate_in_object_mode(obj: bpy.types.Object) -> None:
 
 
 def apply_modifier(operation: dict[str, Any]) -> dict[str, Any]:
+    """Bake one modifier into the mesh (destructive; recoverable only by undo).
+
+    Goes through Blender's operator because modifier evaluation has no data
+    API equivalent; the result reports the new vertex/face counts so the
+    agent can verify the bake did what it expected.
+    """
     obj = _object(operation["id"])
     modifier = _modifier(obj, operation["modifierName"])
     if obj.type != 'MESH':

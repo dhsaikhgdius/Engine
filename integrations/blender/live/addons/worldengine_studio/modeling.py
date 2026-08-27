@@ -7,6 +7,23 @@
 Typed Director operations cover common blocking work. This module also exposes
 Blender's operator/RNA long tail and `execute_code` (Python in the live scene).
 Only quit/window-close and a few UI categories stay outside invoke_operator.
+
+Three tiers of power, in preference order for agents:
+
+1. Deep inspection (inspect_object, capture_render, export_scene_preview) and
+   typed intents (set_selection, select_mesh_elements, assign_material,
+   project_uv) -- structured, coordinate-converted, evidence-rich.
+2. The discoverable operator/RNA escape hatch (discover_operators,
+   describe_operator, invoke_operator, set_rna_property) -- generic access
+   to Blender's long tail, gated by kernel_policy on every call.
+3. execute_code -- raw Python with bpy/bmesh/mathutils in scope, wrapped in
+   forgiving proxies (missing-name lookups return None instead of KeyError)
+   plus failure hints tuned to mistakes LLM-authored scripts actually make.
+
+All operator invocations run with undo suppressed ('EXEC_DEFAULT', False):
+the surrounding live batch owns the undo boundary so one agent intent stays
+one Blender undo step. Positions and bounds cross the wire in Director's
+Y-up space; Blender-native payloads (RNA dumps, mesh metrics) stay as-is.
 """
 
 from __future__ import annotations
@@ -64,6 +81,7 @@ _SAFE_DATA_COLLECTIONS = frozenset(
 
 
 def _json_value(value: Any) -> Any:
+    """Best-effort JSON coercion; unrepresentable values fall back to str()."""
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, dict):
@@ -77,6 +95,11 @@ def _json_value(value: Any) -> Any:
 
 
 def _operator(identifier: str):
+    """Resolve a "category.name" wire identifier to the bpy.ops callable.
+
+    The format is validated before attribute lookup so an arbitrary string
+    cannot traverse anything other than the two-level bpy.ops namespace.
+    """
     parts = identifier.split(".")
     if len(parts) != 2 or not all(part and part.replace("_", "").isalnum() for part in parts):
         raise ValueError("Blender operator must use category.name format")
@@ -89,6 +112,7 @@ def _operator(identifier: str):
 
 
 def _operator_available(operator) -> bool:
+    """poll() without letting a context-sensitive operator raise."""
     try:
         return bool(operator.poll())
     except RuntimeError:
@@ -96,6 +120,7 @@ def _operator_available(operator) -> bool:
 
 
 def _operator_summary(identifier: str, operator) -> dict[str, Any]:
+    """Catalog row for one operator: identity, RNA description, availability."""
     rna = operator.get_rna_type()
     return {
         "id": identifier,
@@ -163,6 +188,7 @@ def discover_operators(
 
 
 def _property_description(prop) -> dict[str, Any]:
+    """Typed schema for one operator property (defaults, ranges, enum items)."""
     result: dict[str, Any] = {
         "id": prop.identifier,
         "name": prop.name,
@@ -198,6 +224,7 @@ def _property_description(prop) -> dict[str, Any]:
 
 
 def describe_operator(identifier: str) -> dict[str, Any]:
+    """Full parameter schema for one allowed operator (discover-then-describe flow)."""
     kernel_policy.assert_kernel_policy({"op": "describe_operator", "operator": identifier})
     operator = _operator(identifier)
     result = _operator_summary(identifier, operator)
@@ -210,6 +237,7 @@ def describe_operator(identifier: str) -> dict[str, Any]:
 
 
 def _object(identifier: str) -> bpy.types.Object:
+    """Resolve a stable id to a scene object or fail with the unknown id."""
     obj = blockout.find_object(identifier)
     if obj is None:
         raise ValueError(f"Unknown WorldEngine object: {identifier}")
@@ -217,6 +245,7 @@ def _object(identifier: str) -> bpy.types.Object:
 
 
 def _rna_properties(value: Any) -> dict[str, Any]:
+    """JSON dump of an RNA struct's writable scalar properties (no pointers)."""
     result: dict[str, Any] = {}
     rna = getattr(value, "bl_rna", None)
     if rna is None:
@@ -234,10 +263,12 @@ def _rna_properties(value: Any) -> dict[str, Any]:
 
 
 def _director_point(value: Any) -> list[float]:
+    """Blender Z-up triple to a Director Y-up wire triple."""
     return list(blender_to_director_point(tuple(float(component) for component in value)))
 
 
 def _evaluated_bounds(obj: bpy.types.Object) -> dict[str, list[float]]:
+    """Director-space AABB of the evaluated object (modifiers included)."""
     evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
     corners = [_director_point(evaluated.matrix_world @ Vector(corner)) for corner in evaluated.bound_box]
     if not corners:
@@ -253,12 +284,21 @@ def _evaluated_bounds(obj: bpy.types.Object) -> dict[str, list[float]]:
 
 
 def _selection_flags(elements) -> array:
+    """Bulk-read per-element select flags via foreach_get (fast on big meshes)."""
     flags = array("b", [0]) * len(elements)
     elements.foreach_get("select", flags)
     return flags
 
 
 def _evaluated_mesh_metrics(obj: bpy.types.Object) -> dict[str, Any]:
+    """Topology health metrics plus selection/UV/attribute summaries.
+
+    Counts (vertices, triangles, boundary and non-manifold edges) come from
+    the evaluated mesh so modifiers are reflected, while selection and UV
+    layers read from the source mesh, which is what edit operations target.
+    Selection samples are capped so a fully selected million-vertex mesh
+    does not flood the wire.
+    """
     evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
     mesh = evaluated.to_mesh()
     try:
@@ -314,6 +354,7 @@ def _evaluated_mesh_metrics(obj: bpy.types.Object) -> dict[str, Any]:
 
 
 def _principled_node(material: bpy.types.Material):
+    """First Principled BSDF node in the material, or None."""
     tree = material.node_tree if material.use_nodes else None
     if tree is None:
         return None
@@ -321,6 +362,7 @@ def _principled_node(material: bpy.types.Material):
 
 
 def _principled_values(material: bpy.types.Material) -> dict[str, Any] | None:
+    """The four PBR scalars Director round-trips (baseColor/roughness/metallic/alpha)."""
     principled = _principled_node(material)
     if principled is None:
         return None
@@ -334,6 +376,7 @@ def _principled_values(material: bpy.types.Material) -> dict[str, Any] | None:
 
 
 def _uv_layer_details(mesh: bpy.types.Mesh) -> list[dict[str, Any]]:
+    """Per-layer UV stats; coordinate bounds expose degenerate (all-zero) unwraps."""
     active = mesh.uv_layers.active
     details = []
     for layer in mesh.uv_layers:
@@ -358,6 +401,7 @@ def _uv_layer_details(mesh: bpy.types.Mesh) -> list[dict[str, Any]]:
 
 
 def _material_node_summaries(obj: bpy.types.Object) -> list[dict[str, Any]]:
+    """Shader-graph shape (node/link counts by type) per distinct material."""
     summaries = []
     seen = set()
     for slot in obj.material_slots:
@@ -383,6 +427,7 @@ def _material_node_summaries(obj: bpy.types.Object) -> list[dict[str, Any]]:
 
 
 def _material_slot_summaries(obj: bpy.types.Object) -> list[dict[str, Any]]:
+    """Slot table exposing OBJECT-vs-DATA links and per-slot resolution."""
     data_materials = (
         obj.data.materials
         if obj.data is not None and hasattr(obj.data, "materials")
@@ -407,6 +452,14 @@ def _animation_summary(obj: bpy.types.Object) -> dict[str, Any]:
 
 
 def inspect_object(identifier: str) -> dict[str, Any]:
+    """Deep single-object inspection: the agent's primary observe surface.
+
+    Aggregates identity, Director-space bounds, modifier/constraint dumps,
+    material and geometry graphs, animation, and per-type detail (mesh
+    metrics, curve/text data, rig + Mixamo compatibility for armatures).
+    Health problems (non-manifold edges, zero faces) surface as warnings so
+    the caller does not need to derive them from raw counts.
+    """
     obj = _object(identifier)
     if obj.mode == 'EDIT' and obj.type == 'MESH':
         obj.update_from_editmode()
@@ -466,7 +519,12 @@ def inspect_object(identifier: str) -> dict[str, Any]:
 
 
 def capture_render(operation: dict[str, Any]) -> dict[str, Any]:
-    """Render a clean Agent-visible frame through Blender's active camera."""
+    """Render a clean Agent-visible frame through Blender's active camera.
+
+    Render settings are saved, overridden, and restored in a finally block so
+    a capture never leaks resolution/format changes into the artist's scene;
+    the PNG travels inline as base64 rather than as a temp-file path.
+    """
     scene = bpy.context.scene
     camera_id = operation.get("cameraId")
     camera = _object(camera_id) if camera_id else scene.camera
@@ -517,7 +575,15 @@ def capture_render(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def export_scene_preview() -> dict[str, Any]:
-    """Export the active Blender scene as a self-contained GLB preview."""
+    """Export the active Blender scene as a self-contained GLB preview.
+
+    The GLB is preview-only (no cameras, lights, skins, or animations;
+    modifiers applied) and stamped with the scene epoch and revision so the
+    consumer can tell exactly which state it renders. Character rig state is
+    snapshotted before export and restored afterwards because the exporter's
+    depsgraph evaluation can perturb pose bones; the finally block puts the
+    stateToken and every matrix_basis back.
+    """
     from .native_session import scene_epoch_value
 
     scene = bpy.context.scene
@@ -583,6 +649,11 @@ def export_scene_preview() -> dict[str, Any]:
 
 
 def _set_object_selection(selected_ids: Iterable[str], active_id: str | None, mode: str) -> None:
+    """Apply an exact selection/active/mode state from stable ids.
+
+    Always passes through OBJECT mode first because Blender's selection API
+    misbehaves in edit modes; the requested mode is entered at the end.
+    """
     active = _object(active_id) if active_id else None
     current_active = bpy.context.view_layer.objects.active
     if current_active is not None and current_active.mode != 'OBJECT':
@@ -601,6 +672,7 @@ def _set_object_selection(selected_ids: Iterable[str], active_id: str | None, mo
 
 
 def _selection_state() -> dict[str, Any]:
+    """Current selection/active/mode as stable ids for result evidence."""
     active = bpy.context.view_layer.objects.active
     return {
         "activeObjectId": blockout.ensure_stable_id(active) if active is not None else None,
@@ -612,6 +684,7 @@ def _selection_state() -> dict[str, Any]:
 
 
 def set_selection(operation: dict[str, Any]) -> dict[str, Any]:
+    """Typed selection intent: set selected objects, active object, and mode."""
     selected_ids = operation.get("selectedIds", [])
     active_id = operation.get("activeId")
     mode = operation.get("mode", "OBJECT")
@@ -620,6 +693,13 @@ def set_selection(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def select_mesh_elements(operation: dict[str, Any]) -> dict[str, Any]:
+    """Select mesh elements by index in one domain, then enter Edit mode.
+
+    Selection is written on the source mesh in Object mode (bulk foreach_set,
+    which edit-mode meshes do not allow) before switching to Edit mode with
+    the matching select_mode, leaving Blender ready for follow-up mesh
+    operators on exactly the requested elements.
+    """
     obj = _object(operation["id"])
     if obj.type != 'MESH':
         raise ValueError(f"WorldEngine object is not a mesh: {operation['id']}")
@@ -660,6 +740,7 @@ def select_mesh_elements(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def _ensure_principled_material(material: bpy.types.Material):
+    """Guarantee a Principled BSDF wired to the output and claim default refs."""
     material.use_nodes = True
     tree = material.node_tree
     principled = _principled_node(material)
@@ -693,6 +774,12 @@ _MATERIAL_NAME_HINTS: tuple[tuple[tuple[str, ...], dict[str, Any]], ...] = (
 
 
 def _material_hint_parameters(name: str) -> dict[str, Any]:
+    """Plausible PBR defaults inferred from the requested material name.
+
+    Only used when creating a brand-new material and only as setdefault
+    fallbacks -- explicit caller parameters always win. The neutral clay
+    fallback matches the white-box look for unrecognized names.
+    """
     key = name.casefold()
     for tokens, parameters in _MATERIAL_NAME_HINTS:
         if any(token in key for token in tokens):
@@ -701,6 +788,19 @@ def _material_hint_parameters(name: str) -> dict[str, Any]:
 
 
 def assign_material(operation: dict[str, Any]) -> dict[str, Any]:
+    """Assign (and optionally create/parameterize) a material on an object.
+
+    Notable behaviors, all reported in the result rather than silent:
+
+    - Names resolve fuzzily through blockout.resolve_material; a non-exact
+      resolution is echoed back as resolvedFrom/resolvedKind.
+    - With createIfMissing=False an unknown material SKIPS this operation
+      with nearby-name suggestions instead of failing the whole batch.
+    - faceScope ALL/SELECTED paints face material indices (Edit mode via
+      bmesh, Object mode via bulk foreach_set); PRESERVE only adds the slot.
+    - Every object sharing the material or the mesh datablock is listed in
+      affected/dirty ids, since the edit is visible on all of them.
+    """
     obj = _object(operation["id"])
     if obj.data is None or not hasattr(obj.data, "materials"):
         raise ValueError(f"WorldEngine object cannot receive materials: {operation['id']}")
@@ -837,6 +937,14 @@ def assign_material(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def project_uv(operation: dict[str, Any]) -> dict[str, Any]:
+    """Unwrap a mesh into a named UV layer via SMART/UNWRAP/CUBE projection.
+
+    UV operators require Edit mode with everything selected, so the caller's
+    object selection, mode, and mesh-element selection are snapshotted first
+    and restored in the finally block. The layer is zeroed before projecting
+    and the resulting bounds are checked so a silently failed unwrap (all
+    coordinates identical) rejects instead of shipping unusable UVs.
+    """
     obj = _object(operation["id"])
     if obj.type != 'MESH':
         raise ValueError(f"WorldEngine object is not a mesh: {operation['id']}")
@@ -918,6 +1026,12 @@ def project_uv(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def _context_override():
+    """temp_override targeting a VIEW_3D area, or a no-op when headless.
+
+    Many mesh/UV operators poll against the area type; live-session work
+    runs from a timer with no UI context, so the override supplies one when
+    a window exists and degrades gracefully in background Blender.
+    """
     window = bpy.context.window
     screen = window.screen if window is not None else None
     if screen is None:
@@ -935,6 +1049,7 @@ def operator_context():
 
 
 def _ensure_object_mode() -> None:
+    """Best-effort return to Object mode before running agent code."""
     active = bpy.context.view_layer.objects.active
     if active is None or active.mode == "OBJECT":
         return
@@ -943,6 +1058,13 @@ def _ensure_object_mode() -> None:
 
 
 def invoke_operator(operation: dict[str, Any]) -> dict[str, Any]:
+    """Run one allowlisted Blender operator with explicit context.
+
+    The optional ``context`` field sets selection/active/mode first, because
+    operators read implicit UI state; requiring it on the wire makes that
+    state explicit and reproducible. Objects created by the operator are
+    detected by diffing session_uids and returned with fresh stable ids.
+    """
     kernel_policy.assert_kernel_policy(operation)
     context = operation.get("context") or {}
     if context:
@@ -978,6 +1100,12 @@ def invoke_operator(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def _target(operation: dict[str, Any]) -> Any:
+    """Resolve a typed RNA target descriptor to the Blender data-block.
+
+    Targets name entities the protocol already addresses (stable object
+    ids, material/collection names, the scene/world singletons) so RNA
+    writes cannot start from an arbitrary Python expression.
+    """
     target = operation["target"]
     kind = target["kind"]
     if kind == "object":
@@ -1015,6 +1143,7 @@ def _target(operation: dict[str, Any]) -> Any:
 
 
 def _step(value: Any, segment: str | int) -> Any:
+    """One path step: integer indexes, string prefers attribute then key."""
     if isinstance(segment, int):
         return value[segment]
     if hasattr(value, segment):
@@ -1023,6 +1152,11 @@ def _step(value: Any, segment: str | int) -> Any:
 
 
 def set_rna_property(operation: dict[str, Any]) -> dict[str, Any]:
+    """Write one RNA property via a typed target + path (kernel policy gated).
+
+    The result echoes the value read back after the write, so type coercion
+    done by Blender (clamping, rounding) is visible to the caller.
+    """
     kernel_policy.assert_kernel_policy(operation)
     value = _target(operation)
     path = operation["path"]
@@ -1039,6 +1173,7 @@ def set_rna_property(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def _install_bmesh_aliases() -> None:
+    """Alias commonly hallucinated bmesh type names to their canonical BM* types."""
     types_mod = bmesh.types
     for alias, canonical in _BMESH_TYPE_ALIASES.items():
         if hasattr(types_mod, canonical) and not hasattr(types_mod, alias):
@@ -1095,6 +1230,8 @@ class _IdCollectionProxy:
 
 
 class _BlendDataProxy:
+    """bpy.data wrapper that serves _IdCollectionProxy for safe ID collections."""
+
     __slots__ = ("_inner", "_cache")
 
     def __init__(self, inner: Any) -> None:
@@ -1130,12 +1267,19 @@ class _BpyModule(types.ModuleType):
 
 
 def _nearby_object_names(key: str, limit: int = 8) -> list[str]:
+    """Closest existing object names to a missed lookup, for error hints."""
     names = [obj.name for obj in bpy.data.objects]
     close = difflib.get_close_matches(key, names, n=limit, cutoff=0.4)
     return close or names[:limit]
 
 
 def _execute_code_failure(error: BaseException) -> str:
+    """Turn a script exception into a corrective message, not just a traceback.
+
+    Rejection messages are a teaching channel: known LLM-script failure modes
+    (empty next() after a mode mixup, KeyError on a stale object name) get
+    targeted hints including the actual nearby object names.
+    """
     name = type(error).__name__
     message = str(error)
     hints: list[str] = []
@@ -1164,6 +1308,12 @@ def _execute_code_failure(error: BaseException) -> str:
 
 @contextmanager
 def _execute_code_environment() -> Iterator[Any]:
+    """Install the forgiving bpy proxy for the duration of one script.
+
+    sys.modules is patched so a script's own ``import bpy`` receives the
+    proxy too, then restored, keeping the shims invisible to the rest of the
+    addon and to other addons in the same Blender process.
+    """
     _install_bmesh_aliases()
     previous = sys.modules.get("bpy", bpy)
     proxy = _BpyModule(bpy)
@@ -1219,6 +1369,7 @@ def execute_code(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def undo_scene() -> dict[str, Any]:
+    """Step the Blender undo stack back one entry (one live batch = one entry)."""
     with operator_context():
         if not bpy.ops.ed.undo.poll():
             raise ValueError("Blender undo is unavailable in the current context")
@@ -1227,6 +1378,7 @@ def undo_scene() -> dict[str, Any]:
 
 
 def redo_scene() -> dict[str, Any]:
+    """Step the Blender undo stack forward one entry."""
     with operator_context():
         if not bpy.ops.ed.redo.poll():
             raise ValueError("Blender redo is unavailable in the current context")

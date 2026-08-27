@@ -7,6 +7,18 @@
 The public contract intentionally exposes a small set of useful shader nodes
 and stable node/socket references.  It does not expose Python or Blender RNA
 paths, so an Agent can author a graph without depending on UI selection state.
+
+Structure mirrors semantic_geometry.py's Geometry Nodes surface: NODE_TYPES is
+the closed vocabulary, nodes are addressed by caller-chosen ``nodeRef`` names,
+sockets by identifier-based references with ``#n`` suffixes for duplicates.
+Shader socket values are unit-free (colors, factors, vectors in tangent/UV
+space), so unlike geometry nodes nothing here is coordinate-converted.
+
+Materials are always resolved through the object that uses them: an operation
+must name an object the material is assigned to, which keeps the vocabulary
+consistent with the rest of the live protocol (objects are the addressable
+scene entities) and lets results report every object the shared material
+dirties.
 """
 
 from __future__ import annotations
@@ -32,6 +44,7 @@ BLENDER_NODE_TYPES = {value: key for key, value in NODE_TYPES.items()}
 
 
 def _object(identifier: str) -> bpy.types.Object:
+    """Resolve a stable id to a scene object or fail with the unknown id."""
     obj = blockout.find_object(identifier)
     if obj is None:
         raise ValueError(f"Unknown WorldEngine object: {identifier}")
@@ -39,6 +52,11 @@ def _object(identifier: str) -> bpy.types.Object:
 
 
 def _material_users(material: bpy.types.Material) -> list[str]:
+    """Stable ids of every scene object with the material in a slot.
+
+    A shared material edit dirties all of them, so results must list every
+    user or the workbench's preview invalidation would miss objects.
+    """
     return sorted(
         blockout.ensure_stable_id(obj)
         for obj in bpy.context.scene.objects
@@ -52,6 +70,13 @@ def _material_for_object(
     *,
     enable_nodes: bool = False,
 ) -> tuple[bpy.types.Object, bpy.types.Material]:
+    """Resolve (object, material) and require the assignment to exist.
+
+    Requiring the material to already be in one of the object's slots keeps
+    graph edits from silently touching materials the caller never observed
+    on that object. ``enable_nodes`` flips use_nodes on for create paths;
+    read/edit paths reject non-node materials instead.
+    """
     obj = _object(identifier)
     material, _kind = blockout.resolve_material(material_name)
     if material is None:
@@ -74,6 +99,7 @@ def _node_ref(node: bpy.types.Node) -> str:
 
 
 def _find_node(tree: bpy.types.NodeTree, reference: str) -> bpy.types.Node:
+    """Resolve a nodeRef (node datablock name) or fail with the unknown ref."""
     node = tree.nodes.get(reference)
     if node is None:
         raise ValueError(f"Unknown material node reference: {reference}")
@@ -81,6 +107,7 @@ def _find_node(tree: bpy.types.NodeTree, reference: str) -> bpy.types.Node:
 
 
 def _claim_node_ref(tree: bpy.types.NodeTree, node: bpy.types.Node, preferred: str) -> str:
+    """Rename ``node`` to a well-known ref unless another node holds it."""
     existing = tree.nodes.get(preferred)
     if existing is None or existing == node:
         node.name = preferred
@@ -92,6 +119,13 @@ def ensure_default_node_refs(
     principled: bpy.types.Node | None = None,
     output: bpy.types.Node | None = None,
 ) -> None:
+    """Give the default Principled/Output nodes the well-known refs.
+
+    Blender names the auto-created nodes with localized display strings
+    ("Principled BSDF" or a translation), which are useless as wire
+    references. Claiming "principled" and "material-output" gives agents a
+    predictable entry point into any freshly node-enabled material.
+    """
     tree = material.node_tree
     if tree is None:
         return
@@ -110,6 +144,7 @@ def ensure_default_node_refs(
 
 
 def _socket_references(sockets: Iterable[bpy.types.NodeSocket]):
+    """(socket, stable ref) pairs; duplicate identifiers get a ``#n`` suffix."""
     sockets = list(sockets)
     bases = [str(socket.identifier or socket.name) for socket in sockets]
     counts = {base: bases.count(base) for base in set(bases)}
@@ -123,6 +158,7 @@ def _socket_references(sockets: Iterable[bpy.types.NodeSocket]):
 
 
 def _find_socket(sockets: Iterable[bpy.types.NodeSocket], reference: str):
+    """Resolve a wire socket reference back to the socket, or fail loudly."""
     match = next(
         (socket for socket, socket_ref in _socket_references(sockets) if socket_ref == reference),
         None,
@@ -133,6 +169,7 @@ def _find_socket(sockets: Iterable[bpy.types.NodeSocket], reference: str):
 
 
 def _socket_ref(sockets: Iterable[bpy.types.NodeSocket], target: bpy.types.NodeSocket) -> str:
+    """The wire reference for one socket within its node's socket list."""
     return next(
         reference
         for socket, reference in _socket_references(sockets)
@@ -141,6 +178,7 @@ def _socket_ref(sockets: Iterable[bpy.types.NodeSocket], target: bpy.types.NodeS
 
 
 def _json_socket_value(value: Any):
+    """Coerce a socket value to JSON; None for pointer-typed values."""
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     try:
@@ -153,6 +191,7 @@ def _socket_inspection(
     sockets: Iterable[bpy.types.NodeSocket],
     socket: bpy.types.NodeSocket,
 ) -> dict[str, Any]:
+    """Wire description of one socket including its editable default value."""
     result = {
         "socketRef": _socket_ref(sockets, socket),
         "name": socket.name,
@@ -169,6 +208,7 @@ def _socket_inspection(
 
 
 def _node_inspection(node: bpy.types.Node) -> dict[str, Any]:
+    """Full wire description of one node; foreign nodes report as CUSTOM."""
     return {
         "nodeRef": _node_ref(node),
         "name": node.name,
@@ -183,6 +223,7 @@ def _node_inspection(node: bpy.types.Node) -> dict[str, Any]:
 
 
 def _link_inspection(link: bpy.types.NodeLink) -> dict[str, Any]:
+    """Wire description of one link as from/to node+socket references."""
     return {
         "from": {
             "nodeRef": _node_ref(link.from_node),
@@ -196,6 +237,12 @@ def _link_inspection(link: bpy.types.NodeLink) -> dict[str, Any]:
 
 
 def inspect_material_graph(material: bpy.types.Material) -> dict[str, Any]:
+    """Deterministic snapshot of one material's node graph.
+
+    Nodes and links sort by reference so two observes of an unchanged graph
+    are byte-identical, and non-node materials report empty graphs rather
+    than failing (agents use this to decide whether to enable nodes).
+    """
     tree = material.node_tree
     nodes = sorted(
         (_node_inspection(node) for node in tree.nodes),
@@ -228,6 +275,7 @@ def inspect_material_graph(material: bpy.types.Material) -> dict[str, Any]:
 
 
 def inspect_object_material_graphs(obj: bpy.types.Object) -> list[dict[str, Any]]:
+    """Graph snapshots for each distinct material in the object's slots."""
     materials = []
     seen = set()
     for slot in obj.material_slots:
@@ -244,6 +292,7 @@ def _mutation_result(
     material: bpy.types.Material,
     **evidence: Any,
 ) -> dict[str, Any]:
+    """Result envelope: every user of the shared material is marked dirty."""
     affected = _material_users(material)
     return {
         "objectId": object_id,
@@ -255,6 +304,12 @@ def _mutation_result(
 
 
 def create_material_node(operation: dict[str, Any]) -> dict[str, Any]:
+    """Create one vocabulary shader node under a caller-chosen unique nodeRef.
+
+    If Blender cannot reserve the exact requested name the node is removed
+    and the call rejected, because a silently renamed node would break every
+    follow-up call that uses the caller's reference.
+    """
     object_id = operation["id"]
     _, material = _material_for_object(
         object_id,
@@ -280,6 +335,7 @@ def create_material_node(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def delete_material_node(operation: dict[str, Any]) -> dict[str, Any]:
+    """Remove a node; the result echoes its last state as deletion evidence."""
     object_id = operation["id"]
     _, material = _material_for_object(object_id, operation["materialName"])
     tree = material.node_tree
@@ -290,6 +346,7 @@ def delete_material_node(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def set_material_node_input(operation: dict[str, Any]) -> dict[str, Any]:
+    """Set an input socket's default value (color, factor, vector, ...)."""
     object_id = operation["id"]
     _, material = _material_for_object(object_id, operation["materialName"])
     node = _find_node(material.node_tree, operation["nodeRef"])
@@ -307,6 +364,11 @@ def set_material_node_input(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def connect_material_nodes(operation: dict[str, Any]) -> dict[str, Any]:
+    """Link an output socket into an input socket.
+
+    Existing links on single-input sockets are removed first and reported
+    as replacedLinks, mirroring how Blender's UI replaces connections.
+    """
     object_id = operation["id"]
     _, material = _material_for_object(object_id, operation["materialName"])
     tree = material.node_tree
@@ -329,6 +391,7 @@ def connect_material_nodes(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def disconnect_material_node_input(operation: dict[str, Any]) -> dict[str, Any]:
+    """Remove all links into one input socket; rejects an already-bare socket."""
     object_id = operation["id"]
     _, material = _material_for_object(object_id, operation["materialName"])
     tree = material.node_tree

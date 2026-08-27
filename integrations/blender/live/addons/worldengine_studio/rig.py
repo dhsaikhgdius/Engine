@@ -2,7 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Typed, inspectable pose and action operations for the native Blender scene."""
+"""Typed, inspectable pose and action operations for the native Blender scene.
+
+Implements the live-session rig vocabulary (inspect_rig, select_pose_bones,
+set_pose_bone_transform, apply_pose_offsets, action/keyframe operations) on
+top of Blender armatures. Values cross the wire in Blender's own local bone
+space and Z-up scene frame -- rig data is inspected and edited in place, never
+axis-converted, because the Director side treats the armature as an opaque
+Blender asset addressed by stable ids and bone names.
+
+Two identity conventions matter here:
+
+- Objects are addressed by their ``worldengine_id`` stable id (see blockout),
+  never by Blender datablock names, which are mutable and non-unique.
+- Actions are addressed by their Director-visible display name
+  (ACTION_DISPLAY_NAME_PROPERTY) scoped to the owning object
+  (ACTION_OWNER_PROPERTY), so two characters can each own a "Walk" action
+  without colliding in ``bpy.data.actions``' global namespace.
+
+Every mutating operation returns affected/dirty object ids plus fresh
+selection and interaction evidence so the gateway can diff state without a
+second observe round trip.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +46,7 @@ POSE_CHANNEL_PATHS = {
 
 
 def _armature(identifier: str) -> bpy.types.Object:
+    """Resolve a stable id to an armature object; reject anything else early."""
     obj = blockout.find_object(identifier)
     if obj is None:
         raise ValueError(f"Unknown WorldEngine object: {identifier}")
@@ -34,6 +56,11 @@ def _armature(identifier: str) -> bpy.types.Object:
 
 
 def _pose_bones(obj: bpy.types.Object, bone_refs: Iterable[str]) -> list[bpy.types.PoseBone]:
+    """Resolve bone names to pose bones, failing on the first unknown ref.
+
+    Validation happens before any mutation so a batch with one bad bone name
+    rejects cleanly instead of applying a partial pose.
+    """
     refs = list(bone_refs)
     missing = [bone_ref for bone_ref in refs if obj.pose.bones.get(bone_ref) is None]
     if missing:
@@ -42,6 +69,7 @@ def _pose_bones(obj: bpy.types.Object, bone_refs: Iterable[str]) -> list[bpy.typ
 
 
 def _transform(matrix) -> dict[str, list[float]]:
+    """Decompose a Blender matrix into the wire transform record (w-first quaternion)."""
     location, rotation, scale = matrix.decompose()
     return {
         "location": [float(value) for value in location],
@@ -56,6 +84,11 @@ def _transform(matrix) -> dict[str, list[float]]:
 
 
 def selection_state(obj: bpy.types.Object) -> dict[str, Any]:
+    """Active and selected bone names, honoring Edit vs Pose mode storage.
+
+    Blender keeps edit-bone and pose-bone selection in different collections;
+    reporting the wrong one would desynchronize the workbench's rig panel.
+    """
     if obj.mode == 'EDIT':
         bones = obj.data.edit_bones
         active = bones.active
@@ -69,6 +102,7 @@ def selection_state(obj: bpy.types.Object) -> dict[str, Any]:
 
 
 def _interaction_evidence() -> dict[str, Any]:
+    """Snapshot mode/active/selection as stable ids for the operation result."""
     active = bpy.context.view_layer.objects.active
     active_id = active.get(blockout.ID_PROPERTY) if active is not None else None
     selected_ids = [
@@ -84,6 +118,13 @@ def _interaction_evidence() -> dict[str, Any]:
 
 
 def inspect_rig(obj: bpy.types.Object) -> dict[str, Any]:
+    """Describe an armature's bones with per-bone local (pose) and rest transforms.
+
+    ``restLocal`` is always parent-relative so the agent can reason about the
+    hierarchy without composing world matrices. In Edit mode the pose delta is
+    reported as identity: edit bones ARE the rest geometry, and Blender does
+    not evaluate a pose until the armature leaves Edit mode.
+    """
     pose_bones = list(obj.pose.bones)
     if obj.mode == 'EDIT':
         edit_bones = list(obj.data.edit_bones)
@@ -137,6 +178,13 @@ def inspect_rig(obj: bpy.types.Object) -> dict[str, Any]:
 
 
 def _action_slot_handle(action: bpy.types.Action, obj: bpy.types.Object) -> int | None:
+    """Find the slotted-action handle this object uses for ``action`` (Blender 4.4+).
+
+    Slotted actions can serve several data blocks; the handle is resolved from
+    the active assignment first, then NLA strips (only when unambiguous), then
+    the object's last-used slot. ``None`` means the f-curves cannot be
+    attributed to this object safely.
+    """
     animation = obj.animation_data
     if animation is None:
         return None
@@ -162,6 +210,12 @@ def _action_slot_handle(action: bpy.types.Action, obj: bpy.types.Object) -> int 
 
 
 def _action_fcurves(action: bpy.types.Action, obj: bpy.types.Object) -> list[Any]:
+    """List the f-curves of ``action`` that animate ``obj``.
+
+    Supports both the legacy flat ``action.fcurves`` API and the layered
+    slotted-action API, so keyframe counts stay correct across Blender
+    versions without branching at every call site.
+    """
     legacy_fcurves = getattr(action, "fcurves", None)
     if legacy_fcurves is not None:
         return list(legacy_fcurves)
@@ -178,20 +232,24 @@ def _action_fcurves(action: bpy.types.Action, obj: bpy.types.Object) -> list[Any
 
 
 def _keyed_frames(fcurves: Iterable[Any]) -> list[float]:
+    """Sorted unique frame numbers that carry at least one keyframe."""
     return sorted({float(point.co.x) for curve in fcurves for point in curve.keyframe_points})
 
 
 def _frame_range(fcurves: Iterable[Any]) -> list[float]:
+    """[first, last] keyed frame across all curves; [0, 0] for an empty action."""
     frames = [float(point.co.x) for curve in fcurves for point in curve.keyframe_points]
     return [min(frames), max(frames)] if frames else [0.0, 0.0]
 
 
 def _action_display_name(action: bpy.types.Action) -> str:
+    """The Director-visible action name; falls back to the datablock name."""
     value = action.get(ACTION_DISPLAY_NAME_PROPERTY)
     return value if isinstance(value, str) and value else action.name
 
 
 def _action_summary(action: bpy.types.Action, obj: bpy.types.Object) -> dict[str, Any]:
+    """Wire summary of one action as seen from ``obj`` (curves, keys, active flag)."""
     animation = obj.animation_data
     active = animation is not None and animation.action == action
     fcurves = _action_fcurves(action, obj)
@@ -207,6 +265,12 @@ def _action_summary(action: bpy.types.Action, obj: bpy.types.Object) -> dict[str
 
 
 def _actions_for_object(obj: bpy.types.Object) -> list[bpy.types.Action]:
+    """All actions belonging to this object: active, NLA strips, and owned-by-id.
+
+    The ACTION_OWNER_PROPERTY sweep is what keeps a freshly created but not
+    yet assigned action visible to the workbench instead of orphaned in
+    ``bpy.data.actions``.
+    """
     animation = obj.animation_data
     actions: dict[str, bpy.types.Action] = {}
     if animation is not None:
@@ -224,6 +288,7 @@ def _actions_for_object(obj: bpy.types.Object) -> list[bpy.types.Action]:
 
 
 def inspect_animation(obj: bpy.types.Object) -> dict[str, Any]:
+    """Summarize an object's animation state (actions, curves, drivers, NLA)."""
     animation = obj.animation_data
     action = animation.action if animation is not None else None
     active_fcurves = _action_fcurves(action, obj) if action is not None else []
@@ -243,6 +308,11 @@ def inspect_animation(obj: bpy.types.Object) -> dict[str, Any]:
 
 
 def _activate_pose_object(obj: bpy.types.Object) -> None:
+    """Make ``obj`` the sole selected, active object and enter Pose mode.
+
+    Blender's mode operators act on the active object, so any previously
+    active object is returned to Object mode first to avoid mode leakage.
+    """
     active = bpy.context.view_layer.objects.active
     if active is not None and active.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -255,6 +325,13 @@ def _activate_pose_object(obj: bpy.types.Object) -> None:
 
 
 def select_pose_bones(operation: dict[str, Any]) -> dict[str, Any]:
+    """Apply a SET/ADD/SUBTRACT/ALL/NONE bone selection intent in Pose mode.
+
+    All bone refs (including activeBoneRef) validate before any selection
+    changes. When the requested active bone would end up deselected, the
+    first selected bone is promoted so Blender never reports an active bone
+    outside the selection.
+    """
     obj = _armature(operation["id"])
     bone_refs = operation.get("boneRefs", [])
     _pose_bones(obj, bone_refs)
@@ -297,6 +374,11 @@ def select_pose_bones(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def set_pose_bone_transform(operation: dict[str, Any]) -> dict[str, Any]:
+    """Set one pose bone's local channels; only the provided channels change.
+
+    Rotation writes force QUATERNION mode so the wire value is applied
+    literally instead of being reinterpreted through a stale Euler order.
+    """
     obj = _armature(operation["id"])
     pose_bone = _pose_bones(obj, [operation["boneRef"]])[0]
     local = operation["local"]
@@ -322,6 +404,13 @@ def set_pose_bone_transform(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def apply_pose_offsets(operation: dict[str, Any]) -> dict[str, Any]:
+    """Apply Director character-control deltas as multiplicative bone offsets.
+
+    ``resetPose`` first zeroes every bone's matrix_basis so the offsets
+    compose against the rest pose deterministically. The caller's stateToken
+    is stamped on the armature so Director can tell which control state this
+    Blender pose reflects (see DIRECTOR_CHARACTER_STATE_PROPERTY).
+    """
     obj = _armature(operation["id"])
     bone_operations = operation["bones"]
     pose_bones = _pose_bones(obj, [item["boneRef"] for item in bone_operations])
@@ -349,6 +438,12 @@ def apply_pose_offsets(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def _action(action_name: str, obj: bpy.types.Object | None = None) -> bpy.types.Action:
+    """Resolve an action by Director display name, scoped to the owning object.
+
+    When ``obj`` is given, lookup is by display name + owner id rather than
+    the global datablock name, so per-character actions with the same display
+    name resolve to the right datablock.
+    """
     action = bpy.data.actions.get(action_name)
     if obj is not None:
         identifier = blockout.ensure_stable_id(obj)
@@ -367,10 +462,12 @@ def _action(action_name: str, obj: bpy.types.Object | None = None) -> bpy.types.
 
 
 def _set_action(obj: bpy.types.Object, action: bpy.types.Action) -> None:
+    """Assign the active action, creating animation_data on first use."""
     obj.animation_data_create().action = action
 
 
 def _action_result(obj: bpy.types.Object, action: bpy.types.Action) -> dict[str, Any]:
+    """Standard result envelope for action operations (summary + evidence)."""
     identifier = blockout.ensure_stable_id(obj)
     return {
         "affectedObjectIds": [identifier],
@@ -382,6 +479,11 @@ def _action_result(obj: bpy.types.Object, action: bpy.types.Action) -> dict[str,
 
 
 def create_action(operation: dict[str, Any]) -> dict[str, Any]:
+    """Create a new action owned by the armature and make it active.
+
+    Uniqueness is enforced per object display name (not globally), matching
+    how the workbench lists actions per character.
+    """
     obj = _armature(operation["id"])
     action_name = operation["actionName"]
     if any(_action_display_name(action) == action_name for action in _actions_for_object(obj)):
@@ -394,6 +496,7 @@ def create_action(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def set_active_action(operation: dict[str, Any]) -> dict[str, Any]:
+    """Switch which owned action the armature evaluates."""
     obj = _armature(operation["id"])
     action = _action(operation["actionName"], obj)
     _set_action(obj, action)
@@ -401,6 +504,7 @@ def set_active_action(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def set_scene_frame(operation: dict[str, Any]) -> dict[str, Any]:
+    """Move the scene playhead; reports the frame Blender actually landed on."""
     bpy.context.scene.frame_set(operation["frame"])
     return {
         "affectedObjectIds": [],
@@ -411,10 +515,12 @@ def set_scene_frame(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def _pose_channel_paths(channels: Iterable[str]) -> list[str]:
+    """Map wire channel names (LOCATION/ROTATION/SCALE) to RNA data paths."""
     return [POSE_CHANNEL_PATHS[channel] for channel in channels]
 
 
 def _keyframe_point_count(action: bpy.types.Action, obj: bpy.types.Object) -> int:
+    """Total keyframe points of ``action`` on ``obj``; used to report deltas."""
     return sum(
         len(curve.keyframe_points)
         for curve in _action_fcurves(action, obj)
@@ -422,6 +528,13 @@ def _keyframe_point_count(action: bpy.types.Action, obj: bpy.types.Object) -> in
 
 
 def insert_pose_keyframes(operation: dict[str, Any]) -> dict[str, Any]:
+    """Key the requested channels of the given bones at one frame.
+
+    The target action is made active first so keyframe_insert writes into it
+    rather than whatever action happened to be assigned. The requested
+    interpolation is applied only to the points created at this frame, and
+    the result reports the net keyframe-count delta as evidence.
+    """
     obj = _armature(operation["id"])
     action = _action(operation["actionName"], obj)
     pose_bones = _pose_bones(obj, operation["boneRefs"])
@@ -460,6 +573,7 @@ def insert_pose_keyframes(operation: dict[str, Any]) -> dict[str, Any]:
 
 
 def delete_pose_keyframes(operation: dict[str, Any]) -> dict[str, Any]:
+    """Remove keyframes on the requested bone channels at one frame."""
     obj = _armature(operation["id"])
     action = _action(operation["actionName"], obj)
     pose_bones = _pose_bones(obj, operation["boneRefs"])
