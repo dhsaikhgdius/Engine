@@ -1,3 +1,24 @@
+/**
+ * Provider-neutral engine connector bridge for Unreal, Unity, and Godot: the
+ * gateway-side counterpart of BlenderBridge. It discovers engine installs,
+ * runs layered health checks, and executes headless send-to-engine jobs that
+ * import a Director exchange package into the user's engine project.
+ *
+ * Security and honesty invariants:
+ * - Headless jobs only ever run the fixed, Director-authored connector entry
+ *   points installed in the engine project; request data can select a
+ *   package or camera but never the script that executes.
+ * - `ready` is layered honesty, not file presence: the workspace connector
+ *   source, the engine executable + version, the configured project, the
+ *   installed connector (version-matched for Unreal/Unity), and — for Godot —
+ *   an actual headless health probe must all pass.
+ * - Connector reports are schema-validated and pinned to the exact exchange
+ *   package (packageId + sourceRevision); a mismatched report is an
+ *   integrity failure, not a success.
+ * - Fidelity losses (animation channels a bake cannot carry, skipped clean
+ *   frames) are warn-and-omit: reported structurally in the result, never
+ *   silently dropped and never fatal to the handoff.
+ */
 import { spawn } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -48,6 +69,7 @@ export const DIRECTOR_ENGINE_PROJECT_ENV: Record<DirectorDccEngineId, string> = 
   godot: "DIRECTOR_GODOT_PROJECT",
 };
 
+/** Discovery hints per engine: PATH command names plus well-known install roots. */
 type EngineRuntimeProbe = {
   commands: string[];
   defaultPaths: string[];
@@ -205,11 +227,14 @@ export interface CreateDirectorDccEngineBridgeOptions {
   now?: () => number;
 }
 
+/** Keeps the tail of process output bounded; the useful engine error is at the end. */
 function appendBounded(current: string, next: string): string {
   const combined = current + next;
   return combined.length <= MAX_PROCESS_OUTPUT ? combined : combined.slice(combined.length - MAX_PROCESS_OUTPUT);
 }
 
+// Runs one engine process with a hard timeout, SIGTERM→SIGKILL escalation,
+// and bounded output capture.
 async function defaultRunProcess(
   executable: string,
   args: string[],
@@ -287,11 +312,13 @@ async function isDirectory(path: string) {
   }
 }
 
+/** Lexical containment check for job/report paths. */
 function isInside(parent: string, child: string): boolean {
   const value = relative(parent, child);
   return value === "" || (!value.startsWith(`..${sep}`) && value !== ".." && !isAbsolute(value));
 }
 
+/** First existing command file found on PATH, or null. */
 async function discoverOnPath(commands: readonly string[], environment: NodeJS.ProcessEnv) {
   for (const directory of (environment.PATH ?? "").split(delimiter).filter(Boolean)) {
     for (const command of commands) {
@@ -302,6 +329,8 @@ async function discoverOnPath(commands: readonly string[], environment: NodeJS.P
   return null;
 }
 
+// Executable resolution order: explicit env override, well-known install
+// roots, then PATH lookup — so a configured binary always wins.
 async function discoverEngineExecutable(provider: DirectorDccEngineId, environment: NodeJS.ProcessEnv) {
   const configured = environment[DIRECTOR_ENGINE_BINARY_ENV[provider]]?.trim();
   const probe = ENGINE_RUNTIME_PROBES[provider];
@@ -354,6 +383,7 @@ async function defaultProbeHostVersion(
   }
 }
 
+/** Outcome of resolving the configured engine project, with a human-readable detail. */
 interface EngineProjectResolution {
   ok: boolean;
   projectPath: string | null;
@@ -361,6 +391,9 @@ interface EngineProjectResolution {
   detail: string;
 }
 
+// Validates the configured project against each engine's identity marker
+// (.uproject file, ProjectSettings/ProjectVersion.txt, project.godot) so a
+// wrong path fails the health check rather than a mid-job import.
 async function resolveEngineProject(
   provider: DirectorDccEngineId,
   environment: NodeJS.ProcessEnv,
@@ -410,6 +443,7 @@ async function resolveEngineProject(
   return { ok: true, projectPath, projectDirectory: projectPath, detail: projectPath };
 }
 
+/** Version string of the connector copy installed in the engine project, or null. */
 async function readInstalledConnectorVersion(
   provider: DirectorDccEngineId,
   projectDirectory: string,
@@ -473,6 +507,8 @@ async function checkInstalledConnector(
   return { ok: true, detail: `Director connector is installed in ${projectDirectory}.` };
 }
 
+// One actionable recovery instruction per failing health check id, surfaced
+// verbatim in health/diagnostics results.
 const ENGINE_RECOVERY_HINTS: Record<DirectorDccEngineId, Record<string, string>> = {
   unreal: {
     executable: "Set DIRECTOR_UNREAL_EDITOR_BIN to the UnrealEditor-Cmd binary of a licensed Unreal Engine install.",
@@ -498,6 +534,9 @@ const ENGINE_RECOVERY_HINTS: Record<DirectorDccEngineId, Record<string, string>>
   },
 };
 
+// Unreal's -ExecutePythonScript takes one whitespace-split string, so paths
+// are quoted; embedded quotes are stripped rather than escaped because no
+// legitimate path contains them.
 function quoteForUnrealScriptArgument(path: string): string {
   return `"${path.replaceAll('"', "")}"`;
 }
@@ -545,6 +584,7 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     return resolve(workspaceRoot, "integrations", provider);
   }
 
+  /** Parses the workspace connector manifest; null with a reason on any defect. */
   async function readConnectorManifest(
     provider: DirectorDccEngineId,
   ): Promise<{ manifest: DirectorDccConnectorManifest | null; detail: string }> {
@@ -571,6 +611,10 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     return { manifest: parsed.data, detail: `connector ${parsed.data.version} (${parsed.data.hostRequirement})` };
   }
 
+  // Runs the layered health checks in dependency order (manifest → entry
+  // points → executable → version → project → installed connector →
+  // provider-specific probes); each failure contributes a warning and a
+  // recovery hint, and `ready` requires every layer to pass.
   async function runHealth(provider: DirectorDccEngineId): Promise<DirectorDccEngineHealth> {
     const checks: DirectorDccEngineHealth["checks"] = [];
     const warnings: string[] = [];
@@ -709,6 +753,8 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     });
   }
 
+  // Health results are TTL-cached: probing can launch a headless engine, so
+  // repeated status polls must not spawn one per request.
   async function health(providerInput: DirectorDccEngineId): Promise<DirectorDccEngineHealth> {
     const provider = parseEngineProvider(providerInput);
     const cached = healthCache.get(provider);
@@ -733,6 +779,9 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     return resolve(dataDirectory, "dcc-jobs", parseEngineProvider(provider));
   }
 
+  // Argument vector for one headless import, per engine CLI convention
+  // (Unreal -ExecutePythonScript, Unity -executeMethod, Godot --script). The
+  // entry script/method is always the fixed connector one.
   function engineArguments(
     provider: DirectorDccEngineId,
     projectResolution: { projectPath: string; projectDirectory: string },
@@ -816,6 +865,8 @@ export function createDirectorDccEngineBridge(options: CreateDirectorDccEngineBr
     ];
   }
 
+  // One full send: health gate → exchange export → optional animation bake →
+  // headless import → report validation pinned to the exact package.
   async function send(
     project: DirectorProject,
     sendOptions: DirectorDccEngineSendOptions,
