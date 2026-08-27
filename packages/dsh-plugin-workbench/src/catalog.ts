@@ -101,6 +101,12 @@ const directorWorkbenchWireSchema = compactWireSchema(
     .enum(["character", "scene", "prop", "camera", "panorama"])
     .optional()
     .describe('Top-level object-kind selector for op="query_objects"; also the asset-kind filter for op="catalog".'),
+  object_list_id: z
+    .string()
+    .optional()
+    .describe(
+      'Top-level selector for op="query_objects": exact Stage object-list id (objectListId) from create_object_list / the tree panel.',
+    ),
   max_results: z.number().int().min(1).max(200).optional().describe('Result bound for op="query_objects".'),
   actions: z
     .array(z.looseObject({ action: z.string().min(1) }))

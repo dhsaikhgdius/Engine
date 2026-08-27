@@ -506,7 +506,7 @@ export const directorObjectSpatialQuerySchema = z.discriminatedUnion("mode", [
 
 /** Actionable shape shown when query_objects is missing a selector or invents filter-only fields. */
 const QUERY_OBJECTS_SHAPE_HINT =
-  'query_objects requires spatial, name_pattern, or kind. Example {"op":"query_objects","name_pattern":"door"} or {"op":"query_objects","spatial":{"mode":"frustum"}}. Name filter may also be {"op":"query_objects","filter":{"name_pattern":"door"}}';
+  'query_objects requires spatial, name_pattern, kind, or object_list_id. Example {"op":"query_objects","name_pattern":"door"} or {"op":"query_objects","object_list_id":"object_list_1"} or {"op":"query_objects","spatial":{"mode":"frustum"}}. Name filter may also be {"op":"query_objects","filter":{"name_pattern":"door"}}';
 
 const DIFF_SHAPE_HINT =
   'diff requires exactly one of since_turn or since_audit. Example {"op":"diff","since_turn":"<turn-id>"} or {"op":"diff","since_audit":"<audit-token>"}. Copy those values from the last successful observe, author, or audit result; do not guess numbers or send {"op":"diff"} alone.';
@@ -643,10 +643,11 @@ export const directorWorkbenchOperationSchema = z.discriminatedUnion("op", [
     spatial: directorObjectSpatialQuerySchema.optional(),
     name_pattern: nonEmptyText(120).optional(),
     kind: directorObjectKindSchema.optional(),
+    object_list_id: nonEmptyText(200).optional(),
     include_hidden: z.boolean().default(false),
     max_results: z.number().int().min(1).max(200).default(50),
   }).superRefine((value, context) => {
-    if (!value.spatial && !value.name_pattern && !value.kind) {
+    if (!value.spatial && !value.name_pattern && !value.kind && !value.object_list_id) {
       context.addIssue({ code: "custom", message: QUERY_OBJECTS_SHAPE_HINT });
     }
   }),
@@ -962,6 +963,9 @@ function liftQueryObjectsAliases(input: unknown): unknown {
     if (next.kind == null && typeof lifted.kind === "string") {
       next.kind = lifted.kind;
     }
+    if (next.object_list_id == null && typeof lifted.object_list_id === "string") {
+      next.object_list_id = lifted.object_list_id;
+    }
   }
 
   if (next.max_results == null) {
@@ -1155,7 +1159,8 @@ function queryObjectsFieldMessage(input: unknown, issue: { code: string; path: P
   const hasSelector =
     operation.spatial != null ||
     (typeof operation.name_pattern === "string" && operation.name_pattern.trim().length > 0) ||
-    (typeof operation.kind === "string" && operation.kind.trim().length > 0);
+    (typeof operation.kind === "string" && operation.kind.trim().length > 0) ||
+    (typeof operation.object_list_id === "string" && operation.object_list_id.trim().length > 0);
   if (!hasSelector) return QUERY_OBJECTS_SHAPE_HINT;
   if (
     issue.path[0] === "spatial" &&
@@ -1164,7 +1169,7 @@ function queryObjectsFieldMessage(input: unknown, issue: { code: string; path: P
       issue.code === "invalid_union_discriminator" ||
       issue.code === "invalid_value")
   ) {
-    return 'spatial must be {mode:"frustum"|"aabb"|"radius"|"nearby"}. You may also use only name_pattern or kind, for example {"op":"query_objects","name_pattern":"door"}';
+    return 'spatial must be {mode:"frustum"|"aabb"|"radius"|"nearby"}. You may also use only name_pattern, kind, or object_list_id, for example {"op":"query_objects","name_pattern":"door"}';
   }
   return null;
 }

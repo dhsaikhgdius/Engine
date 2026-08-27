@@ -139,6 +139,77 @@ describe("Director workbench executor", () => {
     });
   });
 
+  it("routes object_list_id queries through the workbench executor", () => {
+    const authored = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
+      op: "author",
+      actions: [
+        {
+          action: "add_object",
+          id: "list-prop-a",
+          name: "列表道具A",
+          kind: "prop",
+          geometry_type: "box",
+          transform: { position: [1, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        },
+        {
+          action: "add_object",
+          id: "list-prop-b",
+          name: "列表道具B",
+          kind: "prop",
+          geometry_type: "box",
+          transform: { position: [3, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        },
+        {
+          action: "create_object_list",
+          list_id: "object_list_1",
+          label: "前景道具",
+          object_ids: ["list-prop-a", "list-prop-b"],
+        },
+      ],
+    });
+    expect(authored).toMatchObject({ success: true });
+
+    const queried = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
+      op: "query_objects",
+      object_list_id: "object_list_1",
+      include_hidden: false,
+      max_results: 50,
+    });
+    expect(queried).toMatchObject({
+      success: true,
+      result: {
+        object_list_id: "object_list_1",
+        match_count: 2,
+        objects: expect.arrayContaining([
+          expect.objectContaining({
+            id: "list-prop-a",
+            object_list_id: "object_list_1",
+            object_list_label: "前景道具",
+          }),
+          expect.objectContaining({
+            id: "list-prop-b",
+            object_list_id: "object_list_1",
+            object_list_label: "前景道具",
+          }),
+        ]),
+      },
+    });
+
+    const observed = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
+      op: "observe",
+      fields: ["objects"],
+    });
+    expect(observed.result).toMatchObject({
+      objects: expect.arrayContaining([
+        expect.objectContaining({
+          id: "list-prop-a",
+          object_list_id: "object_list_1",
+          object_list_label: "前景道具",
+        }),
+      ]),
+    });
+  });
+
   it("queries objects by name_pattern without a spatial bound", () => {
     executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
@@ -351,7 +422,7 @@ describe("Director workbench executor", () => {
         "catalog when an asset or motion id is unknown",
         "observe for a compact scene summary",
         "observe with since_revision when only persisted changes are needed",
-        "query_objects when a name, kind, camera frustum, or local area is needed",
+        "query_objects when a name, kind, object-list id, camera frustum, or local area is needed",
         "author one complete user intent",
         "check the changed entities or frame once",
       ],
