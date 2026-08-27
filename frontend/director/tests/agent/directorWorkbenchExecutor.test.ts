@@ -143,22 +143,12 @@ describe("Director workbench executor", () => {
     const authored = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
       op: "author",
       actions: [
-        {
-          action: "add_object",
-          id: "list-prop-a",
-          name: "列表道具A",
-          kind: "prop",
-          geometry_type: "box",
+        ...assetInstanceActions("list-prop-a", "列表道具A", {
           transform: { position: [1, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
-        },
-        {
-          action: "add_object",
-          id: "list-prop-b",
-          name: "列表道具B",
-          kind: "prop",
-          geometry_type: "box",
+        }),
+        ...assetInstanceActions("list-prop-b", "列表道具B", {
           transform: { position: [3, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
-        },
+        }),
         {
           action: "create_object_list",
           list_id: "object_list_1",
