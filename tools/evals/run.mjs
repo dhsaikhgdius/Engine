@@ -215,8 +215,29 @@ function checkExpectations(expect, body) {
   return failures;
 }
 
+// `--manifest <path>` restricts a run to the task files listed by a suite
+// manifest (film-task-manifest.json / game-task-manifest.json); without it the
+// harness runs every tasks/*.json in filename order.
+function manifestPathArgument() {
+  const index = process.argv.indexOf("--manifest");
+  if (index === -1) return null;
+  const value = process.argv[index + 1];
+  if (!value) throw new Error("--manifest requires a path to a task-manifest JSON file.");
+  return resolve(repoRoot, value);
+}
+
 async function loadTasks() {
-  const files = (await readdir(tasksDirectory)).filter((file) => file.endsWith(".json")).sort();
+  const manifestPath = manifestPathArgument();
+  let files;
+  if (manifestPath) {
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    if (!Array.isArray(manifest.tasks) || manifest.tasks.length === 0) {
+      throw new Error(`Manifest ${manifestPath} must declare a non-empty "tasks" array.`);
+    }
+    files = manifest.tasks;
+  } else {
+    files = (await readdir(tasksDirectory)).filter((file) => file.endsWith(".json")).sort();
+  }
   if (!files.length) throw new Error(`No task files found in ${tasksDirectory}.`);
   return Promise.all(
     files.map(async (file) => ({ file, ...JSON.parse(await readFile(join(tasksDirectory, file), "utf8")) })),

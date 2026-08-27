@@ -38,6 +38,8 @@
     "stage": "node tools/scripts/stage-cli.mjs",
     "test": "npm run test:core",
     "eval": "node tools/evals/run.mjs",
+    "eval:film": "node tools/evals/run.mjs --manifest tools/evals/film-task-manifest.json",
+    "eval:game": "node tools/evals/run.mjs --manifest tools/evals/game-task-manifest.json",
     "eval:godot-result": "node tools/evals/godot-result-eval.mjs",
     "eval:reference": "node tools/evals/live-reference-case.mjs",
     "test:core": "vitest run --config tools/vitest.config.ts",

@@ -182,7 +182,7 @@ possess 模式同时限制该 session 的写入范围：绑定了人物的 sessi
 
 「放置人物 → 绑定 Agent → 以占有会话驱动（含省略目标补全）→ 校验越权 author/`player`/`pilot`
 均被 `possession_scope_violation` 拒绝 → 解绑」这条完整链路由黄金评测任务
-`tools/evals/tasks/08-character-agent-possession.json` 回归覆盖，通过
+`tools/evals/tasks/film-08-character-agent-possession.json` 回归覆盖，通过
 `npm run eval` 运行（见仓库中的 `tools/evals/README.zh-CN.md`）。
 
 ## CLI 快速检查

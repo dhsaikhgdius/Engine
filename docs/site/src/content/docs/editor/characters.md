@@ -214,7 +214,7 @@ HTTP caller shares that id, so it is meaningless as a possession identity.
 The complete loop — place characters, bind an Agent, drive the possessed character from its own
 session (including the omitted-target fill-in), verify that out-of-scope author, `player`, and
 `pilot` writes are rejected with `possession_scope_violation`, then unbind — is covered by the
-golden eval task `tools/evals/tasks/08-character-agent-possession.json`, run through
+golden eval task `tools/evals/tasks/film-08-character-agent-possession.json`, run through
 `npm run eval` (see `tools/evals/README.md` in the repository).
 
 ## Quick CLI check

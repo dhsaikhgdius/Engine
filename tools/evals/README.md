@@ -14,8 +14,18 @@ passes `--config` when it spawns the UI.
 ## Run
 
 ```sh
-npm run eval
+npm run eval        # every task in tasks/ (film + game), filename order
+npm run eval:film   # main-chain film tasks only (film-task-manifest.json)
+npm run eval:game   # game-slice tasks only (game-task-manifest.json)
 ```
+
+The film and game suites are separated by explicit manifests instead of filename numbering:
+`film-task-manifest.json` and `game-task-manifest.json` each list their task files in run
+order, and the split scripts pass `--manifest <path>` to `run.mjs`. Task filenames carry a
+`film-` / `game-` suite prefix with per-suite numbering, so the two suites can grow
+independently without number collisions. The task-schema test asserts that every file in
+`tasks/` is listed by exactly one manifest, so a new task cannot silently fall out of both
+suites.
 
 Run the engine-result gate separately when a real Godot 4 editor is available:
 
@@ -64,7 +74,8 @@ The eval entrypoint (`run.mjs`) logic:
 3. Spawns a gateway child process (`npm start` + env, waits for ready).
 4. Spawns a Vite UI child process (`npx vite --config tools/vite.config.ts`, waits for ready).
 5. Starts headless Chromium and navigates to `http://127.0.0.1:5199`.
-6. Reads `tasks/*.json` in filename order, runs steps sequentially.
+6. Reads `tasks/*.json` in filename order — or, with `--manifest <path>`, only the files
+   listed by that manifest, in manifest order — and runs steps sequentially.
 7. Each step POSTs JSON to `POST /api/tools/<step.tool>` and checks the response
    against expectations (`success`, `code`, `error_includes`, `result_paths`, `result_equals`).
 8. Summarizes pass/fail counts; exit code reflects the outcome.
@@ -77,7 +88,7 @@ Each `tasks/*.json` file is one task, run sequentially with its own
 Every step names one public tool in `tool`: `director_workbench`, `director_creative`,
 `stage_video`, `blender_native`, `director_dcc`, or `director_game`. The task-schema test validates every
 expected-success input against that tool's strict contract before an isolated browser run.
-Game-slice tasks (`12`–`18`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
+Game-slice tasks (`game-01`–`game-11`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
 host-free playtest without an inline `trace`, racing/FPS full loops, the live Stage playtest path
 (see "Live vs host-free playtest"), the harness-vs-codegen honesty contract
 (Stage as the default runtime; `export_slice` refusing engine code generation), and the fps/racing/rpg genre demo recipes replayed
@@ -101,7 +112,7 @@ really are incomplete.
 
 A step waiting on asynchronous readiness may declare `retry: { attempts, delay_ms }` (delay
 defaults to 2000 ms): the step re-runs until its full expectations pass or the attempts are
-exhausted. Task `18` uses this on its live playtest step because the headless tab's Player
+exhausted. Task `game-11` uses this on its live playtest step because the headless tab's Player
 Mode needs a moment to become live after `player enter`.
 
 ## Live vs host-free playtest
@@ -118,10 +129,10 @@ forged over the public boundary.
 In this harness, a headless workbench tab is always connected, so which path a task
 exercises is decided by its bindings:
 
-- Tasks `12`–`17` bind role ids to object ids that exist only in the slice document, so the
+- Tasks `game-01`–`game-10` bind role ids to object ids that exist only in the slice document, so the
   live tab rejects the tape and the Gateway falls back — they are host-free goldens (tasks
-  `12` and `13` additionally supply inline traces, which evaluate as `"inline"`).
-- Task `18` authors real Stage objects first and binds the slice to them, so the tape must
+  `game-01` and `game-02` additionally supply inline traces, which evaluate as `"inline"`).
+- Task `game-11` authors real Stage objects first and binds the slice to them, so the tape must
   replay on the live player session. Its `result_equals` assertions require
   `"live_stage"` provenance and a playable receipt: if the harness were forced to
   host-free (including a timed-out live dispatch, which falls back with honest `"host_free"`
@@ -131,29 +142,36 @@ exercises is decided by its bindings:
 
 ## Task inventory
 
-| Path                                             | Purpose                                                                                                              |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `tasks/01-blocking-and-revision-chain.json`      | Block out two primitives, place one relative to the other, verify revision chain increments                          |
-| `tasks/02-catalog-and-camera.json`               | Discover a schema slice via `describe`, search the asset catalog, add an active camera, and capture a clean frame    |
-| `tasks/03-guard-and-error-taxonomy.json`         | Verify failure semantics: stale revision guard, strict field validation rejection, and recovery to normal operations |
-| `tasks/04-character-animation-and-ik.json`       | Create a grounded character and author pose controls, packaged motion, and IK atomically                             |
-| `tasks/05-bounded-large-scene-observation.json`  | Add a multi-object block and verify bounded spatial and hierarchy observations                                       |
-| `tasks/06-creative-workspaces-atomic-batch.json` | Exercise Canvas, Video Editor, and Gallery in one undoable Creative batch                                            |
-| `tasks/07-video-and-native-capabilities.json`    | Verify Video provider discovery and Blender native-kernel status through public tools                                |
-| `tasks/08-character-agent-possession.json`       | Bind an Agent to a character, drive it from the possessing session (with target fill-in), verify possession rejects out-of-scope author/player/pilot writes, then unbind |
-| `tasks/09-dcc-discover-and-handoff.json`         | Verify the DCC provider catalog, Blender handoff readiness, and the unknown-provider failure taxonomy                |
-| `tasks/10-transcription-contract.json`           | Verify transcription capabilities/list and the get/read failure taxonomy for unknown inputs                          |
-| `tasks/11-workbench-observe-author-smoke.json`   | Smoke the core loop: capabilities, bounded observation, author a camera, inspect it, and undo                        |
-| `tasks/12-game-slice-plan-and-playtest.json`     | Plan a typed game slice, bind Stage objects, and playtest it with a scripted input tape                              |
-| `tasks/13-game-slice-export-routes-dcc.json`     | Export a playable slice through DCC discover/status/send_to_engine routes                                            |
-| `tasks/13-whitebox-blockout-workflow.json`       | White-box blockout workflow golden                                                                                   |
-| `tasks/14-game-slice-unbound-playtest-rejects.json` | Verify playtest rejects until the player role is bound to a Stage object                                          |
-| `tasks/14-world-systems-observation.json`        | Author Living World weather/wind plus one effect, then verify the `world` observation projection                     |
-| `tasks/15-game-slice-hostfree-playtest-no-trace.json` | Host-free playtest scoring without an explicit trace                                                            |
-| `tasks/16-game-demo-fps-recipe-hostfree.json`    | Replay the fps demo recipe: discover via capabilities/describe, plan, bind hinted roles, host-free playtest to playable |
-| `tasks/16-game-harness-vs-codegen-honesty.json`  | Harness-vs-codegen honesty: capabilities report `runtime.default = "stage"`, and `export_slice` rejects codegen both before (`game_export_not_playable`) and after (`game_export_via_dcc`) a playable receipt |
-| `tasks/16-game-slice-racing-full-loop.json`      | Full racing loop with no inline trace, vehicle order enforced, export routed to `director_dcc`                        |
-| `tasks/17-game-demo-racing-recipe-hostfree.json` | Replay the racing demo recipe with enter/exit vehicle verbs to a literally playable receipt                          |
-| `tasks/17-game-slice-fps-full-loop.json`         | Full FPS loop with no inline trace, fire/reload verbs exercised, export routed to `director_dcc`                      |
-| `tasks/18-game-demo-rpg-recipe-hostfree.json`    | Replay the rpg demo recipe with interact plus attack verbs to a literally playable receipt                            |
-| `tasks/18-game-slice-live-stage-playtest.json`   | Live Stage playtest: author real actors, bind, replay the tape on the connected tab, require `live_stage` provenance  |
+Film suite (`film-task-manifest.json`, `npm run eval:film`):
+
+| Path                                                  | Purpose                                                                                                              |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `tasks/film-01-blocking-and-revision-chain.json`      | Block out two primitives, place one relative to the other, verify revision chain increments                          |
+| `tasks/film-02-catalog-and-camera.json`               | Discover a schema slice via `describe`, search the asset catalog, add an active camera, and capture a clean frame    |
+| `tasks/film-03-guard-and-error-taxonomy.json`         | Verify failure semantics: stale revision guard, strict field validation rejection, and recovery to normal operations |
+| `tasks/film-04-character-animation-and-ik.json`       | Create a grounded character and author pose controls, packaged motion, and IK atomically                             |
+| `tasks/film-05-bounded-large-scene-observation.json`  | Add a multi-object block and verify bounded spatial and hierarchy observations                                       |
+| `tasks/film-06-creative-workspaces-atomic-batch.json` | Exercise Canvas, Video Editor, and Gallery in one undoable Creative batch                                            |
+| `tasks/film-07-video-and-native-capabilities.json`    | Verify Video provider discovery and Blender native-kernel status through public tools                                |
+| `tasks/film-08-character-agent-possession.json`       | Bind an Agent to a character, drive it from the possessing session (with target fill-in), verify possession rejects out-of-scope author/player/pilot writes, then unbind |
+| `tasks/film-09-dcc-discover-and-handoff.json`         | Verify the DCC provider catalog, Blender handoff readiness, and the unknown-provider failure taxonomy                |
+| `tasks/film-10-transcription-contract.json`           | Verify transcription capabilities/list and the get/read failure taxonomy for unknown inputs                          |
+| `tasks/film-11-workbench-observe-author-smoke.json`   | Smoke the core loop: capabilities, bounded observation, author a camera, inspect it, and undo                        |
+| `tasks/film-12-whitebox-blockout-workflow.json`       | White-box blockout workflow golden                                                                                   |
+| `tasks/film-13-world-systems-observation.json`        | Author Living World weather/wind plus one effect, then verify the `world` observation projection                     |
+
+Game suite (`game-task-manifest.json`, `npm run eval:game`):
+
+| Path                                                  | Purpose                                                                                                              |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `tasks/game-01-slice-plan-and-playtest.json`          | Plan a typed game slice, bind Stage objects, and playtest it with a scripted input tape                              |
+| `tasks/game-02-slice-export-routes-dcc.json`          | Export a playable slice through DCC discover/status/send_to_engine routes                                            |
+| `tasks/game-03-slice-unbound-playtest-rejects.json`   | Verify playtest rejects until the player role is bound to a Stage object                                             |
+| `tasks/game-04-slice-hostfree-playtest-no-trace.json` | Host-free playtest scoring without an explicit trace                                                                 |
+| `tasks/game-05-demo-fps-recipe-hostfree.json`         | Replay the fps demo recipe: discover via capabilities/describe, plan, bind hinted roles, host-free playtest to playable |
+| `tasks/game-06-harness-vs-codegen-honesty.json`       | Harness-vs-codegen honesty: capabilities report `runtime.default = "stage"`, and `export_slice` rejects codegen both before (`game_export_not_playable`) and after (`game_export_via_dcc`) a playable receipt |
+| `tasks/game-07-slice-racing-full-loop.json`           | Full racing loop with no inline trace, vehicle order enforced, export routed to `director_dcc`                        |
+| `tasks/game-08-demo-racing-recipe-hostfree.json`      | Replay the racing demo recipe with enter/exit vehicle verbs to a literally playable receipt                          |
+| `tasks/game-09-slice-fps-full-loop.json`              | Full FPS loop with no inline trace, fire/reload verbs exercised, export routed to `director_dcc`                      |
+| `tasks/game-10-demo-rpg-recipe-hostfree.json`         | Replay the rpg demo recipe with interact plus attack verbs to a literally playable receipt                            |
+| `tasks/game-11-slice-live-stage-playtest.json`        | Live Stage playtest: author real actors, bind, replay the tape on the connected tab, require `live_stage` provenance  |

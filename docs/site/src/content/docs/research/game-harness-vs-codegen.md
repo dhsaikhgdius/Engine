@@ -40,9 +40,9 @@ refuses to substitute a compile for a playtest.
 
 ## Proof
 
-Golden tasks `12`–`16` in `tools/evals/tasks/` — see the task inventory in
+Golden tasks `game-01`–`game-07` in `tools/evals/tasks/` — see the task inventory in
 `tools/evals/README.md` — replay the claims above against an isolated gateway
-(`npm run eval`). `tasks/16-game-harness-vs-codegen-honesty.json` asserts the two
+(`npm run eval:game`). `tasks/game-06-harness-vs-codegen-honesty.json` asserts the two
 load-bearing ones mechanically: `capabilities` reports `runtime.default = "stage"`, and
 `export_slice` rejects with `game_export_not_playable` before a playable receipt exists and
 with `game_export_via_dcc` (routing to `director_dcc`) after one does.

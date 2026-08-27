@@ -1,0 +1,19 @@
+{
+  "suite": "film",
+  "description": "Main-chain Director golden tasks: Stage authoring, Creative workspaces, characters, Blender/DCC discovery, transcription, white-box blockout, and Living World observation. Run with `npm run eval:film`.",
+  "tasks": [
+    "film-01-blocking-and-revision-chain.json",
+    "film-02-catalog-and-camera.json",
+    "film-03-guard-and-error-taxonomy.json",
+    "film-04-character-animation-and-ik.json",
+    "film-05-bounded-large-scene-observation.json",
+    "film-06-creative-workspaces-atomic-batch.json",
+    "film-07-video-and-native-capabilities.json",
+    "film-08-character-agent-possession.json",
+    "film-09-dcc-discover-and-handoff.json",
+    "film-10-transcription-contract.json",
+    "film-11-workbench-observe-author-smoke.json",
+    "film-12-whitebox-blockout-workflow.json",
+    "film-13-world-systems-observation.json"
+  ]
+}

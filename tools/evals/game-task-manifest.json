@@ -1,0 +1,17 @@
+{
+  "suite": "game",
+  "description": "Experimental game-slice golden tasks: plan/bind/playtest, DCC export routing, host-free and live Stage playtests, and the genre demo recipes. Run with `npm run eval:game`.",
+  "tasks": [
+    "game-01-slice-plan-and-playtest.json",
+    "game-02-slice-export-routes-dcc.json",
+    "game-03-slice-unbound-playtest-rejects.json",
+    "game-04-slice-hostfree-playtest-no-trace.json",
+    "game-05-demo-fps-recipe-hostfree.json",
+    "game-06-harness-vs-codegen-honesty.json",
+    "game-07-slice-racing-full-loop.json",
+    "game-08-demo-racing-recipe-hostfree.json",
+    "game-09-slice-fps-full-loop.json",
+    "game-10-demo-rpg-recipe-hostfree.json",
+    "game-11-slice-live-stage-playtest.json"
+  ]
+}

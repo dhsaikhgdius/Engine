@@ -10,7 +10,8 @@ import { blenderNativeToolRequestSchema } from "../../packages/protocol/src/blen
 import { directorGameOperationSchema } from "../../packages/protocol/src/directorGameProtocol";
 import { directorDccOperationSchema } from "../../packages/dcc-protocol/src/directorDccContract";
 
-const tasksDirectory = join(dirname(fileURLToPath(import.meta.url)), "tasks");
+const evalsDirectory = dirname(fileURLToPath(import.meta.url));
+const tasksDirectory = join(evalsDirectory, "tasks");
 const schemas = {
   director_workbench: directorWorkbenchOperationSchema,
   director_creative: creativeWorkspaceAgentRequestSchema,
@@ -63,5 +64,25 @@ describe("Agent golden tasks", () => {
         }
       }
     }
+  });
+
+  it("film and game manifests partition the task directory without drift", async () => {
+    const directoryFiles = (await readdir(tasksDirectory)).filter((file) => file.endsWith(".json")).sort();
+    const manifests = await Promise.all(
+      (["film-task-manifest.json", "game-task-manifest.json"] as const).map(async (name) => ({
+        name,
+        ...(JSON.parse(await readFile(join(evalsDirectory, name), "utf8")) as { suite: string; tasks: string[] }),
+      })),
+    );
+    for (const manifest of manifests) {
+      for (const file of manifest.tasks) {
+        expect(file.startsWith(`${manifest.suite}-`), `${manifest.name}: ${file} lacks the ${manifest.suite}- prefix`).toBe(
+          true,
+        );
+      }
+    }
+    const combined = manifests.flatMap((manifest) => manifest.tasks);
+    expect(new Set(combined).size, "a task file may belong to exactly one manifest").toBe(combined.length);
+    expect([...combined].sort(), "every task file must be listed by exactly one manifest").toEqual(directoryFiles);
   });
 });

@@ -8,11 +8,11 @@ import { gamePlaytestScriptSchema } from "../../packages/protocol/src/gameSliceP
 
 const tasksDirectory = join(dirname(fileURLToPath(import.meta.url)), "tasks");
 
-/** Golden tasks 16-18 replay the published genre demo recipes verbatim. */
+/** The game-demo golden tasks replay the published genre demo recipes verbatim. */
 const RECIPE_TASKS = [
-  { file: "16-game-demo-fps-recipe-hostfree.json", genre: "fps" },
-  { file: "17-game-demo-racing-recipe-hostfree.json", genre: "racing" },
-  { file: "18-game-demo-rpg-recipe-hostfree.json", genre: "rpg" },
+  { file: "game-05-demo-fps-recipe-hostfree.json", genre: "fps" },
+  { file: "game-08-demo-racing-recipe-hostfree.json", genre: "racing" },
+  { file: "game-10-demo-rpg-recipe-hostfree.json", genre: "rpg" },
 ] as const;
 
 type TaskStep = {

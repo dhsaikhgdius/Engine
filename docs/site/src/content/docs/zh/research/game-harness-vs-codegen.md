@@ -36,8 +36,8 @@ DSH 上使用完全相同的词汇。
 
 ## 证明
 
-`tools/evals/tasks/` 中的黄金任务 `12`–`16`（任务清单见 `tools/evals/README.zh-CN.md`）在
-隔离 gateway 上重放上述主张（`npm run eval`）。`tasks/16-game-harness-vs-codegen-honesty.json`
+`tools/evals/tasks/` 中的黄金任务 `game-01`–`game-07`（任务清单见 `tools/evals/README.zh-CN.md`）在
+隔离 gateway 上重放上述主张（`npm run eval:game`）。`tasks/game-06-harness-vs-codegen-honesty.json`
 机械化断言其中两条关键主张：`capabilities` 报告 `runtime.default = "stage"`；在可玩回执存在
 之前 `export_slice` 以 `game_export_not_playable` 拒绝，存在之后以 `game_export_via_dcc`
 拒绝并路由到 `director_dcc`。
