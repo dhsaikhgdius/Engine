@@ -1,3 +1,11 @@
+/**
+ * Directional locomotion blending: maps a character's movement direction
+ * relative to its facing into normalized forward/backward/left/right clip
+ * weights (a 1D blend on the strafe circle), degrading gracefully when a
+ * directional clip is missing by folding its weight into available
+ * neighbors. Pure math shared by the play-mode runtime and timeline
+ * playback so both pick identical clip mixes.
+ */
 import type {
   DirectorCharacterLocomotionMode,
   DirectorCharacterLocomotionRuntimeState,

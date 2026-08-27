@@ -1,3 +1,10 @@
+/**
+ * Frame evaluator for the production layer: resolves which take, coverage
+ * shot, and camera are active for a given request and samples every entity
+ * (and the camera) at that frame through the shared animation evaluator.
+ * Pure and side-effect free — the gateway's shot rendering and agent
+ * inspection tools call this to get the exact pose the viewport would show.
+ */
 import { evaluateDirectorCameraAtFrame, evaluateDirectorObjectAtFrame } from "./directorAnimation";
 import { findDirectorCameraById } from "./cameraIdentity";
 import type {

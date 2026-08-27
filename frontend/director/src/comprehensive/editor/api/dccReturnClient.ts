@@ -1,3 +1,10 @@
+/**
+ * Typed HTTP client for the DCC "return trip": after a scene edited in an
+ * external tool comes back, previews the diff-based import plan (operation /
+ * skip / conflict counts) and applies it to the project. Preview is always a
+ * dry run on the server; apply is the only mutating call, and both responses
+ * are Zod-validated against the shared return contract.
+ */
 import { z } from "zod";
 import { directorDccImportPlanSchema, type DirectorDccImportPlanV1 } from "../../../dcc/directorDccReturnContract";
 import type { DirectorDccConnectorProviderId } from "../../../dcc/directorDccEngineSpace";

@@ -1,3 +1,11 @@
+/**
+ * Typed HTTP client for importing a .blend scene package into the current
+ * Director project: uploads the file for server-side manifest extraction,
+ * previews the generated import plan against a specific project revision, and
+ * applies a user-adjusted selection. Revision strings are checked against the
+ * shared pattern and every response is Zod-validated, so a stale or malformed
+ * plan can never be applied silently.
+ */
 import { z } from "zod";
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../schema/directorProjectRevision";
 import {

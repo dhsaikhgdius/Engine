@@ -1,3 +1,12 @@
+/**
+ * Split static/dynamic shadow mapping for the Stage: static scenery renders
+ * its shadow map once (re-rendered only when the scene revision changes)
+ * while dynamic objects get a small per-frame map, and a patched three.js
+ * lights_fragment_begin chunk composites both directional maps in the
+ * shader. This keeps large authored scenes from paying a full shadow pass
+ * every frame. The patch is keyed so material programs cache correctly, and
+ * all renderer state is restored after each bake.
+ */
 import { useThree } from "@react-three/fiber";
 import { useLayoutEffect, useRef } from "react";
 import {

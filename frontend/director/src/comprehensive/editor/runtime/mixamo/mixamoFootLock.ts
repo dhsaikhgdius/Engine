@@ -1,3 +1,11 @@
+/**
+ * Foot-lock state machine for Mixamo locomotion: watches each foot's height
+ * and velocity against hysteresis thresholds to decide contact vs swing, and
+ * while planted pins the foot in world space by emitting an IK target (fed
+ * into the two-bone IK layer) with a clamped, smoothed correction. Pure
+ * per-frame math over plain vectors — no three.js types — so it is fully
+ * unit-testable against the recorded X Bot gait matrix.
+ */
 import type { DirectorCharacterIkTarget } from "../../schema/directorProject";
 
 export type MixamoFootLockVector = [number, number, number];

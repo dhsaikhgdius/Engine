@@ -1,3 +1,9 @@
+/**
+ * Primitive body-part meshes (segments, joints, hands, feet, head) shared by
+ * the procedural mannequin. Each part is a small R3F component over basic
+ * three.js geometry with a common clay-style material, named so the pose rig
+ * and bounds helpers can address individual parts on the assembled figure.
+ */
 interface HumanoidMaterialProps {
   color: string;
 }

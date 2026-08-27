@@ -1,3 +1,12 @@
+/**
+ * In-viewport character pose rig: overlays clickable joint handles and bone
+ * links on the selected character, letting the user rotate joints with
+ * TransformControls or drag IK effector targets directly in 3D. Joint edits
+ * are converted to pose-control values through the rig binding probe and
+ * coalesced per animation frame before committing to the store, so dragging
+ * stays smooth while undo history records only the final pose. Handles are
+ * flagged hidden-from-capture so they never leak into renders.
+ */
 import { Html, TransformControls } from "@react-three/drei";
 import { createPortal, useFrame, useThree } from "@react-three/fiber";
 import { useCallback, useMemo, useRef, useState, type RefObject } from "react";

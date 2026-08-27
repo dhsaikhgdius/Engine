@@ -1,3 +1,10 @@
+/**
+ * Visual bounding-box computation that only counts renderable geometry:
+ * walks an object hierarchy accumulating vertex positions (instanced meshes
+ * included) while skipping invisible nodes and fully transparent materials,
+ * so selection outlines and drop placement reflect what the user actually
+ * sees instead of raw Box3 unions that helpers and hidden meshes inflate.
+ */
 import {
   Matrix4,
   Vector3,

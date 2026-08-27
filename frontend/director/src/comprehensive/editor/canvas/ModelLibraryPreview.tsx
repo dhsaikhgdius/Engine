@@ -1,3 +1,11 @@
+/**
+ * Fullscreen 3D preview modal for asset-library items: mounts a second,
+ * self-contained R3F canvas (portal to document.body) with orbit controls so
+ * the user can inspect a catalog model, character, or camera prop before
+ * placing it on the Stage. Suppresses the main viewport chrome while open
+ * and honors the resolved performance profile so the preview never outruns
+ * the primary canvas's budget.
+ */
 import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Suspense, useEffect, type MouseEvent } from "react";

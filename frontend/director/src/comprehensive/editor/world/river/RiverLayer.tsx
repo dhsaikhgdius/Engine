@@ -1,3 +1,11 @@
+/**
+ * RiverLayer: renders authored world rivers as flow-aligned ribbon meshes.
+ * Geometry (with per-vertex flow tangents, slope, curvature, and width
+ * factors) is rebuilt only when the river definition changes; per-frame
+ * water motion is uniform-only via writeRiverFrameUniforms inside useFrame.
+ * Shares the pooled water environment probe with lake water bodies so
+ * reflections stay consistent across all water surfaces.
+ */
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { BufferAttribute, BufferGeometry, type Mesh } from "three";
