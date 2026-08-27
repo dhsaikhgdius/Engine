@@ -963,6 +963,10 @@ whether a building is recognizable. Do not treat `ready:true` as visual acceptan
 { "op": "deliver", "camera_id": "camera-main", "quality_profile": "cinematic" }
 ```
 
+`deliver` is a publish operation: on non-UI surfaces it also needs a single-use `confirm_token`
+(from `POST /api/agent/confirm-token`) next to `op`, or the gateway rejects it with
+`confirm_required` (see the skill's confirmation section).
+
 ## Real error handling
 
 - A stale-edit error: observe once and rebuild the failed edit against the current state.

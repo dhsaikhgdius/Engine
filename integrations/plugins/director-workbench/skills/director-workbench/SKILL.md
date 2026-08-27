@@ -7,6 +7,50 @@ description: Control the live Director 3D workbench, Canvas production DAG, Vide
 
 Use `director_workbench` for the 3D Stage and `director_creative` for Canvas, Video Editor, Gallery, collaboration, and generation pipelines.
 
+## Tool availability per surface
+
+Not every Director tool exists on every surface. Route calls where the tool is actually
+registered (MCP visibility is additionally subject to the film-role tool policy):
+
+| Tool                                | MCP | DSH plugin | CLI (`npm run stage`) | HTTP                                       |
+| ----------------------------------- | --- | ---------- | --------------------- | ------------------------------------------ |
+| `director_workbench`                | yes | yes        | yes                   | `POST /api/tools/director_workbench`       |
+| `director_creative`                 | yes | yes        | yes                   | `POST /api/tools/director_creative`        |
+| `stage_video`                       | yes | yes        | yes                   | `POST /api/tools/stage_video`              |
+| `blender_native`                    | yes | yes        | no                    | `POST /api/tools/blender_native`           |
+| `director_dcc`                      | yes | no         | yes                   | `POST /api/tools/director_dcc`             |
+| `director_game`                     | yes | yes        | yes                   | `POST /api/tools/director_game`            |
+| `director_production`               | yes | no         | no                    | `/api/production/*` domain routes          |
+| `director_film`                     | yes | no         | no                    | `/api/film/runs` domain routes             |
+| `director_model_routes`             | no  | yes        | no                    | —                                          |
+| `stage_read`/`scene`/`object`/`camera`/`show` | no | no | yes (legacy)          | `POST /api/tools/stage_*` (legacy)         |
+
+`GET /api/control-plane/tool-manifest` is the authoritative machine-readable catalog of this
+routing (surface, category, wire `op` enum, HTTP binding, `legacy` markers).
+
+## Destructive/publish confirmation (`confirm_token`)
+
+A closed list of destructive/publish operations requires explicit confirmation on every non-UI
+surface (MCP, DSH, HTTP, CLI): `director_workbench` `deliver`, and `director_creative`
+`interchange.export` / `interchange.import`, `collaboration.restore-version` /
+`delete-version` / `delete-comment`, and `gallery.media.purge`.
+
+- `deliver` and interchange `export` have no protocol `confirm` field: they always need a
+  single-use token from `POST /api/agent/confirm-token` (body
+  `{"tool":"...","operation":"deliver" | "interchange.export","session_id":"..."}`). The other
+  listed operations may instead carry their protocol `confirm: true` field.
+- The token is single-use with a short TTL and is bound to tool + operation + role + session.
+  Issue it with the same film role and `session_id` the tool call will carry, right before the
+  call.
+- Pass the token as `confirm_token` next to `op` — the MCP server, the DSH plugin, and the
+  Stage CLI lift it into the request envelope (the CLI also reads `DIRECTOR_CONFIRM_TOKEN`).
+  Raw HTTP callers use the top-level `confirm_token` body field or the
+  `x-director-confirm-token` header.
+- Without valid confirmation the gateway answers `403 confirm_required` with a `confirm` block
+  naming the issue endpoint and retry fields; the call was not executed. Issue a token and
+  retry the identical call. A retried delivery (for example after a `correct`) needs a fresh
+  token.
+
 ## Canonical source order
 
 Four channels teach the same contract. They repeat key lessons on purpose — each channel reaches an agent population the others cannot — but they are ranked, and only one of them is vocabulary:
