@@ -613,6 +613,16 @@
   background: rgb(var(--director-danger-rgb, 226 104 104) / 0.08);
 }
 
+.director-engine-run-unsupported-note {
+  display: block;
+  margin-top: 3px;
+  color: rgb(var(--text-dim-rgb));
+}
+
+.director-engine-run-error-code {
+  font-weight: 600;
+}
+
 .director-engine-run-status {
   display: flex;
   flex-wrap: wrap;

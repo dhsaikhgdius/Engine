@@ -68,7 +68,16 @@ vi.mock("../../../../../src/comprehensive/editor/api/dccReturnClient", () => {
 });
 vi.mock("../../../../../src/comprehensive/editor/api/dccEngineRunClient", () => {
   class DirectorDccEngineRunClientError extends Error {
-    recovery: string[] = [];
+    status: number;
+    code?: string;
+    recovery: string[];
+    constructor(message: string, status = 500, code?: string, recovery: string[] = []) {
+      super(message);
+      this.name = "DirectorDccEngineRunClientError";
+      this.status = status;
+      this.code = code;
+      this.recovery = recovery;
+    }
   }
   return {
     launchDirectorEngineEditor: runClient.launch,
@@ -91,6 +100,7 @@ vi.mock("../../../../../src/comprehensive/editor/interchange/BlenderLivePanel", 
   BlenderLivePanel: () => <div data-testid="blender-live-panel" />,
 }));
 
+import { DirectorDccEngineRunClientError } from "../../../../../src/comprehensive/editor/api/dccEngineRunClient";
 import { EngineHandoffDock } from "../../../../../src/comprehensive/editor/interchange/engines/EngineHandoffDock";
 
 const hash = "a".repeat(64);
@@ -787,6 +797,68 @@ it("runs the Godot project with bounded output and stops it from the same sectio
   await within(panel).findByText("已停止");
 });
 
+it("labels the typed engine_run_* code when a run start is rejected", async () => {
+  runClient.run.mockRejectedValue(
+    new DirectorDccEngineRunClientError(
+      "No godot executable was found (DIRECTOR_GODOT_BIN or well-known install paths).",
+      503,
+      "engine_run_not_ready",
+      ["Set DIRECTOR_GODOT_BIN to the godot / godot4 binary (Godot 4.x)."],
+    ),
+  );
+  renderDock();
+  const user = await openTab("Godot");
+  const panel = screen.getByRole("tabpanel");
+
+  await user.click(within(panel).getByRole("button", { name: "运行项目" }));
+
+  const alert = await within(panel).findByRole("alert");
+  // The machine code renders beside its zh-CN label — never free text alone.
+  expect(within(alert).getByText("engine_run_not_ready")).toBeInTheDocument();
+  expect(alert).toHaveTextContent("引擎运行未就绪");
+  expect(alert).toHaveTextContent("No godot executable was found");
+  expect(alert).toHaveTextContent("Set DIRECTOR_GODOT_BIN to the godot / godot4 binary (Godot 4.x).");
+});
+
+it("labels the route-level engine_run_unavailable transport code when a stop is rejected", async () => {
+  runClient.stop.mockRejectedValue(
+    new DirectorDccEngineRunClientError(
+      "The engine run manager is not configured on this gateway.",
+      503,
+      "engine_run_unavailable",
+    ),
+  );
+  const runningStatus = {
+    contract: "director-dcc-engine-run-v1",
+    provider: "godot",
+    runId: "godot-run-2",
+    executable: "/opt/godot",
+    projectPath: "/proj",
+    scene: null,
+    headless: false,
+    pid: 4243,
+    state: "running" as const,
+    exitCode: null,
+    startedAtMs: 1_000,
+    endedAtMs: null,
+    output: "",
+    outputTruncated: false,
+  };
+  runClient.run.mockResolvedValue(runningStatus);
+  runClient.status.mockResolvedValue(runningStatus);
+  renderDock();
+  const user = await openTab("Godot");
+  const panel = screen.getByRole("tabpanel");
+
+  await user.click(within(panel).getByRole("button", { name: "运行项目" }));
+  await user.click(await within(panel).findByRole("button", { name: /停止运行/ }));
+
+  const alert = await within(panel).findByRole("alert");
+  expect(within(alert).getByText("engine_run_unavailable")).toBeInTheDocument();
+  expect(alert).toHaveTextContent("运行管理器未配置");
+  expect(alert).toHaveTextContent("The engine run manager is not configured on this gateway.");
+});
+
 it("keeps project runs honest on Unity and offers the editor launch instead", async () => {
   runClient.launch.mockResolvedValue({
     contract: "director-dcc-engine-editor-launch-v1",
@@ -803,6 +875,10 @@ it("keeps project runs honest on Unity and offers the editor launch instead", as
 
   expect(within(panel).queryByRole("button", { name: "运行项目" })).not.toBeInTheDocument();
   expect(within(panel).getByText(/项目运行暂不支持该引擎/)).toBeInTheDocument();
+  // The honesty note names the typed code an Agent/API run attempt would get.
+  expect(within(panel).getByText(/项目运行目前仅限 Godot/)).toBeInTheDocument();
+  expect(within(panel).getByText("engine_run_unsupported")).toBeInTheDocument();
+  expect(panel).toHaveTextContent("该引擎不支持项目运行");
   await user.click(within(panel).getByRole("button", { name: /在引擎编辑器中打开/ }));
   await waitFor(() => expect(runClient.launch).toHaveBeenCalledWith("unity"));
   expect(await within(panel).findByText(/编辑器已启动 · PID 777/)).toBeInTheDocument();
