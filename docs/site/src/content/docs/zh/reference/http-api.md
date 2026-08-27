@@ -113,7 +113,19 @@ Target 是 contract-v2 对象，包含 `token`、`client_id`、`instance_id`、`
 
 ## 调用结构化工具
 
-公开 tool path 为：
+公开的类型化 tool path 为：
+
+```text
+/api/tools/director_workbench
+/api/tools/director_creative
+/api/tools/stage_video
+/api/tools/blender_native
+/api/tools/director_dcc
+/api/tools/director_game
+```
+
+遗留的紧凑 Stage 命令仅为 HTTP 兼容保留（manifest 将它们标记为 `legacy`；MCP 不再对模型
+公布）：
 
 ```text
 /api/tools/stage_read
@@ -121,13 +133,13 @@ Target 是 contract-v2 对象，包含 `token`、`client_id`、`instance_id`、`
 /api/tools/stage_object
 /api/tools/stage_camera
 /api/tools/stage_show
-/api/tools/director_workbench
-/api/tools/director_creative
-/api/tools/stage_video
 ```
 
-Body 可以直接包含 operation。`session_id` 与 `target_token` 是 envelope 字段，其余字段由对应
-工具的严格运行时 schema 解析。
+`director_film` 与 `director_production` 没有 `/api/tools/<name>` 绑定；原始 HTTP 请使用它们的
+domain 路由（`/api/film/runs`、`/api/production/*`）。
+
+Body 可以直接包含 operation。`session_id`、`target_token` 与 `confirm_token` 是 envelope
+字段，其余字段由对应工具的严格运行时 schema 解析。
 
 下面执行一次有保护的原子 Workbench mutation：
 
@@ -154,6 +166,27 @@ curl -fsS -X POST "$BASE/api/tools/director_workbench" \
 HTTP 边界可以为 naive client 通过同 target preflight 补齐缺失 mutation guard；省略 key 时，
 边界会为这次意图生成唯一 key 并在 `agent_boundary` 返回，只有原请求结果不确定时才复用它。
 显式值能让意图和恢复过程更加清楚。
+
+## 破坏性/发布确认
+
+一份封闭清单上的破坏性/发布类操作在所有非 UI 入口（HTTP、MCP、CLI）都需要显式确认：
+`director_workbench` 的 `deliver`，以及 `director_creative` 的 `interchange.export` /
+`interchange.import`、`collaboration.restore-version` / `delete-version` / `delete-comment`
+和 `gallery.media.purge`。协议中已带 `confirm: true` 字面量的操作用该字面量即可；`deliver`
+与 interchange `export` 没有这个字面量，始终需要 gateway 签发的 token：
+
+```bash
+CONFIRM_TOKEN="$(curl -fsS -X POST "$BASE/api/agent/confirm-token" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"tool":"director_workbench","operation":"deliver","session_id":"http-guide"}' \
+  | jq -r '.result.confirm_token')"
+```
+
+token 一次性、短时效，且绑定 tool + operation + role + session；签发时携带与工具调用相同的
+`x-director-film-role` header 与 `session_id`。使用时放在 `input` 旁的顶层 `confirm_token`
+body 字段里，或使用 `x-director-confirm-token` header。缺少有效确认时，gateway 返回
+`403 confirm_required`——附带说明如何获取 token 的 `confirm` payload——且不会执行调用。
 
 ## Agent session
 
@@ -368,6 +401,7 @@ target、quality、asset、audit 和 evidence contract。
 | `409 idempotency_key_conflict`  | 保留旧回执；不同输入使用新 key。                                                       |
 | `409 idempotency_replay_stale`  | 旧 mutation 已成功但项目继续前进；observe 后只把剩余工作表达为新意图。                 |
 | `409 outcome_unknown`           | 先 observe/diff；效果不存在时，只能用 `agent_boundary` 中的注入 revision 与 key 重试。 |
+| `403 confirm_required`          | 从 `POST /api/agent/confirm-token`（相同 role 与 session）签发一次性 token，携带 `confirm_token` 重试。 |
 | `403 possession_scope_violation` | 该 session 处于人物占有（possess）中，只能改写被占有人物；`replace_project`、`reconstruction.apply` 等全场写入会被拒绝。读取类型化 `possession` 块（被占有 id、违规 operation、reason）后重新定位目标，或解除绑定。 |
 | `400 possession_target_ambiguous` | 该 session 占有多个人物，省略的人物目标无法自动填充。读取 `possession.omitted_targets`，显式指定一个被占有 id。 |
 | `504 command_timeout`           | 不要声称成功；保持 target 可见，必要时 observe，再重试读取/证据操作。                  |

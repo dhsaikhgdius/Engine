@@ -29,7 +29,9 @@ embedded session, use DSH's native capabilities directly — do not rebuild them
 - Fan out with DSH subagents and workflows; goals stay available via `get_goal({})`.
 
 Director contributes only the overlay plugin tools (`director_workbench`, `director_creative`,
-`stage_video`, `blender_native`, `director_model_routes`) on top of that loop.
+`stage_video`, `blender_native`, `director_game`, `director_model_routes`) on top of that loop.
+`director_dcc`, `director_production`, and `director_film` are not DSH plugin tools; reach them
+through MCP or their HTTP routes.
 
 ## Launcher environment
 
@@ -39,5 +41,6 @@ through to DSH when set. For headless or cloud runs, set `DIRECTOR_DSH_NO_OPEN=1
 launching.
 
 External coding agents can still use Director MCP (`npm run mcp`) against the same `/api/tools/:name`
-surface. MCP does not include DSH `skill` / `todo_write` / `job_*` tools; those exist only in the
+surface; MCP additionally registers `director_dcc`, `director_game`, `director_production`, and
+`director_film`. MCP does not include DSH `skill` / `todo_write` / `job_*` tools; those exist only in the
 Harness process started by `npm run dsh`. `GET /api/agent/profiles` remains for reconstruction and film planning.

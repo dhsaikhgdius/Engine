@@ -28,7 +28,9 @@ Agent 工作区直接嵌入 DSH Web（默认 `http://127.0.0.1:3080`）。
 - 用 DSH 子代理与 workflow 分派任务；目标通过 `get_goal({})` 获取。
 
 Director 只在这个循环之上贡献 overlay 插件工具（`director_workbench`、`director_creative`、
-`stage_video`、`blender_native`、`director_model_routes`）。
+`stage_video`、`blender_native`、`director_game`、`director_model_routes`）。
+`director_dcc`、`director_production` 与 `director_film` 不是 DSH 插件工具;请通过 MCP 或
+它们的 HTTP 路由使用。
 
 ## 启动器环境
 
@@ -36,6 +38,7 @@ Director 只在这个循环之上贡献 overlay 插件工具（`director_workben
 时把它们透传给 DSH。无头 / 云端运行时设置 `DIRECTOR_DSH_NO_OPEN=1`（或 `CI=1`），
 DSH Web 会以 `--no-open` 启动。`npm run dsh:prepare` 只写 overlay 不启动。
 
-外部 coding agent 仍可通过 Director MCP（`npm run mcp`）调用同一套 `/api/tools/:name`。
+外部 coding agent 仍可通过 Director MCP（`npm run mcp`）调用同一套 `/api/tools/:name`;
+MCP 还额外注册 `director_dcc`、`director_game`、`director_production` 与 `director_film`。
 MCP 不含 DSH 的 `skill` / `todo_write` / `job_*`；那些只存在于 `npm run dsh` 启动的 Harness 进程。
 `GET /api/agent/profiles` 仍用于重建与影片规划。

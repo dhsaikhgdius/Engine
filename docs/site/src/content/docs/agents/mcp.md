@@ -18,25 +18,34 @@ Reload the coding-agent session after the project MCP configuration is present.
 
 ## Tools
 
-| Tool                 | Use                                                                                                      |
-| -------------------- | -------------------------------------------------------------------------------------------------------- |
-| `director_workbench` | Complete editor observation, authoring, audit, capture, Shot IR, multi-pass Shot Package, and UI control |
-| `director_creative`  | Canvas/Video observation, atomic editing, audit, and fingerprint-bound clean PNG preview                 |
-| `director_dcc`       | Blender status, stable-ID round trips, and preview/apply of uploaded `.blend` scene plans                |
-| `stage_read`         | Compact observation, inspection, critique, full state, and camera capture                                |
-| `stage_scene`        | Reset, scene settings, validation, and scene-level mutations                                             |
-| `stage_object`       | Create, transform, place, parent, animate, and remove white-box objects                                  |
-| `stage_camera`       | Create, frame, aim, move, and configure cameras                                                          |
-| `stage_show`         | Timeline, tracks, actions, playback, and recording controls                                              |
-| `stage_video`        | Prepare, submit, and inspect white-box-to-video jobs                                                     |
+The MCP server registers these tools (visibility is subject to the film-role tool policy):
 
-`stage_*` is the compact `StageScene` protocol. New work should use `director_workbench`.
-In particular, `kind:"cube"` is valid only on `stage_object`. Public `director_workbench`
-`author` batches instance catalog or project meshes (`asset_id`); unique architecture uses
-`blender_native`, and unique generated meshes use `generated_3d`. Stage `geometry_type`
-primitives are rejected on that agent wire. See the
-[Quick Start](/getting-started/quick-start/) and
+| Tool                  | Use                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| `director_workbench`  | Complete editor observation, authoring, audit, capture, Shot IR, multi-pass Shot Package, and UI control |
+| `director_creative`   | Canvas/Video observation, atomic editing, audit, fingerprint-bound preview, interchange, collaboration   |
+| `blender_native`      | Native Blender modeling: blockout shells, openings, modifiers, materials, rigs, and native capture       |
+| `director_dcc`        | DCC/engine handoff: provider discovery, exchange packages, `.blend` and engine-scene preview/apply       |
+| `director_game`       | Typed game-slice planning, binding, and scripted playtests on the live Stage player                      |
+| `director_production` | Immutable artifact versions, approvals, and guarded promotion                                            |
+| `director_film`       | Durable idea-to-film / script-to-film pipeline runs                                                      |
+| `stage_video`         | Prepare, submit, and inspect white-box-to-video jobs                                                     |
+
+The legacy compact `stage_*` tools (`stage_read`, `stage_scene`, `stage_object`, `stage_camera`,
+`stage_show`) are **not** MCP tools. They remain HTTP-only compatibility routes
+(`POST /api/tools/stage_*`), and `GET /api/control-plane/tool-manifest` marks them `legacy`.
+New work should use `director_workbench`. In particular, `kind:"cube"` is valid only on the
+legacy `stage_object` route. Public `director_workbench` `author` batches instance catalog or
+project meshes (`asset_id`); unique architecture uses `blender_native`, and unique generated
+meshes use `generated_3d`. Stage `geometry_type` primitives are rejected on that agent wire.
+See the [Quick Start](/getting-started/quick-start/) and
 [verified-shot tutorial](/tutorials/verified-shot/).
+
+Destructive/publish operations (`director_workbench` `deliver`; `director_creative`
+interchange export/import, collaboration restore/delete, gallery purge) require explicit
+confirmation on MCP: a single-use token from `POST /api/agent/confirm-token` passed as
+`confirm_token` next to `op` (some operations alternatively accept the protocol
+`confirm: true` field). Without it the gateway rejects the call with `confirm_required`.
 
 ## Portable plugin
 
@@ -82,10 +91,10 @@ export DIRECTOR_MCP_SESSION_ID=my-director-session
 Ref aliases are scoped to that session. Idle ref sessions expire and the gateway caps stored
 sessions to prevent unbounded growth.
 
-## Atomic batches
+## Atomic batches (legacy `stage_*`, HTTP only)
 
-Stage tools accept a single operation or an ordered `ops` batch. Create operations can declare
-`ref`; later operations can use the alias in the same session.
+The legacy `stage_*` HTTP routes accept a single operation or an ordered `ops` batch. Create
+operations can declare `ref`; later operations can use the alias in the same session.
 
 ```json
 {
@@ -97,8 +106,9 @@ Stage tools accept a single operation or an ordered `ops` batch. Create operatio
 }
 ```
 
-This `kind:"cube"` batch is compact `stage_*` input. Do not paste it into
-`director_workbench` `author`.
+This `kind:"cube"` batch is compact `stage_*` input for `POST /api/tools/stage_object`. Do not
+paste it into `director_workbench` `author`. On MCP, group one intent as one `author` batch of
+`actions` instead.
 
 A failed batch leaves the original scene unchanged.
 

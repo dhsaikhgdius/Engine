@@ -26,15 +26,19 @@ Director 面向 Agent 原生设计:同一份制片状态可以通过 UI、MCP �
 
 ## 选择接口
 
-| 工具                 | 负责范围                           | 适用场景                                             |
-| -------------------- | ---------------------------------- | ---------------------------------------------------- |
-| `director_workbench` | 完整 DirectorProject 与 Stage 证据 | 场景、对象、角色、相机、时间线、coverage、审计、交付 |
-| `director_creative`  | 画布与视频工作区                   | 节点、连线、媒体剪辑、轨道、预览、撤销/重做          |
-| `stage_video`        | 生成任务                           | 准备、提交/渲染、轮询、取消                          |
-| `director_dcc`       | DCC 交接                           | 能力发现、Blender 导出/状态                          |
+| 工具                  | 负责范围                           | 适用场景                                                 |
+| --------------------- | ---------------------------------- | -------------------------------------------------------- |
+| `director_workbench`  | 完整 DirectorProject 与 Stage 证据 | 场景、对象、角色、相机、时间线、coverage、审计、交付     |
+| `director_creative`   | 画布与视频工作区                   | 节点、连线、媒体剪辑、轨道、预览、撤销/重做、interchange |
+| `blender_native`      | 原生 Blender 建模内核              | blockout 外壳、开洞、修改器、材质、绑骨、原生捕获        |
+| `stage_video`         | 生成任务                           | 准备、提交/渲染、轮询、取消                              |
+| `director_dcc`        | DCC/引擎交接                       | provider 发现、交换包、Blender/引擎往返                  |
+| `director_game`       | 实验性 game slice                  | 在实时 Stage player 上规划、绑定并 playtest 类型化 slice |
+| `director_production` | 制作证据（仅 MCP）                 | 不可变 artifact 版本、审批、受守卫的 promotion           |
+| `director_film`       | 影片流水线（仅 MCP）               | 持久化 idea-to-film / script-to-film 运行                |
 
-`stage_*` 工具仍作为紧凑兼容接口,服务白模场景协议和现有 Stage v5 客户端。新的自动化
-应优先使用 `director_workbench`。
+遗留 `stage_*` 工具仅作为 HTTP 紧凑兼容接口,服务白模场景协议和现有 Stage v5 客户端;MCP
+不再对模型公布它们。新的自动化应优先使用 `director_workbench`。
 
 ## 支持的 provider harness
 

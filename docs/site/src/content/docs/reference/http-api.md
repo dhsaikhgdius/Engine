@@ -117,7 +117,19 @@ catalog asset is also target-free. Other Workbench operations require `target_to
 
 ## Call a structured tool
 
-The public tool paths are:
+The public typed tool paths are:
+
+```text
+/api/tools/director_workbench
+/api/tools/director_creative
+/api/tools/stage_video
+/api/tools/blender_native
+/api/tools/director_dcc
+/api/tools/director_game
+```
+
+The legacy compact Stage commands stay available for HTTP compatibility only (the manifest marks
+them `legacy`; they are not advertised over MCP):
 
 ```text
 /api/tools/stage_read
@@ -125,13 +137,13 @@ The public tool paths are:
 /api/tools/stage_object
 /api/tools/stage_camera
 /api/tools/stage_show
-/api/tools/director_workbench
-/api/tools/director_creative
-/api/tools/stage_video
 ```
 
-The body may contain the operation directly. `session_id` and `target_token` are envelope fields; all
-other fields are parsed by that tool's strict runtime schema.
+`director_film` and `director_production` have no `/api/tools/<name>` binding; over raw HTTP use
+their domain routes (`/api/film/runs`, `/api/production/*`).
+
+The body may contain the operation directly. `session_id`, `target_token`, and `confirm_token`
+are envelope fields; all other fields are parsed by that tool's strict runtime schema.
 
 This example performs one guarded, atomic Workbench mutation:
 
@@ -159,6 +171,30 @@ retry. The HTTP boundary can supply missing mutation guards through a same-targe
 clients. When the key is omitted it creates a unique key for this intent and returns it in
 `agent_boundary`; reuse that returned key only for the original request's uncertain retry. Explicit
 values make intent and recovery unambiguous.
+
+## Destructive/publish confirmation
+
+A closed list of destructive/publish operations requires explicit confirmation on every non-UI
+entry point (HTTP, MCP, CLI): `director_workbench` `deliver`, and `director_creative`
+`interchange.export` / `interchange.import`, `collaboration.restore-version` /
+`delete-version` / `delete-comment`, and `gallery.media.purge`. Operations whose protocol
+already carries a `confirm: true` literal are satisfied by it; `deliver` and interchange
+`export` have no such literal and always need a gateway-issued token:
+
+```bash
+CONFIRM_TOKEN="$(curl -fsS -X POST "$BASE/api/agent/confirm-token" \
+  -H "X-Director-Browser-Token: $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"tool":"director_workbench","operation":"deliver","session_id":"http-guide"}' \
+  | jq -r '.result.confirm_token')"
+```
+
+The token is single-use, short-lived, and bound to tool + operation + role + session; issue it
+with the same `x-director-film-role` header and `session_id` the tool call will carry. Pass it
+as the top-level `confirm_token` body field next to `input`, or in the
+`x-director-confirm-token` header. Without valid confirmation the gateway answers
+`403 confirm_required` — with a `confirm` payload describing how to obtain a token — and does
+not execute the call.
 
 ## Agent sessions
 
@@ -389,6 +425,7 @@ idempotency, exact-target, quality, asset, audit, and evidence contracts.
 | `409 idempotency_key_conflict`  | Preserve the old receipt and use a new key for different input.                                                   |
 | `409 idempotency_replay_stale`  | The old mutation succeeded and the project advanced; observe and express only remaining work as a new intent.     |
 | `409 outcome_unknown`           | Observe/diff first. If the effect is absent, retry only with the injected revision and key from `agent_boundary`. |
+| `403 confirm_required`          | Issue a single-use token from `POST /api/agent/confirm-token` (same role and session), retry with `confirm_token`. |
 | `403 possession_scope_violation` | The session possesses characters and may only mutate them (stage-wide writes such as `replace_project` or `reconstruction.apply` are rejected). Read the typed `possession` block (possessed ids, offending operation, reason) and retarget, or unbind the character. |
 | `400 possession_target_ambiguous` | The session possesses several characters, so omitted character targets cannot be auto-filled. Read `possession.omitted_targets` and name one possessed id explicitly. |
 | `504 command_timeout`           | Do not claim success. Keep the target visible, observe if necessary, and retry the read/evidence operation.       |

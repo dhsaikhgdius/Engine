@@ -17,23 +17,33 @@ npm run dev
 
 ## 工具
 
-| 工具                 | 用途                                                                      |
-| -------------------- | ------------------------------------------------------------------------- |
-| `director_workbench` | 完整编辑器观察、创作、审计、捕获、Shot IR、多通道 Shot Package 和 UI 控制 |
-| `director_creative`  | Canvas/Video 观察、原子编辑、审计和绑定指纹的 clean PNG 预览              |
-| `director_dcc`       | Blender 状态、稳定 ID 往返，以及已上传 `.blend` 场景计划的预览与应用      |
-| `stage_read`         | 紧凑观察、检查、批评、完整状态和相机捕获                                  |
-| `stage_scene`        | 重置、场景设置、校验和场景级 mutation                                     |
-| `stage_object`       | 创建、变换、放置、父子绑定、动画和移除白模对象                            |
-| `stage_camera`       | 创建、取景、瞄准、移动和配置相机                                          |
-| `stage_show`         | 时间线、轨道、动作、播放和录制控制                                        |
-| `stage_video`        | 白模到视频任务的准备、提交和检查                                          |
+MCP server 注册以下工具（可见性受 film-role 工具策略约束）：
 
-`stage_*` 是紧凑的 `StageScene` 协议。新工作应使用 `director_workbench`。尤其
-`kind:"cube"` 只对 `stage_object` 有效。公开的 `director_workbench` `author` 批次应实例化
-catalog / `project_assets` 网格（`asset_id`）；独特建筑用 `blender_native`，独特生成网格用
-`generated_3d`。该 Agent 线路会拒绝 Stage `geometry_type` 简单几何体。见[快速上手](/zh/getting-started/quick-start/)和
+| 工具                  | 用途                                                                       |
+| --------------------- | -------------------------------------------------------------------------- |
+| `director_workbench`  | 完整编辑器观察、创作、审计、捕获、Shot IR、多通道 Shot Package 和 UI 控制  |
+| `director_creative`   | Canvas/Video 观察、原子编辑、审计、绑定指纹的预览、interchange 与协作     |
+| `blender_native`      | 原生 Blender 建模：blockout 外壳、开洞、修改器、材质、绑骨与原生捕获       |
+| `director_dcc`        | DCC/引擎交接：provider 发现、交换包、`.blend` 与引擎场景的预览/应用        |
+| `director_game`       | 类型化 game slice 的规划、绑定，以及在实时 Stage player 上的脚本化 playtest |
+| `director_production` | 不可变 artifact 版本、审批与受守卫的 promotion                             |
+| `director_film`       | 持久化 idea-to-film / script-to-film 流水线运行                            |
+| `stage_video`         | 白模到视频任务的准备、提交和检查                                           |
+
+遗留的紧凑 `stage_*` 工具（`stage_read`、`stage_scene`、`stage_object`、`stage_camera`、
+`stage_show`）**不是** MCP 工具。它们只保留为 HTTP 兼容路由（`POST /api/tools/stage_*`），
+且 `GET /api/control-plane/tool-manifest` 将它们标记为 `legacy`。新工作应使用
+`director_workbench`。尤其 `kind:"cube"` 只对遗留 `stage_object` 路由有效。公开的
+`director_workbench` `author` 批次应实例化 catalog / `project_assets` 网格（`asset_id`）；
+独特建筑用 `blender_native`，独特生成网格用 `generated_3d`。该 Agent 线路会拒绝 Stage
+`geometry_type` 简单几何体。见[快速上手](/zh/getting-started/quick-start/)和
 [端到端可验证镜头](/zh/tutorials/verified-shot/)。
+
+破坏性/发布类操作（`director_workbench` 的 `deliver`；`director_creative` 的 interchange
+export/import、协作 restore/delete、gallery purge）在 MCP 上需要显式确认：从
+`POST /api/agent/confirm-token` 签发一次性 token，作为 `confirm_token` 放在 `op` 旁传入
+（部分操作也接受协议级 `confirm: true` 字段）。缺少确认时 gateway 以 `confirm_required`
+拒绝调用。
 
 ## 可移植插件
 
@@ -70,9 +80,10 @@ export DIRECTOR_MCP_SESSION_ID=my-director-session
 
 ref alias 只在该 session 作用域内有效。闲置 session 会过期，gateway 也会限制保存数量，避免无限增长。
 
-## 原子批次
+## 原子批次（遗留 `stage_*`，仅 HTTP）
 
-Stage 工具接受单个操作或有序 `ops` 批次。创建操作可以声明 `ref`；同一 session 后续操作可以使用别名。
+遗留 `stage_*` HTTP 路由接受单个操作或有序 `ops` 批次。创建操作可以声明 `ref`；同一
+session 后续操作可以使用别名。
 
 ```json
 {
@@ -84,7 +95,9 @@ Stage 工具接受单个操作或有序 `ops` 批次。创建操作可以声明 
 }
 ```
 
-这段 `kind:"cube"` 批次是紧凑 `stage_*` 输入,不要粘贴进 `director_workbench` 的 `author`。
+这段 `kind:"cube"` 批次是 `POST /api/tools/stage_object` 的紧凑 `stage_*` 输入,不要粘贴进
+`director_workbench` 的 `author`。在 MCP 上,应把一个意图组织为一个 `author` 批次的
+`actions`。
 
 批次失败时，原始场景保持不变。
 

@@ -27,15 +27,20 @@ every surface. Unfamiliar terms on this page are defined in the [Glossary](/conc
 
 ## Choose a surface
 
-| Tool                 | Owns                                    | Use it for                                                            |
-| -------------------- | --------------------------------------- | --------------------------------------------------------------------- |
-| `director_workbench` | Full DirectorProject and Stage evidence | Scene, object, character, camera, timeline, coverage, audit, delivery |
-| `director_creative`  | Canvas and Video workspace              | Nodes, edges, media clips, tracks, preview, undo/redo                 |
-| `stage_video`        | Generation jobs                         | Prepare, submit/render, poll, cancel                                  |
-| `director_dcc`       | DCC handoff                             | Capability discovery, Blender export/status                           |
+| Tool                  | Owns                                    | Use it for                                                            |
+| --------------------- | --------------------------------------- | --------------------------------------------------------------------- |
+| `director_workbench`  | Full DirectorProject and Stage evidence | Scene, object, character, camera, timeline, coverage, audit, delivery |
+| `director_creative`   | Canvas and Video workspace              | Nodes, edges, media clips, tracks, preview, undo/redo, interchange    |
+| `blender_native`      | Native Blender modeling kernel          | Blockout shells, openings, modifiers, materials, rigs, native capture |
+| `stage_video`         | Generation jobs                         | Prepare, submit/render, poll, cancel                                  |
+| `director_dcc`        | DCC/engine handoff                      | Provider discovery, exchange packages, Blender/engine round trips     |
+| `director_game`       | Experimental game slice                 | Plan, bind, and playtest a typed slice on the live Stage player       |
+| `director_production` | Production evidence (MCP only)          | Immutable artifact versions, approvals, guarded promotion             |
+| `director_film`       | Film pipeline (MCP only)                | Durable idea-to-film / script-to-film runs                            |
 
-The `stage_*` tools remain a compact compatibility surface for the white-box scene protocol and
-existing Stage version 5 clients. New automation should prefer `director_workbench`.
+The legacy `stage_*` tools remain an HTTP-only compact compatibility surface for the white-box
+scene protocol and existing Stage version 5 clients; they are no longer advertised over MCP.
+New automation should prefer `director_workbench`.
 
 ## Supported provider harnesses
 
