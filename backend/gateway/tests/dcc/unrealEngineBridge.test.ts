@@ -330,6 +330,41 @@ describe("Unreal engine bridge Sequencer bake wiring", () => {
     await expect(harness.send()).rejects.toMatchObject({ code: "engine_report_invalid" });
   });
 
+  it("returns typed texture_import_failed omittedMaterials on the Unreal send report", async () => {
+    const harness = await createSendHarness({
+      appliedMaterialCount: 1,
+      appliedTextureCount: 0,
+      omittedMaterialCount: 1,
+      omittedMaterials: [
+        {
+          directorId: "prop-crate",
+          code: "texture_import_failed",
+          reason:
+            "Object prop-crate: bundled texture parameter(s) BaseColorMap failed to import into Unreal; the MaterialInstance stays unbound for those slots (warn-and-omit code: texture_import_failed).",
+        },
+      ],
+    });
+    const result = await harness.send();
+    expect(result.report.omittedMaterialCount).toBe(1);
+    expect(result.report.omittedMaterials).toEqual([
+      expect.objectContaining({ directorId: "prop-crate", code: "texture_import_failed" }),
+    ]);
+  });
+
+  it("fails the job when the connector reports a malformed omitted-material record", async () => {
+    const harness = await createSendHarness({
+      omittedMaterialCount: 1,
+      omittedMaterials: [
+        {
+          directorId: "prop-x",
+          code: "shader_graph_missing",
+          reason: "Object prop-x: not an Unreal material omit code.",
+        },
+      ],
+    });
+    await expect(harness.send()).rejects.toMatchObject({ code: "engine_report_invalid" });
+  });
+
   it("returns typed omittedShots records on the Unreal send report", async () => {
     const harness = await createSendHarness({
       omittedShotCount: 2,

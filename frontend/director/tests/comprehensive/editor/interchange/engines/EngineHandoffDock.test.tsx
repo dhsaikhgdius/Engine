@@ -311,13 +311,19 @@ it("sends clean_frame for Unreal and renders the skipped receipt with its reason
           bakedKeyCount: 1_200,
         },
         appliedMaterialCount: 2,
-        omittedMaterialCount: 1,
+        omittedMaterialCount: 2,
         omittedMaterials: [
           {
             directorId: "prop-glass",
             code: "unsupported_channels",
             reason:
               "Object prop-glass: Director material channels transmission have no faithful Director parent mapping; omitted (warn-and-omit code: unsupported_channels).",
+          },
+          {
+            directorId: "prop-crate",
+            code: "texture_import_failed",
+            reason:
+              "Object prop-crate: bundled texture parameter(s) BaseColorMap failed to import into Unreal; the MaterialInstance stays unbound for those slots (warn-and-omit code: texture_import_failed).",
           },
         ],
         omittedShotCount: 1,
@@ -360,11 +366,13 @@ it("sends clean_frame for Unreal and renders the skipped receipt with its reason
   expect(sequencer).toHaveTextContent("3");
   expect(sequencer).toHaveTextContent("1200");
   expect(sequencer).toHaveTextContent("省略材质");
-  expect(sequencer).toHaveTextContent("1");
+  expect(sequencer).toHaveTextContent("2");
   expect(sequencer).toHaveTextContent("省略镜头");
   const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
   expect(within(omittedMaterials).getByText("prop-glass")).toBeInTheDocument();
   expect(omittedMaterials).toHaveTextContent("不支持的材质通道");
+  expect(within(omittedMaterials).getByText("prop-crate")).toBeInTheDocument();
+  expect(omittedMaterials).toHaveTextContent("贴图导入失败");
   // Typed shot omissions render with the shared Godot/Unity code labels.
   const omittedShots = screen.getByRole("list", { name: "结构化省略镜头" });
   expect(within(omittedShots).getByText("shot-orphan")).toBeInTheDocument();
@@ -589,13 +597,13 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
   expect(within(omittedChannels).getByText("hero")).toBeInTheDocument();
   expect(omittedChannels).toHaveTextContent("姿态控制");
   expect(omittedChannels).toHaveTextContent("动作片段");
-  // Connector-side material+shot omits keep entities in the generic list (lights have a dedicated list).
+  // Connector-side shot omits keep entities in the generic list (lights/materials have dedicated lists).
   const omissions = screen.getByRole("list", { name: "结构化省略" });
-  expect(omissions).toHaveTextContent("unsupported_channels");
-  expect(omissions).toHaveTextContent("不支持的材质通道");
   expect(omissions).toHaveTextContent("shot_no_camera_binding");
   expect(omissions).toHaveTextContent("镜头缺少相机绑定");
   expect(within(omissions).queryByText("light-panel")).not.toBeInTheDocument();
+  expect(omissions).not.toHaveTextContent("unsupported_channels");
+  expect(omissions).not.toHaveTextContent("prop-glass");
 });
 
 it("previews an engine return as a dry run and guards apply behind an explicit review confirmation", async () => {

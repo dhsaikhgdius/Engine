@@ -342,11 +342,13 @@ export type DirectorUnrealOmittedLight = z.infer<typeof directorUnrealOmittedLig
 /**
  * Structured warn-and-omit codes the Unreal material path stamps into reports.
  * `unsupported_channels` still applies the MaterialInstance for channels the
- * Director parent can carry; `no_mesh_target` / `parent_unavailable` /
- * `apply_failed` are whole omits.
+ * Director parent can carry; `texture_import_failed` still applies the instance
+ * but leaves failed bundled-texture slots unbound; `no_mesh_target` /
+ * `parent_unavailable` / `apply_failed` are whole omits.
  */
 export const directorUnrealOmittedMaterialCodeSchema = z.enum([
   "unsupported_channels",
+  "texture_import_failed",
   "no_mesh_target",
   "parent_unavailable",
   "apply_failed",
@@ -442,8 +444,11 @@ export const directorDccEngineReportSchema = z
     omittedMaterialCount: z.number().int().nonnegative().max(100_000).optional(),
     /**
      * Unreal-only: typed material omit records (`unsupported_channels`,
-     * `no_mesh_target`, `parent_unavailable`, `apply_failed`). Optional for
-     * older connectors; when present, length must equal omittedMaterialCount.
+     * `texture_import_failed`, `no_mesh_target`, `parent_unavailable`,
+     * `apply_failed`). Optional for older connectors; when present, length
+     * must equal omittedMaterialCount. Connector ≥0.4.4 stamps
+     * `texture_import_failed` when a bundled hashed texture fails host import
+     * or MaterialInstance parameter bind (never free-text-only).
      */
     omittedMaterials: z.array(directorUnrealOmittedMaterialSchema).max(1_024).optional(),
     /**

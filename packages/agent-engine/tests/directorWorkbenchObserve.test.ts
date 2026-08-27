@@ -42,4 +42,26 @@ describe("observeDirectorProject", () => {
       (full.production_graph as { identities?: { entry_count?: number } }).identities?.entry_count,
     ).toBeGreaterThan(0);
   });
+
+  it("exposes Stage object-list membership on observe.objects", () => {
+    const project = createDefaultDirectorProject();
+    const target = project.objects[0];
+    expect(target).toBeTruthy();
+    target!.objectListId = "object_list_1";
+    target!.objectListLabel = "前景道具";
+    const detached = project.objects[1];
+    if (detached) detached.objectListDetached = true;
+
+    const observation = observeDirectorProject(project, ["objects"]);
+    const objects = observation.objects as Array<Record<string, unknown>>;
+    expect(objects.find((object) => object.id === target!.id)).toMatchObject({
+      object_list_id: "object_list_1",
+      object_list_label: "前景道具",
+    });
+    if (detached) {
+      expect(objects.find((object) => object.id === detached.id)).toMatchObject({
+        object_list_detached: true,
+      });
+    }
+  });
 });
