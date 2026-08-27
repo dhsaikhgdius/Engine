@@ -641,11 +641,9 @@ describe("creative workspace UI/agent parity harness", () => {
         },
       },
     };
-    const receipt = await dispatchCreativeWorkspaceMediaProxyAttach(
-      "media:video:take",
-      "media:video:take-proxy",
-      { context: runtime },
-    );
+    const receipt = await dispatchCreativeWorkspaceMediaProxyAttach("media:video:take", "media:video:take-proxy", {
+      context: runtime,
+    });
     expect(receipt).toMatchObject({ ok: true });
     if (!receipt.ok) throw new Error(receipt.error);
     expect(receipt.execution.result).toMatchObject({

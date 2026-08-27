@@ -84,9 +84,7 @@ describe("formatMediaProxyAttachSuccessMessage", () => {
         honesty: { durability: VERIFIED, storage: MEMORY },
         t: identity,
       }),
-    ).toBe(
-      "代理媒体已关联 · media:video:proxy-candidate- · 波形已缓存 · 已验证 · 内存模式（不可持久，刷新后丢失）",
-    );
+    ).toBe("代理媒体已关联 · media:video:proxy-candidate- · 波形已缓存 · 已验证 · 内存模式（不可持久，刷新后丢失）");
   });
 
   it("falls back to the thin message when honesty stanzas are missing", () => {

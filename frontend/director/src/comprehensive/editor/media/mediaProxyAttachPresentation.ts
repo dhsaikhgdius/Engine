@@ -7,11 +7,7 @@
  * @module media-proxy-attach-presentation
  */
 
-import {
-  mediaRelinkHonestySuffix,
-  parseMediaRelinkHonesty,
-  type MediaRelinkHonesty,
-} from "./mediaRelinkPresentation";
+import { mediaRelinkHonestySuffix, parseMediaRelinkHonesty, type MediaRelinkHonesty } from "./mediaRelinkPresentation";
 
 /** Parsed storage + durability honesty from a successful media.proxy.attach receipt. */
 export type MediaProxyAttachHonesty = MediaRelinkHonesty;
@@ -50,9 +46,7 @@ export function formatMediaProxyAttachSuccessMessage(input: {
   t: (value: string) => string;
 }): string {
   const shortId = input.proxyId.slice(0, 28);
-  const base = `${input.t("代理媒体已关联")} · ${shortId}${
-    input.waveformReady ? ` · ${input.t("波形已缓存")}` : ""
-  }`;
+  const base = `${input.t("代理媒体已关联")} · ${shortId}${input.waveformReady ? ` · ${input.t("波形已缓存")}` : ""}`;
   if (!input.honesty) return base;
   const honesty = mediaProxyAttachHonestySuffix(input.honesty)
     .split(" · ")
