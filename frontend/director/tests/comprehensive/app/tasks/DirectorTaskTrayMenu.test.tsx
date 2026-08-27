@@ -11,6 +11,7 @@ import {
   __resetDirectorTaskTrayForTests,
   directorTaskTrayStore,
 } from "../../../../src/comprehensive/app/tasks/directorTaskTrayStore";
+import type { DirectorMonitoredProductionRun } from "../../../../src/comprehensive/app/tasks/productionRunTaskClient";
 import {
   resetDirectorSessionRuntime,
   updateDirectorSessionRuntime,
@@ -88,6 +89,22 @@ function makeFailedJob(
     createdAt,
     updatedAt: createdAt,
     artifacts: [],
+  });
+}
+
+function setTrayProductionRuns(runs: DirectorMonitoredProductionRun[]) {
+  directorTaskTrayStore.setState({
+    jobs: [],
+    productionRuns: runs,
+    jobReceipts: {},
+    phase: "ready",
+    error: null,
+    panelOpen: false,
+    dismissedIds: [],
+    dismissedRunKeys: [],
+    pendingActionIds: [],
+    pendingRunActionKeys: [],
+    lastSyncAt: Date.now(),
   });
 }
 
@@ -243,6 +260,33 @@ describe("DirectorTaskTrayMenu", () => {
     const tray = screen.getByRole("dialog", { name: "任务中心" });
     expect(within(tray).queryByLabelText("失败错误码")).toBeNull();
     expect(within(tray).getByText("renderer unavailable")).toBeTruthy();
+  });
+
+  it("surfaces structured film-run errorCode with its zh label on failed production runs", () => {
+    setTrayProductionRuns([
+      {
+        source: "film",
+        run: {
+          id: "film-run-failed",
+          workflow: "idea-to-film",
+          status: "failed",
+          phase: "render",
+          input: { idea: "雨夜电车" },
+          error: "gateway restarted during render",
+          errorCode: "film_run_interrupted",
+          createdAt: "2026-08-13T10:00:00.000Z",
+          updatedAt: "2026-08-13T10:00:00.000Z",
+        },
+      },
+    ]);
+
+    renderTray();
+    fireEvent.click(screen.getByRole("button", { name: "任务中心" }));
+    const tray = screen.getByRole("dialog", { name: "任务中心" });
+    const codeRow = within(tray).getByLabelText("失败错误码");
+    expect(within(codeRow).getByText("film_run_interrupted").tagName).toBe("CODE");
+    expect(codeRow.textContent).toContain("· 运行被中断");
+    expect(within(tray).getByText("gateway restarted during render")).toBeTruthy();
   });
 
   it("does not show an absent-artifact warning while the receipt is still loading", () => {
