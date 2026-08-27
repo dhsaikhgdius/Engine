@@ -295,6 +295,16 @@ export type StageRouteDependencies = {
     timeoutMs?: number,
     targetToken?: string,
   ) => Promise<WorkbenchRemote | null>;
+  /**
+   * Best-effort push of a possession write-depth receipt or rejection to the
+   * bound Stage tab so humans see auto-fill / ambiguity notices in the UI.
+   */
+  notifyPossessionWriteFeedback?: (input: {
+    targetToken?: string;
+    code: "possession_write_filled" | "possession_target_ambiguous" | "possession_scope_violation";
+    possession: Record<string, unknown>;
+    error?: string;
+  }) => void;
   /** True when the target tab's bundled contract mismatches this gateway. */
   isTargetContractStale?: (targetToken: string) => boolean;
   /** Sends a creative workspace command to a connected browser target. */
@@ -434,6 +444,7 @@ export async function handleStageRoute(
     requestWorkbenchCommand,
     requestWorkbenchCapture,
     requestCreativeWorkspaceCommand,
+    notifyPossessionWriteFeedback,
     isTargetContractStale,
     persistWorkbenchProject,
     loadDisconnectedWorkbenchSources,
@@ -988,6 +999,22 @@ export async function handleStageRoute(
                 }
               : { scene, success: false, error: initialParseError ?? "director_workbench input invalid." },
           );
+          if (possessedObjectIds.length) {
+            notifyPossessionWriteFeedback?.({
+              targetToken,
+              code: "possession_target_ambiguous",
+              possession: {
+                session_id: sessionId,
+                possessed_object_ids: possessedObjectIds,
+                omitted_targets: characterTargetGaps,
+              },
+              error: describeDirectorPossessionTargetAmbiguity({
+                sessionId,
+                possessedObjectIds,
+                gaps: characterTargetGaps,
+              }),
+            });
+          }
           return true;
         }
         const filled = fillDirectorAuthorCharacterTargets(toolInput, characterTargetGaps, possessedObjectIds[0]);
@@ -1073,6 +1100,12 @@ export async function handleStageRoute(
           code: "possession_scope_violation",
           error: verdict.error,
           possession: verdict.rejection,
+        });
+        notifyPossessionWriteFeedback?.({
+          targetToken,
+          code: "possession_scope_violation",
+          possession: { ...verdict.rejection },
+          error: verdict.error,
         });
         return true;
       };
@@ -1292,6 +1325,13 @@ export async function handleStageRoute(
           ? 409
           : 400;
       respond(response, responseStatus, execution);
+      if (execution.success && possessionWriteReceipt) {
+        notifyPossessionWriteFeedback?.({
+          targetToken: remote.target.token,
+          code: "possession_write_filled",
+          possession: { ...possessionWriteReceipt },
+        });
+      }
       return true;
     } finally {
       targetLease?.release();

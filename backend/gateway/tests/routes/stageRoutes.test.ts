@@ -65,6 +65,7 @@ function createDependencies(body: unknown) {
     requestWorkbenchCommand: vi.fn().mockResolvedValue(null),
     requestWorkbenchCapture: vi.fn().mockResolvedValue(null),
     requestCreativeWorkspaceCommand: vi.fn().mockResolvedValue(null),
+    notifyPossessionWriteFeedback: vi.fn(),
     persistWorkbenchProject: vi.fn().mockResolvedValue(undefined),
     loadDisconnectedWorkbenchSources: vi.fn().mockResolvedValue({ project: null, blenderScene: null }),
     executeVideoModel: vi.fn().mockResolvedValue({ scene, success: true, result: { status: "prepared" } }),
@@ -1365,6 +1366,15 @@ describe("stage routes", () => {
         },
       }),
     );
+    expect(dependencies.notifyPossessionWriteFeedback).toHaveBeenCalledWith({
+      targetToken: TARGET.token,
+      code: "possession_write_filled",
+      possession: {
+        session_id: "dsh-possessed",
+        possessed_object_ids: ["hero"],
+        filled_targets: [{ index: 0, action: "set_character_motion", field: "object_id", object_id: "hero" }],
+      },
+    });
   });
 
   it("rejects an omitted object target readably when the session possesses several characters", async () => {
@@ -1417,6 +1427,16 @@ describe("stage routes", () => {
       session_id: "dsh-possessed",
       possessed_object_ids: ["hero", "sidekick"],
       omitted_targets: [{ index: 0, action: "set_character_motion", field: "object_id" }],
+    });
+    expect(dependencies.notifyPossessionWriteFeedback).toHaveBeenCalledWith({
+      targetToken: TARGET.token,
+      code: "possession_target_ambiguous",
+      possession: {
+        session_id: "dsh-possessed",
+        possessed_object_ids: ["hero", "sidekick"],
+        omitted_targets: [{ index: 0, action: "set_character_motion", field: "object_id" }],
+      },
+      error: expect.stringContaining("set_character_motion"),
     });
   });
 
