@@ -53,6 +53,19 @@ import { writeJsonAtomic } from "../atomicJsonFile";
 import type { DirectorDccAuthoringResponse } from "./blenderReturnImport";
 import { discoverDccRuntimeExecutable } from "./dccProviderRegistry";
 
+/**
+ * Engine scene import: the Unreal / Unity / Godot counterpart of
+ * `blenderSceneImport.ts`, sharing its architecture and invariants — upload →
+ * headless-engine extraction → hash-verified package validation → reviewable
+ * plan → ledgered exactly-once apply (see that module's header for the trust
+ * model and ledger semantics).
+ *
+ * Engine-specific differences: the upload is a zipped project (entry names
+ * are allowlisted and zip-slip is rejected, entry counts and extracted bytes
+ * are budgeted), extraction runs the per-engine exporter through the engine's
+ * own headless CLI, and manifests carry lights in addition to cameras.
+ */
+
 const MAX_UPLOAD_BYTES = 512 * 1024 * 1024;
 const MAX_EXTRACTED_PACKAGE_BYTES = 512 * 1024 * 1024;
 const MAX_ZIP_ENTRIES = 4_096;
@@ -304,6 +317,7 @@ export interface CreateEngineSceneImporterOptions {
   runEngineExport?: (input: EngineSceneExtractionInput) => Promise<void>;
 }
 
+/** Lexical containment check; callers pair it with realpath for symlink safety. */
 function isInside(parent: string, child: string): boolean {
   const value = relative(parent, child);
   return value === "" || (!value.startsWith(`..${sep}`) && value !== ".." && !isAbsolute(value));
@@ -321,6 +335,7 @@ function parseEngineSceneProvider(provider: DirectorEngineSceneProvider): Direct
   return parsed.data;
 }
 
+/** Relative path with forward slashes, so plan/package keys are platform-stable. */
 function posixRelative(parent: string, child: string): string {
   return relative(parent, child).split(sep).join("/");
 }
@@ -329,12 +344,14 @@ function sha256(value: Uint8Array | string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/** Streaming SHA-256 so multi-hundred-MiB packages never load fully into memory. */
 async function sha256File(path: string): Promise<string> {
   const digest = createHash("sha256");
   for await (const chunk of createReadStream(path)) digest.update(chunk);
   return digest.digest("hex");
 }
 
+/** Sanitizes a user-provided name into a filesystem-safe segment. */
 function safeSegment(value: string, fallback = "engine-scene"): string {
   const normalized = value
     .normalize("NFKD")
@@ -344,16 +361,20 @@ function safeSegment(value: string, fallback = "engine-scene"): string {
   return normalized || fallback;
 }
 
+/** Zip-slip guard: rejects absolute paths, drive letters, backslashes, and dot segments. */
 function isSafeZipEntryName(name: string): boolean {
   if (!name || name.length > 1_024) return false;
   if (name.startsWith("/") || name.includes("\\") || /^[A-Za-z]:/.test(name) || name.includes("\0")) return false;
   return name.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 
+/** PK\x03\x04 local-file-header magic; empty archives and non-zips are rejected. */
 function hasZipSignature(header: Uint8Array): boolean {
   return header.length >= 4 && header[0] === 0x50 && header[1] === 0x4b && header[2] === 0x03 && header[3] === 0x04;
 }
 
+// Streams the upload to disk while hashing and sniffing the zip magic,
+// enforcing the byte budget as data arrives rather than after buffering.
 async function writeUpload(
   source: AsyncIterable<Uint8Array>,
   temporaryPath: string,
@@ -397,6 +418,8 @@ async function writeUpload(
   return { hash: digest.digest("hex"), size, header: header.subarray(0, headerBytes) };
 }
 
+// Engine cameras use free-form sensor sizes; Director offers a fixed option
+// list, so imports snap to the nearest catalogued format/ratio.
 function closestSensorFormat(width: number, height: number) {
   return DIRECTOR_CAMERA_SENSOR_FORMAT_OPTIONS.reduce((best, candidate) => {
     const candidateError =
@@ -418,6 +441,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+/** Every id already used in the live project, for import collision detection. */
 function existingDirectorIds(project: DirectorProject): Set<string> {
   return new Set([
     ...project.assets.map((item) => item.id),
@@ -431,6 +455,9 @@ function existingDirectorIds(project: DirectorProject): Set<string> {
   ]);
 }
 
+// Converts one manifest camera into a create_camera plan operation, snapping
+// and clamping optics into Director's supported ranges. Ids derive from the
+// package key + source id so rebuilding the same plan is deterministic.
 function cameraOperation(
   camera: DirectorEngineSceneCamera,
   packageKey: string,
@@ -472,6 +499,8 @@ function cameraOperation(
   };
 }
 
+// Converts one manifest light, clamping intensity/range/cone into Director's
+// limits; the engine half-angle in degrees becomes a radian spot angle.
 function lightOperation(
   light: DirectorEngineSceneLight,
   packageKey: string,
@@ -498,6 +527,7 @@ function lightOperation(
   };
 }
 
+/** Locates the single .uproject file; zero or several means the upload is not one Unreal project. */
 async function findUnrealProjectFile(projectDirectory: string): Promise<string> {
   const entries = await readdir(projectDirectory, { withFileTypes: true }).catch(() => null);
   const projects = (entries ?? [])
@@ -514,6 +544,7 @@ async function findUnrealProjectFile(projectDirectory: string): Promise<string> 
   return projects[0]!;
 }
 
+/** Requires project.godot at the package root — the marker of a Godot project. */
 async function assertGodotProjectFile(projectDirectory: string): Promise<void> {
   const projectStat = await stat(resolve(projectDirectory, "project.godot")).catch(() => null);
   if (!projectStat?.isFile()) {
@@ -524,11 +555,14 @@ async function assertGodotProjectFile(projectDirectory: string): Promise<void> {
   }
 }
 
+/** Keeps the tail of process output bounded; the useful engine error is at the end. */
 function appendBounded(current: string, next: string): string {
   const combined = current + next;
   return combined.length <= MAX_PROCESS_OUTPUT ? combined : combined.slice(combined.length - MAX_PROCESS_OUTPUT);
 }
 
+// Runs the headless engine with a hard timeout. POSIX children get their own
+// process group so SIGTERM/SIGKILL reach helpers the engine may have spawned.
 async function runProcess(
   executable: string,
   args: string[],
@@ -616,6 +650,8 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
   let ingestionActive = false;
   const ingestionQueue: Array<() => void> = [];
 
+  // Ingestion runs one at a time: each run may launch a full headless engine
+  // editor, so concurrency would multiply memory pressure without throughput.
   async function acquireIngestionSlot(): Promise<() => void> {
     if (ingestionActive) await new Promise<void>((resolveWaiter) => ingestionQueue.push(resolveWaiter));
     ingestionActive = true;
@@ -629,6 +665,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     };
   }
 
+  /** Content hash binding the ledger fields together; a mismatch means tampering or corruption. */
   function applyIntentHash(
     value: Pick<
       EngineSceneApplyLedger,
@@ -647,10 +684,13 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     );
   }
 
+  // The key is hashed for the file name so arbitrary caller strings cannot
+  // shape filesystem paths.
   function applyLedgerPath(idempotencyKey: string): string {
     return resolve(applyLedgerRoot, `${sha256(idempotencyKey)}.json`);
   }
 
+  /** Serializes all apply work per idempotency key so replays cannot race the original. */
   async function withApplyLock<T>(idempotencyKey: string, action: () => Promise<T>): Promise<T> {
     const previous = applyLocks.get(idempotencyKey) ?? Promise.resolve();
     let release!: () => void;
@@ -668,6 +708,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     }
   }
 
+  /** Loads a prior apply receipt; anything unsafe or unverifiable is an error, not a silent miss. */
   async function loadApplyLedger(idempotencyKey: string): Promise<EngineSceneApplyLedger | null> {
     const path = applyLedgerPath(idempotencyKey);
     const fileStat = await lstat(path).catch((error: NodeJS.ErrnoException) => {
@@ -696,6 +737,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     return parsed.data;
   }
 
+  /** Validates and atomically persists a ledger snapshot (owner-only permissions). */
   async function persistApplyLedger(value: EngineSceneApplyLedger): Promise<EngineSceneApplyLedger> {
     const parsed = engineSceneApplyLedgerSchema.safeParse(value);
     if (!parsed.success || parsed.data.intentHash !== applyIntentHash(parsed.data)) {
@@ -716,6 +758,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     return parsed.data;
   }
 
+  /** Rejects a key reused for a different (plan, revision) intent with a 409. */
   function assertApplyLedgerIdentity(
     ledger: EngineSceneApplyLedger,
     planId: string,
@@ -735,6 +778,9 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     }
   }
 
+  // Drives one ledger to completion: an already-successful ledger replays its
+  // receipt without re-authoring; otherwise the stored operation is sent and
+  // success is persisted before returning, making the apply crash-safe.
   async function executeApplyLedger(
     ledger: EngineSceneApplyLedger,
     applyAuthoring: (operation: DirectorWorkbenchOperation) => Promise<DirectorDccAuthoringResponse | null>,
@@ -765,6 +811,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     return { plan: completed.plan, authoring: completed.authoring!, copiedAssets: completed.copiedAssets };
   }
 
+  /** Confines a caller-supplied package path to the job root, lexically and post-realpath. */
   async function resolvePackageDirectory(input: string): Promise<{ absolute: string; relative: string }> {
     const trimmed = input.trim();
     const candidate = isAbsolute(trimmed) ? resolve(trimmed) : resolve(jobRoot, trimmed);
@@ -881,6 +928,9 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
         lightSourceIds: manifest.lights.map((item) => item.sourceId),
       },
     );
+    // Plan build is pure and mirrors blenderSceneImport.buildPlan: selected
+    // scene/cameras/lights become operations, collisions become typed
+    // conflicts (ready=false), fidelity losses become warnings + omitted.
     const selectedCameraIds = new Set(selection.cameraSourceIds);
     const selectedLightIds = new Set(selection.lightSourceIds);
     const knownCameraIds = new Set(manifest.cameras.map((item) => item.sourceId));
@@ -1077,6 +1127,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     return plan;
   }
 
+  /** Extracts the uploaded zip with entry-name allowlisting, `wx` writes, and a cumulative inflation budget. */
   async function extractZipPackage(zipPath: string, outputDirectory: string): Promise<void> {
     const bytes = await readFile(zipPath);
     let archive: JSZip;
@@ -1210,6 +1261,10 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     }
   }
 
+  // Per-engine headless export. Each branch runs the repository's own
+  // interchange exporter through the engine's official CLI entry point
+  // (Unreal -run=pythonscript, Godot --headless --script, Unity
+  // -executeMethod); request data never selects the script that executes.
   async function defaultRunEngineExport(input: EngineSceneExtractionInput): Promise<void> {
     if (input.provider === "unreal") {
       const projectFile = await findUnrealProjectFile(input.projectDirectory);
@@ -1318,6 +1373,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
 
   const runEngineExport = options.runEngineExport ?? defaultRunEngineExport;
 
+  /** Confines a caller-supplied project path to the workspace or the configured engine-project root. */
   async function resolveEngineProjectDirectory(projectDir: string): Promise<string> {
     const trimmed = projectDir.trim();
     const configuredRoot = environment.DIRECTOR_ENGINE_PROJECT_ROOT?.trim();
@@ -1392,6 +1448,7 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
     }
   }
 
+  /** Loads a persisted plan by id, path-confined to the job root and schema-validated. */
   async function loadPlan(planId: string): Promise<DirectorEngineSceneImportPlanV1> {
     const candidate = resolve(jobRoot, planId);
     if (!isInside(jobRoot, candidate))
@@ -1467,6 +1524,9 @@ export function createEngineSceneImporter(options: CreateEngineSceneImporterOpti
         );
       }
 
+      // Copy GLBs into the content-addressed generated-asset root: an existing
+      // file is either identical bytes (idempotent re-apply) or a genuine
+      // collision that must fail; new copies land via verified temp + rename.
       const copiedAssets: Array<{ assetId: string; url: string; hash: string }> = [];
       const copied = new Map<string, { fileName: string; url: string }>();
       for (const operation of plan.operations) {
