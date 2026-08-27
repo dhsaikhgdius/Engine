@@ -88,7 +88,9 @@ describe("canonical provider runtime", () => {
   });
 
   it("uses Anthropic cache breakpoints and keeps all usage buckets", async () => {
-    let requestBody: Record<string, unknown> | null = null;
+    // Initialized via a cast so control-flow analysis keeps the union type at
+    // the assertions below (the assignment happens inside the fetch mock).
+    let requestBody = null as Record<string, unknown> | null;
     const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
       return jsonResponse({

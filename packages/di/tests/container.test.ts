@@ -152,8 +152,12 @@ describe("Plugin loading", () => {
   it("loads multiple plugins in order", async () => {
     const ctx = new Container();
     await loadPlugins(ctx, [
-      (c) => c.singleton("a", () => 1),
-      (c) => c.singleton("b", () => 2),
+      (c) => {
+        c.singleton("a", () => 1);
+      },
+      (c) => {
+        c.singleton("b", () => 2);
+      },
     ]);
     expect(await ctx.resolve<number>("a")).toBe(1);
     expect(await ctx.resolve<number>("b")).toBe(2);

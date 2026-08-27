@@ -63,6 +63,8 @@ describe("semantic Director authoring", () => {
           intensity: 2,
           position: [4, 6, 4],
           target: [0, 1, 0],
+          visible: true,
+          locked: false,
         },
       },
     ]);
@@ -1481,7 +1483,7 @@ describe("semantic Director authoring", () => {
 
     const result = applyDirectorAuthoringActions(createDefaultDirectorProject(), [parsed]);
     expect(result.created.light_ids).toEqual(["light-minimal"]);
-    expect(result.project.lights.find((light) => light.id === "light-minimal")).toMatchObject({
+    expect(result.project.lights?.find((light) => light.id === "light-minimal")).toMatchObject({
       visible: true,
       locked: false,
     });

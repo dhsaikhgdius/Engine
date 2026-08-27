@@ -195,7 +195,6 @@ describe("End-to-end scene generation pipeline", () => {
     const provider = createMockProvider(LIVING_ROOM_RESPONSE);
     const output = await runScenePipeline(provider, {
       prompt: "建一个温馨的客厅",
-      summary: true,
     });
 
     const summary = summarizePipelineOutput(output);

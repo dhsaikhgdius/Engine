@@ -179,7 +179,7 @@ describe("Director gateway authorization boundary", () => {
     } as IncomingMessage;
     const authenticated = {
       method: "POST",
-      headers: { "x-director-browser-token": gatewaySecret },
+      headers: { "x-director-browser-token": gatewaySecret } as IncomingMessage["headers"],
     } as IncomingMessage;
 
     expect(directorBootstrapRequestAllowed(anonymous, gatewaySecret)).toBe(false);
