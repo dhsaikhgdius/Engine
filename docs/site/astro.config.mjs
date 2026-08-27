@@ -113,6 +113,7 @@ export default defineConfig({
               page("Durable Production Jobs", "engineering/adr/0002-durable-production-jobs", "持久化 ProductionJob"),
               page("Import, Export & Receipts", "engineering/adr/0003-import-export-receipts", "导入、导出与回执"),
               page("A2A Gateway Spike", "engineering/adr/0004-a2a-gateway-spike", "A2A gateway spike"),
+              page("Verified Shot North Star", "engineering/adr/0005-verified-shot-north-star", "Verified shot 北极星"),
             ]),
             page("Agent-native Operator Guide", "engineering/agent_native_operator_guide", "Agent-native 操作指南"),
             page("Agent-Native Roadmap", "engineering/agent_native_roadmap", "Agent-Native 优化路线图"),

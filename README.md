@@ -6,6 +6,8 @@
 
 **Agent-native 3D staging, cinematography, animation, editorial, and verified AI-video handoff.**
 
+_One production line from intent to delivered shot — every step typed, revision-bound, and verifiable._
+
 [![CI](https://github.com/OpenEnvision/WorldEngine/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenEnvision/WorldEngine/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-1f6feb)](docs/site/public/engineering/COMPREHENSIVE_DIRECTOR_LICENSE)
 [![Node ≥ 22](https://img.shields.io/badge/node-%E2%89%A5%2022-339933?logo=node.js&logoColor=white)](#start-here)

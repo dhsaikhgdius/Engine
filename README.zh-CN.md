@@ -6,6 +6,8 @@
 
 **Agent 原生的 3D 场景调度、摄影、动画、剪辑与经过验证的 AI 视频交付。**
 
+_从意图到已交付镜头只有一条生产线——每一步都有类型、绑定 revision、可验证。_
+
 [![CI](https://github.com/OpenEnvision/WorldEngine/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenEnvision/WorldEngine/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-1f6feb)](docs/site/public/engineering/COMPREHENSIVE_DIRECTOR_LICENSE)
 [![Node ≥ 22](https://img.shields.io/badge/node-%E2%89%A5%2022-339933?logo=node.js&logoColor=white)](#从这里开始)

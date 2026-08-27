@@ -3,6 +3,12 @@ title: Competitive Union
 description: Source-verified capability union and delivery gates for Director's 3D production architecture.
 ---
 
+:::caution[Archived research input — not a product roadmap]
+This page is a locked competitive audit kept as research input. It does not gate or order
+delivery work. The product direction is the verified shot north star recorded in
+[ADR 0005](/engineering/adr/0005-verified-shot-north-star/).
+:::
+
 Director's target is the tested union of seven production tools, not a visual
 collection of their controls. The detailed, revision-locked audit lives in
 `docs/site/src/content/docs/engineering/COMPETITIVE_UNION_ARCHITECTURE.md`.

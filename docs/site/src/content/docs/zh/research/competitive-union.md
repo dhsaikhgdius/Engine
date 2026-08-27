@@ -3,6 +3,11 @@ title: 竞品能力并集
 description: Director 3D 制作架构的来源核验能力并集与交付关卡。
 ---
 
+:::caution[已归档的研究输入——不是产品路线图]
+本页是保留为研究输入的锁定竞品审计，不决定也不排序交付工作。产品方向以
+[ADR 0005](/zh/engineering/adr/0005-verified-shot-north-star/) 记录的 verified shot 北极星为准。
+:::
+
 Director 的目标是七个制作工具经过测试的能力并集，而不是把它们的控件做成视觉集合。详细的、锁定修订号的审计维护在 `docs/site/src/content/docs/engineering/COMPETITIVE_UNION_ARCHITECTURE.md`。
 
 ## 锁定的参考项目

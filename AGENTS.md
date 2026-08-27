@@ -5,6 +5,22 @@ directs scenes visually in the browser while coding agents inspect and change th
 through typed MCP, HTTP, and CLI surfaces. This file is the canonical instruction entry point for
 every coding agent; per-agent rule files only point back here.
 
+## North Star
+
+Director 是一座经过验证的镜头工厂：从导演意图到已交付镜头，每一步都有类型、绑定 revision、可验证。
+Director is a verified shot factory: every step from directorial intent to a delivered shot is
+typed, revision-bound, and verifiable. Every change answers the three admission questions (理念三问):
+
+1. Which golden-journey step (J1–J6) does it strengthen?
+2. Can an agent drive it end to end — discoverable, addressable, guarded, idempotent, observable?
+3. What revision-bound evidence proves it — a receipt, an audit, a diff, or a clean capture?
+
+The constitution lives in
+[Product Constitution](docs/site/src/content/docs/concepts/product-constitution.md) and
+[Golden Journey](docs/site/src/content/docs/concepts/golden-journey.md); its adoption is recorded in
+[ADR 0005](docs/site/src/content/docs/engineering/adr/0005-verified-shot-north-star.md).
+`director_game` is an experiment, not a second film pipeline.
+
 ## Repository map
 
 | Path                             | Responsibility                                                                                                                                 |
@@ -14,7 +30,7 @@ every coding agent; per-agent rule files only point back here.
 | `packages/`                      | Shared npm workspaces: protocol, agent-engine, dsh-plugin-workbench, project-schema, stage-protocol, dcc-*, model-provider, di, scene-pipeline |
 | `packages/dsh-plugin-workbench/` | Director Stage / Canvas / Video / Blender tools as a DeepSeek Harness plugin                                                                   |
 | `vendor/`                        | Official third-party Git submodules: DeepSeek Harness, LTX-2, Hunyuan3D-2, TRELLIS, ARDY. Do not fork them in-tree.                            |
-| `integrations/`                  | Blender live kernel + interchange, Unreal / Unity / Godot engine connectors and scene exporters, portable Agent plugin                        |
+| `integrations/`                  | Blender live kernel + interchange, Unreal / Unity / Godot engine connectors and scene exporters, portable Agent plugin                         |
 | `assets/`                        | Asset catalogs, manifests, provenance, and license metadata                                                                                    |
 | `docs/site/`                     | Product and engineering documentation site                                                                                                     |
 | `tools/scripts/`                 | Repository automation, local launchers, checks, reproducible tools                                                                             |
