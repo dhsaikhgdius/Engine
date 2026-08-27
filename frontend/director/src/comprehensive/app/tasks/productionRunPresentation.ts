@@ -9,7 +9,7 @@ import {
   emptyFilmRunUsage,
   type FilmRunUsageScope,
 } from "../../../../../../packages/protocol/src/filmRunUsage";
-import type { FilmRunArtifactsStoragePresence } from "../../../../../../packages/protocol/src/filmRunReceipt";
+import type { FilmRunArtifactStoragePresence } from "../../../../../../packages/protocol/src/filmRunReceipt";
 import type { DirectorMonitoredProductionRun } from "./productionRunTaskClient";
 
 /** One absent-artifact warning line for the task tray (zh-CN source copy). */
@@ -292,7 +292,7 @@ export function productionRunArtifactPresencePending(entry: DirectorMonitoredPro
  * @param presence - Live `artifacts.storagePresence` from a film run receipt.
  */
 export function formatProductionRunAbsentArtifactWarnings(
-  presence: FilmRunArtifactsStoragePresence,
+  presence: FilmRunArtifactStoragePresence,
 ): ProductionRunAbsentArtifactWarning[] {
   const warnings: ProductionRunAbsentArtifactWarning[] = [];
   if (presence.finalVideo === "absent") {
