@@ -663,9 +663,7 @@ export function filmRunIntraPhaseSceneProgress(
   const scenes = run.scenes ?? [];
   if (scenes.length === 0) return null;
   const isComplete =
-    run.phase === "plan-scenes"
-      ? scenePlanComplete
-      : (scene: FilmRunProgressScene) => scene.videoPath !== null;
+    run.phase === "plan-scenes" ? scenePlanComplete : (scene: FilmRunProgressScene) => scene.videoPath !== null;
   return {
     phase: run.phase,
     completed: scenes.filter(isComplete).length,
