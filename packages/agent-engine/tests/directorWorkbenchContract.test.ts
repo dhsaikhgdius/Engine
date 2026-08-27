@@ -445,9 +445,19 @@ describe("director workbench contract", () => {
       success: true,
       operation: { kind: "prop" },
     });
+    expect(parseDirectorWorkbenchInput({ op: "query_objects", object_list_id: "object_list_1" })).toMatchObject({
+      success: true,
+      operation: { object_list_id: "object_list_1", include_hidden: false, max_results: 50 },
+    });
+    expect(
+      parseDirectorWorkbenchInput({ op: "query_objects", filter: { object_list_id: "object_list_2" } }),
+    ).toMatchObject({
+      success: true,
+      operation: { object_list_id: "object_list_2" },
+    });
     expect(parseDirectorWorkbenchInput({ op: "query_objects" })).toMatchObject({
       success: false,
-      error: expect.stringContaining('{"op":"query_objects","name_pattern":"door"}'),
+      error: expect.stringMatching(/name_pattern.*"door".*object_list_id/s),
     });
     expect(parseDirectorWorkbenchInput({ op: "query_objects", spatial: "frustum" })).toMatchObject({
       success: false,

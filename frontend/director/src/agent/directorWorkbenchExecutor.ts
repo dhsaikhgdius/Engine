@@ -1426,6 +1426,7 @@ function executeDirectorWorkbenchOperationCore(
               spatial: operation.spatial,
               namePattern: operation.name_pattern,
               kind: operation.kind,
+              objectListId: operation.object_list_id,
             },
             {
               includeHidden: operation.include_hidden,
