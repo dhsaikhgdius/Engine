@@ -40,7 +40,7 @@ refuses to substitute a compile for a playtest.
 
 ## Proof
 
-Golden tasks `12`–`16` in `tools/evals/tasks/` — see the task inventory in
+Golden tasks `12`–`21` in `tools/evals/tasks/` — see the task inventory in
 `tools/evals/README.md` — replay the claims above against an isolated gateway
 (`npm run eval`). `tasks/16-game-harness-vs-codegen-honesty.json` asserts the two
 load-bearing ones mechanically: `capabilities` reports `runtime.default = "stage"`, and

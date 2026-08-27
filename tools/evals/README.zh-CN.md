@@ -71,15 +71,17 @@ npm run eval:reference
 
 每个步骤都通过 `tool` 指定一个公开工具:`director_workbench`、`director_creative`、
 `stage_video`、`blender_native`、`director_dcc` 或 `director_game`。在启动隔离浏览器前,任务 schema 测试会先用
-对应工具的严格合同校验所有预期成功的输入。游戏切片任务（`12`–`16`）覆盖规划/绑定/试玩、
-导出到 `director_dcc` 的路由、未绑定拒绝、无内联 `trace` 的 host-free playtest,以及
-harness 与代码生成的诚实契约（Stage 是默认运行时;`export_slice` 拒绝生成引擎代码）。这些诚实
+对应工具的严格合同校验所有预期成功的输入。游戏切片任务（`12`–`21`）覆盖规划/绑定/试玩、
+导出到 `director_dcc` 的路由、未绑定拒绝、无内联 `trace` 的 host-free playtest、
+harness 与代码生成的诚实契约（Stage 是默认运行时;`export_slice` 拒绝生成引擎代码）、
+从 `packages/protocol/src/gameDemoRecipes.ts` 原样回放的 fps/racing/rpg 题材演示配方,
+以及 racing/fps 完整循环试玩覆盖。这些诚实
 断言背后的对比记录在 `docs/site/src/content/docs/zh/research/game-harness-vs-codegen.md`。
 
 `result_paths` 是针对整个 JSON 响应体解析的点号路径（数组按数字索引,如
 `result.issues.0`）;当解析到的值既不是 `undefined` 也不是 `null` 时路径通过。
 `result_equals` 把相同的点号路径映射到精确的预期 JSON 值,用于"存在还不够"的断言
-（例如 `runtime.default` 必须等于 `"stage"`,而非仅存在）。
+（例如 `runtime.default` 必须等于 `"stage"`,可玩回执必须字面等于 `true`,而非仅存在）。
 `expect.success: false` 的步骤在校验边界按预期报错时通过,与 HTTP 状态码无关。
 运行器是通用的——只需将新 JSON 文件放入 `tasks/` 即可添加任务。
 
@@ -109,3 +111,8 @@ possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角�
 | `tasks/14-world-systems-observation.json`        | 设置 Living World 天气/风并添加一个效果,验证 `world` 观察投影            |
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | 无显式 trace 的 host-free playtest 评分                            |
 | `tasks/16-game-harness-vs-codegen-honesty.json`  | harness vs 代码生成诚实性:capabilities 报告 `runtime.default = "stage"`,`export_slice` 在可玩回执之前（`game_export_not_playable`）与之后（`game_export_via_dcc`）都拒绝代码生成 |
+| `tasks/17-game-demo-fps-recipe-hostfree.json`    | 回放 fps 题材演示配方:capabilities/describe 发现、plan、按提示绑定、免宿主试玩至可玩 |
+| `tasks/18-game-demo-racing-recipe-hostfree.json` | 回放 racing 题材演示配方,含 enter/exit vehicle 动词,回执字面可玩          |
+| `tasks/19-game-demo-rpg-recipe-hostfree.json`    | 回放 rpg 题材演示配方,含 interact 与 attack 动词,回执字面可玩             |
+| `tasks/20-game-slice-racing-full-loop.json`      | 无内联 trace 的完整 racing 循环:plan → bind → 免宿主试玩 enter/drive/exit 车辆输入带 → evaluate → `export_slice` 拒绝代码生成并路由到 `director_dcc` |
+| `tasks/21-game-slice-fps-full-loop.json`         | 无内联 trace 的完整 fps 循环:plan → bind → 免宿主试玩 move/look/jump/sprint/fire/reload → evaluate → `export_slice` 拒绝代码生成并路由到 `director_dcc` |
