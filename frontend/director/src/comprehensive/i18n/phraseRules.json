@@ -286,6 +286,14 @@
     "replacement": "Scene $1 rendered video is no longer in storage"
   },
   {
+    "pattern": "^场景 (\\d+) 舞台锚点解析失败，已跳过白盒锚定$",
+    "replacement": "Scene $1 stage anchor resolution failed; white-box grounding skipped"
+  },
+  {
+    "pattern": "^时间线省略：场景 (\\d+) 镜头 (\\d+) 缺少成片片段$",
+    "replacement": "Timeline omit: scene $1 shot $2 is missing its rendered clip"
+  },
+  {
     "pattern": "^远端修订 (.+?)，正在核对$",
     "replacement": "Remote revision $1 · syncing"
   },
