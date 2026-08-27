@@ -36,6 +36,14 @@ function modeLabel(mode: string): string {
   return mode;
 }
 
+function formatTtlSeconds(seconds: number): string {
+  return seconds === 0 ? "立即销毁" : `${seconds} 秒`;
+}
+
+function formatRateLimit(perMinute: number): string {
+  return perMinute === 0 ? "未限制" : `${perMinute} / 分钟`;
+}
+
 /**
  * One source-language status word per room, mirroring the API flags without
  * inventing states: live peers → 活跃, retained-empty → 保留中, live but empty
@@ -182,6 +190,10 @@ export function CollaborationRoomsSection() {
             {[t(modeLabel(report.mode)), report.persistence ? t("持久化已启用") : t("持久化未启用")].join(" · ")}
           </p>
           <div className="task-tray-storage-rows">
+            <span>{t("空房间 TTL")}</span>
+            <span>{t(formatTtlSeconds(report.empty_room_ttl_seconds))}</span>
+            <span>{t("邀请速率限制")}</span>
+            <span>{t(formatRateLimit(report.invite_rate_limit_per_minute))}</span>
             <span>{t("已吊销邀请")}</span>
             <span>{revocations?.revoked_tokens ?? 0}</span>
             <span>{t("房间级吊销截止")}</span>
