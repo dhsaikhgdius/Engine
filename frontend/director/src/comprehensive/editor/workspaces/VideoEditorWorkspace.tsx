@@ -770,7 +770,9 @@ export function VideoEditorWorkspace() {
   // attach, and media-less text/caption clips (`text:` / `text:caption:…`)
   // dispatch through the shared agent contract
   // (dispatchCreativeWorkspaceOperations / dispatchCreativeWorkspaceMediaRelink).
-  // Only continuous interactions (drags, trims, fades, range sliders) and
+  // Mid-gesture clip drag/trim stays locally batched; pointer-up commits via
+  // edit.clip.move / edit.clip.update with overwrite:true (same resolver +
+  // receipt effects Agents see). Continuous fade drags, range sliders, and
   // mid-typing name states the contract cannot express keep the direct store
   // mutators. Explicit media drops, keyboard nudges, and duplicate-after share
   // overwrite placement. Discrete timeline zoom (presets, +/- buttons, fit)
@@ -778,7 +780,6 @@ export function VideoEditorWorkspace() {
   // ctrl/cmd-wheel zoom and scroll anchoring stay local.
   const updateClip = useDirectorCreativeWorkspaceStore((state) => state.updateClip);
   const moveClipToTrack = useDirectorCreativeWorkspaceStore((state) => state.moveClipToTrack);
-  const commitClipPlacement = useDirectorCreativeWorkspaceStore((state) => state.commitClipPlacement);
   const selectClip = useDirectorCreativeWorkspaceStore((state) => state.selectClip);
   const setPlayhead = useDirectorCreativeWorkspaceStore((state) => state.setPlayhead);
   const beginHistoryBatch = useDirectorCreativeWorkspaceStore((state) => state.beginHistoryBatch);
@@ -1854,15 +1855,31 @@ export function VideoEditorWorkspace() {
     }
     installWindowPointerDrag(dragCleanupRef, move, () => {
       setDraggingClipId(null);
-      // Overwrite resolution happens once at drop, so clips crossed mid-drag stay intact.
+      // Mid-drag keeps neighbours intact; pointer-up shares edit.clip.move
+      // overwrite with Agents (same resolveDirectorTrackOverwrite path).
       if (engaged) {
-        commitClipPlacement(clip.id);
+        const state = useDirectorCreativeWorkspaceStore.getState();
+        const owner = state.editTracks.find((track) => track.clips.some((item) => item.id === clip.id));
+        if (owner) {
+          dispatchVideo(
+            {
+              op: "edit.clip.move",
+              clip_id: clip.id,
+              track_id: owner.id,
+              start_sec: owner.clips.find((item) => item.id === clip.id)!.startSec,
+              overwrite: true,
+            },
+            t("剪辑落位失败"),
+          );
+        }
         // A cross dissolve only makes sense against an adjacent predecessor;
         // clear it when the drag broke that adjacency.
         if ((clip.transitionInSec ?? 0) > 0) {
-          const state = useDirectorCreativeWorkspaceStore.getState();
-          const owner = state.editTracks.find((track) => track.clips.some((item) => item.id === clip.id));
-          if (owner && !findDirectorTransitionPredecessor(owner, clip.id)) state.setClipTransition(clip.id, 0);
+          const live = useDirectorCreativeWorkspaceStore.getState();
+          const liveOwner = live.editTracks.find((track) => track.clips.some((item) => item.id === clip.id));
+          if (liveOwner && !findDirectorTransitionPredecessor(liveOwner, clip.id)) {
+            live.setClipTransition(clip.id, 0);
+          }
         }
       }
       endHistoryBatch();
@@ -1947,8 +1964,26 @@ export function VideoEditorWorkspace() {
     }
     installWindowPointerDrag(dragCleanupRef, move, () => {
       setTrimmingClip(null);
-      // Trimming an edge into a neighbour overwrites the covered range.
-      commitClipPlacement(clip.id);
+      // Mid-trim stays local; pointer-up shares edit.clip.update overwrite.
+      const live = useDirectorCreativeWorkspaceStore
+        .getState()
+        .editTracks.flatMap((track) => track.clips)
+        .find((item) => item.id === clip.id);
+      if (live) {
+        dispatchVideo(
+          {
+            op: "edit.clip.update",
+            clip_id: clip.id,
+            patch: {
+              start_sec: live.startSec,
+              duration_sec: live.durationSec,
+              in_sec: live.inSec,
+            },
+            overwrite: true,
+          },
+          t("剪辑落位失败"),
+        );
+      }
       endHistoryBatch();
     });
   }
