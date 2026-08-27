@@ -336,6 +336,19 @@ it("sends clean_frame for Unreal and renders the skipped receipt with its reason
               "Shot shot-orphan has no camera binding; no camera cut section was added (warn-and-omit code: shot_no_camera_binding).",
           },
         ],
+        omittedLightCount: 2,
+        omittedLights: [
+          {
+            directorId: "light_ambient_1",
+            lightType: "ambient",
+            reason: "Uniform ambient light has no single-actor Unreal equivalent (warn-and-omit).",
+          },
+          {
+            directorId: "light_hemi_1",
+            lightType: "hemisphere",
+            reason: "Hemisphere light has no single-actor Unreal equivalent (warn-and-omit).",
+          },
+        ],
       },
       cleanFrame: {
         contract: "director-unreal-clean-frame-v1",
@@ -368,6 +381,13 @@ it("sends clean_frame for Unreal and renders the skipped receipt with its reason
   expect(sequencer).toHaveTextContent("省略材质");
   expect(sequencer).toHaveTextContent("2");
   expect(sequencer).toHaveTextContent("省略镜头");
+  expect(sequencer).toHaveTextContent("省略灯光");
+  const omittedLights = screen.getByRole("list", { name: "结构化省略灯光" });
+  expect(within(omittedLights).getByText("light_ambient_1")).toBeInTheDocument();
+  expect(omittedLights).toHaveTextContent("环境光");
+  expect(within(omittedLights).getByText("light_hemi_1")).toBeInTheDocument();
+  expect(omittedLights).toHaveTextContent("半球光");
+  expect(omittedLights).toHaveTextContent("no single-actor Unreal equivalent");
   const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
   expect(within(omittedMaterials).getByText("prop-glass")).toBeInTheDocument();
   expect(omittedMaterials).toHaveTextContent("不支持的材质通道");
@@ -637,6 +657,64 @@ it("previews an engine return as a dry run and guards apply behind an explicit r
   await user.click(apply);
   await waitFor(() => expect(returnClient.apply).toHaveBeenCalledTimes(1));
   expect(within(panel).getByRole("button", { name: "已应用到当前场景" })).toBeDisabled();
+});
+
+it("lists typed omittedOptics / omittedAdditions on engine return preview without echoing them as free-text warnings", async () => {
+  const opticsReason = "Camera cam-1 sensor format 'imax65' was omitted from the return plan (warn-and-omit).";
+  const additionReason =
+    'New DCC object "Prop" (prop-new) is available but not imported; rebuild the plan with include_new_objects.';
+  returnClient.preview.mockResolvedValue({
+    plan: {
+      ready: true,
+      conflicts: [],
+      warnings: [opticsReason, "unrelated bake notice"],
+      operations: [{ op: "skip", directorId: "prop-new", reason: additionReason }],
+      packageId: "pkg",
+      manifestHash: hash,
+      omittedOpticsCount: 1,
+      omittedOptics: [
+        {
+          directorId: "cam-1",
+          code: "sensor_format",
+          field: "sensorFormat",
+          reason: opticsReason,
+        },
+      ],
+      omittedAdditionsCount: 1,
+      omittedAdditions: [
+        {
+          directorId: "prop-new",
+          name: "Prop",
+          meshFile: "meshes/prop-new.glb",
+          code: "opt_in_required",
+          reason: additionReason,
+        },
+      ],
+    },
+    summary: { operation_count: 1, skipped_count: 1, conflict_count: 0, warning_count: 2 },
+    ready: true,
+  });
+  renderDock();
+  const user = await openTab("Godot");
+  const panel = screen.getByRole("tabpanel");
+  await user.type(await within(panel).findByRole("textbox", { name: "回传包路径" }), "JOB/return");
+  await user.click(within(panel).getByRole("button", { name: "预览差异" }));
+
+  expect(
+    await within(panel).findByText(/1 项更新 · 1 项跳过 · 0 项冲突 · 1 项省略光学 · 1 项省略新增 · 1 条提示/),
+  ).toBeInTheDocument();
+
+  const opticsList = within(panel).getByRole("list", { name: "结构化省略光学" });
+  expect(within(opticsList).getByText("cam-1")).toBeInTheDocument();
+  expect(opticsList).toHaveTextContent("传感器画幅省略");
+
+  const additionsList = within(panel).getByRole("list", { name: "结构化省略新增对象" });
+  expect(within(additionsList).getByText("prop-new")).toBeInTheDocument();
+  expect(additionsList).toHaveTextContent("需选择纳入");
+
+  const notices = within(panel).getByRole("list", { name: "回传提示" });
+  expect(notices).toHaveTextContent("unrelated bake notice");
+  expect(notices).not.toHaveTextContent("sensor format");
 });
 
 it("presents the Unreal live preview as disconnected preview-only copy without a fake connected state", async () => {

@@ -6,7 +6,7 @@ import {
   directorDccOperationSchema,
   directorTransformToBlender,
 } from "../../src/dcc/directorDccContract";
-import { directorDccReturnManifestSchema } from "../../src/dcc/directorDccReturnContract";
+import { directorDccImportPlanSchema, directorDccReturnManifestSchema } from "../../src/dcc/directorDccReturnContract";
 
 function transformMatrix(transform: DirectorTransform) {
   return new Matrix4().compose(
@@ -191,6 +191,75 @@ describe("Director DCC return contract", () => {
         plan_id: "../escape",
         expected_revision: plan.targetRevision,
         idempotency_key: "blend-import-escape",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects omittedOptics / omittedAdditions count mismatches, unknown codes, and extra fields", () => {
+    const revision = "director-project-revision:v1:sha256:" + "a".repeat(64);
+    const opticsBase = {
+      contract: "director-dcc-import-plan-v1" as const,
+      ready: true,
+      packageId: "return-1",
+      packageDir: "job-1/return-package",
+      manifestHash: "b".repeat(64),
+      sourceRevision: revision,
+      targetRevision: revision,
+      operations: [],
+      conflicts: [],
+      warnings: [],
+      omittedOpticsCount: 1,
+      omittedOptics: [
+        {
+          directorId: "cam-1",
+          code: "sensor_format" as const,
+          field: "sensorFormat" as const,
+          reason: "Camera cam-1 sensor format omitted (warn-and-omit).",
+        },
+      ],
+    };
+    expect(directorDccImportPlanSchema.safeParse(opticsBase).success).toBe(true);
+    expect(directorDccImportPlanSchema.safeParse({ ...opticsBase, omittedOpticsCount: 2 }).success).toBe(false);
+    expect(
+      directorDccImportPlanSchema.safeParse({
+        ...opticsBase,
+        omittedOptics: [{ ...opticsBase.omittedOptics[0], code: "focal_length" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccImportPlanSchema.safeParse({
+        ...opticsBase,
+        omittedOptics: [{ ...opticsBase.omittedOptics[0], extra: true }],
+      }).success,
+    ).toBe(false);
+
+    const additionBase = {
+      ...opticsBase,
+      omittedOpticsCount: undefined,
+      omittedOptics: undefined,
+      omittedAdditionsCount: 1,
+      omittedAdditions: [
+        {
+          directorId: "lamp-new",
+          name: "Desk Lamp",
+          meshFile: "meshes/lamp-new.glb",
+          code: "opt_in_required" as const,
+          reason: "Awaiting include_new_objects opt-in.",
+        },
+      ],
+    };
+    expect(directorDccImportPlanSchema.safeParse(additionBase).success).toBe(true);
+    expect(directorDccImportPlanSchema.safeParse({ ...additionBase, omittedAdditionsCount: 0 }).success).toBe(false);
+    expect(
+      directorDccImportPlanSchema.safeParse({
+        ...additionBase,
+        omittedAdditions: [{ ...additionBase.omittedAdditions[0], code: "auto_import" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccImportPlanSchema.safeParse({
+        ...additionBase,
+        omittedAdditions: [{ ...additionBase.omittedAdditions[0], extra: true }],
       }).success,
     ).toBe(false);
   });
