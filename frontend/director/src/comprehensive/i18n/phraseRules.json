@@ -43,8 +43,8 @@
   { "pattern": "^重新启动 (codex|claude)$", "flags": "i", "replacement": "Restart $1" },
   { "pattern": "^从错误状态重新启动 (codex|claude)$", "flags": "i", "replacement": "Restart $1 from error" },
   { "pattern": "^(codex|claude) 终端窗口$", "flags": "i", "replacement": "$1 terminal" },
-  { "pattern": "^正在启动 (codex|claude)…$", "flags": "i", "replacement": "Starting $1…" },
-  { "pattern": "^(codex|claude) 进程已退出（exit (\\d+)）$", "flags": "i", "replacement": "$1 exited (code $2)" },
+  { "pattern": "^正在启动 (.+)…$", "replacement": "Starting $1…" },
+  { "pattern": "^(.+) 进程已退出（exit (.+)）$", "replacement": "$1 exited (code $2)" },
   { "pattern": "^已保存宏“(.+)”$", "handler": "savedMacro" },
   { "pattern": "^宏“(.+)”已执行，可撤销$", "handler": "ranMacro" },
   { "pattern": "^删除宏“(.+)”？$", "handler": "deleteMacro" },
@@ -147,6 +147,20 @@
   { "pattern": "^地面高度$", "replacement": "Ground height" },
   { "pattern": "^第 (\\d+) 帧，时间码 (.+)$", "replacement": "Frame $1, timecode $2" },
   { "pattern": "^第 (\\d+) 帧，(.+) 秒$", "replacement": "Frame $1, $2 seconds" },
+  { "pattern": "^第 (.+) 帧没有返回真实 PNG$", "replacement": "Frame $1 did not return a real PNG" },
+  { "pattern": "^第 (.+) 帧没有可用于渲染的机位$", "replacement": "Frame $1 has no camera available for rendering" },
+  {
+    "pattern": "^第 (.+) 帧没有可用于导出参数的机位$",
+    "replacement": "Frame $1 has no camera available for export parameters"
+  },
+  {
+    "pattern": "^第 (.+) 帧的 motion 通道没有返回稠密光流$",
+    "replacement": "The motion pass for frame $1 did not return dense optical flow"
+  },
+  {
+    "pattern": "^第 (.+) 帧的 (.+) 通道没有返回真实 PNG$",
+    "replacement": "The $2 pass for frame $1 did not return a real PNG"
+  },
   { "pattern": "^(.+) 已进入 (.+) 队列$", "replacement": "$1 entered the $2 queue" },
   { "pattern": "^(.+) 已加入片场和画廊（(.+)）$", "replacement": "$1 added to the stage and Gallery ($2)" },
   { "pattern": "^(.+) 进度$", "replacement": "$1 progress" },
@@ -278,6 +292,10 @@
     "pattern": "^(.+)。原始数据备份失败，请勿清除浏览器数据。建议先导出当前可见的工程内容，并向开发者反馈该问题。$",
     "replacement": "$1. Backing up the original data failed; do not clear browser data. Export the currently visible project first, then report this issue to the developers."
   },
+  {
+    "pattern": "^(.+)。(.+)建议先导出当前可见的工程内容，并向开发者反馈该问题。$",
+    "replacement": "$1. $2 Export the currently visible project first, then report this issue to the developers."
+  },
   { "pattern": "^任务中心（(\\d+) 个进行中）$", "replacement": "Task center ($1 running)" },
   { "pattern": "^本地 (\\d+) 个组件$", "replacement": "$1 local components" },
   { "pattern": "^(\\d+) 个场景$", "replacement": "$1 scenes" },
@@ -328,6 +346,9 @@
   { "pattern": "^确认清扫 (\\S+) 个对象（(.+)）$", "replacement": "Confirm sweep: $1 objects ($2)" },
   { "pattern": "^已清扫 (\\S+) 个对象，回收 (.+)$", "replacement": "Swept $1 objects, reclaimed $2" },
   { "pattern": "^(\\S+) 个对象（(.+)）$", "replacement": "$1 objects ($2)" },
+  { "pattern": "^(.+)（(.+)，HTTP (\\d+)）$", "replacement": "$1 ($2, HTTP $3)" },
+  { "pattern": "^(.+)（HTTP (\\d+)）$", "replacement": "$1 (HTTP $2)" },
+  { "pattern": "^确认 (.+)：(.+)$", "replacement": "Confirm $1: $2" },
   { "pattern": "^(.+) · (.+) 滑杆$", "handler": "compositeSlider" },
   { "pattern": "^(.+) · (.+)$", "handler": "composite" },
   { "pattern": "^(.+)：(.+)$", "replacement": "$1: $2" }
