@@ -85,7 +85,8 @@ async function readJson(response: Response, fallbackMessage: string): Promise<Re
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) {
     // Collaboration room routes report refusals as { error, code }.
-    const message = typeof body.error === "string" ? body.error : typeof body.message === "string" ? body.message : null;
+    const message =
+      typeof body.error === "string" ? body.error : typeof body.message === "string" ? body.message : null;
     throw new Error(message ?? `${fallbackMessage}（HTTP ${response.status}）`);
   }
   return body;

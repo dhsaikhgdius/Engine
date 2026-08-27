@@ -121,9 +121,7 @@ describe("collaborationRoomsClient", () => {
     mocks.fetch.mockResolvedValueOnce(
       jsonResponse(409, { error: "协作持久化未启用，无隔离区可查询", code: "collab_persistence_disabled" }),
     );
-    await expect(fetchCollaborationRoomQuarantine("ops/idle-room")).rejects.toThrow(
-      "协作持久化未启用，无隔离区可查询",
-    );
+    await expect(fetchCollaborationRoomQuarantine("ops/idle-room")).rejects.toThrow("协作持久化未启用，无隔离区可查询");
   });
 
   it("fetches and validates the quarantine index with an encoded room id", async () => {
