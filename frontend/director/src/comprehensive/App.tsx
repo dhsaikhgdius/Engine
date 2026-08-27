@@ -11,7 +11,17 @@ import "./styles/videoEditor.css";
 import "./styles/objectTreePanel.css";
 import "./styles/rightSidebar.css";
 import "./styles/workspaceLoading.css";
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type CSSProperties } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type CSSProperties,
+} from "react";
 import { Bot, Boxes, ChevronDown, Film, Languages, LayoutDashboard, Minimize2, Moon, Sun } from "lucide-react";
 import { LanguageProvider, useLanguage } from "./i18n/language";
 import { RetryableWorkspace } from "./app/errors/RetryableWorkspace";
@@ -47,11 +57,14 @@ import {
   type DirectorWorkspaceMode,
 } from "./editor/workspaces/directorWorkspaceStore";
 
-const loadCanvasWorkspace = () => import("./editor/workspaces/CanvasWorkspace").then((module) => ({ default: module.CanvasWorkspace }));
+const loadCanvasWorkspace = () =>
+  import("./editor/workspaces/CanvasWorkspace").then((module) => ({ default: module.CanvasWorkspace }));
 const loadVideoEditorWorkspace = () =>
   import("./editor/workspaces/VideoEditorWorkspace").then((module) => ({ default: module.VideoEditorWorkspace }));
-const loadStageWorkspace = () => import("./editor/workspaces/StageWorkspace").then((module) => ({ default: module.StageWorkspace }));
-const loadAgentWorkspace = () => import("./editor/workspaces/AgentWorkspace").then((module) => ({ default: module.AgentWorkspace }));
+const loadStageWorkspace = () =>
+  import("./editor/workspaces/StageWorkspace").then((module) => ({ default: module.StageWorkspace }));
+const loadAgentWorkspace = () =>
+  import("./editor/workspaces/AgentWorkspace").then((module) => ({ default: module.AgentWorkspace }));
 
 const WORKSPACE_TABS = [
   ["canvas", LayoutDashboard, "画布"],
@@ -389,15 +402,19 @@ function DirectorApp() {
           </div>
         </div>
       </header>
-      <main
-        aria-labelledby={`workspace-tab-${activeAppWorkspace}`}
-        id="director-workspace-panel"
-        role="tabpanel"
-      >
+      <main aria-labelledby={`workspace-tab-${activeAppWorkspace}`} id="director-workspace-panel" role="tabpanel">
         {activeAppWorkspace === "agent" ? (
-          <RetryableWorkspace title="Agent 工作区加载失败" loadingLabel={t("正在加载 Agent…")} loader={loadAgentWorkspace} />
+          <RetryableWorkspace
+            title="Agent 工作区加载失败"
+            loadingLabel={t("正在加载 Agent…")}
+            loader={loadAgentWorkspace}
+          />
         ) : activeAppWorkspace === "canvas" ? (
-          <RetryableWorkspace title="画布工作区加载失败" loadingLabel={t("正在加载画布…")} loader={loadCanvasWorkspace} />
+          <RetryableWorkspace
+            title="画布工作区加载失败"
+            loadingLabel={t("正在加载画布…")}
+            loader={loadCanvasWorkspace}
+          />
         ) : activeAppWorkspace === "video" ? (
           <RetryableWorkspace
             title="视频编辑器加载失败"

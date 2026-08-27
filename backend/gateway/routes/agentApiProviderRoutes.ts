@@ -9,10 +9,7 @@ import {
   type StoredAgentApiProvider,
 } from "../agents/agentApiProviderStore";
 import { fetchAgentApiModelsRequestSchema, fetchHostedAgentModels } from "../agents/agentApiModels";
-import {
-  assertAllowedOutboundProviderUrl,
-  assertStoredProviderBaseUrlMatches,
-} from "../agents/outboundUrlPolicy";
+import { assertAllowedOutboundProviderUrl, assertStoredProviderBaseUrlMatches } from "../agents/outboundUrlPolicy";
 import type { HostedAgentProfileConfig } from "../controlPlane/controlPlaneConfig";
 import { ModelDriverHttpError, ModelDriverResponseError } from "@director/model-provider/runtime";
 
@@ -123,7 +120,10 @@ export async function handleAgentApiProviderRoute(
     } catch (error) {
       json(response, error instanceof Error && /baseUrl|private|metadata|HTTP/i.test(error.message) ? 400 : 502, {
         error: publicError(error),
-        code: error instanceof Error && /baseUrl|private|metadata|HTTP/i.test(error.message) ? "invalid_request" : "models_unavailable",
+        code:
+          error instanceof Error && /baseUrl|private|metadata|HTTP/i.test(error.message)
+            ? "invalid_request"
+            : "models_unavailable",
       });
     }
     return true;

@@ -297,12 +297,15 @@ type PlannedAgentTargets = { workbench?: string; creative?: string };
 type PlannedAgentTargetLease = { targets: PlannedAgentTargets; expiresAt: number };
 const plannedAgentTargets = new Map<string, PlannedAgentTargetLease>();
 let previewMimeType: StageCapturePayload["mimeType"] = "image/png";
-const terminalSessions = new TerminalSessionManager(root, (() => {
-  const environment = { ...process.env };
-  delete environment.DIRECTOR_GATEWAY_TOKEN;
-  delete environment.DIRECTOR_COLLAB_INVITE_SECRET;
-  return environment;
-})());
+const terminalSessions = new TerminalSessionManager(
+  root,
+  (() => {
+    const environment = { ...process.env };
+    delete environment.DIRECTOR_GATEWAY_TOKEN;
+    delete environment.DIRECTOR_COLLAB_INVITE_SECRET;
+    return environment;
+  })(),
+);
 // Team-readiness collaboration boundary: room auth defaults to local trust,
 // persistence defaults to in-memory, and empty rooms are destroyed
 // immediately; each is opt-in via environment (see createCollaborationRuntime).
@@ -2312,7 +2315,8 @@ const server = createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/te-man/director/agent/bootstrap") {
       if (!directorBootstrapRequestAllowed(request, gatewaySecret, allowedBrowserOrigins)) {
         return json(response, 403, {
-          error: "Anonymous bootstrap is disabled. Send a trusted Origin header or configure DIRECTOR_ALLOW_ANONYMOUS_BOOTSTRAP=1.",
+          error:
+            "Anonymous bootstrap is disabled. Send a trusted Origin header or configure DIRECTOR_ALLOW_ANONYMOUS_BOOTSTRAP=1.",
           code: "bootstrap_denied",
         });
       }
