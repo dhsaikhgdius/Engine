@@ -65,7 +65,9 @@ description: Director 功能、测试证据、支持边界和待完成工作的�
 
 
 
-| 游戏引擎场景导入（Unreal / Unity / Godot） | **Limited** | `director-engine-scene-v1` 契约、`backend/gateway/dcc/engineSceneImport.ts`、`integrations/{unreal,unity,godot}/interchange` 引擎内导出器及网关导入测试 | 无头提取（或不依赖引擎的 `.zip` 上传）产出 Director 空间中的校验包；预览生成带 revision 保护的计划，应用执行一次原子受保护变更并把 GLB 存入内容寻址存储。几何依赖引擎侧 glTF 导出器，动画片段只按名称清点，不映射到可编辑时间线。 |
+
+| 游戏引擎场景导入（Unreal / Unity / Godot） | **Limited** | `director-engine-scene-v1` 契约、`backend/gateway/dcc/engineSceneImport.ts`、`integrations/{unreal,unity,godot}/interchange` 引擎内导出器及网关导入测试 | 无头提取（或不依赖引擎的 `.zip` 上传）产出 Director 空间中的校验包；预览生成带 revision 保护的计划，应用执行一次原子受保护变更并把 GLB 存入内容寻址存储。几何依赖引擎侧 glTF 导出器，动画片段只按名称清点，不映射到可编辑时间线。导入预览现以结构化列表展示 typed `omitted[]`/`omittedCount`（去重仅回显 typed reason 的 warnings）。 |
+
 | 引擎编辑器启动与有界项目运行（`director_dcc`） | **Limited** | `director-dcc-engine-run-v1` 契约、`backend/gateway/dcc/engineRun.ts`、运行与路由测试 | `launch_engine_editor` 可为三引擎打开配置工程。Godot 可通过 `run_engine_project` / `engine_run_status` / `stop_engine_project` 启动、读取有界输出并停止；Unity 播放模式与 Unreal `-game` 返回类型化 unsupported 结果。 |
 | Opt-in 引擎常驻工作台（`director_dcc`） | **Limited** | 共享 engine-session 契约、Unity/Godot live-link hub、Unreal loopback hub、三引擎连接器及 session 路由测试 | `start_engine_session` 接入已打开的编辑器。命令支持 Unity/Godot 热截图、显式授权的 C#/GDScript/Editor Python 和引擎权威 `sync_scene`；稳定 ID 审阅同步受 revision 保护，而脚本、Prefab、碰撞、导航、烘焙数据与 UI 仍由引擎权威保存。代码执行与引擎权威默认关闭。 |
 | 独立引擎截图与 Godot 结果评测 | **Limited** | `backend/gateway/dcc/engineCapture.ts`、连接器渲染入口、`tools/evals/godot-result-eval.mjs`、截图与路由测试 | `render_engine_frame` 可不经再次交接而单独截图 Unreal、Unity 或 Godot。`npm run eval:godot-result` 在真实 Godot 4 中启动场景、确认运行、抓取 PNG，并与入库参考图评分，门槛为 82 分。 |
