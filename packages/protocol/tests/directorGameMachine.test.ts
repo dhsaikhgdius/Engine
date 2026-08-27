@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { describeDirectorGameTarget } from "../src/directorGameDescribe";
 import { createDirectorGameState, evaluateGamePlaytest, executeDirectorGame } from "../src/directorGameMachine";
 import { directorGameOperationNames, directorGameOperationSchema } from "../src/directorGameProtocol";
+import { runHostFreeGamePlaytest } from "../src/gamePlaytestHostFree";
 import {
   createGameSliceFromBrief,
   gamePlaytestTraceSchema,
@@ -207,6 +208,135 @@ describe("director_game machine", () => {
       }),
     );
     expect(facing.issues.map((issue) => issue.code)).toContain("facing_mismatch");
+  });
+
+  it("fails interaction_in_range when interact samples never carry an in-range candidate", () => {
+    const slice = createGameSliceFromBrief({
+      id: "game-interact-range-01",
+      now: NOW,
+      brief: { requirement: "Reach the stele and interact.", genre: "exploration" },
+    });
+    slice.roles = slice.roles.map((role) => ({ ...role, object_id: `stage-${role.id}` }));
+
+    const report = evaluateGamePlaytest(
+      slice,
+      groundedTrace(slice.id, {
+        samples: [
+          {
+            frame: 0,
+            time_s: 0,
+            position: [0, 0, 0],
+            yaw: 0,
+            velocity: [0, 0, 1.2],
+            on_ground: true,
+            verb: "move",
+          },
+          // Interact pressed with nothing in range: no interaction_object_id.
+          {
+            frame: 1,
+            time_s: 1 / 30,
+            position: [0, 0, 1.2],
+            yaw: 0,
+            velocity: [0, 0, 0],
+            on_ground: true,
+            verb: "interact",
+          },
+        ],
+      }),
+    );
+    expect(report.playable).toBe(false);
+    const codes = report.issues.map((issue) => issue.code);
+    expect(codes).toContain("interaction_out_of_range");
+    expect(codes).toContain("objective_unreachable");
+    expect(report.checks.find((check) => check.check === "interaction_in_range")?.passed).toBe(false);
+    expect(report.checks.find((check) => check.check === "objective_reachable")?.passed).toBe(false);
+  });
+
+  it("routes objective_unreachable to a bind corrective call when the objective role is unbound", () => {
+    const slice = createGameSliceFromBrief({
+      id: "game-objective-unbound-01",
+      now: NOW,
+      brief: { requirement: "Reach the stele and interact.", genre: "exploration" },
+    });
+    slice.roles = slice.roles.map((role) => (role.kind === "player" ? { ...role, object_id: "hero-1" } : role));
+
+    const report = evaluateGamePlaytest(slice, groundedTrace(slice.id));
+    const issue = report.issues.find((candidate) => candidate.code === "objective_unreachable");
+    expect(issue).toBeDefined();
+    expect(issue?.role_id).toBe("objective-1");
+    expect(issue?.corrective_call).toMatchObject({ op: "bind", slice_id: slice.id });
+  });
+
+  it("rejects a racing tape that exits the vehicle before entering it", () => {
+    const slice = createGameSliceFromBrief({
+      id: "game-vehicle-order-01",
+      now: NOW,
+      brief: { requirement: "Enter the kart, drive, exit.", genre: "racing" },
+    });
+    slice.roles = slice.roles.map((role) => ({ ...role, object_id: `stage-${role.id}` }));
+
+    const backwards = evaluateGamePlaytest(
+      slice,
+      runHostFreeGamePlaytest({
+        slice,
+        script: {
+          steps: [
+            { frames: 4, input: { exit_vehicle: true } },
+            { frames: 20, input: { forward: true } },
+            { frames: 10, input: { look_right: true } },
+            { frames: 4, input: { enter_vehicle: true } },
+          ],
+        },
+      }),
+    );
+    expect(backwards.playable).toBe(false);
+    const issue = backwards.issues.find((candidate) => candidate.code === "vehicle_sequence_invalid");
+    expect(issue).toBeDefined();
+    expect(issue?.role_id).toBe("vehicle");
+    expect(issue?.object_id).toBe("stage-vehicle");
+    expect(backwards.checks.find((check) => check.check === "verb_exercised")?.passed).toBe(false);
+
+    const ordered = evaluateGamePlaytest(
+      slice,
+      runHostFreeGamePlaytest({
+        slice,
+        script: {
+          steps: [
+            { frames: 10, input: { look_right: true } },
+            { frames: 4, input: { enter_vehicle: true } },
+            { frames: 20, input: { forward: true } },
+            { frames: 4, input: { exit_vehicle: true } },
+          ],
+        },
+      }),
+    );
+    expect(ordered.issues.map((candidate) => candidate.code)).not.toContain("vehicle_sequence_invalid");
+    expect(ordered.playable).toBe(true);
+  });
+
+  it("rejects any tape that exits a vehicle it never entered", () => {
+    const slice = createGameSliceFromBrief({
+      id: "game-vehicle-noenter-01",
+      now: NOW,
+      brief: { requirement: "Enter the kart, drive, exit.", genre: "racing" },
+    });
+    slice.roles = slice.roles.map((role) => ({ ...role, object_id: `stage-${role.id}` }));
+
+    const report = evaluateGamePlaytest(
+      slice,
+      runHostFreeGamePlaytest({
+        slice,
+        script: {
+          steps: [
+            { frames: 20, input: { forward: true } },
+            { frames: 10, input: { look_right: true } },
+            { frames: 4, input: { exit_vehicle: true } },
+          ],
+        },
+      }),
+    );
+    expect(report.playable).toBe(false);
+    expect(report.issues.map((candidate) => candidate.code)).toContain("vehicle_sequence_invalid");
   });
 
   it("refuses engine export until the slice is playable, then routes through director_dcc", async () => {

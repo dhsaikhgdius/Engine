@@ -181,6 +181,108 @@ export function evaluateGamePlaytest(slice: GameSlice, trace: GamePlaytestTrace)
     }
   }
 
+  // Interaction range: pressing interact is only evidence when the recorder
+  // saw an in-range candidate. Both trace drivers stamp `interaction_object_id`
+  // from the live nearest-interaction probe / the bound objective, so interact
+  // samples that never carry one mean the tape interacted with nothing.
+  const interactSamples = trace.samples.filter((sample) => sample.verb === "interact");
+  let interactionOutOfRange = false;
+  if (interactSamples.length > 0 && !interactSamples.some((sample) => sample.interaction_object_id)) {
+    interactionOutOfRange = true;
+    issues.push({
+      code: "interaction_out_of_range",
+      severity: "error",
+      check: "interaction_in_range",
+      message: `Interact was held across ${interactSamples.length} sample(s) but no in-range interaction candidate was ever recorded. Walk within reach of a bound interactable before pressing interact.`,
+      sample_frame: interactSamples[0]!.frame,
+      corrective_call: {
+        op: "playtest",
+        slice_id: slice.id,
+        script: {
+          steps: [
+            { frames: 45, input: { forward: true } },
+            { frames: 6, input: { interact: true }, expect: { verb: "interact" } },
+          ],
+        },
+      },
+    });
+  }
+
+  // Objective reachability: when the acceptance checks ask for it, the tape
+  // must record an interaction with the bound objective object — walking in a
+  // circle near the marker is not reach evidence.
+  const objective = slice.roles.find((role) => role.kind === "objective");
+  let objectiveUnreachable = false;
+  if (slice.acceptance.playability_checks.includes("objective_reachable") && objective) {
+    const reached =
+      typeof objective.object_id === "string" &&
+      trace.samples.some((sample) => sample.interaction_object_id === objective.object_id);
+    if (!reached) {
+      objectiveUnreachable = true;
+      issues.push({
+        code: "objective_unreachable",
+        severity: "error",
+        check: "objective_reachable",
+        message: objective.object_id
+          ? `No sample recorded an interaction with objective "${objective.object_id}". Route the tape to the objective and interact in range.`
+          : `Objective role "${objective.id}" has no object_id, so reach can never be recorded. Bind the objective before playtest.`,
+        role_id: objective.id,
+        ...(objective.object_id ? { object_id: objective.object_id } : {}),
+        corrective_call: objective.object_id
+          ? {
+              op: "playtest",
+              slice_id: slice.id,
+              script: {
+                steps: [
+                  { frames: 60, input: { forward: true } },
+                  { frames: 6, input: { interact: true }, expect: { reached_object_id: objective.object_id } },
+                ],
+              },
+            }
+          : {
+              op: "bind",
+              slice_id: slice.id,
+              bindings: [{ role_id: objective.id, object_id: "<stage objective object id>" }],
+            },
+      });
+    }
+  }
+
+  // Vehicle flow: exiting a vehicle the tape never entered is impossible in
+  // the live player session, so a trace showing exit_vehicle before (or
+  // without) enter_vehicle is a sequencing failure, not exercised verbs.
+  const vehicle = slice.roles.find((role) => role.kind === "vehicle");
+  const firstEnterIndex = trace.samples.findIndex((sample) => sample.verb === "enter_vehicle");
+  const firstExitIndex = trace.samples.findIndex((sample) => sample.verb === "exit_vehicle");
+  let vehicleSequenceInvalid = false;
+  if (firstExitIndex >= 0 && (firstEnterIndex < 0 || firstEnterIndex > firstExitIndex)) {
+    vehicleSequenceInvalid = true;
+    const exitFrame = trace.samples[firstExitIndex]!.frame;
+    issues.push({
+      code: "vehicle_sequence_invalid",
+      severity: "error",
+      check: "verb_exercised",
+      message:
+        firstEnterIndex < 0
+          ? `exit_vehicle at frame ${exitFrame} but the tape never entered a vehicle. Order the tape enter_vehicle → drive → exit_vehicle.`
+          : `exit_vehicle at frame ${exitFrame} precedes the first enter_vehicle. Order the tape enter_vehicle → drive → exit_vehicle.`,
+      sample_frame: exitFrame,
+      ...(vehicle ? { role_id: vehicle.id } : {}),
+      ...(vehicle?.object_id ? { object_id: vehicle.object_id } : {}),
+      corrective_call: {
+        op: "playtest",
+        slice_id: slice.id,
+        script: {
+          steps: [
+            { frames: 4, input: { enter_vehicle: true }, expect: { verb: "enter_vehicle" } },
+            { frames: 30, input: { forward: true } },
+            { frames: 4, input: { exit_vehicle: true }, expect: { verb: "exit_vehicle" } },
+          ],
+        },
+      },
+    });
+  }
+
   const missingVerbs = slice.acceptance.operations.filter((verb) => !verbs.has(verb));
   for (const verb of missingVerbs) {
     issues.push({
@@ -198,14 +300,20 @@ export function evaluateGamePlaytest(slice: GameSlice, trace: GamePlaytestTrace)
     });
   }
 
-  const hudUnbound = slice.hud.widgets.some((widget) => widget.role_id && !slice.roles.some((role) => role.id === widget.role_id && role.object_id));
+  const hudUnbound = slice.hud.widgets.some(
+    (widget) => widget.role_id && !slice.roles.some((role) => role.id === widget.role_id && role.object_id),
+  );
   if (hudUnbound) {
     issues.push({
       code: "hud_unbound",
       severity: "warning",
       check: "hud_bound",
       message: "One or more HUD widgets reference a role that has no object_id.",
-      corrective_call: { op: "bind", slice_id: slice.id, bindings: [{ role_id: "<hud widget role_id>", object_id: "<id>" }] },
+      corrective_call: {
+        op: "bind",
+        slice_id: slice.id,
+        bindings: [{ role_id: "<hud widget role_id>", object_id: "<id>" }],
+      },
     });
   }
 
@@ -213,10 +321,10 @@ export function evaluateGamePlaytest(slice: GameSlice, trace: GamePlaytestTrace)
     on_ground: !fellThrough,
     facing_matches_move: !facingMismatch,
     no_camera_clip: !cameraClip,
-    verb_exercised: missingVerbs.length === 0,
-    interaction_in_range: !issues.some((issue) => issue.code === "interaction_out_of_range"),
+    verb_exercised: missingVerbs.length === 0 && !vehicleSequenceInvalid,
+    interaction_in_range: !interactionOutOfRange,
     hud_bound: !hudUnbound,
-    objective_reachable: !issues.some((issue) => issue.code === "objective_unreachable"),
+    objective_reachable: !objectiveUnreachable,
     no_stuck: !stuck,
   };
 
@@ -269,10 +377,19 @@ function verbInput(verb: GameSliceVerb): Record<string, boolean> {
 function defaultId(createId: (() => string) | undefined): string {
   const suffix = createId?.() ?? `game-${crypto.randomUUID()}`;
   if (gameSliceIdSchema.safeParse(suffix).success) return suffix;
-  return `game-${suffix.replace(/[^a-z0-9-]/gi, "").toLowerCase().slice(0, 48) || crypto.randomUUID()}`;
+  return `game-${
+    suffix
+      .replace(/[^a-z0-9-]/gi, "")
+      .toLowerCase()
+      .slice(0, 48) || crypto.randomUUID()
+  }`;
 }
 
-function applyBind(slice: GameSlice, operation: Extract<DirectorGameOperation, { op: "bind" }>, now: string): GameSlice {
+function applyBind(
+  slice: GameSlice,
+  operation: Extract<DirectorGameOperation, { op: "bind" }>,
+  now: string,
+): GameSlice {
   const roles = slice.roles.map((role) => {
     const patch = operation.bindings.find((binding) => binding.role_id === role.id);
     if (!patch) return role;
@@ -305,10 +422,9 @@ function applyBind(slice: GameSlice, operation: Extract<DirectorGameOperation, {
     status: gameSliceBindComplete({ ...slice, roles }) ? "bound" : slice.status === "draft" ? "draft" : slice.status,
     updated_at: now,
     notes: unknown.length
-      ? [
-          ...slice.notes,
-          `Ignored unknown role_id(s): ${unknown.map((binding) => binding.role_id).join(", ")}.`,
-        ].slice(-32)
+      ? [...slice.notes, `Ignored unknown role_id(s): ${unknown.map((binding) => binding.role_id).join(", ")}.`].slice(
+          -32,
+        )
       : slice.notes,
   };
   return gameSliceSchema.parse(next);
@@ -438,11 +554,13 @@ export async function executeDirectorGame(
       if (!("id" in slice)) return slice;
       if (!playerRole(slice)?.object_id) {
         const issue = playerUnboundIssue(slice);
-        return rejection("game_player_unbound", issue.message, { corrective_call: issue.corrective_call, result: { issues: [issue] } });
+        return rejection("game_player_unbound", issue.message, {
+          corrective_call: issue.corrective_call,
+          result: { issues: [issue] },
+        });
       }
       const trace =
-        operation.trace ??
-        (context.runPlaytest ? await context.runPlaytest({ slice, operation }) : undefined);
+        operation.trace ?? (context.runPlaytest ? await context.runPlaytest({ slice, operation }) : undefined);
       if (!trace) {
         return rejection(
           "game_playtest_needs_stage",
@@ -488,7 +606,13 @@ export async function executeDirectorGame(
         return rejection(
           "game_evaluation_missing_trace",
           `Slice ${slice.id} has no playtest trace to evaluate. Call playtest first.`,
-          { corrective_call: { op: "playtest", slice_id: slice.id, script: { steps: [{ frames: 30, input: { forward: true } }] } } },
+          {
+            corrective_call: {
+              op: "playtest",
+              slice_id: slice.id,
+              script: { steps: [{ frames: 30, input: { forward: true } }] },
+            },
+          },
         );
       }
       const report = trace ? evaluateGamePlaytest(slice, trace) : slice.last_evaluation;
@@ -532,7 +656,11 @@ export async function executeDirectorGame(
               { tool: "director_dcc", input: { op: "status", provider: operation.provider } },
               {
                 tool: "director_dcc",
-                input: { op: "send_to_engine", provider: operation.provider, ...(operation.formats ? { formats: operation.formats } : {}) },
+                input: {
+                  op: "send_to_engine",
+                  provider: operation.provider,
+                  ...(operation.formats ? { formats: operation.formats } : {}),
+                },
               },
             ],
           },

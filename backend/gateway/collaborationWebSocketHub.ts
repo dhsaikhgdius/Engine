@@ -21,6 +21,8 @@ const MAX_PEERS_PER_ROOM = 64;
 const MAX_AWARENESS_PAYLOAD_BYTES = 64 * 1024;
 const MAX_AWARENESS_ENTRIES = 8;
 const MAX_AWARENESS_STATE_BYTES = 32 * 1024;
+/** Node caps setTimeout delays at 2^31 - 1 ms; longer expiries chain through re-arms. */
+const MAX_INVITE_EXPIRY_TIMER_DELAY_MS = 2 ** 31 - 1;
 
 const DENIAL_MESSAGES: Record<CollaborationRoomDenialReason, string> = {
   missing_token: "This gateway requires a collaboration invite token to join a room.",
@@ -35,7 +37,7 @@ type ClientMembership = {
   roomId: string;
   awarenessClientId: number;
   role: DirectorCollaborationRoomRole;
-  /** The revocation subject of the invite that admitted this peer; null in local trust mode. */
+  /** The subject of the invite that admitted this peer (drives live revocation and expiry ejection); null in local trust mode. */
   inviteSubject: CollaborationInviteRevocationSubject | null;
 };
 
@@ -149,6 +151,11 @@ function payloadMessage(
  * pending durable updates are flushed into the canonical snapshot
  * (best-effort).
  *
+ * Invite capabilities bound sessions, not just joins: the hub arms a timer
+ * for the earliest live invite expiry and ejects expired peers exactly when
+ * their invite's `exp` passes, so a short-lived invite never grants an
+ * unbounded live membership.
+ *
  * This class deliberately has no knowledge of terminal, Stage, or Agent
  * messages.
  */
@@ -162,6 +169,8 @@ export class DirectorCollaborationWebSocketHub {
   private readonly now: () => number;
   private readonly setTimer: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
   private readonly clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
+  private inviteExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+  private inviteExpiryFireAtMs = Number.POSITIVE_INFINITY;
 
   constructor(
     options: {
@@ -238,6 +247,7 @@ export class DirectorCollaborationWebSocketHub {
     }
     room.clients.clear();
     this.destroyRoom(roomId, room);
+    this.scheduleInviteExpiryEnforcement();
     return { closed: true, disconnectedPeers: peers.length };
   }
 
@@ -268,6 +278,71 @@ export class DirectorCollaborationWebSocketHub {
       this.disconnect(client);
     }
     return { disconnectedPeers: revokedPeers.length, rooms: [...rooms].sort() };
+  }
+
+  /**
+   * Ejects every live peer whose join invite has expired, mirroring the
+   * `expired` denial a rejoin attempt would receive. The hub schedules this
+   * itself for the earliest live expiry, so an invite's `expires_at` bounds
+   * the live session it admitted instead of only gating future joins. Peers
+   * admitted in local trust mode carry no invite and never expire. Each
+   * ejected peer receives a permanent `unauthorized` error before losing
+   * membership, so compliant clients stop reconnecting.
+   */
+  enforceInviteExpiries(): { disconnectedPeers: number; rooms: string[] } {
+    const nowMs = this.now();
+    const expiredPeers: { client: WebSocket; membership: ClientMembership }[] = [];
+    for (const [client, membership] of this.memberships) {
+      if (!membership.inviteSubject) continue;
+      if (membership.inviteSubject.exp <= nowMs) expiredPeers.push({ client, membership });
+    }
+    const rooms = new Set<string>();
+    for (const { client, membership } of expiredPeers) {
+      rooms.add(membership.roomId);
+      this.error(client, "unauthorized", DENIAL_MESSAGES.expired, membership.roomId);
+      this.disconnect(client);
+    }
+    this.scheduleInviteExpiryEnforcement();
+    return { disconnectedPeers: expiredPeers.length, rooms: [...rooms].sort() };
+  }
+
+  /**
+   * Arms one timer for the earliest expiry among live invite-backed
+   * memberships, or clears it when none remain. A timer already scheduled at
+   * or before the needed instant is kept: firing early is harmless because
+   * enforcement re-checks the clock, ejects nothing, and re-arms. Delays
+   * beyond the 32-bit timer cap chain through the same early-fire re-arm.
+   */
+  private scheduleInviteExpiryEnforcement() {
+    let nextExpiryMs = Number.POSITIVE_INFINITY;
+    for (const membership of this.memberships.values()) {
+      const expiry = membership.inviteSubject?.exp;
+      if (expiry !== undefined && expiry < nextExpiryMs) nextExpiryMs = expiry;
+    }
+    if (!Number.isFinite(nextExpiryMs)) {
+      this.clearInviteExpiryTimer();
+      return;
+    }
+    const fireAtMs = Math.min(nextExpiryMs, this.now() + MAX_INVITE_EXPIRY_TIMER_DELAY_MS);
+    if (this.inviteExpiryTimer !== null && this.inviteExpiryFireAtMs <= fireAtMs) return;
+    this.clearInviteExpiryTimer();
+    this.inviteExpiryFireAtMs = fireAtMs;
+    this.inviteExpiryTimer = this.setTimer(
+      () => {
+        this.inviteExpiryTimer = null;
+        this.inviteExpiryFireAtMs = Number.POSITIVE_INFINITY;
+        this.enforceInviteExpiries();
+      },
+      Math.max(0, fireAtMs - this.now()),
+    );
+  }
+
+  private clearInviteExpiryTimer() {
+    if (this.inviteExpiryTimer !== null) {
+      this.clearTimer(this.inviteExpiryTimer);
+      this.inviteExpiryTimer = null;
+    }
+    this.inviteExpiryFireAtMs = Number.POSITIVE_INFINITY;
   }
 
   /** Returns whether the input is a valid collaboration client message. */
@@ -420,6 +495,7 @@ export class DirectorCollaborationWebSocketHub {
     const membership = this.memberships.get(client);
     if (!membership) return;
     this.memberships.delete(client);
+    this.scheduleInviteExpiryEnforcement();
     const room = this.rooms.get(membership.roomId);
     if (!room) return;
     room.clients.delete(client);
@@ -441,6 +517,7 @@ export class DirectorCollaborationWebSocketHub {
     for (const client of [...this.memberships.keys()]) this.disconnect(client);
     this.memberships.clear();
     for (const [roomId, room] of [...this.rooms.entries()]) this.destroyRoom(roomId, room);
+    this.clearInviteExpiryTimer();
   }
 
   /**
@@ -501,6 +578,7 @@ export class DirectorCollaborationWebSocketHub {
     if (current?.roomId === roomId && current.awarenessClientId === awarenessClientId) {
       current.role = authorization.role;
       current.inviteSubject = authorization.subject ?? null;
+      this.scheduleInviteExpiryEnforcement();
       send(client, { type: "collab.ready", room: roomId, role: authorization.role });
       return;
     }
@@ -552,6 +630,7 @@ export class DirectorCollaborationWebSocketHub {
       role: authorization.role,
       inviteSubject: authorization.subject ?? null,
     });
+    this.scheduleInviteExpiryEnforcement();
     send(client, { type: "collab.ready", room: roomId, role: authorization.role });
 
     const serverDocument = payloadMessage("collab.document-update", roomId, Y.encodeStateAsUpdate(room.doc));

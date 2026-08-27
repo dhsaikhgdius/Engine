@@ -94,6 +94,43 @@ describe("Director DCC engine contract", () => {
     expect(directorDccEngineReportSchema.safeParse({ ...report, omittedSkeletalCount: 2 }).success).toBe(false);
   });
 
+  it("accepts typed Unreal omittedShots and rejects count mismatches and unknown codes", () => {
+    const report = {
+      ...engineReport(),
+      provider: "unreal" as const,
+      hostVersion: "5.5.0",
+      connectorVersion: "0.4.3",
+      scenePath: "/Game/Director/DirectorLevel",
+      omittedShotCount: 2,
+      omittedShots: [
+        {
+          shotId: "shot-orphan",
+          code: "shot_no_camera_binding" as const,
+          cameraDirectorId: null,
+          reason:
+            "Shot shot-orphan has no camera binding; no camera cut section was added (warn-and-omit code: shot_no_camera_binding).",
+        },
+        {
+          shotId: "shot-prop",
+          code: "shot_target_not_camera" as const,
+          cameraDirectorId: "prop-1",
+          reason:
+            "Shot shot-prop is bound to prop-1 which is not a camera; its cut was skipped (warn-and-omit code: shot_target_not_camera).",
+        },
+      ],
+    };
+    expect(directorDccEngineReportSchema.parse(report).omittedShots?.[1]?.code).toBe("shot_target_not_camera");
+    expect(directorDccEngineReportSchema.safeParse({ ...report, omittedShotCount: undefined }).success).toBe(false);
+    expect(directorDccEngineReportSchema.safeParse({ ...report, omittedShotCount: 1 }).success).toBe(false);
+    expect(
+      directorDccEngineReportSchema.safeParse({
+        ...report,
+        omittedShotCount: 1,
+        omittedShots: [{ shotId: "shot-x", code: "shot_off_screen", cameraDirectorId: null, reason: "made up" }],
+      }).success,
+    ).toBe(false);
+  });
+
   it("validates health results with per-check detail and recovery guidance", () => {
     const health = {
       contract: DIRECTOR_DCC_ENGINE_HEALTH_CONTRACT,

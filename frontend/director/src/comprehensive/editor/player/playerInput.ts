@@ -1,3 +1,7 @@
+import {
+  GAME_PLAYTEST_LOOK_PITCH_RAD_S,
+  GAME_PLAYTEST_LOOK_YAW_RAD_S,
+} from "@director/protocol/game-playtest-host-free";
 import type { PlayerInput } from "./playerLocomotion";
 
 const MOVEMENT_CODES = new Set([
@@ -120,10 +124,15 @@ export function updatePlayerLookKey(input: PlayerInput, code: string, value: boo
   if (code === "ArrowDown") input.lookDown = value;
 }
 
-/** Keyboard horizontal look rate in radians per second. */
-export const PLAYER_KEYBOARD_LOOK_YAW_RAD_S = 2.4;
-/** Keyboard vertical look rate in radians per second. */
-export const PLAYER_KEYBOARD_LOOK_PITCH_RAD_S = 1.9;
+/**
+ * Keyboard horizontal look rate in radians per second. Sourced from the
+ * shared playtest contract so a tape's look steps integrate to the same yaw
+ * in the live controller, the Stage locomotion replay, and the Gateway's
+ * host-free kinematic runner.
+ */
+export const PLAYER_KEYBOARD_LOOK_YAW_RAD_S = GAME_PLAYTEST_LOOK_YAW_RAD_S;
+/** Keyboard vertical look rate in radians per second (shared, see above). */
+export const PLAYER_KEYBOARD_LOOK_PITCH_RAD_S = GAME_PLAYTEST_LOOK_PITCH_RAD_S;
 
 /**
  * Converts held look keys into normalized axis values. +yaw looks right,

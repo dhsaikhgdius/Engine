@@ -44,7 +44,7 @@ Gateway 的 CI 测试会用 TypeScript 参考实现校验同一组黄金用例�
 | `director_materials.py`      | 是（CLI）           | Director PBR 参数 → 材质实例覆盖、sRGB→线性、警告省略记录                                |
 | `director_gltf.py`           | 是（CLI）           | GLB 容器检查（仅 JSON 块），将带蒙皮的资产路由到骨骼网格导入                             |
 | `director_livelink.py`       | 是（CLI）           | 预览会话协议：令牌、序列号、乱序/重复丢弃、失联检测                                      |
-| `director_sequencer.py`      | 否                  | LevelSequence 创作：显示帧率、tick 分辨率、起始时间码、相机切换、变换与焦距轨道          |
+| `director_sequencer.py`      | 镜头分类（CLI）     | LevelSequence 创作：显示帧率、tick 分辨率、起始时间码、相机切换（含结构化省略镜头）、变换与焦距轨道 |
 | `director_host_materials.py` | 否                  | 创建 `DirectorPbrOpaque` / `DirectorPbrTranslucent` 父材质及材质实例                     |
 
 可脱离主机运行的模块由 Gateway CI 测试
@@ -86,7 +86,7 @@ Director 的动画求值器（缓动曲线、轨迹、相机路径与跟随行�
 - Director PBR 材质参数（baseColor、metalness、roughness、opacity、自发光、
   双面）转换为材质实例，父材质为 Director 创作的 `DirectorPbrOpaque` /
   `DirectorPbrTranslucent`。不支持的通道（transmission、IOR、clearcoat、
-  未随包捆绑为相对哈希文件的贴图引用、仅背面渲染）以结构化 `omittedMaterials[]` 警告省略处理（`unsupported_channels` / `no_mesh_target` / `parent_unavailable` / `apply_failed`，附 `omittedMaterialCount`；连接器 ≥0.4.1）。骨骼 bind-pose 失败以结构化 `omittedSkeletal[]` 警告省略处理（`skeleton_unavailable` / `character_unskinned` / `empty_actor`，附 `omittedSkeletalCount`；连接器 ≥0.4.2）。省略灯光附带匹配的 `omittedLightCount`。
+  未随包捆绑为相对哈希文件的贴图引用、仅背面渲染）以结构化 `omittedMaterials[]` 警告省略处理（`unsupported_channels` / `no_mesh_target` / `parent_unavailable` / `apply_failed`，附 `omittedMaterialCount`；连接器 ≥0.4.1）。骨骼 bind-pose 失败以结构化 `omittedSkeletal[]` 警告省略处理（`skeleton_unavailable` / `character_unskinned` / `empty_actor`，附 `omittedSkeletalCount`；连接器 ≥0.4.2）。无法键入相机切换的分镜镜头以结构化 `omittedShots[]` 警告省略处理（`shot_no_camera_binding` / `shot_camera_not_imported` / `shot_target_not_camera`，与 Godot / Unity 镜头映射器共用同一代码集，附 `omittedShotCount`；连接器 ≥0.4.3），即使本次运行未创作 LevelSequence 也如实上报。省略灯光附带匹配的 `omittedLightCount`。
 
 ## 安装
 

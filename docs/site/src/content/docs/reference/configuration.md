@@ -44,7 +44,10 @@ Invites can be revoked through `POST /api/collab/invites/revoke` with exactly on
 no later than the revocation instant is denied, including legacy invites without a `jti`).
 A revocation also ends live sessions: peers already joined with the revoked invite are ejected
 with a permanent `unauthorized` error, and the response reports `disconnected_peers` and
-`disconnected_rooms`. Revocations persist across restarts only when `DIRECTOR_COLLAB_PERSISTENCE=1`.
+`disconnected_rooms`. Invite expiry is enforced on live sessions the same way: when a joined
+peer's invite reaches its `expires_at`, the gateway ejects it with the same permanent
+`unauthorized` error instead of letting the session outlive the capability.
+Revocations persist across restarts only when `DIRECTOR_COLLAB_PERSISTENCE=1`.
 
 Room lifecycle and operations (all behind the master gateway token, returning counts, hashes, and
 timestamps only — never document content, invite tokens, or filesystem paths):
