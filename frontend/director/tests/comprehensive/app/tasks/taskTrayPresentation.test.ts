@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { ProductionJobRecord } from "../../../../../../packages/protocol/src/productionJobProtocol";
 import {
   formatTaskRelativeTime,
+  formatTaskAbsentArtifactLine,
+  taskAbsentArtifactAriaLabel,
+  taskAbsentArtifactSummaries,
   taskDisplayName,
   taskFailureReason,
   taskKindLabel,
   taskProgressPercent,
   taskStatusLabel,
 } from "../../../../src/comprehensive/app/tasks/taskTrayPresentation";
+import { projectProductionJobReceipt } from "../../../../../../packages/protocol/src/productionJobReceipt";
 
 function stubJob(partial: Record<string, unknown>): ProductionJobRecord {
   return partial as unknown as ProductionJobRecord;
@@ -71,5 +75,61 @@ describe("labels and formatting", () => {
     expect(formatTaskRelativeTime("2026-08-13T09:00:00.000Z", now)).toBe("3 小时前");
     expect(formatTaskRelativeTime("2026-08-10T09:30:00.000Z", now)).toMatch(/^8月10日 \d{2}:\d{2}$/);
     expect(formatTaskRelativeTime("not-a-date", now)).toBe("");
+  });
+});
+
+describe("taskAbsentArtifactSummaries", () => {
+  it("summarizes only artifacts with storagePresence absent", () => {
+    const artifact = {
+      id: "art-absent",
+      attemptId: "job-a-attempt-1",
+      role: "preview",
+      mimeType: "image/png",
+      fileName: "preview.png",
+      sha256: "a".repeat(64),
+      bytes: 128,
+      createdAt: "2026-08-13T10:00:00.000Z",
+    };
+    const job = stubJob({
+      id: "job-a",
+      kind: "image.generate",
+      status: "succeeded",
+      input: { prompt: "x" },
+      attempts: [
+        {
+          id: "job-a-attempt-1",
+          number: 1,
+          status: "succeeded",
+          provider: "test",
+          timestamps: {
+            createdAt: "2026-08-13T10:00:00.000Z",
+            startedAt: "2026-08-13T10:00:00.000Z",
+            finishedAt: "2026-08-13T10:00:00.000Z",
+          },
+          artifacts: [artifact],
+        },
+      ],
+      artifacts: [artifact],
+      createdAt: "2026-08-13T10:00:00.000Z",
+      updatedAt: "2026-08-13T10:00:00.000Z",
+      idempotencyKey: "key-a",
+      inputFingerprint: "fp-a",
+      progress: 1,
+    });
+    const receipt = projectProductionJobReceipt(job, {
+      artifactStoragePresence: new Map([["art-absent", "absent"]]),
+    });
+    const summaries = taskAbsentArtifactSummaries(receipt);
+    expect(summaries).toEqual([
+      {
+        id: "art-absent",
+        role: "preview",
+        label: "产物字节已不可用 (GC)：preview · art-absent",
+      },
+    ]);
+    expect(formatTaskAbsentArtifactLine({ id: "art-absent", role: "preview" })).toBe(
+      "产物字节已不可用 (GC)：preview · art-absent",
+    );
+    expect(taskAbsentArtifactAriaLabel(summaries)).toBe("产物字节已不可用 (GC)：preview · art-absent");
   });
 });

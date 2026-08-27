@@ -4,6 +4,7 @@ import type {
   ProductionJobRecord,
   ProductionJobStatus,
 } from "../../../../../../packages/protocol/src/productionJobProtocol";
+import type { ProductionJobReceipt } from "../../../../../../packages/protocol/src/productionJobReceipt";
 import { friendlyErrorMessage } from "../../editor/api/friendlyError";
 import {
   getDirectorSessionRuntime,
@@ -12,9 +13,11 @@ import {
 import { notifyDirector } from "../notifications/directorNotificationStore";
 import {
   cancelProductionTask,
+  fetchProductionJobReceipt,
   listProductionTasks,
   retryProductionTask,
   taskIsFinished,
+  taskNeedsReceiptProbe,
   taskSupportsCancel,
   taskSupportsRetry,
 } from "./productionTaskClient";
@@ -43,6 +46,15 @@ export const PANEL_OPEN_TASK_POLL_MS = 15_000;
 /** Polling interval (ms) when the tray panel is closed and nothing is active. */
 export const IDLE_TASK_POLL_MS = 60_000;
 const TASK_LIST_LIMIT = 100;
+/** Maximum concurrent live receipt probes per tray refresh. */
+export const RECEIPT_PROBE_CONCURRENCY = 4;
+
+/** Live receipt probe state for one background job row. */
+export type DirectorTaskJobReceiptEntry =
+  | { phase: "idle" }
+  | { phase: "loading"; cacheKey: string }
+  | { phase: "ready"; cacheKey: string; receipt: ProductionJobReceipt }
+  | { phase: "error"; cacheKey: string; message: string };
 
 /** The full state of the task tray, including jobs, runs, and UI state. */
 export interface DirectorTaskTrayState {
@@ -50,6 +62,8 @@ export interface DirectorTaskTrayState {
   jobs: readonly ProductionJobRecord[];
   /** Monitored production runs (multi-agent and film). */
   productionRuns: readonly DirectorMonitoredProductionRun[];
+  /** Live normalized receipts keyed by job id (terminal jobs only). */
+  jobReceipts: Readonly<Record<string, DirectorTaskJobReceiptEntry>>;
   /** idle until the first successful sync; error keeps the last good jobs list. */
   phase: "idle" | "ready" | "error";
   /** The last sync error message, or null when the last sync succeeded. */
@@ -71,6 +85,7 @@ export interface DirectorTaskTrayState {
 const INITIAL_STATE: DirectorTaskTrayState = {
   jobs: [],
   productionRuns: [],
+  jobReceipts: {},
   phase: "idle",
   error: null,
   panelOpen: false,
@@ -92,6 +107,7 @@ let refreshSequence = 0;
 /** Suppresses transition notifications for the very first snapshot after (re)start. */
 let jobBaselineReady = false;
 let runBaselineReady = false;
+let receiptProbeSequence = 0;
 const knownStatuses = new Map<string, ProductionJobStatus>();
 const knownRunStatuses = new Map<string, string>();
 
@@ -192,6 +208,101 @@ function announceProductionRunTransitions(runs: readonly DirectorMonitoredProduc
   }
 }
 
+function jobReceiptCacheKey(job: ProductionJobRecord): string {
+  return `${job.id}:${job.updatedAt}`;
+}
+
+function pruneJobReceipts(
+  jobReceipts: Readonly<Record<string, DirectorTaskJobReceiptEntry>>,
+  jobs: readonly ProductionJobRecord[],
+): Readonly<Record<string, DirectorTaskJobReceiptEntry>> {
+  const liveIds = new Set(jobs.map((job) => job.id));
+  const next: Record<string, DirectorTaskJobReceiptEntry> = {};
+  for (const [jobId, entry] of Object.entries(jobReceipts)) {
+    if (liveIds.has(jobId)) next[jobId] = entry;
+  }
+  return next;
+}
+
+function receiptEntryIsFresh(entry: DirectorTaskJobReceiptEntry | undefined, cacheKey: string) {
+  return entry?.phase === "ready" && entry.cacheKey === cacheKey;
+}
+
+function receiptEntryIsLoading(entry: DirectorTaskJobReceiptEntry | undefined, cacheKey: string) {
+  return entry?.phase === "loading" && entry.cacheKey === cacheKey;
+}
+
+async function probeJobReceipt(job: ProductionJobRecord, sequence: number): Promise<void> {
+  const cacheKey = jobReceiptCacheKey(job);
+  const existing = directorTaskTrayStore.getState().jobReceipts[job.id];
+  if (receiptEntryIsFresh(existing, cacheKey) || receiptEntryIsLoading(existing, cacheKey)) return;
+
+  directorTaskTrayStore.setState((state) => ({
+    jobReceipts: {
+      ...state.jobReceipts,
+      [job.id]: { phase: "loading", cacheKey },
+    },
+  }));
+
+  try {
+    const receipt = await fetchProductionJobReceipt(job.id);
+    if (sequence !== receiptProbeSequence) return;
+    const current = directorTaskTrayStore.getState().jobs.find((candidate) => candidate.id === job.id);
+    if (!current || jobReceiptCacheKey(current) !== cacheKey) return;
+    directorTaskTrayStore.setState((state) => ({
+      jobReceipts: {
+        ...state.jobReceipts,
+        [job.id]: { phase: "ready", cacheKey, receipt },
+      },
+    }));
+  } catch (error) {
+    if (sequence !== receiptProbeSequence) return;
+    const current = directorTaskTrayStore.getState().jobs.find((candidate) => candidate.id === job.id);
+    if (!current || jobReceiptCacheKey(current) !== cacheKey) return;
+    directorTaskTrayStore.setState((state) => ({
+      jobReceipts: {
+        ...state.jobReceipts,
+        [job.id]: { phase: "error", cacheKey, message: friendlyErrorMessage(error) },
+      },
+    }));
+  }
+}
+
+async function mapWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  let index = 0;
+  async function runWorker() {
+    while (index < items.length) {
+      const current = items[index];
+      index += 1;
+      if (current === undefined) continue;
+      await worker(current);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => runWorker()));
+}
+
+/**
+ * Probes live normalized receipts for terminal jobs, reusing cached entries
+ * keyed by job id + updatedAt and capping concurrent fetches.
+ */
+export async function probeTerminalJobReceipts(jobs: readonly ProductionJobRecord[]): Promise<void> {
+  if (!pollingActive || !gatewayConnected()) return;
+  const sequence = ++receiptProbeSequence;
+  const state = directorTaskTrayStore.getState();
+  const targets = jobs.filter((job) => {
+    if (!taskNeedsReceiptProbe(job)) return false;
+    const cacheKey = jobReceiptCacheKey(job);
+    const entry = state.jobReceipts[job.id];
+    return !receiptEntryIsFresh(entry, cacheKey) && !receiptEntryIsLoading(entry, cacheKey);
+  });
+  await mapWithConcurrency(targets, RECEIPT_PROBE_CONCURRENCY, (job) => probeJobReceipt(job, sequence));
+}
+
 /**
  * Fetches the latest jobs and production runs from the gateway and updates
  * the store. Stale responses (from a superseded polling cycle) are discarded.
@@ -211,6 +322,7 @@ export async function refreshDirectorTasks(): Promise<void> {
     directorTaskTrayStore.setState((state) => ({
       jobs,
       productionRuns,
+      jobReceipts: pruneJobReceipts(state.jobReceipts, jobs),
       phase: "ready",
       error: null,
       lastSyncAt: Date.now(),
@@ -219,6 +331,7 @@ export async function refreshDirectorTasks(): Promise<void> {
         productionRuns.some((entry) => monitoredProductionRunKey(entry) === key),
       ),
     }));
+    void probeTerminalJobReceipts(jobs);
   } catch (error) {
     if (!pollingActive || sequence !== refreshSequence) return;
     // A failed poll stays inside the tray panel; the gateway-offline banner
@@ -265,6 +378,7 @@ export function stopDirectorTaskTrayPolling() {
   if (!pollingActive) return;
   pollingActive = false;
   refreshSequence += 1;
+  receiptProbeSequence += 1;
   clearPollTimer();
   unsubscribeRuntime?.();
   unsubscribeRuntime = null;
@@ -536,5 +650,6 @@ export function countActiveDirectorTasks(state: DirectorTaskTrayState): number {
 export function __resetDirectorTaskTrayForTests() {
   stopDirectorTaskTrayPolling();
   refreshSequence += 1;
+  receiptProbeSequence += 1;
   directorTaskTrayStore.setState(INITIAL_STATE, true);
 }
