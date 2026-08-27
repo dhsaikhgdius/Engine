@@ -14,6 +14,7 @@ import {
   planStorageGc,
   sweepStorageGc,
   type StorageGcPlanSummary,
+  type StorageGcSkipReasonCounts,
   type StorageGcSweepOutcome,
   type StorageHealthSummary,
 } from "./storageHealthClient";
@@ -30,6 +31,45 @@ const WRITE_PROBE_FAILURE_TEXT = {
   delete_failed: "探针清理失败",
 } as const;
 
+/**
+ * Gateway skip-reason camelCase keys → zh-CN labels matching the wire codes
+ * (`became-reachable` / `modified-since-plan` / `already-absent` / `delete-failed`).
+ * Do not invent a fifth code here.
+ */
+const SKIP_REASON_LABELS = {
+  becameReachable: "重新可达",
+  modifiedSincePlan: "计划后已改写",
+  alreadyAbsent: "已不存在",
+  deleteFailed: "删除失败",
+} as const;
+
+/**
+ * Compact skip honesty for outcome notices and recent-sweep rows. Returns null
+ * when there is nothing to surface (older gateways / clean sweeps).
+ */
+function formatSkippedSummary(
+  skippedCount: number | undefined,
+  skippedByReason: StorageGcSkipReasonCounts | undefined,
+  t: (text: string) => string,
+): string | null {
+  const reasonTotal = skippedByReason
+    ? skippedByReason.becameReachable +
+      skippedByReason.modifiedSincePlan +
+      skippedByReason.alreadyAbsent +
+      skippedByReason.deleteFailed
+    : 0;
+  const count = skippedCount ?? (reasonTotal > 0 ? reasonTotal : 0);
+  if (count <= 0) return null;
+
+  const parts: string[] = [t(`跳过 ${count} 个`)];
+  if (skippedByReason) {
+    for (const key of Object.keys(SKIP_REASON_LABELS) as Array<keyof typeof SKIP_REASON_LABELS>) {
+      const n = skippedByReason[key];
+      if (n > 0) parts.push(t(`${SKIP_REASON_LABELS[key]} ${n}`));
+    }
+  }
+  return parts.join(" · ");
+}
 /**
  * Renders the storage health rows plus the explicit plan → confirm sweep
  * flow. Planning is always a dry run; sweeping only ever consumes the exact
@@ -151,7 +191,13 @@ export function StorageHealthSection() {
             <span>{t("最近清扫")}</span>
             <span>
               {lastSweep
-                ? `${t(formatTaskRelativeTime(lastSweep.sweptAt))} · ${formatStorageBytes(lastSweep.reclaimedBytes)}`
+                ? [
+                    t(formatTaskRelativeTime(lastSweep.sweptAt)),
+                    formatStorageBytes(lastSweep.reclaimedBytes),
+                    formatSkippedSummary(lastSweep.skippedCount, lastSweep.skippedByReason, t),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
                 : t("暂无清扫记录")}
             </span>
           </div>
@@ -187,7 +233,14 @@ export function StorageHealthSection() {
       ) : null}
       {outcome ? (
         <p className="task-tray-notice">
-          {t(`已清扫 ${outcome.deletedCount} 个对象，回收 ${formatStorageBytes(outcome.reclaimedBytes)}`)}
+          {(() => {
+            const deleted = t(
+              `已清扫 ${outcome.deletedCount} 个对象，回收 ${formatStorageBytes(outcome.reclaimedBytes)}`,
+            );
+            const skips = formatSkippedSummary(outcome.skippedCount, outcome.skippedByReason, t);
+            // Never leave operators with a green full-sweep claim when keys were skipped.
+            return skips ? `${deleted}；${skips}` : deleted;
+          })()}
         </p>
       ) : null}
     </section>
