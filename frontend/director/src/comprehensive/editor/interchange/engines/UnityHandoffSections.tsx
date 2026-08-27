@@ -28,6 +28,8 @@ const UNITY_OMITTED_CHANNEL_LABELS: Record<string, string> = {
 
 const UNITY_OMITTED_LIGHT_LABELS: Record<string, string> = {
   light_type_unknown: "未知灯光类型",
+  light_ambient_render_settings: "环境光写入 RenderSettings",
+  light_hemisphere_render_settings: "半球光写入 RenderSettings",
 };
 
 const UNITY_OMITTED_MATERIAL_LABELS: Record<string, string> = {

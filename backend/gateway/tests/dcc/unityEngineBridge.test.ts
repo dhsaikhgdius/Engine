@@ -114,6 +114,80 @@ async function createUnitySendHarness(unityExtras: Record<string, unknown> = {})
   return { bridge };
 }
 
+describe("engine bridge Unity omittedLights honesty", () => {
+  it("returns typed ambient/hemisphere RenderSettings omit codes on the Unity send receipt", async () => {
+    const { bridge } = await createUnitySendHarness({
+      importedLightCount: 2,
+      omittedLightCount: 2,
+      omittedLights: [
+        {
+          directorId: "light_ambient_1",
+          code: "light_ambient_render_settings",
+          lightType: "ambient",
+          reason:
+            "Light light_ambient_1: ambient light has no scene GameObject equivalent; mapped onto RenderSettings.ambientLight (flat mode) and recorded as an omitted GameObject spawn (warn-and-omit code: light_ambient_render_settings).",
+        },
+        {
+          directorId: "light_hemi_1",
+          code: "light_hemisphere_render_settings",
+          lightType: "hemisphere",
+          reason:
+            "Light light_hemi_1: hemisphere light has no scene GameObject equivalent; mapped onto RenderSettings trilight ambient (sky/ground) and recorded as an omitted GameObject spawn (warn-and-omit code: light_hemisphere_render_settings).",
+        },
+      ],
+    });
+    const result = await bridge.send(createTestDirectorProject(), { provider: "unity" });
+    expect(result.report.unity?.importedLightCount).toBe(2);
+    expect(result.report.unity?.omittedLightCount).toBe(2);
+    expect(result.report.unity?.omittedLights).toEqual([
+      expect.objectContaining({
+        directorId: "light_ambient_1",
+        code: "light_ambient_render_settings",
+        lightType: "ambient",
+      }),
+      expect.objectContaining({
+        directorId: "light_hemi_1",
+        code: "light_hemisphere_render_settings",
+        lightType: "hemisphere",
+      }),
+    ]);
+  });
+
+  it("fails the job when omittedLights length disagrees with omittedLightCount", async () => {
+    const { bridge } = await createUnitySendHarness({
+      omittedLightCount: 0,
+      omittedLights: [
+        {
+          directorId: "light-x",
+          code: "light_type_unknown",
+          lightType: "portal",
+          reason: 'Light light-x: unknown light type "portal"; omitted (warn-and-omit code: light_type_unknown).',
+        },
+      ],
+    });
+    await expect(bridge.send(createTestDirectorProject(), { provider: "unity" })).rejects.toMatchObject({
+      code: "engine_report_invalid",
+    });
+  });
+
+  it("fails the job when the connector reports a malformed omitted-light record", async () => {
+    const { bridge } = await createUnitySendHarness({
+      omittedLightCount: 1,
+      omittedLights: [
+        {
+          directorId: "light-x",
+          code: "light_ambient_duplicate",
+          lightType: "ambient",
+          reason: "Object light-x: not a Unity light omit code.",
+        },
+      ],
+    });
+    await expect(bridge.send(createTestDirectorProject(), { provider: "unity" })).rejects.toMatchObject({
+      code: "engine_report_invalid",
+    });
+  });
+});
+
 describe("engine bridge Unity omittedMaterials honesty", () => {
   it("returns typed omittedMaterials (no_mesh_target / unsupported_channels) on the Unity send receipt", async () => {
     const { bridge } = await createUnitySendHarness({

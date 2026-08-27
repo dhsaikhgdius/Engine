@@ -2430,6 +2430,8 @@
   "未烘焙": "Not baked",
   "未生成": "Not generated",
   "未知灯光类型": "Unknown light type",
+  "环境光写入 RenderSettings": "Ambient light written to RenderSettings",
+  "半球光写入 RenderSettings": "Hemisphere light written to RenderSettings",
   "未连接；在 Godot 编辑器菜单 Director → Start Live Preview 中开始推送": "Not connected; start pushing from the Godot editor menu Director → Start Live Preview",
   "本次运行未写入 Sequencer 回执（静态导入）": "This run wrote no Sequencer receipt (static import)",
   "本次运行未附带 Godot 回执详情（旧版连接器）": "This run carried no Godot receipt details (older connector)",
