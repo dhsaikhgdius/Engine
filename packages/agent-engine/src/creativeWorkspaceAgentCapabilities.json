@@ -193,7 +193,7 @@
           "not_cataloged",
           "unverified"
         ],
-        "reason": "Observed media.assets available and size are catalog claims; media.verify reads bytes back from the durable browser store and returns typed per-item outcomes with omit reasons, plus a storage stanza (memory mode does not survive reload). media.relink receipts carry the same probed storage and durability stanzas."
+        "reason": "Observed media.assets available and size are catalog claims; media.verify reads bytes back from the durable browser store and returns typed per-item outcomes with omit reasons, plus a storage stanza (memory mode does not survive reload). media.relink and media.proxy.attach receipts carry the same probed storage and durability stanzas for the new or attached media id."
       }
     },
     "gallery": {

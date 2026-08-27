@@ -1263,92 +1263,10 @@ export function executeCreativeWorkspaceAgentOperation(
       );
     }
     case "media.proxy.attach": {
-      const original = findMedia(context, operation.original_media_id);
-      if (!original) {
-        return semanticFailure(
-          operation.op,
-          "not_found",
-          `Original media asset "${operation.original_media_id}" does not exist.`,
-        );
-      }
-      const proxy = findMedia(context, operation.proxy_media_id);
-      if (!proxy) {
-        return semanticFailure(
-          operation.op,
-          "not_found",
-          `Proxy media asset "${operation.proxy_media_id}" does not exist.`,
-        );
-      }
-      if (original.proxyOf) {
-        return semanticFailure(
-          operation.op,
-          "conflict",
-          `Media asset "${original.id}" is already a proxy and cannot own another proxy.`,
-        );
-      }
-      if (original.kind !== proxy.kind) {
-        return semanticFailure(
-          operation.op,
-          "conflict",
-          `Proxy media kind ${proxy.kind} does not match original media kind ${original.kind}.`,
-        );
-      }
-      if (proxy.proxyOf && proxy.proxyOf !== original.id) {
-        return semanticFailure(
-          operation.op,
-          "conflict",
-          `Proxy media asset "${proxy.id}" is already attached to original "${proxy.proxyOf}".`,
-        );
-      }
-      const proxyDependents = context.media.getState().assets.filter((asset) => asset.proxyOf === proxy.id);
-      if (proxyDependents.length) {
-        return semanticFailure(
-          operation.op,
-          "conflict",
-          `Media asset "${proxy.id}" already owns ${proxyDependents.length} proxy asset(s) and cannot become a proxy.`,
-        );
-      }
-      const directReferenceCount = directWorkspaceMediaReferenceCount(state, proxy.id);
-      if (proxy.proxyOf !== original.id && directReferenceCount > 0) {
-        return semanticFailure(
-          operation.op,
-          "conflict",
-          `Proxy candidate "${proxy.id}" has ${directReferenceCount} direct workspace reference(s); replace those references before attaching it as a proxy.`,
-        );
-      }
-      if (!context.media.attachExistingProxy) {
-        return semanticFailure(
-          operation.op,
-          "operation_rejected",
-          "This creative media context cannot persist existing proxy relationships.",
-        );
-      }
-      const previousProxyOf = proxy.proxyOf ?? null;
-      try {
-        context.media.attachExistingProxy(original.id, proxy.id);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return semanticFailure(operation.op, "operation_rejected", `Proxy attachment failed: ${message}`);
-      }
-      const updatedOriginal = findMedia(context, original.id);
-      const updatedProxy = findMedia(context, proxy.id);
-      if (!updatedOriginal || !updatedProxy || updatedProxy.proxyOf !== updatedOriginal.id) {
-        return semanticFailure(
-          operation.op,
-          "operation_rejected",
-          `Proxy relationship "${original.id}" → "${proxy.id}" could not be verified after the update.`,
-        );
-      }
-      return success(
+      return semanticFailure(
         operation.op,
-        `Attached "${proxy.name}" as a proxy for "${original.name}".`,
-        {
-          original: projectMediaAsset(updatedOriginal),
-          proxy: projectMediaAsset(updatedProxy),
-          previous_proxy_of: previousProxyOf,
-          changed: previousProxyOf !== original.id,
-        },
-        context,
+        "operation_rejected",
+        "media.proxy.attach probes durable proxy bytes after linking; dispatch it through executeCreativeWorkspaceAgentOperationAsync.",
       );
     }
     case "media.relink": {
@@ -2629,7 +2547,112 @@ export async function executeCreativeWorkspaceMediaVerify(
   );
 }
 
-/** Async execute path for operations that need durable media IO (media.relink, media.verify). */
+/**
+ * Shared media.proxy.attach body for the Agent async wire path and in-process
+ * UI file picks. Mutation rules are unchanged; success receipts stamp the same
+ * probed `storage` + `durability` vocabulary media.verify / media.relink use
+ * for the attached proxy media id.
+ */
+export async function executeCreativeWorkspaceMediaProxyAttach(
+  operation: Extract<CreativeWorkspaceAgentOperation, { op: "media.proxy.attach" }>,
+  context: CreativeWorkspaceAgentContext = defaultContext,
+): Promise<CreativeWorkspaceAgentExecutionResult> {
+  const state = context.workspace.getState();
+  const original = findMedia(context, operation.original_media_id);
+  if (!original) {
+    return semanticFailure(
+      "media.proxy.attach",
+      "not_found",
+      `Original media asset "${operation.original_media_id}" does not exist.`,
+    );
+  }
+  const proxy = findMedia(context, operation.proxy_media_id);
+  if (!proxy) {
+    return semanticFailure(
+      "media.proxy.attach",
+      "not_found",
+      `Proxy media asset "${operation.proxy_media_id}" does not exist.`,
+    );
+  }
+  if (original.proxyOf) {
+    return semanticFailure(
+      "media.proxy.attach",
+      "conflict",
+      `Media asset "${original.id}" is already a proxy and cannot own another proxy.`,
+    );
+  }
+  if (original.kind !== proxy.kind) {
+    return semanticFailure(
+      "media.proxy.attach",
+      "conflict",
+      `Proxy media kind ${proxy.kind} does not match original media kind ${original.kind}.`,
+    );
+  }
+  if (proxy.proxyOf && proxy.proxyOf !== original.id) {
+    return semanticFailure(
+      "media.proxy.attach",
+      "conflict",
+      `Proxy media asset "${proxy.id}" is already attached to original "${proxy.proxyOf}".`,
+    );
+  }
+  const proxyDependents = context.media.getState().assets.filter((asset) => asset.proxyOf === proxy.id);
+  if (proxyDependents.length) {
+    return semanticFailure(
+      "media.proxy.attach",
+      "conflict",
+      `Media asset "${proxy.id}" already owns ${proxyDependents.length} proxy asset(s) and cannot become a proxy.`,
+    );
+  }
+  const directReferenceCount = directWorkspaceMediaReferenceCount(state, proxy.id);
+  if (proxy.proxyOf !== original.id && directReferenceCount > 0) {
+    return semanticFailure(
+      "media.proxy.attach",
+      "conflict",
+      `Proxy candidate "${proxy.id}" has ${directReferenceCount} direct workspace reference(s); replace those references before attaching it as a proxy.`,
+    );
+  }
+  if (!context.media.attachExistingProxy) {
+    return semanticFailure(
+      "media.proxy.attach",
+      "operation_rejected",
+      "This creative media context cannot persist existing proxy relationships.",
+    );
+  }
+  const previousProxyOf = proxy.proxyOf ?? null;
+  try {
+    context.media.attachExistingProxy(original.id, proxy.id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return semanticFailure("media.proxy.attach", "operation_rejected", `Proxy attachment failed: ${message}`);
+  }
+  const updatedOriginal = findMedia(context, original.id);
+  const updatedProxy = findMedia(context, proxy.id);
+  if (!updatedOriginal || !updatedProxy || updatedProxy.proxyOf !== updatedOriginal.id) {
+    return semanticFailure(
+      "media.proxy.attach",
+      "operation_rejected",
+      `Proxy relationship "${original.id}" → "${proxy.id}" could not be verified after the update.`,
+    );
+  }
+  const durability = creativeWorkspaceMediaDurabilityProbeSchema.parse(
+    await probeCreativeMediaDurability(context, updatedProxy.id),
+  );
+  return success(
+    "media.proxy.attach",
+    `Attached "${proxy.name}" as a proxy for "${original.name}".`,
+    {
+      original: projectMediaAsset(updatedOriginal),
+      proxy: projectMediaAsset(updatedProxy),
+      previous_proxy_of: previousProxyOf,
+      changed: previousProxyOf !== original.id,
+      storage: creativeMediaStorageStanza(context),
+      durability,
+    },
+    context,
+  );
+}
+
+/** Async execute path for operations that need durable media IO (media.relink, media.verify, media.proxy.attach). */
 export async function executeCreativeWorkspaceAgentOperationAsync(
   input: unknown,
   context: CreativeWorkspaceAgentContext = defaultContext,
@@ -2646,6 +2669,9 @@ export async function executeCreativeWorkspaceAgentOperationAsync(
   }
   if (parsed.operation.op === "media.verify") {
     return executeCreativeWorkspaceMediaVerify(parsed.operation, context);
+  }
+  if (parsed.operation.op === "media.proxy.attach") {
+    return executeCreativeWorkspaceMediaProxyAttach(parsed.operation, context);
   }
   if (parsed.operation.op !== "media.relink") {
     return executeCreativeWorkspaceAgentOperation(parsed.operation, context);

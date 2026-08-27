@@ -52,10 +52,16 @@ import {
   ZoomOut,
 } from "lucide-react";
 import {
+  dispatchCreativeWorkspaceMediaProxyAttach,
   dispatchCreativeWorkspaceMediaRelink,
   dispatchCreativeWorkspaceOperations,
   type CreativeWorkspaceOperationInput,
 } from "../../../agent/dispatchCreativeWorkspaceOperations";
+import {
+  formatMediaProxyAttachSuccessMessage,
+  parseMediaProxyAttachHonesty,
+} from "../media/mediaProxyAttachPresentation";
+import { formatMediaRelinkSuccessMessage, parseMediaRelinkHonesty } from "../media/mediaRelinkPresentation";
 import { useLanguage } from "../../i18n/language";
 import {
   DIRECTOR_COMMON_FRAME_RATES,
@@ -1641,7 +1647,12 @@ export function VideoEditorWorkspace() {
     const referencesUpdated = Number(receipt.execution.result.references_updated ?? 0);
     const waveformReady = Boolean(receipt.execution.result.waveform_ready);
     setImportMessage(
-      `${t("素材已重连")} · ${referencesUpdated} ${t("处引用")} · ${waveformReady ? t("波形已缓存") : t("波形待生成")}`,
+      formatMediaRelinkSuccessMessage({
+        referencesUpdated,
+        waveformReady,
+        honesty: parseMediaRelinkHonesty(receipt.execution.result),
+        t,
+      }),
     );
   }
 
@@ -1652,17 +1663,18 @@ export function VideoEditorWorkspace() {
     setImportMessage(t("正在关联代理媒体…"));
     try {
       const proxy = await importDirectorCreativeMediaProxyCandidate(target.id, file);
-      const receipt = dispatchCreativeWorkspaceOperations({
-        op: "media.proxy.attach",
-        original_media_id: target.id,
-        proxy_media_id: proxy.id,
-      });
+      const receipt = await dispatchCreativeWorkspaceMediaProxyAttach(target.id, proxy.id);
       if (!receipt.ok) {
         setImportMessage(receipt.error || t("代理媒体关联失败"));
         return;
       }
       setImportMessage(
-        `${t("代理媒体已关联")} · ${proxy.id.slice(0, 28)}${proxy.waveform ? ` · ${t("波形已缓存")}` : ""}`,
+        formatMediaProxyAttachSuccessMessage({
+          proxyId: proxy.id,
+          waveformReady: Boolean(proxy.waveform),
+          honesty: parseMediaProxyAttachHonesty(receipt.execution.result),
+          t,
+        }),
       );
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : t("代理媒体关联失败"));

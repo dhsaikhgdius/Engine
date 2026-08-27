@@ -25,6 +25,7 @@ import {
   type CreativeWorkspaceAgentSnapshot,
 } from "../../src/agent/creativeWorkspaceAgentContract";
 import {
+  dispatchCreativeWorkspaceMediaProxyAttach,
   dispatchCreativeWorkspaceMediaRelink,
   dispatchCreativeWorkspaceOperations,
   type CreativeWorkspaceOperationInput,
@@ -599,7 +600,7 @@ describe("creative workspace UI/agent parity harness", () => {
     expect(track?.clips[0]).toMatchObject({ name: "Overwrite take", startSec: 0, durationSec: 4 });
   });
 
-  it("dispatches media.proxy.attach for a cataloged original and proxy candidate", () => {
+  it("dispatches media.proxy.attach for a cataloged original and proxy candidate", async () => {
     const assets: CreativeMediaAsset[] = [
       ...MEDIA_ASSETS,
       {
@@ -640,12 +641,9 @@ describe("creative workspace UI/agent parity harness", () => {
         },
       },
     };
-    const receipt = dispatchCreativeWorkspaceOperations(
-      {
-        op: "media.proxy.attach",
-        original_media_id: "media:video:take",
-        proxy_media_id: "media:video:take-proxy",
-      },
+    const receipt = await dispatchCreativeWorkspaceMediaProxyAttach(
+      "media:video:take",
+      "media:video:take-proxy",
       { context: runtime },
     );
     expect(receipt).toMatchObject({ ok: true });
@@ -653,6 +651,13 @@ describe("creative workspace UI/agent parity harness", () => {
     expect(receipt.execution.result).toMatchObject({
       proxy: { id: "media:video:take-proxy", proxy_of: "media:video:take" },
       changed: true,
+      storage: { mode: "memory", durable: false },
+      durability: {
+        media_id: "media:video:take-proxy",
+        outcome: "unverified",
+        omit_reason: "blob_reader_unavailable",
+        proxy_of: "media:video:take",
+      },
     });
   });
 
