@@ -38,12 +38,9 @@ describe("engineRunErrorCodeLabel", () => {
 describe("engineRunErrorView", () => {
   it("keeps the typed code, its label, and recovery beside the free-text message", () => {
     const view = engineRunErrorView(
-      new DirectorDccEngineRunClientError(
-        "unity project runs are not supported yet.",
-        501,
-        "engine_run_unsupported",
-        ["Run the project inside the engine editor after launch_engine_editor."],
-      ),
+      new DirectorDccEngineRunClientError("unity project runs are not supported yet.", 501, "engine_run_unsupported", [
+        "Run the project inside the engine editor after launch_engine_editor.",
+      ]),
       "引擎项目运行启动失败",
     );
     expect(view).toEqual({

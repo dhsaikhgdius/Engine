@@ -17,11 +17,7 @@ import {
   runDirectorEngineProject,
   stopDirectorEngineProject,
 } from "../../api/dccEngineRunClient";
-import {
-  ENGINE_RUN_ERROR_CODE_LABELS,
-  engineRunErrorView,
-  type EngineRunErrorView,
-} from "./engineRunPresentation";
+import { ENGINE_RUN_ERROR_CODE_LABELS, engineRunErrorView, type EngineRunErrorView } from "./engineRunPresentation";
 
 /** Poll cadence for the run status while a run is active. */
 const RUN_POLL_INTERVAL_MS = 2_000;

@@ -822,7 +822,11 @@ it("labels the typed engine_run_* code when a run start is rejected", async () =
 
 it("labels the route-level engine_run_unavailable transport code when a stop is rejected", async () => {
   runClient.stop.mockRejectedValue(
-    new DirectorDccEngineRunClientError("The engine run manager is not configured on this gateway.", 503, "engine_run_unavailable"),
+    new DirectorDccEngineRunClientError(
+      "The engine run manager is not configured on this gateway.",
+      503,
+      "engine_run_unavailable",
+    ),
   );
   const runningStatus = {
     contract: "director-dcc-engine-run-v1",
