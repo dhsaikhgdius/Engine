@@ -113,6 +113,18 @@ describe("Director DCC return contract", () => {
     expect(directorDccImportPlanSchema.safeParse({ ...base, omittedOpticsCount: undefined }).success).toBe(false);
     expect(directorDccImportPlanSchema.safeParse({ ...base, omittedOpticsCount: 2 }).success).toBe(false);
     expect(
+      directorDccImportPlanSchema.safeParse({
+        ...base,
+        omittedOptics: [{ ...base.omittedOptics[0], code: "anamorphic_squeeze" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccImportPlanSchema.safeParse({
+        ...base,
+        omittedOptics: [{ ...base.omittedOptics[0], extra: "field" }],
+      }).success,
+    ).toBe(false);
+    expect(
       directorDccImportPlanSchema.safeParse({ ...base, omittedOptics: undefined, omittedOpticsCount: undefined })
         .success,
     ).toBe(true);
@@ -161,6 +173,12 @@ describe("Director DCC return contract", () => {
       directorDccImportPlanSchema.safeParse({
         ...base,
         omittedAdditions: [{ ...base.omittedAdditions[0], meshFile: "../lamp-new.glb" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccImportPlanSchema.safeParse({
+        ...base,
+        omittedAdditions: [{ ...base.omittedAdditions[0], extra: "field" }],
       }).success,
     ).toBe(false);
     expect(
