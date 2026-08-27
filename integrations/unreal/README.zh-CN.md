@@ -86,7 +86,7 @@ Director 的动画求值器（缓动曲线、轨迹、相机路径与跟随行�
 - Director PBR 材质参数（baseColor、metalness、roughness、opacity、自发光、
   双面）转换为材质实例，父材质为 Director 创作的 `DirectorPbrOpaque` /
   `DirectorPbrTranslucent`。不支持的通道（transmission、IOR、clearcoat、
-  未随包捆绑为相对哈希文件的贴图引用、仅背面渲染）以结构化 `omittedMaterials[]` 警告省略处理（`unsupported_channels` / `no_mesh_target` / `parent_unavailable` / `apply_failed`，附 `omittedMaterialCount`；连接器 ≥0.4.1）。骨骼 bind-pose 失败以结构化 `omittedSkeletal[]` 警告省略处理（`skeleton_unavailable` / `character_unskinned` / `empty_actor`，附 `omittedSkeletalCount`；连接器 ≥0.4.2）。无法键入相机切换的分镜镜头以结构化 `omittedShots[]` 警告省略处理（`shot_no_camera_binding` / `shot_camera_not_imported` / `shot_target_not_camera`，与 Godot / Unity 镜头映射器共用同一代码集，附 `omittedShotCount`；连接器 ≥0.4.3），即使本次运行未创作 LevelSequence 也如实上报。省略灯光附带匹配的 `omittedLightCount`。
+  未随包捆绑为相对哈希文件的贴图引用、仅背面渲染）以结构化 `omittedMaterials[]` 警告省略处理；已捆绑贴图在主机导入或材质实例参数绑定时失败则以 `texture_import_failed` 结构化上报（实例仍可应用可承载通道）。代码集为 `unsupported_channels` / `texture_import_failed` / `no_mesh_target` / `parent_unavailable` / `apply_failed`（附 `omittedMaterialCount`；连接器 ≥0.4.1，`texture_import_failed` 自 ≥0.4.4）。骨骼 bind-pose 失败以结构化 `omittedSkeletal[]` 警告省略处理（`skeleton_unavailable` / `character_unskinned` / `empty_actor`，附 `omittedSkeletalCount`；连接器 ≥0.4.2）。无法键入相机切换的分镜镜头以结构化 `omittedShots[]` 警告省略处理（`shot_no_camera_binding` / `shot_camera_not_imported` / `shot_target_not_camera`，与 Godot / Unity 镜头映射器共用同一代码集，附 `omittedShotCount`；连接器 ≥0.4.3），即使本次运行未创作 LevelSequence 也如实上报。省略灯光附带匹配的 `omittedLightCount`。
 
 ## 安装
 

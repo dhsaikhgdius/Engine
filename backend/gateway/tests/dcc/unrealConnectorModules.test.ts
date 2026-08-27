@@ -552,6 +552,40 @@ describe.skipIf(!pythonAvailable)(
         // Referenced but not bundled: structured omit, never a silent drop.
         expect(result.omitted).toEqual(["textures.baseColorMapAssetId"]);
       });
+
+      it("builds typed texture_import_failed omits for failed host import and bind stages", async () => {
+        const { output: importOmit } = await runModule(
+          "director_materials",
+          [],
+          JSON.stringify({
+            op: "texture_import_failed_omit",
+            directorId: "prop-crate",
+            parameters: ["BaseColorMap", "NormalMap"],
+            stage: "import",
+          }),
+        );
+        expect(importOmit.ok).toBe(true);
+        expect(importOmit.result).toEqual({
+          directorId: "prop-crate",
+          code: "texture_import_failed",
+          reason: expect.stringMatching(/BaseColorMap, NormalMap.*failed to import.*texture_import_failed/),
+        });
+        const { output: bindOmit } = await runModule(
+          "director_materials",
+          [],
+          JSON.stringify({
+            op: "texture_import_failed_omit",
+            directorId: "prop-crate",
+            parameters: ["RoughnessMap"],
+            stage: "bind",
+          }),
+        );
+        expect(bindOmit.result).toEqual({
+          directorId: "prop-crate",
+          code: "texture_import_failed",
+          reason: expect.stringMatching(/RoughnessMap.*failed to bind.*texture_import_failed/),
+        });
+      });
     });
 
     describe("director_lights golden fixtures (supported subset + structured omits)", () => {

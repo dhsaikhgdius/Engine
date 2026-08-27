@@ -26,6 +26,7 @@ const OMITTED_CHANNEL_LABELS: Record<string, string> = {
 
 const UNREAL_OMITTED_MATERIAL_LABELS: Record<string, string> = {
   unsupported_channels: "不支持的材质通道",
+  texture_import_failed: "贴图导入失败",
   no_mesh_target: "材质无网格目标",
   parent_unavailable: "父材质不可用",
   apply_failed: "材质应用失败",
@@ -147,7 +148,7 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
             <li key={`shot:${entry.code}:${entry.shotId}`}>
               <code data-i18n-user-content>{entry.shotId}</code>
               {` · ${t(UNREAL_OMITTED_SHOT_LABELS[entry.code] ?? entry.code)} · `}
-              <span data-i18n-user-content title={entry.reason}>
+              <span className="director-engine-handoff-omit-detail" data-i18n-user-content title={entry.reason}>
                 {entry.reason}
               </span>
             </li>
@@ -163,7 +164,7 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
             <li key={`material:${entry.code}:${entry.directorId}`}>
               <code data-i18n-user-content>{entry.directorId}</code>
               {` · ${t(UNREAL_OMITTED_MATERIAL_LABELS[entry.code] ?? entry.code)} · `}
-              <span data-i18n-user-content title={entry.reason}>
+              <span className="director-engine-handoff-omit-detail" data-i18n-user-content title={entry.reason}>
                 {entry.reason}
               </span>
             </li>
@@ -179,7 +180,7 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
             <li key={`skeletal:${entry.code}:${entry.directorId}`}>
               <code data-i18n-user-content>{entry.directorId}</code>
               {` · ${t(UNREAL_OMITTED_SKELETAL_LABELS[entry.code] ?? entry.code)} · `}
-              <span data-i18n-user-content title={entry.reason}>
+              <span className="director-engine-handoff-omit-detail" data-i18n-user-content title={entry.reason}>
                 {entry.reason}
               </span>
             </li>
