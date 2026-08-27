@@ -238,7 +238,7 @@ describe("engine bridge Godot readiness", () => {
   });
 });
 
-async function createGodotSendHarness() {
+async function createGodotSendHarness(godotExtras: Record<string, unknown> = {}) {
   const setup = await godotSetup();
   const jobId = randomUUID();
   const packageDirectory = resolve(setup.dataDirectory, "dcc-jobs", "exchange", "godot", jobId);
@@ -293,6 +293,7 @@ async function createGodotSendHarness() {
           omittedLights: [],
           appliedMaterialCount: 0,
           externalizedTextureCount: 0,
+          ...godotExtras,
         },
       }),
       "utf8",
@@ -393,5 +394,74 @@ describe("engine bridge Godot animation bake wiring", () => {
       },
     ]);
     expect(result.warnings.join("\n")).toMatch(/warn-and-omit/);
+  });
+
+  it("returns typed omittedLights on the Godot send receipt", async () => {
+    const { bridge } = await createGodotSendHarness({
+      importedLightCount: 2,
+      worldEnvironmentAmbient: true,
+      omittedLightCount: 2,
+      omittedLights: [
+        {
+          directorId: "light-rect",
+          code: "light_rect_area_unsupported",
+          lightType: "rect-area",
+          reason:
+            "Light light-rect (rect-area): Godot has no runtime area-light node, so the light was omitted rather than approximated (warn-and-omit code: light_rect_area_unsupported).",
+        },
+        {
+          directorId: "light-amb-2",
+          code: "light_ambient_duplicate",
+          lightType: "ambient",
+          reason:
+            "Light light-amb-2 (ambient): a WorldEnvironment ambient term was already baked from an earlier ambient/hemisphere light; Godot environments hold one ambient color (warn-and-omit code: light_ambient_duplicate).",
+        },
+      ],
+    });
+    const project = animatedGodotProject();
+    const result = await bridge.send(project, { provider: "godot" });
+    expect(result.report.godot?.importedLightCount).toBe(2);
+    expect(result.report.godot?.omittedLightCount).toBe(2);
+    expect(result.report.godot?.omittedLights).toEqual([
+      expect.objectContaining({
+        directorId: "light-rect",
+        code: "light_rect_area_unsupported",
+        lightType: "rect-area",
+      }),
+      expect.objectContaining({ directorId: "light-amb-2", code: "light_ambient_duplicate", lightType: "ambient" }),
+    ]);
+  });
+
+  it("fails the job when omittedLights length disagrees with omittedLightCount", async () => {
+    const { bridge } = await createGodotSendHarness({
+      omittedLightCount: 0,
+      omittedLights: [
+        {
+          directorId: "light-rect",
+          code: "light_rect_area_unsupported",
+          lightType: "rect-area",
+          reason:
+            "Light light-rect (rect-area): Godot has no runtime area-light node, so the light was omitted rather than approximated (warn-and-omit code: light_rect_area_unsupported).",
+        },
+      ],
+    });
+    const project = animatedGodotProject();
+    await expect(bridge.send(project, { provider: "godot" })).rejects.toMatchObject({ code: "engine_report_invalid" });
+  });
+
+  it("fails the job when the connector reports a malformed omitted-light record", async () => {
+    const { bridge } = await createGodotSendHarness({
+      omittedLightCount: 1,
+      omittedLights: [
+        {
+          directorId: "light-x",
+          code: "laser_beam",
+          lightType: "laser",
+          reason: "Light light-x has unknown type laser; it was omitted.",
+        },
+      ],
+    });
+    const project = animatedGodotProject();
+    await expect(bridge.send(project, { provider: "godot" })).rejects.toMatchObject({ code: "engine_report_invalid" });
   });
 });

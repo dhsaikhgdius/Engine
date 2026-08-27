@@ -12,6 +12,8 @@ import {
 import {
   BringToFront,
   Cable,
+  ChevronDown,
+  ChevronRight,
   Clapperboard,
   FileText,
   Flag,
@@ -33,6 +35,7 @@ import {
   Sparkles,
   Square,
   StickyNote,
+  Trash2,
   TriangleAlert,
   Type,
   Undo2,
@@ -227,7 +230,8 @@ export function CanvasWorkspace() {
   // the shared agent contract (dispatchCreativeWorkspaceOperations /
   // dispatchCreativeWorkspaceMediaRelink); only drag-batch intermediate
   // samples and continuous pointer pan/wheel keep direct store mutators.
-  // Discrete fit/set_viewport and section assignment at pointer-up are shared.
+  // Discrete fit/set_viewport, section collapse/remove, and section assignment
+  // at pointer-up are shared.
   const updateBoardNode = useDirectorCreativeWorkspaceStore((state) => state.updateBoardNode);
   const selectBoardNode = useDirectorCreativeWorkspaceStore((state) => state.selectBoardNode);
   const setBoardViewport = useDirectorCreativeWorkspaceStore((state) => state.setBoardViewport);
@@ -600,6 +604,21 @@ export function CanvasWorkspace() {
       },
       t("添加分区失败"),
     );
+  }
+
+  function toggleSectionCollapsed(section: DirectorBoardSection) {
+    dispatchCanvas(
+      {
+        op: "canvas.section.update",
+        section_id: section.id,
+        patch: { collapsed: !section.collapsed },
+      },
+      t("分区更新失败"),
+    );
+  }
+
+  function removeSection(sectionId: string) {
+    dispatchCanvas({ op: "canvas.section.remove", section_id: sectionId }, t("删除分区失败"));
   }
 
   async function importMediaFiles(files: File[], dropPoint?: { x: number; y: number }) {
@@ -1221,10 +1240,35 @@ export function CanvasWorkspace() {
                 }
               >
                 <header className="creative-board-section-header">
+                  <button
+                    aria-expanded={!section.collapsed}
+                    aria-label={section.collapsed ? t("展开分区") : t("折叠分区")}
+                    className="creative-board-section-action"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleSectionCollapsed(section);
+                    }}
+                    type="button"
+                  >
+                    {section.collapsed ? <ChevronRight aria-hidden size={13} /> : <ChevronDown aria-hidden size={13} />}
+                  </button>
                   <span className="creative-board-section-icon">
                     <SectionKindIcon kind={section.kind} />
                   </span>
                   <span className="creative-board-section-title">{section.title}</span>
+                  <button
+                    aria-label={t("删除分区")}
+                    className="creative-board-section-action is-danger"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      removeSection(section.id);
+                    }}
+                    type="button"
+                  >
+                    <Trash2 aria-hidden size={12} />
+                  </button>
                 </header>
                 {!section.collapsed ? <div aria-hidden className="creative-board-section-lane" /> : null}
               </div>

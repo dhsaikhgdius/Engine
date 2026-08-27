@@ -35,6 +35,13 @@ const GODOT_OMIT_CODE_LABELS: Record<string, string> = {
   custom_shader: "自定义着色器材质",
 };
 
+const GODOT_OMITTED_LIGHT_LABELS: Record<string, string> = {
+  light_rect_area_unsupported: "面光源不支持",
+  light_ambient_duplicate: "重复环境光",
+  light_ambient_invisible: "环境光已隐藏",
+  light_type_unknown: "未知灯光类型",
+};
+
 const GODOT_OMITTED_MATERIAL_LABELS: Record<string, string> = {
   unsupported_channels: "不支持的材质通道",
   no_mesh_target: "材质无网格目标",
@@ -64,14 +71,13 @@ interface GodotStructuredOmission {
 }
 
 /**
- * 从发送结果提取连接器侧结构化省略：优先使用回执里的 typed `omittedLights` /
- * `omittedMaterials` / `omittedShots`，旧版连接器仍回退到警告文本中的
- * `warn-and-omit code: …`。网关烘焙通道以 `result.omittedAnimationChannels` 为准，
- * 不依赖自由文本摘要。
+ * 从发送结果提取连接器侧结构化省略：优先使用回执里的 typed `omittedMaterials` /
+ * `omittedShots`（typed `omittedLights` 由专用列表呈现）。旧版连接器仍回退到
+ * 警告文本中的 `warn-and-omit code: …`。网关烘焙通道以
+ * `result.omittedAnimationChannels` 为准，不依赖自由文本摘要。
  */
 export function collectGodotStructuredOmissions(
   warnings: string[],
-  omittedLights: Array<{ directorId: string; code: string; lightType: string; reason: string }> = [],
   omittedMaterials: Array<{ directorId: string; code: string; reason: string }> = [],
   omittedShots: Array<{
     shotId: string;
@@ -80,13 +86,8 @@ export function collectGodotStructuredOmissions(
     reason: string;
   }> = [],
 ): GodotStructuredOmission[] {
-  if (omittedLights.length || omittedMaterials.length || omittedShots.length) {
+  if (omittedMaterials.length || omittedShots.length) {
     return [
-      ...omittedLights.map((light) => ({
-        code: light.code,
-        detail: light.reason,
-        key: `${light.code}:${light.directorId}`,
-      })),
       ...omittedMaterials.map((material) => ({
         code: material.code,
         detail: material.reason,
@@ -129,7 +130,6 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
   const omittedChannels = result.omittedAnimationChannels ?? result.report.omittedAnimationChannels ?? [];
   const connectorOmissions = collectGodotStructuredOmissions(
     [...result.warnings, ...result.report.warnings],
-    godot.omittedLights ?? [],
     godot.omittedMaterials ?? [],
     godot.omittedShots ?? [],
   );
@@ -201,6 +201,22 @@ export function renderGodotReceipt(result: DirectorDccEngineSendResult, t: (sour
           <dd>{godot.omittedMaterialCount ?? godot.omittedMaterials?.length ?? 0}</dd>
         </div>
       </dl>
+      {(godot.omittedLights?.length ?? 0) > 0 ? (
+        <ul aria-label={t("结构化省略灯光")} className="director-engine-handoff-list is-warning">
+          {godot.omittedLights!.slice(0, 6).map((entry) => (
+            <li key={`light:${entry.code}:${entry.directorId}`}>
+              <code data-i18n-user-content>{entry.directorId}</code>
+              {` · ${t(GODOT_OMITTED_LIGHT_LABELS[entry.code] ?? entry.code)} · `}
+              <span className="director-engine-handoff-omit-detail" data-i18n-user-content title={entry.reason}>
+                {entry.reason}
+              </span>
+            </li>
+          ))}
+          {godot.omittedLights!.length > 6 ? (
+            <li className="director-engine-handoff-more">+{godot.omittedLights!.length - 6}</li>
+          ) : null}
+        </ul>
+      ) : null}
       {(godot.omittedShots?.length ?? 0) > 0 ? (
         <ul aria-label={t("结构化省略镜头")} className="director-engine-handoff-list is-warning">
           {godot.omittedShots!.slice(0, 6).map((entry) => (
