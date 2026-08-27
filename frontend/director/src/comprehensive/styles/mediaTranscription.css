@@ -118,6 +118,10 @@
   grid-column: 1 / -1;
 }
 
+.media-transcription-toolbar > small.is-unconfigured {
+  color: rgb(var(--director-danger-rgb, 230 96 96));
+}
+
 .media-transcription-status {
   display: grid;
   grid-template-columns: 80px minmax(120px, 1fr) minmax(0, 2fr);
