@@ -8,21 +8,23 @@ namespace Director.Bridge.Editor
     /// <summary>
     /// Director light import. Directional, point, spot, and rect-area lights
     /// become Unity Light GameObjects tagged with their director_id. Ambient
-    /// and hemisphere lights have no scene transform in either tool, so they
-    /// map onto Unity's scene ambient RenderSettings instead of GameObjects.
-    /// Anything Unity cannot represent (physical decay curves, hemisphere
-    /// ground bounce as an object) warns-and-omits rather than guessing.
-    /// All positions arrive in Director canonical space (scene transform
-    /// already applied by the caller) and convert through DirectorSpace.
+    /// and hemisphere lights have no scene GameObject transform in either
+    /// tool, so they map onto Unity's scene ambient RenderSettings and are
+    /// also stamped as typed omittedLights records (warn-and-document: the
+    /// look is applied, but no spawnable actor exists). Unknown vocabulary
+    /// types are omitted without a RenderSettings side effect. Physical
+    /// decay curves and similar approximations warn-and-omit rather than
+    /// guessing. All positions arrive in Director canonical space (scene
+    /// transform already applied by the caller) and convert through
+    /// DirectorSpace.
     /// </summary>
     public static class DirectorLightImport
     {
         /// <summary>
         /// Creates every importable light in the manifest. Returns imported
         /// Light GameObject count plus typed omittedLights records for types
-        /// Unity cannot represent (today: unknown vocabulary). Ambient and
-        /// hemisphere still map to RenderSettings and are not counted as
-        /// imports or omits.
+        /// Unity cannot spawn as GameObjects (unknown vocabulary;
+        /// ambient/hemisphere after RenderSettings apply).
         /// </summary>
         public sealed class LightImportResult
         {
@@ -49,10 +51,10 @@ namespace Director.Bridge.Editor
                 switch (lightType)
                 {
                     case "ambient":
-                        ApplyAmbient(lightJson, warnings);
+                        ApplyAmbient(lightJson, warnings, result);
                         break;
                     case "hemisphere":
-                        ApplyHemisphere(lightJson, warnings);
+                        ApplyHemisphere(lightJson, warnings, result);
                         break;
                     case "directional":
                     case "point":
@@ -88,17 +90,30 @@ namespace Director.Bridge.Editor
             return result;
         }
 
-        private static void ApplyAmbient(JObject lightJson, List<string> warnings)
+        private static void ApplyAmbient(JObject lightJson, List<string> warnings, LightImportResult result)
         {
+            string directorId = (string)lightJson["id"];
+            const string code = "light_ambient_render_settings";
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
             RenderSettings.ambientLight = ParseColor(lightJson) * Intensity(lightJson);
-            warnings.Add(
-                $"Light {(string)lightJson["id"]}: ambient light mapped to scene ambient RenderSettings " +
-                "(flat mode), not a GameObject.");
+            string reason =
+                $"Light {directorId}: ambient light has no scene GameObject equivalent; " +
+                "mapped onto RenderSettings.ambientLight (flat mode) and recorded as an omitted " +
+                $"GameObject spawn (warn-and-omit code: {code}).";
+            warnings.Add(reason);
+            result.OmittedLights.Add(new JObject
+            {
+                ["directorId"] = directorId,
+                ["code"] = code,
+                ["lightType"] = "ambient",
+                ["reason"] = reason,
+            });
         }
 
-        private static void ApplyHemisphere(JObject lightJson, List<string> warnings)
+        private static void ApplyHemisphere(JObject lightJson, List<string> warnings, LightImportResult result)
         {
+            string directorId = (string)lightJson["id"];
+            const string code = "light_hemisphere_render_settings";
             float intensity = Intensity(lightJson);
             Color sky = ParseColor(lightJson) * intensity;
             Color ground = sky;
@@ -111,9 +126,18 @@ namespace Director.Bridge.Editor
             RenderSettings.ambientSkyColor = sky;
             RenderSettings.ambientEquatorColor = Color.Lerp(sky, ground, 0.5f);
             RenderSettings.ambientGroundColor = ground;
-            warnings.Add(
-                $"Light {(string)lightJson["id"]}: hemisphere light mapped to scene ambient RenderSettings " +
-                "(trilight sky/ground), not a GameObject.");
+            string reason =
+                $"Light {directorId}: hemisphere light has no scene GameObject equivalent; " +
+                "mapped onto RenderSettings trilight ambient (sky/ground) and recorded as an omitted " +
+                $"GameObject spawn (warn-and-omit code: {code}).";
+            warnings.Add(reason);
+            result.OmittedLights.Add(new JObject
+            {
+                ["directorId"] = directorId,
+                ["code"] = code,
+                ["lightType"] = "hemisphere",
+                ["reason"] = reason,
+            });
         }
 
         private static GameObject CreateLightObject(
