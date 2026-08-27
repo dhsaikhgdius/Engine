@@ -340,6 +340,7 @@
   { "pattern": "^确认清扫 (\\S+) 个对象（(.+)）$", "replacement": "Confirm sweep: $1 objects ($2)" },
   { "pattern": "^已清扫 (\\S+) 个对象，回收 (.+)$", "replacement": "Swept $1 objects, reclaimed $2" },
   { "pattern": "^跳过 (\\S+) 个$", "replacement": "Skipped $1" },
+  { "pattern": "^另有 (\\S+) 个跳过对象$", "replacement": "+$1 more skipped objects" },
   { "pattern": "^不可达 (\\S+)$", "replacement": "Unreachable $1" },
   { "pattern": "^保留期已过 (\\S+)$", "replacement": "Retention expired $1" },
   { "pattern": "^重新可达 (\\S+)$", "replacement": "Became reachable $1" },

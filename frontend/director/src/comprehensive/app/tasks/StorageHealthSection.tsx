@@ -44,6 +44,35 @@ const SKIP_REASON_LABELS = {
   deleteFailed: "删除失败",
 } as const;
 
+/** Wire skip codes from sweep `skipped[]` → camelCase keys in {@link SKIP_REASON_LABELS}. */
+const SKIP_WIRE_CODE_TO_REASON_KEY = {
+  "became-reachable": "becameReachable",
+  "modified-since-plan": "modifiedSincePlan",
+  "already-absent": "alreadyAbsent",
+  "delete-failed": "deleteFailed",
+} as const satisfies Record<string, keyof typeof SKIP_REASON_LABELS>;
+
+const SKIPPED_KEY_PREVIEW_LIMIT = 6;
+
+/**
+ * Compact per-key skip honesty for confirmed sweeps. Returns null when the
+ * gateway omitted the truncated key list (counts-only outcomes still parse).
+ */
+function formatSkippedKeyPreview(
+  skipped: NonNullable<StorageGcSweepOutcome["skipped"]> | undefined,
+  t: (text: string) => string,
+): string | null {
+  if (!skipped?.length) return null;
+  const lines = skipped.slice(0, SKIPPED_KEY_PREVIEW_LIMIT).map((entry) => {
+    const reasonKey = SKIP_WIRE_CODE_TO_REASON_KEY[entry.code];
+    return `${entry.key} · ${t(SKIP_REASON_LABELS[reasonKey])}`;
+  });
+  if (skipped.length > SKIPPED_KEY_PREVIEW_LIMIT) {
+    lines.push(t(`另有 ${skipped.length - SKIPPED_KEY_PREVIEW_LIMIT} 个跳过对象`));
+  }
+  return lines.join("；");
+}
+
 /**
  * Gateway sweep-candidate / plan reason keys → zh-CN labels. Only the two
  * gateway reasons (`unreachable` / `retentionExpired`); do not invent a third.
@@ -269,16 +298,26 @@ export function StorageHealthSection() {
         )
       ) : null}
       {outcome ? (
-        <p className="task-tray-notice">
+        <>
+          <p className="task-tray-notice">
+            {(() => {
+              const deleted = t(
+                `已清扫 ${outcome.deletedCount} 个对象，回收 ${formatStorageBytes(outcome.reclaimedBytes)}`,
+              );
+              const skips = formatSkippedSummary(outcome.skippedCount, outcome.skippedByReason, t);
+              // Never leave operators with a green full-sweep claim when keys were skipped.
+              return skips ? `${deleted}；${skips}` : deleted;
+            })()}
+          </p>
           {(() => {
-            const deleted = t(
-              `已清扫 ${outcome.deletedCount} 个对象，回收 ${formatStorageBytes(outcome.reclaimedBytes)}`,
-            );
-            const skips = formatSkippedSummary(outcome.skippedCount, outcome.skippedByReason, t);
-            // Never leave operators with a green full-sweep claim when keys were skipped.
-            return skips ? `${deleted}；${skips}` : deleted;
+            const keys = formatSkippedKeyPreview(outcome.skipped, t);
+            return keys ? (
+              <p className="task-tray-item-phase" aria-label={t("跳过对象明细")}>
+                {keys}
+              </p>
+            ) : null;
           })()}
-        </p>
+        </>
       ) : null}
     </section>
   );

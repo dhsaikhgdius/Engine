@@ -400,6 +400,10 @@ describe("StorageHealthSection", () => {
               alreadyAbsent: 0,
               deleteFailed: 0,
             },
+            skipped: [
+              { key: "jobs/a.bin", code: "became-reachable" },
+              { key: "jobs/b.bin", code: "modified-since-plan" },
+            ],
           },
         });
       }
@@ -415,6 +419,9 @@ describe("StorageHealthSection", () => {
     expect(
       await screen.findByText("已清扫 1 个对象，回收 1.0 KB；跳过 2 个 · 重新可达 1 · 计划后已改写 1"),
     ).toBeTruthy();
+    const skippedDetails = screen.getByLabelText("跳过对象明细");
+    expect(skippedDetails.textContent).toContain("jobs/a.bin · 重新可达");
+    expect(skippedDetails.textContent).toContain("jobs/b.bin · 计划后已改写");
     // Refreshed health replaces the prior recent-sweep skip summary.
     expect(screen.getByText(/1\.0 KB · 跳过 2 个 · 重新可达 1 · 计划后已改写 1/)).toBeTruthy();
   });
