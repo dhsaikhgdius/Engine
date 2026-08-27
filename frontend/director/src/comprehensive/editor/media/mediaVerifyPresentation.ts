@@ -124,7 +124,9 @@ export type MediaVerifyUiState =
   | { status: "error"; message: string };
 
 /** True while a probe is in flight — UI must not show a verified claim. */
-export function mediaVerifyIsPending(state: MediaVerifyUiState): boolean {
+export function mediaVerifyIsPending(
+  state: MediaVerifyUiState,
+): state is Extract<MediaVerifyUiState, { status: "pending" }> {
   return state.status === "pending";
 }
 
