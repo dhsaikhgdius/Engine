@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import translations from "./en-US.json";
 import phraseRuleConfigs from "./phraseRules.json";
 
@@ -287,6 +287,7 @@ const LanguageContext = createContext<LanguageContextValue>({
  */
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(() => readInitialLocale());
+  const documentTranslatedRef = useRef(false);
 
   const setLocale = useCallback((nextLocale: Locale) => {
     setLocaleState(nextLocale);
@@ -302,7 +303,10 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dataset.locale = locale;
-    if (locale === "zh-CN") return;
+    // In the zh-CN source locale the walk is only needed to restore source
+    // text after leaving en-US; a fresh zh-CN document never needs it.
+    if (locale === "zh-CN" && !documentTranslatedRef.current) return;
+    documentTranslatedRef.current = locale !== "zh-CN";
     translateDocument(document, locale);
   }, [locale]);
 
