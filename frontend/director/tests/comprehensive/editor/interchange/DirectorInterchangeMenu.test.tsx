@@ -525,6 +525,80 @@ it("opts in to reviewed Blender object additions and summarizes them as new obje
   expect(screen.getByRole("button", { name: "应用 DCC 回传" })).toBeEnabled();
 });
 
+it("surfaces typed omittedOptics / omittedAdditions on DCC return preview and dedupes echo warnings", async () => {
+  const user = userEvent.setup();
+  const opticsReason =
+    "Camera cam-1 sensor format 'imax65' was omitted from the return plan (warn-and-omit); choose a sensor format in Director's named gates instead of editing Blender sensor size.";
+  const additionReason =
+    'New DCC object "Desk Lamp" (lamp-new) is available but not imported; rebuild the plan with include_new_objects to import it after review.';
+  vi.spyOn(dccReturnClient, "previewDirectorDccReturnPackage").mockResolvedValue({
+    ready: true,
+    dry_run: true,
+    summary: { operation_count: 1, skipped_count: 1, conflict_count: 0, warning_count: 2 },
+    plan: {
+      contract: "director-dcc-import-plan-v1",
+      ready: true,
+      packageId: "return-omitted-1",
+      packageDir: "job-1/return-package",
+      manifestHash: "a".repeat(64),
+      sourceRevision: `director-project-revision:v1:sha256:${"b".repeat(64)}`,
+      targetRevision: `director-project-revision:v1:sha256:${"b".repeat(64)}`,
+      operations: [
+        { op: "update_camera_optics", objectId: "cam-1", optics: { focal_length_mm: 50 } },
+        { op: "skip", directorId: "lamp-new", reason: additionReason },
+      ],
+      conflicts: [],
+      warnings: [opticsReason, "cam-1: focalLengthMm 400 clamped to 200."],
+      omittedOpticsCount: 1,
+      omittedOptics: [
+        {
+          directorId: "cam-1",
+          code: "sensor_format",
+          field: "sensorFormat",
+          reason: opticsReason,
+        },
+      ],
+      omittedAdditionsCount: 1,
+      omittedAdditions: [
+        {
+          directorId: "lamp-new",
+          name: "Desk Lamp",
+          meshFile: "meshes/lamp-new.glb",
+          code: "opt_in_required",
+          reason: additionReason,
+        },
+      ],
+    },
+  });
+  render(
+    <LanguageProvider>
+      <DirectorInterchangeMenu />
+    </LanguageProvider>,
+  );
+  await user.click(screen.getByRole("button", { name: "交换" }));
+  await user.type(screen.getByLabelText("回传包路径"), "job-1/return-package");
+  await user.click(screen.getByRole("button", { name: "预览差异" }));
+  await waitFor(() =>
+    expect(
+      screen.getByText("0 个资产 · 0 个变换 · 1 个相机光学 · 1 项省略光学 · 1 项省略新增 · 1 条提示"),
+    ).toBeInTheDocument(),
+  );
+
+  const opticsList = screen.getByRole("list", { name: "结构化省略光学" });
+  expect(within(opticsList).getByText("cam-1")).toBeInTheDocument();
+  expect(opticsList).toHaveTextContent("传感器画幅省略");
+
+  const additionsList = screen.getByRole("list", { name: "结构化省略新增对象" });
+  expect(within(additionsList).getByText("lamp-new")).toBeInTheDocument();
+  expect(additionsList).toHaveTextContent("需选择纳入");
+  expect(within(additionsList).getByText("Desk Lamp")).toBeInTheDocument();
+
+  const notices = screen.getByRole("list", { name: "DCC 回传提示" });
+  expect(notices).toHaveTextContent("cam-1: focalLengthMm 400 clamped to 200.");
+  expect(notices).not.toHaveTextContent("sensor format");
+  expect(screen.getByRole("button", { name: "应用 DCC 回传" })).toBeEnabled();
+});
+
 it("summarizes rich Blender return plans (camera optics, lights, poses) and lists bake warnings", async () => {
   const user = userEvent.setup();
   vi.spyOn(dccReturnClient, "previewDirectorDccReturnPackage").mockResolvedValue({

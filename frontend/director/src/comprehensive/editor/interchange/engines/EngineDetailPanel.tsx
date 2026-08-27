@@ -19,7 +19,12 @@ import type { DirectorDccImportPlanV1 } from "../../../../dcc/directorDccReturnC
 import { useLanguage } from "../../../i18n/language";
 import { fetchDirectorDccEngineHealth } from "../../api/dccEngineHandoffClient";
 import { DirectorDccProviderClientError, sendDirectorProjectToEngine } from "../../api/dccProviderClient";
-import { applyDirectorDccImportPlan, DirectorDccReturnClientError, previewDirectorDccReturnPackage } from "../../api/dccReturnClient";
+import {
+  applyDirectorDccImportPlan,
+  DirectorDccReturnClientError,
+  previewDirectorDccReturnPackage,
+} from "../../api/dccReturnClient";
+import { DccReturnOmittedLists, filterDccReturnWarningsWithoutTypedEchoes } from "../dccReturnOmittedUi";
 import { EngineRunSection } from "./EngineRunSection";
 import { EngineSceneImportSection } from "./EngineSceneImportSection";
 
@@ -244,12 +249,21 @@ export function EngineDetailPanel({
   }
 
   const report = sendResult?.report ?? null;
+  const returnWarnings = receivePreview
+    ? filterDccReturnWarningsWithoutTypedEchoes(receivePreview.plan.warnings, receivePreview.plan)
+    : [];
   const planSegments = receivePreview
     ? [
         `${receivePreview.summary.operation_count} ${t("项更新")}`,
         `${receivePreview.summary.skipped_count} ${t("项跳过")}`,
         `${receivePreview.summary.conflict_count} ${t("项冲突")}`,
-        `${receivePreview.summary.warning_count} ${t("条提示")}`,
+        ...(receivePreview.plan.omittedOptics?.length
+          ? [`${receivePreview.plan.omittedOptics.length} ${t("项省略光学")}`]
+          : []),
+        ...(receivePreview.plan.omittedAdditions?.length
+          ? [`${receivePreview.plan.omittedAdditions.length} ${t("项省略新增")}`]
+          : []),
+        `${returnWarnings.length} ${t("条提示")}`,
       ]
     : [];
 
@@ -463,7 +477,14 @@ export function EngineDetailPanel({
               label={t("回传冲突")}
               tone="danger"
             />
-            <TruncatedList items={receivePreview.plan.warnings} label={t("回传提示")} tone="warning" />
+            <DccReturnOmittedLists
+              detailClassName="director-engine-handoff-omit-detail"
+              listClassName="director-engine-handoff-list is-warning"
+              moreClassName="director-engine-handoff-more"
+              plan={receivePreview.plan}
+              t={t}
+            />
+            <TruncatedList items={returnWarnings} label={t("回传提示")} tone="warning" />
             <label className="director-engine-handoff-opt-in">
               <input
                 checked={reviewConfirmed}

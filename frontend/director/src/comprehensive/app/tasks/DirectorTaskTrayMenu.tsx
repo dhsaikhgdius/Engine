@@ -16,6 +16,7 @@ import {
   cancelDirectorProductionRun,
   clearFinishedDirectorTasks,
   countActiveDirectorTasks,
+  directorTaskTrayStore,
   dismissDirectorProductionRun,
   dismissDirectorTask,
   retryDirectorTask,
@@ -24,6 +25,7 @@ import {
   useDirectorTaskTray,
   visibleDirectorProductionRuns,
   visibleDirectorTasks,
+  type DirectorTaskJobReceiptEntry,
 } from "./directorTaskTrayStore";
 import { monitoredProductionRunKey, type DirectorMonitoredProductionRun } from "./productionRunTaskClient";
 import { StorageHealthSection } from "./StorageHealthSection";
@@ -48,6 +50,8 @@ import {
 import { taskIsFinished, taskSupportsCancel, taskSupportsRetry } from "./productionTaskClient";
 import {
   formatTaskRelativeTime,
+  taskAbsentArtifactAriaLabel,
+  taskAbsentArtifactSummaries,
   taskDisplayName,
   taskFailureReason,
   taskKindLabel,
@@ -56,11 +60,25 @@ import {
   taskStatusLabel,
 } from "./taskTrayPresentation";
 
-function TaskTrayItem({ job, pending }: { job: ProductionJobRecord; pending: boolean }) {
+function absentArtifactsFromReceiptEntry(entry: DirectorTaskJobReceiptEntry | undefined) {
+  return entry?.phase === "ready" ? taskAbsentArtifactSummaries(entry.receipt) : [];
+}
+
+function TaskTrayItem({
+  job,
+  pending,
+  receiptEntry,
+}: {
+  job: ProductionJobRecord;
+  pending: boolean;
+  receiptEntry: DirectorTaskJobReceiptEntry | undefined;
+}) {
   const { t } = useLanguage();
   const failureReason = job.status === "failed" ? taskFailureReason(job) : null;
   const percent = taskProgressPercent(job);
   const finished = taskIsFinished(job);
+  const absentArtifacts = absentArtifactsFromReceiptEntry(receiptEntry);
+  const absentArtifactAria = taskAbsentArtifactAriaLabel(absentArtifacts);
 
   return (
     <li className={`task-tray-item is-${job.status}`}>
@@ -87,6 +105,13 @@ function TaskTrayItem({ job, pending }: { job: ProductionJobRecord; pending: boo
       ) : null}
       {job.status === "running" && job.message ? <p className="task-tray-item-phase">{job.message}</p> : null}
       {failureReason ? <p className="task-tray-item-error">{failureReason}</p> : null}
+      {absentArtifacts.length > 0 ? (
+        <ul aria-label={absentArtifactAria} className="task-tray-item-artifact-warning">
+          {absentArtifacts.map((summary) => (
+            <li key={summary.id}>{summary.label}</li>
+          ))}
+        </ul>
+      ) : null}
       <div className="task-tray-item-meta">
         <span className="task-tray-item-time">{formatTaskRelativeTime(taskStartedAt(job))}</span>
         <span className="task-tray-item-actions">
@@ -201,6 +226,7 @@ export function DirectorTaskTrayMenu() {
   const dismissedRunKeys = useDirectorTaskTray((state) => state.dismissedRunKeys);
   const pendingActionIds = useDirectorTaskTray((state) => state.pendingActionIds);
   const pendingRunActionKeys = useDirectorTaskTray((state) => state.pendingRunActionKeys);
+  const jobReceipts = useDirectorTaskTray((state) => state.jobReceipts);
   const phase = useDirectorTaskTray((state) => state.phase);
   const error = useDirectorTaskTray((state) => state.error);
   const activeCount = useDirectorTaskTray(countActiveDirectorTasks);
@@ -277,7 +303,12 @@ export function DirectorTaskTrayMenu() {
                   <h3>{t("后台任务")}</h3>
                   <ul className="task-tray-list">
                     {visibleTasks.map((job) => (
-                      <TaskTrayItem job={job} key={job.id} pending={pendingActionIds.includes(job.id)} />
+                      <TaskTrayItem
+                        job={job}
+                        key={job.id}
+                        pending={pendingActionIds.includes(job.id)}
+                        receiptEntry={jobReceipts[job.id]}
+                      />
                     ))}
                   </ul>
                 </section>
