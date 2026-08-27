@@ -58,6 +58,8 @@ export async function handleMotionGenerationRoute(
       return true;
     }
 
+    // A client that disconnects mid-stream aborts the GPU run instead of
+    // leaving it rendering for nobody.
     const abort = new AbortController();
     request.once("close", () => abort.abort());
     response.writeHead(200, {
@@ -70,6 +72,8 @@ export async function handleMotionGenerationRoute(
     try {
       await ardy.generate(body, write, abort.signal);
     } catch (error) {
+      // Headers are already sent, so failures become a terminal NDJSON
+      // error event rather than an HTTP status.
       write({
         event: "error",
         message:

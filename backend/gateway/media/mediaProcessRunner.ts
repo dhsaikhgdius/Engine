@@ -1,5 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
 
+/**
+ * Bounded, timeout-guarded process runner for ffmpeg/ffprobe. Children run
+ * detached in their own process group so a timeout can kill helpers the tool
+ * spawned; stdout keeps its head (parseable ffprobe JSON starts there) while
+ * stderr keeps its tail (the actionable ffmpeg error ends there).
+ */
+
+/** Outcome of one media tool invocation, with capped output buffers. */
 export interface MediaProcessResult {
   code: number | null;
   signal: NodeJS.Signals | null;
@@ -10,6 +18,7 @@ export interface MediaProcessResult {
   timedOut: boolean;
 }
 
+/** Timeout, buffer, and environment options for one invocation. */
 export interface MediaProcessOptions {
   timeoutMs: number;
   /** How long a timed-out process may ignore SIGTERM before SIGKILL. */
@@ -46,6 +55,7 @@ function signalGroup(child: ChildProcess, signal: NodeJS.Signals) {
   }
 }
 
+/** The real spawn-backed runner; resolves on close, rejects only on launch failure. */
 export const runMediaProcess: MediaProcessRunner = (command, args, options) => {
   const killGracePeriodMs = options.killGracePeriodMs ?? DEFAULT_KILL_GRACE_PERIOD_MS;
   const maxStdoutChars = options.maxStdoutChars ?? DEFAULT_MAX_STDOUT_CHARS;

@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+/** Thrown when a referenced staged input no longer exists on this gateway. */
 export class MediaInputMissingError extends Error {
   readonly code = "staged_input_missing";
 
@@ -12,6 +13,7 @@ export class MediaInputMissingError extends Error {
   }
 }
 
+/** Thrown when staged bytes fail size or SHA-256 verification. */
 export class MediaInputIntegrityError extends Error {
   readonly code = "staged_input_invalid";
 
@@ -46,6 +48,10 @@ export class MediaTranscodeInputStore {
     return join(this.directory(), `${assertSha256(sha256)}.bin`);
   }
 
+  /**
+   * Stages bytes under their verified digest; `wx` makes identical-content
+   * re-uploads idempotent (EEXIST under the same digest is success).
+   */
   async put(bytes: Uint8Array, expectedSha256: string) {
     if (!bytes.byteLength) throw new TypeError("Media input is empty");
     if (bytes.byteLength > this.maxInputBytes) throw new RangeError("Media input exceeds the configured size limit");

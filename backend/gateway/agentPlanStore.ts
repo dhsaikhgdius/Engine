@@ -1,9 +1,12 @@
 import type { DirectorAgentPlan } from "@director/agent-engine";
 
+/** One cached plan plus the context needed to validate its application. */
 export type StoredAgentPlan = {
   plan: DirectorAgentPlan;
   sessionId?: string | null;
+  /** Fingerprint of the scene the plan was drafted against; apply rechecks it. */
   sceneSignature: string;
+  /** Epoch ms after which the plan is treated as gone. */
   expiresAt: number;
 };
 
@@ -18,6 +21,7 @@ export class AgentPlanStore {
     this.plans.set(input.plan.id, input);
   }
 
+  /** Returns the plan unless expired; expiry is enforced lazily on read. */
   getPlan(planId: string): StoredAgentPlan | undefined {
     const stored = this.plans.get(planId);
     if (!stored) return undefined;
