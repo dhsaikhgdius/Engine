@@ -22,7 +22,11 @@ describe("mediaTranscriptionPresentation", () => {
   it("extracts structured codes from MediaTranscriptionRequestError and transport failures", () => {
     expect(
       mediaTranscriptionErrorCode(
-        new MediaTranscriptionRequestError("No transcription provider is configured", "transcription_not_configured", 503),
+        new MediaTranscriptionRequestError(
+          "No transcription provider is configured",
+          "transcription_not_configured",
+          503,
+        ),
       ),
     ).toBe("transcription_not_configured");
     expect(mediaTranscriptionErrorCode(new TypeError("Failed to fetch"))).toBe("gateway_unreachable");

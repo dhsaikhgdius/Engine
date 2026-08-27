@@ -74,8 +74,7 @@ export function presentMediaTranscriptionError(
 ): MediaTranscriptionErrorPresentation {
   const code = mediaTranscriptionErrorCode(error);
   const label = mediaTranscriptionErrorLabel(code);
-  const detail =
-    error instanceof Error || typeof error === "string" ? friendlyErrorMessage(error) : fallbackZh;
+  const detail = error instanceof Error || typeof error === "string" ? friendlyErrorMessage(error) : fallbackZh;
   return { code, label, detail: detail || fallbackZh };
 }
 

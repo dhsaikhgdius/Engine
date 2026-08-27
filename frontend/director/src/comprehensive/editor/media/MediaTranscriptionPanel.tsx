@@ -270,9 +270,7 @@ export function MediaTranscriptionPanel({
           <div>
             <button
               className="is-primary"
-              disabled={
-                busy || !transcriptionConfigured || asset.size > (capabilities?.maxInputBytes ?? Infinity)
-              }
+              disabled={busy || !transcriptionConfigured || asset.size > (capabilities?.maxInputBytes ?? Infinity)}
               onClick={() => void submit()}
               type="button"
             >
@@ -284,11 +282,7 @@ export function MediaTranscriptionPanel({
               </button>
             ) : null}
             {activeJob && new Set(["failed", "cancelled", "outcome_unknown"]).has(activeJob.status) ? (
-              <button
-                disabled={busy || !transcriptionConfigured}
-                onClick={() => void retry()}
-                type="button"
-              >
+              <button disabled={busy || !transcriptionConfigured} onClick={() => void retry()} type="button">
                 <RotateCcw aria-hidden size={12} /> {t("重试")}
               </button>
             ) : null}
