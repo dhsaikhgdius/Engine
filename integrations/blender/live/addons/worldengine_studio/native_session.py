@@ -2,6 +2,37 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+"""The in-process loopback HTTP session that makes Blender live for Director.
+
+Threading model (the one invariant everything here protects): HTTP requests
+are served on ThreadingHTTPServer worker threads, but ``bpy`` may only be
+touched from Blender's main thread. POST /v1/commands therefore only parses,
+validates, and queues; the main thread drains the queue either from a bpy
+timer (UI Blender) or from the headless backend loop, executes the batch, and
+publishes results/snapshots back through ``_state_lock``-guarded module state
+that GET handlers read without touching bpy.
+
+Concurrency and consistency vocabulary:
+
+- sceneEpoch — a UUID minted whenever the scene's identity changes (session
+  start, file load, project rebind). Scene-bound batches must present the
+  epoch they observed; a mismatch is a typed ``scene_epoch_conflict``.
+- revision — monotonic per-epoch counter of applied scene changes, mirrored
+  into the undoable Scene property so undo/redo rewinds it consistently.
+- contentRevision — revision at which anything other than pure transforms
+  last changed; lets clients skip re-downloading the preview GLB after moves.
+- Intents are idempotent by requestId: replaying the same command returns the
+  recorded outcome, replaying a *different* command under the same id is a
+  ``intent_conflict``.
+
+Atomicity: each content-mutating batch is wrapped between two native undo
+pushes; on failure the session rolls back to the checkpoint and restores the
+captured interaction state (selection, mode, frame), so a half-applied batch
+is never observable. Manual edits made directly in Blender are detected by
+depsgraph/undo/frame handlers, debounced, diffed against the published
+snapshot, and republished with the same revision bookkeeping.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -37,6 +68,7 @@ from .operation_manifest import (
 )
 
 
+# Loopback only — the session is never exposed beyond the local machine.
 SESSION_HOST = "127.0.0.1"
 MAX_REQUEST_BYTES = 256 * 1024
 MAX_RESULTS = 256
@@ -84,6 +116,8 @@ _scene_epoch = str(uuid.uuid4())
 _live_link = LiveLinkBuffer()
 
 
+# Typed conflicts: `code` is machine-readable for the gateway; the message is
+# the human/agent-facing corrective text.
 class IntentConflictError(ValueError):
     code = "intent_conflict"
 
@@ -179,6 +213,12 @@ def _visible_snapshot_content(snapshot: dict[str, Any] | None):
 
 
 def _depsgraph_changes_visible_content(depsgraph) -> bool:
+    """Heuristic: did this depsgraph tick touch renderable content?
+
+    Datablock types listed here always mean content; mesh geometry updates
+    are content unless they coincide with a mode switch (entering edit mode
+    fires a geometry update without changing anything visible).
+    """
     mode_changed = _interaction_mode() != _published_mode
     for update in depsgraph.updates:
         identifier = update.id.bl_rna.identifier
@@ -211,6 +251,13 @@ def _depsgraph_changes_visible_content(depsgraph) -> bool:
 
 
 def _refresh_manual_snapshot():
+    """Debounced timer body that folds manual Blender edits into the session.
+
+    Runs ~150 ms after the first change notification so a drag produces one
+    republish, not hundreds. Sets ``_applying_command`` while re-snapshotting
+    because taking a snapshot itself fires depsgraph updates that must not be
+    mistaken for another manual edit.
+    """
     global _applying_command, _manual_change_pending, _content_revision
     global _manual_content_change_pending, _manual_frame_change_pending
     _manual_change_pending = False
@@ -339,6 +386,14 @@ def _undo_once() -> bool:
 
 
 def _capture_interaction_state() -> dict[str, Any]:
+    """Snapshot the user's interaction context before running a batch.
+
+    Selection, active object, mode, edit-mode component selection, pose bone
+    selection, and current frame — everything a failed batch's rollback must
+    put back so the human doesn't lose their working context to an agent
+    error. Objects are referenced by stable id with name fallback because
+    the rollback may recreate datablocks.
+    """
     from .blockout import ID_PROPERTY
 
     active = bpy.context.view_layer.objects.active
@@ -378,6 +433,13 @@ def _capture_interaction_state() -> dict[str, Any]:
 
 
 def _restore_interaction_state(interaction: dict[str, Any]) -> None:
+    """Inverse of :func:`_capture_interaction_state`.
+
+    Order matters: leave any edit mode first (component selection can only be
+    written reliably from object mode), rebuild object selection, then
+    re-enter the captured mode before restoring bone selection, which lives
+    on different collections in edit vs pose mode.
+    """
     from . import blockout
     from .modeling import operator_context
 
@@ -450,6 +512,12 @@ def _rollback_to_checkpoint() -> None:
 
 
 def _operation_applied_content(operation: dict[str, Any], result: Any) -> bool:
+    """Did this operation actually change scene content?
+
+    Distinguishes "mutating op that turned out to be a no-op" (e.g. an
+    idempotent re-import reporting skipped) so the batch executor can discard
+    the empty undo step instead of polluting history.
+    """
     op = operation.get("op")
     if (
         op in READ_ONLY_LIVE_OPERATIONS
@@ -462,6 +530,19 @@ def _operation_applied_content(operation: dict[str, Any], result: Any) -> bool:
 
 
 def _execute_live_batch(command, execute_live_operations, snapshot_live_scene):
+    """Run one validated batch atomically on the main thread.
+
+    Sequence: enforce epoch/revision preconditions → undo checkpoint (for
+    content-mutating batches) → execute → commit undo step, bump revision,
+    refresh snapshot, schedule the store save. Any exception rolls back to
+    the checkpoint, restores the captured interaction state, resets the
+    revision, and republishes the previous scene — the caller sees a failed
+    job and an unchanged scene.
+
+    Project lifecycle ops (bind_director_project) take the dedicated branch
+    at the top: rebinding swaps the entire scene, so it must be a standalone
+    batch and mints a fresh scene epoch instead of checking one.
+    """
     global _applying_command, _scene_epoch, _session_revision, _content_revision
 
     scene = bpy.context.scene
@@ -594,6 +675,13 @@ def _execute_live_batch(command, execute_live_operations, snapshot_live_scene):
 
 
 def _is_allowed_origin(origin: str | None) -> bool:
+    """CSRF guard: browser requests must originate from a loopback page.
+
+    Requests without an Origin header (curl, the gateway) are allowed — the
+    check exists to stop hostile web pages from driving the session through
+    a victim's browser, not to authenticate local processes (that is the
+    bearer token's job).
+    """
     if not origin:
         return True
     try:
@@ -604,6 +692,12 @@ def _is_allowed_origin(origin: str | None) -> bool:
 
 
 def _detach_operation_payloads(record: dict[str, Any]) -> tuple[dict[str, Any], dict[int, str] | None]:
+    """Split bulky base64 payloads (GLBs, renders) out of a job record.
+
+    Records live in a 256-entry history; payloads live in a 4-entry side
+    store. Without the split, a session that captures a few renders would
+    pin hundreds of megabytes inside Blender for the record TTL.
+    """
     result = record.get("result")
     if not isinstance(result, dict):
         return record, None
@@ -670,6 +764,8 @@ def _remember(request_id: str, record: dict[str, Any]) -> None:
 
 
 def command_record(request_id: str, *, consume: bool = False) -> dict[str, Any] | None:
+    """Fetch one job record; ``consume`` atomically reattaches any detached
+    payloads and deletes a terminal record so large results are read once."""
     with _state_lock:
         record = _records.get(request_id)
         if record is None:
@@ -771,6 +867,14 @@ def _queue_command(command: dict[str, Any]) -> dict[str, Any] | None:
 
 
 class _RequestHandler(BaseHTTPRequestHandler):
+    """HTTP surface of the live session (runs on worker threads; no bpy).
+
+    Endpoints: GET /health, /v1/scene (authoritative snapshot),
+    /v1/live-link (preview delta feed), /v1/jobs/<id>, /v1/previews/<id>.glb;
+    POST /v1/commands (queue one batch, 202 + job id). Every handler checks
+    the loopback Origin guard and the optional bearer token first.
+    """
+
     server_version = "WorldEngineLoopback/1"
     protocol_version = "HTTP/1.1"
 
@@ -785,6 +889,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
         if not _session_token:
             return True
         scheme, _, credentials = self.headers.get("Authorization", "").partition(" ")
+        # compare_digest keeps token comparison constant-time.
         return scheme.lower() == "bearer" and hmac.compare_digest(
             credentials.strip().encode("utf-8"), _session_token.encode("utf-8")
         )
@@ -1038,6 +1143,12 @@ def session_url() -> str:
 
 
 def _reset_session_state() -> None:
+    """Drop all session state and mint a new scene epoch.
+
+    Used at start/stop and after a .blend load: every outstanding job record,
+    queued command, and cached snapshot refers to a scene that no longer
+    exists, and the fresh epoch forces every client through resync.
+    """
     global _applying_command, _manual_change_pending, _scene_epoch, _session_revision, _snapshot
     global _manual_content_change_pending, _manual_frame_change_pending, _published_mode
     global _content_revision
@@ -1082,6 +1193,12 @@ def _publish_current_snapshot() -> None:
 
 
 def start(port: int = 8791, *, use_timer: bool = True) -> None:
+    """Start the loopback server and change handlers.
+
+    ``use_timer=True`` (UI Blender) drains the command queue from a bpy app
+    timer; ``use_timer=False`` (headless backend) leaves draining to the
+    caller's own main-thread loop (see worldengine_backend.main).
+    """
     global _blender_version, _server, _server_thread, _session_token
     if _server is not None:
         return
