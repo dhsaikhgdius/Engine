@@ -82,6 +82,7 @@ CONNECTOR_FEATURES = [
 
 
 def _load_unreal():
+    """Import ``unreal`` lazily; None outside the editor keeps CLI parsing testable."""
     try:
         import unreal  # type: ignore
 
@@ -91,6 +92,7 @@ def _load_unreal():
 
 
 def host_version(unreal) -> str:
+    """Human-readable engine version for reports (build suffix stripped)."""
     return f"Unreal Engine {unreal.SystemLibrary.get_engine_version().split('-')[0]}"
 
 
@@ -122,6 +124,7 @@ def canonical_camera_world_transform(scene: dict, camera: dict) -> dict:
 
 
 def unreal_transform_from_canonical(unreal, canonical: dict):
+    """Director canonical transform to an unreal.Transform (basis change in dspace)."""
     engine = dspace.director_transform_to_unreal(canonical)
     location = unreal.Vector(*engine["location"])
     quaternion = unreal.Quat(*engine["rotationQuaternion"])
@@ -130,6 +133,7 @@ def unreal_transform_from_canonical(unreal, canonical: dict):
 
 
 def canonical_from_unreal_transform(actor_transform) -> dict:
+    """Inverse of unreal_transform_from_canonical for the export echo path."""
     quaternion = actor_transform.rotation
     return dspace.unreal_transform_to_director(
         {
@@ -141,6 +145,7 @@ def canonical_from_unreal_transform(actor_transform) -> dict:
 
 
 def director_id_of_actor(actor) -> str | None:
+    """Read the stable Director id from the actor's director_id: tag, if any."""
     for tag in actor.tags:
         value = str(tag)
         if value.startswith(DIRECTOR_TAG_PREFIX):
@@ -149,6 +154,7 @@ def director_id_of_actor(actor) -> str | None:
 
 
 def safe_asset_name(value: str) -> str:
+    """Sanitize an id into a /Game content-browser asset name (never empty)."""
     cleaned = "".join(character if character.isalnum() or character in "_-" else "_" for character in value)
     return cleaned[:96] or "DirectorAsset"
 
@@ -232,6 +238,7 @@ def spawn_actors(unreal, manifest: dict, package_dir: str, warnings: list[str]):
     glb_inspections: dict[str, dict] = {}
 
     def inspect_payload(asset_ref: str, glb_path: str) -> dict:
+        """Cached header-only GLB inspection; a failure degrades to static import."""
         if asset_ref not in glb_inspections:
             try:
                 glb_inspections[asset_ref] = dgltf.inspect_glb(glb_path)
@@ -573,6 +580,16 @@ def echo_return_changes(spawned: dict, cameras: dict) -> list[dict]:
 
 
 def run_import(unreal, arguments) -> int:
+    """Import a Director exchange package into a fresh Director level.
+
+    Pipeline: validate the hash-pinned bake, create the level, spawn tagged
+    actors and lights, classify storyboard shots, author the Sequencer (a
+    failure downgrades to a static import instead of aborting), save, echo a
+    return package, and write the report. Every channel Director data could
+    not carry (materials, skeletal meshes, lights, shots, animation
+    channels) is reported as structured omitted* fields -- warn-and-omit as
+    data, never silent loss.
+    """
     warnings: list[str] = []
     manifest = dpkg.load_exchange_package(arguments.package, PROVIDER)
     try:
@@ -678,6 +695,13 @@ def run_import(unreal, arguments) -> int:
 
 
 def run_export(unreal, arguments) -> int:
+    """Write a director-dcc-return-v1 package of transforms that moved.
+
+    Baselines are recomputed from the exchange manifest in canonical space,
+    then each director_id-tagged actor is diffed against them; only actual
+    movement (beyond TRANSFORM_TOLERANCE) becomes a transform_update. Actors
+    tagged with ids the manifest never issued are warned about and skipped.
+    """
     warnings: list[str] = []
     manifest = dpkg.load_exchange_package(arguments.package, PROVIDER)
     scene = manifest["project"]["scene"]
@@ -797,6 +821,7 @@ def run_render(unreal, arguments) -> int:
     warnings: list[str] = []
 
     def skip(reason: str) -> int:
+        """Write a skipped receipt; the clean frame is optional by contract."""
         dpkg.write_clean_frame_receipt(arguments.report, skip_reason=reason, warnings=warnings)
         return 1
 
@@ -843,6 +868,7 @@ def run_render(unreal, arguments) -> int:
     state = {"handle": None}
 
     def finish(reason_or_none):
+        """Unregister the tick callback, write the receipt, and quit the editor."""
         if state["handle"] is not None:
             unreal.unregister_slate_post_tick_callback(state["handle"])
             state["handle"] = None
@@ -868,6 +894,7 @@ def run_render(unreal, arguments) -> int:
         unreal.SystemLibrary.quit_editor()
 
     def on_tick(_delta_seconds):
+        """Poll the async screenshot task each slate tick until done or deadline."""
         try:
             if task.is_task_done():
                 if os.path.isfile(arguments.render_output):
@@ -924,6 +951,13 @@ def _engine_scene_snapshot(unreal) -> dict:
 
 
 def _run_editor_command(unreal, payload: dict, allow_code: bool) -> dict:
+    """Execute one validated editor command; failures return, never raise.
+
+    ``sync_scene`` (read-only snapshot) is always allowed; ``execute_code``
+    requires the operator to have opted in with --preview-allow-code, so a
+    connected preview client cannot escalate to Editor Python on its own.
+    Output is captured and bounded before crossing the wire.
+    """
     command_id = payload["commandId"]
     command = payload["command"]
     try:
@@ -1018,6 +1052,7 @@ def run_live_preview(unreal, arguments) -> int:
 
 
 def run_health(unreal) -> int:
+    """Print the one-line JSON health/capability report the gateway parses."""
     if unreal is None:
         print(json.dumps({"ok": False, "provider": PROVIDER, "error": "The unreal module is unavailable."}))
         return 1
@@ -1036,6 +1071,7 @@ def run_health(unreal) -> int:
 
 
 def main(argv: list[str]) -> int:
+    """Parse the fixed argument surface and dispatch to the requested mode."""
     parser = argparse.ArgumentParser(description="Director Unreal connector headless entry point.")
     parser.add_argument("--mode", required=True, choices=["health", "import", "export", "live-preview", "render"])
     parser.add_argument("--package", help="Director exchange package directory.")

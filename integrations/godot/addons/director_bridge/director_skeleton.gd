@@ -60,6 +60,8 @@ static func find_skeleton(node: Node) -> Skeleton3D:
 	return null
 
 
+## True when any MeshInstance3D under the skeleton actually carries a skin;
+## a bare Skeleton3D without skinned meshes is not a poseable character.
 static func _has_skinned_mesh(skeleton: Skeleton3D) -> bool:
 	var queue: Array = [skeleton]
 	while not queue.is_empty():

@@ -113,6 +113,7 @@ def resolve_pose_bone_roles(bone_names: Iterable[str]) -> dict[str, str]:
 
 
 def _normalize_quaternion(quaternion: Iterable[float]) -> tuple[float, float, float, float]:
+    """Unit-normalize a (w,x,y,z) quaternion; degenerate input becomes identity."""
     w, x, y, z = (float(value) for value in quaternion)
     norm = math.sqrt(w * w + x * x + y * y + z * z)
     if norm < 1e-12:
@@ -124,6 +125,7 @@ def quaternion_multiply(
     left: tuple[float, float, float, float],
     right: tuple[float, float, float, float],
 ) -> tuple[float, float, float, float]:
+    """Hamilton product of two (w,x,y,z) quaternions (left applied after right)."""
     lw, lx, ly, lz = left
     rw, rx, ry, rz = right
     return (
@@ -148,6 +150,7 @@ def pose_bone_rotation_delta(
 
 
 def rotation_angle_degrees(quaternion: Iterable[float]) -> float:
+    """Total rotation angle of a quaternion in degrees (sign-insensitive)."""
     w = _normalize_quaternion(quaternion)[0]
     return math.degrees(2.0 * math.acos(min(1.0, abs(w))))
 
@@ -221,6 +224,7 @@ def reconcile_pose_bone_deltas(
 
 
 def vectors_close(left: Iterable[float], right: Iterable[float], tolerance: float) -> bool:
+    """Absolute component-wise comparison for bone location/scale baselines."""
     left_values = [float(value) for value in left]
     right_values = [float(value) for value in right]
     if len(left_values) != len(right_values):

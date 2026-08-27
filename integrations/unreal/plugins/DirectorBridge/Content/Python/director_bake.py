@@ -42,15 +42,18 @@ class DirectorBakeError(RuntimeError):
 
 
 def _require(condition: bool, message: str) -> None:
+    """Assert-with-location: every validation failure names the failing path."""
     if not condition:
         raise DirectorBakeError(message)
 
 
 def _is_number(value) -> bool:
+    """Finite int/float check; bools and NaN/inf are rejected."""
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _validate_transform(transform, where: str) -> None:
+    """Validate one TRS record (3+4+3 finite components, non-zero quaternion)."""
     _require(isinstance(transform, dict), f"{where}: transform must be an object")
     for key, size in (("location", 3), ("rotationQuaternion", 4), ("scale", 3)):
         value = transform.get(key)
@@ -61,6 +64,7 @@ def _validate_transform(transform, where: str) -> None:
 
 
 def _validate_samples(samples, where: str, requires_transform: bool) -> None:
+    """Validate a sample track: bounded, strictly increasing frames, typed values."""
     _require(isinstance(samples, list), f"{where}: samples must be an array")
     _require(len(samples) <= MAX_SAMPLES_PER_ENTITY, f"{where}: more than {MAX_SAMPLES_PER_ENTITY} samples")
     previous_frame = None
@@ -269,6 +273,7 @@ def bake_key_count(bake: dict) -> int:
 
 
 def _quat_close(left, right, tolerance: float = 1e-6) -> bool:
+    """Rotation equality up to sign; q and -q encode the same rotation."""
     dot = sum(a * b for a, b in zip(left, right))
     return abs(abs(dot) - 1.0) <= tolerance
 

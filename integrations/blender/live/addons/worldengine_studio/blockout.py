@@ -2,6 +2,27 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+"""Core scene-authoring primitives shared by live operations and native UI.
+
+This is the addon's foundation layer: stable object identity, object lookup,
+collection management, neutral clay materials, box/primitive/camera/light
+creation, blockout presets (room/corridor/stairs), Boolean openings, the
+Director↔Blender rotation/dimension conversions, and the scene snapshot
+serializers that feed the live session.
+
+Identity model (the part everything else leans on):
+
+- ``worldengine_id`` (ID_PROPERTY) is the stable per-object id minted by
+  Blender; it never changes for the lifetime of the object and is how live
+  operations address datablocks.
+- ``director_id`` (DIRECTOR_ID_PROPERTY) is the identity of the Stage entity
+  an object mirrors, present only on objects bound to Director entities
+  (asset roots, primitives created with a directorId). Lookup accepts either.
+- Object *names* stay human-editable and are never used as identity — Blender
+  renames on collision, users rename at will, and the display name is stored
+  in a custom property so a Blender-forced rename doesn't lose the intent.
+"""
+
 from __future__ import annotations
 
 import difflib
@@ -25,6 +46,8 @@ CONSTRUCTION_COLLECTION = "WorldEngine Construction"
 LIGHT_COLLECTION = "WorldEngine Lights"
 NEUTRAL_MATERIAL = "WorldEngine Neutral"
 SCENE_MATERIAL_NAME_LIMIT = 64
+# Change-of-basis matrix from Director (Y-up) to Blender (Z-up) axes; rotation
+# conversion conjugates by this matrix (see director_rotation_to_blender).
 _BASIS = Matrix(((1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)))
 
 
@@ -33,6 +56,11 @@ def new_stable_id(prefix: str = "object") -> str:
 
 
 def ensure_stable_id(obj: bpy.types.Object, prefix: str | None = None) -> str:
+    """Return the object's stable id, minting one on first touch.
+
+    Idempotent — an existing id is never replaced, which is what makes the id
+    safe to use as the addressing key across sessions and undo steps.
+    """
     current = obj.get(ID_PROPERTY)
     if isinstance(current, str) and current.strip():
         return current
@@ -42,6 +70,11 @@ def ensure_stable_id(obj: bpy.types.Object, prefix: str | None = None) -> str:
 
 
 def find_director_id(obj: bpy.types.Object) -> str | None:
+    """Nearest Director entity id on the object or an ancestor.
+
+    Children of an asset root inherit the root's Director binding for
+    snapshot purposes without each carrying their own copy.
+    """
     current = obj
     while current is not None:
         identifier = current.get(DIRECTOR_ID_PROPERTY)
@@ -80,6 +113,13 @@ def _remember_object_name(identifier: str, name: str) -> None:
 
 
 def find_object(identifier: str, scene: bpy.types.Scene | None = None) -> bpy.types.Object | None:
+    """Resolve a WorldEngine or Director id to a live scene object.
+
+    Cache hit → O(1) name lookup revalidated against the identifier; miss or
+    stale entry → linear scan over scene objects. Every hit also backfills a
+    stable id so objects located by their director_id become addressable by
+    worldengine_id afterwards.
+    """
     scene = scene or bpy.context.scene
     if scene is None:
         return None
@@ -100,6 +140,8 @@ def find_object(identifier: str, scene: bpy.types.Scene | None = None) -> bpy.ty
 
 
 def ensure_named_collection(scene: bpy.types.Scene, name: str) -> bpy.types.Collection:
+    # The role property lets a user rename the collection in the outliner
+    # without the addon creating a duplicate on the next ensure call.
     collection = next(
         (
             candidate
@@ -143,6 +185,9 @@ CONSTRAINT_NAMES = {
 
 
 def set_parent(child: bpy.types.Object, parent: bpy.types.Object, *, keep_world_transform=True):
+    """Parent without the visual jump: matrix_parent_inverse absorbs the
+    parent's current transform so the child stays put (Blender's Ctrl+P
+    "Keep Transform" semantics, but context-free)."""
     if child == parent:
         raise ValueError("An object cannot be its own parent")
     world_matrix = child.matrix_world.copy()
@@ -251,6 +296,14 @@ def unknown_material_message(name: str) -> str:
 
 
 def resolve_material(name: str) -> tuple[bpy.types.Material | None, str | None]:
+    """Resolve a requested material name with graduated leniency.
+
+    Tries exact → case-insensitive → alphanumeric-normalized → prefix →
+    difflib-close, returning the match kind alongside the material. Every
+    lenient tier only accepts a *unique* hit: with two candidates the right
+    answer is a rejection listing them (see unknown_material_message), never
+    a guess that silently restyles the wrong material.
+    """
     exact = bpy.data.materials.get(name)
     if exact is not None:
         return exact, "exact"
@@ -294,6 +347,9 @@ def resolve_material(name: str) -> tuple[bpy.types.Material | None, str | None]:
 
 
 def ensure_neutral_material() -> bpy.types.Material:
+    """The shared clay material for white-box geometry: one neutral gray,
+    rough, non-metallic material reused by every blockout object so the
+    scene reads as silhouettes rather than a color accident."""
     material = bpy.data.materials.get(NEUTRAL_MATERIAL)
     if material is None:
         material = bpy.data.materials.new(NEUTRAL_MATERIAL)
@@ -318,6 +374,8 @@ def assign_neutral_material(obj: bpy.types.Object) -> None:
 
 
 def _unit_cube_mesh(name: str) -> bpy.types.Mesh:
+    # Hand-built unit cube (origin-centered, edge 1.0) so box creation never
+    # goes through bpy.ops and therefore never depends on UI context.
     vertices = [
         (-0.5, -0.5, -0.5),
         (0.5, -0.5, -0.5),
@@ -359,6 +417,8 @@ def create_box(
     kind: str = "cube",
     select: bool = True,
 ) -> bpy.types.Object:
+    """Create one blockout box; metric dimensions are encoded as object scale
+    on the shared unit-cube mesh (Blender's own dimensions semantics)."""
     obj = bpy.data.objects.new(name, _unit_cube_mesh(name))
     set_object_display_name(obj, name)
     ensure_collection(scene).objects.link(obj)
@@ -454,6 +514,13 @@ def create_primitive(
     rings: int | None = None,
     grounded: bool = False,
 ) -> bpy.types.Object:
+    """Create any supported primitive with metric dimensions (Blender axes).
+
+    ``grounded`` shifts the mesh data (not the object origin) so the base
+    rests at the object's local Z=0 — the object can then be dropped onto a
+    floor by placing its origin, without knowing its height. Each default
+    location's z-offset makes the ungrounded shape rest on the world floor.
+    """
     defaults = {
         "cube": ((1.0, 1.0, 1.0), 0.5),
         "floor": ((4.0, 4.0, 0.1), 0.05),
@@ -557,6 +624,12 @@ def create_light(
     color=(1.0, 0.94, 0.86),
     size: float = 4.0,
 ) -> bpy.types.Object:
+    """Create a real Blender light aimed at ``target``.
+
+    ``size`` is overloaded the way the live contract defines it: area lights
+    use it as the disk size, point/spot lights as the shadow soft size — one
+    field controls perceived softness across kinds.
+    """
     light_kind = kind.upper()
     light_data = bpy.data.lights.new(name, type=light_kind)
     light_data.energy = float(energy)
@@ -587,6 +660,12 @@ def set_world_environment(
     color=(0.05, 0.05, 0.05),
     strength: float = 1.0,
 ) -> dict[str, object]:
+    """Force the world to a flat background color.
+
+    Existing links into the background color and world surface are removed on
+    purpose: this operation's contract is "the environment is now this color",
+    which must also win over a previously imported HDRI environment chain.
+    """
     world = scene.world
     if world is None:
         world = bpy.data.worlds.new("Director World")
@@ -633,7 +712,15 @@ def create_opening(
     sill_height: float = 0.0,
     offset: float = 0.0,
 ) -> tuple[bpy.types.Object, bpy.types.Modifier]:
-    """Create an editable native Boolean opening on a mesh wall."""
+    """Create an editable native Boolean opening on a mesh wall.
+
+    The opening is a wireframe cutter cube driving a DIFFERENCE Boolean
+    modifier — never an applied cut — so door/window position and size stay
+    editable both in Blender and through live transform updates on the
+    cutter. The wall's longer horizontal side is assumed to be its run and
+    the shorter its thickness; the cutter is made 0.2 m thicker than the
+    wall so the Boolean never leaves coplanar faces.
+    """
     if wall.type != 'MESH':
         raise ValueError("Openings require a mesh wall")
 
@@ -739,11 +826,15 @@ def create_blockout(scene: bpy.types.Scene, preset: str, **kwargs):
 
 
 def director_rotation_to_blender(rotation) -> Euler:
+    """Convert a Director XYZ Euler to Blender by conjugating the rotation
+    matrix with the axis change of basis (R' = B·R·B⁻¹). Componentwise angle
+    swapping would be wrong: Euler axes do not permute independently."""
     source = Euler(tuple(float(value) for value in rotation), 'XYZ').to_matrix()
     return (_BASIS @ source @ _BASIS.inverted()).to_euler('XYZ')
 
 
 def blender_rotation_to_director(rotation) -> list[float]:
+    """Inverse of :func:`director_rotation_to_blender`."""
     source = Euler(tuple(float(value) for value in rotation), 'XYZ').to_matrix()
     result = (_BASIS.inverted() @ source @ _BASIS).to_euler('XYZ')
     return [float(result.x), float(result.y), float(result.z)]
@@ -801,6 +892,9 @@ def _hierarchy_local_bounds(
 
 
 def snapshot_scene(scene: bpy.types.Scene) -> dict[str, Any]:
+    """Compact snapshot (contract ``worldengine-blender-snapshot-v1``) used by
+    the clipboard operator and gateway smoke tests — id, name, kind, and
+    transform only. The live session uses :func:`snapshot_live_scene`."""
     objects = []
     for obj in scene.objects:
         identifier = ensure_stable_id(obj)
@@ -821,6 +915,16 @@ def snapshot_scene(scene: bpy.types.Scene) -> dict[str, Any]:
 
 
 def snapshot_live_scene(scene: bpy.types.Scene) -> dict[str, Any]:
+    """Full authoritative scene snapshot for the live contract.
+
+    Everything is emitted in Director conventions (Y-up positions, converted
+    rotations, swapped dimensions) so browser clients apply it verbatim.
+    Objects, cameras, and lights are separate collections because their
+    schemas differ; selection/active state rides along so agent and viewport
+    selection stay mirrored. Only parentless objects carry ``localBounds`` —
+    they are the mountable roots, and per-child bounds would multiply
+    snapshot size without a consumer.
+    """
     from .director_project import current_project_id
 
     objects = []

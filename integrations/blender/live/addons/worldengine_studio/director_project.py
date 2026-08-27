@@ -7,6 +7,12 @@
 One managed blend file contains one Blender Scene per Director project.  The
 browser owns project identity and composition metadata; Blender owns the mesh,
 material, UV, modifier, and rig data inside the bound scene.
+
+Persistence model: saving goes through a debounce (``request_save`` marks a
+deadline, ``flush_pending_save`` performs the actual ``save_as_mainfile`` once
+the deadline passes). Live edits arrive in rapid batches and a full .blend
+write per batch would stall the session; one durable save shortly after the
+burst is equivalent because the store file is wholly owned by this process.
 """
 
 from __future__ import annotations
@@ -24,6 +30,8 @@ _save_due_at: float | None = None
 
 
 def configure_store(path: str | Path) -> Path:
+    """Point the module at its managed .blend without loading it (the file may
+    not exist yet; the first save creates it)."""
     global _store_path, _save_due_at
     _store_path = Path(path).resolve()
     _save_due_at = None
@@ -31,6 +39,11 @@ def configure_store(path: str | Path) -> Path:
 
 
 def open_store(path: str | Path) -> bool:
+    """Load the managed .blend if present; returns False for a fresh store.
+
+    Deduplication runs immediately after load because a crash between scene
+    creation and save can leave duplicate per-project scenes in the file.
+    """
     store_path = configure_store(path)
     if not store_path.is_file():
         return False
@@ -41,12 +54,14 @@ def open_store(path: str | Path) -> bool:
 
 
 def current_project_id(scene=None) -> str | None:
+    """Director project id bound to a scene (defaults to the active scene), or None."""
     scene = scene or bpy.context.scene
     value = scene.get(PROJECT_ID_PROPERTY) if scene is not None else None
     return value if isinstance(value, str) and value else None
 
 
 def _managed_scenes(project_id: str) -> list[bpy.types.Scene]:
+    """All scenes tagged with this project id (more than one only after a crash)."""
     return [scene for scene in bpy.data.scenes if current_project_id(scene) == project_id]
 
 
@@ -89,6 +104,9 @@ def deduplicate_managed_scenes() -> int:
 
 
 def _configure_scene(scene) -> None:
+    """Pin a managed scene to Director's canonical units and preview render size."""
+    # The Director contract fixes metric meters and 24 fps; render size is a
+    # preview-friendly default (1080p at 50%), not a delivery setting.
     scene.unit_settings.system = 'METRIC'
     scene.unit_settings.length_unit = 'METERS'
     scene.unit_settings.scale_length = 1.0
@@ -99,6 +117,7 @@ def _configure_scene(scene) -> None:
 
 
 def save_store() -> bool:
+    """Immediately write the managed .blend and clear any pending debounce."""
     global _save_due_at
     if _store_path is None:
         return False
@@ -118,10 +137,12 @@ def request_save() -> bool:
 
 
 def has_pending_save() -> bool:
+    """True while a debounced save is scheduled but not yet flushed."""
     return _save_due_at is not None
 
 
 def flush_pending_save(*, force: bool = False) -> bool:
+    """Perform the debounced save once its deadline passed (or immediately with force)."""
     global _save_due_at
     if _save_due_at is None:
         return False
@@ -134,6 +155,13 @@ def flush_pending_save(*, force: bool = False) -> bool:
 
 
 def bind_project(project_id: str) -> dict[str, object]:
+    """Switch the window to (or create) the scene bound to a Director project.
+
+    Idempotent: rebinding the already-active project reports
+    ``changed: False`` and touches nothing. The first ever bind adopts the
+    current (startup) scene instead of creating a new one, so work done
+    before binding is not stranded in an unmanaged scene.
+    """
     project_id = project_id.strip()
     current = bpy.context.scene
     target = _best_managed_scene(project_id)

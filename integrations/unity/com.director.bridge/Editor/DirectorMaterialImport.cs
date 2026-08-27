@@ -121,6 +121,7 @@ namespace Director.Bridge.Editor
             return MakeOmit(directorId, code, renderPipeline, reason);
         }
 
+        /// <summary>Builds the typed omittedMaterials record the Gateway schema expects.</summary>
         private static JObject MakeOmit(string directorId, string code, string renderPipeline, string reason)
         {
             return new JObject
@@ -132,6 +133,11 @@ namespace Director.Bridge.Editor
             };
         }
 
+        /// <summary>
+        /// Resolves the lit fallback shader for the active pipeline, or null
+        /// plus a typed omit (shader_missing / pipeline_unsupported) when the
+        /// pipeline cannot host the Director PBR parameterization.
+        /// </summary>
         private static Shader FindLitShader(
             string renderPipeline, string directorId, List<string> warnings, out JObject omit)
         {
@@ -180,6 +186,11 @@ namespace Director.Bridge.Editor
             }
         }
 
+        /// <summary>
+        /// Maps opacity below 1 onto alpha-blended transparency, using the
+        /// pipeline-specific surface/blend property sets (URP _Surface vs
+        /// Standard _Mode) that shader keywords alone do not switch.
+        /// </summary>
         private static void ApplyOpacity(
             Material material, JObject materialJson, bool universal, string directorId, List<string> warnings)
         {
@@ -212,6 +223,7 @@ namespace Director.Bridge.Editor
             warnings.Add($"Object {directorId}: opacity {opacity:0.###} mapped to alpha-blended transparency.");
         }
 
+        /// <summary>Applies emissive color x intensity and enables the emission keyword.</summary>
         private static void ApplyEmission(Material material, JObject materialJson, bool universal)
         {
             if (materialJson["emissiveColor"] == null &&
@@ -234,6 +246,11 @@ namespace Director.Bridge.Editor
             }
         }
 
+        /// <summary>
+        /// Maps Director's side property (front/back/double) onto URP cull
+        /// modes; the Built-in Standard shader has no cull control, so
+        /// non-front sides warn-and-omit there.
+        /// </summary>
         private static void ApplySides(
             Material material, JObject materialJson, bool universal, string directorId, List<string> warnings)
         {
@@ -255,6 +272,13 @@ namespace Director.Bridge.Editor
             }
         }
 
+        /// <summary>
+        /// Binds manifest texture slots with a faithful 1:1 Unity property
+        /// (base color, normal, emissive, AO). Slots Unity packs differently
+        /// (e.g. metallic+smoothness in one map) are collected as unbound and
+        /// surface in the unsupported_channels omit instead of being guessed.
+        /// Returns the number of textures actually applied.
+        /// </summary>
         private static int ApplyTextures(
             Material material,
             JObject materialJson,
@@ -314,6 +338,10 @@ namespace Director.Bridge.Editor
             return applied;
         }
 
+        /// <summary>
+        /// Resolves one assetRefId through the package-verified texture cache
+        /// and assigns it; missing payloads warn-and-omit rather than fail.
+        /// </summary>
         private static bool AssignTexture(
             Material material,
             string property,
@@ -336,6 +364,12 @@ namespace Director.Bridge.Editor
             return true;
         }
 
+        /// <summary>
+        /// Aggregates every Director material channel the Lit/Standard
+        /// fallback cannot carry (transmission, IOR, clearcoat, wireframe,
+        /// unbound texture slots) into one unsupported_channels omit, or null
+        /// when the material mapped cleanly.
+        /// </summary>
         private static JObject CollectUnsupportedChannelsOmit(
             JObject materialJson,
             List<string> unboundSlots,

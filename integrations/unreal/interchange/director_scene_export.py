@@ -53,10 +53,12 @@ LUMENS_PER_INTENSITY = 800.0
 
 
 def _log(message: str) -> None:
+    """Prefixed editor log line so gateway stdout scraping can filter by tag."""
     unreal.log(f"[director] {message}")
 
 
 def _sha256(path: str) -> str:
+    """Stream a file's sha256 for the manifest's fileHashes integrity map."""
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -74,6 +76,7 @@ def _ue_point_to_director(location) -> list:
 
 
 def _ue_direction_to_director(direction) -> list:
+    """Axis-map a unit direction (same linear map as points, no cm scaling)."""
     return [direction.y, direction.z, -direction.x]
 
 
@@ -95,6 +98,7 @@ _BASIS_INVERSE = [[0.0, 0.0, -1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
 
 
 def _matrix_multiply(a, b):
+    """3x3 row-major matrix product (pure Python; no numpy in Unreal's runtime)."""
     return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
 
 
@@ -112,6 +116,13 @@ def _euler_xyz_from_matrix(m) -> list:
 
 
 def _ue_transform_to_director(transform) -> dict:
+    """Convert a full Unreal actor transform into the Director wire shape.
+
+    Rotation goes through the change-of-basis (R' = M R M^-1) rather than
+    naive Euler swizzling because the handedness flip cannot be expressed as
+    an axis permutation of Euler angles. Scale components permute with the
+    same axis mapping as points.
+    """
     location = _ue_point_to_director(transform.translation)
     rotation_matrix = _matrix_from_quaternion(transform.rotation)
     director_matrix = _matrix_multiply(_BASIS, _matrix_multiply(rotation_matrix, _BASIS_INVERSE))
@@ -124,6 +135,7 @@ def _ue_transform_to_director(transform) -> dict:
 
 
 def _linear_color_to_hex(color) -> str:
+    """Encode an Unreal linear color as sRGB #rrggbb (Director's color format)."""
     def channel(value: float) -> int:
         srgb = 1.055 * (max(0.0, min(1.0, value)) ** (1.0 / 2.4)) - 0.055 if value > 0.0031308 else value * 12.92
         return max(0, min(255, round(srgb * 255)))
@@ -132,10 +144,12 @@ def _linear_color_to_hex(color) -> str:
 
 
 def _actor_source_id(actor) -> str:
+    """Stable per-level actor identity: the full object path, bounded."""
     return actor.get_path_name()[:240]
 
 
 def _classify_actor(actor) -> str:
+    """Bucket an actor into the manifest's node kinds (camera/light/mesh/...)."""
     if isinstance(actor, (unreal.CameraActor,)):
         return "camera"
     if isinstance(actor, (unreal.Light,)) or isinstance(actor, (unreal.SkyLight,)):
@@ -150,6 +164,16 @@ def _classify_actor(actor) -> str:
 
 
 def _camera_record(actor, warnings: list) -> dict:
+    """Map an Unreal camera actor to Director camera optics.
+
+    Cine cameras carry a real filmback, so sensor size, aperture, and manual
+    focus distance round-trip; plain cameras only expose a horizontal FOV,
+    which is converted to vertical FOV and flagged with a warning because
+    Director defaults fill the missing physical parameters. Director stores
+    a look-at point, so lookTarget is synthesized on the forward ray at the
+    focus distance (or 10 m). Clip planes always warn: Unreal manages
+    near/far globally, not per camera.
+    """
     transform = actor.get_actor_transform()
     position = _ue_point_to_director(transform.translation)
     forward = _ue_direction_to_director(actor.get_actor_forward_vector())
@@ -205,6 +229,14 @@ def _camera_record(actor, warnings: list) -> dict:
 
 
 def _light_record(actor, warnings: list) -> dict | None:
+    """Map an Unreal light actor to Director's light vocabulary, or None.
+
+    Unreal photometric units are normalized to Director's unitless 0-100
+    intensity via the documented heuristics (lux for directional, lumens for
+    local lights); each lossy conversion emits a warning rather than passing
+    silently. Returning None routes the actor into the unsupported report
+    (Director models only directional/point/spot/rect/ambient lights).
+    """
     source_id = _actor_source_id(actor)
     name = actor.get_actor_label()[:240] or "Light"
     transform = actor.get_actor_transform()
@@ -294,6 +326,12 @@ def _light_record(actor, warnings: list) -> dict | None:
 
 
 def _export_glb(world, bundle_path: str, warnings: list, unsupported: list, mesh_actor_count: int) -> bool:
+    """Export renderable geometry through the optional glTF Exporter plugin.
+
+    A missing or failing plugin never aborts the run: the geometry is
+    recorded in the unsupported report with the corrective action (enable
+    the plugin) and the manifest still ships with hierarchy/cameras/lights.
+    """
     if mesh_actor_count == 0:
         return False
     exporter = getattr(unreal, "GLTFExporter", None)
@@ -322,6 +360,15 @@ def _export_glb(world, bundle_path: str, warnings: list, unsupported: list, mesh
 
 
 def export_scene(output_dir: str, scene: str | None, make_zip: bool) -> str:
+    """Walk the level and write the director-engine-scene-v1 package.
+
+    Anything Director cannot represent (unsupported light components,
+    geometry without the glTF plugin, Sequencer animation) lands in the
+    manifest's ``unsupported``/``warnings`` arrays instead of failing the
+    export -- the gateway surfaces those to the user as omitted channels.
+    The node snapshot is capped at MAX_NODES with orphaned parent references
+    pruned so the manifest always describes a self-consistent hierarchy.
+    """
     if scene:
         _log(f"Loading level {scene}")
         unreal.EditorLoadingAndSavingUtils.load_map(scene)
@@ -471,6 +518,7 @@ def export_scene(output_dir: str, scene: str | None, make_zip: bool) -> str:
 
 
 def main() -> int:
+    """CLI entry point; parse_known_args tolerates Unreal's own editor flags."""
     parser = argparse.ArgumentParser(description="Export the current Unreal level as a Director engine scene package.")
     parser.add_argument("--output-dir", required=True, help="Directory that receives manifest.json and assets/")
     parser.add_argument("--scene", default=None, help="Optional level path to load before exporting (/Game/...)")

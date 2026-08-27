@@ -14,6 +14,11 @@ from typing import Any
 
 
 def _hash_text(digest: Any, label: str, value: Any) -> None:
+    """Feed one labeled value into the digest.
+
+    The label + NUL framing prevents ambiguity between adjacent fields
+    (``("ab", "c")`` must never hash like ``("a", "bc")``).
+    """
     digest.update(label.encode("utf-8"))
     digest.update(b"\0")
     digest.update(str(value).encode("utf-8"))
@@ -21,10 +26,19 @@ def _hash_text(digest: Any, label: str, value: Any) -> None:
 
 
 def _hash_numbers(digest: Any, label: str, values: Any) -> None:
+    # ".12g" formatting canonicalizes floats: enough digits to distinguish
+    # real edits, few enough to absorb representation noise (e.g. -0.0 vs 0.0
+    # never arises because the format normalizes the string form).
     _hash_text(digest, label, ",".join(format(float(value), ".12g") for value in values))
 
 
 def _hash_collection(digest: Any, label: str, collection: Any, attribute: str, width: int, typecode: str) -> None:
+    """Bulk-hash one attribute across a bpy collection via foreach_get.
+
+    Raw array bytes go into the digest directly — orders of magnitude faster
+    than per-element formatting for meshes with many vertices, and still
+    deterministic because bpy guarantees stable element order.
+    """
     _hash_text(digest, f"{label}.count", len(collection))
     if not collection:
         return
@@ -36,6 +50,9 @@ def _hash_collection(digest: Any, label: str, collection: Any, attribute: str, w
 
 
 def _hash_action(digest: Any, target: Any, label: str) -> None:
+    """Hash the target's active action: sorted F-curves with key coordinates
+    and interpolation. Sorting makes the digest independent of curve
+    creation order, which Blender does not keep stable across sessions."""
     animation = getattr(target, "animation_data", None)
     action = getattr(animation, "action", None) if animation else None
     if action is None:
@@ -55,6 +72,13 @@ def _hash_action(digest: Any, target: Any, label: str) -> None:
 
 
 def _hash_material(digest: Any, material: Any, label: str) -> None:
+    """Hash a material's identity, node graph inputs, and link topology.
+
+    Nodes and links are hashed in sorted order (bl_idname/name and endpoint
+    names) for the same session-order-independence reason as actions. Socket
+    default values that are neither scalars nor number sequences are skipped
+    rather than failing: unknown socket types must not break stamping.
+    """
     if material is None:
         _hash_text(digest, label, "none")
         return

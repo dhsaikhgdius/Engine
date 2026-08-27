@@ -2,6 +2,27 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+"""Live-operation executor and native Blender UI operators.
+
+Two entry points share the code in this module:
+
+- :func:`execute_live_operations` — the Director live session (gateway HTTP →
+  ``live_protocol.parse_live_batch`` → here) executes already-validated
+  operations against ``bpy.data``.
+- The ``WORLDENGINE_OT_*`` classes — the same actions exposed to a human in
+  Blender's own UI (Add menu, N-panel), registered through the standard
+  bpy operator machinery.
+
+Both paths end in the same Blender data API and the same native undo stack, so
+an agent edit and a viewport edit are indistinguishable to Blender. That parity
+is the addon's core promise: there is no shadow scene graph.
+
+Coordinate convention: Director speaks Y-up right-handed metric; Blender is
+Z-up. All positions/rotations arriving over the wire are converted through
+``coordinates.director_to_blender_point`` / ``blockout.director_rotation_to_blender``
+at this boundary and never deeper in the call stack.
+"""
+
 from __future__ import annotations
 
 import json
@@ -18,11 +39,23 @@ from .coordinates import director_to_blender_point
 
 
 def _mark_scene_changed(scene: bpy.types.Scene) -> None:
+    """Bump the scene revision so live watchers re-snapshot after a UI edit.
+
+    Live operations do not call this: the session bumps the revision itself
+    once per batch. Native operators must do it explicitly because Blender's
+    depsgraph has no single hook for "user finished a semantic edit".
+    """
     state = scene.worldengine_studio
     state.scene_revision += 1
 
 
 def _blockout_parameters(context, preset: str) -> dict[str, Any]:
+    """Map the N-panel's shared dimension fields onto each preset's arguments.
+
+    The panel exposes one width/depth/height triple; corridor and stairs
+    reinterpret depth as run length so users don't juggle preset-specific
+    fields.
+    """
     state = context.scene.worldengine_studio
     if preset == 'room':
         return {
@@ -47,6 +80,7 @@ def _blockout_parameters(context, preset: str) -> dict[str, Any]:
 
 
 def _object_result(obj: bpy.types.Object) -> dict[str, Any]:
+    """Minimal per-object receipt returned to the live session for one op."""
     return {
         "object_id": blockout.ensure_stable_id(obj),
         "name": blockout.object_display_name(obj),
@@ -55,6 +89,13 @@ def _object_result(obj: bpy.types.Object) -> dict[str, Any]:
 
 
 def _apply_live_transform(obj: bpy.types.Object, transform: dict[str, Any] | None) -> None:
+    """Apply a partial Director transform to an object's world matrix.
+
+    Channels absent from the payload keep their current decomposed values, so
+    a position-only update never resets rotation or scale. Scale swaps the
+    Y/Z components by hand because axis conversion for scale is a component
+    permutation, not a rotation.
+    """
     if not transform:
         return
     location, rotation, scale = obj.matrix_world.decompose()
@@ -69,11 +110,21 @@ def _apply_live_transform(obj: bpy.types.Object, transform: dict[str, Any] | Non
 
 
 def _delete_live_objects(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Delete a batch of objects in one ``batch_remove`` call.
+
+    All targets (including imported-asset subtrees, which are deleted with
+    their root) are collected first, deduplicated by C pointer, and removed
+    together: per-object removal is quadratic in bpy and a duplicated id in
+    the batch would otherwise crash on a dangling reference. Validation
+    happens before any removal so the batch is all-or-nothing.
+    """
     results: list[dict[str, Any]] = []
     removal_by_pointer: dict[int, bpy.types.Object] = {}
     for operation in operations:
         obj = blockout.find_object(operation["id"])
         pointer = obj.as_pointer() if obj is not None else 0
+        # A repeated id is reported as "unknown" too: its object is already
+        # queued for removal, so honoring it twice cannot succeed.
         if obj is None or pointer in removal_by_pointer:
             raise ValueError(f"Unknown WorldEngine object: {operation['id']}")
         results.append(_object_result(obj))
@@ -96,6 +147,11 @@ def execute_live_operation(operation: dict[str, Any]) -> dict[str, Any]:
     """
     op = operation["op"]
     scene = bpy.context.scene
+
+    # Most ops delegate to a domain module (modeling, material_nodes,
+    # semantic_geometry, rig, mixamo_actions, asset_libraries…). Only ops
+    # whose whole implementation is a few lines of bpy calls are inlined
+    # further below.
 
     if op == "discover_operators":
         return modeling.discover_operators(
@@ -316,6 +372,10 @@ def execute_live_operation(operation: dict[str, Any]) -> dict[str, Any]:
         if source is None:
             raise ValueError(f"Unknown WorldEngine object: {operation['id']}")
         if source.get(asset_import.ASSET_ROOT_PROPERTY):
+            # Duplicating an imported asset must deep-copy the whole subtree
+            # and then rewire every internal reference (parents, modifier
+            # object pointers, constraint targets) from originals to copies,
+            # otherwise the duplicate would still deform/track the original.
             originals = [source, *asset_import.asset_subtree(source)]
             copies: dict[bpy.types.Object, bpy.types.Object] = {}
             for original in originals:
@@ -342,6 +402,10 @@ def execute_live_operation(operation: dict[str, Any]) -> dict[str, Any]:
             obj = copies[source]
             obj[blockout.ID_PROPERTY] = operation["newId"]
             created_ids = [blockout.ensure_stable_id(obj)]
+            # Descendants get fresh stable ids and lose the Director asset
+            # binding: only the root carries the caller-chosen newId, and the
+            # copy is a new scene object, not another handle to the source
+            # asset.
             for original in originals[1:]:
                 descendant = copies[original]
                 descendant[blockout.ID_PROPERTY] = blockout.new_stable_id("asset-object")
@@ -520,6 +584,10 @@ def execute_live_operation(operation: dict[str, Any]) -> dict[str, Any]:
         )}
 
     if op == "create_blockout":
+        # Blockout shells are the sanctioned way to author architecture from
+        # the live contract (AGENTS.md: no stacks of Stage boxes). Every
+        # produced object gets a deterministic `idPrefix:index` id so the
+        # caller can address walls/floors it has never observed yet.
         preset = operation["preset"]
         origin = director_to_blender_point(operation.get("origin", [0.0, 0.0, 0.0]))
         width = float(operation.get("width", 8.0))
@@ -590,6 +658,13 @@ def execute_live_operations(operations: list[dict[str, Any]]) -> list[dict[str, 
     return _delete_live_objects(operations)
 
 
+# --- Native Blender UI operators ---------------------------------------------
+# Everything below is the human-facing surface: registered bpy operators and
+# the Add-menu entries. They call the same blockout/native_session helpers as
+# the live contract and bump the scene revision via _mark_scene_changed so
+# connected Director sessions notice the edit.
+
+
 class WORLDENGINE_OT_open_director(Operator):
     bl_idname = "worldengine.open_director"
     bl_label = "Open Director"
@@ -603,6 +678,12 @@ class WORLDENGINE_OT_open_director(Operator):
 
 
 class WORLDENGINE_OT_studio_start(Operator):
+    """One-click bring-up: native session HTTP server plus bundled gateway/UI.
+
+    If the Director runtime fails to launch, the already-started native
+    session is stopped again so a retry never finds a half-initialized stack.
+    """
+
     bl_idname = "worldengine.studio_start"
     bl_label = "Start Blender Studio"
     bl_description = "Start the native Blender session and bundled Director services"
@@ -636,6 +717,13 @@ class WORLDENGINE_OT_studio_stop(Operator):
 
 
 class WORLDENGINE_OT_setup_workspace(Operator):
+    """Normalize scene units/render settings and viewport shading for staging.
+
+    Metric meters and 24 fps are hard assumptions of the Director contract;
+    the viewport tweaks (solid studio shading, material colors, wide clip
+    range) just make untextured white-box geometry readable.
+    """
+
     bl_idname = "worldengine.setup_workspace"
     bl_label = "Set Up Director Workspace"
     bl_description = "Configure this Blender workspace for fast white-model staging"
@@ -778,6 +866,8 @@ class WORLDENGINE_OT_camera_from_view(Operator):
 
     def execute(self, context):
         obj = blockout.create_camera(context.scene, name="Shot Camera")
+        # The viewport's view matrix is world→camera; its inverse is exactly
+        # the camera object's world transform.
         obj.matrix_world = context.space_data.region_3d.view_matrix.inverted()
         context.scene.camera = obj
         _mark_scene_changed(context.scene)
@@ -975,6 +1065,9 @@ class WORLDENGINE_OT_save_scene(Operator):
 
 
 class WORLDENGINE_OT_snapshot_scene(Operator):
+    """Copy the live-contract scene snapshot to the clipboard (debug aid) and
+    publish it to the native session so connected clients refresh."""
+
     bl_idname = "worldengine.snapshot_scene"
     bl_label = "Copy Scene Snapshot"
 
@@ -1039,6 +1132,8 @@ classes = (
 
 
 def register(*, include_ui=True):
+    # include_ui=False supports headless Blender (background renders, smoke
+    # tests) where there is no VIEW3D Add menu to extend.
     for cls in classes:
         bpy.utils.register_class(cls)
     if include_ui:

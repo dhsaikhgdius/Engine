@@ -92,6 +92,7 @@ def parse_color(value: str) -> Optional[RgbaLinear]:
 
 
 def _round_color(color: RgbaLinear) -> List[float]:
+    """Stabilize linear color floats so receipts compare deterministically."""
     return [round(component, 9) for component in color]
 
 

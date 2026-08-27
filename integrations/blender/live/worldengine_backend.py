@@ -7,6 +7,13 @@
 The browser Director is the user-facing application. Blender stays alive in
 the background and exposes the native scene, modeling operators, undo stack,
 scene inspection, and preview export over the loopback session protocol.
+
+Run with ``blender --background --python worldengine_backend.py``. In this
+mode there is no window manager and no timer loop, so instead of the addon's
+UI-driven timers the main loop below blocks on the native session's pending
+queue: drain commands, wait for more, flush the debounced store save between
+batches. SIGTERM sets a flag and wakes the waiter so shutdown is prompt but
+still runs the unregister path.
 """
 
 from __future__ import annotations
@@ -19,6 +26,8 @@ from pathlib import Path
 import bpy
 
 
+# The addon package is imported straight from the repo tree (not installed
+# into Blender's addon directory), so its parent must be importable first.
 ADDONS = Path(__file__).resolve().parent / "addons"
 if str(ADDONS) not in sys.path:
     sys.path.insert(0, str(ADDONS))
@@ -31,12 +40,24 @@ _shutdown_requested = False
 
 
 def _request_shutdown(_signum, _frame) -> None:
+    """SIGTERM handler: flag shutdown and wake the blocked pending-queue waiter.
+
+    Only sets a flag because signal handlers must not touch bpy; the main
+    loop notices the flag and runs the full unregister path.
+    """
     global _shutdown_requested
     _shutdown_requested = True
     native_session.wake_pending_waiter()
 
 
 def configure_backend() -> None:
+    """Open the project store, register the addon backend, and start the session.
+
+    Pins the scene to Director's canonical units (metric metres, 24 fps) so
+    every value crossing the protocol boundary means the same thing on both
+    sides. The session runs without a timer: background Blender has no
+    window manager, so the main loop drains commands directly.
+    """
     project_file = Path(
         os.environ.get(
             "DIRECTOR_BLENDER_PROJECT_FILE",
@@ -61,6 +82,11 @@ def configure_backend() -> None:
 
 
 def main() -> None:
+    """Block on the pending queue until the session stops or SIGTERM arrives.
+
+    The debounced store save is flushed between command batches so a kill
+    between batches never loses more than the debounce window.
+    """
     global _shutdown_requested
     _shutdown_requested = False
     configure_backend()

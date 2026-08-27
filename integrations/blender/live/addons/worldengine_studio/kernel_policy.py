@@ -5,6 +5,15 @@
 """Director modeling kernel denylist for Blender long-tail operators.
 
 Keep in sync with packages/protocol/src/blenderKernel.ts.
+
+``invoke_operator`` and ``set_rna_property`` expose Blender's long tail to
+agents on purpose; this module is the safety boundary around that power. The
+policy is a denylist (not an allowlist) because the modeling vocabulary is
+huge and evolving — instead of enumerating good operators, it blocks the
+categories that could damage the host session (quitting Blender, rewriting
+preferences, driving the window manager) and the RNA paths that could load
+libraries or execute scripts. The gateway enforces the identical policy
+before forwarding, so this is defense in depth, not the only gate.
 """
 
 from __future__ import annotations
@@ -50,11 +59,17 @@ _TYPED_PROPERTY_DENY = re.compile(
 
 
 def operator_category(identifier: str) -> str | None:
+    """Category prefix of a ``category.operator`` id, or None when malformed.
+
+    Malformed ids return None so callers treat them as denied — an id the
+    regex cannot parse can also not be safely looked up in bpy.ops.
+    """
     match = _OPERATOR_ID.match(identifier.strip())
     return match.group(1).lower() if match else None
 
 
 def is_allowed_operator(identifier: str) -> bool:
+    """True when the operator id parses and hits neither denylist."""
     category = operator_category(identifier)
     if category is None or category in OPERATOR_CATEGORY_DENYLIST:
         return False
@@ -64,6 +79,7 @@ def is_allowed_operator(identifier: str) -> bool:
 
 
 def is_allowed_rna_write(operation: dict[str, Any]) -> bool:
+    """True when the RNA write targets an allowlisted kind and no denied path segment."""
     target = operation.get("target")
     path = operation.get("path")
     if not isinstance(target, dict) or not isinstance(path, list):
@@ -75,6 +91,11 @@ def is_allowed_rna_write(operation: dict[str, Any]) -> bool:
 
 
 def assert_kernel_policy(operation: dict[str, Any]) -> None:
+    """Raise ValueError when a long-tail operation violates the kernel policy.
+
+    Called by the session executor after protocol parsing; the message text is
+    relayed to the agent as the corrective rejection.
+    """
     op = operation.get("op")
     if op in {"invoke_operator", "describe_operator"}:
         identifier = operation.get("operator")

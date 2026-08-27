@@ -45,6 +45,15 @@ def _static_switch(unreal, library, material, switch_name: str, x: int, y: int, 
 
 
 def _create_parent_material(unreal, name: str, path: str, translucent: bool):
+    """Author one shared parent material with parameterized PBR channels.
+
+    Each channel (base color, roughness, metallic, normal, emissive) exposes
+    both a scalar/vector parameter and an optional texture parameter behind a
+    static Use*Map switch, so per-entity material instances only set
+    parameters and never edit the expression graph. The opaque and
+    translucent variants exist because Unreal blend mode is a material (not
+    instance) property.
+    """
     asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
     material = asset_tools.create_asset(name, path, unreal.Material, unreal.MaterialFactoryNew())
     library = unreal.MaterialEditingLibrary

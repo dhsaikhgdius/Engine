@@ -19,6 +19,7 @@ namespace Director.Bridge.Editor
         public const string Provider = "unity";
         public const string ConnectorVersion = "0.3.5";
 
+        /// <summary>Streams a file's SHA-256 for manifest hash pinning and verification.</summary>
         public static string Sha256File(string path)
         {
             using var sha = SHA256.Create();
@@ -26,6 +27,10 @@ namespace Director.Bridge.Editor
             return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", string.Empty).ToLowerInvariant();
         }
 
+        /// <summary>
+        /// Resolves a package-relative path and rejects escapes from the package
+        /// root, so a hostile manifest cannot read or write outside the package.
+        /// </summary>
         private static string EnsureInside(string root, string candidate)
         {
             string resolvedRoot = Path.GetFullPath(root);
@@ -77,6 +82,7 @@ namespace Director.Bridge.Editor
             return manifest;
         }
 
+        /// <summary>Resolves a manifest-relative path with the same escape guard as loading.</summary>
         public static string ResolvePackageFile(string packageDir, string relativePath)
         {
             return EnsureInside(packageDir, Path.Combine(packageDir, relativePath));

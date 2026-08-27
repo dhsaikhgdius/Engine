@@ -63,6 +63,11 @@ CAMERA_OPTICS_RETURN_FIELDS = ("focalLengthMm", "apertureFStop", "focusDistanceM
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments, honoring Blender's ``--`` script-argument separator.
+
+    When run as ``blender ... --python this.py -- <args>``, everything before
+    ``--`` belongs to Blender itself and must not reach argparse.
+    """
     raw = list(sys.argv if argv is None else argv)
     separator = raw.index("--") if "--" in raw else 0
     arguments = raw[separator + 1 :] if separator else raw[1:]
@@ -74,6 +79,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def ensure_inside(parent: Path, child: Path) -> Path:
+    """Resolve ``child`` and reject it unless it stays under ``parent``.
+
+    Every output path (meshes, manifest, report) is gated through this check
+    so a hostile manifest id or report argument cannot escape ``--output-dir``.
+    """
     resolved_parent = parent.resolve()
     resolved_child = child.resolve()
     try:
@@ -84,6 +94,12 @@ def ensure_inside(parent: Path, child: Path) -> Path:
 
 
 def read_source_manifest(path: Path) -> dict[str, Any]:
+    """Load and gate Director's source manifest (director-dcc-scene-v1).
+
+    The packageId/sourceRevision pair is what lets the gateway apply the
+    return package against the exact snapshot the artist refined, so a
+    manifest missing either is rejected instead of guessed at.
+    """
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schemaVersion") != 1 or payload.get("contract") != "director-dcc-scene-v1":
         raise ValueError("Unsupported Director source DCC contract")
@@ -93,11 +109,13 @@ def read_source_manifest(path: Path) -> dict[str, Any]:
 
 
 def safe_file_stem(value: str) -> str:
+    """Turn a director_id into a filesystem-safe GLB stem (never empty)."""
     normalized = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-.")[:96]
     return normalized or "director-object"
 
 
 def sha256_file(path: Path) -> str:
+    """Stream a file's sha256 for the manifest's fileHashes integrity map."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -106,6 +124,12 @@ def sha256_file(path: Path) -> str:
 
 
 def blender_transform(target: Any) -> dict[str, list[float]]:
+    """Decompose a world matrix into the Blender-space transform record.
+
+    Values stay in Blender's Z-up frame; the gateway applies the manifest's
+    declared linearMap when converting back to Director's Y-up scene, so this
+    script never performs the axis swap itself.
+    """
     location, rotation, scale = target.matrix_world.decompose()
     rotation.normalize()
     return {
@@ -116,6 +140,12 @@ def blender_transform(target: Any) -> dict[str, list[float]]:
 
 
 def transforms_equal(left: dict[str, Any], right: dict[str, Any], tolerance: float = TRANSFORM_TOLERANCE) -> bool:
+    """Compare two transform records, treating q and -q as the same rotation.
+
+    Used to decide whether the artist moved an object at all; a false
+    positive would emit a spurious transform_update that could clobber a
+    Director-side animation, so malformed records compare as unequal.
+    """
     for key in ("location", "scale"):
         left_values = left.get(key)
         right_values = right.get(key)
@@ -138,6 +168,12 @@ def transforms_equal(left: dict[str, Any], right: dict[str, Any], tolerance: flo
 
 
 def _stored_transform(root: Any, fallback: dict[str, Any]) -> dict[str, Any]:
+    """Read the import-time transform baseline stamped by director_bridge.py.
+
+    The stamped baseline beats the manifest value because Blender's float32
+    datablock storage may have quantized what the bridge actually applied;
+    diffing against the manifest directly would report phantom edits.
+    """
     raw = root.get(SOURCE_TRANSFORM_PROPERTY)
     if not isinstance(raw, str):
         return fallback
@@ -150,6 +186,7 @@ def _stored_transform(root: Any, fallback: dict[str, Any]) -> dict[str, Any]:
 
 
 def _stored_json_object(root: Any, property_name: str) -> dict[str, Any] | None:
+    """Decode a JSON-object custom property; None for missing/corrupt values."""
     raw = root.get(property_name)
     if not isinstance(raw, str):
         return None
@@ -161,10 +198,12 @@ def _stored_json_object(root: Any, property_name: str) -> dict[str, Any] | None:
 
 
 def scalar_close(left: float, right: float, tolerance: float = BASELINE_VALUE_TOLERANCE) -> bool:
+    """Relative-with-floor comparison sized for float32 baseline round-trips."""
     return abs(left - right) <= max(abs(left), abs(right), 1.0) * tolerance
 
 
 def vector_close(left: Any, right: Any, tolerance: float = BASELINE_VALUE_TOLERANCE) -> bool:
+    """Component-wise scalar_close over two same-length numeric sequences."""
     if not isinstance(left, (list, tuple)) or not isinstance(right, (list, tuple)) or len(left) != len(right):
         return False
     return all(scalar_close(float(a), float(b), tolerance) for a, b in zip(left, right))
@@ -280,6 +319,7 @@ def pose_controls_changed(
     sample: dict[str, float],
     tolerance: float = BASELINE_VALUE_TOLERANCE,
 ) -> bool:
+    """True when any director_pose.* control drifted from its export baseline."""
     return any(not scalar_close(sample[control], float(value), tolerance) for control, value in baseline.items())
 
 
@@ -352,10 +392,12 @@ def reconcile_pose_bones(root: Any, pose_baseline: dict[str, Any]) -> tuple[dict
 
 
 def descendants(root: Any) -> list[Any]:
+    """Root plus all recursive children -- the whole Director object subtree."""
     return [root, *list(root.children_recursive)]
 
 
 def descendant_meshes(root: Any) -> list[Any]:
+    """The mesh objects inside a Director object subtree."""
     return [item for item in descendants(root) if item.type == "MESH"]
 
 
@@ -437,6 +479,11 @@ def has_director_ancestor(root: Any) -> bool:
 
 
 def unapplied_modifier_warnings(root: Any) -> list[str]:
+    """Warn about live modifier stacks so evaluated-vs-authored geometry is explicit.
+
+    The GLB exporter evaluates modifiers, which may differ from what the
+    artist sees in edit mode; Director never applies or bakes them itself.
+    """
     warnings: list[str] = []
     for mesh in descendant_meshes(root):
         if len(mesh.modifiers):
@@ -449,6 +496,11 @@ def unapplied_modifier_warnings(root: Any) -> list[str]:
 
 
 def set_director_extras(root: Any, source_item: dict[str, Any]) -> tuple[bool, Any]:
+    """Temporarily stamp the Director glTF extras block onto the export root.
+
+    Returns the previous state so restore_director_extras can undo the write:
+    exporting must not permanently mutate the artist's .blend.
+    """
     existed = "director" in root
     previous = root.get("director")
     root["director"] = {
@@ -463,6 +515,7 @@ def set_director_extras(root: Any, source_item: dict[str, Any]) -> tuple[bool, A
 
 
 def restore_director_extras(root: Any, state: tuple[bool, Any]) -> None:
+    """Undo set_director_extras exactly, including a previously absent key."""
     existed, previous = state
     if existed:
         root["director"] = previous
@@ -501,6 +554,13 @@ def asset_space_root(root: Any):
 
 
 def export_glb(root: Any, destination: Path, source_item: dict[str, Any]) -> None:
+    """Export one Director object subtree as a selection-scoped GLB.
+
+    The root is neutralized to asset space (identity transform, animation
+    muted) during export so the GLB carries pure geometry; the Director
+    wrapper transform travels separately in the manifest change record.
+    ``export_apply=False`` is attempted first to keep modifiers unapplied.
+    """
     if bpy is None:
         raise RuntimeError("Blender Python API is unavailable")
     bpy.ops.object.select_all(action="DESELECT")
@@ -636,6 +696,12 @@ def current_light_state(root: Any, baseline: dict[str, Any]) -> dict[str, Any]:
 
 
 def director_roots(objects: Iterable[Any]) -> list[Any]:
+    """Objects that carry their own director_id (not inherited from a parent).
+
+    A child sharing its parent's director_id is part of the same Director
+    object (the bridge stamps imported subtrees that way) and must not be
+    diffed or exported as a second root.
+    """
     roots: list[Any] = []
     for item in objects:
         director_id = item.get("director_id")
@@ -649,6 +715,19 @@ def director_roots(objects: Iterable[Any]) -> list[Any]:
 
 
 def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, Any]:
+    """Diff the open .blend against the source snapshot and emit the manifest.
+
+    Walks every director_roots object and classifies it into exactly one
+    change kind per entity -- object_addition, light_update, camera_update,
+    mesh_replacement, pose_update, or transform_update -- diffing current
+    state against the baselines stamped at import. Anything that cannot
+    round-trip faithfully (sensor edits, unmapped pose bones, untracked
+    datablocks, id-less objects) becomes a warning instead of a silent guess,
+    matching the omitted-channel policy of the source export.
+
+    The returned manifest declares the Blender->Director coordinate mapping
+    ((x,y,z)->(x,z,-y), Z-up to Y-up) so the gateway owns the axis conversion.
+    """
     if bpy is None:
         raise RuntimeError("director_return_export.py must run inside Blender")
     meshes_dir = ensure_inside(output_dir, output_dir / "meshes")
@@ -914,12 +993,19 @@ def build_return_package(source: dict[str, Any], output_dir: Path) -> dict[str, 
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    """Write JSON via a temp file + rename so watchers never read a partial file."""
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
 
 
 def main() -> int:
+    """Entry point: build the package and report the outcome on stdout.
+
+    Success and failure both print a single RESULT_PREFIX-tagged JSON line
+    that the gateway parses out of Blender's noisy stdout, and both attempt
+    to persist the same report to ``--report`` for post-mortem inspection.
+    """
     args = parse_args()
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

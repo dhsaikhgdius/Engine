@@ -5,7 +5,16 @@
 """Blender operation identities and transaction effects.
 
 The adjacent JSON file is generated from the canonical protocol manifest by
-``npm run sync:blender-operations``.
+``npm run sync:blender-operations``. Loading it at import time (instead of
+hardcoding the op list) keeps the addon and the gateway from ever disagreeing
+about the operation vocabulary: both derive from the same manifest, and the
+repo check fails if the generated copy drifts.
+
+Each operation declares an ``effect`` category; the frozensets below are the
+addon's decision tables. They determine which ops require a scene epoch
+(``read``/``project`` do not), which skip preview invalidation
+(``transform``), and which bypass the undo push (``selection``, ``frame``,
+``history``).
 """
 
 from __future__ import annotations

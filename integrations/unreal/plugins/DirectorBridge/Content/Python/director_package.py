@@ -31,6 +31,7 @@ class DirectorPackageError(RuntimeError):
 
 
 def sha256_file(path: str) -> str:
+    """Stream a file's sha256 for manifest hash pinning and verification."""
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -39,6 +40,7 @@ def sha256_file(path: str) -> str:
 
 
 def _ensure_inside(root: str, candidate: str) -> str:
+    """Resolve a package-relative path and reject escapes from the package root."""
     resolved = os.path.realpath(candidate)
     resolved_root = os.path.realpath(root)
     if resolved != resolved_root and not resolved.startswith(resolved_root + os.sep):
@@ -84,6 +86,7 @@ def resolve_package_file(package_dir: str, relative_path: str) -> str:
 
 
 def utc_now_iso() -> str:
+    """UTC timestamp in the Z-suffixed ISO shape Director manifests use."""
     import datetime
 
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")

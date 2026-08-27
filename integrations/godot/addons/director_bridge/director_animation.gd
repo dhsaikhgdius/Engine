@@ -205,6 +205,10 @@ static func _frame_time(frame: int, frame_start: int, numerator: int, denominato
 	return float((frame - frame_start) * denominator) / float(numerator)
 
 
+## Resolves a parent's world transform at a specific frame: an animated
+## sample when the parent is baked on that frame, its static import
+## transform otherwise. Needed because bake samples are world-space while
+## Godot tracks key local transforms under the restored hierarchy.
 static func _parent_world_at(
 	parent_id, frame: int, world_samples: Dictionary, static_worlds: Dictionary
 ) -> Transform3D:

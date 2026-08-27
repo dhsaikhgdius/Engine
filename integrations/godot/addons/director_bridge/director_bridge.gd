@@ -37,6 +37,8 @@ func _exit_tree() -> void:
 	_stop_live_preview("editor plugin disabled")
 
 
+## Prints the same JSON health line the headless health check emits, so a
+## human inside the editor can verify the install without running the CLI.
 func _print_health() -> void:
 	var info := Engine.get_version_info()
 	print(
@@ -51,6 +53,10 @@ func _print_health() -> void:
 	)
 
 
+## Starts or stops the outbound preview stream. Starting sends a hello and
+## only begins the frame timer once the Gateway grants a session (see
+## _on_live_link_response); a single reused HTTPRequest keeps at most one
+## request in flight.
 func _toggle_live_preview() -> void:
 	if _live_link != null:
 		_stop_live_preview("toggled off")
@@ -70,6 +76,8 @@ func _toggle_live_preview() -> void:
 	print("Director Bridge: live preview connecting to %s (outbound only)." % DirectorLiveLink.gateway_url())
 
 
+## Tears down the preview session and frees the timer/request nodes.
+## Idempotent so plugin disable, toggling, and error paths can all call it.
 func _stop_live_preview(reason: String) -> void:
 	if _live_link == null:
 		return
@@ -91,6 +99,8 @@ func _stop_live_preview(reason: String) -> void:
 	print("Director Bridge: live preview stopped (%s)." % reason)
 
 
+## Timer callback: sends one preview frame unless a request is still in
+## flight (skipped frames leave sequence gaps the Gateway tolerates).
 func _on_live_preview_tick() -> void:
 	if _live_link == null or _live_link_busy:
 		return
@@ -100,6 +110,9 @@ func _on_live_preview_tick() -> void:
 	_send_live_link(DirectorLiveLink.FRAME_PATH, frame)
 
 
+## Posts one payload to the Gateway and marks the shared request busy; a
+## transport failure that cannot even start ends the preview because the
+## single HTTPRequest would otherwise stay wedged.
 func _send_live_link(path: String, payload: Dictionary) -> void:
 	if _live_link_request == null:
 		return
@@ -117,6 +130,11 @@ func _send_live_link(path: String, payload: Dictionary) -> void:
 	_live_link_request_path = path
 
 
+## Executes one workshop-granted editor command and returns its typed
+## result. capture_frame resizes the live 3D viewport texture to the
+## clamped requested size; execute_code wraps the granted snippet in a
+## RefCounted run(editor_interface) method — this path only exists inside
+## an explicitly granted session, never during headless import/export.
 func _execute_engine_command(command: Dictionary) -> Dictionary:
 	var command_id := str(command.get("commandId", ""))
 	var command_name := str(command.get("command", ""))
@@ -173,6 +191,10 @@ func _execute_engine_command(command: Dictionary) -> Dictionary:
 	}
 
 
+## Handles every Gateway response: accepts the session from the hello
+## reply, executes at most one piggybacked engine command (its result is
+## posted before the next frame), and restarts the frame timer. Any 4xx/5xx
+## or transport failure stops the preview instead of retrying blindly.
 func _on_live_link_response(
 	result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray
 ) -> void:

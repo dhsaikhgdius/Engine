@@ -126,6 +126,8 @@ func bye_payload(reason: String = "") -> Dictionary:
 	return payload
 
 
+## World transform relative to the edited scene root, composed manually so
+## the math matches the headless exporter (Node3D chain only).
 static func _world_transform_of(node: Node3D, root: Node) -> Transform3D:
 	var world := node.transform
 	var current := node.get_parent()

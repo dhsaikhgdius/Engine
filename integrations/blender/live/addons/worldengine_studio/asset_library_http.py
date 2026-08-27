@@ -2,7 +2,22 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""HTTPS helpers for Poly Haven and Sketchfab. No Blender imports."""
+"""HTTPS helpers for Poly Haven and Sketchfab. No Blender imports.
+
+Kept ``bpy``-free on purpose so the standalone unit tests
+(``tests/test_asset_library_http.py``) can exercise URL building, response
+filtering, and the zip-slip guard without a Blender runtime.
+
+Safety invariants enforced here rather than in callers:
+
+- Only HTTPS URLs are ever opened (``assert_https_url``).
+- Responses and downloads are capped at ``MAX_DOWNLOAD_BYTES`` so a
+  misbehaving CDN cannot exhaust disk or memory inside Blender.
+- Archive extraction resolves every member through ``safe_join`` to block
+  zip-slip / absolute-path entries.
+- HTTP errors are re-raised as ``ValueError`` with a truncated body so the
+  live session can relay a readable message to the agent.
+"""
 
 from __future__ import annotations
 
@@ -43,6 +58,11 @@ def safe_join(root: Path, relative: str) -> Path:
 
 
 def filter_polyhaven_assets(assets: dict[str, Any], query: str, limit: int) -> list[dict[str, Any]]:
+    """Case-insensitive substring filter over id, name, tags, and categories.
+
+    Poly Haven's /assets endpoint returns the full catalog for a type; text
+    search does not exist server-side, so this is the search implementation.
+    """
     needle = query.strip().lower()
     matches: list[dict[str, Any]] = []
     if not isinstance(assets, dict):
@@ -122,6 +142,12 @@ def http_download(
 
 
 def extract_zip(archive: Path, dest: Path) -> Path:
+    """Extract a model archive and return the primary glTF/GLB path.
+
+    ``.gltf`` sorts before ``.glb`` deliberately: when both exist the .gltf
+    references the extracted textures/buffers, while the .glb may be a
+    thumbnail-quality standalone.
+    """
     dest.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as bundle:
         for info in bundle.infolist():
@@ -164,6 +190,11 @@ def sketchfab_auth_headers(token: str) -> dict[str, str]:
 
 
 def sketchfab_api_token() -> str:
+    """Resolve the token from the environment first, then addon preferences.
+
+    The preferences import is deferred and failure-tolerant because this
+    module must stay importable without bpy (see module docstring).
+    """
     env = os.environ.get("SKETCHFAB_API_TOKEN", "").strip()
     if env:
         return env

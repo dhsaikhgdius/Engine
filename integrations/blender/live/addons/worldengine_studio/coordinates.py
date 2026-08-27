@@ -2,7 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Coordinate conversion between Director and Blender."""
+"""Coordinate conversion between Director and Blender.
+
+Director's Stage (three.js) is right-handed Y-up; Blender is right-handed
+Z-up. The mapping is the fixed permutation ``(x, y, z) → (x, -z, y)`` and its
+inverse — no scaling, both sides are metric meters. These two functions are
+the only sanctioned place for that axis swap; every other module converts at
+the wire boundary and works in native Blender coordinates internally.
+
+Validation lives here too because these functions sit directly on untrusted
+wire input: components must be finite numbers within ±100 km so a bad payload
+fails with a protocol error instead of producing NaN transforms in the scene.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +23,8 @@ from typing import Any
 
 
 def _point(value: Any) -> tuple[float, float, float]:
+    """Validate one 3-component point; strings are Sequences, so exclude them
+    explicitly, and reject bools because ``bool`` subclasses ``int``."""
     if (
         isinstance(value, (str, bytes, bytearray))
         or not isinstance(value, Sequence)

@@ -44,6 +44,8 @@ const MAX_WARNINGS := 20_000
 const DEFAULT_LOOK_DISTANCE := 10.0
 
 
+## SceneTree entry point for --script runs: parse user args (after "--"),
+## export, and quit with 0 (ok), 1 (export failed), or 2 (bad invocation).
 func _initialize() -> void:
 	var arguments := _parse_arguments(OS.get_cmdline_user_args())
 	var output_dir: String = arguments.get("output-dir", "")
@@ -57,6 +59,7 @@ func _initialize() -> void:
 	quit(exit_code)
 
 
+## Minimal --key value / --zip flag parser over the post-"--" argv slice.
 func _parse_arguments(raw: PackedStringArray) -> Dictionary:
 	var arguments := {}
 	var index := 0
@@ -73,6 +76,14 @@ func _parse_arguments(raw: PackedStringArray) -> Dictionary:
 	return arguments
 
 
+## Builds the whole package: instantiates the scene off-tree (so _ready
+## never runs), walks the hierarchy breadth-first collecting typed records
+## under hard caps (MAX_NODES etc. keep the manifest bounded; the GLB keeps
+## the full scene), exports the GLB, and writes manifest.json with SHA-256
+## file hashes. Parent links that point at truncated nodes are dropped so
+## the manifest never references a node it does not contain. 2D/UI nodes
+## and unsupported cameras become typed "unsupported" records rather than
+## silent drops.
 func _export_scene(output_dir: String, scene_argument: String, make_zip: bool) -> int:
 	var scene_path := scene_argument
 	if scene_path.is_empty():
@@ -274,6 +285,8 @@ func _world_transform_of(node: Node3D, root: Node) -> Transform3D:
 	return world
 
 
+## World transform as manifest position/rotation/scale arrays; the basis is
+## orthonormalized before Euler extraction so shear never corrupts rotation.
 func _transform_record(node: Node3D, root: Node) -> Dictionary:
 	var world := _world_transform_of(node, root)
 	var euler := world.basis.orthonormalized().get_euler(EULER_ORDER_XYZ)
@@ -285,6 +298,8 @@ func _transform_record(node: Node3D, root: Node) -> Dictionary:
 	}
 
 
+## Maps a Godot node onto the manifest's kind vocabulary; a MeshInstance3D
+## with a skin or Skeleton3D binding counts as skinned-mesh.
 func _classify_node(node: Node) -> String:
 	if node is Camera3D:
 		return "camera"
@@ -309,6 +324,11 @@ func _source_id(node: Node, root: Node) -> String:
 	return str(root.get_path_to(node)).substr(0, 240)
 
 
+## Builds one perspective camera record. Non-perspective projections are
+## typed unsupported (Director's camera model has no ortho/frustum
+## equivalent). KEEP_WIDTH cameras convert their horizontal FOV to the
+## vertical FOV Director expects using the project aspect ratio, and the
+## look target sits along -Z at the physical focus distance when present.
 func _camera_record(
 	camera: Camera3D, root: Node, warnings: Array, unsupported: Array
 ) -> Dictionary:
@@ -365,6 +385,7 @@ func _camera_record(
 	return record
 
 
+## Project viewport aspect ratio, defaulting to 16:9 when settings are unusable.
 func _project_aspect_ratio() -> float:
 	var width := float(ProjectSettings.get_setting("display/window/size/viewport_width", 1152))
 	var height := float(ProjectSettings.get_setting("display/window/size/viewport_height", 648))
@@ -373,6 +394,10 @@ func _project_aspect_ratio() -> float:
 	return width / height
 
 
+## Builds one light record. Directional and spot lights aim through a
+## synthetic target point along -Z (Director lights aim at targets, Godot
+## lights store orientation); spot cone angle doubles because Godot stores
+## the half-aperture. Unknown Light3D subclasses degrade to point lights.
 func _light_record(light: Light3D, root: Node, warnings: Array) -> Dictionary:
 	var name := _safe_name(str(light.name), "Light")
 	var world := _world_transform_of(light, root)
@@ -419,6 +444,9 @@ func _light_record(light: Light3D, root: Node, warnings: Array) -> Dictionary:
 	return record
 
 
+## Maps a WorldEnvironment's flat color ambient onto a Director ambient
+## light; sky/background ambient sources only warn because they have no
+## color+intensity representation in the manifest.
 func _ambient_record(environment_node: WorldEnvironment, root: Node, warnings: Array) -> Dictionary:
 	var environment := environment_node.environment
 	if environment == null:
@@ -439,6 +467,7 @@ func _ambient_record(environment_node: WorldEnvironment, root: Node, warnings: A
 	return {}
 
 
+## Counts distinct active materials by instance id for the scene summary.
 func _collect_materials(mesh_instance: MeshInstance3D, materials: Dictionary) -> void:
 	if mesh_instance.mesh == null:
 		return
@@ -448,6 +477,8 @@ func _collect_materials(mesh_instance: MeshInstance3D, materials: Dictionary) ->
 			materials[material.get_instance_id()] = true
 
 
+## Inventories AnimationPlayer clips by name (deduplicated across players);
+## the actual keyframe data rides inside the GLB, not the manifest.
 func _collect_animation_clips(player: AnimationPlayer, clips: Array, seen: Dictionary) -> void:
 	for clip_name in player.get_animation_list():
 		if clips.size() >= MAX_CLIPS:
@@ -463,6 +494,9 @@ func _collect_animation_clips(player: AnimationPlayer, clips: Array, seen: Dicti
 		clips.append(clip)
 
 
+## Writes assets/scene.glb through GLTFDocument. Skipped entirely when the
+## scene has no renderable meshes; failures append typed unsupported
+## records so the caller can mark every mesh node as not exported.
 func _export_glb(
 	root: Node, bundle_path: String, warnings: Array, unsupported: Array, renderable_count: int
 ) -> bool:
@@ -497,6 +531,7 @@ func _export_glb(
 	return true
 
 
+## Zips the package directory recursively for the upload endpoint.
 func _write_zip(source_dir: String, zip_path: String) -> Error:
 	var packer := ZIPPacker.new()
 	var open_error := packer.open(zip_path, ZIPPacker.APPEND_CREATE)
@@ -507,6 +542,8 @@ func _write_zip(source_dir: String, zip_path: String) -> Error:
 	return zip_error
 
 
+## Recursively appends a directory's files to the open ZIPPacker, keeping
+## package-relative entry names.
 func _zip_directory(packer: ZIPPacker, directory: String, prefix: String) -> Error:
 	var access := DirAccess.open(directory)
 	if access == null:
@@ -528,6 +565,7 @@ func _zip_directory(packer: ZIPPacker, directory: String, prefix: String) -> Err
 	return OK
 
 
+## Trims and length-caps display names; empty names fall back to a stable label.
 func _safe_name(value: String, fallback: String) -> String:
 	var trimmed := value.strip_edges()
 	if trimmed.is_empty():

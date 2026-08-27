@@ -159,6 +159,10 @@ static func _apply_ambient_environment(
 	root.add_child(world_environment)
 
 
+## Builds the typed Light3D node: Omni for point, Spot for spot (Director's
+## half-angle radians converted to Godot's aperture degrees, penumbra
+## approximated through spot_angle_attenuation), Directional otherwise.
+## Director distance 0 means unlimited, which maps to a 20 m stage default.
 static func _make_light(light_type: String, light_entity: Dictionary, warnings: Array) -> Light3D:
 	match light_type:
 		"point":
@@ -190,6 +194,10 @@ static func _make_light(light_type: String, light_entity: Dictionary, warnings: 
 			return DirectionalLight3D.new()
 
 
+## Places the light at its composed world position and, when a target point
+## exists, aims local -Z at it (Director lights aim at targets rather than
+## storing rotations); a fallback up axis avoids the looking_at singularity
+## for straight-down lights.
 static func _light_transform(scene: Dictionary, light_entity: Dictionary) -> Transform3D:
 	var position_array: Array = light_entity.get("position", [0.0, 0.0, 0.0])
 	var world_position := DirectorSpace.compose_world_point(scene, position_array)
