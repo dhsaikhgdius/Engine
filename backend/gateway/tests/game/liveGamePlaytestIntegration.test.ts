@@ -92,7 +92,9 @@ describe("director_game live playtest wiring (mocked workbench bus)", () => {
     tempDirs.length = 0;
   });
 
-  async function createRuntime(requestWorkbenchCommand: Parameters<typeof createLiveStagePlaytestRunner>[0]["requestWorkbenchCommand"]) {
+  async function createRuntime(
+    requestWorkbenchCommand: Parameters<typeof createLiveStagePlaytestRunner>[0]["requestWorkbenchCommand"],
+  ) {
     const dir = await mkdtemp(join(tmpdir(), "director-game-live-"));
     tempDirs.push(dir);
     const runtime = createDirectorGame(dir, {
