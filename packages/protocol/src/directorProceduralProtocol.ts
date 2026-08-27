@@ -1,3 +1,16 @@
+/**
+ * Procedural generation recipes for the Stage: bounded, seeded, replayable
+ * layout operations (arrays, mirrors, scatter, staircases, terrain,
+ * L-systems, fragment scaffolds).
+ *
+ * Two properties make these safe as an agent surface. Every numeric field is
+ * hard-bounded (copy counts, iteration depth, world extents) so a single
+ * recipe can never explode the scene — the L-system caps at 4 iterations and
+ * 3 branches for the same reason. And every randomized operation takes an
+ * explicit int32 `seed`, so a persisted recipe re-runs to the identical
+ * output; the recipe record stores both the operation and the produced
+ * `outputObjectIds`, making the generation auditable and undoable.
+ */
 import { z } from "zod";
 
 /** Protocol version for the procedural generation recipe format. */

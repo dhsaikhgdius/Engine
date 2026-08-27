@@ -12,6 +12,13 @@ import { strictType } from "./strictProtocolVariant";
  * These schemas intentionally describe transport JSON, rather than the
  * browser's display model.  The browser may still adapt field names for its
  * UI, but it must decode this contract before doing so.
+ *
+ * The core correlation primitive is `directorAgentTargetWireSchema`: every
+ * command request and response is stamped with the exact tab identity it was
+ * issued against, and `isCurrentDirectorAgentTargetResponse` requires the
+ * expected, current, and response targets to all match before a result is
+ * trusted.  This is what prevents a reply from a reconnected or different
+ * workbench tab being attributed to a request sent to an earlier one.
  */
 const nonEmptyText = (maximum: number) => z.string().trim().min(1).max(maximum);
 const nonNegativeInteger = z.number().int().nonnegative();
@@ -159,7 +166,14 @@ export const stageAgentEventWireSchema = z.strictObject({
 /** A parsed Stage agent event. */
 export type StageAgentEventWire = z.infer<typeof stageAgentEventWireSchema>;
 
-/** Identity and routing target for an agent connection: token, client, instance, scene, and creative scope. */
+/**
+ * Identity and routing target for an agent connection: token, client,
+ * instance, scene, and creative scope. All five identity fields plus the
+ * contract version participate in equality — a browser reload mints a new
+ * `instance_id`, so stale in-flight commands fail the target check instead of
+ * landing on the new tab. `contract_version` is a literal so both sides hard
+ * fail (rather than mis-parse) across protocol upgrades.
+ */
 export const directorAgentTargetWireSchema = z.strictObject({
   token: nonEmptyText(240),
   client_id: nonEmptyText(160),

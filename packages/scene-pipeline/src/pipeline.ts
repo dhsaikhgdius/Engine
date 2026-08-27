@@ -1,5 +1,13 @@
 // Scene pipeline orchestrator — chains planner → validator → assembler.
 // This is the main entry point for generating a 3D scene from natural language.
+//
+// Failure semantics by phase:
+// - Planning is the only phase that can reject: it throws when the model
+//   output cannot be recovered into layout JSON, aborting the pipeline.
+// - Validation never throws; every finding becomes an advisory
+//   SceneValidationIssue merged into `warnings` so callers decide severity.
+// - Assembly is pure and deterministic; given a layout it always produces a
+//   plan (orphaned objects are appended, never dropped).
 
 import type { ModelProvider } from "@director/model-provider";
 import type { ScenePipelineInput, ScenePipelineOutput } from "./types";
@@ -9,6 +17,12 @@ import { validateScene } from "./validator";
 
 /**
  * Run the full scene pipeline: plan → validate → assemble.
+ *
+ * Each phase is timed individually so callers can attribute latency (planning
+ * is the LLM round-trip; validation and assembly are local and near-instant).
+ * The assembly plan itself is not returned here — callers rebuild it from the
+ * layout via `assembleScene`/`applySceneToStage` when they execute — the run
+ * exists to prove the layout assembles and to surface merged warnings.
  *
  * @example
  * ```ts
@@ -65,6 +79,11 @@ export async function runScenePipeline(
  * - DeepSeek for planning (cheap, good at structured output)
  * - Claude for validation (better at reasoning about correctness)
  * - OpenAI for refinement (not yet implemented)
+ *
+ * Today only the planning phase actually consumes a model: `validateScene` is
+ * deterministic, so the `validator` provider is accepted as the future slot
+ * for model-assisted review but does not change behaviour yet. Failure
+ * semantics are identical to `runScenePipeline`.
  */
 export async function runCollaborativePipeline(
   planner: ModelProvider,
@@ -108,6 +127,9 @@ export async function runCollaborativePipeline(
 
 /**
  * Generate a Markdown summary of the pipeline output.
+ *
+ * The summary is user-facing UI copy (hence Simplified Chinese, the product's
+ * source language) intended for chat/tool transcripts, not for parsing.
  */
 export function summarizePipelineOutput(output: ScenePipelineOutput): string {
   const lines: string[] = [];

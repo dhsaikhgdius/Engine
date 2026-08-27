@@ -50,6 +50,8 @@ function vec3ToTuple(v: { x: number; y: number; z: number }): [number, number, n
   return [round3f(v.x), round3f(v.y), round3f(v.z)];
 }
 
+// Millimetre precision is plenty for blocking; rounding keeps LLM-derived
+// float noise out of persisted scenes and produces stable diffs.
 function round3f(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
@@ -57,6 +59,10 @@ function round3f(value: number): number {
 /**
  * Map a SceneObjectKind to the Director object kind.
  * Director supports: "character", "scene", "prop", "panorama".
+ *
+ * Architectural kinds collapse into "scene" (set geometry), everything else
+ * into "prop"; the pipeline's finer-grained kinds only exist to inform
+ * geometry choice and assembly ordering, not the Director object model.
  */
 function mapObjectKind(kind: SceneObject["kind"]): string {
   switch (kind) {
@@ -83,6 +89,11 @@ function mapObjectKind(kind: SceneObject["kind"]): string {
 /**
  * Map a SceneObjectKind to the best geometry primitive.
  * Director supports: box, sphere, cylinder, torus, cone, pyramid.
+ *
+ * White-box intent: everything defaults to a box silhouette scaled by the
+ * layout's metric dimensions — readable massing for blocking, not final
+ * geometry. Real assets replace these via the catalog / Blender / generated-3D
+ * promotion paths.
  */
 function mapGeometry(kind: SceneObject["kind"]): string {
   switch (kind) {
@@ -104,6 +115,12 @@ function mapGeometry(kind: SceneObject["kind"]): string {
 
 /**
  * Convert a StageOperation to a Director authoring action.
+ *
+ * Returns null for operations with no workbench equivalent (setRoom: the
+ * room is implied by the floor/wall objects rather than a standalone call);
+ * callers must skip nulls instead of treating them as failures. `force: true`
+ * on destructive actions because the pipeline owns the objects it created and
+ * should not be blocked by interactive confirmation policies.
  */
 function stageOperationToAuthoringAction(op: StageOperation): DirectorAuthoringAction | null {
   switch (op.op) {
@@ -267,6 +284,12 @@ export function applySceneToStage(plan: AssemblyPlan): DirectorWorkbenchAuthorOp
 
 /**
  * Execute a scene plan against a workbench executor function.
+ *
+ * Failure granularity is the batch: when the executor throws, every action in
+ * that batch is recorded as failed with the same error, but execution
+ * continues with the remaining batches. Partial scenes are intentionally
+ * possible — the per-action results let the caller report or retry exactly
+ * what is missing instead of rolling everything back.
  *
  * @param plan - The assembly plan to execute
  * @param executor - Function that takes a workbench operation and returns a result

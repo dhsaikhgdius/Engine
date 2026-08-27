@@ -1,3 +1,24 @@
+/**
+ * The `director_game` state machine: a pure, host-free reducer over game
+ * slices. The gateway wraps it with persistence and a live-Stage playtest
+ * runner; this module holds every slice transition (plan → bind →
+ * author_loop/author_hud → playtest → evaluate → export_slice) plus the
+ * playtest scoring rules, so the lifecycle can be unit-tested without a
+ * browser, a Stage tab, or any engine install.
+ *
+ * Design invariants:
+ * - Rejections are teaching material: every failure carries a machine code
+ *   plus a `corrective_call` the agent can send verbatim, because rejection
+ *   messages are one of the ranked agent teaching channels.
+ * - Evidence over claims: a slice only becomes `playable` when a recorded
+ *   playtest tape passes every error-severity acceptance check, and export
+ *   requires that status — "it compiles" is never accepted as evidence.
+ * - Provenance is machine-owned: caller-supplied traces are restamped
+ *   `inline` so an agent cannot label a fabricated tape `live_stage`.
+ * - `export_slice` deliberately rejects with the `director_dcc` call chain
+ *   instead of exporting: the game slice is not a second film/export
+ *   pipeline, engines are reached through the existing DCC handoff.
+ */
 import directorGameCapabilities from "./directorGameCapabilities.json";
 import { describeDirectorGameTarget } from "./directorGameDescribe";
 import type { DirectorGameEnvelope, DirectorGameOperation } from "./directorGameProtocol";
@@ -67,12 +88,19 @@ function put(state: DirectorGameState, slice: GameSlice): GameSlice {
   return parsed;
 }
 
+/** Horizontal (XZ-plane) speed of one sample; vertical motion is judged by the on_ground check instead. */
 function planarSpeed(sample: GamePlaytestSample): number {
   const velocity = sample.velocity;
   if (!velocity) return 0;
   return Math.hypot(velocity[0], velocity[2]);
 }
 
+/**
+ * Absolute angle between where the actor faces (yaw) and where it actually
+ * moves, wrapped to [0, π]. Speeds under 0.05 m/s return 0 because heading is
+ * numerically meaningless when nearly stationary. A large sustained delta is
+ * the classic wrong-forward-axis asset bug the facing check exists to catch.
+ */
 function headingDeltaRad(yaw: number, vx: number, vz: number): number {
   if (Math.hypot(vx, vz) < 0.05) return 0;
   const moveYaw = Math.atan2(vx, vz);
@@ -90,6 +118,12 @@ function sampleVerb(sample: GamePlaytestSample, fallback?: GameSliceVerb): GameS
  * Score a recorded playtest tape against the slice acceptance checks.
  * This is the structured replacement for GameFactory's "watch a video" table:
  * each check is a boolean with a typed issue and a corrective call.
+ *
+ * Each detector reports only the first offending sample (issues carry
+ * `sample_frame` so the agent can seek to it) — one issue per failure mode
+ * keeps the report actionable rather than a wall of repeated frames. The
+ * `playable` verdict counts only error-severity issues; warnings (camera
+ * clip, unbound HUD) inform but never block.
  */
 export function evaluateGamePlaytest(slice: GameSlice, trace: GamePlaytestTrace): GameEvaluationReport {
   const issues: GameSliceIssue[] = [];
@@ -347,6 +381,7 @@ export function evaluateGamePlaytest(slice: GameSlice, trace: GamePlaytestTrace)
   });
 }
 
+/** The minimal input map that exercises one verb, used to synthesize corrective playtest scripts. */
 function verbInput(verb: GameSliceVerb): Record<string, boolean> {
   switch (verb) {
     case "move":
@@ -377,6 +412,11 @@ function verbInput(verb: GameSliceVerb): Record<string, boolean> {
   }
 }
 
+/**
+ * Produce a valid slice id from the injected generator, sanitizing anything
+ * that fails the id schema rather than rejecting — the generator is a
+ * convenience hook, not untrusted input worth failing a plan over.
+ */
 function defaultId(createId: (() => string) | undefined): string {
   const suffix = createId?.() ?? `game-${crypto.randomUUID()}`;
   if (gameSliceIdSchema.safeParse(suffix).success) return suffix;
@@ -388,6 +428,12 @@ function defaultId(createId: (() => string) | undefined): string {
   }`;
 }
 
+/**
+ * Apply role → Stage-object bindings to a slice. Unknown role ids are
+ * recorded in `notes` instead of failing the whole call, so a partially
+ * wrong bind still lands its valid entries; status flips to "bound" only
+ * when every role has an object_id (checked by `gameSliceBindComplete`).
+ */
 function applyBind(
   slice: GameSlice,
   operation: Extract<DirectorGameOperation, { op: "bind" }>,
@@ -680,6 +726,7 @@ export async function executeDirectorGame(
   }
 }
 
+/** Rebuild machine state from persisted slices, re-validating each one so corrupt storage fails loudly at load. */
 export function createDirectorGameState(slices: Iterable<GameSlice> = []): DirectorGameState {
   const map = new Map<string, GameSlice>();
   for (const slice of slices) map.set(slice.id, gameSliceSchema.parse(slice));

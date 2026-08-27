@@ -8,6 +8,12 @@ import {
 } from "./gameDemoRecipes";
 import { gameSliceBindPatchSchema, gameSliceBriefSchema, gameSliceHudSchema } from "./gameSliceProtocol";
 
+/**
+ * Serialized JSON Schema size cap for one describe reply. Oversized schemas
+ * degrade to a field-name list instead of flooding the agent's context — a
+ * describe answer that costs more tokens than it saves defeats progressive
+ * disclosure.
+ */
 const DESCRIBE_SCHEMA_BUDGET_BYTES = 20_000;
 
 const JSON_SCHEMA_OPTIONS = {

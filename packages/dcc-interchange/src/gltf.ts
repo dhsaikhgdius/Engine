@@ -25,6 +25,29 @@ import {
   directorCameraTargetFromQuaternion,
 } from "./cameraOrientation";
 
+/**
+ * Director ↔ glTF/GLB bridge.
+ *
+ * What travels: object/camera transforms, camera intrinsics, and the full
+ * Director project as an interchange manifest in `extras`. What is omitted
+ * on purpose: meshes, materials, skins, and animation channels — this is a
+ * scene *manifest* for round-tripping authoring state, not baked proxy
+ * geometry. Real geometry is resolved from `assetRefId` bindings on the
+ * receiving side.
+ *
+ * Coordinate system: glTF is natively metres / Y-up / right-handed, which is
+ * exactly the Director interchange space, so no axis or unit conversion
+ * happens here. The stamp is still written to `extras` and verified on
+ * import; a mismatched stamp is a hard error because silently reinterpreting
+ * axes corrupts every transform.
+ *
+ * Rotation encoding: Director stores XYZ Euler radians; glTF nodes store
+ * unit quaternions. Conversion happens at the boundary in both directions,
+ * and camera nodes get a look-at quaternion derived from the camera target
+ * (see cameraOrientation.ts) since Director cameras aim at a point rather
+ * than carrying a free rotation.
+ */
+
 /** Adapter identifier for the Director glTF bridge. */
 export const DIRECTOR_GLTF_ADAPTER = "director-gltf-v1" as const;
 
@@ -34,7 +57,11 @@ export const DIRECTOR_GLTF_MIME_TYPE = "model/gltf+json";
 /** MIME type for glTF Binary (GLB) documents. */
 export const DIRECTOR_GLB_MIME_TYPE = "model/gltf-binary";
 
-/** Maximum allowed size for a glTF/GLB document in bytes (128 MiB). */
+/**
+ * Maximum allowed size for a glTF/GLB document in bytes (128 MiB). Enforced
+ * before parsing so an oversized upload fails fast instead of exhausting
+ * memory inside the glTF reader.
+ */
 export const DIRECTOR_GLTF_MAX_BYTES = 128 * 1024 * 1024;
 
 /**
@@ -84,11 +111,17 @@ export interface ImportDirectorGltfOptions {
   baseProject?: DirectorProject;
 }
 
+// Director Euler order is fixed XYZ (radians); glTF wants an [x,y,z,w] unit
+// quaternion. Both directions go through three.js so the convention lives in
+// exactly one library.
 function eulerToQuaternion(rotation: DirectorTransform["rotation"]): [number, number, number, number] {
   const quaternion = new Quaternion().setFromEuler(new Euler(rotation[0], rotation[1], rotation[2], "XYZ"));
   return [quaternion.x, quaternion.y, quaternion.z, quaternion.w];
 }
 
+// Defensive on purpose: foreign glTF may carry NaN or non-unit quaternions,
+// so components are coerced (w falls back to identity) and the quaternion is
+// normalized before conversion rather than trusting the file.
 function quaternionToEuler(rotation: readonly number[]): DirectorTransform["rotation"] {
   const quaternion = new Quaternion(
     Number(rotation[0]) || 0,
@@ -117,6 +150,9 @@ function aspectRatioValue(aspect: DirectorCameraAspectRatio | undefined) {
   }
 }
 
+// glTF stores a free-form numeric aspect ratio, but Director's camera
+// vocabulary is a closed enum — snap to the nearest known ratio instead of
+// inventing values the UI cannot represent.
 function closestAspectRatio(value: number | null): DirectorCameraAspectRatio {
   if (!value || !Number.isFinite(value)) return "16:9";
   const entries: Array<[DirectorCameraAspectRatio, number]> = [
@@ -130,6 +166,10 @@ function closestAspectRatio(value: number | null): DirectorCameraAspectRatio {
   return entries.sort((left, right) => Math.abs(left[1] - value) - Math.abs(right[1] - value))[0]![0];
 }
 
+// Gate for foreign nodes: only nodes stamped by this exact adapter+contract
+// become Director entities; everything else in the file is ignored rather
+// than guessed at. Returning null (not throwing) lets mixed files import
+// their Director subset cleanly.
 function entityMetadata(value: unknown): DirectorGltfEntityMetadata | null {
   if (!isRecord(value) || !isRecord(value.director)) return null;
   const director = value.director;
@@ -275,6 +315,19 @@ function parseGltfJson(source: string | GLTF.IGLTF | JSONDocument): JSONDocument
   return { json: source as GLTF.IGLTF, resources: {} };
 }
 
+/**
+ * Core import walk shared by the JSON and GLB entry points.
+ *
+ * Project precedence: a valid embedded manifest wins over `options.baseProject`,
+ * which wins over a fresh empty project — node metadata then patches whichever
+ * base was chosen (transforms/names update matching stable IDs; unknown IDs
+ * append). Duplicate stable IDs keep the first occurrence and record a typed
+ * omission; an invalid embedded manifest degrades to warn-and-omit instead of
+ * failing the import, but a wrong coordinate-system stamp is a hard error.
+ * The walk ends by repairing `activeCameraId` and re-asserting character
+ * asset bindings so the returned project always satisfies interchange
+ * invariants.
+ */
 async function importDirectorGltfDocument(document: Document, options: ImportDirectorGltfOptions) {
   const warnings: string[] = [];
   const omitted: DirectorGltfOmitted[] = [];
@@ -355,6 +408,10 @@ async function importDirectorGltfDocument(document: Document, options: ImportDir
         }
         return;
       }
+      // glTF has no look-at target, so the Director target is reconstructed
+      // from the node quaternion plus a distance: prefer the existing
+      // camera's target distance (keeps a re-import from moving the target),
+      // then the exported focusDistanceM, then 1m as a safe default.
       const gltfCamera = node.getCamera();
       const existing = project.cameras.find((camera) => camera.id === metadata.stableId);
       const cameraExtras = gltfCamera?.getExtras();
@@ -410,6 +467,8 @@ async function importDirectorGltfDocument(document: Document, options: ImportDir
   return { project, warnings, omitted } satisfies DirectorInterchangeImportResult;
 }
 
+// Unknown kinds degrade to "prop" so imports from newer/foreign writers keep
+// the entity instead of dropping it.
 function normalizeObjectKind(value: unknown): DirectorObject["kind"] {
   return value === "character" || value === "scene" || value === "prop" || value === "camera" || value === "panorama"
     ? value

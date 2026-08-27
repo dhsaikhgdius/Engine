@@ -1,8 +1,18 @@
+/**
+ * Camera orientation math shared by the glTF and USD bridges.
+ *
+ * Director cameras are target-based (position + look-at point); external
+ * formats carry a free rotation on a camera that looks down local -Z with
+ * local +Y up (the glTF and USD convention). These helpers convert between
+ * the two representations so both bridges agree on the exact same math.
+ */
 import { Euler, Matrix4, Quaternion, Vector3 } from "three";
 import type { DirectorCameraShot, DirectorTransform } from "@director/project-schema";
 
 const CAMERA_FORWARD = new Vector3(0, 0, -1);
 const CAMERA_WORLD_UP = new Vector3(0, 1, 0);
+// Substitute up-axis for near-vertical shots where forward ≈ world up and the
+// look-at basis would otherwise degenerate.
 const CAMERA_VERTICAL_UP = new Vector3(0, 0, 1);
 
 function quaternionFromEuler(rotation: DirectorTransform["rotation"]) {

@@ -24,6 +24,24 @@ const MAX_INTERCHANGE_OBJECT_IDS = 2_048;
  * Keep this module free of browser stores, React, DOM and Node APIs so the
  * gateway, MCP server and browser can validate exactly the same payloads
  * without pulling an editor runtime across the frontend/backend boundary.
+ *
+ * The surface follows three conventions that every sub-protocol here repeats:
+ *
+ * - Optimistic concurrency by fingerprint: mutations may pin an
+ *   `expected_snapshot_fingerprint` (or a typed semantic guard for
+ *   interchange/collaboration); a mismatch returns a `stale_guard` failure
+ *   carrying the current guard so the agent can re-observe and retry rather
+ *   than blindly overwrite a human's concurrent edit.
+ * - Two-phase destructive operations: interchange runs plan-export → export
+ *   and plan-import → import(confirm: true), so the agent reviews a typed
+ *   plan (counts, warnings, omissions) before anything is committed.
+ * - Failures are data, not throws: every result union ends in the shared
+ *   semantic-failure shape with a machine code and a `suggested_next`
+ *   corrective call, and anything an importer/exporter drops is reported as
+ *   a typed `omitted` entry rather than silently discarded.
+ *
+ * All durations are seconds (the Video Editor timeline is time-based, unlike
+ * the frame-based Stage timeline); pixel fields are CSS pixels.
  */
 
 /** Validates a workspace-scoped identifier: 1–240 trimmed characters. */
@@ -118,13 +136,28 @@ const creativeWorkspaceInterchangeObjectIdsSchema = z
   .max(MAX_INTERCHANGE_OBJECT_IDS)
   .refine((ids) => new Set(ids).size === ids.length, "object_ids must be unique");
 
-/** A semantic guard binding a workspace state fingerprint to a specific kind of operation. */
+/**
+ * A semantic guard binding a workspace state fingerprint to a specific kind
+ * of operation. The `kind` names which state the fingerprint hashes (Stage
+ * project revision, creative snapshot, or collaboration state) so a guard
+ * captured from one surface can never accidentally satisfy a check on
+ * another; interchange plans embed the guard at plan time and the execute
+ * step must present it back unchanged.
+ */
 export const creativeWorkspaceSemanticGuardSchema = z.strictObject({
   kind: z.enum(["stage_project_revision", "creative_snapshot", "collaboration_state"]),
   fingerprint: z.string().trim().min(16).max(240),
 });
 
-/** Actions available in the interchange surface: capabilities, export, and import. */
+/**
+ * Actions available in the interchange surface: capabilities, export, and
+ * import. Export and import are both two-phase: `plan-*` parses/serializes
+ * and returns a typed plan with a semantic guard, and the commit step must
+ * echo the plan id and guard fingerprint (import additionally requires
+ * `confirm: true` because it mutates the workspace). The plan id is branded
+ * (`interchange-plan:v1:<uuid>`) so a stale or foreign id fails validation
+ * before it can commit the wrong plan.
+ */
 export const creativeWorkspaceInterchangeActionSchema = z.discriminatedUnion("action", [
   strictAction("capabilities", {}),
   strictAction("plan-export", {
@@ -193,6 +226,12 @@ export const creativeWorkspaceReviewAnchorSchema = z.discriminatedUnion("type", 
   }),
 ]);
 
+/**
+ * Shared write-guard fields for collaboration mutations: an optional
+ * fingerprint pin (reject if another participant changed the room since the
+ * agent last observed) and an optional idempotency key (safe retry of the
+ * same logical write; receipts echo whether the key was replayed).
+ */
 const collaborationWriteGuardFields = {
   expected_collaboration_fingerprint: creativeWorkspaceSnapshotFingerprintSchema.optional(),
   idempotency_key: idempotencyKeySchema.optional(),
@@ -924,7 +963,15 @@ export type CreativeWorkspaceAgentOperation = z.infer<typeof creativeWorkspaceAg
 /** The op identifier string for a creative workspace agent operation. */
 export type CreativeWorkspaceAgentOperationId = CreativeWorkspaceAgentOperation["op"];
 
-/** Operations that are excluded from batch execution because they are not history-rollback-safe. */
+/**
+ * Operations that are excluded from batch execution because they are not
+ * history-rollback-safe. `execute_batch` promises atomicity by rolling back
+ * through workspace undo history when a later step fails; these operations
+ * either bypass history (view state like `edit.seek`, async media IO), are
+ * irreversible (`gallery.media.purge`), or manipulate the history stack
+ * itself (`workspace.undo`/`redo`), so a failed batch containing them could
+ * not be unwound.
+ */
 export const creativeWorkspaceBatchExcludedOperations: readonly CreativeWorkspaceAgentOperationId[] = [
   "edit.seek",
   "media.playback.update",
@@ -1050,6 +1097,13 @@ export type CreativeWorkspacePipelineRequest = Extract<CreativeWorkspaceAgentReq
 /** An anchor for a review comment. */
 export type CreativeWorkspaceReviewAnchor = z.infer<typeof creativeWorkspaceReviewAnchorSchema>;
 
+/**
+ * The shared failure shape every result union ends in. Failures are returned
+ * as data (never thrown across the tool boundary) with a machine-readable
+ * `code`, the `current_guard` when the failure was a stale guard, and a
+ * `suggested_next` sentence naming the corrective call — rejection messages
+ * are one of the ranked agent teaching channels.
+ */
 const creativeWorkspaceSemanticFailureSchema = strictSuccess(false, {
   action: z.string().trim().min(1).max(80),
   code: z.enum([

@@ -1,3 +1,15 @@
+/**
+ * The production model: performance takes (what happens, per entity, over a
+ * frame range) and coverage sequences (which camera films which take, when).
+ * The split mirrors real production — performance is captured once and can be
+ * covered by many cameras — and it is what lets the render pipeline swap
+ * cameras without touching animation.
+ *
+ * Documents authored before this model existed get a "compatibility
+ * projection": one default take copied from live object animations plus one
+ * coverage sequence derived from the storyboard. That projection is built
+ * here so every import path produces the identical structure.
+ */
 import type {
   DirectorCoverageSequence,
   DirectorCoverageShot,
@@ -24,6 +36,8 @@ export interface DirectorProductionIssue {
   message: string;
 }
 
+// Deep-clone so take tracks own their keyframes: later edits to the live
+// object animation must not silently rewrite a recorded take.
 function cloneAnimation(animation: DirectorEntityAnimation): DirectorEntityAnimation {
   return JSON.parse(JSON.stringify(animation)) as DirectorEntityAnimation;
 }
@@ -36,6 +50,9 @@ function normalizedFrameEnd(value: number) {
   return Math.max(0, Math.ceil(value));
 }
 
+// The widest frame range any authored content touches (timeline bounds,
+// storyboard shots, every keyframe) so the default take never clips an
+// existing performance. Floors/ceils to whole frames and clamps at 0.
 function getProjectFrameRange(project: DirectorProject) {
   const startCandidates = [project.scene.timeline?.frameStart ?? 0];
   const endCandidates = [project.scene.timeline?.frameEnd ?? 0];
@@ -106,6 +123,11 @@ function createCoverageShot(
   };
 }
 
+// Projects the storyboard into coverage shots: each storyboard shot keeps its
+// own camera when it still exists, otherwise falls back to the active/first
+// camera; frame ranges are clamped into the take. A project with no
+// storyboard still gets one full-take shot so the sequence is never empty
+// while a camera exists.
 function createDefaultSequence(project: DirectorProject, take: DirectorPerformanceTake): DirectorCoverageSequence {
   const cameraIds = new Set(project.cameras.map((camera) => camera.id));
   const fallbackCameraId =

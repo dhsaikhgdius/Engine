@@ -1,3 +1,13 @@
+/**
+ * The canonical catalog of Blender live operations, loaded from the JSON
+ * manifest that protocol, gateway, and the Blender kernel all share. Each
+ * entry declares its `surface` (typed apply op, longtail escape hatch, or
+ * internal-only) and its transaction `effect`, which is what decides whether
+ * a batch containing the op must pin the scene-epoch concurrency guard.
+ * Keeping this in data (not code) lets the Python kernel consume the same
+ * source of truth, and `assertBlenderOperationManifestCoverage` makes the
+ * Zod union fail at module load if the two ever diverge.
+ */
 import { z } from "zod";
 import manifestJson from "./blenderOperationManifest.json";
 

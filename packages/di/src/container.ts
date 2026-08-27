@@ -1,11 +1,27 @@
-// @director/di — lightweight dependency injection container.
-// Inspired by Cordis (DSH) but simplified: no decorators, no reflection,
-// just a plain async container with singleton/transient/scoped lifecycles.
+/**
+ * @director/di — lightweight dependency injection container.
+ *
+ * Inspired by Cordis (the DSH plugin runtime) but deliberately simplified:
+ * no decorators, no reflect-metadata, no compile-time wiring — just a plain
+ * async container keyed by string/symbol tokens. Keeping this dependency-free
+ * lets both the gateway and browser bundles share the same composition root
+ * without pulling in a framework, and makes service graphs testable by
+ * swapping factories per test.
+ */
 
 /** Unique token for a service. Strings or Symbols. */
 export type ServiceToken = string | symbol;
 
-/** Lifecycle policy for a service. */
+/**
+ * Lifecycle policy for a service.
+ *
+ * - `singleton`: the first resolve caches the instance for the container's
+ *   lifetime; later resolves return the cached value.
+ * - `transient`: every resolve runs the factory again.
+ * - `scoped`: reserved for child-scope semantics. The current resolver does
+ *   not implement scopes, so `scoped` behaves exactly like `transient`; the
+ *   value exists so descriptors can declare intent ahead of that feature.
+ */
 export type Lifecycle = "singleton" | "transient" | "scoped";
 
 /** A service factory — creates or resolves a service instance. */
@@ -16,9 +32,13 @@ export interface ServiceDescriptor<T = unknown> {
   token: ServiceToken;
   factory: ServiceFactory<T>;
   lifecycle: Lifecycle;
-  /** Optional dependencies (token names) for ordering. */
+  /**
+   * Optional dependency tokens. Purely declarative today: factories pull
+   * their own dependencies via `ctx.resolve(...)`, so this list documents the
+   * graph for tooling rather than driving instantiation order.
+   */
   dependencies?: ServiceToken[];
-  /** Optional tags for filtering. */
+  /** Optional tags so callers can discover related services via findByTag. */
   tags?: string[];
 }
 
@@ -88,6 +108,13 @@ export class Container {
 
   /**
    * Resolve a service by token. Throws if not registered.
+   *
+   * Cycle detection piggybacks on the `initializing` set: if a factory
+   * (transitively) resolves its own token while still constructing, the
+   * nested call finds the token mid-flight and fails fast instead of
+   * deadlocking. A consequence worth knowing: two *concurrent* resolves of
+   * the same not-yet-cached token also trip this guard, so callers should
+   * resolve shared singletons sequentially during startup.
    */
   async resolve<T>(token: ServiceToken): Promise<T> {
     if (this.disposed) throw new Error(`Container disposed; cannot resolve "${String(token)}"`);
@@ -99,6 +126,9 @@ export class Container {
       );
     }
 
+    // Note: a singleton factory that legitimately returns `undefined` cannot
+    // be cached (the cache uses `undefined` as the miss sentinel) and would be
+    // re-created on every resolve. Factories should return a real value.
     if (descriptor.lifecycle === "singleton") {
       const cached = this.instances.get(token);
       if (cached !== undefined) return cached as T;
@@ -128,6 +158,10 @@ export class Container {
   /**
    * Synchronous resolve — only works for already-instantiated singletons.
    * Throws if the service hasn't been resolved yet.
+   *
+   * This is the escape hatch for synchronous call sites (React render paths,
+   * event handlers) that cannot await; the composition root must have
+   * awaited `resolve()` for the token beforehand.
    */
   get<T>(token: ServiceToken): T {
     const instance = this.instances.get(token);
@@ -148,7 +182,12 @@ export class Container {
   // -- Lifecycle hooks --
 
   /**
-   * Register a hook that fires when a service is first resolved.
+   * Register a hook that fires when a service instance is created.
+   *
+   * For singletons this is effectively "on first resolve"; for transient
+   * services the hook fires on every factory invocation. Hooks registered
+   * after a singleton was already resolved never fire, so wire hooks before
+   * the first resolve.
    */
   onResolved<T>(token: ServiceToken, hook: (instance: T) => void): this {
     const hooks = this.hooks.get(token) ?? [];
@@ -160,7 +199,10 @@ export class Container {
   // -- Batching --
 
   /**
-   * Resolve multiple services in dependency order.
+   * Resolve multiple services concurrently and return them in argument order.
+   *
+   * All factories start in parallel, so tokens passed here must not depend on
+   * each other mid-construction (see the concurrency caveat on `resolve`).
    */
   async resolveAll<T extends ServiceToken[]>(...tokens: T): Promise<{ [K in keyof T]: T[K] extends ServiceToken ? unknown : never }> {
     const results = await Promise.all(tokens.map((t) => this.resolve(t)));
@@ -188,7 +230,14 @@ export class Container {
 
   // -- Disposal --
 
-  /** Dispose the container and all disposable services. */
+  /**
+   * Dispose the container and all disposable services.
+   *
+   * Disposal is duck-typed: any cached instance exposing a `dispose()`
+   * method is awaited. Every disposer runs even when earlier ones throw;
+   * failures are collected and re-thrown together as an AggregateError so a
+   * single faulty service cannot leak the others' resources.
+   */
   async dispose(): Promise<void> {
     this.disposed = true;
     const errors: Error[] = [];
@@ -216,7 +265,11 @@ export class Container {
 // ---- Plugin loader ----
 
 /**
- * Load a plugin module and register its services on the container.
+ * Load a plugin and let it register services on the container.
+ *
+ * Accepts either a bare plugin function or a `{ default }` module namespace
+ * so callers can pass the result of a dynamic `import()` directly without
+ * unwrapping it first.
  */
 export async function loadPlugin(ctx: Container, plugin: Plugin | PluginModule): Promise<void> {
   if (typeof plugin === "function") {
@@ -229,7 +282,8 @@ export async function loadPlugin(ctx: Container, plugin: Plugin | PluginModule):
 }
 
 /**
- * Load multiple plugins in order.
+ * Load multiple plugins strictly in order. Sequential (not parallel) loading
+ * lets later plugins assume the registrations of earlier ones.
  */
 export async function loadPlugins(ctx: Container, plugins: Array<Plugin | PluginModule>): Promise<void> {
   for (const plugin of plugins) {

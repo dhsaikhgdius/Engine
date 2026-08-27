@@ -1,5 +1,10 @@
 // Scene assembler — converts a SceneLayout into an ordered sequence
 // of Stage operations that a Director agent can execute.
+//
+// Assembly is pure and total: it never throws, never mutates the layout, and
+// never drops objects. It assumes the validator already reported structural
+// problems, so a questionable layout still assembles — the resulting plan is
+// only as good as its input.
 
 import type { SceneLayout, AssemblyPlan, StageOperation, Vec3 } from "./types";
 
@@ -11,6 +16,12 @@ import type { SceneLayout, AssemblyPlan, StageOperation, Vec3 } from "./types";
  * 3. Furniture and props
  * 4. Lighting
  * 5. Cameras last
+ *
+ * The ordering matters because downstream execution is sequential and
+ * non-transactional: parents must exist before children reference them, and
+ * cameras go last so framing decisions see the finished set. Ambient lights
+ * are split into `setAmbientLight` (a scene-wide setting) rather than
+ * `addLight` (a placed object) because the Stage models them differently.
  */
 export function assembleScene(layout: SceneLayout): AssemblyPlan {
   const operations: StageOperation[] = [];
@@ -64,6 +75,12 @@ export function assembleScene(layout: SceneLayout): AssemblyPlan {
 
 /**
  * Sort objects by dependency: children after parents, structural before decorative.
+ *
+ * Parent ordering runs a fixpoint loop per category: each pass emits every
+ * object whose parent is already placed, until a pass makes no progress.
+ * Whatever remains (orphaned parentId, or a parent in a different category)
+ * is appended as-is instead of being dropped — a mis-parented object on
+ * stage is recoverable, a silently missing one is not.
  */
 function sortObjectsByDependency(objects: SceneLayout["objects"]): SceneLayout["objects"] {
   const structural = objects.filter((o) =>

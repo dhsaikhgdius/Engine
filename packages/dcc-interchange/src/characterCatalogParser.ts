@@ -1,3 +1,13 @@
+/**
+ * Shared parser for character catalog JSON (generated manifests under
+ * assets/library) into validated ModelLibraryItem entries.
+ *
+ * Catalog files are treated as untrusted input even though they ship with the
+ * repo: entries are dropped (never "fixed") when required metadata is missing
+ * or malformed, and every asset URL must resolve inside the configured asset
+ * root — the URL checks below are the defense against a manifest smuggling
+ * path traversal or external fetches into the workbench.
+ */
 import type { MixamoCharacterMetadata, ModelLibraryItem } from "./modelLibraryCatalog";
 import { isRecord } from "@director/protocol/primitives";
 
@@ -17,13 +27,24 @@ export type CharacterCatalogEntry = {
 };
 
 interface CharacterCatalogParserOptions {
+  /** URL prefix every accepted asset must live under (e.g. "/assets/library/..."). */
   assetRoot: string;
   modelExtension: RegExp;
   thumbnailExtension: RegExp;
+  /** Permit ":" in paths for catalogs whose file names legitimately contain it; off by default because ":" also introduces URL schemes. */
   allowColonInPaths?: boolean;
+  /** Require thumbnails to be absolute (already under assetRoot) instead of resolving relative paths. */
   thumbnailRequiresAbsolute?: boolean;
+  /** Derive the stable item id; returning null rejects the entry. */
   resolveId: (entry: CharacterCatalogEntry, fileName: string) => string | null;
+  /** Optional extra search aliases surfaced to the library UI. */
   aliases?: (id: string, name: string, fileName: string) => string[];
+  /**
+   * Duplicate resolution: "url-last" lets later manifest entries override
+   * earlier ones for the same model URL (regeneration appends fixes), while
+   * "id-url-first" keeps the first claim on an id/url and ignores the rest
+   * (merged catalogs must not clobber each other).
+   */
   deduplicateBy: "url-last" | "id-url-first";
 }
 
@@ -31,10 +52,15 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+// -0 and 0 compare equal but serialize differently through some JSON paths;
+// normalizing keeps catalog output byte-stable across regenerations.
 function normalizeFiniteNumber(value: number) {
   return Object.is(value, -0) ? 0 : value;
 }
 
+// Only Mixamo-type rigs with a plausible bone budget are accepted; the
+// 512-name cap bounds memory for a hostile manifest. Returning null rejects
+// the whole entry — a character without a valid rig cannot be animated.
 function parseRig(value: unknown): MixamoCharacterMetadata["rig"] | null {
   if (!isRecord(value) || value.type !== "mixamo") return null;
   if (!Number.isInteger(value.boneCount) || (value.boneCount as number) < 1) return null;
@@ -79,6 +105,14 @@ function parseMetadata(entry: CharacterCatalogEntry): MixamoCharacterMetadata | 
   };
 }
 
+/**
+ * Validate and resolve one catalog asset URL. Rejects anything that could
+ * escape the asset root or smuggle a different origin: backslashes, query
+ * strings, fragments, protocol-relative "//", URL schemes (":" unless
+ * explicitly allowed), and — after percent-decoding — "." or ".." path
+ * segments. Extension is checked against the resolved URL so a model URL
+ * cannot masquerade as a thumbnail.
+ */
 function localAssetUrl(
   value: unknown,
   extension: RegExp,
@@ -121,6 +155,10 @@ function fileNameFromUrl(url: string) {
   }
 }
 
+// All-or-nothing per entry: a character item without a resolvable model,
+// thumbnail, AND full metric metadata is dropped, because a partially
+// described character would break placement (height/ground offset) or the
+// library UI (thumbnail) downstream.
 function parseItem(entry: CharacterCatalogEntry, options: CharacterCatalogParserOptions): ModelLibraryItem | null {
   const modelUrl = localAssetUrl(entry.modelUrl ?? entry.url, options.modelExtension, options);
   const thumbnailUrl = localAssetUrl(

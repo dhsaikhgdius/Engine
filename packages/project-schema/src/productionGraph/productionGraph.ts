@@ -1,3 +1,14 @@
+/**
+ * Deterministic identity, ordering, canonicalization, and query helpers for
+ * the production graph.
+ *
+ * Everything here is engineered for reproducibility: node ids embed
+ * percent-encoded source ids (reversible, transport-safe), edge ids are
+ * content hashes of (kind, from, to, role), and canonical JSON sorts both
+ * object keys and graph arrays. Two independently produced graphs of the same
+ * project therefore share one fingerprint, which is what makes graph diffing
+ * and revision pinning trustworthy.
+ */
 import { compareText } from "@director/protocol/primitives";
 import { sha256HexSync } from "../directorProjectRevision";
 import {

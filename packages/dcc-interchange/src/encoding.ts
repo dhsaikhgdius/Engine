@@ -1,6 +1,18 @@
 /**
+ * Base64 helpers shared by the interchange adapters (e.g. the Director
+ * manifest embedded in USDA `customLayerData`).
+ *
+ * Implemented on btoa/atob + TextEncoder rather than Node's Buffer so the
+ * exact same code runs in the browser workbench and in the gateway. btoa
+ * only accepts latin-1, so UTF-8 text must round-trip through an explicit
+ * byte encoding first — never call btoa on raw user strings.
+ */
+
+/**
  * Encode a UTF-8 string as a base64 string.
- * Processes in 32 KiB chunks to avoid stack overflow on large inputs.
+ * Processes in 32 KiB chunks because `String.fromCharCode(...bytes)` spreads
+ * the bytes as call arguments, and engines cap argument counts — one big
+ * spread would throw RangeError on multi-megabyte manifests.
  *
  * @param value - The string to encode.
  * @returns A base64-encoded representation.

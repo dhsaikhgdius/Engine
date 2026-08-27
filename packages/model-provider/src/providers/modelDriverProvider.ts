@@ -1,3 +1,10 @@
+/**
+ * Adapter from the canonical wire ModelDriver to the public ModelProvider
+ * surface. All built-in providers funnel through this file, so the high-level
+ * chat()/streamChat() semantics (message flattening, timeout handling, finish
+ * reason mapping) are defined exactly once regardless of the underlying API
+ * protocol.
+ */
 import type { ChatChunk, ChatMessage, ChatOptions, ChatResult, ModelDescriptor, ModelProvider } from "../types";
 import type {
   ModelCompletion,
@@ -15,7 +22,16 @@ type DriverProviderOptions = {
   timeoutMs: number;
 };
 
-/** Builds the public provider API over one canonical wire driver. */
+/**
+ * Builds the public provider API over one canonical wire driver.
+ *
+ * `complete`/`stream` pass straight through (the caller owns the request
+ * shape and cancellation); `chat`/`streamChat` add the convenience layer:
+ * plain-string messages, an injected system prompt, and a provider-level
+ * timeout composed with the caller's AbortSignal. A driver without native
+ * streaming still satisfies `stream`/`streamChat` by degrading to one
+ * buffered completion.
+ */
 export function createModelDriverProvider({
   descriptor,
   driver,
@@ -44,6 +60,9 @@ export function createModelDriverProvider({
   };
 }
 
+// Lifts plain chat strings into the canonical content-array request shape.
+// Optional fields are spread conditionally so the wire request never carries
+// explicit `undefined` keys (some providers reject them).
 function toCompletionRequest(
   defaultModel: string,
   messages: readonly ChatMessage[],
@@ -77,6 +96,10 @@ function toCompletionRequest(
   };
 }
 
+// Flattens the canonical completion for chat() callers: text blocks join to
+// one string, tool calls keep only successfully parsed object arguments
+// (malformed JSON degrades to {} — chat() consumers are not equipped to
+// handle raw strings; the low-level API preserves them).
 function toChatResult(completion: ModelCompletion): ChatResult {
   const toolCalls = completion.message.content
     .filter((item): item is ModelToolCallContent => item.type === "tool-call")
@@ -110,6 +133,20 @@ function toChatFinishReason(reason: ModelFinishReason): ChatResult["finishReason
   return "stop";
 }
 
+/**
+ * Push-to-pull bridge: the driver reports deltas via callbacks, but
+ * streamChat consumers want an AsyncIterable. Chunks are buffered in a queue
+ * and the generator sleeps on a `wake` promise between pushes.
+ *
+ * The final chunk reconciles buffered stream text against the completed
+ * message (`finalText.startsWith(streamedText)` → emit only the missing
+ * tail) so consumers that concatenate deltas never see duplicated text, even
+ * when a driver returns a fuller final message than it streamed. Tool calls
+ * are only emitted on that final chunk, with raw string arguments, because
+ * partial tool-call JSON is useless mid-stream. If the consumer abandons the
+ * iterator early, the `finally` block aborts the underlying request instead
+ * of letting it run to completion unobserved.
+ */
 async function* streamDriverChat(
   driver: ModelDriver,
   request: ModelCompletionRequest,
@@ -200,6 +237,14 @@ async function withRequestTimeout<T>(
   }
 }
 
+/**
+ * Composes the caller's AbortSignal with the provider timeout into a single
+ * signal. Abort reasons are distinguishable downstream: caller aborts forward
+ * their original reason, the timer produces a TimeoutError, and an abandoned
+ * stream produces an AbortError. `dispose` must always run to clear the timer
+ * and detach the listener, or long-lived caller signals would accumulate
+ * listeners across requests.
+ */
 function requestTimeout(sourceSignal: AbortSignal | undefined, timeoutMs: number) {
   const controller = new AbortController();
   const forwardAbort = () => controller.abort(sourceSignal?.reason);

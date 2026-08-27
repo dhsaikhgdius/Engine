@@ -1,5 +1,14 @@
 // Scene planner — converts natural language into a structured SceneLayout.
 // Uses a ModelProvider (any LLM) to generate the layout via JSON mode.
+//
+// The planner treats the model as untrusted twice over:
+// 1. Prompt-injection: the scene request is fenced inside <SCENE_REQUEST>
+//    tags and sanitized so embedded text cannot re-open the data block or
+//    override the system prompt.
+// 2. Output shape: the response is coerced field-by-field with defaults
+//    (see parseLayoutJson) rather than schema-rejected, so a partially
+//    malformed answer still yields a usable layout. The only hard failure
+//    is output from which no balanced JSON object can be recovered.
 
 import type { ModelProvider } from "@director/model-provider";
 import type { SceneLayout, ScenePipelineInput, SceneValidationIssue } from "./types";
@@ -50,12 +59,19 @@ const SCENE_PLANNER_USER_TEMPLATE = (input: ScenePipelineInput): string => {
 
 interface PlannerResult {
   layout: SceneLayout;
+  /** Verbatim model output, kept for debugging bad layouts after the fact. */
   rawResponse: string;
+  /** Advisory planner-level findings (empty scene, very large scene); never fatal. */
   warnings?: SceneValidationIssue[];
 }
 
 /**
  * Plan a scene layout using a model provider.
+ *
+ * Low temperature (0.3) keeps placements reproducible-ish across retries
+ * while leaving room for naming/描述 variety. Throws only when the response
+ * contains no recoverable JSON object — that error carries a truncated raw
+ * excerpt so operators can see what the model actually said.
  */
 export async function planScene(
   provider: ModelProvider,
@@ -158,6 +174,15 @@ function parseJsonTolerant(raw: string): unknown {
   }
 }
 
+/**
+ * Coerce raw model JSON into a SceneLayout. Deliberately forgiving: every
+ * field falls back to a sane default (`Number(undefined)` cases resolve via
+ * `??` first), unknown kinds degrade to "prop"/"ambient", and missing arrays
+ * become empty. The strictness lives in the downstream validator, which
+ * reports issues instead of losing the model's work. Only an explicit,
+ * unsupported `version` field is a hard error, because that signals a layout
+ * written for a different contract rather than sloppy output.
+ */
 function parseLayoutJson(raw: string): SceneLayout {
   const parsed = parseJsonTolerant(raw) as Record<string, unknown>;
 
@@ -224,6 +249,7 @@ function parseLayoutJson(raw: string): SceneLayout {
   };
 }
 
+/** Unknown kinds degrade to "prop" — render something rather than reject the layout. */
 function validateKind(kind: unknown): SceneLayout["objects"][0]["kind"] {
   const valid = ["floor", "wall", "ceiling", "door", "window", "furniture", "light", "prop", "character", "camera", "custom"];
   if (typeof kind === "string" && valid.includes(kind)) {
@@ -232,6 +258,7 @@ function validateKind(kind: unknown): SceneLayout["objects"][0]["kind"] {
   return "prop";
 }
 
+/** Unknown light types degrade to "ambient", the only type needing no transform. */
 function validateLightType(type: unknown): "ambient" | "directional" | "point" | "spot" {
   const valid = ["ambient", "directional", "point", "spot"];
   if (typeof type === "string" && valid.includes(type)) {
@@ -240,6 +267,12 @@ function validateLightType(type: unknown): "ambient" | "directional" | "point" |
   return "ambient";
 }
 
+/**
+ * Post-parse guarantees the caller can rely on: an explicit room override in
+ * the input always wins over whatever the model chose, and a request that
+ * asked for cameras never comes back camera-less (a 35mm eye-height default
+ * looking into the room centre is injected when the model omitted them).
+ */
 function applyDefaults(layout: SceneLayout, input: ScenePipelineInput): SceneLayout {
   if (input.room) {
     layout.room = { ...input.room };

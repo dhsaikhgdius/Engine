@@ -1,3 +1,17 @@
+/**
+ * Engine scene import contract: bringing an existing Unreal / Unity / Godot
+ * scene INTO Director (the engine analogue of the Blender scene import).
+ *
+ * Key difference from the Blender flow: transforms arrive already in
+ * Director's convention. The engine-side exporter owns the basis conversion
+ * because only it can query the engine's transform APIs; the manifest still
+ * declares which per-provider linear map was applied and the superRefine
+ * pins it, so a package claiming the wrong convention for its provider is
+ * rejected instead of importing with silently wrong axes. Review discipline
+ * matches the other import surfaces: preview → plan with conflicts-as-data →
+ * revision-guarded apply, with typed warn-and-omit records for anything the
+ * plan leaves behind.
+ */
 import { z } from "zod";
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectRevision";
 import { directorTransformSchema } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectSchema";
