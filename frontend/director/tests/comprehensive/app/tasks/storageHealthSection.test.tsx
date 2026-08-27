@@ -151,9 +151,107 @@ describe("storageHealthClient", () => {
     );
     const outcome = await sweepStorageGc(plan.planId);
     expect(outcome.deletedCount).toBe(2);
+    expect(outcome.skippedByReason).toBeUndefined();
     const [path, init] = mocks.fetch.mock.calls.at(-1)!;
     expect(path).toBe("/api/storage/gc/sweep");
     expect(JSON.parse(String(init?.body))).toEqual({ planId: "plan-9", confirm: "plan-9" });
+  });
+
+  it("parses typed skip reason counts on sweep outcome and recentSweeps", async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        result: {
+          planId: "plan-skip",
+          sweptAt: "2026-08-25T12:01:00.000Z",
+          replayed: false,
+          deletedCount: 1,
+          reclaimedBytes: 1024,
+          skippedCount: 2,
+          skippedByReason: {
+            becameReachable: 1,
+            modifiedSincePlan: 1,
+            alreadyAbsent: 0,
+            deleteFailed: 0,
+          },
+          skipped: [
+            { key: "jobs/a.bin", code: "became-reachable" },
+            { key: "jobs/b.bin", code: "modified-since-plan" },
+          ],
+        },
+      }),
+    );
+    const outcome = await sweepStorageGc("plan-skip");
+    expect(outcome).toMatchObject({
+      deletedCount: 1,
+      skippedCount: 2,
+      skippedByReason: { becameReachable: 1, modifiedSincePlan: 1, alreadyAbsent: 0, deleteFailed: 0 },
+    });
+    expect(outcome.skipped).toHaveLength(2);
+
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(
+        200,
+        healthBody({
+          recentSweeps: [
+            {
+              planId: "plan-skip",
+              sweptAt: "2026-08-25T12:01:00.000Z",
+              deletedCount: 1,
+              reclaimedBytes: 1024,
+              skippedCount: 2,
+              skippedByReason: {
+                becameReachable: 1,
+                modifiedSincePlan: 1,
+                alreadyAbsent: 0,
+                deleteFailed: 0,
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    const health = await fetchStorageHealth();
+    expect(health.recentSweeps[0]).toMatchObject({
+      skippedCount: 2,
+      skippedByReason: { becameReachable: 1, modifiedSincePlan: 1 },
+    });
+  });
+
+  it("accepts older sweep outcomes and recentSweeps without skip reason stanzas", async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        result: {
+          planId: "legacy-plan",
+          sweptAt: "2026-08-25T12:01:00.000Z",
+          replayed: false,
+          deletedCount: 1,
+          reclaimedBytes: 512,
+          skippedCount: 0,
+        },
+      }),
+    );
+    const outcome = await sweepStorageGc("legacy-plan");
+    expect(outcome.skippedByReason).toBeUndefined();
+    expect(outcome.skipped).toBeUndefined();
+
+    mocks.fetch.mockResolvedValueOnce(
+      jsonResponse(
+        200,
+        healthBody({
+          recentSweeps: [
+            {
+              planId: "legacy-plan",
+              sweptAt: "2026-08-25T12:01:00.000Z",
+              deletedCount: 1,
+              reclaimedBytes: 512,
+            },
+          ],
+        }),
+      ),
+    );
+    const health = await fetchStorageHealth();
+    expect(health.recentSweeps[0]?.skippedCount).toBeUndefined();
+    expect(health.recentSweeps[0]?.skippedByReason).toBeUndefined();
   });
 
   it("formats byte counts compactly", () => {
@@ -216,9 +314,106 @@ describe("StorageHealthSection", () => {
     // The explicit confirm button names exactly what it deletes.
     await user.click(screen.getByRole("button", { name: "确认清扫 2 个对象（2.0 KB）" }));
     expect(await screen.findByText("已清扫 2 个对象，回收 2.0 KB")).toBeTruthy();
+    // Clean sweeps do not invent a skip claim.
+    expect(screen.queryByText(/跳过/)).toBeNull();
     // The section refreshed health after the sweep.
     const healthCalls = mocks.fetch.mock.calls.filter(([path]) => path === "/api/storage/health");
     expect(healthCalls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("surfaces typed skip reason counts after a partial sweep and on recentSweeps", async () => {
+    const user = userEvent.setup();
+    let healthCalls = 0;
+    mocks.fetch.mockImplementation(async (path, init) => {
+      if (path === "/api/storage/health") {
+        healthCalls += 1;
+        if (healthCalls === 1) {
+          return jsonResponse(
+            200,
+            healthBody({
+              recentSweeps: [
+                {
+                  planId: "plan-prior",
+                  sweptAt: "2026-08-25T11:00:00.000Z",
+                  deletedCount: 1,
+                  reclaimedBytes: 512,
+                  skippedCount: 1,
+                  skippedByReason: {
+                    becameReachable: 0,
+                    modifiedSincePlan: 0,
+                    alreadyAbsent: 1,
+                    deleteFailed: 0,
+                  },
+                },
+              ],
+            }),
+          );
+        }
+        return jsonResponse(
+          200,
+          healthBody({
+            recentSweeps: [
+              {
+                planId: "plan-skip",
+                sweptAt: "2026-08-25T12:01:00.000Z",
+                deletedCount: 1,
+                reclaimedBytes: 1024,
+                skippedCount: 2,
+                skippedByReason: {
+                  becameReachable: 1,
+                  modifiedSincePlan: 1,
+                  alreadyAbsent: 0,
+                  deleteFailed: 0,
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (path === "/api/storage/gc/plan") {
+        return jsonResponse(200, {
+          plan: {
+            planId: "plan-skip",
+            plannedAt: "2026-08-25T12:00:00.000Z",
+            expiresAt: "2026-08-25T12:15:00.000Z",
+            examined: 4,
+            sweep: { count: 3, bytes: 3072, byReason: { unreachable: 2, retentionExpired: 1 } },
+          },
+        });
+      }
+      if (path === "/api/storage/gc/sweep") {
+        expect(JSON.parse(String(init?.body))).toEqual({ planId: "plan-skip", confirm: "plan-skip" });
+        return jsonResponse(200, {
+          result: {
+            planId: "plan-skip",
+            sweptAt: "2026-08-25T12:01:00.000Z",
+            replayed: false,
+            deletedCount: 1,
+            reclaimedBytes: 1024,
+            skippedCount: 2,
+            skippedByReason: {
+              becameReachable: 1,
+              modifiedSincePlan: 1,
+              alreadyAbsent: 0,
+              deleteFailed: 0,
+            },
+          },
+        });
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+
+    render(<StorageHealthSection />);
+    // Recent sweep row carries skip honesty, not delete-only copy.
+    expect(await screen.findByText(/跳过 1 个 · 已不存在 1/)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "生成清扫计划（试运行）" }));
+    await user.click(screen.getByRole("button", { name: "确认清扫 3 个对象（3.0 KB）" }));
+    expect(
+      await screen.findByText("已清扫 1 个对象，回收 1.0 KB；跳过 2 个 · 重新可达 1 · 计划后已改写 1"),
+    ).toBeTruthy();
+    // Refreshed health replaces the prior recent-sweep skip summary.
+    expect(await screen.findByText(/跳过 2 个 · 重新可达 1 · 计划后已改写 1/)).toBeTruthy();
   });
 
   it("renders typed capacity omissions and write-probe failures instead of hiding them", async () => {
