@@ -4,7 +4,7 @@ import {
   filmRunSchema,
   type FilmRun,
 } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
-import { filmRunReceiptSchema } from "../../../../../../packages/protocol/src/filmRunReceipt";
+import { filmRunReceiptSchema, type FilmRunReceipt } from "../../../../../../packages/protocol/src/filmRunReceipt";
 import { directorControlPlaneFetch } from "../../editor/api/directorControlPlaneClient";
 
 const filmRunEnvelopeSchema = z.strictObject({ run: filmRunSchema, receipt: filmRunReceiptSchema.optional() });
@@ -14,7 +14,12 @@ const filmRunListEnvelopeSchema = z.strictObject({
 });
 
 /** A film production run monitored by the tray. */
-export type DirectorMonitoredProductionRun = { source: "film"; run: FilmRun };
+export type DirectorMonitoredProductionRun = {
+  source: "film";
+  run: FilmRun;
+  /** Live receipt with probed `artifacts.storagePresence`; omitted until the detail fetch succeeds. */
+  receipt?: FilmRunReceipt;
+};
 
 async function filmJsonRequest(path: string, init: RequestInit = {}) {
   const response = await directorControlPlaneFetch(path, init);
@@ -30,14 +35,28 @@ async function filmJsonRequest(path: string, init: RequestInit = {}) {
   return body;
 }
 
+async function fetchDirectorMonitoredProductionRun(run: FilmRun): Promise<DirectorMonitoredProductionRun> {
+  try {
+    const body = filmRunEnvelopeSchema.parse(await filmJsonRequest(`/api/film/runs/${encodeURIComponent(run.id)}`));
+    return { source: "film", run: body.run, receipt: body.receipt };
+  } catch {
+    // Keep the list snapshot when the live receipt fetch fails so the tray
+    // stays usable and can retry on the next poll.
+    return { source: "film", run };
+  }
+}
+
 /**
  * Fetches film production runs for the task tray.
+ *
+ * Lists durable runs, then attaches a live receipt (with probed artifact
+ * `storagePresence`) from `GET /api/film/runs/:id` for each entry.
  *
  * @returns Film production runs tagged for the tray.
  */
 export async function listDirectorMonitoredProductionRuns(): Promise<DirectorMonitoredProductionRun[]> {
   const filmRuns = filmRunListEnvelopeSchema.parse(await filmJsonRequest("/api/film/runs")).runs;
-  return filmRuns.map((run) => ({ source: "film" as const, run }));
+  return Promise.all(filmRuns.map(fetchDirectorMonitoredProductionRun));
 }
 
 /**
@@ -52,7 +71,8 @@ export async function cancelDirectorMonitoredProductionRun(
   const body = await filmJsonRequest(`/api/film/runs/${encodeURIComponent(entry.run.id)}/cancel`, {
     method: "POST",
   });
-  return { source: entry.source, run: filmRunEnvelopeSchema.parse(body).run };
+  const parsed = filmRunEnvelopeSchema.parse(body);
+  return { source: entry.source, run: parsed.run, receipt: parsed.receipt };
 }
 
 /**

@@ -9,7 +9,14 @@ import {
   emptyFilmRunUsage,
   type FilmRunUsageScope,
 } from "../../../../../../packages/protocol/src/filmRunUsage";
+import type { FilmRunArtifactsStoragePresence } from "../../../../../../packages/protocol/src/filmRunReceipt";
 import type { DirectorMonitoredProductionRun } from "./productionRunTaskClient";
+
+/** One absent-artifact warning line for the task tray (zh-CN source copy). */
+export type ProductionRunAbsentArtifactWarning = {
+  key: string;
+  message: string;
+};
 
 /** zh-CN source labels for durable film-run usage scopes (receipt / tray). */
 const FILM_RUN_USAGE_SCOPE_LABELS: Record<FilmRunUsageScope, string> = {
@@ -256,4 +263,61 @@ export function formatProductionRunUsageLine(
     return `${label} ${line.summary.total_tokens} tokens · ${durationSec}s${failure}`;
   }
   return `${label} ${line.summary.sample_count} ${translate("次")} · ${durationSec}s${failure}`;
+}
+
+/**
+ * Returns whether the run claims any artifact paths worth probing.
+ *
+ * @param entry - The monitored production run.
+ */
+export function productionRunMayHaveClaimedArtifacts(entry: DirectorMonitoredProductionRun) {
+  const run = entry.run;
+  if (run.finalVideoPath !== null || run.timelinePath !== null) return true;
+  return (run.scenes ?? []).some((scene) => scene.videoPath !== null);
+}
+
+/**
+ * Returns whether the tray should show a pending artifact-presence state.
+ * True when the live receipt has not loaded yet but the run claims artifacts.
+ *
+ * @param entry - The monitored production run.
+ */
+export function productionRunArtifactPresencePending(entry: DirectorMonitoredProductionRun) {
+  return entry.receipt === undefined && productionRunMayHaveClaimedArtifacts(entry);
+}
+
+/**
+ * Formats zh-CN warning lines for absent probed artifacts on a live receipt.
+ *
+ * @param presence - Live `artifacts.storagePresence` from a film run receipt.
+ */
+export function formatProductionRunAbsentArtifactWarnings(
+  presence: FilmRunArtifactsStoragePresence,
+): ProductionRunAbsentArtifactWarning[] {
+  const warnings: ProductionRunAbsentArtifactWarning[] = [];
+  if (presence.finalVideo === "absent") {
+    warnings.push({ key: "finalVideo", message: "成片文件已不在存储中" });
+  }
+  if (presence.timeline === "absent") {
+    warnings.push({ key: "timeline", message: "时间线文件已不在存储中" });
+  }
+  for (const scene of presence.sceneVideos) {
+    if (scene.presence !== "absent") continue;
+    warnings.push({
+      key: `scene-${scene.sceneIdx}`,
+      message: `场景 ${scene.sceneIdx + 1} 渲染视频已不在存储中`,
+    });
+  }
+  return warnings;
+}
+
+/**
+ * Returns absent-artifact warnings for a monitored production run.
+ * Empty when the receipt is not loaded, has no probe, or every byte is present.
+ *
+ * @param entry - The monitored production run.
+ */
+export function productionRunAbsentArtifactWarnings(entry: DirectorMonitoredProductionRun) {
+  const presence = entry.receipt?.artifacts.storagePresence;
+  return presence ? formatProductionRunAbsentArtifactWarnings(presence) : [];
 }
