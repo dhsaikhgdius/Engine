@@ -8,7 +8,10 @@ import {
   mediaRelinkHonestySuffix,
   parseMediaRelinkHonesty,
 } from "../../../../src/comprehensive/editor/media/mediaRelinkPresentation";
-import type { MediaVerifyProbeItem, MediaVerifyStorageStanza } from "../../../../src/comprehensive/editor/media/mediaVerifyPresentation";
+import type {
+  MediaVerifyProbeItem,
+  MediaVerifyStorageStanza,
+} from "../../../../src/comprehensive/editor/media/mediaVerifyPresentation";
 
 const identity = (value: string) => value;
 
