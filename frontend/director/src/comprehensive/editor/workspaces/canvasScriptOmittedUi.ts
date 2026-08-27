@@ -7,10 +7,7 @@
  * @module canvas-script-omitted-ui
  */
 
-import {
-  DIRECTOR_FOUNTAIN_OMITTED_CODES,
-  type DirectorFountainOmittedCode,
-} from "../interchange/fountain";
+import { DIRECTOR_FOUNTAIN_OMITTED_CODES, type DirectorFountainOmittedCode } from "../interchange/fountain";
 
 /** Codes the apply_plan executor may stamp on `result.omitted`. */
 export const CANVAS_SCRIPT_OMITTED_CODES = ["board_capacity", ...DIRECTOR_FOUNTAIN_OMITTED_CODES] as const;
