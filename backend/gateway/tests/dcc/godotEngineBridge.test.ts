@@ -423,7 +423,11 @@ describe("engine bridge Godot animation bake wiring", () => {
     expect(result.report.godot?.importedLightCount).toBe(2);
     expect(result.report.godot?.omittedLightCount).toBe(2);
     expect(result.report.godot?.omittedLights).toEqual([
-      expect.objectContaining({ directorId: "light-rect", code: "light_rect_area_unsupported", lightType: "rect-area" }),
+      expect.objectContaining({
+        directorId: "light-rect",
+        code: "light_rect_area_unsupported",
+        lightType: "rect-area",
+      }),
       expect.objectContaining({ directorId: "light-amb-2", code: "light_ambient_duplicate", lightType: "ambient" }),
     ]);
   });
