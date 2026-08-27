@@ -33,6 +33,8 @@ const UNITY_OMITTED_LIGHT_LABELS: Record<string, string> = {
 const UNITY_OMITTED_MATERIAL_LABELS: Record<string, string> = {
   pipeline_unsupported: "管线不支持材质回退",
   shader_missing: "缺少 Lit/Standard 着色器",
+  no_mesh_target: "材质无网格目标",
+  unsupported_channels: "不支持的材质通道",
 };
 
 const UNITY_OMITTED_SHOT_LABELS: Record<string, string> = {

@@ -29,10 +29,16 @@ never used as an exchange format and is never parsed by the Director Gateway.
     channel is recorded as a structured entry in the engine report instead of
     a free-text log line.
   - **Materials** from the Director PBR manifest map onto URP/Lit or Built-in
-    Standard depending on the detected render pipeline (HDRP warns and uses the
-    closest fallback). glTF metallic-roughness scalars and hashed package
-    textures (Gateway-bundled PNG/JPEG/TGA/EXR slots) are bound; unsupported
-    material graphs and unbound slots warn-and-omit.
+    Standard depending on the detected render pipeline (HDRP and other
+    unsupported pipelines warn-and-omit as typed `omittedMaterials[]` with
+    `pipeline_unsupported` / `shader_missing`). glTF metallic-roughness
+    scalars and hashed package textures (Gateway-bundled PNG/JPEG/TGA/EXR
+    slots) are bound; channels without a faithful Lit/Standard binding
+    (`transmission` / `ior` / `clearcoat` / unbound metallic-roughness or
+    alpha maps) and Director materials authored onto empty GameObjects
+    (no `Renderer`) surface as typed `omittedMaterials[]` with
+    `unsupported_channels` / `no_mesh_target` plus matching
+    `omittedMaterialCount` (connector ≥0.3.4) — never silently dropped.
   - **Cameras** become physical Unity cameras: focal length plus the Director
     sensor-gate crop drive `Camera.usePhysicalProperties`, sensor size, and FOV;
     look-at targets resolve against scene entities; orthographic scale converts.

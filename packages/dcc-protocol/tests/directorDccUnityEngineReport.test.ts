@@ -163,6 +163,69 @@ describe("Director Unity engine report details", () => {
     ).toBe(false);
   });
 
+  it("accepts no_mesh_target and unsupported_channels material omit codes (connector ≥0.3.4)", () => {
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedMaterialCount: 2,
+        omittedMaterials: [
+          {
+            directorId: "prop-empty",
+            code: "no_mesh_target",
+            renderPipeline: "urp",
+            reason:
+              "Object prop-empty: a Director material was authored but the payload has no mesh Renderer to apply it to (warn-and-omit code: no_mesh_target).",
+          },
+          {
+            directorId: "prop-glass",
+            code: "unsupported_channels",
+            renderPipeline: "built-in",
+            reason:
+              "Object prop-glass: Director material channels transmission have no faithful URP/Built-in Lit binding; omitted (warn-and-omit code: unsupported_channels).",
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects unknown omitted-material codes and extra omitted-material fields", () => {
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedMaterials: [
+          {
+            directorId: "prop-x",
+            code: "parent_unavailable",
+            renderPipeline: "urp",
+            reason: "not a code the Unity material path owns",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedMaterials: [
+          {
+            directorId: "prop-hdrp",
+            code: "pipeline_unsupported",
+            renderPipeline: "hdrp",
+            reason: "HDRP unsupported",
+            severity: "warning",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorDccUnityEngineReportDetailsSchema.safeParse({
+        ...UNITY_DETAILS,
+        omittedMaterials: [
+          { directorId: "", code: "no_mesh_target", renderPipeline: "urp", reason: "empty id must fail" },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects omittedShots whose length disagrees with omittedShotCount", () => {
     expect(
       directorDccUnityEngineReportDetailsSchema.safeParse({

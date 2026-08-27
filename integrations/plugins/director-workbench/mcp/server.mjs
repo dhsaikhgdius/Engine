@@ -138596,9 +138596,15 @@ var directorUnityOmittedLightSchema = external_exports.strictObject({
   lightType: external_exports.string().trim().min(1).max(80),
   reason: external_exports.string().trim().min(1).max(600)
 });
+var directorUnityOmittedMaterialCodeSchema = external_exports.enum([
+  "pipeline_unsupported",
+  "shader_missing",
+  "no_mesh_target",
+  "unsupported_channels"
+]);
 var directorUnityOmittedMaterialSchema = external_exports.strictObject({
   directorId: external_exports.string().trim().min(1).max(200),
-  code: external_exports.enum(["pipeline_unsupported", "shader_missing"]),
+  code: directorUnityOmittedMaterialCodeSchema,
   renderPipeline: external_exports.enum(["built-in", "urp", "hdrp", "custom"]),
   reason: external_exports.string().trim().min(1).max(600)
 });
@@ -138654,9 +138660,12 @@ var directorDccUnityEngineReportDetailsSchema = external_exports.strictObject({
    */
   omittedMaterialCount: external_exports.number().int().nonnegative().max(1e5).optional(),
   /**
-   * Typed warn-and-omit records for whole-fallback material failures
-   * (`pipeline_unsupported`, `shader_missing`). Optional for older
-   * connectors; when present, length must equal omittedMaterialCount.
+   * Typed warn-and-omit records for material failures / channel omits
+   * (`pipeline_unsupported`, `shader_missing`, `no_mesh_target`,
+   * `unsupported_channels`). Optional for older connectors; when present,
+   * length must equal omittedMaterialCount. Connector ≥0.3.4 stamps
+   * `no_mesh_target` / `unsupported_channels` in addition to whole-fallback
+   * codes from 0.3.2.
    */
   omittedMaterials: external_exports.array(directorUnityOmittedMaterialSchema).max(1024).optional(),
   /**
