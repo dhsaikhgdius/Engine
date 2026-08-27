@@ -2213,6 +2213,7 @@ const server = createServer(async (request, response) => {
         revocations: collaborationRuntime.revocations,
         hub: collaborationHub,
         rateLimiter: collaborationRuntime.inviteRateLimiter,
+        inviteRateLimitPerMinute: collaborationRuntime.inviteRateLimitPerMinute,
       })
     )
       return;
