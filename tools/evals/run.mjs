@@ -104,9 +104,11 @@ async function fetchJson(url, options) {
 }
 
 async function bootstrapToken() {
+  // Anonymous bootstrap is denied by default; present the isolated UI origin
+  // (trusted via DIRECTOR_UI_PORT) like the real workbench tab does.
   const { status, body } = await fetchJson(`${GATEWAY_URL}/te-man/director/agent/bootstrap`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", origin: UI_URL },
     body: "{}",
   });
   if (status !== 200 || typeof body.browserToken !== "string") {
