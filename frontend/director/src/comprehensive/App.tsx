@@ -25,7 +25,6 @@ import {
 import { Bot, Boxes, ChevronDown, Film, Languages, LayoutDashboard, Minimize2, Moon, Sun } from "lucide-react";
 import { LanguageProvider, useLanguage } from "./i18n/language";
 import { RetryableWorkspace } from "./app/errors/RetryableWorkspace";
-import { WorkspaceErrorBoundary } from "./app/errors/WorkspaceErrorBoundary";
 import { HelpMenu } from "./app/help/HelpMenu";
 import { DirectorTaskTrayMenu } from "./app/tasks/DirectorTaskTrayMenu";
 import { GlobalTooltipLayer } from "./app/layout/GlobalTooltipLayer";
@@ -73,10 +72,8 @@ const WORKSPACE_TABS = [
   ["agent", Bot, "Agent 工作区"],
 ] as const;
 
-const StageCaptureHost = lazy(async () => {
-  const module = await import("./editor/canvas/StageCaptureHost");
-  return { default: module.StageCaptureHost };
-});
+const loadStageCaptureHost = () =>
+  import("./editor/canvas/StageCaptureHost").then((module) => ({ default: module.StageCaptureHost }));
 
 const DirectorInterchangeMenu = lazy(async () => {
   const module = await import("./editor/interchange/DirectorInterchangeMenu");
@@ -439,11 +436,7 @@ function DirectorApp() {
         </Suspense>
       ) : null}
       {!comfyUiEmbedded && activeAppWorkspace !== "stage" && captureHostNeeded ? (
-        <WorkspaceErrorBoundary title="片场截图视口加载失败">
-          <Suspense fallback={null}>
-            <StageCaptureHost />
-          </Suspense>
-        </WorkspaceErrorBoundary>
+        <RetryableWorkspace title="片场截图视口加载失败" loader={loadStageCaptureHost} />
       ) : null}
       {activeAppWorkspace === "stage" &&
       timelineEnabled &&

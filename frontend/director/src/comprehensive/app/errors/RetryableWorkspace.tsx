@@ -14,7 +14,8 @@ function WorkspaceLoading({ label }: { label: string }) {
 
 type RetryableWorkspaceProps<T extends ComponentType<any>> = {
   title: string;
-  loadingLabel: string;
+  /** Omit for invisible hosts (e.g. capture bridges) that must not paint a loading state. */
+  loadingLabel?: string;
   loader: () => Promise<{ default: T }>;
   children?: never;
 } & ComponentProps<T>;
@@ -33,7 +34,7 @@ export function RetryableWorkspace<T extends ComponentType<any>>({
   const LazyComponent = useMemo(() => lazy(loader), [attempt, loader]);
   return (
     <WorkspaceErrorBoundary title={title} onRetry={() => setAttempt((value) => value + 1)}>
-      <Suspense fallback={<WorkspaceLoading label={loadingLabel} />}>
+      <Suspense fallback={loadingLabel ? <WorkspaceLoading label={loadingLabel} /> : null}>
         <LazyComponent key={attempt} {...props} />
       </Suspense>
     </WorkspaceErrorBoundary>
