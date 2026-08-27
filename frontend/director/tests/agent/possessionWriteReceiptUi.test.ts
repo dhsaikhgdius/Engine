@@ -10,6 +10,8 @@ import {
   parsePossessionScopeRejection,
   parsePossessionTargetAmbiguity,
   parsePossessionWriteReceipt,
+  possessionReasonLabel,
+  possessionReasonRecoveryHint,
   presentDirectorPossessionFeedback,
 } from "../../src/agent/possessionWriteReceiptUi";
 import {
@@ -47,7 +49,7 @@ describe("possession write-depth receipt presentation", () => {
     expect(notice.detail).toContain("actions[0] set_character_motion.object_id");
   });
 
-  it("formats scope rejection with possessed ids, operation, and reason", () => {
+  it("formats scope rejection with possessed ids, operation, zh reason label, and recovery hint", () => {
     const notice = formatPossessionScopeRejectionNotice({
       session_id: "agent-1",
       possessed_object_ids: ["hero"],
@@ -58,8 +60,15 @@ describe("possession write-depth receipt presentation", () => {
     });
     expect(notice.title).toBe("占有范围拒绝写入");
     expect(notice.detail).toContain("已占有：hero");
-    expect(notice.detail).toContain("reason=target_not_possessed");
-    expect(notice.detail).toContain("target=villain");
+    expect(notice.detail).toContain("操作：author");
+    expect(notice.detail).toContain("原因：目标不在占有范围内");
+    expect(notice.detail).toContain("动作：set_character_motion");
+    expect(notice.detail).toContain("目标：villain");
+    expect(notice.detail).toContain("建议：");
+    expect(notice.detail).not.toContain("reason=target_not_possessed");
+    expect(possessionReasonLabel("target_not_possessed")).toBe("目标不在占有范围内");
+    expect(possessionReasonRecoveryHint("target_not_possessed")).toContain("possessed_object_ids");
+    expect(possessionReasonLabel("not_a_possession_reason")).toBeNull();
   });
 
   it("parses gateway possession payloads and presents the matching notice", () => {
