@@ -128,6 +128,9 @@ The public tool paths are:
 /api/tools/director_workbench
 /api/tools/director_creative
 /api/tools/stage_video
+/api/tools/blender_native
+/api/tools/director_dcc
+/api/tools/director_game
 ```
 
 The body may contain the operation directly. `session_id` and `target_token` are envelope fields; all
