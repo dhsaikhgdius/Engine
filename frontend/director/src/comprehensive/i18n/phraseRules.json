@@ -282,6 +282,10 @@
   { "pattern": "^本地 (\\d+) 个组件$", "replacement": "$1 local components" },
   { "pattern": "^(\\d+) 个场景$", "replacement": "$1 scenes" },
   {
+    "pattern": "^场景 (\\d+) 渲染视频已不在存储中$",
+    "replacement": "Scene $1 rendered video is no longer in storage"
+  },
+  {
     "pattern": "^远端修订 (.+?)，正在核对$",
     "replacement": "Remote revision $1 · syncing"
   },
