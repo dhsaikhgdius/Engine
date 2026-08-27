@@ -37,6 +37,7 @@ import {
   Repeat,
   RotateCcw,
   Scissors,
+  ShieldCheck,
   SkipBack,
   SkipForward,
   Trash2,
@@ -53,6 +54,7 @@ import {
 } from "lucide-react";
 import {
   dispatchCreativeWorkspaceMediaRelink,
+  dispatchCreativeWorkspaceMediaVerify,
   dispatchCreativeWorkspaceOperations,
   type CreativeWorkspaceOperationInput,
 } from "../../../agent/dispatchCreativeWorkspaceOperations";
@@ -74,6 +76,9 @@ import {
 } from "../timeline/timecode";
 import { probeCreativeMediaFile } from "../media/creativeMediaProbe";
 import type { CreativeMediaPlaybackPreference } from "../media/creativeMediaEngineering";
+import { MediaVerifyResultsList } from "../media/MediaVerifyResultsList";
+import { creativeWorkspaceMediaVerifyResultSchema } from "../../../../../../packages/protocol/src/creativeWorkspaceProtocol";
+import type { MediaVerifyUiState } from "../media/mediaVerifyPresentation";
 import { formatMediaRelinkSuccessMessage, parseMediaRelinkHonesty } from "../media/mediaRelinkPresentation";
 import { persistentCreativeMediaLibrary } from "../media/persistentCreativeMediaStore";
 import { MediaTranscriptionPanel } from "../media/MediaTranscriptionPanel";
@@ -802,6 +807,7 @@ export function VideoEditorWorkspace() {
   const [exportError, setExportError] = useState("");
   const [exportResult, setExportResult] = useState("");
   const [importMessage, setImportMessage] = useState("");
+  const [mediaVerifyState, setMediaVerifyState] = useState<MediaVerifyUiState>({ status: "idle" });
   const [projectBusy, setProjectBusy] = useState(false);
   // Loading a project replaces the timeline and clears undo history, so a
   // non-empty timeline requires an inline confirmation before the file loads.
@@ -1202,6 +1208,10 @@ export function VideoEditorWorkspace() {
     const timer = window.setTimeout(() => setImportMessage(""), IMPORT_MESSAGE_TTL_MS);
     return () => window.clearTimeout(timer);
   }, [importMessage, projectBusy]);
+
+  useEffect(() => {
+    setMediaVerifyState({ status: "idle" });
+  }, [selectedClipId]);
 
   useEffect(() => {
     const referencedIds = new Set(tracks.flatMap((track) => track.clips.map((clip) => clip.mediaId)));
@@ -1649,6 +1659,27 @@ export function VideoEditorWorkspace() {
         t,
       }),
     );
+  }
+
+  async function verifySelectedMediaBytes() {
+    if (!selectedMedia) return;
+    const mediaIds = [selectedMedia.id];
+    setMediaVerifyState({ status: "pending", mediaIds });
+    setImportMessage(t("正在验证字节…"));
+    const receipt = await dispatchCreativeWorkspaceMediaVerify(mediaIds);
+    if (!receipt.ok) {
+      setMediaVerifyState({ status: "error", message: receipt.error });
+      setImportMessage(receipt.error || t("字节验证失败"));
+      return;
+    }
+    const parsed = creativeWorkspaceMediaVerifyResultSchema.safeParse(receipt.execution.result);
+    if (!parsed.success) {
+      setMediaVerifyState({ status: "error", message: t("字节验证回执无效") });
+      setImportMessage(t("字节验证回执无效"));
+      return;
+    }
+    setMediaVerifyState({ status: "done", result: parsed.data });
+    setImportMessage(t("字节验证完成"));
   }
 
   async function attachSelectedMediaProxy(file: File) {
@@ -2837,6 +2868,14 @@ export function VideoEditorWorkspace() {
                   >
                     <Film aria-hidden size={13} /> {t("关联代理")}
                   </button>
+                  <button
+                    aria-busy={mediaVerifyState.status === "pending"}
+                    disabled={mediaVerifyState.status === "pending"}
+                    onClick={() => void verifySelectedMediaBytes()}
+                    type="button"
+                  >
+                    <ShieldCheck aria-hidden size={13} /> {t("验证字节")}
+                  </button>
                   {selectedPersistentMedia &&
                   !selectedPersistentMedia.proxyOf &&
                   (selectedPersistentMedia.kind === "audio" || selectedPersistentMedia.kind === "video") ? (
@@ -2846,6 +2885,7 @@ export function VideoEditorWorkspace() {
                     </button>
                   ) : null}
                 </div>
+                <MediaVerifyResultsList state={mediaVerifyState} t={t} />
               </section>
             ) : null}
             {inspectorTab === "properties" ? (
