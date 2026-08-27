@@ -8,7 +8,12 @@ describe("filterEngineSceneWarningsWithoutTypedEchoes", () => {
       "The 6 engine scene nodes import as one flattened Director scene object; per-node editing requires the planned engine round trip.";
     expect(
       filterEngineSceneWarningsWithoutTypedEchoes(
-        [rollReason, "Camera Main focal length was clamped to Director's 12–200 mm range.", hierarchyReason, "  keep me  "],
+        [
+          rollReason,
+          "Camera Main focal length was clamped to Director's 12–200 mm range.",
+          hierarchyReason,
+          "  keep me  ",
+        ],
         {
           omitted: [
             { sourceId: "Main", code: "camera_roll", reason: rollReason },

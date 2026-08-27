@@ -23,10 +23,7 @@ import {
   previewDirectorEngineSceneImport,
   uploadDirectorEngineScenePackage,
 } from "../../api/dccEngineSceneClient";
-import {
-  EngineSceneOmittedList,
-  filterEngineSceneWarningsWithoutTypedEchoes,
-} from "./engineSceneOmittedUi";
+import { EngineSceneOmittedList, filterEngineSceneWarningsWithoutTypedEchoes } from "./engineSceneOmittedUi";
 
 /** In-engine exporter每引擎的获取提示(zh-CN source strings)。 */
 const EXPORTER_HINTS: Record<DirectorDccEngineId, string> = {
@@ -162,7 +159,9 @@ export function EngineSceneImportSection({ engine }: { engine: DirectorDccEngine
             <span className="is-ready">
               <PackageOpen aria-hidden size={11} /> {t("包已校验")}
             </span>
-            <small data-i18n-user-content>{`${manifest.source.projectName} · ${manifest.source.sceneName} · ${manifest.engineVersion}`}</small>
+            <small
+              data-i18n-user-content
+            >{`${manifest.source.projectName} · ${manifest.source.sceneName} · ${manifest.engineVersion}`}</small>
           </div>
           <dl aria-label={t("场景包摘要")} className="director-engine-handoff-facts">
             <div>
