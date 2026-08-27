@@ -45,12 +45,11 @@ Director 前端通过 WebSocket 连接到 **Gateway**(网关,`backend/gateway/`,
 | 路径 | 用途 |
 |---|---|
 | `index.html` | 应用入口 HTML,主题切换、视口设置 |
-| `src/main.tsx` | 应用启动入口、路由分发(Research Portal / App) |
+| `src/main.tsx` | 应用启动入口 |
 | `src/index.css` | Tailwind 基础层注入 |
 | `src/agent/` | 浏览器 Agent 运行时：PTY 终端、网关桥、工作台执行器 |
 | `src/comprehensive/` | 应用主体:应用外壳、全部工作区、编辑器功能、i18n、样式 |
 | `src/dcc/` | DCC 互操作契约:Blender 导入/导出、交换格式、能力发现 |
-| `src/research/` | Research Portal 独立页面:产品文档、研究方向展示 |
 | `tsconfig.json` | 薄 `extends`，指向 `tools/tsconfig.json`，供 IDE 类型检查本目录 |
 | `tests/` | 与 `src/` 镜像的 Vitest 套件（`*.test.ts(x)`）。运行器配置为 `tools/vitest.config.ts` |
 
@@ -63,7 +62,7 @@ Director 前端通过 WebSocket 连接到 **Gateway**(网关,`backend/gateway/`,
 | 路径 | 用途 |
 |---|---|
 | `index.html` | 应用 HTML 入口,内联主题脚本(`data-theme`)、深色/浅色模式 |
-| `src/main.tsx` | 应用启动:路由至 ResearchPortal 或 App,惰性加载智能体桥接 |
+| `src/main.tsx` | 应用启动:挂载 Director App,惰性加载智能体桥接 |
 | `src/index.css` | Tailwind CSS 指令 |
 
 ---
@@ -97,22 +96,6 @@ DCC 层定义 Director 与外部 DCC 工具(如 Blender)之间的类型化契约
 | `dcc/directorDccReturnContract.ts` | DCC 返回契约:Blender 返回数据导入计划 |
 | `dcc/directorBlendSceneImportContract.ts` | Blender 场景导入选择契约 |
 | 各 `*.test.ts` 文件 | 各契约单元测试 |
-
----
-
-### `src/research/` — Research Portal 独立页面
-
-Research Portal 是一个独立页面(位于 `/research` 或 `/research/docs`),展示产品研究方向、文档和协议步骤。
-
-| 路径 | 用途 |
-|---|---|
-| `research/ResearchPortal.tsx` | Research Portal 主组件(679 行):首页/文档页、中/英切换、协议步骤 |
-| `research/researchContent.ts` | 内容加载器:从 JSON 读取多语言文案 |
-| `research/researchContent.json` | Research Portal 多语言内容数据 |
-| `research/researchLocale.ts` | 语言偏好持久化(localStorage) |
-| `research/researchPortal.css` | Research Portal 样式 |
-| `tests/research/ResearchPortal.test.tsx` | Research Portal 组件测试 |
-| `tests/research/researchLocale.test.ts` | 语言偏好测试 |
 
 ---
 
@@ -744,7 +727,6 @@ npm run dev
 | `http://127.0.0.1:5175/?workspace=gallery` | 画廊(重定向至 Stage) |
 | `http://127.0.0.1:5175/?theme=light` | 浅色模式 |
 | `http://127.0.0.1:5175/?theme=dark` | 深色模式 |
-| `http://127.0.0.1:5175/research` | Research Portal |
 
 ### 构建
 
