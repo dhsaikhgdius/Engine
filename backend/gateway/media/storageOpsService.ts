@@ -445,9 +445,7 @@ export class StorageOpsService {
         throw new Error("The probe object was not readable immediately after a successful put.");
       }
       if (readBack.byteLength !== payload.byteLength) {
-        throw new Error(
-          `The probe object read back ${readBack.byteLength} bytes; ${payload.byteLength} were written.`,
-        );
+        throw new Error(`The probe object read back ${readBack.byteLength} bytes; ${payload.byteLength} were written.`);
       }
       for (let offset = 0; offset < payload.byteLength; offset += 1) {
         if (readBack[offset] !== payload[offset]) {
