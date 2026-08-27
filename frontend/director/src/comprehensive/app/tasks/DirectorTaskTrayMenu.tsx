@@ -32,8 +32,11 @@ import {
   productionRunCanCancel,
   productionRunDisplayName,
   productionRunFailureReason,
+  productionRunIntraPhaseDetail,
   productionRunIsFinished,
+  productionRunLatestMessage,
   productionRunProgressPercent,
+  productionRunShowsLatestMessage,
   productionRunStage,
   productionRunStatus,
   productionRunStatusLabel,
@@ -112,6 +115,8 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
   const status = productionRunStatus(entry);
   const stage = productionRunStage(entry);
   const percent = productionRunProgressPercent(entry);
+  const intraPhaseDetail = productionRunIntraPhaseDetail(entry);
+  const latestMessage = productionRunShowsLatestMessage(entry) ? productionRunLatestMessage(entry) : null;
   const failureReason = status === "failed" ? productionRunFailureReason(entry) : null;
   const finished = productionRunIsFinished(entry);
   const usageLines = productionRunUsageLines(entry);
@@ -137,10 +142,12 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
           <span style={{ width: `${percent}%` }} />
         </div>
         <span className="task-tray-progress-value">
-          {stage.current}/{stage.total}
+          {percent}% · {stage.current}/{stage.total}
         </span>
       </div>
       <p className="task-tray-item-phase">{`${stage.label} · 第 ${stage.current}/${stage.total} 阶段`}</p>
+      {intraPhaseDetail ? <p className="task-tray-item-phase">{intraPhaseDetail}</p> : null}
+      {latestMessage ? <p className="task-tray-item-phase">{latestMessage}</p> : null}
       {usageLines.length > 0 ? (
         <ul aria-label={t("本运行用量")} className="task-tray-item-usage">
           {usageLines.map((line) => (

@@ -1,5 +1,9 @@
 import type { AgentUsageSummary } from "../../../../../../packages/protocol/src/agentObservabilityProtocol";
-import { filmRunProgress, type FilmRunPhase } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
+import {
+  filmRunIntraPhaseSceneProgress,
+  filmRunProgress,
+  type FilmRunPhase,
+} from "../../../../../../packages/protocol/src/filmPipelineProtocol";
 import {
   FILM_RUN_USAGE_SCOPES,
   emptyFilmRunUsage,
@@ -131,6 +135,42 @@ export function productionRunProgressPercent(entry: DirectorMonitoredProductionR
   const fraction = filmRunProgress(entry.run);
   if (fraction === null) return 0;
   return Math.max(0, Math.min(100, Math.round(fraction * 100)));
+}
+
+/**
+ * Returns the latest durable progress message from the film run event log,
+ * matching the unified progress adapter (`run.events.at(-1)?.message`).
+ *
+ * @param entry - The monitored production run.
+ */
+export function productionRunLatestMessage(entry: DirectorMonitoredProductionRun): string | null {
+  const message = entry.run.events.at(-1)?.message?.trim();
+  return message || null;
+}
+
+/**
+ * Returns intra-phase scene completion copy during plan-scenes or render.
+ * Null when the run is outside those phases or has no scenes yet.
+ *
+ * @param entry - The monitored production run.
+ */
+export function productionRunIntraPhaseDetail(entry: DirectorMonitoredProductionRun): string | null {
+  const progress = filmRunIntraPhaseSceneProgress(entry.run);
+  if (!progress) return null;
+  if (progress.phase === "plan-scenes") {
+    return `已规划 ${progress.completed}/${progress.total} 场景`;
+  }
+  return `已渲染 ${progress.completed}/${progress.total} 场景`;
+}
+
+/**
+ * Returns whether the tray should show the latest durable event message.
+ *
+ * @param entry - The monitored production run.
+ */
+export function productionRunShowsLatestMessage(entry: DirectorMonitoredProductionRun) {
+  const status = entry.run.status;
+  return status === "queued" || status === "running" || status === "waiting_approval";
 }
 
 /**
