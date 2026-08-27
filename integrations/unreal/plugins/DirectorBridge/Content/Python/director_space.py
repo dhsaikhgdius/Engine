@@ -42,6 +42,7 @@ def quat_from_euler_xyz(rx: float, ry: float, rz: float) -> Quat:
 
 
 def quat_multiply(a: Sequence[float], b: Sequence[float]) -> Quat:
+    """Hamilton product of two (x,y,z,w) quaternions (a applied after b)."""
     ax, ay, az, aw = a
     bx, by, bz, bw = b
     return [
@@ -53,6 +54,7 @@ def quat_multiply(a: Sequence[float], b: Sequence[float]) -> Quat:
 
 
 def quat_normalize(q: Sequence[float]) -> Quat:
+    """Unit-normalize; a zero quaternion becomes identity rather than NaN."""
     length = math.sqrt(sum(component * component for component in q))
     if length == 0.0:
         return [0.0, 0.0, 0.0, 1.0]
@@ -60,6 +62,7 @@ def quat_normalize(q: Sequence[float]) -> Quat:
 
 
 def quat_rotate_vector(q: Sequence[float], v: Sequence[float]) -> Vec3:
+    """Rotate a vector by a unit quaternion without building a matrix."""
     qx, qy, qz, qw = q
     vx, vy, vz = v
     # v' = v + 2 * cross(q.xyz, cross(q.xyz, v) + w * v)
@@ -74,10 +77,12 @@ def quat_rotate_vector(q: Sequence[float], v: Sequence[float]) -> Vec3:
 
 
 def vec_sub(left: Sequence[float], right: Sequence[float]) -> Vec3:
+    """Component-wise vector difference."""
     return [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
 
 
 def vec_cross(left: Sequence[float], right: Sequence[float]) -> Vec3:
+    """Right-handed cross product."""
     return [
         left[1] * right[2] - left[2] * right[1],
         left[2] * right[0] - left[0] * right[2],
@@ -86,10 +91,12 @@ def vec_cross(left: Sequence[float], right: Sequence[float]) -> Vec3:
 
 
 def vec_length_sq(value: Sequence[float]) -> float:
+    """Squared length (cheap degeneracy checks without a sqrt)."""
     return value[0] * value[0] + value[1] * value[1] + value[2] * value[2]
 
 
 def vec_normalize(value: Sequence[float]) -> Vec3:
+    """Unit-normalize; the zero vector stays zero rather than NaN."""
     length = math.sqrt(vec_length_sq(value))
     if length == 0.0:
         return [0.0, 0.0, 0.0]
@@ -178,16 +185,19 @@ def director_point_to_unreal(point: Sequence[float]) -> Vec3:
 
 
 def unreal_point_to_director(point: Sequence[float]) -> Vec3:
+    """Inverse of director_point_to_unreal."""
     x, y, z = point
     return [y / UNITS_PER_METER, z / UNITS_PER_METER, -x / UNITS_PER_METER]
 
 
 def director_direction_to_unreal(direction: Sequence[float]) -> Vec3:
+    """Axis map only -- unit directions carry no centimetre scaling."""
     x, y, z = direction
     return [-z, x, y]
 
 
 def unreal_direction_to_director(direction: Sequence[float]) -> Vec3:
+    """Inverse of director_direction_to_unreal."""
     x, y, z = direction
     return [y, z, -x]
 
@@ -199,16 +209,19 @@ def director_quat_to_unreal(q: Sequence[float]) -> Quat:
 
 
 def unreal_quat_to_director(q: Sequence[float]) -> Quat:
+    """Inverse of director_quat_to_unreal."""
     x, y, z, w = q
     return quat_normalize([-y, -z, x, w])
 
 
 def director_scale_to_unreal(scale: Sequence[float]) -> Vec3:
+    """Scale components permute with the axis map; handedness does not apply."""
     x, y, z = scale
     return [z, x, y]
 
 
 def unreal_scale_to_director(scale: Sequence[float]) -> Vec3:
+    """Inverse of director_scale_to_unreal."""
     x, y, z = scale
     return [y, z, x]
 
@@ -223,6 +236,7 @@ def director_transform_to_unreal(transform: dict) -> dict:
 
 
 def unreal_transform_to_director(transform: dict) -> dict:
+    """Inverse of director_transform_to_unreal for the return/export path."""
     return {
         "location": unreal_point_to_director(transform["location"]),
         "rotationQuaternion": unreal_quat_to_director(transform["rotationQuaternion"]),
@@ -262,16 +276,18 @@ SELF_TEST_CASES = [
 
 
 def _close(left: Sequence[float], right: Sequence[float], tolerance: float = 1e-9) -> bool:
+    """Component-wise absolute comparison for self-test vectors."""
     return len(left) == len(right) and all(abs(a - b) <= tolerance for a, b in zip(left, right))
 
 
 def _quat_close(left: Sequence[float], right: Sequence[float], tolerance: float = 1e-9) -> bool:
-    # q and -q encode the same rotation.
+    """Rotation equality up to sign; q and -q encode the same rotation."""
     dot = sum(a * b for a, b in zip(left, right))
     return abs(abs(dot) - 1.0) <= tolerance
 
 
 def run_self_test() -> int:
+    """Verify the golden conversion cases mirrored by the Gateway tests."""
     failures = []
     for case in SELF_TEST_CASES:
         if "director_point" in case:

@@ -42,6 +42,7 @@ class DirectorTimebaseError(ValueError):
 
 
 def _reduced_rate(numerator: int, denominator: int) -> Optional[Rate]:
+    """GCD-reduce a rational rate; None outside the sane 1-240 fps window."""
     if numerator <= 0 or denominator <= 0:
         return None
     if numerator > MAX_RATE_COMPONENT or denominator > MAX_RATE_COMPONENT:
@@ -53,6 +54,12 @@ def _reduced_rate(numerator: int, denominator: int) -> Optional[Rate]:
 
 
 def _decimal_rate(value: float) -> Optional[Rate]:
+    """Recover an exact rational rate from a decimal fps value.
+
+    Well-known NTSC rates (23.976...) snap to their canonical fractions
+    (24000/1001) before falling back to a decimal-digits denominator, so a
+    float that lost precision in JSON still round-trips exactly.
+    """
     if not math.isfinite(value) or value < 1.0 or value > 240.0:
         return None
     for rate in COMMON_RATES:
@@ -131,10 +138,12 @@ def ticks_per_frame(rate: Rate) -> int:
 
 
 def _drop_frame_count(rate: Rate) -> int:
+    """Timecode numbers dropped per minute (2 at 29.97, scaled for 59.94)."""
     return round(nominal_fps(rate) * (2 / 30))
 
 
 def _frames_per_24_hours(rate: Rate, drop_frame: bool) -> int:
+    """Frame count in a 24-hour timecode day, accounting for drop-frame skips."""
     nominal = nominal_fps(rate)
     if not drop_frame:
         return nominal * 60 * 60 * 24
@@ -143,6 +152,12 @@ def _frames_per_24_hours(rate: Rate, drop_frame: bool) -> int:
 
 
 def _to_timecode_frame_number(frame: int, rate: Rate, drop_frame: bool) -> int:
+    """Real frame index to the displayed drop-frame timecode frame number.
+
+    SMPTE drop-frame skips two timecode numbers each minute except every
+    tenth minute; this reverses that bookkeeping so display math can use
+    plain division afterwards.
+    """
     if not drop_frame:
         return frame
     nominal = nominal_fps(rate)
@@ -260,6 +275,7 @@ SELF_TEST_CASES = [
 
 
 def run_self_test() -> int:
+    """Verify the golden timecode cases mirrored by the Gateway tests."""
     failures = []
     for case in SELF_TEST_CASES:
         if case["kind"] == "normalize":

@@ -77,6 +77,7 @@ def classify_shots(storyboard, spawned_ids, camera_ids, warnings: list) -> tuple
     omitted: list = []
 
     def omit(shot_id: str, camera_id, code: str, reason: str) -> None:
+        """Record a structured shot omission plus its prose warning together."""
         omitted.append({"shotId": shot_id, "code": code, "cameraDirectorId": camera_id, "reason": reason})
         warnings.append(reason)
 
@@ -273,6 +274,7 @@ def build_sequence(unreal, manifest: dict, bake, shots: list, spawned: dict, cam
     bindings = {}
 
     def binding_for(director_id: str, actor):
+        """One possessable binding per Director entity, reused across tracks."""
         if director_id not in bindings:
             bindings[director_id] = sequence.add_possessable(actor)
         return bindings[director_id]

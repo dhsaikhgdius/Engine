@@ -38,6 +38,7 @@ COMMAND = "command"
 
 
 def _is_finite_number(value) -> bool:
+    """Finite int/float check; bools and NaN/inf are rejected (JSON allows them)."""
     return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and value not in (
         float("inf"),
         float("-inf"),
@@ -45,6 +46,7 @@ def _is_finite_number(value) -> bool:
 
 
 def _valid_transform(transform) -> bool:
+    """Shape-check a camera frame transform (3+4+3 finite components)."""
     if not isinstance(transform, dict):
         return False
     for key, size in (("location", 3), ("rotationQuaternion", 4), ("scale", 3)):
