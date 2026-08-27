@@ -75,6 +75,7 @@ import {
 import { resolveSectionForNode, type DirectorBoardSection } from "./canvasSections";
 import { appendBoardNodeToTimeline } from "./canvasTimelineBridge";
 import { persistDirectorMediaItem, useDirectorMediaLibrary, type DirectorMediaItem } from "./directorMediaLibrary";
+import { formatCanvasScriptImportMessage } from "./canvasScriptOmittedUi";
 import {
   DIRECTOR_MEDIA_DRAG_TYPE,
   getDirectorMediaDragSessionId,
@@ -98,6 +99,8 @@ type CanvasStatusMessage = {
   text: string;
   severity: CanvasStatusSeverity;
   autoDismiss: boolean;
+  /** Optional structured lines (e.g. typed script-import omit codes). */
+  details?: string[];
 };
 type CanvasPipelineProgress = {
   completed: number;
@@ -263,12 +266,17 @@ export function CanvasWorkspace() {
   const nodeById = useMemo(() => new Map(boardNodes.map((node) => [node.id, node])), [boardNodes]);
   const dagAnalysis = useMemo(() => analyzeDirectorCanvasDag(boardNodes, boardEdges), [boardEdges, boardNodes]);
   const latestPipelineRun = boardPipelineRuns.at(-1) ?? null;
-  const showImportMessage = (text: string, severity: CanvasStatusSeverity, options: { autoDismiss?: boolean } = {}) => {
+  const showImportMessage = (
+    text: string,
+    severity: CanvasStatusSeverity,
+    options: { autoDismiss?: boolean; details?: string[] } = {},
+  ) => {
     setComfyNodesHintVisible(false);
     setImportMessage({
       text,
       severity,
       autoDismiss: options.autoDismiss ?? severity !== "error",
+      ...(options.details?.length ? { details: options.details } : {}),
     });
   };
   /**
@@ -578,10 +586,13 @@ export function CanvasWorkspace() {
       omitted: Array<{ code: string; subject: string; reason: string }>;
       warnings: string[];
     };
-    const segments = [`${t("已导入剧本")} · ${result.nodes_added} ${t("个分镜")}`];
-    if (result.omitted.length) segments.push(`${result.omitted.length} ${t("项已省略")}`);
-    if (result.warnings.length) segments.push(result.warnings[0]!);
-    showImportMessage(segments.join(" · "), result.omitted.length || result.warnings.length ? "info" : "success");
+    // Surface typed omitted[] codes (board_capacity + Fountain importer) with
+    // zh-CN labels — same vocabulary as the Agent receipt, not only a count.
+    const status = formatCanvasScriptImportMessage(result, t);
+    showImportMessage(status.text, status.severity, {
+      details: status.details.length ? status.details : undefined,
+      autoDismiss: status.details.length ? false : undefined,
+    });
   }
 
   async function importScriptFile(file: File) {
@@ -1092,11 +1103,20 @@ export function CanvasWorkspace() {
         ) : null}
         {importMessage ? (
           <div
-            className={`creative-board-import-status is-${importMessage.severity}`}
+            className={`creative-board-import-status is-${importMessage.severity}${importMessage.details?.length ? " is-detailed" : ""}`}
             role={importMessage.severity === "error" ? "alert" : "status"}
           >
             <div className="creative-board-status-content">
               <span>{importMessage.text}</span>
+              {importMessage.details?.length ? (
+                <ul aria-label={t("剧本导入省略")} className="creative-board-status-omit-list">
+                  {importMessage.details.map((line) => (
+                    <li data-i18n-user-content key={line}>
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {pipelineRunning && pipelineProgress ? (
                 <div className="creative-board-pipeline-progress">
                   <span>
