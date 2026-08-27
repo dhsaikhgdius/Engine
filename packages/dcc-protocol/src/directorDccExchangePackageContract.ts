@@ -1,3 +1,15 @@
+/**
+ * DCC exchange package contract: the portable bundle a DCC export job
+ * produces (project snapshot + glb/usda artifacts + bundled asset files) and
+ * the typed result describing what was written.
+ *
+ * The package is designed to be verified, not trusted: every file carries a
+ * SHA-256 and byte length, relative paths are constrained against zip-slip,
+ * and the manifest revalidates the embedded project's referential integrity
+ * so a package cannot smuggle a broken snapshot to the receiving DCC. The
+ * `sourceRevision` pins the exact project revision the package was built
+ * from, letting re-import detect concurrent edits.
+ */
 import { z } from "zod";
 import { directorProjectSchema } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectSchema";
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectRevision";
@@ -9,12 +21,14 @@ export const DIRECTOR_DCC_EXCHANGE_PACKAGE_CONTRACT = "director-dcc-exchange-pac
 /** Contract identifier for the DCC exchange package result. */
 export const DIRECTOR_DCC_EXCHANGE_RESULT_CONTRACT = "director-dcc-exchange-result-v1" as const;
 
+/** Lowercase hex SHA-256; uppercase digests are rejected so hash comparison stays byte-exact. */
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const exchangeMimeTypeByFormat = {
   glb: "model/gltf-binary",
   usda: "model/vnd.usda",
 } as const satisfies Record<z.infer<typeof directorDccPortableExchangeFormatSchema>, string>;
 
+/** Returns each repeated value with the index of its later occurrence, so issues point at the duplicate, not the original. */
 function duplicateEntries(values: readonly string[]) {
   const seen = new Set<string>();
   return values.flatMap((value, index) => {
@@ -24,6 +38,12 @@ function duplicateEntries(values: readonly string[]) {
   });
 }
 
+/**
+ * Package-relative path that cannot escape the extraction root (zip-slip
+ * defense): no absolute paths, no backslashes (Windows separators would
+ * bypass the segment checks), and no "."/".." segments. Enforced at parse
+ * time so a hostile manifest is rejected before any file is written.
+ */
 const safeRelativePathSchema = z
   .string()
   .trim()
@@ -60,7 +80,21 @@ export const directorDccExchangeAssetSchema = z.strictObject({
 /**
  * The manifest for a DCC exchange package, carrying the full project snapshot
  * plus references to all exported format artifacts and bundled assets.
- * Validates referential integrity across project entities, formats, and assets.
+ *
+ * The superRefine block revalidates the embedded project's referential
+ * integrity (duplicate ids, dangling assetRefId / activeCameraId /
+ * panoramaAssetId, character objects without character models) even though
+ * `directorProjectSchema` already parsed structurally: the manifest may have
+ * been produced by an out-of-tree exporter, and a receiving DCC must not
+ * import a snapshot whose references it cannot resolve. It also rejects
+ * duplicate formats, duplicate assetRefIds, and any two entries claiming the
+ * same relativePath, so extraction can never silently overwrite a file.
+ *
+ * `sourceRevision` pins the exact project revision the package was built
+ * from; re-import compares it against the live project to detect concurrent
+ * edits. `coordinateSystem` is all-literal on purpose: v1 packages are only
+ * valid in metres / Y-up / right-handed / -Z-forward, and anything else must
+ * fail parse rather than import with silently wrong axes.
  */
 export const directorDccExchangePackageManifestSchema = z
   .strictObject({
@@ -219,6 +253,15 @@ export const directorDccExchangePackageManifestSchema = z
 /**
  * The result of a DCC export job, listing all produced artifacts and assets
  * with their SHA-256 hashes for integrity verification.
+ *
+ * Unlike the manifest, paths here (`packagePath`, `manifestPath`, artifact
+ * `path`) are absolute output locations on the exporting host, not
+ * package-relative entries — the result describes what was written where,
+ * for the job runner and audit trail. `packageDigest` is the SHA-256 of the
+ * whole package archive so a consumer can verify the download in one hash
+ * before trusting any per-file digest. The superRefine enforces the same
+ * uniqueness rules as the manifest plus a format → MIME type lock, so a glb
+ * cannot masquerade as usda downstream.
  */
 export const directorDccExchangePackageResultSchema = z
   .strictObject({

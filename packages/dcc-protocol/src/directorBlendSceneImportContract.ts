@@ -1,3 +1,18 @@
+/**
+ * Blender scene import contract: bringing an arbitrary user .blend file INTO
+ * Director (the opposite direction from the roundtrip export/return flow,
+ * which only handles scenes Director itself exported).
+ *
+ * Because the source scene was never Director's, there are no stable
+ * director_ids to reconcile — the extractor manifests what Blender contains
+ * (cameras with full optics, a single GLB bundle for all renderable
+ * geometry, typed `unsupported` records for what it skipped) and plan
+ * building maps a user selection of that manifest onto create-only Director
+ * operations. Same review discipline as DCC returns: preview produces a plan
+ * with conflicts-as-data, apply consumes only a ready plan under a project
+ * revision guard, and everything left behind is recorded as typed
+ * warn-and-omit entries rather than silently dropped.
+ */
 import { z } from "zod";
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectRevision";
 import { directorTransformSchema } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectSchema";
@@ -27,6 +42,12 @@ const safeRelativePath = z
     message: "path cannot contain empty, dot, or parent segments",
   });
 
+/**
+ * One Blender camera as extracted, in Blender's own vocabulary (sensor fit,
+ * render aspect, vertical FOV). `sourceId` is the Blender-side identity used
+ * by the import selection; the plan builder converts these optics into
+ * Director's named sensor gates and clamped ranges.
+ */
 const blendCameraSchema = z.strictObject({
   sourceId: nonEmpty.max(240),
   name: nonEmpty.max(240),

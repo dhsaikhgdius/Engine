@@ -1,3 +1,23 @@
+/**
+ * Blender DCC scene contract: the `director-dcc-scene-v1` package a Director
+ * export produces for the Blender bridge, plus the coordinate-system math the
+ * exporter and return importer share.
+ *
+ * Everything in this package is expressed in wire space — Blender's
+ * right-handed Z-up frame with metres — converted from Director's
+ * right-handed Y-up frame via the linear map (x,y,z)->(x,-z,y). The mapping
+ * is stamped verbatim into `coordinateSystem` so a receiving bridge can
+ * verify it agrees on axes before touching any transform. Both conversion
+ * directions live here (and only here) so export and re-import invert each
+ * other exactly; drift between two hand-rolled copies of the basis math is
+ * the classic source of mirrored scenes.
+ *
+ * Geometry never travels in this package: objects reference Director assets
+ * by `assetRefId`/`sourcePath` and the bridge loads the actual files. That
+ * keeps the JSON package small and makes the asset resolution step
+ * (`resolveAsset`) explicit and auditable — unresolved assets become typed
+ * warnings, not silent holes.
+ */
 import { Euler, Matrix4, Quaternion, Vector3 } from "three";
 import { z } from "zod";
 import {
@@ -56,6 +76,13 @@ export const DIRECTOR_DCC_SCENE_CONTRACT = "director-dcc-scene-v1" as const;
 const finite = directorDccFiniteSchema;
 const vec3 = directorDccVec3Schema;
 
+/**
+ * One animation keyframe in wire (Blender) space. Every channel is optional
+ * because Director keyframes are sparse: a keyframe may set only a transform,
+ * only a camera look target, only pose-control values, or only a focal
+ * length. `frame` is the Director timeline frame number (frames, not
+ * seconds, so retiming stays exact under rational frame rates).
+ */
 const directorDccAnimationKeyframeSchema = z.strictObject({
   frame: finite,
   interpolation: z.enum(["step", "linear", "smooth"]),
@@ -76,6 +103,13 @@ export const directorDccAssetSchema = z.strictObject({
   message: z.string().optional(),
 });
 
+/**
+ * One scene object in the package. `id` is the Director object id and is the
+ * roundtrip key: the Blender bridge stamps it onto the created datablock so a
+ * return package can address the same Director entity. The transform is in
+ * wire (Blender) space with the scene transform already baked in; the bridge
+ * never needs Director's scene-level offset.
+ */
 const directorDccObjectSchema = z
   .strictObject({
     id: z.string(),
@@ -107,6 +141,14 @@ const directorDccObjectSchema = z
     }
   });
 
+/**
+ * One camera in the package, carrying full physical optics (sensor gate,
+ * aperture, focus distance, shutter, ISO, clip planes, anamorphic squeeze)
+ * rather than a bare FOV. Director's vertical-FOV cameras are converted to
+ * focal length + sensor millimetres at export time because that is the
+ * vocabulary Blender and other DCCs persist; converting once here keeps both
+ * sides from re-deriving optics with slightly different math.
+ */
 const directorDccCameraSchema = z.strictObject({
   id: z.string(),
   name: z.string(),
@@ -417,6 +459,13 @@ export const directorDccOperationSchema = z.discriminatedUnion("op", [
 /** A DCC operation (discover, status, export, import, preview, or apply). */
 export type DirectorDccOperation = z.infer<typeof directorDccOperationSchema>;
 
+/**
+ * Change-of-basis matrix realizing the documented linear map
+ * (x,y,z)->(x,-z,y): Director Y-up → Blender Z-up, both right-handed. Kept
+ * as a matrix (not per-component swizzling) so full transforms can be
+ * conjugated (B · M · B⁻¹) and rotation/scale convert correctly, not just
+ * translation.
+ */
 const DIRECTOR_TO_BLENDER_BASIS = new Matrix4().set(1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1);
 const BLENDER_TO_DIRECTOR_BASIS = DIRECTOR_TO_BLENDER_BASIS.clone().invert();
 
@@ -428,6 +477,7 @@ function matrixFromTransform(transform: DirectorTransform): Matrix4 {
   );
 }
 
+/** Lift the project's scene-level offset (uniform scale) into a regular transform so it can compose with object matrices. */
 function sceneAsTransform(project: DirectorProject): DirectorTransform {
   return {
     position: project.scene.position,
@@ -573,6 +623,11 @@ export interface BuildDirectorDccPackageOptions {
   frame?: number;
 }
 
+/**
+ * Convert sparse Director keyframes to wire space. Optional channels are
+ * spread conditionally so absent channels stay absent in the JSON — the
+ * bridge distinguishes "no key on this channel" from "keyed to a default".
+ */
 function animationKeyframes(
   keyframes: DirectorAnimationKeyframe[] | undefined,
   sceneTransform: DirectorTransform,

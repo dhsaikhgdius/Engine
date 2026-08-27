@@ -1,3 +1,18 @@
+/**
+ * Persistent engine editor session contract: the command/result vocabulary
+ * for a "hot" already-open engine editor (Unity, Godot, Unreal) that stays
+ * connected instead of relaunching per operation.
+ *
+ * The connector long-polls the gateway, so both sides of the exchange are
+ * typed here: the gateway pushes `editor_command` payloads keyed by a UUID
+ * `commandId`, and the connector answers with a result carrying the same id
+ * (correlation is explicit because commands complete out of band). Every
+ * payload channel is bounded — capture dimensions, code size, output tails,
+ * snapshot entity counts — because session results travel through the
+ * gateway and must never let a runaway engine flood it. `execute_code` is
+ * present in the vocabulary but only honored when the session was started
+ * with an explicit local `allow_code` grant.
+ */
 import { z } from "zod";
 import { directorDccTransformSchema } from "./directorDccSharedContract";
 import { directorEngineSceneProviderSchema } from "./directorEngineSceneImportContract";

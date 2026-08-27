@@ -1,3 +1,20 @@
+/**
+ * Engine coordinate spaces and the basis math for the real-time engine
+ * handoff (Unreal, Unity, Godot).
+ *
+ * Director's canonical space is right-handed, Y-up, metres, camera-forward
+ * -Z. Each engine's deviation from it (handedness, up axis, forward axis,
+ * unit scale) is declared once in `DIRECTOR_DCC_ENGINE_SPACES` and realized
+ * as a signed-permutation matrix, so both directions of every conversion are
+ * derived from the same single source of truth. Transforms are conjugated
+ * (B · M · B⁻¹) rather than swizzled per component, which is what makes
+ * rotations and non-uniform scales survive left-handed engines correctly.
+ *
+ * Engine return packages deliberately do NOT use engine space on the wire:
+ * connectors convert to canonical Director space at the provider boundary
+ * (`directorTransformToCanonicalDcc` and friends), so the return importer
+ * never needs to know which engine produced a package.
+ */
 import { Euler, Matrix4, Quaternion, Vector3 } from "three";
 import { z } from "zod";
 import type { DirectorTransform } from "../../../frontend/director/src/comprehensive/editor/schema/directorProject";

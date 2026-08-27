@@ -1,3 +1,8 @@
+/**
+ * Numeric primitives shared by every DCC contract. All numbers must be
+ * finite: NaN/Infinity survive JSON.stringify as `null` and would otherwise
+ * corrupt transforms silently on the other side of the wire.
+ */
 import { z } from "zod";
 
 /** Schema for a finite floating-point number used throughout DCC contracts. */
@@ -22,7 +27,10 @@ export const directorDccQuaternionSchema = z.tuple([
  * A DCC-native transform expressed as location, rotation quaternion, and scale.
  *
  * The quaternion must have a non-zero length and the scale vector must not
- * contain any zero component, enforced by the superRefine.
+ * contain any zero component, enforced by the superRefine. Both rules exist
+ * because roundtripping requires invertible matrices: a zero quaternion
+ * cannot be normalized to a rotation, and a zero scale axis collapses the
+ * matrix so decompose() on the way back cannot recover the original basis.
  */
 export const directorDccTransformSchema = z
   .strictObject({

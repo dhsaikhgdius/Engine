@@ -1,3 +1,17 @@
+/**
+ * DCC return contract: what a DCC/engine sends back to Director
+ * (`director-dcc-return-v1`) and the reviewed plan Director derives from it
+ * (`director-dcc-import-plan-v1`).
+ *
+ * The two-document split is the core safety model. A return manifest is
+ * untrusted DCC output expressed against the exported snapshot; the import
+ * plan is Director's own reviewed translation of it — Director-space
+ * transforms, optics baked into authoring limits, conflicts (stale revision,
+ * unknown ids, type mismatches) surfaced as data instead of failures, and
+ * anything declined recorded as typed warn-and-omit entries. Apply consumes
+ * only the plan, never the manifest, so nothing a DCC writes can reach the
+ * project without passing through plan building and its revision guard.
+ */
 import { z } from "zod";
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../../../frontend/director/src/comprehensive/editor/schema/directorProjectRevision";
 import {
