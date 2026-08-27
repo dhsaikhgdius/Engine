@@ -5,7 +5,10 @@ import {
   formatProductionRunUsageLine,
   productionRunCountsAsActive,
   productionRunDisplayName,
+  productionRunIntraPhaseDetail,
+  productionRunLatestMessage,
   productionRunProgressPercent,
+  productionRunShowsLatestMessage,
   productionRunStage,
   productionRunStatusLabel,
   productionRunTypeLabel,
@@ -60,6 +63,38 @@ describe("production run task presentation", () => {
     // On main without intra-phase progress this stays at the phase floor; once
     // filmRunProgress reads scenes, the tray follows the same helper.
     expect(productionRunProgressPercent(midRender)).toBe(Math.round((filmRunProgress(midRender.run) ?? 0) * 100));
+    expect(productionRunIntraPhaseDetail(midRender)).toBe("已渲染 1/2 场景");
+  });
+
+  it("projects latest durable event messages and intra-phase planning detail", () => {
+    const planning = entry({
+      source: "film",
+      run: {
+        id: "film-plan",
+        workflow: "idea-to-film",
+        status: "running",
+        phase: "plan-scenes",
+        scenes: [
+          { storyboard: [], shotSpecs: [], cameraPlan: [], videoPath: null },
+          { storyboard: null, shotSpecs: null, cameraPlan: null, videoPath: null },
+        ],
+        events: [{ at: "2026-08-13T12:00:00.000Z", stage: "plan-scenes", message: "正在规划第 2 镜" }],
+        input: { idea: "雨夜电车" },
+        createdAt: "2026-08-13T12:00:00.000Z",
+        updatedAt: "2026-08-13T12:00:00.000Z",
+        error: null,
+      },
+    });
+    expect(productionRunLatestMessage(planning)).toBe("正在规划第 2 镜");
+    expect(productionRunShowsLatestMessage(planning)).toBe(true);
+    expect(productionRunIntraPhaseDetail(planning)).toBe("已规划 1/2 场景");
+
+    const completed = entry({
+      source: "film",
+      run: { ...planning.run, status: "completed", phase: "completed", events: planning.run.events },
+    });
+    expect(productionRunShowsLatestMessage(completed)).toBe(false);
+    expect(productionRunIntraPhaseDetail(completed)).toBeNull();
   });
 
   it("projects durable per-scope usage lines and formats tray copy", () => {

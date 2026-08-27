@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDirectorPossessionWriteReceipt,
   collectPossessedObjectIds,
   describeDirectorPossessionTargetAmbiguity,
   evaluateDirectorPossessionScope,
@@ -540,6 +541,30 @@ describe("fillDirectorAuthorCharacterTargets", () => {
   it("returns the input unchanged when there is nothing to fill", () => {
     const input = { op: "undo" };
     expect(fillDirectorAuthorCharacterTargets(input, [], "hero")).toBe(input);
+  });
+});
+
+describe("buildDirectorPossessionWriteReceipt", () => {
+  it("names every auto-filled target field and the possessed character id", () => {
+    const gaps = [
+      { index: 0, action: "set_character_motion", field: "object_id" as const },
+      { index: 1, action: "batch_update_objects", field: "object_ids" as const },
+    ];
+    expect(
+      buildDirectorPossessionWriteReceipt({
+        sessionId: SESSION,
+        possessedObjectIds: ["hero"],
+        gaps,
+        filledObjectId: "hero",
+      }),
+    ).toEqual({
+      session_id: SESSION,
+      possessed_object_ids: ["hero"],
+      filled_targets: [
+        { index: 0, action: "set_character_motion", field: "object_id", object_id: "hero" },
+        { index: 1, action: "batch_update_objects", field: "object_ids", object_id: "hero" },
+      ],
+    });
   });
 });
 

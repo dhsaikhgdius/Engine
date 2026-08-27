@@ -33,7 +33,8 @@ Gateway 拒绝非 loopback 绑定。原生 CLI/MCP 客户端会自动 bootstrap 
 本地信任模式（默认）下，每个已通过升级鉴权的 socket 都以 editor 身份加入，与引入鉴权前的行为一致。
 设置 `DIRECTOR_COLLAB_ROOM_AUTH=required` 后，操作者通过 `POST /api/collab/invites` 铸造邀请
 （`{room, role, ttl_seconds}` — `role` 为 `editor` 或 `viewer`，`room` 可以是 `project-a/*` 这样的
-前缀 capability；响应包含唯一的邀请 id `jti`）。`GET /api/collab/auth` 报告当前模式。viewer 邀请
+前缀 capability；响应包含唯一的邀请 id `jti`）。`GET /api/collab/auth` 报告当前模式与配置的
+`invite_rate_limit_per_minute`（0 = 关闭），与 rooms ops 及 `/health` 协作 stanza 一致。viewer 邀请
 可以接收文档并共享 awareness，但不能写入。
 
 邀请可以通过 `POST /api/collab/invites/revoke` 吊销，参数为 `token`（按 `jti` 吊销该邀请）或
