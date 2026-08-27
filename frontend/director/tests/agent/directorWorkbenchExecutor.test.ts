@@ -1850,11 +1850,13 @@ describe("Director workbench executor", () => {
 
     useDirectorStore.getState().replaceProject({
       ...useDirectorStore.getState().project,
-      objects: useDirectorStore.getState().project.objects.map((object) =>
-        object.id === nativeObject.id
-          ? { ...object, nativeSource: { ...object.nativeSource!, provisioned: true } }
-          : object,
-      ),
+      objects: useDirectorStore
+        .getState()
+        .project.objects.map((object) =>
+          object.id === nativeObject.id
+            ? { ...object, nativeSource: { ...object.nativeSource!, provisioned: true } }
+            : object,
+        ),
     });
 
     const blenderOwned = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), {
