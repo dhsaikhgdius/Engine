@@ -100,29 +100,29 @@ really are incomplete.
 
 ## Task inventory
 
-| Path                                             | Purpose                                                                                                              |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `tasks/01-blocking-and-revision-chain.json`      | Block out two primitives, place one relative to the other, verify revision chain increments                          |
-| `tasks/02-catalog-and-camera.json`               | Discover a schema slice via `describe`, search the asset catalog, add an active camera, and capture a clean frame    |
-| `tasks/03-guard-and-error-taxonomy.json`         | Verify failure semantics: stale revision guard, strict field validation rejection, and recovery to normal operations |
-| `tasks/04-character-animation-and-ik.json`       | Create a grounded character and author pose controls, packaged motion, and IK atomically                             |
-| `tasks/05-bounded-large-scene-observation.json`  | Add a multi-object block and verify bounded spatial and hierarchy observations                                       |
-| `tasks/06-creative-workspaces-atomic-batch.json` | Exercise Canvas, Video Editor, and Gallery in one undoable Creative batch                                            |
-| `tasks/07-video-and-native-capabilities.json`    | Verify Video provider discovery and Blender native-kernel status through public tools                                |
-| `tasks/08-character-agent-possession.json`       | Bind an Agent to a character, drive it from the possessing session (with target fill-in), verify possession rejects out-of-scope author/player/pilot writes, then unbind |
-| `tasks/09-dcc-discover-and-handoff.json`         | Verify the DCC provider catalog, Blender handoff readiness, and the unknown-provider failure taxonomy                |
-| `tasks/10-transcription-contract.json`           | Verify transcription capabilities/list and the get/read failure taxonomy for unknown inputs                          |
-| `tasks/11-workbench-observe-author-smoke.json`   | Smoke the core loop: capabilities, bounded observation, author a camera, inspect it, and undo                        |
-| `tasks/12-game-slice-plan-and-playtest.json`     | Plan a typed game slice, bind Stage objects, and playtest it with a scripted input tape                              |
-| `tasks/13-game-slice-export-routes-dcc.json`     | Export a playable slice through DCC discover/status/send_to_engine routes                                            |
-| `tasks/13-whitebox-blockout-workflow.json`       | White-box blockout workflow golden                                                                                   |
-| `tasks/14-game-slice-unbound-playtest-rejects.json` | Verify playtest rejects until the player role is bound to a Stage object                                          |
-| `tasks/14-world-systems-observation.json`        | Author Living World weather/wind plus one effect, then verify the `world` observation projection                     |
-| `tasks/15-game-slice-hostfree-playtest-no-trace.json` | Host-free playtest scoring without an explicit trace                                                            |
-| `tasks/16-game-demo-fps-recipe-hostfree.json`    | Replay the fps demo recipe: discover via capabilities/describe, plan, bind hinted roles, host-free playtest to playable |
-| `tasks/16-game-slice-racing-full-loop.json`      | Full racing loop with no inline trace: plan → bind → playtest → evaluate, then `export_slice` refuses codegen and routes to `director_dcc` |
-| `tasks/17-game-demo-racing-recipe-hostfree.json` | Replay the racing demo recipe with enter/exit vehicle verbs to a literally playable receipt                          |
-| `tasks/17-game-slice-fps-full-loop.json`         | Full fps loop with no inline trace: sprint/fire/reload scored host-free, then `export_slice` refuses codegen and routes to `director_dcc` |
-| `tasks/18-game-demo-rpg-recipe-hostfree.json`    | Replay the rpg demo recipe with interact plus attack verbs to a literally playable receipt                            |
-| `tasks/19-game-demo-exploration-recipe-hostfree.json` | Replay the exploration demo recipe (walk, hop, interact with the stele) to a literally playable receipt          |
-| `tasks/20-game-demo-fighting-recipe-hostfree.json` | Replay the fighting demo recipe with attack plus dash verbs to a literally playable receipt                         |
+| Path                                                  | Purpose                                                                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tasks/01-blocking-and-revision-chain.json`           | Block out two primitives, place one relative to the other, verify revision chain increments                                                                              |
+| `tasks/02-catalog-and-camera.json`                    | Discover a schema slice via `describe`, search the asset catalog, add an active camera, and capture a clean frame                                                        |
+| `tasks/03-guard-and-error-taxonomy.json`              | Verify failure semantics: stale revision guard, strict field validation rejection, and recovery to normal operations                                                     |
+| `tasks/04-character-animation-and-ik.json`            | Create a grounded character and author pose controls, packaged motion, and IK atomically                                                                                 |
+| `tasks/05-bounded-large-scene-observation.json`       | Add a multi-object block and verify bounded spatial and hierarchy observations                                                                                           |
+| `tasks/06-creative-workspaces-atomic-batch.json`      | Exercise Canvas, Video Editor, and Gallery in one undoable Creative batch                                                                                                |
+| `tasks/07-video-and-native-capabilities.json`         | Verify Video provider discovery and Blender native-kernel status through public tools                                                                                    |
+| `tasks/08-character-agent-possession.json`            | Bind an Agent to a character, drive it from the possessing session (with target fill-in), verify possession rejects out-of-scope author/player/pilot writes, then unbind |
+| `tasks/09-dcc-discover-and-handoff.json`              | Verify the DCC provider catalog, Blender handoff readiness, and the unknown-provider failure taxonomy                                                                    |
+| `tasks/10-transcription-contract.json`                | Verify transcription capabilities/list and the get/read failure taxonomy for unknown inputs                                                                              |
+| `tasks/11-workbench-observe-author-smoke.json`        | Smoke the core loop: capabilities, bounded observation, author a camera, inspect it, and undo                                                                            |
+| `tasks/12-game-slice-plan-and-playtest.json`          | Plan a typed game slice, bind Stage objects, and playtest it with a scripted input tape                                                                                  |
+| `tasks/13-game-slice-export-routes-dcc.json`          | Export a playable slice through DCC discover/status/send_to_engine routes                                                                                                |
+| `tasks/13-whitebox-blockout-workflow.json`            | White-box blockout workflow golden                                                                                                                                       |
+| `tasks/14-game-slice-unbound-playtest-rejects.json`   | Verify playtest rejects until the player role is bound to a Stage object                                                                                                 |
+| `tasks/14-world-systems-observation.json`             | Author Living World weather/wind plus one effect, then verify the `world` observation projection                                                                         |
+| `tasks/15-game-slice-hostfree-playtest-no-trace.json` | Host-free playtest scoring without an explicit trace                                                                                                                     |
+| `tasks/16-game-demo-fps-recipe-hostfree.json`         | Replay the fps demo recipe: discover via capabilities/describe, plan, bind hinted roles, host-free playtest to playable                                                  |
+| `tasks/16-game-slice-racing-full-loop.json`           | Full racing loop with no inline trace: plan → bind → playtest → evaluate, then `export_slice` refuses codegen and routes to `director_dcc`                               |
+| `tasks/17-game-demo-racing-recipe-hostfree.json`      | Replay the racing demo recipe with enter/exit vehicle verbs to a literally playable receipt                                                                              |
+| `tasks/17-game-slice-fps-full-loop.json`              | Full fps loop with no inline trace: sprint/fire/reload scored host-free, then `export_slice` refuses codegen and routes to `director_dcc`                                |
+| `tasks/18-game-demo-rpg-recipe-hostfree.json`         | Replay the rpg demo recipe with interact plus attack verbs to a literally playable receipt                                                                               |
+| `tasks/19-game-demo-exploration-recipe-hostfree.json` | Replay the exploration demo recipe (walk, hop, interact with the stele) to a literally playable receipt                                                                  |
+| `tasks/20-game-demo-fighting-recipe-hostfree.json`    | Replay the fighting demo recipe with attack plus dash verbs to a literally playable receipt                                                                              |

@@ -93,29 +93,29 @@ possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角�
 
 ## 任务清单
 
-| 路径                                             | 中文用途                                                                 |
-| ------------------------------------------------ | ------------------------------------------------------------------------ |
-| `tasks/01-blocking-and-revision-chain.json`      | 放置两个基础体素（box）,相对定位,检查 revision 链递增                    |
-| `tasks/02-catalog-and-camera.json`               | 通过 `describe` 获取 schema 片段,搜索资产目录,添加活动摄像机并捕获干净帧 |
-| `tasks/03-guard-and-error-taxonomy.json`         | 验证失败语义:stale revision 拒绝、严格字段校验拒绝、恢复后正常操作       |
-| `tasks/04-character-animation-and-ik.json`       | 创建贴地角色,在一个原子事务中设置 Pose、动作与 IK                        |
-| `tasks/05-bounded-large-scene-observation.json`  | 添加多对象街区并验证有界空间查询与层级观察                               |
-| `tasks/06-creative-workspaces-atomic-batch.json` | 在一个可撤销批次中覆盖 Canvas、Video Editor 与 Gallery                   |
-| `tasks/07-video-and-native-capabilities.json`    | 通过公开工具验证视频 Provider 发现与 Blender 原生内核状态                |
-| `tasks/08-character-agent-possession.json`       | 绑定 Agent 并以占有会话驱动角色（含目标补全）,校验越权 author/player/pilot 均被拒绝后解绑 |
-| `tasks/09-dcc-discover-and-handoff.json`         | 验证 DCC Provider 目录、Blender 交接就绪状态与未知 Provider 失败分类      |
-| `tasks/10-transcription-contract.json`           | 验证转写 capabilities/list 以及未知输入下 get/read 的失败分类             |
-| `tasks/11-workbench-observe-author-smoke.json`   | 冒烟核心循环:capabilities、有界观察、添加机位、inspect 与撤销             |
-| `tasks/12-game-slice-plan-and-playtest.json`     | 规划类型化游戏切片,绑定 Stage 对象并用脚本输入带回放试玩                  |
-| `tasks/13-game-slice-export-routes-dcc.json`     | 通过 DCC discover/status/send_to_engine 导出可玩切片                     |
-| `tasks/13-whitebox-blockout-workflow.json`       | 白盒 blockout 工作流黄金任务                                             |
-| `tasks/14-game-slice-unbound-playtest-rejects.json` | 验证未绑定玩家角色时 playtest 被拒绝                                   |
-| `tasks/14-world-systems-observation.json`        | 设置 Living World 天气/风并添加一个效果,验证 `world` 观察投影            |
-| `tasks/15-game-slice-hostfree-playtest-no-trace.json` | 无显式 trace 的 host-free playtest 评分                            |
-| `tasks/16-game-demo-fps-recipe-hostfree.json`    | 回放 fps 题材演示配方:capabilities/describe 发现、plan、按提示绑定、免宿主试玩至可玩 |
-| `tasks/16-game-slice-racing-full-loop.json`      | racing 完整循环（无内联 trace）:plan → bind → playtest → evaluate,`export_slice` 拒绝生成代码并路由到 `director_dcc` |
-| `tasks/17-game-demo-racing-recipe-hostfree.json` | 回放 racing 题材演示配方,含 enter/exit vehicle 动词,回执字面可玩          |
-| `tasks/17-game-slice-fps-full-loop.json`         | fps 完整循环(无内联 trace):sprint/fire/reload 免宿主评分,`export_slice` 拒绝生成代码并路由到 `director_dcc` |
-| `tasks/18-game-demo-rpg-recipe-hostfree.json`    | 回放 rpg 题材演示配方,含 interact 与 attack 动词,回执字面可玩             |
-| `tasks/19-game-demo-exploration-recipe-hostfree.json` | 回放 exploration 题材演示配方(走过庭院、跃过石阶、与石碑交互),回执字面可玩 |
-| `tasks/20-game-demo-fighting-recipe-hostfree.json` | 回放 fighting 题材演示配方,含 attack 与 dash 动词,回执字面可玩            |
+| 路径                                                  | 中文用途                                                                                                             |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `tasks/01-blocking-and-revision-chain.json`           | 放置两个基础体素（box）,相对定位,检查 revision 链递增                                                                |
+| `tasks/02-catalog-and-camera.json`                    | 通过 `describe` 获取 schema 片段,搜索资产目录,添加活动摄像机并捕获干净帧                                             |
+| `tasks/03-guard-and-error-taxonomy.json`              | 验证失败语义:stale revision 拒绝、严格字段校验拒绝、恢复后正常操作                                                   |
+| `tasks/04-character-animation-and-ik.json`            | 创建贴地角色,在一个原子事务中设置 Pose、动作与 IK                                                                    |
+| `tasks/05-bounded-large-scene-observation.json`       | 添加多对象街区并验证有界空间查询与层级观察                                                                           |
+| `tasks/06-creative-workspaces-atomic-batch.json`      | 在一个可撤销批次中覆盖 Canvas、Video Editor 与 Gallery                                                               |
+| `tasks/07-video-and-native-capabilities.json`         | 通过公开工具验证视频 Provider 发现与 Blender 原生内核状态                                                            |
+| `tasks/08-character-agent-possession.json`            | 绑定 Agent 并以占有会话驱动角色（含目标补全）,校验越权 author/player/pilot 均被拒绝后解绑                            |
+| `tasks/09-dcc-discover-and-handoff.json`              | 验证 DCC Provider 目录、Blender 交接就绪状态与未知 Provider 失败分类                                                 |
+| `tasks/10-transcription-contract.json`                | 验证转写 capabilities/list 以及未知输入下 get/read 的失败分类                                                        |
+| `tasks/11-workbench-observe-author-smoke.json`        | 冒烟核心循环:capabilities、有界观察、添加机位、inspect 与撤销                                                        |
+| `tasks/12-game-slice-plan-and-playtest.json`          | 规划类型化游戏切片,绑定 Stage 对象并用脚本输入带回放试玩                                                             |
+| `tasks/13-game-slice-export-routes-dcc.json`          | 通过 DCC discover/status/send_to_engine 导出可玩切片                                                                 |
+| `tasks/13-whitebox-blockout-workflow.json`            | 白盒 blockout 工作流黄金任务                                                                                         |
+| `tasks/14-game-slice-unbound-playtest-rejects.json`   | 验证未绑定玩家角色时 playtest 被拒绝                                                                                 |
+| `tasks/14-world-systems-observation.json`             | 设置 Living World 天气/风并添加一个效果,验证 `world` 观察投影                                                        |
+| `tasks/15-game-slice-hostfree-playtest-no-trace.json` | 无显式 trace 的 host-free playtest 评分                                                                              |
+| `tasks/16-game-demo-fps-recipe-hostfree.json`         | 回放 fps 题材演示配方:capabilities/describe 发现、plan、按提示绑定、免宿主试玩至可玩                                 |
+| `tasks/16-game-slice-racing-full-loop.json`           | racing 完整循环（无内联 trace）:plan → bind → playtest → evaluate,`export_slice` 拒绝生成代码并路由到 `director_dcc` |
+| `tasks/17-game-demo-racing-recipe-hostfree.json`      | 回放 racing 题材演示配方,含 enter/exit vehicle 动词,回执字面可玩                                                     |
+| `tasks/17-game-slice-fps-full-loop.json`              | fps 完整循环(无内联 trace):sprint/fire/reload 免宿主评分,`export_slice` 拒绝生成代码并路由到 `director_dcc`          |
+| `tasks/18-game-demo-rpg-recipe-hostfree.json`         | 回放 rpg 题材演示配方,含 interact 与 attack 动词,回执字面可玩                                                        |
+| `tasks/19-game-demo-exploration-recipe-hostfree.json` | 回放 exploration 题材演示配方(走过庭院、跃过石阶、与石碑交互),回执字面可玩                                           |
+| `tasks/20-game-demo-fighting-recipe-hostfree.json`    | 回放 fighting 题材演示配方,含 attack 与 dash 动词,回执字面可玩                                                       |
