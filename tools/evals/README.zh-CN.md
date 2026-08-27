@@ -93,7 +93,8 @@ possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角�
 
 等待异步就绪的步骤可声明 `retry: { attempts, delay_ms }`（延迟默认 2000 ms）:该步骤会
 重跑,直到全部预期通过或次数用尽。任务 `24` 的实时试玩步骤使用它,因为无头标签页的
-Player Mode 在 `player enter` 之后需要片刻才能就绪。
+Player Mode 在 `player enter` 之后需要片刻才能就绪;任务 `25` 的首个 Stage 写入也使用它——
+该步骤紧跟实时试玩之后运行,标签页的工程视图需要片刻重新同步。
 
 ## 实时（live）与 host-free 试玩
 

@@ -104,7 +104,8 @@ really are incomplete.
 A step waiting on asynchronous readiness may declare `retry: { attempts, delay_ms }` (delay
 defaults to 2000 ms): the step re-runs until its full expectations pass or the attempts are
 exhausted. Task `24` uses this on its live playtest step because the headless tab's Player
-Mode needs a moment to become live after `player enter`.
+Mode needs a moment to become live after `player enter`; task `25` uses it on its first Stage
+write, which runs right after the live playtest while the tab's project view re-syncs.
 
 ## Live vs host-free playtest
 
