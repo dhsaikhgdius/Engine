@@ -348,6 +348,18 @@
   { "pattern": "^删除失败 (\\S+)$", "replacement": "Delete failed $1" },
   { "pattern": "^已回读 (.+)$", "replacement": "Read back $1" },
   { "pattern": "^(\\S+) 个对象（(.+)）$", "replacement": "$1 objects ($2)" },
+  { "pattern": "^在线 (\\S+)（编辑 (\\S+) · 只读 (\\S+)）$", "replacement": "Online $1 (editors $2 · viewers $3)" },
+  { "pattern": "^快照 (.+)$", "replacement": "Snapshot $1" },
+  { "pattern": "^待压缩 (\\S+)$", "replacement": "Pending updates $1" },
+  { "pattern": "^隔离 (\\S+)$", "replacement": "Quarantined $1" },
+  {
+    "pattern": "^协作房间信息请求失败（HTTP (\\d+)）$",
+    "replacement": "Collaboration rooms request failed (HTTP $1)"
+  },
+  {
+    "pattern": "^协作隔离区信息请求失败（HTTP (\\d+)）$",
+    "replacement": "Collaboration quarantine request failed (HTTP $1)"
+  },
   { "pattern": "^(.+) · (.+) 滑杆$", "handler": "compositeSlider" },
   { "pattern": "^(.+) · (.+)$", "handler": "composite" },
   { "pattern": "^(.+)：(.+)$", "replacement": "$1: $2" }
