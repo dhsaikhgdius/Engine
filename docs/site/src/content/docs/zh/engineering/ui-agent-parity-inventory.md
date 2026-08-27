@@ -8,7 +8,7 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 `directorStore.ts`）上的全部变更入口、对应的 semantic authoring action，以及 UI 与 Agent 是否已经
 通过同一 executor 产出相同的项目 revision。
 
-最近核验：**2026-08-26**。
+最近核验：**2026-08-27**。
 
 ## 状态说明
 
@@ -59,7 +59,7 @@ description: Stage DirectorStore 项目 mutator 清单，以及每个 mutator �
 | `setObjectVehicleProfile`                                                                               | `directorStore.ts` | `set_vehicle_profile` / `clear_vehicle_profile`                                                     | shared（仅未锁定的 prop/scene 对象可 author；其余仍走旧写入）                                                                                                                                                 |
 | `updateObjectReferenceBindings`                                                                         | `directorStore.ts` | `update_object` `reference_bindings`                                                                | shared（相机 rig 与已 provision 的原生 Blender 对象仍走旧写入）                                                                                                                                               |
 | `createCompositeObject` / `addObjectsToComposite` / `removeObjectsFromComposite`                        | `directorStore.ts` | `group_objects` / `update_object` `parent_id` patch                                                 | shared（已 provision 的原生 Blender 子对象仍走旧写入）                                                                                                                                                        |
-| `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | `create_object_list` / `add_objects_to_object_list` / `remove_objects_from_object_lists` / `rename_object_list` | shared（编译后的 create 分配与旧写入完全相同的顺序 `object_list_N` id 与非人群成员集；空标签、未知列表与空的存活成员集仍走旧的 no-op）                                                                         |
+| `createObjectList` / `addObjectsToObjectList` / `removeObjectsFromObjectList` / `updateObjectListLabel` | `directorStore.ts` | `create_object_list` / `add_objects_to_object_list` / `remove_objects_from_object_lists` / `rename_object_list` | shared（编译后的 create 分配与旧写入完全相同的顺序 `object_list_N` id 与非人群成员集；空标签、未知列表与空的存活成员集仍走旧的 no-op；`observe.objects` 与 `query_objects` 暴露 `object_list_id` / `object_list_label` / `object_list_detached`，且 `query_objects` 支持单独的 `object_list_id` 选择器）                                                                         |
 | `pasteClipboardObjects`                                                                                 | `directorStore.ts` | `duplicate_objects`（每次粘贴一个 action；两条路径以完全相同的规则分配 id、名称、偏移与人群重映射） | shared（与实时对象不再一致的过期剪贴板快照、缺失 linked shot 的相机对象、无 model 资产的原生 Blender 对象，以及有 object-focused 相机参与的粘贴——作为被复制源、聚焦被复制源或存储 target 已漂移——仍走旧写入） |
 
 ## 相机

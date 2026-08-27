@@ -46,16 +46,22 @@ Revision deltas intentionally exclude transient UI state and return `mode:"revis
 collection-level `total_changes` and `truncated` metadata.
 
 For large scenes, query only the relevant objects. Results contain stable object IDs,
-canonical world bounds, distance, truncation metadata, and the current `project_revision`.
-Find by name or kind without a spatial bound:
+canonical world bounds, distance, truncation metadata, object-list membership when set,
+and the current `project_revision`.
+Find by name, kind, or Stage object-list id without a spatial bound:
 
 ```json
 { "op": "query_objects", "name_pattern": "door", "kind": "prop" }
 ```
 
+```json
+{ "op": "query_objects", "object_list_id": "object_list_1" }
+```
+
 `name_pattern` is a case-insensitive substring of the object name or id. Chinese queries
 such as `"门"` match `"木门"`. `kind` is one of `character`, `scene`, `prop`, `camera`,
-`panorama`. Provide at least one of `spatial`, `name_pattern`, or `kind`.
+`panorama`. `object_list_id` is the exact Stage tree list id from `create_object_list`.
+Provide at least one of `spatial`, `name_pattern`, `kind`, or `object_list_id`.
 
 Or bound the search to a spatial region:
 

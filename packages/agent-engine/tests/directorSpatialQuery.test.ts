@@ -138,6 +138,50 @@ describe("Director spatial object query", () => {
     });
   });
 
+  it("filters by object_list_id and echoes list membership on matches", () => {
+    const project = applyDirectorAuthoringActions(queryProject(), [
+      {
+        action: "create_object_list",
+        list_id: "object_list_1",
+        label: "前景道具",
+        object_ids: ["near-object", "front-object"],
+      },
+    ]).project;
+
+    expect(
+      queryDirectorObjects(project, { objectListId: "object_list_1" }, { includeHidden: false, maxResults: 50 }),
+    ).toMatchObject({
+      mode: "all",
+      object_list_id: "object_list_1",
+      match_count: 2,
+      objects: [
+        expect.objectContaining({
+          id: "front-object",
+          object_list_id: "object_list_1",
+          object_list_label: "前景道具",
+        }),
+        expect.objectContaining({
+          id: "near-object",
+          object_list_id: "object_list_1",
+          object_list_label: "前景道具",
+        }),
+      ],
+    });
+    expect(
+      queryDirectorObjects(
+        project,
+        { objectListId: "object_list_1", kind: "prop", namePattern: "Near" },
+        { includeHidden: false, maxResults: 50 },
+      ),
+    ).toMatchObject({
+      match_count: 1,
+      objects: [{ id: "near-object" }],
+    });
+    expect(
+      queryDirectorObjects(project, { objectListId: "object_list_9" }, { includeHidden: false, maxResults: 50 }),
+    ).toMatchObject({ match_count: 0, objects: [] });
+  });
+
   it("uses measured character bounds before body-shape estimates", () => {
     const project = queryProject();
     const character = project.objects.find((object) => object.id === "hero-actor")!;

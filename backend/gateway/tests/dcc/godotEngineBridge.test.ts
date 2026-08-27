@@ -464,4 +464,64 @@ describe("engine bridge Godot animation bake wiring", () => {
     const project = animatedGodotProject();
     await expect(bridge.send(project, { provider: "godot" })).rejects.toMatchObject({ code: "engine_report_invalid" });
   });
+
+  it("returns typed omittedMaterials on the Godot send receipt", async () => {
+    const { bridge } = await createGodotSendHarness({
+      appliedMaterialCount: 2,
+      omittedMaterialCount: 2,
+      omittedMaterials: [
+        {
+          directorId: "prop-glass",
+          code: "unsupported_channels",
+          reason:
+            "Object prop-glass: Director material channels transmission have no StandardMaterial3D equivalent here; omitted (warn-and-omit code: unsupported_channels).",
+        },
+        {
+          directorId: "prop-custom",
+          code: "custom_shader",
+          reason:
+            "Object prop-custom: a custom ShaderMaterial was left on the payload and was not rewritten to StandardMaterial3D (warn-and-omit code: custom_shader).",
+        },
+      ],
+    });
+    const project = animatedGodotProject();
+    const result = await bridge.send(project, { provider: "godot" });
+    expect(result.report.godot?.appliedMaterialCount).toBe(2);
+    expect(result.report.godot?.omittedMaterialCount).toBe(2);
+    expect(result.report.godot?.omittedMaterials).toEqual([
+      expect.objectContaining({ directorId: "prop-glass", code: "unsupported_channels" }),
+      expect.objectContaining({ directorId: "prop-custom", code: "custom_shader" }),
+    ]);
+  });
+
+  it("fails the job when omittedMaterials length disagrees with omittedMaterialCount", async () => {
+    const { bridge } = await createGodotSendHarness({
+      omittedMaterialCount: 0,
+      omittedMaterials: [
+        {
+          directorId: "prop-glass",
+          code: "unsupported_channels",
+          reason:
+            "Object prop-glass: Director material channels transmission have no StandardMaterial3D equivalent here; omitted (warn-and-omit code: unsupported_channels).",
+        },
+      ],
+    });
+    const project = animatedGodotProject();
+    await expect(bridge.send(project, { provider: "godot" })).rejects.toMatchObject({ code: "engine_report_invalid" });
+  });
+
+  it("fails the job when the connector reports a malformed omitted-material record", async () => {
+    const { bridge } = await createGodotSendHarness({
+      omittedMaterialCount: 1,
+      omittedMaterials: [
+        {
+          directorId: "prop-x",
+          code: "subsurface_scatter",
+          reason: "Object prop-x uses an unsupported material graph; it was omitted.",
+        },
+      ],
+    });
+    const project = animatedGodotProject();
+    await expect(bridge.send(project, { provider: "godot" })).rejects.toMatchObject({ code: "engine_report_invalid" });
+  });
 });
