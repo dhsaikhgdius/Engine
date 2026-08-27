@@ -1,4 +1,15 @@
 // Scene validator — checks a SceneLayout for correctness and consistency.
+//
+// Validation never throws and never mutates the layout: every finding is
+// returned as a SceneValidationIssue so the pipeline can keep the model's
+// work and let the caller decide what is fatal. Severity contract:
+// - "error"  = the layout violates a structural invariant (non-positive
+//   scale, duplicate ids, impossible room) and assembling it would produce
+//   a broken scene.
+// - "warning" = the layout is assemblable but suspicious (overlaps, objects
+//   outside the room, missing cameras/lights).
+// Messages and suggestions are user-facing UI copy in Simplified Chinese,
+// the product's source language.
 
 import type { SceneLayout, SceneObject, SceneValidationIssue } from "./types";
 
@@ -149,7 +160,12 @@ function checkObjects(layout: SceneLayout, issues: SceneValidationIssue[]): void
 
 function checkOverlaps(layout: SceneLayout, issues: SceneValidationIssue[]): void {
   const objects = layout.objects;
-  // Simple AABB overlap check (ignoring height for simplicity)
+  // O(n²) axis-aligned footprint check in the XZ plane only: scale is treated
+  // as the object's approximate footprint, height is ignored (a lamp above a
+  // table is fine), and parent-child pairs are exempt because children are
+  // expected to sit inside their parent. Overlap is a warning, not an error —
+  // the planner prompt asks for 0.5m spacing, but stacked/intersecting props
+  // can be a legitimate artistic choice.
   for (let i = 0; i < objects.length; i++) {
     for (let j = i + 1; j < objects.length; j++) {
       const a = objects[i];
@@ -180,6 +196,9 @@ function checkOverlaps(layout: SceneLayout, issues: SceneValidationIssue[]): voi
   }
 }
 
+// A scene without cameras is viewable but not directable, hence the warning.
+// Camera position is intentionally NOT range-checked: standing outside the
+// room looking in is the normal establishing-shot setup.
 function checkCameras(layout: SceneLayout, issues: SceneValidationIssue[]): void {
   if (!layout.cameras || layout.cameras.length === 0) {
     issues.push({

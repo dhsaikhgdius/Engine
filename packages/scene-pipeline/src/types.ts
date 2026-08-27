@@ -27,6 +27,12 @@ export interface SceneObject {
   description?: string;
 }
 
+/**
+ * Semantic categories the planner may emit. They drive assembly ordering
+ * (structural kinds build before decorative ones) and the white-box geometry
+ * choice; they are NOT the Director object model — see stageIntegration's
+ * mapObjectKind for the collapse to Director kinds.
+ */
 export type SceneObjectKind =
   | "floor"
   | "wall"
@@ -155,6 +161,10 @@ export interface SceneValidationIssue {
 /**
  * A Stage operation — the concrete command that modifies the 3D scene.
  * These map to the existing Director Stage protocol operations.
+ *
+ * This is an intermediate, pipeline-internal vocabulary: it is translated to
+ * Director workbench authoring actions in stageIntegration before execution,
+ * so it can stay stable even when the workbench action schema evolves.
  */
 export type StageOperation =
   | { op: "addObject"; object: SceneObject }
