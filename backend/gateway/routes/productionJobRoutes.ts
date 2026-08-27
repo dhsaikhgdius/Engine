@@ -18,6 +18,24 @@ import {
 import { registerProductionJobArtifactVersions } from "../artifacts/productionJobArtifactBridge";
 import type { ProductionArtifactStore } from "../artifacts/productionArtifactStore";
 
+/**
+ * HTTP routes for the unified production job store (`/api/production-jobs`
+ * plus the legacy `/api/canvas-jobs` compatibility alias): enqueueing,
+ * listing, reconciliation, receipts, artifact-version registration, artifact
+ * byte serving, and content-addressed media-input staging.
+ *
+ * Honesty contracts enforced here:
+ * - Enqueueing a kind whose local executor is not configured is refused up
+ *   front with a 503 carrying setup instructions, and already-queued jobs of
+ *   such kinds are failed deterministically on the next listing rather than
+ *   sitting "queued" forever.
+ * - Artifact bytes may be reclaimed by retention while the job record
+ *   remains; requests for absent bytes answer 410 with the sha256/metadata
+ *   evidence, never a 404 that would imply the job did not exist.
+ * - Every job response is paired with a live receipt whose storage-presence
+ *   flags are checked against the real backend at response time.
+ */
+
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
 const ARTIFACT_BYTES_UNAVAILABLE = {
@@ -26,6 +44,8 @@ const ARTIFACT_BYTES_UNAVAILABLE = {
     "制品字节已不可用（可能已被保留策略回收）；任务回执上的 sha256 / 元数据与 immutable ArtifactVersion 证据仍保留。",
 } as const;
 
+// The receipt's storage-presence flags are measured against the live backend
+// per request, so a reclaimed artifact is reported absent immediately.
 async function projectLiveProductionJobReceipt(store: ProductionJobStore, job: ProductionJobRecord) {
   const artifactStoragePresence = new Map<string, "present" | "absent">();
   await Promise.all(
@@ -43,6 +63,7 @@ function isEnoent(error: unknown) {
   return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 }
 
+/** Injected store, executors, and staging/evidence stores for the routes. */
 export type ProductionJobRouteDependencies = {
   readBody: (request: IncomingMessage) => Promise<unknown>;
   json: JsonWriter;
@@ -74,6 +95,8 @@ const reconcileRequestSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
+// Per-store set of job ids currently executing in-process, so a double
+// enqueue/replay cannot start the same job twice concurrently.
 const runningJobsByStore = new WeakMap<ProductionJobStore, Set<string>>();
 const MEDIA_EXECUTOR_UNAVAILABLE = {
   code: "media_transcode_executor_unavailable",
@@ -101,6 +124,11 @@ function runningJobsFor(store: ProductionJobStore) {
   return jobs;
 }
 
+/**
+ * Detached in-process executor dispatch. Kinds with a local executor run
+ * here; anything else stays queued for its registered worker. All failure
+ * paths fold back onto the durable job record — see the catch below.
+ */
 async function runJob(dependencies: ProductionJobRouteDependencies, jobId: string) {
   const runningJobs = runningJobsFor(dependencies.store);
   if (runningJobs.has(jobId)) return;
@@ -154,6 +182,9 @@ async function runJob(dependencies: ProductionJobRouteDependencies, jobId: strin
   }
 }
 
+// Jobs queued for a local executor that this gateway does not have would
+// otherwise look "queued" forever; fail them with the setup instructions so
+// the task tray reflects reality.
 async function failQueuedJobsWithoutLocalExecutor(dependencies: ProductionJobRouteDependencies) {
   if (dependencies.mediaTranscode && dependencies.captureReconstruction) return;
   const queued = (await dependencies.store.list()).filter(
@@ -189,6 +220,8 @@ const listJobsQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
+// Streams the upload with the byte cap enforced on both the declared
+// Content-Length and the actual received bytes.
 async function readRawMediaBody(request: IncomingMessage, maximumBytes: number) {
   const declared = Number(request.headers["content-length"]);
   if (Number.isFinite(declared) && declared > maximumBytes) throw new RangeError("Media input is too large");
@@ -256,12 +289,15 @@ async function stageMediaInput(
   }
 }
 
+/** Extracts the job id from canvas-jobs/production-jobs paths (both aliases). */
 function routeJobId(pathname: string, suffix = "") {
   const escapedSuffix = suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = pathname.match(new RegExp(`^\\/api\\/(?:canvas|production)-jobs\\/([^/]+)${escapedSuffix}$`));
   return match ? decodeURIComponent(match[1]!) : null;
 }
 
+// Shared enqueue path for both the canvas compatibility route (narrower
+// request schema) and the unified production-jobs route.
 async function enqueueJob(
   request: IncomingMessage,
   response: ServerResponse,
@@ -307,6 +343,7 @@ async function enqueueJob(
   }
 }
 
+/** Routes one request; returns false for URLs outside the job route space. */
 export async function handleProductionJobRoute(
   request: IncomingMessage,
   response: ServerResponse,

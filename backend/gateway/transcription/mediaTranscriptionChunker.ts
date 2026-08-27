@@ -3,14 +3,25 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
+/**
+ * FFmpeg-backed chunking for media transcription: long audio/video sources
+ * are re-encoded into compact mono 16 kHz MP3 segments so each provider
+ * request stays within upload and duration limits. All work happens inside a
+ * per-invocation temp directory that is removed in a finally block, so
+ * neither success nor failure leaks intermediate files.
+ */
+
+/** One transcription-ready audio segment with its position in the source. */
 export interface MediaTranscriptionChunk {
   bytes: Uint8Array;
   fileName: string;
   mimeType: "audio/mpeg";
+  /** Start of this chunk relative to the source, in seconds. */
   offsetSec: number;
   durationSec: number;
 }
 
+/** Source bytes plus the chunking parameters and the ffmpeg binary to use. */
 export interface MediaTranscriptionChunkerInput {
   source: Uint8Array;
   sourceFileName: string;
@@ -20,13 +31,17 @@ export interface MediaTranscriptionChunkerInput {
   signal: AbortSignal;
 }
 
+/** Splits one media source into transcription chunks, ordered by offset. */
 export type MediaTranscriptionChunker = (input: MediaTranscriptionChunkerInput) => Promise<MediaTranscriptionChunk[]>;
 
+// Keep the source's extension when it looks sane (ffmpeg uses it for format
+// detection); otherwise fall back to a neutral one.
 function sourceExtension(fileName: string) {
   const extension = extname(fileName).toLowerCase();
   return /^\.[a-z0-9]{1,10}$/.test(extension) ? extension : ".media";
 }
 
+// Runs ffmpeg with a bounded stderr tail retained for the failure message.
 function runFfmpeg(path: string, args: string[], signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     const child = spawn(path, args, {
@@ -52,6 +67,9 @@ export const splitMediaForTranscription: MediaTranscriptionChunker = async (inpu
   try {
     const sourcePath = join(directory, `source${sourceExtension(input.sourceFileName)}`);
     await writeFile(sourcePath, input.source);
+    // One ffmpeg pass: take the first audio stream, downmix to mono 16 kHz
+    // (speech-recognition friendly), and segment on chunk boundaries with
+    // timestamps reset so every chunk decodes independently.
     await runFfmpeg(
       input.ffmpegPath,
       [

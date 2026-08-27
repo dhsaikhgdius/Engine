@@ -17,6 +17,23 @@ import type { ComfyWorkflowStore } from "../generation/comfyWorkflowStore";
 import type { ImagePromptExpander } from "../promptExpansion/imagePromptExpander";
 import { ProductionJobIdempotencyConflictError, type ProductionJobStore } from "../jobs/productionJobStore";
 
+/**
+ * HTTP routes for ComfyUI-backed generation (`/api/generation/...`): node
+ * pool management, reference-image staging, workflow import/inspection, and
+ * image/video/audio job submission with cancel/reconcile/retry.
+ *
+ * Boundary rules this handler enforces:
+ * - Reference-image uploads are integrity-checked (caller-declared SHA-256
+ *   must match the received bytes), size-capped, MIME-allowlisted, and the
+ *   file name is sanitized before it is forwarded to a ComfyUI node.
+ * - Multi-copy submissions fan out across the reachable nodes with derived
+ *   per-copy idempotency keys (`<base>:<n>`) and one shared group id, so a
+ *   replayed request maps onto the same job set.
+ * - Prompt expansion is best effort: failures degrade to the verbatim
+ *   prompt with a warning, and the raw prompt is preserved on the job's
+ *   source context for reproducibility.
+ */
+
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
 /** Dependencies injected into the generation route handler. */
@@ -55,21 +72,31 @@ const inputImageQuerySchema = z.strictObject({
 const COMFY_INPUT_IMAGE_MAX_BYTES = 256 * 1024 * 1024;
 const COMFY_INPUT_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp"]);
 
+/** Extracts the id from `/api/generation/<collection>/<id><suffix>` paths. */
 function routeId(pathname: string, collection: "jobs" | "nodes" | "workflows", suffix = "") {
   const escapedSuffix = suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = pathname.match(new RegExp(`^\\/api\\/generation\\/${collection}\\/([^/]+)${escapedSuffix}$`));
   return match ? decodeURIComponent(match[1]!) : null;
 }
 
+// The job store is shared across kinds; these routes only answer for the
+// generation kinds and report anything else as "does not exist".
 function isGenerationJob(job: ProductionJobRecord) {
   return job.kind === "image.generate" || job.kind === "video.generate" || job.kind === "audio.generate";
 }
 
+// Fire-and-forget: the executor persists progress and failures on the job
+// record; the route never awaits execution.
 async function startJob(dependencies: GenerationRouteDependencies, job: ProductionJobRecord) {
   if (job.status !== "queued") return;
   void dependencies.executor.execute(job).catch(() => undefined);
 }
 
+/**
+ * Streams the raw request body with a hard byte cap enforced both on the
+ * declared Content-Length and on the actual received bytes, so a lying
+ * header cannot buffer an oversized upload into memory.
+ */
 async function readRawBody(request: IncomingMessage, maximumBytes: number) {
   const declared = Number(request.headers["content-length"]);
   if (Number.isFinite(declared) && declared > maximumBytes) throw new RangeError("Reference image is too large");
@@ -91,6 +118,8 @@ async function readRawBody(request: IncomingMessage, maximumBytes: number) {
   return joined;
 }
 
+// Sanitized, digest-prefixed name for the ComfyUI input directory: strips
+// path separators/odd characters and keeps names collision-free per content.
 function safeInputFileName(fileName: string, sha256: string) {
   const normalized = fileName
     .normalize("NFKC")
@@ -306,6 +335,8 @@ export async function handleGenerationRoute(
       return true;
     }
     if (parsed.data.inputImages.length) {
+      // Reference images were staged onto one specific node's input storage;
+      // fanning the job out to other nodes would render without them.
       if (parsed.data.nodeIds.length !== 1 || candidates.length !== 1) {
         json(response, 409, { message: "Reference-image generation must target exactly one ComfyUI node" });
         return true;
@@ -364,6 +395,9 @@ export async function handleGenerationRoute(
         }
       }
     }
+    // One submission may enqueue several copies: each copy gets a derived
+    // idempotency key (`<base>:<n>`) and all share one group id, so a
+    // replayed request resolves to the same job set.
     const groupId = parsed.data.idempotencyKey
       ? `generation-group:${parsed.data.idempotencyKey}`
       : `generation-group-${randomUUID()}`;
@@ -371,6 +405,8 @@ export async function handleGenerationRoute(
     const jobs: ProductionJobRecord[] = [];
     try {
       for (let index = 0; index < parsed.data.copies; index += 1) {
+        // Round-robin copies across the reachable nodes; seeds follow the
+        // requested strategy (fixed, random, or deterministic increment).
         const node = candidates[index % candidates.length]!;
         const seed =
           parsed.data.seedStrategy === "fixed"

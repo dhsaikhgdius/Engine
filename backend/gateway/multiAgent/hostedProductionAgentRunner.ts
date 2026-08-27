@@ -7,6 +7,7 @@ import { filmRoleRequiresToolLoop } from "../agents/filmRoleToolPolicy";
 import type { AgentProfileRegistry } from "../agents/agentProfileRegistry";
 import type { ProductionAgentRunner } from "./productionRunOrchestrator";
 
+/** Injectable driver factory so tests can stub hosted completions. */
 type HostedDriverFactory = (input: {
   kind: "anthropic-messages" | "openai-chat-compatible";
   id: string;
@@ -16,6 +17,7 @@ type HostedDriverFactory = (input: {
   onRetry?: () => void;
 }) => Pick<ModelDriver, "complete">;
 
+/** In-memory record of one production session and its cancellation handle. */
 type SessionRecord = {
   id: string;
   provider: AgentProvider;
@@ -24,6 +26,7 @@ type SessionRecord = {
   abort: AbortController;
 };
 
+/** Joins the text parts of an assistant message, ignoring tool calls. */
 function assistantText(content: { type: string; text?: string }[]) {
   return content
     .filter((item) => item.type === "text")
@@ -102,6 +105,13 @@ export class HostedProductionAgentRunner implements ProductionAgentRunner {
     this.sessions.get(sessionId)?.abort.abort(new DOMException("Production run cancelled", "AbortError"));
   }
 
+  /**
+   * Executes one observe-only completion for the session's role. Rejections
+   * are policy, not plumbing: non-hosted providers belong to DSH, and roles
+   * that need the workbench tool loop cannot run as a bare completion. A
+   * usage sample (tokens, duration, retries, outcome) is recorded whether
+   * the completion succeeds or fails.
+   */
   async sendMessage(sessionId: string, prompt: string, _project: DirectorProject | undefined, _target: unknown) {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Unknown production session ${sessionId}`);
@@ -165,6 +175,7 @@ export class HostedProductionAgentRunner implements ProductionAgentRunner {
     }
   }
 
+  /** Appends an event to the session history without notifying listeners. */
   private append(sessionId: string, type: AgentEvent["type"], data: Record<string, unknown>): AgentEvent {
     const event = {
       id: `production-event-${++this.eventSequence}`,
@@ -181,6 +192,8 @@ export class HostedProductionAgentRunner implements ProductionAgentRunner {
     return event;
   }
 
+  // Snapshot the listener set before iterating so a listener that
+  // unsubscribes during dispatch cannot skip its neighbors.
   private emit(sessionId: string, type: AgentEvent["type"], data: Record<string, unknown>) {
     const event = this.append(sessionId, type, data);
     for (const listener of [...(this.listeners.get(sessionId) ?? [])]) listener(event);
