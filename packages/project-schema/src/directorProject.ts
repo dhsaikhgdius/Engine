@@ -1,3 +1,12 @@
+/**
+ * Vocabulary tables and type re-exports for the Director project domain.
+ *
+ * Every closed enum (object kinds, light types, shot sizes, …) is derived
+ * from `directorProjectOptions.json` via `protocolKeys`, so the id list, its
+ * TypeScript union, and the UI's labelled options all come from one JSON
+ * source and cannot drift apart. Labels in that JSON are user-facing UI copy
+ * in Simplified Chinese, the product's source language.
+ */
 import { protocolKeys } from "@director/protocol/primitives";
 export type {
   CharacterRigState,

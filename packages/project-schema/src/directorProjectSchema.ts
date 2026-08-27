@@ -43,6 +43,26 @@ import { comfyGenerationParametersSchema } from "@director/protocol/comfy-genera
 import { directorWorldSchema } from "@director/protocol/world-systems";
 import { directorVehicleProfileSchema } from "@director/protocol/vehicle";
 
+/**
+ * The Director project document — the single wire and persistence schema for
+ * everything a project contains (scene settings, assets, objects, lights,
+ * cameras, storyboard, production takes, world systems).
+ *
+ * Design rules that apply file-wide:
+ * - Every object is `strictObject`: unknown keys are wire errors, so schema
+ *   evolution stays an explicit versioned decision instead of silent drift.
+ * - All numbers are `finite()` because NaN/Infinity do not survive JSON.
+ * - Vec3 tuples are metres for positions/scale and XYZ Euler radians for
+ *   rotations; frames (not seconds) are the timeline unit.
+ * - Optional fields exist mostly for backwards compatibility with documents
+ *   saved before a feature existed; migration runs only after structural
+ *   validation succeeds.
+ * - Cross-entity rules live in the superRefine helpers at the bottom, split
+ *   into "structural" (corruption — always rejected) and "reference"
+ *   (dangling ids — repairable via repairDirectorProjectReferences).
+ * - Validation messages that reach the UI are Simplified Chinese, the
+ *   product's source language; internal invariants stay in English.
+ */
 export const directorFiniteNumberSchema = z.number().finite();
 export const directorVec3Schema = z.tuple([
   directorFiniteNumberSchema,
@@ -590,6 +610,13 @@ export const directorCharacterAgentBindingSchema = z
     path: ["sessionId"],
   });
 
+/**
+ * One placed scene entity. Objects are the reference hub of the document:
+ * assets bind via `assetRefId`, hierarchies via `parentObjectId`, cameras via
+ * `linkedCameraId`, and Agent possession via `agentBinding` — the dangling
+ * cases are caught by the reference refinement, not here, so a structurally
+ * valid object always parses even when its neighbours were deleted.
+ */
 export const directorObjectSchema = z.strictObject({
   id: z.string(),
   name: z.string(),
@@ -657,6 +684,14 @@ export const directorCameraActionSchema = z.discriminatedUnion("mode", [
   strictMode("transform", {}),
 ]);
 
+/**
+ * A physical camera. `fov` is the canonical field; the optional optics
+ * (focal length, sensor, aperture, ISO, shutter) model a real camera package
+ * and are range-clamped via DIRECTOR_CAMERA_OPTICS_LIMITS so renders and DCC
+ * exports stay physically plausible. Cameras aim via `targetMode` + `target`
+ * (a point) or `targetObjectId`, never a free rotation — the transform's
+ * rotation is derived at render/export time.
+ */
 export const directorCameraShotSchema = z
   .strictObject({
     id: z.string(),
@@ -809,6 +844,12 @@ export const directorCoverageSequenceSchema = z.strictObject({
   shots: z.array(directorCoverageShotSchema),
 });
 
+/**
+ * Production state: recorded performance takes and camera coverage sequences.
+ * Deeper invariants (unique ids, frame ranges, take/camera references) are
+ * enforced by getDirectorProductionIssues from the reference refinement so
+ * they can also be reported and reconciled outside Zod parsing.
+ */
 export const directorProductionSchema = z.strictObject({
   version: z.literal(1),
   takes: z.array(directorPerformanceTakeSchema),
@@ -857,6 +898,9 @@ const directorProjectBaseSchema = z.strictObject({
 
 type DirectorProjectShape = z.infer<typeof directorProjectBaseSchema>;
 
+// Structural issues are corruption that no repair pass can fix safely
+// (duplicate ids, bindings on the wrong entity kind). Both the structural
+// and the full schema reject on these.
 function addDirectorProjectStructuralIssues(project: DirectorProjectShape, context: z.RefinementCtx) {
   const lightIds = new Set<string>();
   project.lights?.forEach((light, index) => {
@@ -915,6 +959,10 @@ function addDirectorProjectStructuralIssues(project: DirectorProjectShape, conte
   });
 }
 
+// Reference issues are dangling ids (annotation anchors, texture bindings,
+// wildlife assets, …) that repairDirectorProjectReferences can mend by
+// unbinding — the structural load path tolerates them so a project whose
+// object was deleted elsewhere still opens.
 function addDirectorProjectReferenceIssues(project: DirectorProjectShape, context: z.RefinementCtx) {
   const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
   const objectIds = new Set(project.objects.map((object) => object.id));
@@ -1085,10 +1133,16 @@ export type DirectorProject = Omit<z.infer<typeof directorProjectSchema>, "camer
 };
 export type SceneSettings = DirectorProject["scene"];
 
+/** Throwing variant of the full trust-boundary parse; use at call sites that treat invalid input as a bug. */
 export function parseDirectorProject(value: unknown): DirectorProject {
   return directorProjectSchema.parse(value);
 }
 
+/**
+ * Non-throwing full parse for untrusted input (HTTP bodies, imports). The
+ * failure message is user-facing UI copy (Simplified Chinese) naming only the
+ * first offending path, so it can be surfaced directly.
+ */
 export function safeParseDirectorProject(
   value: unknown,
 ): { success: true; project: DirectorProject } | { success: false; error: string } {
@@ -1100,6 +1154,11 @@ export function safeParseDirectorProject(
   return { success: false, error: `项目数据无效：${path} ${issue?.message ?? "格式错误"}` };
 }
 
+/**
+ * Non-throwing structure-only parse for the open/load path: accepts projects
+ * with dangling references so they can be repaired after load instead of
+ * refusing to open (see repairDirectorProjectReferences).
+ */
 export function safeParseDirectorProjectStructural(
   value: unknown,
 ): { success: true; project: DirectorProject } | { success: false; error: string } {

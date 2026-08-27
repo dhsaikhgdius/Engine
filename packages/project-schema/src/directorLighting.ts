@@ -1,3 +1,13 @@
+/**
+ * Factory defaults for Director scene lights.
+ *
+ * These defaults exist so every freshly created scene or light is readable
+ * immediately: a soft ambient fill plus one shadow-casting key light gives
+ * the clay/white-box look usable contrast without any manual lighting work.
+ * Names are user-facing UI copy in Simplified Chinese (the product's source
+ * language); the fixed ids of the default set are relied upon by scene
+ * templates and tests, so they must stay stable.
+ */
 import type { DirectorLight, DirectorLightType } from "./directorProject";
 
 /** Default white color used for all new director lights. */
@@ -30,7 +40,15 @@ export function createDefaultDirectorLights(): DirectorLight[] {
   ];
 }
 
-/** Creates a single director light with sensible defaults for the given type. */
+/**
+ * Creates a single director light with sensible defaults for the given type.
+ *
+ * Per-type choices mirror three.js semantics: `distance: 0` means unlimited
+ * range, `decay: 2` is physically-correct falloff, and ambient/hemisphere
+ * lights get a lower default intensity (0.8) than placed lights because they
+ * illuminate everything at once. Only lights that can meaningfully produce
+ * shadows default to `castShadow: true`.
+ */
 export function createDirectorLight(id: string, type: DirectorLightType): DirectorLight {
   const common = {
     id,

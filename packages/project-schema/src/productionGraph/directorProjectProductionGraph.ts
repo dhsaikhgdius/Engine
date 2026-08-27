@@ -268,6 +268,10 @@ export function createProductionGraphFromDirectorProject(
     }
   }
 
+  // Canonical ordering + a final parse make the projection deterministic and
+  // self-validating: the same project always serializes to the same graph
+  // bytes (diffable across revisions), and a projection bug fails loudly here
+  // rather than producing a silently malformed graph.
   return parseProductionGraph({
     schema: PRODUCTION_GRAPH_SCHEMA,
     version: PRODUCTION_GRAPH_SCHEMA_VERSION,
