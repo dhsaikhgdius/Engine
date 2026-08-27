@@ -84,6 +84,10 @@ npm run eval:reference
 possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角色目标,
 由网关 possession 预检在校验前补全,任务 schema 测试会断言该输入确实不完整。
 
+等待异步就绪的步骤可声明 `retry: { attempts, delay_ms }`（延迟默认 2000 ms）:该步骤会
+重跑,直到全部预期通过或次数用尽。任务 `18` 的实时试玩步骤使用它,因为无头标签页的
+Player Mode 在 `player enter` 之后需要片刻才能就绪。
+
 ## 实时（live）与 host-free 试玩
 
 不带内联 `trace` 的 `director_game {op:"playtest"}` 优先走实时 Stage 路径:网关把输入带
@@ -98,8 +102,10 @@ possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角�
 - 任务 `12`–`17` 绑定的 object id 只存在于切片文档,实时标签页会拒绝该带,网关回退——
   它们是 host-free 黄金任务（任务 `12` 与 `13` 另外提供内联 trace,按 `"inline"` 评估）。
 - 任务 `18` 先在 Stage 上创建真实对象再绑定,输入带必须在实时玩家会话上回放。其
-  `result_equals` 断言要求 `"live_stage"` 来源与可玩回执:若被静默强制回退到 host-free,
-  该任务失败。
+  `result_equals` 断言要求 `"live_stage"` 来源与可玩回执:若被强制回退到 host-free
+  （包括实时派发超时——回退回执会如实标注 `"host_free"`）,该任务失败。它先用公开的
+  `player {"action":"enter"}` 预热会话,避免 Player Mode 冷启动吃掉实时派发预算,
+  结束后退出 Player Mode。
 
 ## 任务清单
 

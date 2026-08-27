@@ -163,6 +163,26 @@ describe("liveStagePlaytest", () => {
     expect(trace.source).toBe("live_stage");
   });
 
+  it("falls back to host-free when the live dispatch throws (e.g. command timeout)", async () => {
+    const slice = boundSlice();
+    const requestWorkbenchCommand = vi
+      .fn()
+      .mockRejectedValue(new Error('workbench command "game_playtest" timed out after 12000 ms and was cancelled.'));
+    const runner = createLiveStagePlaytestRunner({ requestWorkbenchCommand });
+    const trace = await runner!({
+      slice,
+      operation: {
+        op: "playtest",
+        slice_id: slice.id,
+        script: gamePlaytestScriptSchema.parse({ steps: [{ frames: 10, input: { forward: true } }] }),
+      },
+    });
+    expect(requestWorkbenchCommand).toHaveBeenCalledTimes(1);
+    expect(trace.samples).toHaveLength(10);
+    // The degradation stays visible on the receipt instead of a hard failure.
+    expect(trace.source).toBe("host_free");
+  });
+
   it("falls back to host-free when the live tape fails on the tab", async () => {
     const slice = boundSlice();
     const requestWorkbenchCommand = vi.fn().mockResolvedValue({

@@ -46,15 +46,23 @@ export function createLiveStagePlaytestRunner(
   return async ({ slice, operation }) => {
     const actorId = playerRole(slice)?.object_id;
     const timeoutMs = hostFreePlaytestTimeoutMs(operation.script);
-    const remote = await dependencies.requestWorkbenchCommand(
-      {
-        op: "game_playtest",
-        script: operation.script,
-        ...(actorId ? { actor_id: actorId } : {}),
-        slice_id: slice.id,
-      },
-      timeoutMs,
-    );
+    let remote: LiveWorkbenchCommandResult = null;
+    try {
+      remote = await dependencies.requestWorkbenchCommand(
+        {
+          op: "game_playtest",
+          script: operation.script,
+          ...(actorId ? { actor_id: actorId } : {}),
+          slice_id: slice.id,
+        },
+        timeoutMs,
+      );
+    } catch {
+      // A timed-out or dropped live dispatch is "the live tape failed", not a
+      // reason to hard-fail the public op: fall back to host-free kinematics.
+      // The receipt's `source: "host_free"` keeps the degradation visible.
+      remote = null;
+    }
 
     if (remote?.success) {
       const trace = extractPlaytestTrace(remote.result, slice);

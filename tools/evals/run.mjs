@@ -233,16 +233,28 @@ async function runTask(token, task) {
   log(`task ${task.file} — ${task.description}`);
   let taskPassed = true;
   for (const step of task.steps) {
+    // Steps that wait on asynchronous readiness (e.g. the live Stage player
+    // session warming up in the headless tab) may declare a retry budget; the
+    // final attempt must still satisfy the full expectations.
+    const attempts = Math.max(1, step.retry?.attempts ?? 1);
+    const retryDelayMs = step.retry?.delay_ms ?? 2_000;
     let failures;
-    try {
-      // A step may impersonate a specific agent session (e.g. the possessing
-      // session of a character binding); the task session stays the default.
-      const { body } = await callTool(token, step.tool, step.session_id ?? sessionId, step.input);
-      failures = checkExpectations(step.expect, body);
-    } catch (error) {
-      failures = [`request failed: ${error instanceof Error ? error.message : String(error)}`];
+    let attemptsUsed = 0;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      attemptsUsed = attempt;
+      try {
+        // A step may impersonate a specific agent session (e.g. the possessing
+        // session of a character binding); the task session stays the default.
+        const { body } = await callTool(token, step.tool, step.session_id ?? sessionId, step.input);
+        failures = checkExpectations(step.expect, body);
+      } catch (error) {
+        failures = [`request failed: ${error instanceof Error ? error.message : String(error)}`];
+      }
+      if (!failures.length) break;
+      if (attempt < attempts) await sleep(retryDelayMs);
     }
-    log(`  ${failures.length ? "FAIL" : "PASS"}  ${step.label.padEnd(32)} ${step.input.op ?? ""}`);
+    const attemptNote = attemptsUsed > 1 ? ` [attempt ${attemptsUsed}/${attempts}]` : "";
+    log(`  ${failures.length ? "FAIL" : "PASS"}  ${step.label.padEnd(32)} ${step.input.op ?? ""}${attemptNote}`);
     for (const failure of failures) log(`        - ${failure}`);
     if (failures.length) {
       taskPassed = false;

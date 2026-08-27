@@ -96,6 +96,11 @@ session of a character binding) to exercise possession scoping. Steps marked
 possession preflight fills it before validation; the task-schema test asserts those inputs
 really are incomplete.
 
+A step waiting on asynchronous readiness may declare `retry: { attempts, delay_ms }` (delay
+defaults to 2000 ms): the step re-runs until its full expectations pass or the attempts are
+exhausted. Task `18` uses this on its live playtest step because the headless tab's Player
+Mode needs a moment to become live after `player enter`.
+
 ## Live vs host-free playtest
 
 `director_game {op:"playtest"}` without an inline `trace` prefers the live Stage path: the
@@ -115,8 +120,11 @@ exercises is decided by its bindings:
   `12` and `13` additionally supply inline traces, which evaluate as `"inline"`).
 - Task `18` authors real Stage objects first and binds the slice to them, so the tape must
   replay on the live player session. Its `result_equals` assertions require
-  `"live_stage"` provenance and a playable receipt: if the harness were silently forced to
-  host-free, the task fails.
+  `"live_stage"` provenance and a playable receipt: if the harness were forced to
+  host-free (including a timed-out live dispatch, which falls back with honest `"host_free"`
+  provenance), the task fails. It warms the session with a public
+  `player {"action":"enter"}` first so cold Player Mode startup never eats the live
+  dispatch budget, and exits Player Mode when done.
 
 ## Task inventory
 

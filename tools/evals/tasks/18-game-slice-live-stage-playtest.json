@@ -1,6 +1,6 @@
 {
   "name": "game-slice-live-stage-playtest",
-  "description": "Prove the live Stage playtest path end to end: author a real player actor and an interactable objective on the Stage, plan and bind an exploration slice to those objects, then playtest with no inline trace while the headless workbench tab is connected. The Gateway must replay the tape through the live player session — result.trace.source must equal live_stage, so a silent host-free fallback fails this task. The stored evaluation keeps the live provenance for a later evaluate.",
+  "description": "Prove the live Stage playtest path end to end: author a real player actor and an interactable objective on the Stage, plan and bind an exploration slice to those objects, warm the player session with a public player enter, then playtest with no inline trace while the headless workbench tab is connected. The Gateway must replay the tape through the live player session — result.trace.source must equal live_stage, so a host-free fallback fails this task. The stored evaluation keeps the live provenance for a later evaluate.",
   "steps": [
     {
       "label": "author live stage actors",
@@ -75,8 +75,15 @@
       }
     },
     {
+      "label": "enter player mode on the bound actor",
+      "tool": "director_workbench",
+      "input": { "op": "player", "action": "enter", "actor_id": "eval-live-hero" },
+      "expect": { "success": true, "result_paths": ["result.player_mode"] }
+    },
+    {
       "label": "playtest replays live on the stage tab",
       "tool": "director_game",
+      "retry": { "attempts": 5, "delay_ms": 3000 },
       "input": {
         "op": "playtest",
         "slice_id": "game-eval-live-01",
@@ -111,6 +118,12 @@
           "result.evaluation.playable": true
         }
       }
+    },
+    {
+      "label": "exit player mode",
+      "tool": "director_workbench",
+      "input": { "op": "player", "action": "exit" },
+      "expect": { "success": true }
     }
   ]
 }
