@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterEngineSceneWarningsWithoutTypedEchoes } from "../../../../src/comprehensive/editor/interchange/engines/engineSceneOmittedUi";
+import { filterEngineSceneWarningsWithoutTypedEchoes } from "../../../../../src/comprehensive/editor/interchange/engines/engineSceneOmittedUi";
 
 describe("filterEngineSceneWarningsWithoutTypedEchoes", () => {
   it("keeps unrelated warnings and drops exact typed-reason echoes", () => {
