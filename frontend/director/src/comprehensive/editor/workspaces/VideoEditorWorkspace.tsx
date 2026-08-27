@@ -79,6 +79,7 @@ import type { CreativeMediaPlaybackPreference } from "../media/creativeMediaEngi
 import { MediaVerifyResultsList } from "../media/MediaVerifyResultsList";
 import { creativeWorkspaceMediaVerifyResultSchema } from "../../../../../../packages/protocol/src/creativeWorkspaceProtocol";
 import type { MediaVerifyUiState } from "../media/mediaVerifyPresentation";
+import { formatMediaRelinkSuccessMessage, parseMediaRelinkHonesty } from "../media/mediaRelinkPresentation";
 import { persistentCreativeMediaLibrary } from "../media/persistentCreativeMediaStore";
 import { MediaTranscriptionPanel } from "../media/MediaTranscriptionPanel";
 import { useVideoRecordingStore } from "../video/videoRecordingStore";
@@ -1651,7 +1652,12 @@ export function VideoEditorWorkspace() {
     const referencesUpdated = Number(receipt.execution.result.references_updated ?? 0);
     const waveformReady = Boolean(receipt.execution.result.waveform_ready);
     setImportMessage(
-      `${t("素材已重连")} · ${referencesUpdated} ${t("处引用")} · ${waveformReady ? t("波形已缓存") : t("波形待生成")}`,
+      formatMediaRelinkSuccessMessage({
+        referencesUpdated,
+        waveformReady,
+        honesty: parseMediaRelinkHonesty(receipt.execution.result),
+        t,
+      }),
     );
   }
 
