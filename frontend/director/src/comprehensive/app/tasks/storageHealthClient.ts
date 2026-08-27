@@ -18,6 +18,9 @@ const sweepReasonCountsSchema = z.object({
   retentionExpired: z.number().int().nonnegative(),
 });
 
+/** Per-reason counts of sweepable keys (`unreachable` / `retentionExpired`). */
+export type StorageGcSweepReasonCounts = z.infer<typeof sweepReasonCountsSchema>;
+
 /** Per-reason counts of planned-sweep keys that were skipped, not deleted. */
 export const storageGcSkipReasonCountsSchema = z.object({
   becameReachable: z.number().int().nonnegative(),

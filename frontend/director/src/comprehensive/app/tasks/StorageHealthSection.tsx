@@ -16,6 +16,7 @@ import {
   type StorageGcPlanSummary,
   type StorageGcSkipReasonCounts,
   type StorageGcSweepOutcome,
+  type StorageGcSweepReasonCounts,
   type StorageHealthSummary,
 } from "./storageHealthClient";
 import { formatTaskRelativeTime } from "./taskTrayPresentation";
@@ -44,6 +45,15 @@ const SKIP_REASON_LABELS = {
 } as const;
 
 /**
+ * Gateway sweep-candidate / plan reason keys → zh-CN labels. Only the two
+ * gateway reasons (`unreachable` / `retentionExpired`); do not invent a third.
+ */
+const SWEEP_REASON_LABELS = {
+  unreachable: "不可达",
+  retentionExpired: "保留期已过",
+} as const;
+
+/**
  * Compact skip honesty for outcome notices and recent-sweep rows. Returns null
  * when there is nothing to surface (older gateways / clean sweeps).
  */
@@ -69,6 +79,24 @@ function formatSkippedSummary(
     }
   }
   return parts.join(" · ");
+}
+
+/**
+ * Compact non-zero plan/candidate reason counts so operators see *why*
+ * objects are sweepable before confirming delete. Returns null when every
+ * count is zero (or the stanza is absent).
+ */
+function formatSweepByReason(
+  byReason: StorageGcSweepReasonCounts | undefined,
+  t: (text: string) => string,
+): string | null {
+  if (!byReason) return null;
+  const parts: string[] = [];
+  for (const key of Object.keys(SWEEP_REASON_LABELS) as Array<keyof typeof SWEEP_REASON_LABELS>) {
+    const n = byReason[key];
+    if (n > 0) parts.push(t(`${SWEEP_REASON_LABELS[key]} ${n}`));
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 /**
  * Renders the storage health rows plus the explicit plan → confirm sweep
@@ -185,7 +213,12 @@ export function StorageHealthSection() {
             <span>{t("可清扫")}</span>
             <span>
               {health.sweepCandidates.count > 0
-                ? t(`${health.sweepCandidates.count} 个对象（${formatStorageBytes(health.sweepCandidates.bytes)}）`)
+                ? [
+                    t(`${health.sweepCandidates.count} 个对象（${formatStorageBytes(health.sweepCandidates.bytes)}）`),
+                    formatSweepByReason(health.sweepCandidates.byReason, t),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
                 : t("无")}
             </span>
             <span>{t("最近清扫")}</span>
@@ -217,6 +250,10 @@ export function StorageHealthSection() {
         plan.sweep.count > 0 ? (
           <>
             <p className="task-tray-notice">{t("试运行完成，尚未删除任何对象。")}</p>
+            {(() => {
+              const reasons = formatSweepByReason(plan.sweep.byReason, t);
+              return reasons ? <p className="task-tray-item-phase">{reasons}</p> : null;
+            })()}
             <span className="task-tray-item-actions">
               <button disabled={busy !== null} onClick={() => void confirmSweep()} type="button">
                 {t(
