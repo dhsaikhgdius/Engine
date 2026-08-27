@@ -55,6 +55,7 @@ import {
 import { useLanguage } from "../../i18n/language";
 import { ComfyNodesDialog, isComfyNodeAvailabilityError } from "../comfy/ComfyNodesDialog";
 import { probeCreativeMediaFile } from "../media/creativeMediaProbe";
+import { formatMediaRelinkSuccessMessage, parseMediaRelinkHonesty } from "../media/mediaRelinkPresentation";
 import { persistentCreativeMediaLibrary, type CreativeMediaAsset } from "../media/persistentCreativeMediaStore";
 import { CreativeMediaBrowser } from "./CreativeMediaBrowser";
 import { CreativeWorkspacePanelResizer, useCreativeWorkspacePanelLayout } from "./CreativeWorkspacePanelResizer";
@@ -693,7 +694,12 @@ export function CanvasWorkspace() {
     const referencesUpdated = Number(receipt.execution.result.references_updated ?? 0);
     const waveformReady = Boolean(receipt.execution.result.waveform_ready);
     showImportMessage(
-      `${t("素材已重连")} · ${referencesUpdated} ${t("处引用")} · ${waveformReady ? t("波形已缓存") : t("波形待生成")}`,
+      formatMediaRelinkSuccessMessage({
+        referencesUpdated,
+        waveformReady,
+        honesty: parseMediaRelinkHonesty(receipt.execution.result),
+        t,
+      }),
       "success",
     );
   }
