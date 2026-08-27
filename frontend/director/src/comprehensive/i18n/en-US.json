@@ -3888,5 +3888,17 @@
   "占有写入已自动填充目标": "Possession write auto-filled targets",
   "占有目标不明确，无法自动填充": "Possession target ambiguous; cannot auto-fill",
   "占有范围拒绝写入": "Possession scope rejected the write",
-  "（无）": "(none)"
+  "（无）": "(none)",
+  "已验证": "Verified",
+  "大小不匹配": "Size mismatch",
+  "字节缺失": "Missing bytes",
+  "未入册": "Not cataloged",
+  "未验证": "Unverified",
+  "无法读取持久字节": "Durable byte reader unavailable",
+  "探测失败": "Probe failed",
+  "持久存储（IndexedDB）": "Durable storage (IndexedDB)",
+  "持久存储": "Durable storage",
+  "内存模式（不可持久，刷新后丢失）": "Memory mode (not durable; lost on reload)",
+  "入册": "Cataloged",
+  "实测": "Probed"
 }
