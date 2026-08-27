@@ -1,3 +1,14 @@
+/**
+ * Transcription workbench command executor (`transcription` operations).
+ *
+ * Bridges the Agent contract to the media transcription pipeline: capability
+ * discovery, job lifecycle (list / get / submit / cancel / retry), reading and
+ * searching a promoted transcript window, and promoting a completed job's
+ * transcript onto its Gallery asset — optionally inserting caption cues into
+ * the Video Editor timeline. Submission resolves Gallery media to bytes
+ * locally, and reads/searches run entirely against the persisted transcript
+ * so they never touch the network.
+ */
 import {
   directorMediaTranscriptToCaptionCues,
   insertDirectorCaptionCuesIntoTimeline,
@@ -68,10 +79,12 @@ function defaultDependencies(): Required<DirectorTranscriptionWorkbenchDependenc
   };
 }
 
+/** Wrap a payload as a successful workbench execution. */
 function success(result: unknown): DirectorWorkbenchExecution {
   return { success: true, result };
 }
 
+/** Assert that a Gallery asset exists and is transcribable (original audio/video, not a proxy). */
 function assertSourceAsset(asset: CreativeMediaAsset | null, sourceMediaId: string) {
   if (!asset) throw new Error(`Gallery media "${sourceMediaId}" does not exist`);
   // Proxies delegate to an original asset; only the original can be transcribed.
@@ -82,6 +95,7 @@ function assertSourceAsset(asset: CreativeMediaAsset | null, sourceMediaId: stri
   return asset;
 }
 
+/** Resolve a Gallery asset plus its promoted transcript; throws when either is missing. */
 function transcriptSource(asset: CreativeMediaAsset | null, sourceMediaId: string) {
   const source = assertSourceAsset(asset, sourceMediaId);
   if (!source.transcript) {
@@ -90,6 +104,7 @@ function transcriptSource(asset: CreativeMediaAsset | null, sourceMediaId: strin
   return { source, transcript: source.transcript };
 }
 
+/** Project one transcript segment into the snake_case wire shape agents read. */
 function transcriptSegmentResult(segment: DirectorMediaTranscriptSegment, index: number) {
   return {
     index,

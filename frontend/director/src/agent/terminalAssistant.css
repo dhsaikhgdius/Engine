@@ -6,6 +6,7 @@
 @import "@xterm/xterm/css/xterm.css";
 @import "../comprehensive/editor/assistant/assistant.css";
 
+/* Floating drawer layout: header row, session status strip, terminal fill. */
 .director-agent-drawer.is-terminal {
   grid-template-rows: 62px 38px minmax(0, 1fr);
 }
@@ -20,6 +21,7 @@
   white-space: nowrap !important;
 }
 
+/* Session status strip: gateway/agent connection summary under the header. */
 .director-agent-session-status {
   display: flex;
   min-height: 38px;
@@ -91,6 +93,7 @@
   background: rgb(214 91 82);
 }
 
+/* Toolbar: agent CLI tabs, PTY state pill, and per-pane actions. */
 .director-agent-terminal-toolbar {
   display: flex;
   min-height: 44px;
@@ -243,6 +246,7 @@
   opacity: 0.36;
 }
 
+/* Terminal surface: the dark xterm host card inside the warm panel chrome. */
 .director-agent-terminal {
   position: relative;
   display: flex;
@@ -310,6 +314,7 @@
   background-clip: padding-box;
 }
 
+/* Banner overlay: covers the surface while the PTY is starting/exited/errored. */
 .director-agent-terminal-banner {
   position: absolute;
   z-index: 2;
@@ -413,6 +418,7 @@
   }
 }
 
+/* Embedded sidebar variant: fills its host slot instead of floating. */
 .director-agent-terminal-embedded {
   --terminal-gutter: 8px;
   display: flex;
@@ -550,6 +556,7 @@
   background: rgb(var(--panel-rgb));
 }
 
+/* Vertical split: two independent PTY panes separated by a draggable handle. */
 .director-agent-terminal-pane,
 .director-agent-terminal-split-root,
 .director-agent-terminal-split-pane {
@@ -613,6 +620,7 @@
   user-select: none;
 }
 
+/* Compact viewports: drop the status pill and tighten the surface gutters. */
 @media (max-width: 720px) {
   .director-agent-terminal-process-state {
     display: none;

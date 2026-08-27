@@ -1,3 +1,13 @@
+/**
+ * Storyboard artifact workbench command executor (`storyboard_artifact` operations).
+ *
+ * Captures storyboard shot thumbnails (all, one, or only stale/missing ones)
+ * and exports storyboard PDFs / verification packages. Every command runs
+ * under a revision-bound capture so thumbnails never mix project versions,
+ * and every command must carry an expected revision plus an idempotency key:
+ * a retry with the same key and intent replays the cached receipt instead of
+ * re-capturing, while the same key with a different intent is a hard conflict.
+ */
 import { requestViewportCapture } from "../comprehensive/editor/io/captureBridge";
 import {
   captureDirectorStoryboardThumbnail,
@@ -54,15 +64,22 @@ export function resetDirectorStoryboardWorkbenchRuntimeForTests() {
   storyboardRetryReceipts.clear();
 }
 
+/** Scope-qualified receipt key so two collaboration scopes never share idempotency state. */
 function storyboardRetryKey(scope: string | undefined, key: string) {
   return `${scope?.trim() || "local-stage"}\u0000${key}`;
 }
 
+/**
+ * Canonical signature of the command intent, excluding the revision and
+ * idempotency fields: two retries "match" when they ask for the same work,
+ * even if the caller refreshed the expected revision between attempts.
+ */
 function storyboardIntentSignature(command: DirectorStoryboardArtifactCommand) {
   const { expected_revision: _expectedRevision, idempotency_key: _idempotencyKey, ...intent } = command;
   return stableJson(intent);
 }
 
+/** Coerce an execution result into a spreadable record (non-objects become empty). */
 function resultRecord(result: unknown) {
   return result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>) : {};
 }
@@ -108,6 +125,7 @@ function defaultDependencies(): Required<DirectorStoryboardWorkbenchDependencies
   };
 }
 
+/** Attach the storyboard_artifact block to an execution without clobbering its authoring payload. */
 function mergeResult(execution: DirectorWorkbenchExecution, storyboardArtifact: Record<string, unknown>) {
   const existing =
     execution.result && typeof execution.result === "object" && !Array.isArray(execution.result)
@@ -116,11 +134,19 @@ function mergeResult(execution: DirectorWorkbenchExecution, storyboardArtifact: 
   return { ...execution, result: { ...existing, storyboard_artifact: storyboardArtifact } };
 }
 
+/** Shot ids to capture: the single requested shot, or the caller-provided candidate list. */
 function captureTargets(command: DirectorStoryboardArtifactCommand, shotIds: string[]) {
   if (command.action === "capture_thumbnail") return [command.shot_id];
   return shotIds;
 }
 
+/**
+ * Capture thumbnails for the targeted shots under one bounded project
+ * revision, then persist them through a single `set_storyboard` authoring
+ * apply. When every targeted thumbnail is already current the persist step is
+ * skipped entirely and a typed "skipped" receipt is returned, so repeated
+ * capture_missing calls stay revision-neutral.
+ */
 async function captureStoryboardThumbnails(
   command: Extract<DirectorStoryboardArtifactCommand, { action: "capture_thumbnail" | "capture_missing" }>,
   signal: AbortSignal | undefined,
@@ -201,6 +227,11 @@ async function captureStoryboardThumbnails(
   });
 }
 
+/**
+ * Render the storyboard PDF (or verification package) under one bounded
+ * project revision and optionally trigger the browser download. The manifest
+ * in the receipt is the caller's evidence of exactly what was exported.
+ */
 async function exportStoryboardPdf(
   command: Extract<DirectorStoryboardArtifactCommand, { action: "export_pdf" }>,
   signal: AbortSignal | undefined,

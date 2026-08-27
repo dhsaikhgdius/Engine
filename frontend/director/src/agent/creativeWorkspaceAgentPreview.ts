@@ -1,3 +1,15 @@
+/**
+ * Creative workspace preview capture (`director_creative` preview branch).
+ *
+ * Renders a real PNG of the Canvas board (custom offscreen Canvas 2D
+ * renderer) or a Video Editor frame (the shared timeline frame renderer) so
+ * agents receive visual evidence instead of a description. Captures are
+ * strictly read-only: tracks are deep-cloned, rendering happens on offscreen
+ * canvases, and live Zustand state is never mutated. Every capture is guarded
+ * by the caller's expected snapshot fingerprint — checked both before and
+ * after the asynchronous render — so a preview can never silently show a
+ * workspace that changed mid-capture.
+ */
 import {
   getDirectorCreativeWorkspaceScope,
   useDirectorCreativeWorkspaceStore,

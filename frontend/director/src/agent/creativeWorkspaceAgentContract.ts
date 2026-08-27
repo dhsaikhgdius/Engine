@@ -1,3 +1,29 @@
+/**
+ * Creative Workspace agent contract executor (`director_creative` operations).
+ *
+ * This is the browser-side engine behind every Canvas / Video Editor /
+ * Gallery / media tool call. It re-exports the shared contract schemas from
+ * `@director/agent-engine/creative`, projects the live Zustand workspace and
+ * persistent media stores into the snake_case snapshot agents observe, and
+ * executes the typed operations against those stores.
+ *
+ * Operation domains handled by the central switch, in source order:
+ * - `gallery.*` — Gallery catalog records, folders, trash, and preferences.
+ * - `media.*` — playback preference, proxy attachment, and the async
+ *   relink/verify pair that needs durable byte IO.
+ * - `canvas.*` — board nodes/edges/sections, viewport, DAG layout, the
+ *   script-to-canvas plan, and per-node production configs.
+ * - `edit.*` — timeline tracks, clips (add/update/move/split/remove),
+ *   ripple range edits, settings, seek, and zoom.
+ * - `workspace.*` — mode switching and undo/redo.
+ *
+ * Shared invariants: every mutation is guarded by the caller's expected
+ * snapshot fingerprint (checked by the dispatch wrapper) and an idempotency
+ * key whose successful receipt is replayed on retry; failures return typed
+ * `CreativeWorkspaceAgentErrorCode`s and never partially apply; and each
+ * success receipt embeds a fresh post-mutation snapshot so agents never need
+ * a second observe round-trip.
+ */
 import { z } from "zod";
 import { buildScriptToCanvasPlan } from "../comprehensive/editor/assistant/scriptToProductionPipeline";
 import { analyzeDirectorCanvasDag, wouldCreateDirectorCanvasCycle } from "../comprehensive/editor/workspaces/canvasDag";
@@ -122,6 +148,12 @@ export type {
   CreativeWorkspaceAgentToolResult,
 };
 
+/**
+ * The state bridge every executor call runs against. The default context
+ * binds the live browser stores; parity harnesses and tests substitute their
+ * own implementations. Optional members degrade gracefully: hosts without
+ * `readBlob` get "unverified" durability probes instead of failures.
+ */
 export interface CreativeWorkspaceAgentContext {
   workspace: { getState(): DirectorCreativeWorkspaceState };
   media: {
@@ -150,6 +182,10 @@ const defaultContext: CreativeWorkspaceAgentContext = {
   getScopeId: getDirectorCreativeWorkspaceScope,
 };
 
+// ---------------------------------------------------------------------------
+// Idempotency: retry receipts keyed by (workspace store, scope, key).
+// ---------------------------------------------------------------------------
+
 type CreativeMutationResult = Extract<CreativeWorkspaceAgentToolResult, { op: "execute" | "execute_batch" }>;
 
 type CreativeMutationRequest = Extract<CreativeWorkspaceAgentRequest, { op: "execute" | "execute_batch" }>;
@@ -161,6 +197,9 @@ type CreativeMutationSuccessReceipt = {
     execution: Extract<CreativeMutationResult["execution"], { success: true }>;
   };
 };
+// Keyed weakly by the workspace store object so receipts follow the store's
+// lifetime: a test that builds a fresh context starts with a clean slate, and
+// dropping the store frees its receipts without explicit cleanup.
 const creativeRetryReceipts = new WeakMap<object, Map<string, CreativeMutationSuccessReceipt>>();
 
 function creativeScopeId(context: CreativeWorkspaceAgentContext) {
@@ -181,6 +220,11 @@ function creativeRetryReceiptMap(context: CreativeWorkspaceAgentContext) {
   return receipts;
 }
 
+/**
+ * Canonical signature of the mutation intent (everything except the
+ * idempotency key and fingerprint guard), so a retried key can be verified to
+ * carry the same intent and a reused key with different intent is rejected.
+ */
 function creativeMutationSignature(input: CreativeMutationRequest) {
   const {
     idempotency_key: _idempotencyKey,
@@ -190,6 +234,7 @@ function creativeMutationSignature(input: CreativeMutationRequest) {
   return stableLexicalJson(intent);
 }
 
+/** Store a successful mutation receipt for replay; the map is FIFO-bounded at 128 entries. */
 function rememberCreativeMutation(
   context: CreativeWorkspaceAgentContext,
   key: string,
@@ -206,6 +251,10 @@ function rememberCreativeMutation(
   });
   while (receipts.size > 128) receipts.delete(receipts.keys().next().value!);
 }
+
+// ---------------------------------------------------------------------------
+// Snapshot projections: camelCase store state → snake_case agent wire shapes.
+// ---------------------------------------------------------------------------
 
 function projectBoardNode(node: DirectorBoardNode, zIndex: number) {
   const config = node.productionConfig ? directorCanvasProductionConfigSchema.parse(node.productionConfig) : null;
@@ -300,6 +349,11 @@ function projectCanvasDag(nodes: readonly DirectorBoardNode[], edges: readonly D
   };
 }
 
+/**
+ * Project a Canvas pipeline run into its wire shape, schema-validated so a
+ * malformed store entry surfaces here rather than in an agent's tool result.
+ * Exported because the semantic pipeline executor reuses the same projection.
+ */
 export function projectCreativeWorkspacePipelineRun(run: DirectorCanvasPipelineRun) {
   return creativeWorkspacePipelineRunSchema.parse({
     version: run.version,
@@ -416,6 +470,12 @@ function projectGalleryFolder(folder: DirectorGalleryFolder) {
 
 const creativeSnapshotRevisions = new WeakMap<object, { content: string; revision: number }>();
 
+/**
+ * Mint the snapshot fingerprint: a monotonically increasing revision per
+ * workspace store that only advances when the canonical snapshot content
+ * actually changes. Two observes of an unchanged workspace return the same
+ * fingerprint, which is what makes the mutation guards meaningful.
+ */
 function creativeSnapshotRevision(context: CreativeWorkspaceAgentContext, value: unknown) {
   const owner = context.workspace as object;
   const content = stableLexicalJson(value);
@@ -426,6 +486,12 @@ function creativeSnapshotRevision(context: CreativeWorkspaceAgentContext, value:
   return `creative-revision:v1:${revision}`;
 }
 
+/**
+ * Build the full creative-workspace snapshot an agent observes: board, edit
+ * timeline, selection, media library, gallery, and entity counts, stamped
+ * with the content-derived fingerprint that mutation guards check against.
+ * Read-only — safe to call at any time, including mid-mutation for receipts.
+ */
 export function observeCreativeWorkspaceAgentSnapshot(
   context: CreativeWorkspaceAgentContext = defaultContext,
 ): CreativeWorkspaceAgentSnapshot {
@@ -521,6 +587,11 @@ export function observeCreativeWorkspaceAgentSnapshot(
   return snapshot;
 }
 
+// ---------------------------------------------------------------------------
+// Execution helpers shared by the operation switch.
+// ---------------------------------------------------------------------------
+
+/** Typed failure result for a semantically invalid (but well-formed) operation. */
 function semanticFailure(
   operation: CreativeWorkspaceAgentOperationId,
   code: Exclude<CreativeWorkspaceAgentErrorCode, "invalid_input">,
@@ -529,6 +600,7 @@ function semanticFailure(
   return { success: false, operation, code, error };
 }
 
+/** Success result carrying a fresh post-mutation snapshot so callers skip a second observe. */
 function success(
   operation: CreativeWorkspaceAgentOperationId | "batch",
   message: string,
@@ -577,6 +649,11 @@ const RANGE_REMNANT_SEC = 0.1;
 
 type RangeOperationId = "edit.range.remove" | "edit.range.insert_gap";
 
+/**
+ * Resolve the tracks a range edit targets. With no explicit ids the edit
+ * silently skips locked tracks; with explicit ids a missing or locked track
+ * is a hard typed failure, because the caller named it deliberately.
+ */
 function resolveRangeTracks(
   operationId: RangeOperationId,
   state: DirectorCreativeWorkspaceState,
@@ -603,6 +680,13 @@ interface RangeRemoveTrackSummary {
   created_clip_ids: string[];
 }
 
+/**
+ * Ripple-delete [fromSec, toSec) from one track: clips fully inside the range
+ * are removed, clips straddling an edge are trimmed (or split when both a
+ * head and a tail survive), and everything after the range shifts left by the
+ * range length. Sliver segments shorter than {@link RANGE_REMNANT_SEC} are
+ * absorbed rather than kept as unusable fragments.
+ */
 function rippleRemoveRangeFromTrack(
   state: DirectorCreativeWorkspaceState,
   track: DirectorEditTrack,
@@ -670,6 +754,12 @@ interface RangeInsertGapTrackSummary {
   shifted_clip_ids: string[];
 }
 
+/**
+ * Ripple-insert a gap at atSec on one track: clips starting at or after the
+ * point shift right by the gap length, and a clip straddling the point is
+ * split so its tail shifts too (unless a side would be a sliver shorter than
+ * {@link RANGE_REMNANT_SEC}, in which case the whole clip shifts or stays).
+ */
 function rippleInsertGapIntoTrack(
   state: DirectorCreativeWorkspaceState,
   track: DirectorEditTrack,
@@ -811,6 +901,7 @@ async function probeCreativeMediaDurability(
   }
 }
 
+/** Count live references to a media id across board nodes and timeline clips. */
 function directWorkspaceMediaReferenceCount(state: DirectorCreativeWorkspaceState, mediaId: string): number {
   const boardReferences = state.boardNodes.filter((node) => node.mediaId === mediaId).length;
   const clipReferences = state.editTracks.reduce(
@@ -820,6 +911,11 @@ function directWorkspaceMediaReferenceCount(state: DirectorCreativeWorkspaceStat
   return boardReferences + clipReferences;
 }
 
+/**
+ * A media id counts as "known" when it has a Gallery record, a cataloged
+ * asset, or a live workspace reference — Gallery operations accept any of
+ * the three so records can be attached to media the catalog lost track of.
+ */
 function isKnownGalleryMedia(
   state: DirectorCreativeWorkspaceState,
   context: CreativeWorkspaceAgentContext,
@@ -852,6 +948,12 @@ function projectGalleryPreferences(state: DirectorCreativeWorkspaceState) {
   };
 }
 
+/**
+ * Validate a board node's media reference against its kind: note/frame nodes
+ * may not carry media, media-bearing kinds require an existing asset of the
+ * matching kind, and shot nodes are exempt (their media is pipeline-owned).
+ * Returns a typed failure, or null when the reference is acceptable.
+ */
 function validateNodeMedia(
   operation: CreativeWorkspaceAgentOperationId,
   kind: DirectorBoardNodeKind,
@@ -874,6 +976,7 @@ function validateNodeMedia(
   return null;
 }
 
+/** Map a snake_case node patch to store field names, only carrying keys the caller set. */
 function mapNodePatch(patch: z.infer<typeof canvasNodePatchSchema>): Partial<Omit<DirectorBoardNode, "id">> {
   return {
     ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
@@ -888,6 +991,7 @@ function mapNodePatch(patch: z.infer<typeof canvasNodePatchSchema>): Partial<Omi
   };
 }
 
+/** Map a snake_case clip patch to store field names, only carrying keys the caller set. */
 function mapClipPatch(patch: z.infer<typeof editClipPatchSchema>): Partial<Omit<DirectorEditClip, "id">> {
   return {
     ...(patch.media_id !== undefined ? { mediaId: patch.media_id } : {}),
@@ -910,6 +1014,16 @@ function mapClipPatch(patch: z.infer<typeof editClipPatchSchema>): Partial<Omit<
   };
 }
 
+/**
+ * Execute one typed creative-workspace operation against the live stores.
+ *
+ * Parses untrusted input first (typed `invalid_input` on failure), then
+ * dispatches on the operation id. Synchronous by design — operations needing
+ * durable IO (media.relink / media.verify) are rejected here with a pointer
+ * to {@link executeCreativeWorkspaceAgentOperationAsync}. Semantic failures
+ * (missing entities, locked tracks, kind conflicts, DAG cycles) return typed
+ * codes without mutating anything; successes embed a fresh snapshot.
+ */
 export function executeCreativeWorkspaceAgentOperation(
   input: unknown,
   context: CreativeWorkspaceAgentContext = defaultContext,
@@ -928,6 +1042,7 @@ export function executeCreativeWorkspaceAgentOperation(
   const state = context.workspace.getState();
 
   switch (operation.op) {
+    // -- Gallery: catalog records, folders, trash lifecycle, preferences. ---
     case "gallery.media.update": {
       if (!isKnownGalleryMedia(state, context, operation.media_id)) {
         return semanticFailure(
@@ -1205,6 +1320,7 @@ export function executeCreativeWorkspaceAgentOperation(
       const preferences = projectGalleryPreferences(context.workspace.getState());
       return success(operation.op, "Updated Gallery preferences.", { preferences }, context);
     }
+    // -- Media: playback preference, proxies, durable relink/verify. --------
     case "media.playback.update": {
       const media = findMedia(context, operation.media_id);
       if (!media) {
@@ -1365,6 +1481,7 @@ export function executeCreativeWorkspaceAgentOperation(
         "media.verify reads durable media bytes; dispatch it through executeCreativeWorkspaceAgentOperationAsync.",
       );
     }
+    // -- Canvas: board nodes, sections, edges, viewport, DAG, production. ---
     case "canvas.node.add": {
       if (state.boardNodes.length >= 240) {
         return semanticFailure(
@@ -1803,6 +1920,7 @@ export function executeCreativeWorkspaceAgentOperation(
         context,
       );
     }
+    // -- Edit: timeline tracks, clips, ripple range edits, settings. --------
     case "edit.clip.add": {
       const track = state.editTracks.find((candidate) => candidate.id === operation.track_id);
       if (!track)
@@ -2313,6 +2431,7 @@ export function executeCreativeWorkspaceAgentOperation(
         context,
       );
     }
+    // -- Workspace: mode switching and undo/redo. ----------------------------
     case "workspace.switch": {
       state.setMode(operation.workspace);
       return success(
@@ -2359,6 +2478,11 @@ export function executeCreativeWorkspaceAgentOperation(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Atomic batches: @alias references, all-or-nothing history rollback.
+// ---------------------------------------------------------------------------
+
+/** Operation fields that may carry a `@alias` reference to an earlier batch step's created entity. */
 const BATCH_REFERENCE_FIELDS = [
   "node_id",
   "edge_id",
@@ -2371,6 +2495,11 @@ const BATCH_REFERENCE_FIELDS = [
   "section_id",
 ] as const;
 
+/**
+ * Substitute `@alias` values in a batch step with the ids produced by earlier
+ * steps, then re-validate the resolved operation against the contract schema
+ * so substitution can never smuggle in an ill-typed operation.
+ */
 function resolveBatchOperationReferences(
   operation: CreativeWorkspaceAgentOperation,
   references: Map<string, string>,
@@ -2395,6 +2524,7 @@ function resolveBatchOperationReferences(
   return parsed.data;
 }
 
+/** The id a `save_as` alias binds to: the first addressable entity a step's result created. */
 function primaryCreatedId(execution: Extract<CreativeWorkspaceAgentExecutionResult, { success: true }>): string | null {
   for (const key of ["node", "edge", "clip", "second", "track", "folder"] as const) {
     const entity = execution.result[key];
@@ -2410,6 +2540,13 @@ function primaryCreatedId(execution: Extract<CreativeWorkspaceAgentExecutionResu
   return null;
 }
 
+/**
+ * Execute a multi-step batch atomically inside one history batch: any invalid
+ * reference, failed step, or thrown error rolls back every completed mutation
+ * and reports which step failed plus what had completed. A rollback that
+ * itself fails is surfaced explicitly so the caller knows the workspace state
+ * can no longer be trusted without a reload.
+ */
 function executeCreativeWorkspaceAgentBatch(
   input: Extract<CreativeWorkspaceAgentRequest, { op: "execute_batch" }>,
   context: CreativeWorkspaceAgentContext,
@@ -2522,6 +2659,11 @@ function executeCreativeWorkspaceAgentBatch(
   }
 }
 
+/**
+ * Resolve a media.relink source to a File. Inline payloads (utf8/base64) and
+ * Gallery media ids resolve in the browser; workspace_path sources need a
+ * host-provided file and are rejected here by design.
+ */
 async function resolveRelinkFile(
   source: Extract<CreativeWorkspaceAgentOperation, { op: "media.relink" }>["source"],
 ): Promise<File> {
@@ -2662,7 +2804,17 @@ export async function executeCreativeWorkspaceAgentOperationAsync(
   }
 }
 
-/** Execute the public observe/execute envelope against the live browser stores. */
+/**
+ * Execute the public observe/execute envelope against the live browser stores.
+ *
+ * Reads (capabilities / describe / observe / audit) run unguarded. Async-only
+ * envelopes (preview, interchange, collaboration, pipeline, media.relink) are
+ * rejected here with a typed pointer to their dedicated executor. Mutations
+ * enforce the full guard ladder in order: fingerprint present → idempotency
+ * key present → retry-receipt replay (same key + same intent) or conflict
+ * (same key, different intent) → fingerprint freshness → execute, decorate
+ * the receipt with idempotency metadata, and remember it for future retries.
+ */
 export function executeCreativeWorkspaceAgentRequest(
   input: CreativeWorkspaceAgentRequest,
   context: CreativeWorkspaceAgentContext = defaultContext,

@@ -7,11 +7,17 @@
  * constrained live actor without parsing session-command receipts.
  */
 
+/**
+ * Point-in-time view of live Player Mode: whether it is active and which
+ * character the human is possessing (null whenever Player Mode is off).
+ */
 export type DirectorLivePlayerSnapshot = {
   playerMode: boolean;
   playerActorId: string | null;
 };
 
+// Module-level singleton: there is exactly one Stage viewport owner per tab,
+// so a plain variable (no store/subscription machinery) is sufficient.
 let snapshot: DirectorLivePlayerSnapshot = {
   playerMode: false,
   playerActorId: null,

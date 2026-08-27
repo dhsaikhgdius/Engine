@@ -47,6 +47,20 @@ import { directorCameraAspectRatioSchema } from "../../../../packages/protocol/s
 import { directorDccPortableExchangeFormatSchema, directorDccProviderIdSchema } from "./directorDccProviderContract";
 import { directorDccConnectorProviderIdSchema, directorDccEngineIdSchema } from "./directorDccEngineSpace";
 
+/**
+ * Central Director ↔ DCC handoff contract.
+ *
+ * Defines the Director → DCC scene export package (objects, cameras, lights,
+ * characters, animation, assets), the typed handoff operations the editor
+ * submits to the gateway (export, open, return-import, engine send/run), and
+ * the builders that project a live DirectorProject into the export wire
+ * shape. Everything crossing this boundary is Zod-validated on both sides;
+ * unsupported host features are warn-and-omit in receipts, never silently
+ * dropped.
+ */
+
+// Re-exported so downstream modules can import the whole DCC vocabulary from
+// this central contract without also depending on the shared-contract module.
 export { directorDccTransformSchema } from "./directorDccSharedContract";
 export type { DirectorDccTransform } from "./directorDccSharedContract";
 

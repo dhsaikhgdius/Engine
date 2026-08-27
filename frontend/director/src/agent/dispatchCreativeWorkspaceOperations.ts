@@ -29,12 +29,15 @@ export type CreativeWorkspaceOperationInput = z.input<typeof creativeWorkspaceAg
 /** Execution payload exactly as the shared agent envelope returned it. */
 export type DispatchedCreativeWorkspaceExecution = z.infer<typeof creativeWorkspaceAgentExecutionResultSchema>;
 
+/** Optional dispatch knobs; both default to live-store behaviour. */
 export type DispatchCreativeWorkspaceOptions = {
+  /** Stable key for retry-safe replays; a fresh `ui-creative:` UUID is minted when omitted. */
   idempotencyKey?: string;
   /** Override the live browser stores (parity harnesses and tests). */
   context?: CreativeWorkspaceAgentContext;
 };
 
+/** Success receipt: the executed payload plus the fingerprints proving what state it ran against. */
 export type DispatchCreativeWorkspaceReceipt = {
   ok: true;
   execution: Extract<DispatchedCreativeWorkspaceExecution, { success: true }>;
@@ -43,6 +46,11 @@ export type DispatchCreativeWorkspaceReceipt = {
   snapshot_fingerprint_after: string;
 };
 
+/**
+ * Failure receipt. `execution` is null when the request never reached the
+ * executor (empty input, envelope validation failure); otherwise it carries
+ * the executor's typed failure payload.
+ */
 export type DispatchCreativeWorkspaceFailure = {
   ok: false;
   error: string;
@@ -51,6 +59,7 @@ export type DispatchCreativeWorkspaceFailure = {
   snapshot_fingerprint_before: string;
 };
 
+/** Discriminated dispatch outcome; narrow on `ok`. */
 export type DispatchCreativeWorkspaceResult = DispatchCreativeWorkspaceReceipt | DispatchCreativeWorkspaceFailure;
 
 /**

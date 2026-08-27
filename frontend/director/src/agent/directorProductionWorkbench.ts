@@ -1,3 +1,14 @@
+/**
+ * Production workbench command executor (`production` operations).
+ *
+ * Manages the singleton multi-scene production record: observing production
+ * state, renaming, creating / duplicating / renaming / activating / deleting
+ * scenes. Mutations run against the backend production store with optimistic
+ * revisions and idempotency keys; operations that change which scene should
+ * be live also return a scene-switch directive the browser workbench client
+ * must carry out (and the caller confirms via a fresh observe) — this module
+ * never rebinds the viewport itself.
+ */
 import type { DirectorProject } from "@director/project-schema";
 import { createDefaultDirectorProject } from "../comprehensive/editor/store/directorStore";
 import {
@@ -116,16 +127,19 @@ const defaultDependencies: DirectorProductionWorkbenchDependencies = {
   createEmptyProject: () => createDefaultDirectorProject(),
 };
 
+/** Mint a unique activation token the caller uses to confirm a scene switch landed. */
 function activationId() {
   return `director-activation:${crypto.randomUUID()}`;
 }
 
+/** The revision to mutate against: the caller's explicit guard, else the freshly observed one. */
 function commandExpectedRevision(command: ProductionCommand, production: DirectorProductionRecord) {
   return "expected_revision" in command && command.expected_revision !== undefined
     ? command.expected_revision
     : production.revision;
 }
 
+/** Build the shared success payload: revision delta, scene roster, and idempotency echo. */
 function result(command: ProductionCommand, before: DirectorProductionRecord, after: DirectorProductionRecord) {
   return {
     op: "production",
@@ -147,6 +161,11 @@ function result(command: ProductionCommand, before: DirectorProductionRecord, af
   };
 }
 
+/**
+ * Map a thrown error to a typed failure result, preferring the backend's own
+ * structured code (e.g. stale revision, scene conflicts) when the production
+ * client surfaced one.
+ */
 function failure(error: unknown): DirectorProductionWorkbenchResult {
   if (error instanceof DirectorProductionClientError) {
     const body = error.body && typeof error.body === "object" && !Array.isArray(error.body) ? error.body : null;

@@ -136,6 +136,14 @@ function defaultDependencies(): Required<DirectorCaptureCompareWorkbenchDependen
 /** Resolved identity of one comparison endpoint, echoed back in the result. */
 type ResolvedCompareSource = Record<string, unknown> & { kind: DirectorCompareSource["kind"] };
 
+/**
+ * Resolve one comparison endpoint to a decoded luminance image plus the
+ * resolved identity echoed back to the caller. Three source kinds are
+ * supported: a live stage render (offscreen capture of a project camera), a
+ * Gallery still image, and a reconstruction-plan keyframe artifact. Every
+ * missing-target path throws with the observe/confirm step the caller should
+ * take next.
+ */
 async function resolveCompareSource(
   role: "reference" | "candidate",
   source: DirectorCompareSource,

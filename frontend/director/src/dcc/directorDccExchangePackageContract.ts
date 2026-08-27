@@ -3,6 +3,14 @@ import { directorProjectSchema } from "../comprehensive/editor/schema/directorPr
 import { DIRECTOR_PROJECT_REVISION_PATTERN } from "../comprehensive/editor/schema/directorProjectRevision";
 import { directorDccPortableExchangeFormatSchema, directorDccProviderIdSchema } from "./directorDccProviderContract";
 
+/**
+ * Portable exchange-package vocabulary: the manifest describing a prepared
+ * glTF/USD package (hash-pinned artifacts, asset provenance, project
+ * revision) and the result receipt for preparing or consuming one. This is
+ * the only durable scene channel for exchange-only providers, so every
+ * artifact byte is SHA-256 pinned and paths are confined to the package.
+ */
+
 /** Contract identifier for the DCC exchange package manifest. */
 export const DIRECTOR_DCC_EXCHANGE_PACKAGE_CONTRACT = "director-dcc-exchange-package-v1" as const;
 /** Contract identifier for the DCC exchange package result. */

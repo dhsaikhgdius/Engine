@@ -29,6 +29,7 @@ export const TERMINAL_AGENTS: { id: AgentId; label: string }[] = DIRECTOR_AGENT_
   label: TERMINAL_AGENT_LABELS[id],
 }));
 
+/** Gateway `term.*` messages the terminal consumes; other frame types are ignored. */
 type SocketMessage =
   | { type: "term.output"; data: string }
   | { type: "term.exit"; exitCode: number }
@@ -38,6 +39,8 @@ type SocketMessage =
 /** Terminal color theme applied to the xterm instance. */
 export const TERMINAL_THEME = terminalTheme;
 
+// Semantic accents are applied via a class + CSS custom properties (instead of
+// inline color) so genuine ANSI styling and theme overrides always win.
 const SEMANTIC_COLOR_CLASS = "director-terminal-semantic-color";
 const SEMANTIC_COLOR_PROPERTY = "--director-terminal-semantic-color";
 const SEMANTIC_WEIGHT_PROPERTY = "--director-terminal-semantic-weight";
@@ -123,6 +126,7 @@ export function applyTerminalSemanticColorsToSpans(spans: Iterable<HTMLSpanEleme
   }
 }
 
+/** Add the closest `.xterm-rows` span containing the mutated node to the restyle set. */
 function addTerminalSemanticSpan(node: Node, root: HTMLElement, spans: Set<HTMLSpanElement>) {
   const element =
     node.nodeType === Node.ELEMENT_NODE
@@ -134,6 +138,7 @@ function addTerminalSemanticSpan(node: Node, root: HTMLElement, spans: Set<HTMLS
   if (span && root.contains(span)) spans.add(span);
 }
 
+/** Like addTerminalSemanticSpan, but also walks spans nested inside a newly added subtree. */
 function addAddedTerminalSemanticSpans(node: Node, root: HTMLElement, spans: Set<HTMLSpanElement>) {
   addTerminalSemanticSpan(node, root, spans);
   if (node.nodeType !== Node.ELEMENT_NODE) return;
@@ -166,6 +171,9 @@ export function collectTerminalSemanticColorTargets(mutations: Iterable<Mutation
   return spans;
 }
 
+// Multiple terminal panels can hold sockets at once (floating panel plus
+// sidebar); the shared session runtime only flips to "disconnected" when the
+// last live socket closes.
 const connectedTerminalSockets = new Set<WebSocket>();
 
 function publishGatewayConnecting() {
@@ -289,6 +297,8 @@ export function useTerminalSession(hostRef: React.RefObject<HTMLDivElement>): Te
     setBannerError(isError);
   }
 
+  // PTY output is buffered and flushed once per animation frame so bursty
+  // full-screen redraws cost one xterm write instead of one per WS message.
   function flushTerminalOutput() {
     terminalOutputFrameRef.current = null;
     const output = terminalOutputBufferRef.current;
@@ -395,6 +405,8 @@ export function useTerminalSession(hostRef: React.RefObject<HTMLDivElement>): Te
     }
   }
 
+  // Ask the gateway to (re)open the PTY for the given agent, seeding it with
+  // the terminal's current proposed dimensions and resetting local state.
   function requestOpen(socket: WebSocket, agentId: AgentId) {
     const term = termRef.current;
     const fit = fitRef.current;

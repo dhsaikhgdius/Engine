@@ -1,3 +1,25 @@
+/**
+ * Director Gateway client: the browser side of the Agent control plane.
+ *
+ * One module-level singleton per tab owns the authenticated WebSocket to the
+ * gateway (`/ws`), announces this tab as a browser target (presence), applies
+ * remote scene state, debounce-pushes local edits back, and executes targeted
+ * `director_workbench` / `director_creative` commands by routing them to the
+ * workbench executor modules in this directory.
+ *
+ * Correctness invariants enforced here rather than by callers:
+ * - Every targeted command is gated on an exact target binding (client id,
+ *   scene id, creative scope, contract version) both before it starts and
+ *   before its response is sent; a mismatch produces a typed failure and the
+ *   stale response is discarded, never delivered.
+ * - Capture-bearing operations (author with evidence, deliver, capture,
+ *   shot_package) run under a revision-bound capture so evidence can never
+ *   mix project revisions; post-capture drift is reported as
+ *   `stale_after_capture` instead of silently accepted.
+ * - Scene persistence is serialized per scene with optimistic revisions, and
+ *   scene switches are sequence-numbered so a superseded switch can never
+ *   apply its continuation.
+ */
 import { applyDirectorPageEvent } from "../comprehensive/editor/assistant/pageStateBridge";
 import {
   bootstrapDirectorAgent,
@@ -1041,6 +1063,10 @@ async function connectSocket() {
                 { scope: activeSceneId },
               );
             } else if (executable.operation.op === "author" && executable.operation.evidence) {
+              // Evidence-gated author: apply the authoring actions first, then
+              // capture a clean camera frame at the authored revision so the
+              // agent receives visual proof of what the edit produced. A failed
+              // capture downgrades the evidence block, never the authoring result.
               const authorInput = executable.operation;
               execution = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), authorInput, {
                 scope: activeSceneId,
@@ -1128,6 +1154,9 @@ async function connectSocket() {
                 }
               }
             } else if (message.input.op === "deliver") {
+              // Deliver: run the readiness audit, and only when it reports
+              // ready capture the full shot package as delivery proof. A
+              // blocked audit returns `status: "blocked"` without capturing.
               const deliveryInput = message.input;
               execution = executeDirectorWorkbenchOperation(() => useDirectorStore.getState(), deliveryInput, {
                 scope: activeSceneId,
@@ -1193,6 +1222,9 @@ async function connectSocket() {
                 };
               }
             } else if (message.input.op === "capture" || message.input.op === "shot_package") {
+              // Pure evidence captures: single frame or multi-pass shot
+              // package, both revision-bound, both echoing before/after
+              // project revisions so the agent can detect concurrent edits.
               const captureInput = message.input;
               const projectRevisionBefore = getDirectorProjectRevision(useDirectorStore.getState().project);
               try {
@@ -1479,6 +1511,11 @@ export function initializeGateway() {
   ) => {
     window.parent?.postMessage({ type, payload }, window.location.origin);
   };
+  // Scene switches arrive as window messages (from the host desk frame or the
+  // production workbench's post-response hop). The handler saves dirty state,
+  // loads or seeds the target scene project, rebinds the creative scope, and
+  // reports ready/failed back to the host — all guarded by sceneSwitchSequence
+  // so a slower, superseded switch can never clobber a newer one.
   const handleSceneSwitch = (event: MessageEvent) => {
     if (
       event.origin !== window.location.origin ||

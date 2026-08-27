@@ -15,6 +15,15 @@ import {
 } from "./directorDccSharedContract";
 import { directorDccConnectorProviderIdSchema } from "./directorDccEngineSpace";
 
+/**
+ * DCC → Director return-package vocabulary: the manifest a host connector
+ * writes after editing (entities in DCC-native units, hash-pinned artifact
+ * paths) and the reviewable import plan the gateway derives from it. Durable
+ * project changes only enter Director through this reviewed plan — never
+ * directly from a live link or preview channel. Out-of-range values are baked
+ * to Director's limits with warnings at plan build time, not silently dropped.
+ */
+
 /** Contract identifier for the DCC → Director return manifest. */
 export const DIRECTOR_DCC_RETURN_CONTRACT = "director-dcc-return-v1" as const;
 /** Contract identifier for the DCC return import plan. */

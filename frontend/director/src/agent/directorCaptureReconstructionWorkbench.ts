@@ -1,3 +1,14 @@
+/**
+ * Capture reconstruction workbench command executor (`reconstruction` operations).
+ *
+ * Bridges the Agent contract to the capture-to-scene pipeline: job lifecycle
+ * (list / get / submit), reading the reconstruction plan, applying the plan
+ * as authored scene objects (optionally uploading the shell mesh and adding
+ * capture-view cameras), and the plan-bound compare that renders the live
+ * stage from a capture-view camera and scores it against the original capture
+ * keyframe. Submit accepts either a Gallery media id (staged here) or an
+ * already-staged sha256 source id.
+ */
 import type { CaptureReconstructionPlan, CaptureSourceKind } from "@director/protocol/captureReconstructionProtocol";
 import type { ProductionJobRecord } from "@director/protocol/productionJobProtocol";
 import { uploadBlenderModelAsset } from "../comprehensive/editor/api/blenderLiveClient";
@@ -100,6 +111,7 @@ function defaultDependencies(): Required<DirectorCaptureReconstructionWorkbenchD
   };
 }
 
+/** Wrap a payload as a successful workbench execution. */
 function executionResult(result: unknown): DirectorWorkbenchExecution {
   return { success: true, result };
 }

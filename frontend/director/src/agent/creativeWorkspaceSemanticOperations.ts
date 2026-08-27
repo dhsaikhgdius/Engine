@@ -1,8 +1,22 @@
 /**
  * Creative Workspace semantic operation executor.
  *
- * Translates high-level Agent creative-workspace requests (interchange,
- * collaboration, pipeline) into concrete browser-side operations.
+ * Translates high-level Agent creative-workspace requests into concrete
+ * browser-side operations across three domains:
+ *
+ * - Interchange: plan/export and plan/import of Stage and Video Editor data
+ *   in OTIO/OTIOZ, Fountain, glTF/GLB, USD/USDZ, and OBJ/STL formats.
+ * - Collaboration: review comments and version snapshots in the live
+ *   CRDT-backed collaboration room for this scope.
+ * - Pipeline: starting, observing, and cancelling Canvas generation DAG runs.
+ *
+ * Shared invariants across every domain: mutations are two-phase
+ * (plan → guarded commit) or fingerprint-guarded so writes never land on a
+ * workspace that moved since the agent observed it; every mutating action
+ * requires an idempotency key and replays its receipt on retry instead of
+ * re-executing; inline payloads are hard-bounded so a tool result can never
+ * balloon the agent's context; and every failure carries a typed code plus a
+ * `suggested_next` corrective step.
  */
 
 import type {
@@ -49,7 +63,9 @@ import {
 } from "./creativeWorkspaceAgentContract";
 import interchangeFormats from "./creativeWorkspaceInterchangeFormats.json";
 
+/** Absolute ceiling for inline interchange payloads (8 MiB), regardless of the plan's own limit. */
 const MAX_INLINE_EXPORT_BYTES = 8 * 1024 * 1024;
+/** Oldest interchange plans are evicted FIFO past this per-context cap. */
 const MAX_PLANS_PER_CONTEXT = 32;
 const AGENT_IDENTITY_STORAGE_KEY = "director.collaboration.agent-identity.v1";
 const COLLABORATION_UPDATE_KEY_PREFIX = "director.collaboration.update.v1";
@@ -76,7 +92,11 @@ const defaultSemanticContext: CreativeWorkspaceSemanticContext = {
   getCollaborationSession: getManagedAgentCollaborationSession,
 };
 
+// Plans are keyed by context object (WeakMap) so parity harnesses and tests
+// with their own contexts never see each other's plans, and everything is
+// garbage-collected with the context.
 const interchangePlans = new WeakMap<object, Map<string, InterchangePlanRecord>>();
+/** Parsed-and-validated import data held between plan-import and the confirmed import. */
 type PreparedImportPayload =
   | {
       kind: "stage";
@@ -96,6 +116,7 @@ const interchangeImportPayloads = new WeakMap<
 >();
 const collaborationRevisions = new WeakMap<DirectorCollaborationSession, { content: string; revision: number }>();
 
+/** Derive a bounded, filesystem/id-safe identifier from an agent idempotency key. */
 function requestKeyId(prefix: string, key: string) {
   return `${prefix}-${key.replace(/[^A-Za-z0-9._:-]/g, "-")}`.slice(0, 160);
 }
@@ -120,6 +141,7 @@ function normalizedScopeId(context: CreativeWorkspaceSemanticContext) {
   return context.getScopeId().trim() || "default";
 }
 
+/** Typed "aborted" failure body shared by every semantic domain. */
 function abortError(action: string, suggestedNext: string) {
   return {
     success: false as const,
@@ -130,6 +152,7 @@ function abortError(action: string, suggestedNext: string) {
   };
 }
 
+/** Strip path separators and NULs from a caller-supplied file name; bound its length. */
 function safeFileName(value: string | undefined, fallback: string) {
   if (!value) return fallback;
   const normalized = value
@@ -139,6 +162,11 @@ function safeFileName(value: string | undefined, fallback: string) {
   return normalized || fallback;
 }
 
+// ---------------------------------------------------------------------------
+// Interchange: format capabilities, guards, and the export payload builders.
+// ---------------------------------------------------------------------------
+
+/** Static format capability table (which workspaces, encoding, MIME) from the sibling JSON. */
 const FORMAT_CAPABILITIES = interchangeFormats as Array<{
   id: InterchangeFormat;
   workspaces: InterchangeWorkspace[];
@@ -157,6 +185,12 @@ function defaultExportFileName(workspace: InterchangeWorkspace, format: Intercha
   return `director-${workspace}${extension}`;
 }
 
+/**
+ * The freshness guard for an interchange plan: Stage plans pin the project
+ * revision, Video plans pin the creative snapshot fingerprint. A commit whose
+ * guard no longer matches is rejected as stale instead of exporting/importing
+ * drifted state.
+ */
 function currentInterchangeGuard(
   context: CreativeWorkspaceSemanticContext,
   workspace: InterchangeWorkspace,
@@ -196,6 +230,8 @@ function interchangeFailure(
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
+  // Chunked conversion: String.fromCharCode(...allBytes) overflows the
+  // argument limit on multi-megabyte payloads.
   const chunkSize = 0x8000;
   for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
     binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.byteLength, offset + chunkSize)));
@@ -203,6 +239,7 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
+/** Gallery assets projected into the shape the OTIO serializers reference media by. */
 function mediaSources(context: CreativeWorkspaceSemanticContext) {
   return context.getMediaState().assets.map((asset) => ({
     id: asset.id,
@@ -214,6 +251,12 @@ function mediaSources(context: CreativeWorkspaceSemanticContext) {
   }));
 }
 
+/**
+ * Serialize the live workspace into the plan's format. The interchange module
+ * is dynamically imported so its serializers stay out of the entry chunk.
+ * Mesh (OBJ/STL) exports also surface the typed loss report so nothing is
+ * silently dropped from the archive.
+ */
 async function createInterchangePayload(
   context: CreativeWorkspaceSemanticContext,
   plan: InterchangePlanRecord,
@@ -277,6 +320,12 @@ function meshExportOmissions(report: {
 
 /**
  * Execute an interchange request (import/export) within the active workspace.
+ *
+ * Exports are two-phase: plan-export computes the guard and file metadata,
+ * then export re-checks the guard and serializes; imports mirror that with
+ * plan-import (parse + summarize, nothing applied) and a confirmed import
+ * that commits the prepared payload. Capabilities is the only unguarded
+ * action.
  *
  * @param input - The validated interchange request from the Agent.
  * @param context - The live workspace state bridge.
@@ -477,6 +526,13 @@ function base64ToBytes(payload: string) {
   return bytes;
 }
 
+/**
+ * Resolve an import source to bytes. Three source kinds: inline payload
+ * (utf8/base64), a Gallery media id, or a workspace path (host-resolved and
+ * only available when the context provides a resolver — browser contexts do
+ * not). Every path enforces both the plan's byte limit and the absolute
+ * inline ceiling; failures carry a typed `code` for the interchange receipt.
+ */
 async function resolveImportSourceBytes(
   context: CreativeWorkspaceSemanticContext,
   source: Extract<CreativeWorkspaceInterchangeRequest["request"], { action: "plan-import" }>["source"],
@@ -549,6 +605,11 @@ async function resolveImportSourceBytes(
   };
 }
 
+/**
+ * Parse import bytes into an applicable payload without mutating anything.
+ * Video imports resolve against currently-online Gallery media; Stage imports
+ * merge onto the live project as base. Mesh formats are export-only.
+ */
 async function parseInterchangeImport(
   context: CreativeWorkspaceSemanticContext,
   format: InterchangeFormat,
@@ -606,6 +667,12 @@ async function parseInterchangeImport(
   };
 }
 
+/**
+ * plan-import: resolve and parse the source, remember the prepared payload
+ * keyed by a fresh plan id, and return a reviewable summary (object/track
+ * counts, warnings, omissions) so the agent can confirm before anything is
+ * applied to the workspace.
+ */
 async function planInterchangeImport(
   request: Extract<CreativeWorkspaceInterchangeRequest["request"], { action: "plan-import" }>,
   context: CreativeWorkspaceSemanticContext,
@@ -697,6 +764,12 @@ async function planInterchangeImport(
   }
 }
 
+/**
+ * import: apply a previously prepared plan. The guard is checked against both
+ * the caller's echoed fingerprint and the live workspace, so a commit can
+ * neither replay a stale intent nor land on drifted state. The prepared
+ * payload is consumed on success (a second import needs a fresh plan).
+ */
 async function commitInterchangeImport(
   request: Extract<CreativeWorkspaceInterchangeRequest["request"], { action: "import" }>,
   context: CreativeWorkspaceSemanticContext,
@@ -780,10 +853,19 @@ async function commitInterchangeImport(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Collaboration: managed agent session, review comments, version snapshots.
+// ---------------------------------------------------------------------------
+
 function collaborationPersistenceKey(scopeId: string) {
   return `${COLLABORATION_UPDATE_KEY_PREFIX}.${scopeId.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 180) || "local"}`;
 }
 
+/**
+ * Stable per-tab agent identity for collaboration presence and comment
+ * authorship. Persisted in sessionStorage so retries within the tab keep one
+ * identity; a fresh ephemeral identity is used where storage is denied.
+ */
 function agentIdentity() {
   const fallback = {
     id: `agent-${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`,
@@ -803,11 +885,16 @@ function agentIdentity() {
   return fallback;
 }
 
+// One lazily created collaboration session per scope, shared across requests
+// so repeated agent calls do not open a new CRDT room each time. Bounded to 8
+// scopes; the oldest session is disposed when the cap is exceeded.
 const managedCollaborationSessions = new Map<
   string,
   Promise<{ session: DirectorCollaborationSession; dispose: () => void }>
 >();
 
+// Best-effort settle window: gives the freshly attached transports a moment
+// to deliver the room's current state before the request reads it.
 async function waitForCollaborationSync(signal?: AbortSignal) {
   await new Promise<void>((resolve) => {
     const timer = globalThis.setTimeout(resolve, 120);
@@ -822,6 +909,11 @@ async function waitForCollaborationSync(signal?: AbortSignal) {
   });
 }
 
+/**
+ * Create the agent's collaboration session for a scope: seed it from the
+ * locally persisted CRDT update when present, then attach both the
+ * BroadcastChannel (same-browser tabs) and gateway WebSocket transports.
+ */
 async function createManagedAgentCollaborationSession(scopeId: string, signal?: AbortSignal) {
   const [collaboration, gateway] = await Promise.all([
     import("../comprehensive/editor/collaboration/directorCollaboration"),
@@ -866,6 +958,7 @@ async function getManagedAgentCollaborationSession(scopeId: string, signal?: Abo
   return (await managed).session;
 }
 
+/** Wire (snake_case) → internal (camelCase) review-anchor conversion. */
 function toDirectorAnchor(anchor: CreativeWorkspaceReviewAnchor): DirectorReviewAnchor {
   if (anchor.type === "scene") return { type: "scene", sceneId: anchor.scene_id };
   if (anchor.type === "object") return { type: "object", sceneId: anchor.scene_id, objectId: anchor.object_id };
@@ -877,6 +970,7 @@ function toDirectorAnchor(anchor: CreativeWorkspaceReviewAnchor): DirectorReview
   };
 }
 
+/** Internal (camelCase) → wire (snake_case) review-anchor conversion. */
 function fromDirectorAnchor(anchor: DirectorReviewAnchor): CreativeWorkspaceReviewAnchor {
   if (anchor.type === "scene") return { type: "scene", scene_id: anchor.sceneId };
   if (anchor.type === "object") return { type: "object", scene_id: anchor.sceneId, object_id: anchor.objectId };
@@ -888,6 +982,7 @@ function fromDirectorAnchor(anchor: DirectorReviewAnchor): CreativeWorkspaceRevi
   };
 }
 
+/** Project a session review comment into the snake_case wire shape agents read. */
 function collaborationComment(comment: ReturnType<DirectorCollaborationSession["addReviewComment"]>) {
   return {
     id: comment.id,
@@ -902,6 +997,12 @@ function collaborationComment(comment: ReturnType<DirectorCollaborationSession["
   };
 }
 
+/**
+ * Content-addressed collaboration guard fingerprint. The canonical JSON of
+ * shared state + comments + version metadata is compared against the last
+ * computation per session: unchanged content keeps its revision number, any
+ * change bumps it. Guards therefore change exactly when observable state does.
+ */
 function collaborationFingerprint(session: DirectorCollaborationSession) {
   const shared = session.getSharedState();
   const comments = session
@@ -949,6 +1050,11 @@ function collaborationFailure(
   });
 }
 
+/**
+ * Validate a review anchor against the room's synchronized shared state:
+ * exact room id, live object ids, in-range frames, and known track ids.
+ * Returns a human-readable issue string, or null when the anchor is valid.
+ */
 function validateCollaborationAnchor(session: DirectorCollaborationSession, anchor: CreativeWorkspaceReviewAnchor) {
   if (anchor.scene_id !== session.scopeId)
     return `Anchor scene ${anchor.scene_id} is not exact room ${session.scopeId}.`;
@@ -973,6 +1079,7 @@ function versionMetadata(version: ReturnType<DirectorCollaborationSession["listV
   return { id: version.id, name: version.name, author: version.author, created_at: version.createdAt };
 }
 
+/** Project a version comparison into the snake_case wire shape agents read. */
 function comparisonResult(
   comparison: NonNullable<ReturnType<DirectorCollaborationSession["compareVersionToCurrent"]>>,
 ) {
@@ -997,6 +1104,16 @@ function comparisonResult(
   };
 }
 
+/**
+ * Execute a collaboration request against the scope's managed session.
+ *
+ * Read actions (observe, list-comments, list-versions, compare) are
+ * unguarded. Every write requires the current collaboration fingerprint plus
+ * an idempotency key; comment ids are derived from the key so a retried
+ * add-comment replays its receipt (and a reused key with different content is
+ * a typed conflict). Resolve/reopen/delete are idempotent by state: writing
+ * the already-current status replays instead of failing.
+ */
 export async function executeCreativeWorkspaceCollaborationRequest(
   input: CreativeWorkspaceCollaborationRequest,
   context: CreativeWorkspaceSemanticContext = defaultSemanticContext,
@@ -1470,6 +1587,10 @@ export async function executeCreativeWorkspaceCollaborationRequest(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Canvas pipeline: start / status / cancel of generation DAG runs.
+// ---------------------------------------------------------------------------
+
 function canvasPipelineFailure(
   action: string,
   code: "not_found" | "stale_guard" | "conflict" | "unavailable" | "operation_rejected" | "aborted",
@@ -1482,11 +1603,23 @@ function canvasPipelineFailure(
   });
 }
 
+/** Look up a durable pipeline run by id, or the most recent run when no id is given. */
 function canvasPipelineRun(context: CreativeWorkspaceSemanticContext, runId?: string) {
   const runs = context.getCreativeState().boardPipelineRuns;
   return runId ? (runs.find((run) => run.id === runId) ?? null) : (runs.at(-1) ?? null);
 }
 
+/**
+ * Execute a Canvas pipeline request.
+ *
+ * Start is guarded on the creative snapshot fingerprint, validated against
+ * live board node ids, and keyed: the run id derives from the idempotency key
+ * so a retried start returns the durable run receipt instead of launching a
+ * second run (a reused key with different targets is a typed conflict). Only
+ * one run may be active per browser. Cancel of an already-finished run
+ * replays its receipt; cancel of a run whose controller this browser no
+ * longer owns reports `unavailable` with the durable-job reconciliation path.
+ */
 export async function executeCreativeWorkspacePipelineRequest(
   input: CreativeWorkspacePipelineRequest,
   context: CreativeWorkspaceSemanticContext = defaultSemanticContext,
@@ -1692,6 +1825,7 @@ export async function executeCreativeWorkspacePipelineRequest(
   }
 }
 
+/** Route a semantic request to its domain executor by the `op` discriminator. */
 export async function executeCreativeWorkspaceSemanticRequest(
   input: CreativeWorkspaceInterchangeRequest | CreativeWorkspaceCollaborationRequest | CreativeWorkspacePipelineRequest,
   context: CreativeWorkspaceSemanticContext = defaultSemanticContext,

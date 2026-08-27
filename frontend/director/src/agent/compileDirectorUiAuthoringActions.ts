@@ -60,14 +60,17 @@ export type DirectorCameraShotPatch = Partial<DirectorCameraShot> & {
   target?: [number, number, number];
 };
 
+/** Structural equality via JSON, treating null and undefined as equal. */
 function jsonEqual(left: unknown, right: unknown) {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
+/** Clamp a focal length to the 12–200 mm range the authoring contract accepts. */
 function clampFocalLengthMm(value: number) {
   return Math.min(200, Math.max(12, value));
 }
 
+/** Camera patch keys update_camera can express; any other key keeps the legacy writer. */
 const CAMERA_UPDATE_SUPPORTED_KEYS = new Set([
   "name",
   "fov",
@@ -288,6 +291,7 @@ export function compileDirectorAddLightAction(
   };
 }
 
+/** Light patch keys update_light can express; any other key keeps the legacy writer. */
 const LIGHT_UPDATE_SUPPORTED_KEYS = new Set([
   "name",
   "type",
@@ -382,7 +386,9 @@ export function compileDirectorWorldSettingsAction(patch: DirectorWorldSettingsP
   return { action: "set_world_settings", settings };
 }
 
+/** Scene collections where `undefined` in a UI patch means "remove" (compiled to authoring's null). */
 const SCENE_NULLABLE_KEYS = new Set(["timeline", "clippingPlanes", "objectLayers", "annotations", "measurements"]);
+/** Scene patch keys set_scene can express; any other key keeps the legacy writer. */
 const SCENE_SUPPORTED_KEYS = new Set([
   "scale",
   "position",

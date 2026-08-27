@@ -1,3 +1,13 @@
+/**
+ * Generated-3D workbench command executor (`generated_3d` operations).
+ *
+ * Bridges the Agent contract to the browser generated-3D pipeline: provider
+ * discovery, job lifecycle (list / get / submit / cancel / retry / reconcile),
+ * and promotion of a succeeded job's mesh into the Director asset library —
+ * optionally placing it on the Stage through the same authoring path the UI
+ * uses. Image-to-3D submissions resolve Gallery media to bytes locally so the
+ * gateway never needs read access to the browser media store.
+ */
 import { prepareDirectorReferenceImage } from "../comprehensive/editor/reconstruction/referenceImageAnalysis";
 import { directorAssetRefSchema } from "@director/project-schema";
 import {
@@ -80,6 +90,7 @@ function defaultDependencies(): Required<DirectorGenerated3DWorkbenchDependencie
   };
 }
 
+/** Wrap a payload as a successful workbench execution. */
 function executionResult(result: unknown): DirectorWorkbenchExecution {
   return { success: true, result };
 }

@@ -6,6 +6,14 @@ import { directorCameraAspectRatioSchema } from "../../../../packages/protocol/s
 import { strictOperation } from "../../../../packages/protocol/src/strictProtocolVariant";
 import { directorDccVec3Schema } from "./directorDccSharedContract";
 
+/**
+ * Game-engine → Director scene import vocabulary: the scene manifest an
+ * engine connector exports (Unreal / Unity / Godot), the reviewable import
+ * plan the gateway derives from it, and the selection the human confirms
+ * before anything is applied. Mirrors the Blender scene-import contract so
+ * every host import flows through the same manifest → plan → confirm shape.
+ */
+
 /** Contract identifier for the game-engine scene export manifest (Unreal / Unity / Godot). */
 export const DIRECTOR_ENGINE_SCENE_CONTRACT = "director-engine-scene-v1" as const;
 

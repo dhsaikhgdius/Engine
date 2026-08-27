@@ -53,12 +53,19 @@ function recordUiAuthoringAudit(entry: {
   }
 }
 
+/** Optional dispatch knobs for one authoring apply. */
 export type DispatchDirectorAuthoringOptions = {
+  /** Stable key for retry-safe replays; a fresh `ui-author:` UUID is minted when omitted. */
   idempotencyKey?: string;
+  /** Optimistic-concurrency guard: reject with a stale-revision error when the live project moved. */
   expectedRevision?: string;
   force?: boolean;
 };
 
+/**
+ * Success receipt: before/after project revisions plus the created/updated/
+ * deleted entity summaries returned by the shared authoring engine.
+ */
 export type DispatchDirectorAuthoringReceipt = {
   ok: true;
   project_revision_before: string;
@@ -71,6 +78,7 @@ export type DispatchDirectorAuthoringReceipt = {
   notes: string[];
 };
 
+/** Failure receipt; the project was left untouched at `project_revision_before`. */
 export type DispatchDirectorAuthoringFailure = {
   ok: false;
   error: string;
@@ -109,6 +117,14 @@ export function compileDirectorDeleteObjectActions(
   ];
 }
 
+/**
+ * Apply authoring actions from a UI call site through the same engine the
+ * Agent workbench uses. Enforces the film-role authoring gate and the
+ * optional expected-revision guard before mutating, commits through the
+ * undoable store path, and records every outcome (success or typed failure)
+ * in the gateway tool-audit trail so UI edits and Agent edits share one
+ * provenance stream.
+ */
 export function dispatchDirectorAuthoringActions(
   actions: DirectorAuthoringAction[],
   options: DispatchDirectorAuthoringOptions = {},
