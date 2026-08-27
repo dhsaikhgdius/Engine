@@ -3839,6 +3839,8 @@
   "可清扫": "Sweepable",
   "最近清扫": "Last sweep",
   "暂无清扫记录": "No sweeps yet",
+  "不可达": "Unreachable",
+  "保留期已过": "Retention expired",
   "重新可达": "Became reachable",
   "计划后已改写": "Modified since plan",
   "已不存在": "Already absent",
