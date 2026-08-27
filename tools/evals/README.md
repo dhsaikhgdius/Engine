@@ -77,9 +77,13 @@ Each `tasks/*.json` file is one task, run sequentially with its own
 Every step names one public tool in `tool`: `director_workbench`, `director_creative`,
 `stage_video`, `blender_native`, `director_dcc`, or `director_game`. The task-schema test validates every
 expected-success input against that tool's strict contract before an isolated browser run.
-Game-slice tasks (`12`–`18`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
-host-free playtest without an inline `trace`, and the fps/racing/rpg genre demo recipes replayed
-verbatim from `packages/protocol/src/gameDemoRecipes.ts`.
+Game-slice tasks (`12`–`20`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
+host-free playtest without an inline `trace`, the racing/fps full loops ending in the
+`export_slice` refusal, and all five genre demo recipes (fps, racing, rpg, exploration,
+fighting) replayed verbatim from `packages/protocol/src/gameDemoRecipes.ts`. Number prefixes
+only set run order and may repeat when tasks land from parallel branches (`13`/`14`, and
+`16`/`17` where the `game-slice-*-full-loop` and `game-demo-*-recipe` tasks coexist); new tasks
+take the next unused number — `19`/`20` are the exploration and fighting recipe replays.
 
 `result_paths` are dot-paths resolved against the whole JSON response body
 (arrays index numerically, e.g. `result.issues.0`); a path passes when the resolved value is
@@ -116,5 +120,9 @@ really are incomplete.
 | `tasks/14-world-systems-observation.json`        | Author Living World weather/wind plus one effect, then verify the `world` observation projection                     |
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | Host-free playtest scoring without an explicit trace                                                            |
 | `tasks/16-game-demo-fps-recipe-hostfree.json`    | Replay the fps demo recipe: discover via capabilities/describe, plan, bind hinted roles, host-free playtest to playable |
+| `tasks/16-game-slice-racing-full-loop.json`      | Full racing loop with no inline trace: plan → bind → playtest → evaluate, then `export_slice` refuses codegen and routes to `director_dcc` |
 | `tasks/17-game-demo-racing-recipe-hostfree.json` | Replay the racing demo recipe with enter/exit vehicle verbs to a literally playable receipt                          |
+| `tasks/17-game-slice-fps-full-loop.json`         | Full fps loop with no inline trace: sprint/fire/reload scored host-free, then `export_slice` refuses codegen and routes to `director_dcc` |
 | `tasks/18-game-demo-rpg-recipe-hostfree.json`    | Replay the rpg demo recipe with interact plus attack verbs to a literally playable receipt                            |
+| `tasks/19-game-demo-exploration-recipe-hostfree.json` | Replay the exploration demo recipe (walk, hop, interact with the stele) to a literally playable receipt          |
+| `tasks/20-game-demo-fighting-recipe-hostfree.json` | Replay the fighting demo recipe with attack plus dash verbs to a literally playable receipt                         |

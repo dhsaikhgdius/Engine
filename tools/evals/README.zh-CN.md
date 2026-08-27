@@ -80,6 +80,13 @@ npm run eval:reference
 `expect.success: false` 的步骤在校验边界按预期报错时通过,与 HTTP 状态码无关。
 运行器是通用的——只需将新 JSON 文件放入 `tasks/` 即可添加任务。
 
+游戏切片任务（`12`–`20`）覆盖 plan/bind/playtest、export→`director_dcc` 路由、未绑定拒绝、
+无内联 `trace` 的 host-free 试玩、以 `export_slice` 拒绝收尾的 racing/fps 完整循环,
+以及从 `packages/protocol/src/gameDemoRecipes.ts` 逐字回放的全部五个题材演示配方
+（fps、racing、rpg、exploration、fighting）。数字前缀仅决定运行顺序,并行分支合入时允许重号
+（`13`/`14`,以及 `16`/`17` 上 `game-slice-*-full-loop` 与 `game-demo-*-recipe` 并存）;
+新任务取下一个未用编号——`19`/`20` 即 exploration 与 fighting 配方回放。
+
 步骤可通过 `session_id` 冒充特定 Agent 会话（例如角色绑定的占有会话）以验证
 possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角色目标,
 由网关 possession 预检在校验前补全,任务 schema 测试会断言该输入确实不完整。
@@ -106,5 +113,9 @@ possession 范围;标记 `gateway_fills_target: true` 的步骤故意省略角�
 | `tasks/14-world-systems-observation.json`        | 设置 Living World 天气/风并添加一个效果,验证 `world` 观察投影            |
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | 无显式 trace 的 host-free playtest 评分                            |
 | `tasks/16-game-demo-fps-recipe-hostfree.json`    | 回放 fps 题材演示配方:capabilities/describe 发现、plan、按提示绑定、免宿主试玩至可玩 |
+| `tasks/16-game-slice-racing-full-loop.json`      | racing 完整循环（无内联 trace）:plan → bind → playtest → evaluate,`export_slice` 拒绝生成代码并路由到 `director_dcc` |
 | `tasks/17-game-demo-racing-recipe-hostfree.json` | 回放 racing 题材演示配方,含 enter/exit vehicle 动词,回执字面可玩          |
+| `tasks/17-game-slice-fps-full-loop.json`         | fps 完整循环(无内联 trace):sprint/fire/reload 免宿主评分,`export_slice` 拒绝生成代码并路由到 `director_dcc` |
 | `tasks/18-game-demo-rpg-recipe-hostfree.json`    | 回放 rpg 题材演示配方,含 interact 与 attack 动词,回执字面可玩             |
+| `tasks/19-game-demo-exploration-recipe-hostfree.json` | 回放 exploration 题材演示配方(走过庭院、跃过石阶、与石碑交互),回执字面可玩 |
+| `tasks/20-game-demo-fighting-recipe-hostfree.json` | 回放 fighting 题材演示配方,含 attack 与 dash 动词,回执字面可玩            |
