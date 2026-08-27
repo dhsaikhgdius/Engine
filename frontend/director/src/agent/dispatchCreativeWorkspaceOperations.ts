@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   creativeWorkspaceAgentExecutionResultSchema,
   creativeWorkspaceAgentRequestSchema,
+  executeCreativeWorkspaceAgentOperationAsync,
   executeCreativeWorkspaceAgentRequest,
   executeCreativeWorkspaceMediaProxyAttach,
   executeCreativeWorkspaceMediaRelinkFile,
@@ -176,6 +177,40 @@ export async function dispatchCreativeWorkspaceMediaProxyAttach(
   const idempotencyKey = options.idempotencyKey ?? `ui-creative-proxy-attach:${crypto.randomUUID()}`;
   const execution = await executeCreativeWorkspaceMediaProxyAttach(
     { op: "media.proxy.attach", original_media_id: originalMediaId, proxy_media_id: proxyMediaId },
+    options.context,
+  );
+  if (!execution.success) {
+    return {
+      ok: false,
+      error: execution.error,
+      code: execution.code,
+      execution,
+      snapshot_fingerprint_before: before.snapshot_fingerprint,
+    };
+  }
+  const after = observeCreativeWorkspaceAgentSnapshot(options.context);
+  return {
+    ok: true,
+    execution,
+    idempotency_key: idempotencyKey,
+    snapshot_fingerprint_before: before.snapshot_fingerprint,
+    snapshot_fingerprint_after: after.snapshot_fingerprint,
+  };
+}
+
+/**
+ * Route a UI media.verify through the same async executor Agents use
+ * (`executeCreativeWorkspaceAgentOperationAsync` → `executeCreativeWorkspaceMediaVerify`).
+ * Probes durable bytes; does not invent outcomes.
+ */
+export async function dispatchCreativeWorkspaceMediaVerify(
+  mediaIds: string[],
+  options: DispatchCreativeWorkspaceOptions = {},
+): Promise<DispatchCreativeWorkspaceResult> {
+  const before = observeCreativeWorkspaceAgentSnapshot(options.context);
+  const idempotencyKey = options.idempotencyKey ?? `ui-creative-verify:${crypto.randomUUID()}`;
+  const execution = await executeCreativeWorkspaceAgentOperationAsync(
+    { op: "media.verify", media_ids: mediaIds },
     options.context,
   );
   if (!execution.success) {

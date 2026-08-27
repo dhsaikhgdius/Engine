@@ -27,6 +27,7 @@ import {
 import {
   dispatchCreativeWorkspaceMediaProxyAttach,
   dispatchCreativeWorkspaceMediaRelink,
+  dispatchCreativeWorkspaceMediaVerify,
   dispatchCreativeWorkspaceOperations,
   type CreativeWorkspaceOperationInput,
 } from "../../src/agent/dispatchCreativeWorkspaceOperations";
@@ -997,5 +998,38 @@ describe("creative workspace UI/agent parity harness", () => {
       },
     });
     expect(vi.mocked(relinkDirectorCreativeMedia)).toHaveBeenCalledWith("media:image:poster", file, "image");
+  });
+
+  it("routes UI media.verify through the shared async durable-byte probe executor", async () => {
+    const blobs = new Map<string, Blob>([
+      ["media:image:poster", new Blob(["x".repeat(1_024)])],
+      ["media:video:take", new Blob(["short"])],
+    ]);
+    const runtime: CreativeWorkspaceAgentContext = {
+      workspace: { getState: () => useDirectorCreativeWorkspaceStore.getState() },
+      media: {
+        getState: () => mediaState(),
+        readBlob: async (id) => blobs.get(id) ?? null,
+      },
+    };
+    const receipt = await dispatchCreativeWorkspaceMediaVerify(
+      ["media:image:poster", "media:video:take", "media:image:ghost"],
+      { context: runtime, idempotencyKey: "ui-verify-test" },
+    );
+    expect(receipt).toMatchObject({ ok: true, idempotency_key: "ui-verify-test" });
+    if (!receipt.ok) throw new Error(receipt.error);
+    expect(receipt.execution).toMatchObject({
+      success: true,
+      operation: "media.verify",
+      result: {
+        storage: { mode: "memory", durable: false },
+        counts: { verified: 1, size_mismatch: 1, missing_bytes: 0, not_cataloged: 1, unverified: 0 },
+        items: [
+          { media_id: "media:image:poster", outcome: "verified", omit_reason: null },
+          { media_id: "media:video:take", outcome: "size_mismatch", omit_reason: null },
+          { media_id: "media:image:ghost", outcome: "not_cataloged", omit_reason: null },
+        ],
+      },
+    });
   });
 });
