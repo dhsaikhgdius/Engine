@@ -214,9 +214,7 @@ export function StorageHealthSection() {
             <span>
               {health.sweepCandidates.count > 0
                 ? [
-                    t(
-                      `${health.sweepCandidates.count} 个对象（${formatStorageBytes(health.sweepCandidates.bytes)}）`,
-                    ),
+                    t(`${health.sweepCandidates.count} 个对象（${formatStorageBytes(health.sweepCandidates.bytes)}）`),
                     formatSweepByReason(health.sweepCandidates.byReason, t),
                   ]
                     .filter(Boolean)
