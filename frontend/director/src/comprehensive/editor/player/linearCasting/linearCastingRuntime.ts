@@ -1,3 +1,12 @@
+/**
+ * Runtime adapter for the vendored "linear casting" spell-effects mini-engine
+ * (./vendor, kept unmodified): wires its ability manager, particle engine,
+ * decals, bursts, camera shake, and screen flash into Director's play mode.
+ * Owns lifecycle (init on element select, per-frame update from the player
+ * loop, disposal on exit) and translates Director player state (camera, aim,
+ * ground) into the vendor engine's expected globals without leaking them
+ * elsewhere in the app.
+ */
 import {
   DataTexture,
   RGBAFormat,

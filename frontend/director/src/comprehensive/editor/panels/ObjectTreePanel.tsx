@@ -1,3 +1,17 @@
+/**
+ * Object tree panel (scene outliner) for the Director Stage.
+ *
+ * Groups scene objects into semantic buckets (characters, crowds, geometry,
+ * my-models, composites, object lists, cameras), supports search with reveal,
+ * per-row visibility/lock toggles, rename, focus-in-viewport, deletion, and
+ * floating per-row action menus rendered through a portal so they never clip
+ * inside the scrolling sidebar.
+ *
+ * Performance model: rows are virtualized (VirtualizedObjectList), and the
+ * store selectors project each DirectorObject down to the outliner-relevant
+ * fields (identity, grouping, visibility, lock) with structural memoization —
+ * Stage transform updates at pointer frequency must not rebuild the tree.
+ */
 import {
   memo,
   useCallback,
@@ -125,10 +139,12 @@ const OBJECT_TREE_FIELDS = [
   "linkedCameraId",
 ] as const satisfies ReadonlyArray<keyof ObjectTreeObject>;
 
+/** Projects a full DirectorObject down to the fields the outliner actually renders. */
 function projectObjectForTree(object: DirectorObject): ObjectTreeObject {
   return Object.fromEntries(OBJECT_TREE_FIELDS.map((field) => [field, object[field]])) as ObjectTreeObject;
 }
 
+/** Field-wise equality between a source object and its projection (tuple fields compared element-wise). */
 function objectTreeObjectMatches(object: DirectorObject, projected: ObjectTreeObject) {
   return OBJECT_TREE_FIELDS.every((field) => {
     const left = object[field];
@@ -167,6 +183,7 @@ function createObjectTreeObjectsSelector() {
   };
 }
 
+/** Memoizes a derived id-list selector so unrelated store changes keep referential equality. */
 function createStableIdListSelector(read: (state: ReturnType<typeof useDirectorStore.getState>) => string[]) {
   let previous: string[] = [];
   return (state: ReturnType<typeof useDirectorStore.getState>) => {
@@ -177,6 +194,7 @@ function createStableIdListSelector(read: (state: ReturnType<typeof useDirectorS
   };
 }
 
+/** Stable asset-list selector: only id/url changes invalidate, not asset metadata churn. */
 function createProjectAssetsSelector() {
   let previousSource: DirectorAssetRef[] | null = null;
   let previousResult: DirectorAssetRef[] = [];
@@ -196,6 +214,7 @@ function createProjectAssetsSelector() {
   };
 }
 
+/** Subscribes to the single object by id so the bindings menu re-renders independently of the tree. */
 function ObjectReferenceBindingsForObject({ objectId }: { objectId: string }) {
   const object = useDirectorStore((state) => state.project.objects.find((item) => item.id === objectId));
   return object ? <ObjectReferenceBindings object={object} /> : null;
@@ -317,16 +336,19 @@ const ObjectKindIcon = memo(function ObjectKindIcon({ icon }: { icon: ObjectTree
   );
 });
 
+/** True when the keyboard event targets a form field, so tree shortcuts (e.g. Delete) must not fire. */
 function isEditableKeyboardTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
 
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
+/** Stable synthetic id for automatic (same-name) object groupings, keyed by group and normalized name. */
 function createAutomaticListId(groupKey: ObjectTreeGroupKey, name: string) {
   return `automatic:${groupKey}:${encodeURIComponent(name.trim().toLocaleLowerCase())}`;
 }
 
+/** Member rows in ordinary lists get a positional suffix; crowd/composite members keep their own names. */
 function getObjectListMemberLabel(item: SceneTreeItem, child: SceneTreePreviewItem, index: number) {
   if (item.listKind === "crowd" || item.listKind === "composite") return child.name;
 
@@ -337,6 +359,13 @@ function getSceneTreeItemLabel(item: SceneTreeItem) {
   return item.displayName?.trim() || item.name;
 }
 
+/**
+ * The scene outliner panel. See the file header for grouping, virtualization,
+ * and selector-memoization details. `onSceneSettingsOpen` opens the scene
+ * settings inspector from the panel header. Authoring actions (rename, delete,
+ * list membership) are gated by the film-role authoring policy so read-only
+ * roles get disabled controls, mirroring the gateway-side tool gate.
+ */
 export function ObjectTreePanel({ onSceneSettingsOpen }: { onSceneSettingsOpen?: () => void } = {}) {
   const objectTreeScrollRef = useRef<HTMLDivElement>(null);
   const { t } = useLanguage();

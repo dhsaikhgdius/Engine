@@ -1,3 +1,13 @@
+/**
+ * BlenderSceneLayer: renders the Blender-native portion of a Stage scene by
+ * streaming GLB previews from the live Blender kernel and keeping them in sync
+ * through the live-link poll loop (with a replay guard against out-of-order
+ * frames). Objects authored in Blender appear here instead of SceneRoot;
+ * selection and transform gizmos still route edits back through the shared
+ * runtime-operation transaction path so Director and Blender never diverge.
+ * Loaded GLB resources are cached and disposed deterministically, and the
+ * layer exposes raycast meshes to the player runtime for collision.
+ */
 import { invalidate, type ThreeEvent } from "@react-three/fiber";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {

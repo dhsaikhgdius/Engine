@@ -1,3 +1,13 @@
+/**
+ * Offscreen render-pass capture for the Stage: renders the scene into a
+ * WebGLRenderTarget under a specific pass (beauty with optional transparent
+ * background, depth, normal, object-id, semantic segmentation, …) by
+ * temporarily overriding materials, batch colors, tone mapping, and helper
+ * visibility, then restoring every mutated renderer/scene state. Pass output
+ * feeds dataset export, AI control packages, and shot packages — so the
+ * per-pass encodings (e.g. RGBADepthPacking, the semantic palette) are part
+ * of the agent-facing contract and must stay stable.
+ */
 import {
   Camera,
   Color,

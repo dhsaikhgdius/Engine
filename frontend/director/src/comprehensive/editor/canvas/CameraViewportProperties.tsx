@@ -1,3 +1,11 @@
+/**
+ * Floating in-viewport camera properties card: numeric position/rotation
+ * axis rows plus aspect-ratio and handheld-shake pickers for the active
+ * camera shot, shown while camera piloting. Edits write straight to the
+ * store's camera shot (deriving the rig target from rotation via the shared
+ * camera geometry helpers), and the card itself is draggable through the
+ * common viewport chrome drag hook.
+ */
 import { Camera, Move3D } from "lucide-react";
 import {
   parseFiniteNumber as finiteOr,

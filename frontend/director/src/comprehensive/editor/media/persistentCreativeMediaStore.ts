@@ -1,3 +1,14 @@
+/**
+ * The persistent creative media library: content-addressed image/video/audio
+ * assets stored in IndexedDB (with an in-memory fallback for tests/private
+ * modes), exposed as a vanilla Zustand store plus React hooks.
+ *
+ * Responsibilities: import/relink files, hydrate object URLs on demand, track
+ * availability (offline assets keep metadata but lose bytes), cache audio
+ * waveforms and transcripts, and persist playback preferences and proxy
+ * profiles. This is the single source of media truth shared by the Canvas
+ * board, video editor, gallery, and generation bridges.
+ */
 import { useEffect } from "react";
 import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";

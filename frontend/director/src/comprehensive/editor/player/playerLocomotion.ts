@@ -1,3 +1,12 @@
+/**
+ * Pure player roam-mode locomotion for the Stage's playable exploration mode:
+ * input intent resolution (walk/sprint/dash/jump/flight/swim), planar obstacle
+ * avoidance with step-up and ground settling, and third-person camera distance
+ * rules. Everything here is framework-free math over plain data — the R3F
+ * PlayerController owns the render loop and Rapier physics, and calls into
+ * these functions so behavior stays unit-testable and deterministic. The same
+ * state machine also backs headless playtest evaluation via `director_game`.
+ */
 import {
   DIRECTOR_DEFAULT_CHARACTER_HEIGHT,
   getScaledPlayerConfig,

@@ -1,3 +1,11 @@
+/**
+ * USD interchange for the Stage scene: writes the project's objects, lights,
+ * and cameras as ASCII USDA (packaged with the interchange manifest under the
+ * versioned director-usd adapter) and imports USDA back into project objects.
+ * Uses the shared interchange contract for ids, coordinate-system metadata,
+ * and character-asset checks so Blender/engine round trips through
+ * `director_dcc` reconstruct the same scene graph.
+ */
 import JSZip from "jszip";
 import { MathUtils } from "three";
 import type { DirectorObject, DirectorProject, DirectorTransform } from "../schema/directorProject";

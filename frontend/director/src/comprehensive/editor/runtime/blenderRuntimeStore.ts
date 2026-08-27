@@ -1,3 +1,11 @@
+/**
+ * Runtime Zustand store for the Blender live link: holds the latest scene
+ * snapshot, kernel status, preview visibility, and per-object native-rig
+ * capability probes. Kept outside the main project store because this is
+ * ephemeral session state fed by live-link polling — it must never be
+ * persisted with the project document, and high-frequency snapshot updates
+ * shouldn't invalidate project subscribers.
+ */
 import { create } from "zustand";
 import type {
   BlenderLiveSceneSnapshot,

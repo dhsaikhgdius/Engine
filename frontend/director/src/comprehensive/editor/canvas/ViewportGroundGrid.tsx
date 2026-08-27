@@ -1,3 +1,12 @@
+/**
+ * Shader-based infinite ground grid for the Stage viewport: draws
+ * cell/section lines in the fragment shader on a camera-following plane, with
+ * distance fade and density-based fading of minor lines as the camera pulls
+ * back (constants shared with the wheel-zoom heuristics so grid legibility
+ * matches zoom behavior). Follows the camera in useFrame by mutating
+ * uniforms — never React state — and is excluded from captures by the
+ * viewport's helper-visibility rules.
+ */
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {

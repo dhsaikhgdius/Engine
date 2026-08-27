@@ -1,3 +1,11 @@
+/**
+ * Media transcription panel: submits an audio/video asset to the gateway's
+ * transcription jobs, polls job status (tolerating brief poll blips), shows
+ * the resulting transcript, and offers VTT download plus one-click caption
+ * insertion into the video timeline. Uses the same job endpoints agents call
+ * through the transcription bridge, so UI- and agent-initiated jobs are
+ * indistinguishable on the gateway.
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Captions, Download, Languages, RotateCcw, Square, X } from "lucide-react";
 import {

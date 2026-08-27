@@ -1,3 +1,16 @@
+/**
+ * The creative-workspace store: shared Zustand state for the Canvas production
+ * board (nodes, edges, sections, pipeline runs, viewport), the video editor
+ * (tracks, clips, edit settings), the Gallery (folders, media records, prefs),
+ * and workspace-level preferences — everything outside the 3D Stage project.
+ *
+ * All persisted shapes are Zod schemas (many re-exported from the creative
+ * workspace protocol), so localStorage hydration, agent operations, and UI
+ * mutations validate against the same contract. The store keeps its own
+ * undo/redo history with batching for continuous gestures, enforces capacity
+ * limits (board nodes, gallery records, pipeline history), and exposes the
+ * media drag session used for cross-panel drag-and-drop.
+ */
 import { create } from "zustand";
 import { z } from "zod";
 import { dismissDirectorNotification, notifyDirector } from "../../app/notifications/directorNotificationStore";

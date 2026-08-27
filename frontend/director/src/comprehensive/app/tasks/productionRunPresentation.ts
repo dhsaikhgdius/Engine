@@ -1,3 +1,11 @@
+/**
+ * Presentation helpers for monitored production runs in the task tray:
+ * derives display names, phase/status labels, progress fractions, failure
+ * reasons, usage summaries, and absent-artifact warnings from the raw run
+ * records. Pure formatting over the film pipeline protocol types — polling
+ * and mutation live in directorTaskTrayStore; copy is zh-CN source language
+ * per the repository i18n convention.
+ */
 import type { AgentUsageSummary } from "../../../../../../packages/protocol/src/agentObservabilityProtocol";
 import {
   filmRunIntraPhaseSceneProgress,

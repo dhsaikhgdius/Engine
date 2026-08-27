@@ -1,11 +1,18 @@
+/**
+ * Thumbnail for asset-library cards: prefers the item's raster thumbnail,
+ * falls back to an .svg sibling when the .webp is missing, then to inline
+ * vector covers for native actions, and finally to a generic boxes icon.
+ */
 import { Boxes, Eye } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import type { ModelLibraryItem } from "../modelLibrary/modelLibraryCatalog";
 
+/** Catalog thumbnails ship as .webp with an .svg sibling; swap extensions for the fallback. */
 function svgFallbackThumbnailUrl(url: string) {
   return /\.webp$/i.test(url) ? url.replace(/\.webp$/i, ".svg") : null;
 }
 
+/** Hand-drawn vector covers for the built-in native actions (human, camera, sphere, generic cube). */
 function NativeModelLibraryThumb({ action }: { action: NonNullable<ModelLibraryItem["nativeAction"]> }) {
   if (action === "add-human") {
     return (

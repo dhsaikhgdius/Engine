@@ -1,3 +1,21 @@
+/**
+ * "World systems" inspector section: climate (time-of-day, weather, wind),
+ * ambient effects (fire/smoke/rain/… emitters), water bodies and rivers,
+ * wildlife groups, and roads/traffic — the living-world layer rendered on top
+ * of the authored Stage scene.
+ *
+ * Structure: a tabbed section (climate/effects/water/wildlife/traffic) whose
+ * entry editors (WorldEffectEntry, WorldWaterEntry, WorldWildlifeEntry,
+ * WorldRoadEntry) edit protocol-typed world blocks through dedicated store
+ * upsert/remove actions. Preset chips (wind, time, presence, motion,
+ * population, traffic) map friendly labels onto exact numeric parameters and
+ * are re-derived from the numbers so agent-made edits still highlight the
+ * matching chip.
+ *
+ * Cross-entry safety: a water spatial index detects combustion-over-water and
+ * road-under-water conflicts so the panel can warn and offer fixes (e.g.
+ * raising a road above the water surface).
+ */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
@@ -294,6 +312,11 @@ function toClampedInt(value: string | number, fallback: number, min: number, max
   return clampNumber(Math.round(toFiniteNumber(value, fallback)), min, max);
 }
 
+/**
+ * Scales a water-motion preset to the body's physical size (fetch): larger
+ * lakes / wider rivers get proportionally larger waves, so "natural" reads
+ * naturally at any scale.
+ */
 function resolveWaterMotionPresetPatch(
   body: DirectorWorldWaterBody,
   preset: (typeof WORLD_WATER_MOTION_PRESETS)[number],
@@ -449,6 +472,10 @@ function withRiverPoints(river: DirectorWorldRiver, points: WorldVec3[]): Direct
   return next;
 }
 
+// The get*PresetId helpers below classify raw world parameters back into the
+// nearest preset chip. Deriving the highlight from the numbers (instead of
+// storing the chip) keeps agent- or numeric-edited values honest in the UI.
+
 function getWindPresetId(speedMps: number): WorldWindPresetId {
   if (speedMps < 0.75) return "still";
   if (speedMps < 3.5) return "breeze";
@@ -518,6 +545,7 @@ function getSkyClimateLabel(cloudCover: number): string {
   return "天空通透";
 }
 
+/** Generic preset chip row: a group of mutually exclusive toggle buttons over typed option values. */
 function WorldChoiceGroup<T extends string | number>({
   ariaLabel,
   options,
@@ -745,6 +773,11 @@ function WorldPointListEditor({
   );
 }
 
+/**
+ * Editor card for one ambient effect emitter: presence presets, anchor and
+ * emitter shape, and a precision section for exact parameters. Warns when a
+ * combustion effect (fire/sparks) sits below a water surface.
+ */
 function WorldEffectEntry({
   basinAmplitudeScale,
   effect,
@@ -1026,6 +1059,10 @@ function WorldEffectEntry({
   );
 }
 
+/**
+ * Editor card for one water body (lake surface or river spline): motion
+ * presets scaled to physical size, flow, colours, and river control points.
+ */
 function WorldWaterEntry({
   body,
   onUpsert,
@@ -1295,6 +1332,7 @@ function WorldWaterEntry({
   );
 }
 
+/** Editor card for one wildlife group: population presets, roaming area, and species-specific altitude band. */
 function WorldWildlifeEntry({
   group,
   onUpsert,
@@ -1449,6 +1487,11 @@ function WorldWildlifeEntry({
   );
 }
 
+/**
+ * Editor card for one road: traffic presets, spline control points, and a
+ * water-conflict warning with a one-click fix that raises the road deck above
+ * the intersecting water surface.
+ */
 function WorldRoadEntry({
   basinAmplitudeScale,
   road,
@@ -1587,6 +1630,7 @@ function WorldRoadEntry({
   );
 }
 
+/** The tabbed world-systems section; see the file header for the domain model and safety checks. */
 export function SceneWorldSection() {
   const world = useDirectorStore((state) => state.project.world);
   const groundHeight = useDirectorStore((state) => state.project.scene.groundHeight);

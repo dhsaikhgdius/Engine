@@ -1,3 +1,11 @@
+/**
+ * Viewport toolbar overlaying the 3D Stage: selection/hand/lasso tools,
+ * transform-mode switches (translate/rotate/scale), undo/redo, grid and label
+ * toggles, aspect-ratio guides, screenshot capture, player-mode entry, and
+ * the model-library quick-add flyout (with local model/panorama import).
+ * Purely presentational chrome — every action delegates to the Director store
+ * or the capture bridge, so agents observing the store see identical effects.
+ */
 import {
   useEffect,
   useLayoutEffect,

@@ -1,3 +1,10 @@
+/**
+ * The unified media library view: merges storyboard shots, camera captures,
+ * timeline recordings, reference images, and persisted imports into one
+ * DirectorMediaItem list for the Canvas board, video editor, and Gallery.
+ * Also resolves playback sources (original vs proxy), availability probing
+ * for offline assets, and persistence of items into the creative media store.
+ */
 import { useEffect, useMemo, useState } from "react";
 import { useDirectorStore } from "../store/directorStore";
 import type { DirectorStoryboardShot } from "../schema/directorProject";

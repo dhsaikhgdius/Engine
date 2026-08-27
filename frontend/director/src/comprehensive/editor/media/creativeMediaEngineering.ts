@@ -1,3 +1,11 @@
+/**
+ * Browser-side media engineering for imported creative assets: decodes audio
+ * to compute versioned waveform peak data (for timeline clip rendering) and
+ * extracts video thumbnails/poster frames, all cached back onto the
+ * persistent media asset so repeat opens skip the decode. Results are
+ * Zod-validated on read because cached payloads may come from older schema
+ * versions or other browsers.
+ */
 import { z } from "zod";
 import type { CreativeMediaAsset, CreativeMediaKind } from "./persistentCreativeMediaStore";
 import { clamp } from "../../../../../../packages/protocol/src/primitives";

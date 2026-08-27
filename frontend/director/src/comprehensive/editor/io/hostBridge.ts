@@ -1,3 +1,12 @@
+/**
+ * postMessage bridge between the embedded Director Desk iframe and its host
+ * page (e.g. a ComfyUI-style node canvas). Handles session handshake, project
+ * JSON sync in both directions (with debounced change notifications and
+ * transient-state suppression so programmatic loads don't echo back), theme
+ * and view-mode propagation, and sending viewport captures / reference videos
+ * to the host for generation pipelines. All inbound payloads are treated as
+ * untrusted and validated field-by-field before touching the Director store.
+ */
 import { logDirectorProjectRepairs, parseDirectorProjectForLoad, useDirectorStore } from "../store/directorStore";
 import type { DirectorProject, ViewMode } from "../schema/directorProject";
 import type { ViewportAspectRatio } from "@director/protocol/workbench-ui";

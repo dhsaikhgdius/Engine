@@ -1,3 +1,11 @@
+/**
+ * OTIO interchange for the Creative (video editor) workspace: serializes the
+ * edit tracks and media references into an OpenTimelineIO timeline under the
+ * versioned director-creative-otio adapter, and re-imports OTIO documents
+ * back into workspace state. SMPTE timecode and frame-rate normalization go
+ * through the shared timeline helpers so round trips preserve exact frame
+ * math; unknown foreign OTIO metadata is preserved where possible.
+ */
 import { isRecord } from "../../../../../../packages/protocol/src/primitives";
 import {
   frameRateToNumber,

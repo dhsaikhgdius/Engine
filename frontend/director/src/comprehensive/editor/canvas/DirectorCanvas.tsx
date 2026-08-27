@@ -1,3 +1,21 @@
+/**
+ * The 3D Stage viewport of the Director workbench.
+ *
+ * This module owns the primary react-three-fiber canvas and everything that
+ * runs inside or on top of it: director/camera view modes, orbit + fly + quad
+ * navigation, the camera picture-in-picture monitor, lasso selection, model
+ * library drag-and-drop, Player Mode (character roaming/possession), camera
+ * pilot recording, timeline playback transport, live recording, and the three
+ * export pipelines (realtime video, deterministic frame packages, multimodal
+ * datasets).
+ *
+ * It is also the render side of the agent contract: CanvasCaptureBridge
+ * registers the viewport capture handler that gateway/MCP screenshot and
+ * export requests resolve through, and the session command bus subscription
+ * lets agents drive Player Mode and camera pilot on the live Stage. UI edits
+ * and agent edits both go through directorStore, so this component never
+ * mutates the project directly except via store actions.
+ */
 import { GizmoHelper, GizmoViewport, OrbitControls, PerspectiveCamera } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Lock, MousePointer2, Unlock } from "lucide-react";
@@ -303,6 +321,7 @@ const DIRECTOR_CANVAS_GL_OPTIONS = {
   preserveDrawingBuffer: false,
 } as const;
 
+/** Where a dragged library asset would land: on a mesh surface, the ground plane, or the view-center fallback. */
 export type ModelLibraryDropPlacement = {
   position: [number, number, number];
   source: "surface" | "ground" | "fallback";
@@ -320,6 +339,11 @@ export type PlayerRecordingSample = {
 const PLAYER_RECORDING_RUN_DISTANCE_SHARE = 0.35;
 const PLAYER_RECORDING_MIN_PLANAR_DISTANCE = 0.0001;
 
+/**
+ * Planar distance and inferred gait between two recorded samples. The gait is
+ * re-derived from planar speed (scaled by character height) when the sample
+ * itself carries none.
+ */
 function getPlayerRecordingSegment(
   previous: PlayerRecordingSample | undefined,
   current: PlayerRecordingSample,
@@ -368,6 +392,11 @@ export function inferPlayerRecordingGait(samples: readonly PlayerRecordingSample
   return runDistance / travelledDistance >= PLAYER_RECORDING_RUN_DISTANCE_SHARE ? "run" : "walk";
 }
 
+/**
+ * Resolves every object a camera looks at on a given frame — follow/path-lock
+ * action targets plus per-keyframe look targets — evaluated at that frame so
+ * the camera tracks the animated position, not the authored base transform.
+ */
 function getCameraActionTargetsAtFrame(
   camera: DirectorCameraShot,
   objects: DirectorObject[],
@@ -399,6 +428,7 @@ type ViewportCaptureLabel = {
 };
 type ViewportCaptureFrameRect = NonNullable<ReturnType<typeof getViewportAspectFrameRect>>;
 
+/** Raster size for recorded video: bounded at 1080p-class, forced even for codec compatibility. */
 export function getDirectorStageVideoRenderSize(aspectRatio: DirectorCameraAspectRatio = "16:9") {
   const aspect = getDirectorCameraAspectValue(aspectRatio);
   const maximumWidth = aspect >= 1 ? 1920 : 1080;
@@ -409,6 +439,11 @@ export function getDirectorStageVideoRenderSize(aspectRatio: DirectorCameraAspec
   return { width: even(width), height: even(height) };
 }
 
+/**
+ * Builds the validated capture request shared by live recording and all
+ * frame-export paths, so every exported frame renders through the same
+ * clean-plate camera pipeline at the same raster size.
+ */
 export function createDirectorVideoFrameCaptureRequest(
   cameraId: string,
   frame: number,
@@ -430,6 +465,7 @@ export function createDirectorVideoFrameCaptureRequest(
   };
 }
 
+/** One abortable rAF wait; rejects (never hangs) when the capture is cancelled mid-frame. */
 function waitForAnimationFrame(signal: AbortSignal) {
   throwIfViewportCaptureAborted(signal);
 
@@ -476,10 +512,12 @@ async function waitForViewportRender(signal: AbortSignal) {
   throwIfViewportCaptureAborted(signal);
 }
 
+/** The grid is currently always rendered; the signature is kept so callers stay declarative about their inputs. */
 export function shouldRenderViewportGrid(hasPanorama: boolean, snapToGrid: boolean) {
   return true;
 }
 
+/** Snaps the free view onto an axis: keep the orbit target and radius, move the eye onto `direction`. */
 export function getViewportSnapshotFromGizmoDirection(
   snapshot: CameraShotSnapshot,
   direction: Vector3,
@@ -497,6 +535,10 @@ export function getViewportSnapshotFromGizmoDirection(
   };
 }
 
+/**
+ * Orbits the free view from a gizmo drag in spherical coordinates. The polar
+ * angle is clamped just short of the poles so the view can never flip.
+ */
 export function getViewportSnapshotFromGizmoDrag(
   snapshot: CameraShotSnapshot,
   deltaX: number,
@@ -524,6 +566,11 @@ export function getViewportSnapshotFromGizmoDrag(
   };
 }
 
+/**
+ * Screen position for one axis hit button: project the axis direction through
+ * a camera matching the current view, then place the DOM button on the gizmo
+ * circle. z drives stacking so near-side axes win the click.
+ */
 export function getViewportGizmoHitButtonStyle(
   snapshot: CameraShotSnapshot,
   direction: readonly [number, number, number],
@@ -547,10 +594,12 @@ export function getViewportGizmoHitButtonStyle(
   };
 }
 
+/** Rounds to 6 decimals so persisted snapshots stay stable across float noise. */
 function toSnapshotTuple(vector: Vector3): [number, number, number] {
   return [vector.x, vector.y, vector.z].map((value) => Number(value.toFixed(6))) as [number, number, number];
 }
 
+/** Epsilon comparison used to skip state updates for visually identical views. */
 function areCameraSnapshotsClose(a: CameraShotSnapshot, b: CameraShotSnapshot) {
   const tupleClose = (left: [number, number, number], right: [number, number, number]) =>
     left.every((value, index) => Math.abs(value - right[index]) < 0.00001);
@@ -570,6 +619,7 @@ function isThreePerspectiveCamera(camera: Camera): camera is ThreePerspectiveCam
   return (camera as ThreePerspectiveCamera).isPerspectiveCamera === true;
 }
 
+/** Camera shot snapshot transformed into world space by the scene's own transform. */
 export function getSceneCameraViewSnapshot(shot: DirectorCameraShot, scene: SceneSettings): CameraShotSnapshot {
   const snapshot = getCameraViewSnapshotFromShot(shot);
   const sceneMatrix = createSceneMatrix(scene);
@@ -580,6 +630,11 @@ export function getSceneCameraViewSnapshot(shot: DirectorCameraShot, scene: Scen
   };
 }
 
+/**
+ * First view when the Stage opens: frame the visible characters (ignoring
+ * authored cameras so the free view is independent), or fall back to the
+ * default establishing view for an empty scene.
+ */
 export function getInitialDirectorViewSnapshot(project: DirectorProject): CameraShotSnapshot {
   const characterIds = project.objects
     .filter((object) => object.kind === "character" && object.visible)
@@ -592,6 +647,7 @@ export function getInitialDirectorViewSnapshot(project: DirectorProject): Camera
   );
 }
 
+/** Points a three.js camera at a shot (view, optics, and handheld shake at the given time). */
 function applyCameraShotToCamera(camera: ThreePerspectiveCamera, shot: DirectorCameraShot, elapsedSeconds: number) {
   const snapshot = getSceneCameraViewSnapshot(shot, useDirectorStore.getState().project.scene);
   const optics = normalizeDirectorCameraOptics(shot);
@@ -612,6 +668,7 @@ function applyCameraShotToCamera(camera: ThreePerspectiveCamera, shot: DirectorC
   camera.updateMatrixWorld();
 }
 
+/** Gizmo camera keeps only the view's orientation: eye at the target-relative offset, looking at origin. */
 function applySnapshotToRelativeGizmoCamera(camera: ThreePerspectiveCamera, snapshot: CameraShotSnapshot) {
   const position = new Vector3(...snapshot.position);
   const target = new Vector3(...snapshot.target);
@@ -644,6 +701,11 @@ function createSceneMatrix(scene: SceneSettings) {
   );
 }
 
+/**
+ * Whether a scene node can receive a dropped asset: a visible mesh that is
+ * neither viewport chrome (grid, gizmos, frustums, panorama dome) nor the
+ * drop preview itself, with a fully visible ancestor chain.
+ */
 function isDropSurface(object: Object3D) {
   const candidate = object as Object3D & { isMesh?: boolean };
   if (!candidate.isMesh || !candidate.visible) return false;
@@ -672,6 +734,7 @@ function collectDropSurfaces(root: Object3D | null | undefined) {
   return surfaces;
 }
 
+/** Grid snapping applies to the planar axes only; height always follows the hit surface. */
 function snapDropPosition(position: [number, number, number], snapToGrid: boolean): [number, number, number] {
   const normalize = (value: number) => {
     const stable = Math.abs(value) < 1e-9 ? 0 : value;
@@ -681,6 +744,12 @@ function snapDropPosition(position: [number, number, number], snapToGrid: boolea
   return [Math.round(position[0]), normalize(position[1]), Math.round(position[2])];
 }
 
+/**
+ * Resolves where a dragged asset should be placed, in scene space: raycast
+ * against upward-facing mesh surfaces first (so props stack on tables and
+ * floors of imported models), then the ground plane, then the view-center
+ * fallback. Exported so drop behaviour is unit-testable without a live canvas.
+ */
 export function getModelLibraryDropPlacement({
   bounds,
   camera,
@@ -846,12 +915,14 @@ export function createDirectorPlayerObstacle(item: DirectorObject, asset?: Direc
   };
 }
 
+/** Head-height anchor for a character's capture label; UE4 mannequins use their own grounded metrics. */
 function getCharacterCaptureLabelY(item: DirectorObject) {
   return item.characterRig?.rigType === "ue4-mannequin"
     ? getUE4GroundedLabelY(item.bodyType)
     : getGroundedLabelY(item.bodyType);
 }
 
+/** Character name labels (world-anchored) burned into non-clean-plate screenshots when labels are on. */
 function getViewportCaptureLabels(currentFrame: number) {
   const {
     project: { objects, scene },
@@ -881,6 +952,7 @@ function getViewportCaptureLabels(currentFrame: number) {
     });
 }
 
+/** Reads a theme `R G B` triplet CSS variable so burned-in labels match the active UI theme (SSR-safe fallback). */
 function getCssRgbVariable(name: string, fallback: string) {
   if (typeof window === "undefined") return fallback;
 
@@ -888,11 +960,13 @@ function getCssRgbVariable(name: string, fallback: string) {
   return value || fallback;
 }
 
+/** Converts a space-separated `R G B` triplet (Tailwind CSS-variable format) into an rgba() string. */
 function rgbTripletToRgba(rgbTriplet: string, alpha: number) {
   const [red = "0", green = "0", blue = "0"] = rgbTriplet.split(/\s+/);
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+/** Path-only rounded-rect helper (radius clamped to half extents); caller decides fill/stroke. */
 function drawRoundedRect(
   context: CanvasRenderingContext2D,
   x: number,
@@ -916,6 +990,12 @@ function drawRoundedRect(
   context.closePath();
 }
 
+/**
+ * Projects world-anchored labels through the capture camera and paints themed pills
+ * onto the 2D screenshot canvas. Labels behind the camera or fully outside the crop
+ * rect are skipped; partially visible labels are clamped to the capture edges so
+ * character names remain readable in agent-facing captures.
+ */
 function drawViewportCaptureLabels({
   camera,
   context,
@@ -983,6 +1063,12 @@ function drawViewportCaptureLabels({
   });
 }
 
+/**
+ * Reads the WebGL canvas back into a PNG data URL, cropped to the active aspect-ratio
+ * frame (letterbox guides excluded) and optionally overlaid with character labels.
+ * Falls back to the uncropped canvas when 2D contexts are unavailable (e.g. jsdom),
+ * and honours the abort signal between the expensive readback steps.
+ */
 function captureViewportCanvas(
   canvas: HTMLCanvasElement,
   aspectRatio: ReturnType<typeof useDirectorStore.getState>["viewportAspectRatio"],
@@ -1057,6 +1143,11 @@ function captureViewportCanvas(
   return cropCanvas.toDataURL("image/png");
 }
 
+/**
+ * Encodes a raw RGBA buffer (from an offscreen render-target readback) as a PNG data
+ * URL via a scratch canvas. Validates buffer/dimension agreement up front so a bad
+ * render-pass readback fails loudly instead of producing a corrupt export frame.
+ */
 export function encodeDirectorRgbaPng(rgba: Uint8Array, width: number, height: number, signal?: AbortSignal) {
   if (signal) throwIfViewportCaptureAborted(signal);
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
@@ -1077,6 +1168,11 @@ export function encodeDirectorRgbaPng(rgba: Uint8Array, width: number, height: n
   return canvas.toDataURL("image/png");
 }
 
+/**
+ * Temporarily hides editor-only helpers (gizmos, selection outlines, trajectory guides —
+ * anything flagged with HIDE_FROM_VIEWPORT_CAPTURE_KEY) for the duration of a capture
+ * render, restoring their previous visibility even if rendering throws.
+ */
 function withViewportCaptureHelpersHidden(scene: Object3D, render: () => void) {
   const hiddenObjects: Array<{ object: Object3D; visible: boolean }> = [];
 
@@ -1096,6 +1192,13 @@ function withViewportCaptureHelpersHidden(scene: Object3D, render: () => void) {
   }
 }
 
+/**
+ * Invisible R3F child that registers the viewport screenshot/video-frame capture
+ * handlers with the capture registry (the pipeline behind agent `screenshot` and
+ * video export). It owns a dedicated offscreen perspective camera so captures can
+ * render any scene camera at any frame — including data passes (depth, object ID,
+ * motion flow) and clean plates — without disturbing the interactive view.
+ */
 function CanvasCaptureBridge({
   activeCamera,
   bottomPadding,
@@ -1637,6 +1740,11 @@ function CameraExposureController({
   return null;
 }
 
+/**
+ * One-way sync from the persisted director-view snapshot into the live Three.js
+ * camera + OrbitControls. Only active in free director view — camera view and
+ * player mode drive the camera themselves.
+ */
 function DirectorViewCameraSync({
   controlsRef,
   playerMode = false,
@@ -1666,6 +1774,11 @@ function DirectorViewCameraSync({
   return null;
 }
 
+/**
+ * Continuously widens the near/far clipping range while the user orbits so very
+ * close or very distant framing never clips scene geometry (runs per-frame, so it
+ * stays out of React state).
+ */
 function DirectorViewportClippingController({
   active,
   controlsRef,
@@ -1685,6 +1798,7 @@ function DirectorViewportClippingController({
   return null;
 }
 
+/** True when the event target is a form control/editable node, so viewport hotkeys must not steal keystrokes. */
 function isEditableViewportTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName);
@@ -1712,6 +1826,12 @@ function getNearestPlayerCandidate<T extends { transform: { position: [number, n
   return nearest;
 }
 
+/**
+ * Replaces OrbitControls' stepped wheel zoom with an inertial dolly: wheel events
+ * accumulate a log-scale impulse (captured before OrbitControls sees them) that is
+ * eased out per-frame, and `onSettled` fires once so the view snapshot persists a
+ * single undo entry per gesture rather than one per wheel tick.
+ */
 function SmoothOrbitZoom({
   activityRef,
   controlsRef,
@@ -1924,6 +2044,11 @@ function CursorViewportNavigation({
   return null;
 }
 
+/**
+ * Applies procedural handheld-shake offsets on top of the authored camera snapshot
+ * every frame while camera view is active. Runs in useFrame (not React state) so the
+ * shake never re-renders the tree and never mutates the persisted shot.
+ */
 function CameraHandheldMotion({
   cameraShot,
   snapshot,
@@ -2236,6 +2361,7 @@ function CameraPictureInPictureRenderer({
   return null;
 }
 
+/** Re-renders the demand-driven canvas whenever the PiP overlay is dragged so the scissored inset tracks the panel. */
 function CameraPictureInPictureDragInvalidation() {
   const { invalidate } = useThree();
 
@@ -2255,6 +2381,12 @@ const CAMERA_PREVIEW_MODE_LABELS: Record<DirectorCameraPreviewMode, { label: str
   wireframe: { label: "线框", title: "线框：几何拓扑线框视图" },
 };
 
+/**
+ * DOM chrome for the camera picture-in-picture viewfinder: draggable frame, lens/aspect
+ * slate (same film-language report agents receive from observe), preview-mode pills
+ * (previz/RGB/depth/…), and the view lock toggle. The actual pixels are painted by
+ * CameraPictureInPictureRenderer into the WebGL canvas underneath this element.
+ */
 const CameraPictureInPictureOverlay = memo(function CameraPictureInPictureOverlay({
   cameraShot,
   locked,
@@ -2398,6 +2530,11 @@ const CameraPictureInPictureOverlay = memo(function CameraPictureInPictureOverla
   );
 });
 
+/**
+ * Blender-style resize behaviour for the free director view: when the viewport
+ * height changes, the vertical FOV is rescaled around a reference height so world
+ * objects keep their on-screen size instead of stretching with the window.
+ */
 function BlenderViewportResize({
   fov,
   playerMode = false,
@@ -2429,6 +2566,7 @@ function BlenderViewportResize({
   return null;
 }
 
+/** Axis-triad content inside the gizmo mini-canvas; mirrors the main view's orientation from the snapshot. */
 function ViewportGizmoContent({ snapshot }: { snapshot: CameraShotSnapshot }) {
   const { camera, invalidate } = useThree();
 
@@ -2453,6 +2591,12 @@ function ViewportGizmoContent({ snapshot }: { snapshot: CameraShotSnapshot }) {
   );
 }
 
+/**
+ * The clickable/draggable navigation gizmo in the viewport corner, rendered in its
+ * own small Canvas. A click on an axis snaps the main view to that direction; a drag
+ * (past a small threshold to disambiguate from clicks) orbits the view around the
+ * current target. Axis hit areas are DOM buttons so they stay keyboard-accessible.
+ */
 function ViewportGizmoOverlay({
   dpr,
   onSnapshotChange,
@@ -2582,21 +2726,33 @@ function ViewportGizmoOverlay({
   );
 }
 
+// The three Playhead*/Connected* wrappers below subscribe to fast-changing stores
+// (runtime playhead, project) themselves so that DirectorCanvas — the huge parent —
+// does not re-render on every playback tick or project edit.
+
+/** SceneRoot bound to the live runtime playhead so scrubbing/playback animates the 3D scene. */
 function PlayheadSceneRoot(props: Omit<NonNullable<ComponentProps<typeof SceneRoot>>, "currentFrame">) {
   const currentFrame = useTimelineRuntimeStore((state) => state.playheadFrame);
   return <SceneRoot {...props} currentFrame={currentFrame} />;
 }
 
+/** Timeline dock bound to the current project snapshot from the Director store. */
 function ConnectedDirectorTimelineDock(props: Omit<ComponentProps<typeof DirectorTimelineDock>, "project">) {
   const project = useDirectorStore((state) => state.project);
   return <DirectorTimelineDock {...props} project={project} />;
 }
 
+/** Camera-pilot HUD bound to the live runtime playhead. */
 function PlayheadCameraPilotHud(props: Omit<ComponentProps<typeof CameraPilotHud>, "currentFrame">) {
   const currentFrame = useTimelineRuntimeStore((state) => state.playheadFrame);
   return <CameraPilotHud {...props} currentFrame={currentFrame} />;
 }
 
+/**
+ * Resolves which camera the storyboard cut list makes active at `frame` and
+ * evaluates its animated properties (moves, look-at targets) at that frame.
+ * Returns both the authored source shot and the evaluated result.
+ */
 function getEvaluatedPlaybackCamera(
   cameras: DirectorCameraShot[],
   storyboard: DirectorStoryboard | undefined,
@@ -2615,6 +2771,12 @@ function getEvaluatedPlaybackCamera(
   };
 }
 
+/**
+ * Playhead-driven camera subsystem inside the R3F tree: evaluates the storyboard's
+ * active camera per frame, mounts the default PerspectiveCamera when camera view is
+ * on (with handheld shake and exposure), and feeds the PiP renderer — honouring the
+ * PiP lock, which can pin a different camera than the storyboard's active one.
+ */
 function PlayheadCameraRuntime({
   activeCameraId,
   cameras,
@@ -2695,6 +2857,7 @@ function PlayheadCameraRuntime({
   );
 }
 
+/** Gizmo overlay that mirrors the storyboard camera during camera-view playback, and the free view otherwise. */
 function PlayheadViewportGizmoOverlay({
   activeCameraId,
   cameras,
@@ -2731,6 +2894,7 @@ function PlayheadViewportGizmoOverlay({
   return <ViewportGizmoOverlay {...props} snapshot={snapshot} />;
 }
 
+/** Chooses the PiP overlay's camera per playhead frame: the locked camera if pinned, else the storyboard-active one. */
 function PlayheadCameraPictureInPictureOverlay({
   activeCameraId,
   cameras,
@@ -2754,6 +2918,11 @@ function PlayheadCameraPictureInPictureOverlay({
   return cameraShot ? <CameraPictureInPictureOverlay {...props} cameraShot={cameraShot} /> : null;
 }
 
+/**
+ * During playback, keeps the store's `activeCameraId` in step with the storyboard
+ * cut list so panels and observe output reflect the camera actually on screen.
+ * Idle scrubbing does not switch cameras — only live playback does.
+ */
 function StoryboardCameraPlaybackSync({ isPlaying }: { isPlaying: boolean }) {
   const currentFrame = useTimelineRuntimeStore((state) => state.playheadFrame);
   const activeCameraId = useDirectorStore((state) => state.project.activeCameraId);
@@ -2769,6 +2938,7 @@ function StoryboardCameraPlaybackSync({ isPlaying }: { isPlaying: boolean }) {
   return null;
 }
 
+/** Player-mode HUD subscribed straight to the player runtime status store (external, non-React state). */
 function LivePlayerModeHud({
   runtimeStatusStore,
   ...props
@@ -2783,6 +2953,7 @@ function LivePlayerModeHud({
   return <PlayerModeHud {...props} runtimeStatus={runtimeStatus} />;
 }
 
+/** Shows the aiming crosshair only while the player runtime reports an aiming state. */
 function PlayerRuntimeCrosshair({ runtimeStatusStore }: { runtimeStatusStore: PlayerRuntimeStatusStore }) {
   const aiming = useSyncExternalStore(
     runtimeStatusStore.subscribe,
@@ -2792,6 +2963,11 @@ function PlayerRuntimeCrosshair({ runtimeStatusStore }: { runtimeStatusStore: Pl
   return aiming ? <div aria-hidden="true" className="player-controller-crosshair" /> : null;
 }
 
+/**
+ * While a timeline recording is running, captures each newly reached playhead frame
+ * exactly once (deduplicated through lastRecordedFrameRef) and aborts the whole
+ * recording if any single frame capture fails, so exports never contain gaps.
+ */
 function LiveTimelineFrameCaptureBridge({
   captureFrame,
   finishRecording,
@@ -2817,6 +2993,11 @@ function LiveTimelineFrameCaptureBridge({
   return null;
 }
 
+/**
+ * Gate used by headless capture surfaces: a capture-only canvas must wait until the
+ * Blender live scene layer has finished streaming before agents may screenshot it,
+ * otherwise captures would show a half-loaded stage. Interactive views never block.
+ */
 export function isDirectorCaptureSceneReady({
   blenderLiveVisible,
   captureOnly,
@@ -2831,6 +3012,25 @@ export function isDirectorCaptureSceneReady({
   return !captureOnly || !blenderLiveVisible || !nativeProjectId || nativeScenePhase === "ready";
 }
 
+/**
+ * The Director 3D Stage viewport. Hosts the react-three-fiber Canvas plus all DOM
+ * chrome around it (view-mode toolbar, gizmo, PiP viewfinder, player HUD, timeline
+ * dock) and wires them to the Director store, the timeline runtime store, and the
+ * viewport capture registry used by agents and exports.
+ *
+ * Props:
+ * - `captureOnly` mounts a chrome-less capture surface (headless workbench tab)
+ *   that only serves screenshot/video requests.
+ * - `layout` / `timelineVisible` / `onTimeline*` integrate with the workspace
+ *   shell's resizable layout.
+ * - `blenderLiveVisible` lets the workspace hide the streamed Blender scene layer
+ *   without unmounting the canvas.
+ *
+ * Body sections, in order: performance profile + store wiring, Blender live scene
+ * state, selection/drag/lasso state, view snapshots and camera navigation, player
+ * mode + pilot recording, timeline recording/export plumbing, and finally the R3F
+ * scene graph plus overlay JSX.
+ */
 export function DirectorCanvas({
   captureOnly = false,
   layout,

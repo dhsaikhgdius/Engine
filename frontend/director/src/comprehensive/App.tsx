@@ -1,3 +1,14 @@
+/**
+ * Director application shell: the top bar (workspace tabs, theme/locale
+ * toggles, task tray, help), the four lazy-loaded workspaces (Canvas, Stage,
+ * Video Editor, Agent chat), and global layers (tooltips, notifications,
+ * welcome guide, keyboard shortcuts, error boundaries).
+ *
+ * Workspace routing is URL-driven (`?workspace=`) and pushState-based so tabs
+ * participate in browser history. Each workspace bundle is lazy so the initial
+ * paint only pays for the active one; the viewport-capture host mounts on
+ * demand when a capture request arrives while the Stage is not visible.
+ */
 import "./styles/index.css";
 import "./styles/agentNativeTheme.css";
 import "./styles/premiumDirectorTheme.css";

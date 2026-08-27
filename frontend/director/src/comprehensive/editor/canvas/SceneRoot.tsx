@@ -1,3 +1,17 @@
+/**
+ * SceneRoot: the react-three-fiber scene graph for the Director Stage. Renders
+ * every authored entity — characters (mannequin / Mixamo / imported rigs),
+ * geometry primitives, imported models, cameras (with frustum visuals),
+ * lights, annotations, measurements, and trajectory overlays — evaluated at
+ * the current timeline frame.
+ *
+ * It also owns direct-manipulation: object selection, TransformControls
+ * gizmos (with undo batching), crowd anchors, and physical placement
+ * resolution (grounding/stacking). Imported meshes load through suspense-safe
+ * loaders (GLTF/FBX/OBJ) with normalization to catalog-scale bounds and
+ * PBR material overrides. DirectorCanvas mounts exactly one SceneRoot per
+ * viewport; captures reuse the same graph so renders match the editor view.
+ */
 import { Html, Line, TransformControls, type TransformControlsProps } from "@react-three/drei";
 import { createPortal, useFrame, useLoader, useThree, type ThreeEvent } from "@react-three/fiber";
 import {

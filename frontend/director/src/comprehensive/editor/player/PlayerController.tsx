@@ -1,3 +1,16 @@
+/**
+ * PlayerController: the R3F runtime that turns the Stage into a playable
+ * exploration mode (roam / third-person / first-person). Composes keyboard +
+ * pointer-lock look input, capsule locomotion with ground settle and obstacle
+ * collision, vehicle enter/drive sessions, interactions, camera rigs with
+ * collision probes, and game-playtest input replay.
+ *
+ * All per-frame state lives in refs and the locomotion state machine — never
+ * React state — so movement stays at render frequency. The controller reports
+ * runtime status (mode, aiming, vehicle phase) through an external status
+ * store consumed by the HUD, and streams recording samples to the pilot
+ * recorder when a take is armed.
+ */
 import { useFrame, useThree } from "@react-three/fiber";
 import { clamp } from "../../../../../../packages/protocol/src/primitives";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";

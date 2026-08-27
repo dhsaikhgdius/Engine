@@ -1,3 +1,9 @@
+/**
+ * Reference-scene reconstruction flow: request gateway analysis of a reference
+ * image, then apply the returned plan through typed authoring actions. Plans
+ * are revision-pinned — applying against a project that changed since analysis
+ * raises ReferenceScenePlanConflictError instead of silently mis-placing.
+ */
 import { applyDirectorAuthoringActions, type DirectorAuthoringAction } from "@director/agent-engine";
 import {
   referenceSceneAnalysisResponseSchema,

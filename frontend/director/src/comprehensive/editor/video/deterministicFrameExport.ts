@@ -1,3 +1,14 @@
+/**
+ * Deterministic frame-sequence export from the Stage timeline: plans an exact
+ * microsecond-timestamped sampling of source frames, captures each as PNG via
+ * the viewport capture bridge, and packages the result either as a
+ * reproducible ZIP (deterministicZip.ts, stable ordering and timestamps, so
+ * the same project state yields byte-identical archives and sha256
+ * fingerprints) or as a WebCodecs-muxed MP4/WebM. Size guards cap frame count,
+ * raster dimensions, and total bytes so a misconfigured export cannot exhaust
+ * browser memory. Consumed by the video editor's export flow and by agent
+ * deliverable jobs, which rely on the manifest hashes for provenance.
+ */
 import { errorMessage } from "../../../../../../packages/protocol/src/primitives";
 import { normalizeDirectorFps } from "../timeline/frameTime";
 import type { DirectorCaptureBackgroundMode } from "../render/renderPassCapture";

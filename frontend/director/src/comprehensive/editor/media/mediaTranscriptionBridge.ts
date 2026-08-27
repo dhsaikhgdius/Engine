@@ -1,3 +1,10 @@
+/**
+ * Typed HTTP bridge to the gateway's media transcription domain: probes
+ * capabilities, submits transcription jobs for library media, polls job
+ * records, and fetches finished transcripts. Responses are validated against
+ * the shared transcription protocol schemas, and the same job records power
+ * the task tray — so UI and agent-side `job_*` tooling observe one job model.
+ */
 import {
   directorMediaTranscriptSchema,
   mediaTranscriptionCapabilitiesSchema,

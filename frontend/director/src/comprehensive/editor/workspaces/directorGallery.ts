@@ -1,3 +1,8 @@
+/**
+ * Gallery domain schemas: media records (rating/tags/color/folder), the folder
+ * tree, view preferences, and normalization helpers with hard capacity caps.
+ * Pure Zod + data logic shared by the workspace store and gallery UI.
+ */
 import { z } from "zod";
 
 /** Hard cap on the number of media records tracked in the gallery. */

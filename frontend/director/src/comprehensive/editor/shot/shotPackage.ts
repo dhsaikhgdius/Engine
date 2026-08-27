@@ -1,3 +1,11 @@
+/**
+ * Shot package manifest model: defines the render-pass descriptors (format,
+ * color space, bit depth, path templates) and the deterministic manifest that
+ * accompanies a rendered shot package. Serialization goes through stable
+ * lexical JSON so manifests — and therefore package fingerprints — are
+ * byte-identical for identical shot state; agents rely on these hashes to
+ * verify deliverables.
+ */
 import { compareText } from "../../../../../../packages/protocol/src/primitives";
 import { stableLexicalJson } from "../../../../../../packages/protocol/src/stableJson";
 import type { DirectorShotIr } from "./shotIr";

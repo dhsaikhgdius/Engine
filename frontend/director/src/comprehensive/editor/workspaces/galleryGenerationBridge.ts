@@ -1,3 +1,9 @@
+/**
+ * Typed HTTP bridge to the gateway's ComfyUI generation domain: node and
+ * workflow management, input-image upload, job submit/inspect/cancel/retry,
+ * and artifact download. All responses are Zod-validated at this boundary and
+ * network failures are rewrapped as user-facing messages.
+ */
 import {
   comfyNodeDefinitionSchema,
   comfyNodeSnapshotSchema,

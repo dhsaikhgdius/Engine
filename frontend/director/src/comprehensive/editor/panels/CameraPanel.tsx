@@ -1,3 +1,22 @@
+/**
+ * Camera inspector panel (right sidebar) for the active camera shot.
+ *
+ * Three tabs:
+ * - Properties: name/rig selection, cinematography advisor, transform (view
+ *   position + rotation in degrees), lens (focal length / sensor / aspect),
+ *   advanced optics (aperture, focus, shutter, ISO, clip planes, anamorphic
+ *   squeeze with live exposure math), camera motion (handheld shake, action
+ *   mode: still/path/follow/transform, A/B move authoring), and look-at target.
+ * - Captures: per-camera screenshot grids with a zoomable viewer, deletion,
+ *   and send-to-ComfyUI-canvas actions.
+ * - Recordings: the rendered-video library (download / send as reference video).
+ *
+ * All edits flow through useDirectorStore.updateCamera and related actions, so
+ * they share undo history and agent-visible state. Screenshots go through the
+ * same requestViewportCapture bridge the agent capture path uses; the AI
+ * control package export additionally pins the project revision so multi-pass
+ * renders stay consistent even if the project changes mid-export.
+ */
 import {
   Camera,
   Download,
@@ -66,6 +85,7 @@ import { useVideoRecordingStore, type DirectorVideoLibraryItem } from "../video/
 import { buildDirectorCameraMove, type DirectorCameraFraming } from "../trajectory/cameraMoveAuthoring";
 import { CinematographyAdvisor } from "./CinematographyAdvisor";
 
+// Capture viewer zoom bounds; panning is only enabled past 1x.
 const VIEWER_ZOOM_MIN = 0.25;
 const VIEWER_ZOOM_MAX = 5;
 const VIEWER_ZOOM_STEP = 0.25;
@@ -93,6 +113,7 @@ const CAMERA_OPTICAL_FIELDS = [
   unit: string;
 }>;
 
+/** See the file header for the panel's tab layout and store/capture contracts. */
 export function CameraPanel() {
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<"properties" | "captures" | "recordings">("properties");
@@ -264,6 +285,7 @@ export function CameraPanel() {
   const viewSnapshot = currentViewSnapshot;
   const rotationDegreesSnapshot = currentRotationDegrees;
 
+  /** Takes a screenshot from the current camera via the shared viewport-capture bridge and files it under the shot. */
   async function handleCameraCapture() {
     try {
       setCaptureError(null);
@@ -281,6 +303,12 @@ export function CameraPanel() {
     }
   }
 
+  /**
+   * Renders the multi-pass AI control package (clean/clay/depth/normal/object-id/mask)
+   * for this camera and downloads it as an archive. Runs under a pinned project
+   * revision so all passes describe the same scene state; export modules are
+   * imported lazily because this path is rare and heavy.
+   */
   async function handleExportAiControlPackage() {
     if (controlPackageExporting) return;
     setCaptureError(null);
@@ -543,6 +571,11 @@ export function CameraPanel() {
     });
   }
 
+  /**
+   * Samples the camera's *evaluated* framing at the current playhead frame
+   * (with action targets resolved), so A/B move authoring records what is
+   * actually on screen rather than the static authored transform.
+   */
   function captureCurrentCameraFraming(): DirectorCameraFraming {
     const frame = Math.round(timeline?.currentFrame ?? 0);
     const fps = timeline?.fps ?? 24;
@@ -569,6 +602,11 @@ export function CameraPanel() {
     setCameraMoveStatus(`A · 第 ${framing.frame} 帧 · ${framing.focalLengthMm}mm`);
   }
 
+  /**
+   * Completes A/B move authoring: takes the current framing as B, validates it
+   * sits after A on the timeline, and builds a classified camera move (dolly,
+   * pan, push-in, …) as keyframed animation in one undo batch.
+   */
   function authorCameraMove() {
     if (!cameraMoveStart || cameraMoveStart.cameraId !== currentCamera.id) {
       setCameraMoveStatus("请先记录构图 A");
@@ -627,6 +665,11 @@ export function CameraPanel() {
     });
   }
 
+  /**
+   * Rotation is edited in Euler degrees but stored as a look-at target: the new
+   * target is re-derived at the current view distance so orbit behaviour stays
+   * consistent with direct target edits.
+   */
   function updateCameraRotation(axis: 0 | 1 | 2, value: string) {
     const rotationDegrees = replaceAxis(rotationDegreesSnapshot, axis, finiteOr(value, rotationDegreesSnapshot[axis]));
     const distance = Math.max(
@@ -650,6 +693,8 @@ export function CameraPanel() {
     setTransformMode("translate");
   }
 
+  // Focal length, sensor format, and aspect ratio all resolve to a vertical FOV;
+  // each setter recomputes fov so the three stay physically consistent.
   function updateFocalLength(value: string) {
     const focalLengthMm = finiteOr(value, currentFocalLengthMm);
     updateCamera(currentCamera.id, {
@@ -675,6 +720,7 @@ export function CameraPanel() {
     setViewportAspectRatio(aspectRatio as ViewportAspectRatio);
   }
 
+  /** Clamps an optics field to its schema limits and rejects near/far clip values that would invert the range. */
   function updateOpticalNumber(
     field: CameraOpticalField,
     value: string,

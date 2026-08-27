@@ -1,3 +1,11 @@
+/**
+ * Cinematic optics post-processing for captures: renders the scene to an
+ * offscreen target with a depth texture, then applies physically derived
+ * depth-of-field (from aperture/focus distance/focal length) and anamorphic
+ * projection in a fullscreen shader pass. Used by the capture pipeline when a
+ * shot requests optical realism beyond the raw rasterizer; renderer state is
+ * snapshotted and restored so interactive rendering is unaffected.
+ */
 import {
   Camera,
   DepthFormat,

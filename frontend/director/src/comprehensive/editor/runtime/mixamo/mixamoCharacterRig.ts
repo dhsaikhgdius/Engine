@@ -1,3 +1,12 @@
+/**
+ * Skeleton services for Mixamo-rigged characters: bone discovery through
+ * canonical humanoid names, rest-pose capture/restore, skeleton-safe scene
+ * cloning, character metrics (height normalization against the authored
+ * default), and the layered rig application that stacks pose-control bone
+ * rotations and two-bone IK effectors on top of sampled animation. IK
+ * runtimes are cached per character root so per-frame solves allocate
+ * nothing.
+ */
 import {
   Bone,
   Euler,

@@ -1,3 +1,11 @@
+/**
+ * Mesh export interchange: bakes the Stage's primitive objects into real
+ * triangle geometry (OBJ, packaged under the versioned director-mesh-export
+ * adapter) for tools that need meshes rather than Director's parametric
+ * object descriptions. Geometry is generated from the same three.js
+ * primitives the viewport renders, with transforms applied in the shared
+ * interchange coordinate system.
+ */
 import JSZip from "jszip";
 import {
   BoxGeometry,

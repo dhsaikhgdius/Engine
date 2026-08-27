@@ -1,3 +1,13 @@
+/**
+ * Asset library side panel: the catalog of placeable Stage content.
+ *
+ * Combines the built-in Flick native items with locally mirrored catalogs
+ * (Flick Stage props, Mixamo characters), category filtering, and a
+ * virtualized thumbnail grid. Also hosts the import entry points — local
+ * model / panorama / texture files — and the launchers for the generative
+ * dialogs (reference-scene reconstruction, capture reconstruction, procedural
+ * tools, generated-3D), which are the sanctioned ways to create new geometry.
+ */
 import "./assetLibrary.css";
 import { Boxes, Globe, ImagePlus, Move3D, ScanLine, ScanSearch, Sparkles, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
@@ -28,6 +38,7 @@ import { VirtualizedAssetGrid } from "./VirtualizedAssetGrid";
 
 const FLICK_NATIVE_ITEMS = getFlickNativeModelLibraryItems();
 
+/** Loads an async local catalog once, with cancellation-safe loading/error state. */
 function useLocalCatalog(load: () => Promise<ModelLibraryItem[]>, fallbackError: string) {
   const [state, setState] = useState<{
     items: ModelLibraryItem[];

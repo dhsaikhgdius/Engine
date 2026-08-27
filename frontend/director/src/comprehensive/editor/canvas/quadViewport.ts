@@ -1,3 +1,10 @@
+/**
+ * Quad-viewport layout math: pane rectangles for the classic
+ * perspective/top/front/right split, orthographic camera construction per
+ * pane, and framing helpers that fit the scene contents into each ortho
+ * view. Pure geometry over the project document — DirectorCanvas consumes
+ * these to render the split layout with scissored passes.
+ */
 import { Euler, Matrix4, OrthographicCamera, PerspectiveCamera, Quaternion, Vector3 } from "three";
 import type { DirectorObject, SceneSettings } from "../schema/directorProject";
 

@@ -1,3 +1,10 @@
+/**
+ * Cross-workspace media usage assembly: computes, for each media item, where
+ * it is referenced on the Canvas board (nodes and their edges) and in the
+ * video editor's tracks. Pure functions over workspace store data — panels
+ * use the result to show "used by" affordances and to warn before deleting
+ * media that a pipeline or edit still depends on.
+ */
 import type {
   DirectorBoardEdge,
   DirectorBoardNode,

@@ -1,3 +1,11 @@
+/**
+ * Director's lightweight i18n runtime. UI copy is source-authored in
+ * Simplified Chinese; `t()` maps a source phrase to English via the en-US.json
+ * dictionary, falling back to regex phrase rules (phraseRules.json) for
+ * template-like strings with interpolated fragments (names, frame numbers,
+ * agent tool activity), and finally to the source phrase itself. The provider
+ * persists the chosen locale and re-renders consumers on change.
+ */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import translations from "./en-US.json";
 import phraseRuleConfigs from "./phraseRules.json";

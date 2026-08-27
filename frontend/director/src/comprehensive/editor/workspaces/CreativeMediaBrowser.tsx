@@ -1,3 +1,10 @@
+/**
+ * Media browser sidebar shared by the Canvas and Video Editor workspaces:
+ * searchable, collection-filtered list of library items that can be clicked
+ * to add or dragged onto the board/timeline. Drags register an in-app drag
+ * session (in addition to dataTransfer) because browsers hide getData() until
+ * drop; offline items surface a relink affordance instead of broken previews.
+ */
 import { useDeferredValue, useRef, useState, type DragEvent, type PointerEvent } from "react";
 import {
   Clapperboard,

@@ -1,3 +1,11 @@
+/**
+ * Typed HTTP client for the gateway's DCC provider domain: lists the provider
+ * catalog (Blender, engine connectors, portable exchange), exports the
+ * current scene as an exchange package in a chosen portable format, and sends
+ * packages to a target engine. Responses are Zod-validated against the shared
+ * DCC contracts so the UI and the `director_dcc` agent tool consume the same
+ * catalog and results.
+ */
 import { z } from "zod";
 import {
   directorDccPortableExchangeFormatSchema,

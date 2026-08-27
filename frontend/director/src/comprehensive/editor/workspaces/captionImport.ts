@@ -1,3 +1,9 @@
+/**
+ * Caption import for the video editor: parses SRT/VTT files and media
+ * transcripts into timed cues, then inserts them as virtual text clips
+ * (`text:caption:` media ids, which need no Gallery asset) on a caption track
+ * through the shared creative workspace agent contract.
+ */
 import type { DirectorMediaTranscript } from "../../../../../../packages/protocol/src/mediaTranscriptionProtocol";
 import {
   dispatchCreativeWorkspaceOperations,

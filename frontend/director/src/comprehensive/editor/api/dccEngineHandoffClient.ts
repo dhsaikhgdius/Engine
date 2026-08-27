@@ -1,3 +1,11 @@
+/**
+ * Typed HTTP client for game-engine live links behind the gateway control
+ * plane: engine health probes, Unity live-link session grants/status, Unreal
+ * live-preview frame push, and Godot preview polling. All responses are
+ * validated against the shared DCC engine contracts at this boundary; the
+ * same endpoints back the `director_dcc` agent tool, so UI and agent paths
+ * observe identical session state.
+ */
 import { z } from "zod";
 import { directorDccEngineHealthSchema, type DirectorDccEngineHealth } from "../../../dcc/directorDccEngineContract";
 import { directorDccEngineIdSchema, type DirectorDccEngineId } from "../../../dcc/directorDccEngineSpace";

@@ -1,3 +1,10 @@
+/**
+ * OTIO interchange for the Stage storyboard: exports storyboard shots as an
+ * OpenTimelineIO timeline (plain .otio JSON or zipped OTIOZ under the
+ * versioned director-otio adapter) and imports OTIO timelines back into
+ * storyboard shots. Distinct from creativeOtio.ts, which handles the video
+ * editor's edit tracks — this adapter maps shot ranges, not media clips.
+ */
 import JSZip from "jszip";
 import { isRecord } from "../../../../../../packages/protocol/src/primitives";
 import type { DirectorProject, DirectorStoryboard, DirectorStoryboardShot } from "../schema/directorProject";

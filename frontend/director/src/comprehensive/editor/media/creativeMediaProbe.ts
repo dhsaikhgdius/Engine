@@ -1,3 +1,9 @@
+/**
+ * Pre-import probe for user media files: determines kind from MIME, decodes
+ * dimensions/duration through throwaway media elements (with a timeout guard
+ * for corrupt files), extracts Director PNG metadata, and pre-generates audio
+ * waveforms so imports land in the library fully described.
+ */
 import type { CreativeMediaImportOptions, CreativeMediaKind } from "./persistentCreativeMediaStore";
 import { generateCreativeMediaWaveform } from "./creativeMediaEngineering";
 import { extractDirectorPngMetadata } from "./pngMetadata";

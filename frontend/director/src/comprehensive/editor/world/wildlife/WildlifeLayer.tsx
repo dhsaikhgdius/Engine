@@ -1,3 +1,12 @@
+/**
+ * WildlifeLayer: three.js presentation of the pure wildlife simulation
+ * (wildlifeSim.ts). Each species group renders as instanced part meshes from
+ * the placeholder model library, with per-instance gait angles packed into
+ * interleaved attributes so limb/wing articulation is computed in the vertex
+ * shader. useFrame steps the sim to the world clock and rewrites instance
+ * matrices in place — React state never touches per-agent data, and the sim's
+ * determinism guarantees identical herds during scrubbing and frame export.
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
