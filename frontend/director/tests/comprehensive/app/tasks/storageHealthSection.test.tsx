@@ -298,7 +298,8 @@ describe("StorageHealthSection", () => {
     render(<StorageHealthSection />);
     expect(await screen.findByText("产物占用")).toBeTruthy();
     expect(screen.getByText("3.0 MB")).toBeTruthy();
-    expect(screen.getByText("2 个对象（2.0 KB）")).toBeTruthy();
+    // Candidate row mirrors typed byReason, not only the aggregate count.
+    expect(screen.getByText("2 个对象（2.0 KB） · 不可达 1 · 保留期已过 1")).toBeTruthy();
     expect(screen.getByText("暂无清扫记录")).toBeTruthy();
     // The live checks render as measured numbers, not assumed health.
     expect(screen.getByText("剩余空间")).toBeTruthy();
@@ -309,6 +310,8 @@ describe("StorageHealthSection", () => {
     // Planning is a dry run: it reports candidates without deleting.
     await user.click(screen.getByRole("button", { name: "生成清扫计划（试运行）" }));
     expect(await screen.findByText("试运行完成，尚未删除任何对象。")).toBeTruthy();
+    // Dry-run review surfaces plan.sweep.byReason before the confirm button.
+    expect(screen.getByText("不可达 1 · 保留期已过 1")).toBeTruthy();
     expect(mocks.fetch.mock.calls.some(([path]) => path === "/api/storage/gc/sweep")).toBe(false);
 
     // The explicit confirm button names exactly what it deletes.
