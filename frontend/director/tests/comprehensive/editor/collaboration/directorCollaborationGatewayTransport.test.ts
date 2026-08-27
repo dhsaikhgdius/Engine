@@ -133,6 +133,85 @@ describe("GatewayWebSocketDirectorTransport", () => {
     transport.close();
   });
 
+  it("keeps membership and reconnect after forbidden (viewer write refusal)", async () => {
+    const timers: Array<{ callback: () => void }> = [];
+    const transport = new GatewayWebSocketDirectorTransport("scene/shot-1", 42, {
+      gatewayUrl: "https://director.example/gateway/",
+      getBrowserToken: async () => "secret browser token",
+      createWebSocket: (url) => new TestWebSocket(url) as unknown as WebSocket,
+      reconnect: true,
+      setReconnectTimer: (callback) => {
+        timers.push({ callback });
+        return timers.length as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearReconnectTimer: () => undefined,
+    });
+    await waitFor(() => expect(TestWebSocket.instances).toHaveLength(1));
+    const socket = TestWebSocket.instances[0]!;
+    socket.open();
+    socket.receive({ type: "collab.ready", room: "scene/shot-1", role: "viewer" });
+    expect(transport.grantedRole).toBe("viewer");
+
+    // Hub emits forbidden for an in-session write refusal — not a session end.
+    socket.receive({
+      type: "collab.error",
+      room: "scene/shot-1",
+      code: "forbidden",
+      message: "This collaboration invite grants view-only access.",
+    });
+    expect(socket.closeCode).toBeUndefined();
+    expect(transport.grantedRole).toBe("viewer");
+
+    // Awareness must still flow after a write refusal.
+    const sentBefore = socket.sent.length;
+    transport.send({ type: "awareness-update", payload: new Uint8Array([1]) });
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ type: "collab.awareness-update" });
+    expect(socket.sent.length).toBe(sentBefore + 1);
+
+    // A later network drop must still reconnect (forbidden must not halt).
+    socket.close();
+    expect(timers).toHaveLength(1);
+    timers[0]!.callback();
+    await waitFor(() => expect(TestWebSocket.instances).toHaveLength(2));
+
+    transport.close();
+  });
+
+  it("closes and reconnects after a transient join denial (room_full)", async () => {
+    const timers: Array<{ callback: () => void }> = [];
+    const transport = new GatewayWebSocketDirectorTransport("scene/shot-1", 42, {
+      gatewayUrl: "https://director.example/gateway/",
+      getBrowserToken: async () => "secret browser token",
+      createWebSocket: (url) => new TestWebSocket(url) as unknown as WebSocket,
+      reconnect: true,
+      setReconnectTimer: (callback) => {
+        timers.push({ callback });
+        return timers.length as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearReconnectTimer: () => undefined,
+    });
+    await waitFor(() => expect(TestWebSocket.instances).toHaveLength(1));
+    const socket = TestWebSocket.instances[0]!;
+    socket.open();
+    expect(JSON.parse(socket.sent[0]!)).toMatchObject({ type: "collab.join" });
+
+    socket.receive({
+      type: "collab.error",
+      room: "scene/shot-1",
+      code: "room_full",
+      message: "This collaboration room has reached its peer limit.",
+    });
+    expect(socket.closeCode).toBe(4001);
+    expect(timers).toHaveLength(1);
+    timers[0]!.callback();
+    await waitFor(() => expect(TestWebSocket.instances).toHaveLength(2));
+    const retried = TestWebSocket.instances[1]!;
+    retried.open();
+    expect(JSON.parse(retried.sent[0]!)).toMatchObject({ type: "collab.join" });
+
+    transport.close();
+  });
+
   it("honors viewer role: document updates are suppressed while awareness still sends", async () => {
     const transport = new GatewayWebSocketDirectorTransport("scene/shot-1", 42, {
       gatewayUrl: "https://director.example/gateway/",
