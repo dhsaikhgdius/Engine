@@ -309,9 +309,37 @@
   cursor: default;
 }
 
-.task-tray-storage {
+.task-tray-storage,
+.task-tray-collab-rooms {
   padding-top: 6px;
   border-top: 1px solid rgb(var(--border-rgb) / 0.1);
+}
+
+.task-tray-collab-room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0 3px;
+  list-style: none;
+}
+
+.task-tray-collab-room {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px 5px;
+  border: 1px solid rgb(var(--border-rgb) / 0.12);
+  border-radius: var(--director-radius-sm);
+  font-size: 10px;
+}
+
+.task-tray-collab-quarantine {
+  margin: 0;
+  padding: 0 0 0 10px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 .task-tray-storage-rows {

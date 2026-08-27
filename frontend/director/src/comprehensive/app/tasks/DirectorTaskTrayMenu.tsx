@@ -28,6 +28,7 @@ import {
   type DirectorTaskJobReceiptEntry,
 } from "./directorTaskTrayStore";
 import { monitoredProductionRunKey, type DirectorMonitoredProductionRun } from "./productionRunTaskClient";
+import { CollaborationRoomsSection } from "./CollaborationRoomsSection";
 import { StorageHealthSection } from "./StorageHealthSection";
 import {
   formatProductionRunUsageLine,
@@ -333,7 +334,12 @@ export function DirectorTaskTrayMenu() {
               ) : null}
             </>
           )}
-          {gateway === "connected" ? <StorageHealthSection /> : null}
+          {gateway === "connected" ? (
+            <>
+              <CollaborationRoomsSection />
+              <StorageHealthSection />
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>
