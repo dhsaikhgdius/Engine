@@ -149,7 +149,6 @@ The Director documentation site is built with **Astro 7** + **Starlight** and th
 | `engineering/PIPELINE_SYSTEM_DESIGN.md` | Pipeline system design |
 | `engineering/REFERENCE_REUSE_LEDGER.md` | Reference reuse ledger |
 | `engineering/REPLICATION_SPEC.md` | Replication spec |
-| `engineering/RESEARCH_PORTAL.md` | Research portal |
 | `engineering/THIRD_PARTY_NOTICES.md` | Third-party notices |
 | `engineering/VIDEO_GEN_PIPELINE.md` | White-box to video pipeline |
 | `engineering/architecture/control-plane.md` | Engineering-level control plane architecture |

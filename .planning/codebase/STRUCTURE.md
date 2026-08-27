@@ -44,8 +44,7 @@ WorldEngine/
 │   │   └── styles/                       # Editor and component CSS
 │   ├── agent/                            # Agent contracts, authoring, audit, execution
 │   ├── stage/                            # Compact StageScene schema and domain
-│   ├── shared/                           # Pure browser/server transport contracts
-│   └── research/                         # Separate research portal
+│   └── shared/                           # Pure browser/server transport contracts
 ├── server/                               # Node TypeScript control plane
 │   ├── agent-gateway.ts                  # HTTP/WebSocket composition root
 │   ├── mcp-server.ts                     # Native MCP stdio server
