@@ -32,6 +32,11 @@ namespace Director.Bridge.Editor
             public JArray OmittedLights = new JArray();
         }
 
+        /// <summary>
+        /// Imports the manifest's lights array. Spawnable types create tagged
+        /// Light GameObjects; ambient/hemisphere mutate RenderSettings; unknown
+        /// vocabulary becomes a typed light_type_unknown omission.
+        /// </summary>
         public static LightImportResult ImportLights(
             JArray lights,
             Func<double[], Vector3> directorWorldPointToUnity,
@@ -90,6 +95,7 @@ namespace Director.Bridge.Editor
             return result;
         }
 
+        /// <summary>Maps a Director ambient light onto flat ambient RenderSettings.</summary>
         private static void ApplyAmbient(JObject lightJson, List<string> warnings, LightImportResult result)
         {
             string directorId = (string)lightJson["id"];
@@ -110,6 +116,10 @@ namespace Director.Bridge.Editor
             });
         }
 
+        /// <summary>
+        /// Maps a Director hemisphere light onto trilight ambient RenderSettings,
+        /// synthesizing the equator color as the sky/ground midpoint.
+        /// </summary>
         private static void ApplyHemisphere(JObject lightJson, List<string> warnings, LightImportResult result)
         {
             string directorId = (string)lightJson["id"];
@@ -140,6 +150,12 @@ namespace Director.Bridge.Editor
             });
         }
 
+        /// <summary>
+        /// Builds one spawnable Light GameObject. Aim direction comes from the
+        /// position→target pair (Director lights aim at a target point rather
+        /// than storing a rotation), and per-type unit conversions are applied
+        /// (three.js half-angle radians → Unity full-cone degrees).
+        /// </summary>
         private static GameObject CreateLightObject(
             JObject lightJson,
             string lightType,

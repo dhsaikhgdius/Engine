@@ -25,6 +25,11 @@ namespace Director.Bridge.Editor
 
         private static string HostVersion => $"Unity {Application.unityVersion}";
 
+        /// <summary>
+        /// Reads the value following a named command-line flag. Unity gives
+        /// -executeMethod entry points no argv, so every job parameter travels
+        /// through the editor process's full command line.
+        /// </summary>
         private static string Argument(string name)
         {
             string[] arguments = Environment.GetCommandLineArgs();
@@ -308,6 +313,11 @@ namespace Director.Bridge.Editor
             }
         }
 
+        /// <summary>
+        /// Chooses the render camera: an explicit name or director_id match
+        /// wins, then the first enabled camera (the Director active camera is
+        /// the only one imported enabled), then any camera at all.
+        /// </summary>
         private static Camera PickRenderCamera(string cameraName)
         {
             Camera[] cameras = UnityEngine.Object.FindObjectsByType<Camera>(
@@ -334,11 +344,18 @@ namespace Director.Bridge.Editor
             return cameras.Length > 0 ? cameras[0] : null;
         }
 
+        /// <summary>Clamps a requested render dimension to 64–1920 pixels.</summary>
         private static int ParseRenderSide(string value, int fallback)
         {
             return int.TryParse(value, out int parsed) ? Math.Max(64, Math.Min(1920, parsed)) : fallback;
         }
 
+        /// <summary>
+        /// Mutable tallies gathered during import and echoed verbatim into the
+        /// engine report's unity block, so the Gateway can distinguish "nothing
+        /// to import" from "imported but degraded" (fallback materials,
+        /// omitted lights/materials, generic instead of humanoid avatars).
+        /// </summary>
         private sealed class ImportCounters
         {
             public int ObjectCount;
@@ -352,6 +369,15 @@ namespace Director.Bridge.Editor
             public JArray OmittedMaterials = new JArray();
         }
 
+        /// <summary>
+        /// Materializes every project object, camera, and light from the
+        /// manifest into the fresh scene. Objects are created in world space
+        /// first and re-parented afterwards (SetParent with
+        /// worldPositionStays), because Director transforms in the manifest
+        /// are already composed world transforms, not local offsets.
+        /// Returns the director_id → GameObject map used by baselines,
+        /// timeline binding, and the echo return package.
+        /// </summary>
         private static Dictionary<string, GameObject> BuildSceneEntities(
             JObject manifest,
             string packageDir,
@@ -480,6 +506,10 @@ namespace Director.Bridge.Editor
             return byDirectorId;
         }
 
+        /// <summary>
+        /// Director primitive geometry types that map one-to-one onto Unity
+        /// built-in primitives; anything else is warn-and-omit.
+        /// </summary>
         private static readonly IReadOnlyDictionary<string, PrimitiveType> GeometryPrimitives =
             new Dictionary<string, PrimitiveType>
             {
@@ -490,6 +520,14 @@ namespace Director.Bridge.Editor
                 ["capsule"] = PrimitiveType.Capsule,
             };
 
+        /// <summary>
+        /// Creates the GameObject for one Director object: an instantiated GLB
+        /// prefab when the entity references a payload (imported once per
+        /// assetRefId and cached), a Unity primitive for known geometry types,
+        /// otherwise an empty GameObject plus a warning. An empty stand-in is
+        /// deliberate: it keeps the director_id and transform round-trippable
+        /// even when the mesh cannot be represented.
+        /// </summary>
         private static GameObject InstantiatePayload(
             JObject entity,
             Dictionary<string, (string Path, string Sha256)> payloadsByAssetRefId,
@@ -536,6 +574,12 @@ namespace Director.Bridge.Editor
             return new GameObject();
         }
 
+        /// <summary>
+        /// Applies a Director PBR material override (or a color-only synthetic
+        /// one) as a render-pipeline-appropriate fallback material across all
+        /// renderers. Every degradation is recorded as a typed omittedMaterials
+        /// entry rather than silently dropped.
+        /// </summary>
         private static void ApplyMaterialOverride(
             JObject entity,
             GameObject gameObject,
@@ -586,6 +630,12 @@ namespace Director.Bridge.Editor
             counters.AppliedTextureCount += appliedTextures;
         }
 
+        /// <summary>
+        /// Builds a Mecanim avatar for skinned characters and applies the
+        /// static character pose. Ordering is load-bearing: the avatar must be
+        /// created from the unmodified bind pose before ApplyStaticPose
+        /// rotates any bones, or the HumanDescription would bake the pose in.
+        /// </summary>
         private static void BuildCharacterAvatar(
             JObject entity,
             GameObject gameObject,
@@ -628,6 +678,11 @@ namespace Director.Bridge.Editor
             DirectorPoseImport.RecordUnbakedRigState(entity, warnings, omissions);
         }
 
+        /// <summary>
+        /// Composes the scene root transform with the entity transform in
+        /// Director canonical space (right-handed Y-up meters), then converts
+        /// the result to Unity's left-handed Y-up convention in one step.
+        /// </summary>
         private static void ApplyCanonicalTransform(Transform target, JObject scene, JObject transform)
         {
             DirectorSpace.ComposeWorldTransform(
@@ -646,6 +701,11 @@ namespace Director.Bridge.Editor
             target.localScale = DirectorSpace.DirectorScaleToUnity(scale[0], scale[1], scale[2]);
         }
 
+        /// <summary>
+        /// Recomputes each entity's imported canonical world transform from the
+        /// manifest. Export diffs live transforms against these baselines so
+        /// the return package only carries entities the user actually moved.
+        /// </summary>
         private static Dictionary<string, (string, double[], double[], double[])> BuildBaselines(JObject manifest)
         {
             JObject project = (JObject)manifest["project"];
@@ -670,6 +730,7 @@ namespace Director.Bridge.Editor
             return baselines;
         }
 
+        /// <summary>Converts a live Unity world transform back into Director canonical space.</summary>
         private static (double[], double[], double[]) CanonicalFromUnity(Transform transform)
         {
             return (
@@ -678,6 +739,11 @@ namespace Director.Bridge.Editor
                 DirectorSpace.UnityScaleToDirector(transform.lossyScale));
         }
 
+        /// <summary>
+        /// Detects a meaningful transform change. Rotation compares the
+        /// absolute quaternion dot product so q and -q (the same orientation)
+        /// never register as movement.
+        /// </summary>
         private static bool Moved(
             double[] location, double[] quaternion, double[] scale,
             double[] baseLocation, double[] baseQuaternion, double[] baseScale)
@@ -695,6 +761,11 @@ namespace Director.Bridge.Editor
             return Math.Abs(Math.Abs(dot) - 1.0) > TransformTolerance;
         }
 
+        /// <summary>
+        /// Emits a transform_update for every imported object and camera so
+        /// the post-import echo package proves the round trip is lossless
+        /// before any user edits happen.
+        /// </summary>
         private static JArray EchoChanges(Dictionary<string, GameObject> byDirectorId)
         {
             var changes = new JArray();
@@ -711,6 +782,7 @@ namespace Director.Bridge.Editor
             return changes;
         }
 
+        /// <summary>Builds one director-dcc-return-v1 transform_update change entry.</summary>
         private static JObject TransformUpdate(
             string directorId, string entityType, double[] location, double[] quaternion, double[] scale)
         {
@@ -733,18 +805,27 @@ namespace Director.Bridge.Editor
             return new[] { (double)token[0], (double)token[1], (double)token[2] };
         }
 
+        /// <summary>Sanitizes package ids into filesystem/asset-path-safe names.</summary>
         private static string SafeName(string value)
         {
             var characters = value.Select(c => char.IsLetterOrDigit(c) || c == '_' || c == '-' ? c : '_').ToArray();
             return new string(characters, 0, Math.Min(characters.Length, 96));
         }
 
+        /// <summary>
+        /// Expresses the return directory relative to the report file, matching
+        /// how the Gateway resolves returnPackageDir when it reads the report.
+        /// </summary>
         private static string RelativeTo(string reportPath, string directory)
         {
             string reportDirectory = Path.GetDirectoryName(Path.GetFullPath(reportPath)) ?? ".";
             return Path.GetRelativePath(reportDirectory, Path.GetFullPath(directory)).Replace('\\', '/');
         }
 
+        /// <summary>
+        /// Exits the editor only in batch mode, so the same entry points stay
+        /// runnable from an interactive editor session without killing it.
+        /// </summary>
         private static void ExitBatch(int code)
         {
             if (Application.isBatchMode)

@@ -92,6 +92,11 @@ namespace Director.Bridge.Editor
             StatusLine = "Not connected.";
         }
 
+        /// <summary>
+        /// Long-poll loop: resumes after LastAppliedSeq each round, backs off
+        /// exponentially on transient errors, and treats 401/404/410 as
+        /// terminal (the session cannot come back, so retrying would spin).
+        /// </summary>
         private async Task PollLoop(string pollUrl, CancellationToken cancellationToken)
         {
             int backoffMs = 1_000;
@@ -191,6 +196,11 @@ namespace Director.Bridge.Editor
             }
         }
 
+        /// <summary>
+        /// Dispatches one live-link event: snapshot/transform_update mutate
+        /// tagged scene entities, timeline_update only updates the status
+        /// line, and editor_command routes to the granted workshop commands.
+        /// </summary>
         private void ApplyEvent(JObject eventObject)
         {
             var payload = (JObject)eventObject["payload"];
@@ -219,6 +229,11 @@ namespace Director.Bridge.Editor
             }
         }
 
+        /// <summary>
+        /// Renders one clamped-size PNG through the requested camera and posts
+        /// it back as a base64 command result; failures return status:failed
+        /// so Director's job never hangs waiting for a frame.
+        /// </summary>
         private void ExecuteCaptureCommand(JObject payload)
         {
             string commandId = (string)payload["commandId"];
@@ -254,6 +269,13 @@ namespace Director.Bridge.Editor
             _ = SubmitCommandResult(result);
         }
 
+        /// <summary>
+        /// Compiles and runs a workshop-granted C# snippet in-memory against
+        /// every loaded editor assembly. Only reachable when the user
+        /// explicitly granted a workshop session; batch import/export never
+        /// executes request-supplied code. Output is JSON-serialized when
+        /// possible and truncated to 128 KiB.
+        /// </summary>
         private void ExecuteCodeCommand(JObject payload)
         {
             string commandId = (string)payload["commandId"];
@@ -320,6 +342,11 @@ namespace Director.Bridge.Editor
             _ = SubmitCommandResult(result);
         }
 
+        /// <summary>
+        /// Returns a stable-id review snapshot of every DirectorId-tagged
+        /// entity in canonical space. This is the engine-authority path: Unity
+        /// stays the source of truth and nothing is flattened or exported.
+        /// </summary>
         private void ExecuteSyncCommand(JObject payload)
         {
             string commandId = (string)payload["commandId"];
@@ -382,6 +409,7 @@ namespace Director.Bridge.Editor
             _ = SubmitCommandResult(result);
         }
 
+        /// <summary>Posts a command result back to the gateway; failures only update the status line.</summary>
         private async Task SubmitCommandResult(JObject result)
         {
             HttpClient http = _http;
@@ -412,6 +440,11 @@ namespace Director.Bridge.Editor
             }
         }
 
+        /// <summary>
+        /// Applies one canonical-space entity transform (and optional camera
+        /// FOV) to the matching DirectorId-tagged GameObject; unknown ids are
+        /// ignored because the preview may reference entities this scene lacks.
+        /// </summary>
         private void ApplyEntityState(JObject entityState)
         {
             string directorId = (string)entityState["directorId"];
@@ -440,6 +473,11 @@ namespace Director.Bridge.Editor
             }
         }
 
+        /// <summary>
+        /// Looks up a tagged entity through a cache that is rebuilt with one
+        /// scene scan on miss, so steady-state updates avoid per-event
+        /// FindObjectsByType calls.
+        /// </summary>
         private DirectorId ResolveEntity(string directorId)
         {
             if (_entitiesByDirectorId.TryGetValue(directorId, out DirectorId cached) && cached != null)
