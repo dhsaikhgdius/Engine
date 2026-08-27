@@ -1,3 +1,27 @@
+/**
+ * The Director MCP server: a thin stdio process that exposes the agent tool
+ * surface (director_workbench, director_creative, stage_video, blender_native,
+ * director_production, director_film, director_dcc, director_game) and proxies
+ * every call to the gateway's HTTP tool routes. No domain logic lives here —
+ * the gateway re-validates inputs, enforces the same film-role policy, and
+ * owns all state.
+ *
+ * What this process does own:
+ * - Envelope identity: a per-process session id (plus an optional Agent
+ *   profile id) so the gateway can correlate calls, memory, and possession.
+ * - Browser target affinity: once a response names a target tab, subsequent
+ *   calls pin to it and a response from a different tab is discarded, keeping
+ *   one MCP session on one workbench.
+ * - Revision caching: guarded workbench writes get the last observed revision
+ *   injected and are retried once on a stale-revision rejection.
+ * - Media discipline: captures/frames travel exactly once as MCP image
+ *   blocks; base64 payloads are stripped from text and structured views, and
+ *   oversized results are summarized before reaching the model.
+ *
+ * Tool descriptions here are deliberately short routing envelopes; the
+ * canonical vocabulary lives in each tool's capabilities/describe operations
+ * (see the teaching-channel ranking in AGENTS.md).
+ */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -43,6 +67,8 @@ import {
 } from "./agents/agentToolResultProjection";
 
 const gatewayUrl = process.env.STAGE_GATEWAY_URL ?? "http://127.0.0.1:8787";
+// Stable for the process lifetime so gateway-side session memory and call
+// serialization key off one identity per MCP client.
 const sessionId = process.env.DIRECTOR_MCP_SESSION_ID?.trim() || `mcp-${process.pid}-${crypto.randomUUID()}`;
 // Optional Agent profile identity: character bindings that name only a
 // profile_id (attached before a live session exists) match any caller
@@ -126,14 +152,15 @@ const server = new McpServer({
   websiteUrl: "http://127.0.0.1:5175",
 });
 
-/**
- * Returns a policy-rejection tool response when the film role is not allowed
- * to use the given tool, or `null` when the tool is permitted.
- */
+// Read per call rather than cached: hosts can flip plan mode mid-session.
 function readAgentSessionPlanMode() {
   return process.env.DIRECTOR_PLAN_MODE?.trim() === "1";
 }
 
+/**
+ * Returns a policy-rejection tool response when the film role is not allowed
+ * to use the given tool, or `null` when the tool is permitted.
+ */
 async function policyRejectedToolResponse(tool: string, input: unknown) {
   const rejection = directorToolPolicyRejection(filmRoleId, readAgentSessionPlanMode(), tool, input);
   if (!rejection) return null;
@@ -185,6 +212,8 @@ const wireSchemas = {
   ),
 };
 
+// Uniform { ok, result, error } structured-output shape for the HTTP-proxied
+// tools below; declared per tool because the SDK types each registration.
 const directorDccOutputSchema = z.strictObject({
   ok: z.boolean(),
   result: z.unknown().nullable(),
@@ -222,6 +251,7 @@ const descriptions: Record<Exclude<AgentToolName, StageCommandToolName>, string>
     'Operate Blender\'s native modeling and rig surface. Use typed apply directly; call scene when object IDs are unknown. White-box shells use create_blockout (presets floor/wall/room/corridor/stairs, metres); door/window holes use create_opening. Search CC0 assets with {"op":"polyhaven_search"} then apply polyhaven_import. Sketchfab needs SKETCHFAB_API_TOKEN. Describe typed apply ops with {"op":"describe","target":"create_blockout"} when a field is unknown. catalog/describe with operator discover Blender RNA for invoke_operator. execute_code runs Python when a typed op or operator is not enough. Native stills use {"op":"capture"} or {"op":"capture_render"}. Do not quit Blender. Missing scene epoch, revision, and intent id are filled by the gateway. inspect and capture are optional checks. status, scene, catalog, describe, inspect, capture, capture_render, polyhaven_search, and sketchfab_search are read-only.',
 };
 
+/** Optional pre-bound browser target descriptor from the launching host, if valid. */
 function targetDescriptorFromEnvironment(): DirectorAgentTargetWire | undefined {
   const source = process.env.DIRECTOR_TARGET_DESCRIPTOR?.trim();
   if (!source) return undefined;
@@ -325,6 +355,9 @@ async function callGateway(tool: AgentToolName, input: Record<string, unknown>):
 
 const stageCommandTools = new Set<AgentToolName>(STAGE_COMMAND_TOOL_NAMES);
 
+// Scene-returning tools (workbench, creative, video) share one registration
+// path through callGateway; legacy stage_* commands are excluded (HTTP-only)
+// and blender_native gets its own registration for image handling below.
 for (const tool of AGENT_TOOL_NAMES.filter(
   (name): name is Exclude<AgentToolName, StageCommandToolName | "blender_native"> =>
     name !== "blender_native" && !stageCommandTools.has(name) && roleCanSeeTool(filmRoleId, name),
@@ -454,6 +487,9 @@ registerVisibleTool("blender_native", () => {
   );
 });
 
+// Maps each evidence operation onto its REST route. `capabilities` is
+// answered locally — the contract is static and doesn't need a gateway
+// round-trip.
 async function callProductionEvidence(input: ProductionEvidenceRequest): Promise<unknown> {
   if (input.op === "capabilities") {
     return {

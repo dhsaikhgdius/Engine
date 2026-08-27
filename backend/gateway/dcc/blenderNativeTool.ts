@@ -1,3 +1,23 @@
+/**
+ * Execution layer for the `blender_native` tool: turns typed tool requests
+ * into Blender live-kernel jobs and turns raw job results into the public
+ * agent contract (effect receipts, focused evidence, sanitized job records).
+ *
+ * Key invariants:
+ * - Apply is guarded three ways: the kernel policy vets the operation batch,
+ *   the observed scene epoch must still match at submit time, and every apply
+ *   carries an intent id — caller-provided or derived from the observed
+ *   (epoch, revision, operations) — so an exact retry replays the cached
+ *   effect instead of editing twice.
+ * - Uncertain failures (timeout, connection loss after submit) surface as
+ *   `outcome_unknown` with a retry ticket bound to the same intent id rather
+ *   than a plain error, because Blender may have committed the edit.
+ * - Effect receipts report what actually changed by diffing before/after
+ *   snapshots and cross-checking each operation's declared effect, so agents
+ *   get evidence instead of trusting the request.
+ * - Base64 payloads (captures, previews, snapshots) never leak into public
+ *   job records; they travel once through dedicated channels.
+ */
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { assertBlenderKernelPolicy, BlenderKernelPolicyError } from "../../../packages/protocol/src/blenderKernel";
@@ -54,23 +74,29 @@ export function assertBlenderLiveKernelPolicy(operations: BlenderLiveOperation[]
   }
 }
 
+/** Everything needed to replay one committed apply on an exact retry. */
 type CachedEffect = {
   intent: EffectIntent;
   job: BlenderLiveJob;
   receipt: BlenderEffectReceipt;
   evidence: BlenderFocusedEvidence;
 };
+/** The identity an intent id is bound to; a retry with different content is a conflict. */
 type EffectIntent = {
   expectedSceneEpoch: string;
   expectedRevision: number;
   operations: BlenderAgentOperation[];
 };
+// Keyed by session object so a reconnected/replaced session never replays
+// receipts that belong to a previous kernel process.
 const effectReceiptCache = new WeakMap<BlenderNativeSession, Map<string, CachedEffect>>();
 
 function cachedEffect(session: BlenderNativeSession, intentId: string) {
   return effectReceiptCache.get(session)?.get(intentId);
 }
 
+// Bounded FIFO per session: 128 receipts is plenty for retry windows without
+// letting a long-lived session accumulate snapshots indefinitely.
 function rememberEffect(session: BlenderNativeSession, intentId: string, value: CachedEffect) {
   let cache = effectReceiptCache.get(session);
   if (!cache) {
@@ -101,6 +127,7 @@ export function deriveBlenderIntentId(
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
+/** Extracts the intent identity from an apply request; missing boundary fields are a 409. */
 function effectIntent(input: Extract<BlenderNativeToolRequest, { op: "apply" }>): EffectIntent {
   if (!input.expectedSceneEpoch || input.expectedRevision === undefined || !input.intentId) {
     throw new BlenderNativeSessionError(
@@ -116,6 +143,7 @@ function effectIntent(input: Extract<BlenderNativeToolRequest, { op: "apply" }>)
   });
 }
 
+/** An intent id may only ever replay the exact batch it was first bound to. */
 function assertSameIntent(intentId: string, cached: CachedEffect, current: EffectIntent) {
   if (isDeepStrictEqual(cached.intent, current)) return;
   throw new BlenderNativeSessionError(
@@ -125,6 +153,7 @@ function assertSameIntent(intentId: string, cached: CachedEffect, current: Effec
   );
 }
 
+/** True for failures where Blender may have committed the edit anyway (timeouts, transport loss). */
 function isUncertainNativeFailure(error: unknown) {
   return (
     error instanceof BlenderNativeSessionError &&
@@ -132,6 +161,9 @@ function isUncertainNativeFailure(error: unknown) {
   );
 }
 
+// Wraps an uncertain apply failure as outcome_unknown with a retry ticket:
+// the caller must retry the exact same intent (which replays the cached
+// effect if Blender did commit) instead of composing a fresh edit.
 function uncertainNativeApply(
   error: BlenderNativeSessionError,
   input: Extract<BlenderNativeToolRequest, { op: "apply" }>,
@@ -150,12 +182,14 @@ function uncertainNativeApply(
   );
 }
 
+/** Narrows a job result to a plain object record, else null. */
 function resultRecord(job: BlenderLiveJob) {
   return job.result && typeof job.result === "object" && !Array.isArray(job.result)
     ? (job.result as Record<string, unknown>)
     : null;
 }
 
+/** Kernel-recorded before/after snapshots of the transaction, when the kernel attached them. */
 function nativeTransactionSnapshots(job: BlenderLiveJob) {
   const result = resultRecord(job);
   const before = blenderLiveSceneSnapshotSchema.safeParse(result?.snapshotBefore);
@@ -166,6 +200,9 @@ function nativeTransactionSnapshots(job: BlenderLiveJob) {
   };
 }
 
+// The compaction helpers below shrink inspect results for the model: only
+// linked node sockets survive, so material/geometry graphs describe actual
+// wiring instead of every unconnected input Blender exposes.
 function compactInspectionSockets(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.flatMap((socket) => {
@@ -280,6 +317,9 @@ export function publicBlenderJob(job: BlenderLiveJob): BlenderLiveJob {
 /** Job poll deadline; keep below the MCP `blender_native` abort budget (300s). */
 const NATIVE_JOB_TIMEOUT_MS = 280_000;
 
+// Polls one native job to a terminal state with exponential backoff (5ms →
+// 50ms cap): most kernel edits finish in milliseconds, so the first polls are
+// nearly immediate while long renders don't hammer the session.
 async function waitForNativeJob(
   session: BlenderNativeSession,
   jobId: string,
@@ -331,6 +371,7 @@ export async function bindBlenderNativeSessionProject(session: BlenderNativeSess
   return snapshot;
 }
 
+/** Flattens NAME spatial-query hits into one objects list, or null when no NAME query ran. */
 function nameQueryObjects(result: unknown): unknown[] | null {
   if (!result || typeof result !== "object" || Array.isArray(result)) return null;
   const queries = (result as { queries?: unknown }).queries;
@@ -347,18 +388,23 @@ function nameQueryObjects(result: unknown): unknown[] | null {
   return sawName ? objects : null;
 }
 
+/** First per-operation result of a job (single-operation reads use this). */
 function operationResult(job: BlenderLiveJob) {
   if (!job.result || typeof job.result !== "object" || Array.isArray(job.result)) return undefined;
   const operations = (job.result as Record<string, unknown>).operations;
   return Array.isArray(operations) ? operations[0] : undefined;
 }
 
+/** All per-operation results of a job, index-aligned with the request batch. */
 function operationResults(job: BlenderLiveJob): unknown[] {
   if (!job.result || typeof job.result !== "object" || Array.isArray(job.result)) return [];
   const operations = (job.result as Record<string, unknown>).operations;
   return Array.isArray(operations) ? operations : [];
 }
 
+// Revisions the transaction actually committed at. Kernel-recorded values win
+// over the snapshots' revisions because an intent replay observes a later
+// scene than the one the edit committed against.
 function nativeTransactionRevisions(
   job: BlenderLiveJob,
   before: BlenderLiveSceneSnapshot,
@@ -384,10 +430,12 @@ type SceneEntity =
   | BlenderLiveSceneSnapshot["cameras"][number]
   | BlenderLiveSceneSnapshot["lights"][number];
 
+/** De-duplicated, locale-stable sort so receipt id lists are deterministic. */
 function sorted(values: Iterable<string>) {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
+/** All scene entities (objects, cameras, lights) indexed by id for diffing. */
 function entityMap(scene: BlenderLiveSceneSnapshot) {
   return new Map<string, SceneEntity>(
     [...scene.objects, ...scene.cameras, ...(scene.lights ?? [])].map((entity) => [entity.id, entity]),
@@ -403,6 +451,9 @@ function sceneMetrics(scene: BlenderLiveSceneSnapshot) {
   };
 }
 
+// Recursively harvests every object id an untyped result mentions
+// (object_id/objectId fields plus createdObjectIds arrays), because operator
+// and script results have no fixed shape.
 function objectIdsFromResult(value: unknown, output = new Set<string>()): Set<string> {
   if (Array.isArray(value)) {
     value.forEach((entry) => objectIdsFromResult(entry, output));
@@ -424,6 +475,7 @@ function objectIdsFromResult(value: unknown, output = new Set<string>()): Set<st
   return output;
 }
 
+/** Ids a result explicitly declares as touched/selected/dirty (top level only). */
 function changedObjectIdsFromResult(value: unknown) {
   const output = new Set<string>();
   if (!value || typeof value !== "object" || Array.isArray(value)) return output;
@@ -438,6 +490,7 @@ function changedObjectIdsFromResult(value: unknown) {
   return output;
 }
 
+/** Only the ids a result marks as actually modified (excludes mere selection). */
 function explicitDirtyObjectIdsFromResult(value: unknown) {
   const output = new Set<string>();
   if (!value || typeof value !== "object" || Array.isArray(value)) return output;
@@ -451,8 +504,11 @@ function explicitDirtyObjectIdsFromResult(value: unknown) {
   return output;
 }
 
+/** Coarse effect class: reads never dirty anything, selection ops dirty nothing durable. */
 type OperationEffectTrait = "read" | "selection" | "content";
 
+// Pose/animation edits mutate armature data without changing the scene graph,
+// so snapshot diffing misses them; the target object is marked changed by name.
 const ARMATURE_CONTENT_OPERATION_NAMES = new Set<string>([
   "set_pose_bone_transform",
   "apply_pose_offsets",
@@ -474,6 +530,8 @@ function operationEffectTrait(operation: BlenderLiveOperation): OperationEffectT
   return "content";
 }
 
+// Selection state after one operation, best-effort: the result's own report
+// wins, then the operation's declared context, then the observed scene.
 function operationSelection(operation: BlenderLiveOperation, result: unknown, scene: BlenderLiveSceneSnapshot) {
   const resultRecord =
     result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>) : null;
@@ -510,6 +568,11 @@ function isSkippedOperationResult(result: unknown) {
   );
 }
 
+// Per-operation declared effect: what this operation says it created,
+// changed, or deleted, derived from its typed shape (typed ops name their
+// targets) plus whatever ids the untyped result reports. Open-ended ops
+// (invoke_operator, execute_code, imports) fall back to harvested result ids
+// and warn when nothing is attributable.
 function declaredOperationEffect(operation: BlenderLiveOperation, result: unknown) {
   const created = new Set<string>();
   const changed = new Set<string>();
@@ -623,6 +686,13 @@ function declaredOperationEffect(operation: BlenderLiveOperation, result: unknow
   return { created, changed, deleted, warnings };
 }
 
+// Builds the effect receipt by reconciling two evidence sources: the
+// observed before/after snapshot diff (ground truth for what exists) and each
+// operation's declared effect (attribution of who did it). On a replayed
+// intent the snapshots were observed later than the commit, so declared
+// creates/deletes that contradict the current scene are kept as-is; on a
+// fresh commit they are downgraded to "changed" when the entity existed both
+// before and after.
 function buildEffectReceipt(
   requestId: string,
   operations: BlenderLiveOperation[],
@@ -727,6 +797,7 @@ function buildEffectReceipt(
   });
 }
 
+/** Post-edit state of only the dirty entities — the compact proof an agent inspects. */
 function focusedEvidence(scene: BlenderLiveSceneSnapshot, dirtyObjectIds: string[]) {
   const dirty = new Set(dirtyObjectIds);
   return blenderFocusedEvidenceSchema.parse({
@@ -738,6 +809,7 @@ function focusedEvidence(scene: BlenderLiveSceneSnapshot, dirtyObjectIds: string
   });
 }
 
+/** Lowers one public tool request to the kernel operation batch it executes as. */
 function nativeRequest(input: Exclude<BlenderNativeToolRequest, { op: "status" | "scene" | "live_link" }>): {
   operations: BlenderLiveOperation[];
   expectedSceneEpoch?: string;
@@ -862,6 +934,9 @@ export async function executeBlenderNativeTool(
     return { result: described.result, described: described.result };
   }
 
+  // Fill missing boundary fields from a live observation: applies without an
+  // explicit epoch/revision/intent get them derived here, which is what makes
+  // an unadorned retry of the same batch idempotent against the same scene.
   let observed: BlenderLiveSceneSnapshot | null = null;
   if (input.op === "apply" && (!input.expectedSceneEpoch || input.expectedRevision === undefined || !input.intentId)) {
     observed = await session.snapshot();
@@ -882,6 +957,8 @@ export async function executeBlenderNativeTool(
     };
   }
 
+  // Gateway-side intent replay: an exact retry of a committed apply returns
+  // the cached receipt without touching Blender at all.
   if (input.op === "apply" && input.intentId) {
     const cached = cachedEffect(session, input.intentId);
     if (cached) {
