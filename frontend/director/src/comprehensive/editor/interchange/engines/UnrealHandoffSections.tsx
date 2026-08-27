@@ -1,6 +1,7 @@
 /**
- * Unreal 交接专属区块:Sequencer 烘焙回执、洁净帧回执、结构化省略通道,以及
- * 网关 → 编辑器回环实时预览(推送 Director 活动相机;仅预览、绝不写入工程)。
+ * Unreal 交接专属区块:Sequencer 烘焙回执、洁净帧回执、结构化省略灯光/材质/
+ * 骨骼/镜头与动画通道,以及网关 → 编辑器回环实时预览(推送 Director 活动相机;
+ * 仅预览、绝不写入工程)。
  *
  * @module unreal-handoff-sections
  */
@@ -44,6 +45,19 @@ const UNREAL_OMITTED_SHOT_LABELS: Record<string, string> = {
   shot_target_not_camera: "镜头目标不是相机",
 };
 
+/**
+ * Unreal omittedLights 按 lightType 标签（无 code 字段；ambient/hemisphere 是
+ * 连接器实际省略的类型，其余枚举值作回退）。
+ */
+const UNREAL_OMITTED_LIGHT_LABELS: Record<string, string> = {
+  ambient: "环境光",
+  hemisphere: "半球光",
+  directional: "平行光",
+  point: "点光源",
+  spot: "聚光灯",
+  "rect-area": "矩形面光",
+};
+
 /** zh-CN source strings describing the Unreal send payload. */
 export const UNREAL_SEND_NOTES = [
   "以 USD 优先（附 GLB）发送场景、相机与稳定 ID",
@@ -52,7 +66,7 @@ export const UNREAL_SEND_NOTES = [
 
 /**
  * Unreal 发送回执:Sequencer 时基与轨道计数、洁净帧 rendered/skipped、
- * 结构化省略镜头,以及结构化 omittedAnimationChannels(含 Control Rig 省略)。
+ * 结构化省略灯光/镜头/材质/骨骼,以及结构化 omittedAnimationChannels(含 Control Rig 省略)。
  */
 export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (source: string) => string) {
   const sequencer = result.report.sequencer;
@@ -64,6 +78,8 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
   const omittedSkeletalCount = result.report.omittedSkeletalCount ?? omittedSkeletal.length;
   const omittedShots = result.report.omittedShots ?? [];
   const omittedShotCount = result.report.omittedShotCount ?? omittedShots.length;
+  const omittedLights = result.report.omittedLights ?? [];
+  const omittedLightCount = result.report.omittedLightCount ?? omittedLights.length;
   const appliedMaterialCount = result.report.appliedMaterialCount;
   return (
     <div className="director-engine-handoff-receipt-extra">
@@ -120,6 +136,12 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
               <dd>{omittedShotCount}</dd>
             </div>
           ) : null}
+          {omittedLightCount > 0 || omittedLights.length > 0 ? (
+            <div>
+              <dt>{t("省略灯光")}</dt>
+              <dd>{omittedLightCount}</dd>
+            </div>
+          ) : null}
         </dl>
       ) : (
         <p className="director-engine-handoff-empty">{t("本次运行未写入 Sequencer 回执（静态导入）")}</p>
@@ -141,6 +163,22 @@ export function renderUnrealReceipt(result: DirectorDccEngineSendResult, t: (sou
             </span>
           )}
         </div>
+      ) : null}
+      {omittedLights.length ? (
+        <ul aria-label={t("结构化省略灯光")} className="director-engine-handoff-list is-warning">
+          {omittedLights.slice(0, 6).map((entry) => (
+            <li key={`light:${entry.lightType}:${entry.directorId}`}>
+              <code data-i18n-user-content>{entry.directorId}</code>
+              {` · ${t(UNREAL_OMITTED_LIGHT_LABELS[entry.lightType] ?? entry.lightType)} · `}
+              <span className="director-engine-handoff-omit-detail" data-i18n-user-content title={entry.reason}>
+                {entry.reason}
+              </span>
+            </li>
+          ))}
+          {omittedLights.length > 6 ? (
+            <li className="director-engine-handoff-more">+{omittedLights.length - 6}</li>
+          ) : null}
+        </ul>
       ) : null}
       {omittedShots.length ? (
         <ul aria-label={t("结构化省略镜头")} className="director-engine-handoff-list is-warning">
