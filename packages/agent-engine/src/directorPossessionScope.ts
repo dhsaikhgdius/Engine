@@ -442,6 +442,20 @@ export type DirectorPossessionWriteReceipt = {
   filled_targets: DirectorPossessionFilledTarget[];
 };
 
+/**
+ * Typed detail when sole-possession auto-fill cannot choose among several
+ * possessed characters. Mirrors the HTTP/MCP `possession_target_ambiguous`
+ * payload (`omitted_targets`) so callers can name an id without parsing prose.
+ */
+export type DirectorPossessionTargetAmbiguity = {
+  /** The calling Agent session id. */
+  session_id: string;
+  /** Object ids of every character this session possesses. */
+  possessed_object_ids: string[];
+  /** Every omitted fillable target field the gateway refused to auto-fill. */
+  omitted_targets: DirectorCharacterTargetGap[];
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }

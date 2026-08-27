@@ -6,6 +6,7 @@ import { validateStageScene } from "./commandEngine";
 import { directorCameraAspectRatioSchema } from "@director/protocol/directorCameraProtocol";
 import type {
   DirectorPossessionScopeRejection,
+  DirectorPossessionTargetAmbiguity,
   DirectorPossessionWriteReceipt,
 } from "./directorPossessionScope";
 
@@ -106,8 +107,8 @@ export interface StageGatewayExecution extends ToolExecution {
   capture?: StageCapturePayload;
   target?: DirectorAgentTarget;
   agent_boundary?: AgentBoundaryReceipt;
-  /** Sole-possession auto-fill receipt on successful writes, or rejection detail on scope violations. */
-  possession?: DirectorPossessionWriteReceipt | DirectorPossessionScopeRejection;
+  /** Sole-possession auto-fill receipt on successful writes, ambiguity detail, or rejection detail on scope violations. */
+  possession?: DirectorPossessionWriteReceipt | DirectorPossessionTargetAmbiguity | DirectorPossessionScopeRejection;
 }
 
 function sameJson(left: unknown, right: unknown) {
