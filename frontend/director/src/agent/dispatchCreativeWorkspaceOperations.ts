@@ -16,6 +16,7 @@ import {
   creativeWorkspaceAgentRequestSchema,
   executeCreativeWorkspaceAgentOperationAsync,
   executeCreativeWorkspaceAgentRequest,
+  executeCreativeWorkspaceMediaProxyAttach,
   executeCreativeWorkspaceMediaRelinkFile,
   observeCreativeWorkspaceAgentSnapshot,
   creativeWorkspaceAgentOperationSchema,
@@ -143,6 +144,41 @@ export async function dispatchCreativeWorkspaceMediaRelink(
   const before = observeCreativeWorkspaceAgentSnapshot(options.context);
   const idempotencyKey = options.idempotencyKey ?? `ui-creative-relink:${crypto.randomUUID()}`;
   const execution = await executeCreativeWorkspaceMediaRelinkFile(mediaId, file, options.context);
+  if (!execution.success) {
+    return {
+      ok: false,
+      error: execution.error,
+      code: execution.code,
+      execution,
+      snapshot_fingerprint_before: before.snapshot_fingerprint,
+    };
+  }
+  const after = observeCreativeWorkspaceAgentSnapshot(options.context);
+  return {
+    ok: true,
+    execution,
+    idempotency_key: idempotencyKey,
+    snapshot_fingerprint_before: before.snapshot_fingerprint,
+    snapshot_fingerprint_after: after.snapshot_fingerprint,
+  };
+}
+
+/**
+ * Route a UI media.proxy.attach through the same async executor Agents use
+ * after both ids are cataloged. Stamps probed storage + durability for the
+ * proxy media id on the shared receipt (media.verify vocabulary).
+ */
+export async function dispatchCreativeWorkspaceMediaProxyAttach(
+  originalMediaId: string,
+  proxyMediaId: string,
+  options: DispatchCreativeWorkspaceOptions = {},
+): Promise<DispatchCreativeWorkspaceResult> {
+  const before = observeCreativeWorkspaceAgentSnapshot(options.context);
+  const idempotencyKey = options.idempotencyKey ?? `ui-creative-proxy-attach:${crypto.randomUUID()}`;
+  const execution = await executeCreativeWorkspaceMediaProxyAttach(
+    { op: "media.proxy.attach", original_media_id: originalMediaId, proxy_media_id: proxyMediaId },
+    options.context,
+  );
   if (!execution.success) {
     return {
       ok: false,

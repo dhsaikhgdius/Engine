@@ -53,11 +53,17 @@ import {
   ZoomOut,
 } from "lucide-react";
 import {
+  dispatchCreativeWorkspaceMediaProxyAttach,
   dispatchCreativeWorkspaceMediaRelink,
   dispatchCreativeWorkspaceMediaVerify,
   dispatchCreativeWorkspaceOperations,
   type CreativeWorkspaceOperationInput,
 } from "../../../agent/dispatchCreativeWorkspaceOperations";
+import {
+  formatMediaProxyAttachSuccessMessage,
+  parseMediaProxyAttachHonesty,
+} from "../media/mediaProxyAttachPresentation";
+import { formatMediaRelinkSuccessMessage, parseMediaRelinkHonesty } from "../media/mediaRelinkPresentation";
 import { useLanguage } from "../../i18n/language";
 import {
   DIRECTOR_COMMON_FRAME_RATES,
@@ -79,7 +85,6 @@ import type { CreativeMediaPlaybackPreference } from "../media/creativeMediaEngi
 import { MediaVerifyResultsList } from "../media/MediaVerifyResultsList";
 import { creativeWorkspaceMediaVerifyResultSchema } from "../../../../../../packages/protocol/src/creativeWorkspaceProtocol";
 import type { MediaVerifyUiState } from "../media/mediaVerifyPresentation";
-import { formatMediaRelinkSuccessMessage, parseMediaRelinkHonesty } from "../media/mediaRelinkPresentation";
 import { persistentCreativeMediaLibrary } from "../media/persistentCreativeMediaStore";
 import { MediaTranscriptionPanel } from "../media/MediaTranscriptionPanel";
 import { useVideoRecordingStore } from "../video/videoRecordingStore";
@@ -1689,17 +1694,18 @@ export function VideoEditorWorkspace() {
     setImportMessage(t("正在关联代理媒体…"));
     try {
       const proxy = await importDirectorCreativeMediaProxyCandidate(target.id, file);
-      const receipt = dispatchCreativeWorkspaceOperations({
-        op: "media.proxy.attach",
-        original_media_id: target.id,
-        proxy_media_id: proxy.id,
-      });
+      const receipt = await dispatchCreativeWorkspaceMediaProxyAttach(target.id, proxy.id);
       if (!receipt.ok) {
         setImportMessage(receipt.error || t("代理媒体关联失败"));
         return;
       }
       setImportMessage(
-        `${t("代理媒体已关联")} · ${proxy.id.slice(0, 28)}${proxy.waveform ? ` · ${t("波形已缓存")}` : ""}`,
+        formatMediaProxyAttachSuccessMessage({
+          proxyId: proxy.id,
+          waveformReady: Boolean(proxy.waveform),
+          honesty: parseMediaProxyAttachHonesty(receipt.execution.result),
+          t,
+        }),
       );
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : t("代理媒体关联失败"));

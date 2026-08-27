@@ -885,7 +885,9 @@ async function connectSocket() {
                     message.input.op === "pipeline"
                   ? await executeCreativeWorkspaceSemanticRequest(message.input, undefined, commandController.signal)
                   : message.input.op === "execute" &&
-                      (message.input.operation.op === "media.relink" || message.input.operation.op === "media.verify")
+                      (message.input.operation.op === "media.relink" ||
+                        message.input.operation.op === "media.verify" ||
+                        message.input.operation.op === "media.proxy.attach")
                     ? {
                         op: "execute" as const,
                         execution: await executeCreativeWorkspaceAgentOperationAsync(

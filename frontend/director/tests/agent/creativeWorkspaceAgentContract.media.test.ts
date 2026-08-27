@@ -228,6 +228,130 @@ describe("creative workspace gallery purge and media.relink", () => {
   });
 });
 
+describe("creative workspace media.proxy.attach durable byte probes", () => {
+  const ORIGINAL: CreativeMediaAsset = {
+    ...POSTER,
+    id: "media:video:original",
+    kind: "video",
+    name: "Original",
+    fileName: "original.webm",
+    mimeType: "video/webm",
+    durationSec: 12,
+    width: 1_920,
+    height: 1_080,
+  };
+  const PROXY: CreativeMediaAsset = {
+    ...ORIGINAL,
+    id: "media:video:proxy",
+    name: "Proxy",
+    fileName: "proxy.webm",
+    size: 4,
+    width: 1_280,
+    height: 720,
+    objectUrl: "blob:proxy",
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    useDirectorCreativeWorkspaceStore.getState().resetCreativeWorkspaces();
+  });
+
+  it("rejects the sync media.proxy.attach path and asks for the async executor", () => {
+    const failure = expectFailure(
+      executeCreativeWorkspaceAgentOperation(
+        {
+          op: "media.proxy.attach",
+          original_media_id: ORIGINAL.id,
+          proxy_media_id: PROXY.id,
+        },
+        context([ORIGINAL, PROXY]),
+      ),
+      "operation_rejected",
+    );
+    expect(failure.error).toContain("executeCreativeWorkspaceAgentOperationAsync");
+  });
+
+  it("stamps probed storage and durability on a successful media.proxy.attach receipt", async () => {
+    const assets = [ORIGINAL, PROXY].map((asset) => ({ ...asset }));
+    const blobs = new Map<string, Blob>([[PROXY.id, new Blob(["four"])]]);
+    const runtime: CreativeWorkspaceAgentContext = {
+      workspace: { getState: () => useDirectorCreativeWorkspaceStore.getState() },
+      media: {
+        getState: () => mediaState(assets),
+        readBlob: async (id) => blobs.get(id) ?? null,
+        attachExistingProxy(originalId, proxyId) {
+          const proxy = assets.find((asset) => asset.id === proxyId);
+          const original = assets.find((asset) => asset.id === originalId);
+          if (!proxy || !original) return null;
+          const updated = { ...proxy, proxyOf: originalId };
+          const index = assets.findIndex((asset) => asset.id === proxyId);
+          assets[index] = updated;
+          return updated;
+        },
+      },
+    };
+    const result = await executeCreativeWorkspaceAgentOperationAsync(
+      {
+        op: "media.proxy.attach",
+        original_media_id: ORIGINAL.id,
+        proxy_media_id: PROXY.id,
+      },
+      runtime,
+    );
+    const receipt = expectSuccess(result);
+    expect(receipt.result).toMatchObject({
+      proxy: { id: PROXY.id, proxy_of: ORIGINAL.id },
+      changed: true,
+      storage: { mode: "memory", durable: false },
+      durability: {
+        media_id: PROXY.id,
+        outcome: "verified",
+        cataloged_bytes: 4,
+        stored_bytes: 4,
+        proxy_of: ORIGINAL.id,
+        omit_reason: null,
+      },
+    });
+  });
+
+  it("stamps a typed omit reason on media.proxy.attach receipts when the host cannot read blobs", async () => {
+    const assets = [ORIGINAL, PROXY].map((asset) => ({ ...asset }));
+    const runtime: CreativeWorkspaceAgentContext = {
+      workspace: { getState: () => useDirectorCreativeWorkspaceStore.getState() },
+      media: {
+        getState: () => mediaState(assets),
+        attachExistingProxy(originalId, proxyId) {
+          const proxy = assets.find((asset) => asset.id === proxyId);
+          if (!proxy) return null;
+          const updated = { ...proxy, proxyOf: originalId };
+          const index = assets.findIndex((asset) => asset.id === proxyId);
+          assets[index] = updated;
+          return updated;
+        },
+      },
+    };
+    const result = await executeCreativeWorkspaceAgentOperationAsync(
+      {
+        op: "media.proxy.attach",
+        original_media_id: ORIGINAL.id,
+        proxy_media_id: PROXY.id,
+      },
+      runtime,
+    );
+    const receipt = expectSuccess(result);
+    expect(receipt.result).toMatchObject({
+      durability: {
+        media_id: PROXY.id,
+        outcome: "unverified",
+        omit_reason: "blob_reader_unavailable",
+        stored_bytes: null,
+        proxy_of: ORIGINAL.id,
+      },
+    });
+  });
+});
+
 describe("creative workspace media.verify durable byte probes", () => {
   beforeEach(() => {
     localStorage.clear();

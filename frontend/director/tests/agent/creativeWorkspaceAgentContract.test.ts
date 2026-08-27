@@ -11,6 +11,7 @@ import {
   creativeWorkspaceAgentRequestSchema,
   executeCreativeWorkspaceAgentRequest,
   executeCreativeWorkspaceAgentOperation,
+  executeCreativeWorkspaceAgentOperationAsync,
   observeCreativeWorkspaceAgentSnapshot,
   parseCreativeWorkspaceAgentOperation,
   type CreativeWorkspaceAgentContext,
@@ -1044,11 +1045,11 @@ describe("creative workspace agent operation contract", () => {
     );
   });
 
-  it("attaches an existing proxy and returns verifiable playback snapshots for every preference", () => {
+  it("attaches an existing proxy and returns verifiable playback snapshots for every preference", async () => {
     const runtime = context([...MEDIA_ASSETS, VIDEO_PROXY_ASSET]);
     const before = observeCreativeWorkspaceAgentSnapshot(runtime);
     const attached = expectSuccess(
-      executeCreativeWorkspaceAgentOperation(
+      await executeCreativeWorkspaceAgentOperationAsync(
         {
           op: "media.proxy.attach",
           original_media_id: "media:video:take",
@@ -1062,6 +1063,13 @@ describe("creative workspace agent operation contract", () => {
       proxy: { id: VIDEO_PROXY_ASSET.id, proxy_of: "media:video:take" },
       previous_proxy_of: null,
       changed: true,
+      storage: { mode: "memory", durable: false },
+      durability: {
+        media_id: VIDEO_PROXY_ASSET.id,
+        outcome: "unverified",
+        omit_reason: "blob_reader_unavailable",
+        proxy_of: "media:video:take",
+      },
     });
     expect(attached.snapshot.snapshot_fingerprint).not.toBe(before.snapshot_fingerprint);
     expect(attached.snapshot.media.assets.find((asset) => asset.id === VIDEO_PROXY_ASSET.id)).toMatchObject({
@@ -1089,7 +1097,7 @@ describe("creative workspace agent operation contract", () => {
     }
   });
 
-  it("rejects unusable playback choices and unsafe or unverifiable proxy relationships", () => {
+  it("rejects unusable playback choices and unsafe or unverifiable proxy relationships", async () => {
     expectFailure(
       executeCreativeWorkspaceAgentOperation(
         { op: "media.playback.update", media_id: "media:video:take", preference: "proxy" },
@@ -1107,7 +1115,7 @@ describe("creative workspace agent operation contract", () => {
       "conflict",
     );
     expectFailure(
-      executeCreativeWorkspaceAgentOperation(
+      await executeCreativeWorkspaceAgentOperationAsync(
         {
           op: "media.proxy.attach",
           original_media_id: "missing-original",
@@ -1118,7 +1126,7 @@ describe("creative workspace agent operation contract", () => {
       "not_found",
     );
     expectFailure(
-      executeCreativeWorkspaceAgentOperation(
+      await executeCreativeWorkspaceAgentOperationAsync(
         {
           op: "media.proxy.attach",
           original_media_id: "media:video:take",
@@ -1136,7 +1144,7 @@ describe("creative workspace agent operation contract", () => {
     };
     const claimedProxy = { ...VIDEO_PROXY_ASSET, proxyOf: otherOriginal.id };
     expectFailure(
-      executeCreativeWorkspaceAgentOperation(
+      await executeCreativeWorkspaceAgentOperationAsync(
         {
           op: "media.proxy.attach",
           original_media_id: "media:video:take",
@@ -1162,7 +1170,7 @@ describe("creative workspace agent operation contract", () => {
       ),
     );
     expectFailure(
-      executeCreativeWorkspaceAgentOperation(
+      await executeCreativeWorkspaceAgentOperationAsync(
         {
           op: "media.proxy.attach",
           original_media_id: "media:video:take",
