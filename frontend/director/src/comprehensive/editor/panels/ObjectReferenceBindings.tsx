@@ -1,3 +1,10 @@
+/**
+ * Per-object production reference bindings: prompts, action names, skeleton
+ * ids, and mounted 3D assets that describe how an object should be produced or
+ * regenerated. Rendered inside the object tree's floating action menu and the
+ * inspector. Only portable identifiers are persisted — URLs/data URIs are
+ * rejected so scene documents stay shareable.
+ */
 import {
   Eye,
   EyeOff,
