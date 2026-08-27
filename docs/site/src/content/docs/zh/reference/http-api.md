@@ -124,6 +124,9 @@ Target 是 contract-v2 对象，包含 `token`、`client_id`、`instance_id`、`
 /api/tools/director_workbench
 /api/tools/director_creative
 /api/tools/stage_video
+/api/tools/blender_native
+/api/tools/director_dcc
+/api/tools/director_game
 ```
 
 Body 可以直接包含 operation。`session_id` 与 `target_token` 是 envelope 字段，其余字段由对应

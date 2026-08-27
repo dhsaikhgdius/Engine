@@ -213,6 +213,16 @@ describe("creative workspace UI/agent parity harness", () => {
         node_id: createdId(note, "node"),
         section_id: createdId(section, "section"),
       });
+      execute({
+        op: "canvas.section.update",
+        section_id: createdId(section, "section"),
+        patch: { title: "成片区", collapsed: true },
+      });
+      execute({
+        op: "canvas.section.update",
+        section_id: createdId(section, "section"),
+        patch: { collapsed: false },
+      });
       const doomed = execute({ op: "canvas.node.add", kind: "frame", title: "镜头组", x: 40, y: 400 });
       execute({ op: "canvas.node.bring_to_front", node_id: createdId(note, "node") });
       execute({ op: "canvas.board.set_viewport", x: 12, y: 24, zoom: 1.1 });
@@ -227,6 +237,23 @@ describe("creative workspace UI/agent parity harness", () => {
       });
     });
     expect(uiRevision).toEqual(agentRevision);
+  });
+
+  it("produces identical revisions for Canvas section update (collapse and orphan on remove)", () => {
+    const { uiRevision, agentRevision } = compareExecutors((execute) => {
+      const note = execute({ op: "canvas.node.add", kind: "note", title: "草稿", x: 120, y: 120 });
+      const section = execute({ op: "canvas.section.add", title: "角色区", kind: "character", x: 40, y: 40 });
+      const sectionId = createdId(section, "section");
+      execute({ op: "canvas.node.assign_section", node_id: createdId(note, "node"), section_id: sectionId });
+      execute({ op: "canvas.section.update", section_id: sectionId, patch: { title: "人物区", collapsed: true } });
+      execute({ op: "canvas.section.update", section_id: sectionId, patch: { collapsed: false } });
+      execute({ op: "canvas.section.remove", section_id: sectionId });
+    });
+    expect(uiRevision).toEqual(agentRevision);
+    expect(uiRevision.board).toMatchObject({
+      sections: [],
+      nodes: [expect.objectContaining({ section_id: null })],
+    });
   });
 
   it("produces identical revisions for the Gallery batch (folders, cataloging, review metadata, move)", () => {

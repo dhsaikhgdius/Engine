@@ -238,6 +238,46 @@ describe("Godot import receipt and connector health", () => {
     expect(directorGodotImportReceiptSchema.safeParse(base).success).toBe(false);
   });
 
+  it("rejects unknown omitted-light codes and extra omitted-light fields", () => {
+    const base = {
+      animationPlayerPath: null,
+      animationLibrary: null,
+      displayRate: null,
+      bakedKeyCount: 0,
+      transformTrackCount: 0,
+      fovTrackCount: 0,
+      shotCutTrackCount: 0,
+      mappedShotCount: 0,
+      payloadAnimationPlayerCount: 0,
+      importedSkeletonCount: 0,
+      importedLightCount: 0,
+      worldEnvironmentAmbient: false,
+      omittedLightCount: 1,
+      omittedLights: [
+        {
+          directorId: "light-x",
+          code: "light_type_unknown" as const,
+          lightType: "laser",
+          reason: "Light light-x has unknown type laser; it was omitted (warn-and-omit code: light_type_unknown).",
+        },
+      ],
+      appliedMaterialCount: 0,
+      externalizedTextureCount: 0,
+    };
+    expect(
+      directorGodotImportReceiptSchema.safeParse({
+        ...base,
+        omittedLights: [{ ...base.omittedLights[0], code: "laser_beam" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      directorGodotImportReceiptSchema.safeParse({
+        ...base,
+        omittedLights: [{ ...base.omittedLights[0], extra: "field" }],
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects omittedMaterials whose length disagrees with omittedMaterialCount", () => {
     const base = {
       animationPlayerPath: null,

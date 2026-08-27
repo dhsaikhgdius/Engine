@@ -66,7 +66,7 @@ The eval entrypoint (`run.mjs`) logic:
 5. Starts headless Chromium and navigates to `http://127.0.0.1:5199`.
 6. Reads `tasks/*.json` in filename order, runs steps sequentially.
 7. Each step POSTs JSON to `POST /api/tools/<step.tool>` and checks the response
-   against expectations (`success`, `code`, `error_includes`, `result_paths`).
+   against expectations (`success`, `code`, `error_includes`, `result_paths`, `result_equals`).
 8. Summarizes pass/fail counts; exit code reflects the outcome.
 
 ## Task format
@@ -78,13 +78,16 @@ Every step names one public tool in `tool`: `director_workbench`, `director_crea
 `stage_video`, `blender_native`, `director_dcc`, or `director_game`. The task-schema test validates every
 expected-success input against that tool's strict contract before an isolated browser run.
 Game-slice tasks (`12`–`18`) cover plan/bind/playtest, export→`director_dcc` routing, unbound rejection,
-host-free playtest without an inline `trace`, and the fps/racing/rpg genre demo recipes replayed
-verbatim from `packages/protocol/src/gameDemoRecipes.ts`.
+host-free playtest without an inline `trace`, the harness-vs-codegen honesty contract
+(Stage as the default runtime; `export_slice` refusing engine code generation), and the fps/racing/rpg genre demo recipes replayed
+verbatim from `packages/protocol/src/gameDemoRecipes.ts`. The harness-vs-codegen comparison is documented in
+`docs/site/src/content/docs/research/game-harness-vs-codegen.md`.
 
 `result_paths` are dot-paths resolved against the whole JSON response body
 (arrays index numerically, e.g. `result.issues.0`); a path passes when the resolved value is
-neither `undefined` nor `null`. `result_equals` maps dot-paths to exact primitive values, e.g.
-a playable receipt must be literally `true`, not merely present. Steps with `expect.success: false` pass when the boundary
+neither `undefined` nor `null`. `result_equals` maps the same dot-paths to exact expected JSON
+values for assertions where existence is not enough (e.g. `runtime.default` must be `"stage"`,
+not merely present). Steps with `expect.success: false` pass when the boundary
 reports the expected failure, regardless of HTTP status. The runner is generic — add a task
 by dropping a new JSON file into `tasks/`.
 
@@ -115,6 +118,9 @@ really are incomplete.
 | `tasks/14-game-slice-unbound-playtest-rejects.json` | Verify playtest rejects until the player role is bound to a Stage object                                          |
 | `tasks/14-world-systems-observation.json`        | Author Living World weather/wind plus one effect, then verify the `world` observation projection                     |
 | `tasks/15-game-slice-hostfree-playtest-no-trace.json` | Host-free playtest scoring without an explicit trace                                                            |
+| `tasks/16-game-harness-vs-codegen-honesty.json`  | Harness-vs-codegen honesty: capabilities report `runtime.default = "stage"`, and `export_slice` rejects codegen both before (`game_export_not_playable`) and after (`game_export_via_dcc`) a playable receipt |
+| `tasks/16-game-slice-racing-full-loop.json`      | Racing genre full-loop host-free playtest golden                                                                     |
 | `tasks/16-game-demo-fps-recipe-hostfree.json`    | Replay the fps demo recipe: discover via capabilities/describe, plan, bind hinted roles, host-free playtest to playable |
+| `tasks/17-game-slice-fps-full-loop.json`         | FPS genre full-loop host-free playtest golden                                                                        |
 | `tasks/17-game-demo-racing-recipe-hostfree.json` | Replay the racing demo recipe with enter/exit vehicle verbs to a literally playable receipt                          |
 | `tasks/18-game-demo-rpg-recipe-hostfree.json`    | Replay the rpg demo recipe with interact plus attack verbs to a literally playable receipt                            |

@@ -18,19 +18,20 @@ Reload the coding-agent session after the project MCP configuration is present.
 
 ## Tools
 
-| Tool                 | Use                                                                                                      |
-| -------------------- | -------------------------------------------------------------------------------------------------------- |
-| `director_workbench` | Complete editor observation, authoring, audit, capture, Shot IR, multi-pass Shot Package, and UI control |
-| `director_creative`  | Canvas/Video observation, atomic editing, audit, and fingerprint-bound clean PNG preview                 |
-| `director_dcc`       | DCC/engine handoff: provider discovery, Blender `.blend` round trips, Unreal/Unity/Godot headless send + guarded returns, and engine scene import |
-| `stage_read`         | Compact observation, inspection, critique, full state, and camera capture                                |
-| `stage_scene`        | Reset, scene settings, validation, and scene-level mutations                                             |
-| `stage_object`       | Create, transform, place, parent, animate, and remove white-box objects                                  |
-| `stage_camera`       | Create, frame, aim, move, and configure cameras                                                          |
-| `stage_show`         | Timeline, tracks, actions, playback, and recording controls                                              |
-| `stage_video`        | Prepare, submit, and inspect white-box-to-video jobs                                                     |
+| Tool                  | Use                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| `director_workbench`  | Complete editor observation, authoring, audit, capture, Shot IR, multi-pass Shot Package, and UI control |
+| `director_creative`   | Canvas/Video observation, atomic editing, audit, and fingerprint-bound clean PNG preview                 |
+| `blender_native`      | Blender's native modeling and rig surface: typed apply, blockout shells and openings, CC0 asset import, native captures |
+| `director_dcc`        | DCC/engine handoff: provider discovery, Blender `.blend` round trips, Unreal/Unity/Godot headless send + guarded returns, and engine scene import |
+| `director_game`       | Experimental typed game slice: plan, bind Stage objects, scripted playtest, playability evaluation; engine export routes through `director_dcc` |
+| `director_film`       | Experimental durable idea/script-to-film pipeline: planning, optional approval gate, render, dub, assembly, OTIO handoff |
+| `director_production` | Immutable production artifact versions, approvals, and guarded promotion                                 |
+| `stage_video`         | Prepare, submit, and inspect white-box-to-video jobs                                                     |
 
-`stage_*` is the compact `StageScene` protocol. New work should use `director_workbench`.
+The legacy compact `stage_read` / `stage_scene` / `stage_object` / `stage_camera` /
+`stage_show` tools remain HTTP-only compatibility routes (`POST /api/tools/<name>`) and are
+no longer advertised over MCP. New work should use `director_workbench`.
 In particular, `kind:"cube"` is valid only on `stage_object`. Public `director_workbench`
 `author` batches instance catalog or project meshes (`asset_id`); unique architecture uses
 `blender_native`, and unique generated meshes use `generated_3d`. Stage `geometry_type`

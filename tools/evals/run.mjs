@@ -203,11 +203,10 @@ function checkExpectations(expect, body) {
   for (const path of expect.result_paths ?? []) {
     if (resolvePath(body, path) == null) failures.push(`expected response path "${path}" to resolve to a value`);
   }
-  // Exact primitive assertions, e.g. a playable receipt must be literally true.
   for (const [path, expected] of Object.entries(expect.result_equals ?? {})) {
     const actual = resolvePath(body, path);
-    if (actual !== expected) {
-      failures.push(`expected path "${path}" to equal ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      failures.push(`expected response path "${path}" to equal ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
     }
   }
   if (failures.length) {
