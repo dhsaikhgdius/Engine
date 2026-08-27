@@ -75,6 +75,7 @@
     {
       "label": "add white-box review camera at 50mm",
       "tool": "director_workbench",
+      "retry": { "attempts": 3 },
       "input": {
         "op": "author",
         "actions": [

@@ -16,14 +16,14 @@ HTTP, CLI, and DSH.
 
 ## Comparison
 
-| Question              | Director `director_game` (Experimental)                                                                                                                                                | GameFactory-3A                                                                                                                     |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Agent interface       | One typed Zod contract; `{"op":"capabilities"}` / `{"op":"describe"}` are the canonical vocabulary, and malformed or out-of-order calls get typed rejections with a corrective call     | Prose skills: the agent reads `agent_skills/setting_overview.md` and follows pipeline instructions; the contract is markdown        |
-| First runtime         | The live Director Stage player; the default playtest is the host-free kinematic tape runner, so no browser tab is required for a receipt                                                | The target engine; the game first exists when generated code runs in UE5, Unity, or three.js                                        |
-| Playability evidence  | A scored playtest receipt (`director-game-evaluation-v1`): a scripted input tape plus a trace with per-check pass/fail. The `game_export_not_playable` rejection states it directly: "A compile is not evidence." | Generated code that compiles and runs, plus the agent's own judgment; there is no typed per-check playability receipt              |
-| Gameplay and UI       | Typed `author_loop` / `author_hud` patches against the slice; engine source dumps are rejected on the agent wire                                                                        | Generated engine-native source (for example Unity C# or three.js JavaScript) from `gen_mechanic` and `gen_ui`                        |
-| Engine export         | `export_slice` refuses code generation with `game_export_via_dcc` and routes the bound Stage scene through `director_dcc` `send_to_engine` — a receipted scene/animation handoff, never generated C#/GDScript | Code and assets are generated directly into the engine project; the generated source is the deliverable                             |
-| Breadth               | One slice at a time, five genres, Stage runtime only; asset breadth comes from the existing catalog / Blender / generated-3D flows                                                      | Broad generation: T-pose images, 3D objects and scenes, motion, audio, CG video, and full game construction across several engines |
+| Question             | Director `director_game` (Experimental)                                                                                                                                                                           | GameFactory-3A                                                                                                                     |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Agent interface      | One typed Zod contract; `{"op":"capabilities"}` / `{"op":"describe"}` are the canonical vocabulary, and malformed or out-of-order calls get typed rejections with a corrective call                               | Prose skills: the agent reads `agent_skills/setting_overview.md` and follows pipeline instructions; the contract is markdown       |
+| First runtime        | The live Director Stage player; the default playtest is the host-free kinematic tape runner, so no browser tab is required for a receipt                                                                          | The target engine; the game first exists when generated code runs in UE5, Unity, or three.js                                       |
+| Playability evidence | A scored playtest receipt (`director-game-evaluation-v1`): a scripted input tape plus a trace with per-check pass/fail. The `game_export_not_playable` rejection states it directly: "A compile is not evidence." | Generated code that compiles and runs, plus the agent's own judgment; there is no typed per-check playability receipt              |
+| Gameplay and UI      | Typed `author_loop` / `author_hud` patches against the slice; engine source dumps are rejected on the agent wire                                                                                                  | Generated engine-native source (for example Unity C# or three.js JavaScript) from `gen_mechanic` and `gen_ui`                      |
+| Engine export        | `export_slice` refuses code generation with `game_export_via_dcc` and routes the bound Stage scene through `director_dcc` `send_to_engine` — a receipted scene/animation handoff, never generated C#/GDScript     | Code and assets are generated directly into the engine project; the generated source is the deliverable                            |
+| Breadth              | One slice at a time, five genres, Stage runtime only; asset breadth comes from the existing catalog / Blender / generated-3D flows                                                                                | Broad generation: T-pose images, 3D objects and scenes, motion, audio, CG video, and full game construction across several engines |
 
 ## Honest limits
 
@@ -40,7 +40,7 @@ refuses to substitute a compile for a playtest.
 
 ## Proof
 
-Golden tasks `12`–`16` in `tools/evals/tasks/` — see the task inventory in
+Golden tasks `12`–`24` in `tools/evals/tasks/` — see the task inventory in
 `tools/evals/README.md` — replay the claims above against an isolated gateway
 (`npm run eval`). `tasks/16-game-harness-vs-codegen-honesty.json` asserts the two
 load-bearing ones mechanically: `capabilities` reports `runtime.default = "stage"`, and

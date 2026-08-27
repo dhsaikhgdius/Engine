@@ -14,14 +14,14 @@ DSH 上使用完全相同的词汇。
 
 ## 对比
 
-| 问题         | Director `director_game`（实验性）                                                                                                                          | GameFactory-3A                                                                                  |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| Agent 接口   | 一个类型化 Zod 契约；`{"op":"capabilities"}` / `{"op":"describe"}` 是权威词汇，格式错误或顺序错误的调用会得到带纠正调用的类型化拒绝                           | 散文式 skill：agent 阅读 `agent_skills/setting_overview.md` 并跟随管线说明；契约本体是 markdown |
-| 首个运行时   | 实时 Director Stage 播放器；默认 playtest 使用 host-free 运动学 tape runner，无需浏览器标签页即可拿到回执                                                     | 目标引擎；生成代码在 UE5、Unity 或 three.js 里跑起来，游戏才第一次存在                          |
-| 可玩性证据   | 有评分的 playtest 回执（`director-game-evaluation-v1`）：脚本化输入 tape 加逐项检查通过/失败的 trace。`game_export_not_playable` 拒绝直接写明："A compile is not evidence." | 生成代码能编译能运行，加上 agent 自己的判断；没有类型化的逐项可玩性回执                        |
-| 玩法与 UI    | 针对切片的类型化 `author_loop` / `author_hud` patch；agent 线路拒绝引擎源码 dump                                                                              | 由 `gen_mechanic` 和 `gen_ui` 生成引擎原生源码（例如 Unity C# 或 three.js JavaScript）           |
-| 引擎导出     | `export_slice` 用 `game_export_via_dcc` 拒绝代码生成，把已绑定的 Stage 场景经 `director_dcc` `send_to_engine` 交接——带回执的场景/动画交付，绝不生成 C#/GDScript | 代码和资产直接生成进引擎项目；生成的源码就是交付物                                              |
-| 广度         | 一次一个切片、五种类型、目前仅 Stage 运行时；资产广度来自既有的 catalog / Blender / 生成式 3D 流程                                                            | 广泛生成：T-pose 图像、3D 对象与场景、动作、音频、CG 视频，并跨多个引擎构建完整游戏             |
+| 问题       | Director `director_game`（实验性）                                                                                                                                          | GameFactory-3A                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Agent 接口 | 一个类型化 Zod 契约；`{"op":"capabilities"}` / `{"op":"describe"}` 是权威词汇，格式错误或顺序错误的调用会得到带纠正调用的类型化拒绝                                         | 散文式 skill：agent 阅读 `agent_skills/setting_overview.md` 并跟随管线说明；契约本体是 markdown |
+| 首个运行时 | 实时 Director Stage 播放器；默认 playtest 使用 host-free 运动学 tape runner，无需浏览器标签页即可拿到回执                                                                   | 目标引擎；生成代码在 UE5、Unity 或 three.js 里跑起来，游戏才第一次存在                          |
+| 可玩性证据 | 有评分的 playtest 回执（`director-game-evaluation-v1`）：脚本化输入 tape 加逐项检查通过/失败的 trace。`game_export_not_playable` 拒绝直接写明："A compile is not evidence." | 生成代码能编译能运行，加上 agent 自己的判断；没有类型化的逐项可玩性回执                         |
+| 玩法与 UI  | 针对切片的类型化 `author_loop` / `author_hud` patch；agent 线路拒绝引擎源码 dump                                                                                            | 由 `gen_mechanic` 和 `gen_ui` 生成引擎原生源码（例如 Unity C# 或 three.js JavaScript）          |
+| 引擎导出   | `export_slice` 用 `game_export_via_dcc` 拒绝代码生成，把已绑定的 Stage 场景经 `director_dcc` `send_to_engine` 交接——带回执的场景/动画交付，绝不生成 C#/GDScript             | 代码和资产直接生成进引擎项目；生成的源码就是交付物                                              |
+| 广度       | 一次一个切片、五种类型、目前仅 Stage 运行时；资产广度来自既有的 catalog / Blender / 生成式 3D 流程                                                                          | 广泛生成：T-pose 图像、3D 对象与场景、动作、音频、CG 视频，并跨多个引擎构建完整游戏             |
 
 ## 诚实的边界
 
@@ -36,7 +36,7 @@ DSH 上使用完全相同的词汇。
 
 ## 证明
 
-`tools/evals/tasks/` 中的黄金任务 `12`–`16`（任务清单见 `tools/evals/README.zh-CN.md`）在
+`tools/evals/tasks/` 中的黄金任务 `12`–`24`（任务清单见 `tools/evals/README.zh-CN.md`）在
 隔离 gateway 上重放上述主张（`npm run eval`）。`tasks/16-game-harness-vs-codegen-honesty.json`
 机械化断言其中两条关键主张：`capabilities` 报告 `runtime.default = "stage"`；在可玩回执存在
 之前 `export_slice` 以 `game_export_not_playable` 拒绝，存在之后以 `game_export_via_dcc`

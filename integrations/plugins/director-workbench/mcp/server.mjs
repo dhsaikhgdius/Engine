@@ -138808,6 +138808,7 @@ var directorUnrealOmittedLightSchema = external_exports.strictObject({
 });
 var directorUnrealOmittedMaterialCodeSchema = external_exports.enum([
   "unsupported_channels",
+  "texture_import_failed",
   "no_mesh_target",
   "parent_unavailable",
   "apply_failed"
@@ -138868,8 +138869,11 @@ var directorDccEngineReportSchema = external_exports.strictObject({
   omittedMaterialCount: external_exports.number().int().nonnegative().max(1e5).optional(),
   /**
    * Unreal-only: typed material omit records (`unsupported_channels`,
-   * `no_mesh_target`, `parent_unavailable`, `apply_failed`). Optional for
-   * older connectors; when present, length must equal omittedMaterialCount.
+   * `texture_import_failed`, `no_mesh_target`, `parent_unavailable`,
+   * `apply_failed`). Optional for older connectors; when present, length
+   * must equal omittedMaterialCount. Connector ≥0.4.4 stamps
+   * `texture_import_failed` when a bundled hashed texture fails host import
+   * or MaterialInstance parameter bind (never free-text-only).
    */
   omittedMaterials: external_exports.array(directorUnrealOmittedMaterialSchema).max(1024).optional(),
   /**
