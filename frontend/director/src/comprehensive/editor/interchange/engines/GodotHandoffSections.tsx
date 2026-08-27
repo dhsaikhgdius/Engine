@@ -1,6 +1,6 @@
 /**
  * Godot 交接专属区块：AnimationPlayer / 相机切换回执、WorldEnvironment 环境光与
- * 结构化省略灯光、姿态/动作省略详情，以及仅出站的实时预览快照（Godot 从不监听端口）。
+ * 结构化省略灯光/材质/镜头、姿态/动作省略详情，以及仅出站的实时预览快照（Godot 从不监听端口）。
  *
  * @module godot-handoff-sections
  */
