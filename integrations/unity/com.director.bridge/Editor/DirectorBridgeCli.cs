@@ -558,15 +558,19 @@ namespace Director.Bridge.Editor
             Renderer[] renderers = gameObject.GetComponentsInChildren<Renderer>(true);
             if (renderers.Length == 0)
             {
+                // Director authored a material but the payload has no mesh to
+                // receive it — typed no_mesh_target (never a silent drop).
+                counters.OmittedMaterials.Add(
+                    DirectorMaterialImport.MakeNoMeshTargetOmit((string)entity["id"], renderPipeline, warnings));
                 return;
             }
             DirectorMaterialImport.MaterialImportResult materialResult = DirectorMaterialImport.CreateFallbackMaterial(
                 materialJson, (string)entity["id"], renderPipeline,
                 $"Assets/Director/Packages/{shortId}/Materials", resolveTexture, warnings,
                 out int appliedTextures);
-            if (materialResult.OmittedMaterial != null)
+            foreach (JObject omitted in materialResult.OmittedMaterials)
             {
-                counters.OmittedMaterials.Add(materialResult.OmittedMaterial);
+                counters.OmittedMaterials.Add(omitted);
             }
             Material material = materialResult.Material;
             if (material == null)

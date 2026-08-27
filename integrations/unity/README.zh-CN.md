@@ -24,9 +24,14 @@ Gateway 也绝不解析它。
     动作块通道仍然绝不静默拍平：每个被跳过的通道都会以结构化条目写入引擎
     回执，而不是一行自由文本日志。
   - **材质**依据检测到的渲染管线，把 Director PBR manifest 映射到 URP/Lit 或
-    Built-in Standard（HDRP 警告并使用最接近的回退）。绑定 glTF
+    Built-in Standard（HDRP 与其它不支持管线以结构化 `omittedMaterials[]` 的
+    `pipeline_unsupported` / `shader_missing` 警告省略）。绑定 glTF
     metallic-roughness 标量与 Gateway 捆绑的哈希贴图（PNG/JPEG/TGA/EXR 槽位）；
-    不支持的材质图与未捆绑槽位警告并省略。
+    无忠实 Lit/Standard 绑定的通道（`transmission` / `ior` / `clearcoat` /
+    未绑定的 metallic-roughness 或 alpha 贴图）以及写在空 GameObject（无
+    `Renderer`）上的 Director 材质，以结构化 `omittedMaterials[]` 的
+    `unsupported_channels` / `no_mesh_target` 呈现，并附匹配的
+    `omittedMaterialCount`（连接器 ≥0.3.4）——绝不静默丢弃。
   - **相机**成为 Unity 物理相机：焦距加 Director 传感器画幅裁切驱动
     `Camera.usePhysicalProperties`、传感器尺寸与 FOV；look-at 目标按场景实体
     解析；正交比例正确换算。变形宽银幕挤压（anamorphic squeeze）警告并省略。

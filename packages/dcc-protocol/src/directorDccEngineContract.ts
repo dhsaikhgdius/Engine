@@ -101,13 +101,28 @@ export const directorUnityOmittedLightSchema = z.strictObject({
 export type DirectorUnityOmittedLight = z.infer<typeof directorUnityOmittedLightSchema>;
 
 /**
+ * Structured warn-and-omit codes the Unity PBR material fallback stamps into
+ * reports. `unsupported_channels` still creates the Lit/Standard fallback for
+ * channels Unity can carry; `no_mesh_target` / `pipeline_unsupported` /
+ * `shader_missing` are whole omits (no Material asset).
+ */
+export const directorUnityOmittedMaterialCodeSchema = z.enum([
+  "pipeline_unsupported",
+  "shader_missing",
+  "no_mesh_target",
+  "unsupported_channels",
+]);
+
+/**
  * Typed warn-and-omit record for a Director PBR material override Unity
- * declined to create as a fallback Material. Partial feature/texture warnings
- * stay free-text; only whole-fallback failures are typed here.
+ * declined to create as a fallback Material, or for channels the Lit/Standard
+ * fallback cannot carry. Agents read this instead of scraping free-text
+ * warnings (connector ≥0.3.4 types `no_mesh_target` / `unsupported_channels`
+ * in addition to whole-fallback codes from 0.3.2).
  */
 export const directorUnityOmittedMaterialSchema = z.strictObject({
   directorId: z.string().trim().min(1).max(200),
-  code: z.enum(["pipeline_unsupported", "shader_missing"]),
+  code: directorUnityOmittedMaterialCodeSchema,
   renderPipeline: z.enum(["built-in", "urp", "hdrp", "custom"]),
   reason: z.string().trim().min(1).max(600),
 });
@@ -186,9 +201,12 @@ export const directorDccUnityEngineReportDetailsSchema = z
      */
     omittedMaterialCount: z.number().int().nonnegative().max(100_000).optional(),
     /**
-     * Typed warn-and-omit records for whole-fallback material failures
-     * (`pipeline_unsupported`, `shader_missing`). Optional for older
-     * connectors; when present, length must equal omittedMaterialCount.
+     * Typed warn-and-omit records for material failures / channel omits
+     * (`pipeline_unsupported`, `shader_missing`, `no_mesh_target`,
+     * `unsupported_channels`). Optional for older connectors; when present,
+     * length must equal omittedMaterialCount. Connector ≥0.3.4 stamps
+     * `no_mesh_target` / `unsupported_channels` in addition to whole-fallback
+     * codes from 0.3.2.
      */
     omittedMaterials: z.array(directorUnityOmittedMaterialSchema).max(1_024).optional(),
     /**
