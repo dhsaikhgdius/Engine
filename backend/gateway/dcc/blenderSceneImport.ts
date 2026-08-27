@@ -31,6 +31,26 @@ import { writeJsonAtomic } from "../atomicJsonFile";
 import { discoverBlenderExecutable } from "./blenderBridge";
 import type { DirectorDccAuthoringResponse } from "./blenderReturnImport";
 
+/**
+ * Blender scene import: turns an uploaded `.blend` into a reviewable Director
+ * import plan and applies that plan through the authoring surface. The
+ * pipeline is upload → headless-Blender extraction (sandboxed subprocess,
+ * autoexec disabled) → hash-verified package validation → plan build →
+ * ledgered apply.
+ *
+ * Trust model: the `.blend` and everything the extractor writes are untrusted
+ * input. Every file is hash-checked against the manifest, all paths are
+ * confined to the job root (checked lexically and after symlink resolution),
+ * and byte budgets bound uploads, extracted packages, manifests, and process
+ * output.
+ *
+ * Apply is exactly-once per idempotency key: the intent (plan + revision +
+ * operation + copied assets) is persisted to a content-hashed ledger before
+ * authoring runs, so a crash between authoring and acknowledgment replays the
+ * same intent instead of duplicating or losing it, and a key reused with a
+ * different intent is rejected as a conflict.
+ */
+
 const MAX_BLEND_BYTES = 512 * 1024 * 1024;
 const MAX_EXTRACTED_PACKAGE_BYTES = 512 * 1024 * 1024;
 const MAX_PROCESS_OUTPUT = 256 * 1024;
@@ -40,6 +60,7 @@ const MAX_WORKBENCH_PROJECT_BYTES = 20 * 1024 * 1024;
 const MAX_APPLY_LEDGER_BYTES = MAX_WORKBENCH_PROJECT_BYTES + 4 * 1024 * 1024;
 const DIRECTOR_BLEND_SCENE_APPLY_LEDGER_CONTRACT = "director-blend-scene-apply-ledger-v1" as const;
 
+/** One asset copied into the generated-asset root during apply, recorded for replay. */
 const copiedAssetSchema = z.strictObject({
   assetId: z.string().trim().min(1).max(240),
   url: z.string().trim().min(1).max(2_048),
@@ -58,6 +79,9 @@ const successfulAuthoringResponseSchema = z.looseObject({
   error: z.string().optional(),
 });
 
+// Durable apply receipt. The superRefine ties the stored operation to the
+// ledger identity fields so a tampered or mixed-up ledger can never replay a
+// different mutation than the one the key was issued for.
 const blendSceneApplyLedgerSchema = z
   .strictObject({
     schemaVersion: z.literal(1),
@@ -103,6 +127,7 @@ const blendSceneApplyLedgerSchema = z
 
 type BlendSceneApplyLedger = z.infer<typeof blendSceneApplyLedgerSchema>;
 
+/** Shape of the JSON report the headless Blender extractor writes on success. */
 const extractorReportSchema = z.strictObject({
   ok: z.literal(true),
   contract: z.literal("director-blend-scene-v1"),
@@ -261,11 +286,13 @@ export interface CreateBlenderSceneImporterOptions {
   extractScene?: (input: BlenderSceneExtractionInput) => Promise<{ stdout?: string }>;
 }
 
+/** Lexical containment check; callers pair it with realpath for symlink safety. */
 function isInside(parent: string, child: string): boolean {
   const value = relative(parent, child);
   return value === "" || (!value.startsWith(`..${sep}`) && value !== ".." && !isAbsolute(value));
 }
 
+/** Relative path with forward slashes, so plan/package keys are platform-stable. */
 function posixRelative(parent: string, child: string): string {
   return relative(parent, child).split(sep).join("/");
 }
@@ -274,12 +301,14 @@ function sha256(value: Uint8Array | string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/** Streaming SHA-256 so multi-hundred-MiB packages never load fully into memory. */
 async function sha256File(path: string): Promise<string> {
   const digest = createHash("sha256");
   for await (const chunk of createReadStream(path)) digest.update(chunk);
   return digest.digest("hex");
 }
 
+/** Sanitizes a user-provided name into a filesystem-safe segment. */
 function safeSegment(value: string, fallback = "blender-scene"): string {
   const normalized = value
     .normalize("NFKD")
@@ -289,11 +318,14 @@ function safeSegment(value: string, fallback = "blender-scene"): string {
   return normalized || fallback;
 }
 
+/** Keeps the tail of process output bounded; the useful Blender error is at the end. */
 function appendBounded(current: string, next: string): string {
   const combined = current + next;
   return combined.length <= MAX_PROCESS_OUTPUT ? combined : combined.slice(combined.length - MAX_PROCESS_OUTPUT);
 }
 
+// Runs the extractor with a hard timeout. POSIX children get their own
+// process group so SIGTERM/SIGKILL reach helpers Blender may have spawned.
 async function runProcess(
   executable: string,
   args: string[],
@@ -358,6 +390,7 @@ async function runProcess(
   });
 }
 
+/** Accepts raw `BLENDER…`, Zstandard, or gzip containers — the three ways Blender saves scenes. */
 function hasBlendContainerSignature(header: Uint8Array): boolean {
   const bytes = Buffer.from(header);
   const raw =
@@ -371,6 +404,8 @@ function hasBlendContainerSignature(header: Uint8Array): boolean {
   return raw || zstd || gzip;
 }
 
+// Streams the upload to disk while hashing and sniffing the container header,
+// enforcing the byte budget as data arrives rather than after buffering.
 async function writeUpload(
   source: AsyncIterable<Uint8Array>,
   temporaryPath: string,
@@ -417,6 +452,8 @@ async function writeUpload(
   return { hash: digest.digest("hex"), size, header: header.subarray(0, headerBytes) };
 }
 
+// Blender cameras use free-form sensor sizes; Director offers a fixed option
+// list, so imports snap to the nearest catalogued format/ratio.
 function closestSensorFormat(width: number, height: number) {
   return DIRECTOR_CAMERA_SENSOR_FORMAT_OPTIONS.reduce((best, candidate) => {
     const candidateError =
@@ -438,6 +475,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+/** Every id already used in the live project, for import collision detection. */
 function sourceIds(project: DirectorProject): Set<string> {
   return new Set([
     ...project.assets.map((item) => item.id),
@@ -450,6 +488,10 @@ function sourceIds(project: DirectorProject): Set<string> {
   ]);
 }
 
+// Converts one manifest camera into a create_camera plan operation: Z-up
+// Blender transforms become Y-up Director position/target pairs, and optics
+// are snapped/clamped into Director's supported ranges. Ids derive from the
+// package key + source id so rebuilding the same plan is deterministic.
 function cameraOperation(
   camera: DirectorBlendSceneManifestV1["cameras"][number],
   packageKey: string,
@@ -519,6 +561,8 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
   let extractionActive = false;
   const extractionQueue: Array<() => void> = [];
 
+  // Extraction runs one at a time: each run launches a full headless Blender,
+  // so concurrency would multiply memory pressure without real throughput.
   async function acquireExtractionSlot(): Promise<() => void> {
     if (extractionActive) await new Promise<void>((resolveWaiter) => extractionQueue.push(resolveWaiter));
     extractionActive = true;
@@ -532,6 +576,7 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
     };
   }
 
+  /** Content hash binding the ledger fields together; a mismatch means tampering or corruption. */
   function applyIntentHash(
     value: Pick<
       BlendSceneApplyLedger,
@@ -550,10 +595,13 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
     );
   }
 
+  // The key is hashed for the file name so arbitrary caller strings cannot
+  // shape filesystem paths.
   function applyLedgerPath(idempotencyKey: string): string {
     return resolve(applyLedgerRoot, `${sha256(idempotencyKey)}.json`);
   }
 
+  /** Serializes all apply work per idempotency key so replays cannot race the original. */
   async function withApplyLock<T>(idempotencyKey: string, action: () => Promise<T>): Promise<T> {
     const previous = applyLocks.get(idempotencyKey) ?? Promise.resolve();
     let release!: () => void;
@@ -571,6 +619,7 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
     }
   }
 
+  /** Loads a prior apply receipt; anything unsafe or unverifiable is an error, not a silent miss. */
   async function loadApplyLedger(idempotencyKey: string): Promise<BlendSceneApplyLedger | null> {
     const path = applyLedgerPath(idempotencyKey);
     const fileStat = await lstat(path).catch((error: NodeJS.ErrnoException) => {
@@ -599,6 +648,7 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
     return parsed.data;
   }
 
+  /** Validates and atomically persists a ledger snapshot (owner-only permissions). */
   async function persistApplyLedger(value: BlendSceneApplyLedger): Promise<BlendSceneApplyLedger> {
     const parsed = blendSceneApplyLedgerSchema.safeParse(value);
     if (!parsed.success || parsed.data.intentHash !== applyIntentHash(parsed.data)) {
@@ -619,6 +669,7 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
     return parsed.data;
   }
 
+  /** Rejects a key reused for a different (plan, revision) intent with a 409. */
   function assertApplyLedgerIdentity(
     ledger: BlendSceneApplyLedger,
     planId: string,
@@ -638,6 +689,10 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
     }
   }
 
+  // Drives one ledger to completion. A ledger that already carries a
+  // successful authoring response replays that receipt without re-authoring;
+  // otherwise the stored operation is sent and success is persisted before
+  // returning, making the whole apply crash-safe.
   async function executeApplyLedger(
     ledger: BlendSceneApplyLedger,
     applyAuthoring: (operation: DirectorWorkbenchOperation) => Promise<DirectorDccAuthoringResponse | null>,
@@ -668,6 +723,9 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
     return { plan: completed.plan, authoring: completed.authoring!, copiedAssets: completed.copiedAssets };
   }
 
+  // Headless Blender invocation with the sandbox flags that matter:
+  // --factory-startup + --disable-autoexec keep scene-embedded scripts from
+  // executing, and --python-exit-code surfaces extractor failures as nonzero.
   async function defaultExtractScene(input: BlenderSceneExtractionInput): Promise<{ stdout?: string }> {
     const executable = await discoverBlenderExecutable(options.blenderExecutable);
     if (!executable) {
@@ -706,6 +764,7 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
 
   const extractScene = options.extractScene ?? defaultExtractScene;
 
+  /** Confines a caller-supplied package path to the job root, lexically and post-realpath. */
   async function resolvePackageDirectory(input: string): Promise<{ absolute: string; relative: string }> {
     const trimmed = input.trim();
     const candidate = isAbsolute(trimmed) ? resolve(trimmed) : resolve(jobRoot, trimmed);
@@ -810,6 +869,10 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
     };
   }
 
+  // Builds the reviewable plan: selected scene/cameras become authoring
+  // operations, id collisions and impossible selections become typed
+  // conflicts (ready=false), and every fidelity loss is reported both as a
+  // human warning and a typed omitted record. Pure — nothing is applied here.
   function buildPlan(
     validated: ValidatedDirectorBlendScenePackage,
     project: DirectorProject,
@@ -1050,6 +1113,7 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
     }
   }
 
+  /** Loads a persisted plan by id, path-confined to the job root and schema-validated. */
   async function loadPlan(planId: string): Promise<DirectorBlendSceneImportPlanV1> {
     const candidate = resolve(jobRoot, planId);
     if (!isInside(jobRoot, candidate))
@@ -1125,6 +1189,10 @@ export function createBlenderSceneImporter(options: CreateBlenderSceneImporterOp
         );
       }
 
+      // Copy GLBs into the content-addressed generated-asset root. The
+      // destination directory is keyed by content hash, so an existing file is
+      // either the identical bytes (idempotent re-apply) or a genuine
+      // collision that must fail; new copies land via verified temp + rename.
       const copiedAssets: Array<{ assetId: string; url: string; hash: string }> = [];
       const copied = new Map<string, { fileName: string; url: string }>();
       for (const operation of plan.operations) {
