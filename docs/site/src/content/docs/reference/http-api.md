@@ -498,8 +498,11 @@ payloads, or credentials — error text and capture references are redacted befo
 
 Storage health runs two live checks instead of assuming a healthy backend: a `capacity`
 measurement (`statfs` on the filesystem backend; typed `capacity_unsupported` /
-`capacity_probe_failed` omissions when not measurable) and a put→verify→delete `writeProbe`
-that reports the exact failed step. Sweeping is destructive: `POST /api/storage/gc/sweep` must
+`capacity_probe_failed` omissions when not measurable) and a put→get→delete `writeProbe`
+that reads the probe object back and compares bytes (not just `head` size), stamps
+`bytesProbed` on success, and reports the exact failed step (`put_failed` /
+`verify_failed` / `delete_failed`). A backend whose get path is broken or returns
+divergent content fails verify instead of looking writable. Sweeping is destructive: `POST /api/storage/gc/sweep` must
 echo the reviewed plan id as `confirm` and is idempotent on replay. Because the world keeps
 moving during the review window, the sweep revalidates the plan against live job records and
 object freshness immediately before deleting: a planned key a job references again (for example

@@ -144,13 +144,15 @@ export type StorageCapacityCheck =
     };
 
 /**
- * Result of the live put → verify → delete round trip the health report runs
- * against the real backend. A read-only mount, a full disk, or a broken
- * injected object-storage client fails here with the exact step, instead of
- * the report implying a writable backend it never exercised.
+ * Result of the live put → get (byte equality) → delete round trip the health
+ * report runs against the real backend. A read-only mount, a full disk, a
+ * head-only client whose get path is broken, or content that diverges from
+ * what was written fails here with the exact step — never by trusting size
+ * metadata alone — instead of the report implying a writable, readable
+ * backend it never exercised.
  */
 export type StorageWriteProbe =
-  | { status: "ok"; probedAt: string; latencyMs: number }
+  | { status: "ok"; probedAt: string; latencyMs: number; bytesProbed: number }
   | {
       status: "failed";
       probedAt: string;
@@ -420,10 +422,14 @@ export class StorageOpsService {
   }
 
   /**
-   * Runs a live put → verify → delete round trip under the reserved
-   * `storage-health/` prefix. The probe object is deleted before usage is
-   * enumerated so it never appears in the report it verifies; a failed put
-   * still attempts a best-effort cleanup so probes cannot accumulate.
+   * Runs a live put → get (byte equality) → delete round trip under the
+   * reserved `storage-health/` prefix. Verification reads the object bytes
+   * back and compares them to the written payload; a successful `head` with
+   * a matching size is not enough, because a backend whose get path is
+   * broken or returns divergent content would otherwise look healthy. The
+   * probe object is deleted before usage is enumerated so it never appears
+   * in the report it verifies; a failed put still attempts a best-effort
+   * cleanup so probes cannot accumulate.
    */
   private async probeWrite(): Promise<StorageWriteProbe> {
     const startedMs = this.now();
@@ -434,15 +440,29 @@ export class StorageOpsService {
     try {
       await this.storage.put(key, payload);
       step = "verify";
-      const head = await this.storage.head(key);
-      if (!head) throw new Error("The probe object was not readable immediately after a successful put.");
-      if (head.bytes !== payload.byteLength) {
-        throw new Error(`The probe object read back ${head.bytes} bytes; ${payload.byteLength} were written.`);
+      const readBack = await this.storage.get(key);
+      if (!readBack) {
+        throw new Error("The probe object was not readable immediately after a successful put.");
+      }
+      if (readBack.byteLength !== payload.byteLength) {
+        throw new Error(
+          `The probe object read back ${readBack.byteLength} bytes; ${payload.byteLength} were written.`,
+        );
+      }
+      for (let offset = 0; offset < payload.byteLength; offset += 1) {
+        if (readBack[offset] !== payload[offset]) {
+          throw new Error(`The probe object content diverged from the written bytes at offset ${offset}.`);
+        }
       }
       step = "delete";
       const deleted = await this.storage.delete(key);
       if (!deleted) throw new Error("The probe object could not be deleted after verification.");
-      return { status: "ok", probedAt, latencyMs: Math.max(0, this.now() - startedMs) };
+      return {
+        status: "ok",
+        probedAt,
+        latencyMs: Math.max(0, this.now() - startedMs),
+        bytesProbed: payload.byteLength,
+      };
     } catch (error) {
       await this.storage.delete(key).catch(() => undefined);
       return {
@@ -459,8 +479,9 @@ export class StorageOpsService {
    * Builds the storage/jobs health report: policy in effect, usage
    * estimates, current sweep candidates (from a fresh dry-run plan that is
    * not retained), recent executed sweeps, plus two live checks — a
-   * capacity measurement and a write/verify/delete probe — so the report
-   * never implies a healthy backend it did not exercise.
+   * capacity measurement and a put/get/delete write probe that compares
+   * read-back bytes — so the report never implies a healthy backend it did
+   * not exercise.
    */
   async health(): Promise<StorageHealthReport> {
     const capacity = await this.checkCapacity();

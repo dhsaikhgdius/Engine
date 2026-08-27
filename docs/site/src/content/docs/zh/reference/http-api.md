@@ -470,8 +470,10 @@ receipt 的 `artifacts.timelineExport` 携带与 `timelinePath` 一同落盘的�
 都在落盘前 redaction。
 
 存储健康执行两项实时检查而非默认后端健康：`capacity` 容量测量（文件系统后端经 `statfs` 实测；
-不可测时为 typed `capacity_unsupported`/`capacity_probe_failed` 省略）与报告确切失败步骤的
-put→verify→delete `writeProbe`。清扫是破坏性操作：`POST /api/storage/gc/sweep` 必须以 `confirm`
+不可测时为 typed `capacity_unsupported`/`capacity_probe_failed` 省略）与 put→get→delete
+`writeProbe`——探针会把对象字节读回并做内容比对（不只看 `head` 大小），成功时盖章
+`bytesProbed`，失败时报告确切步骤（`put_failed` / `verify_failed` / `delete_failed`）。
+get 路径损坏或回读内容不一致的后端会在 verify 失败，而不会被误报为可写。清扫是破坏性操作：`POST /api/storage/gc/sweep` 必须以 `confirm`
 回显所审阅的计划 id，且重放幂等。由于审阅窗口内系统仍在变化，清扫在删除前会对照最新 job 记录与
 对象新鲜度重新校验计划：计划内又被 job 引用的 key（例如重新暂存的内容寻址输入）或计划之后被改写
 的对象会被跳过而非删除。每个被跳过的 key 都带 typed code——`became-reachable`、
