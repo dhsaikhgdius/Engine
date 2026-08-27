@@ -1,3 +1,11 @@
+/**
+ * HTTP transport for the Blender live kernel: native model/splat asset
+ * uploads, the `blender_native` tool endpoint, scene status/snapshot reads,
+ * the preview-only live-link delta feed, binary GLB scene previews, raw
+ * command batches, and job polling. All Blender execution stays behind
+ * {@link BlenderNativeSession}; browsers and agents never see the session
+ * token, and every submitted batch passes the shared kernel policy first.
+ */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
@@ -51,7 +59,10 @@ const nativeToolEnvelopeSchema = z.looseObject({
   session_id: z.string().trim().min(1).max(160).optional(),
   target_token: z.string().trim().min(1).max(240).optional(),
 });
+// Operations that mutate the Blender scene must first bind Blender to the
+// caller's Director project; reads work against whatever scene is loaded.
 const PROJECT_BOUND_NATIVE_OPERATIONS = new Set(["apply"]);
+/** One exported GLB preview, valid for exactly one (sceneEpoch, revision). */
 type CachedScenePreview = {
   sceneEpoch: string;
   revision: number;
@@ -63,6 +74,8 @@ type InFlightScenePreview = {
   revision: number;
   promise: Promise<CachedScenePreview>;
 };
+// Preview export is expensive (full-scene GLB from Blender), so results are
+// cached per revision and concurrent requests share one in-flight export.
 const scenePreviewCache = new WeakMap<BlenderNativeSession, CachedScenePreview>();
 const scenePreviewInFlight = new WeakMap<BlenderNativeSession, InFlightScenePreview>();
 
@@ -84,6 +97,8 @@ export type BlenderLiveRouteDependencies = {
   governance?: HttpToolGovernanceDependencies;
 };
 
+// Buffers the upload while enforcing the byte cap both on the declared
+// Content-Length and on the actual streamed size (headers can lie).
 async function readNativeModelBytes(request: IncomingMessage) {
   const declaredLength = Number(request.headers["content-length"]);
   if (Number.isFinite(declaredLength) && declaredLength > MAX_NATIVE_MODEL_BYTES) {
@@ -103,6 +118,8 @@ async function readNativeModelBytes(request: IncomingMessage) {
   return Buffer.concat(chunks, byteLength);
 }
 
+// Frame entries of a splat-sequence archive, numerically sorted by name so
+// frame-2 precedes frame-10; macOS metadata and dotfiles are ignored.
 function splatSequenceZipEntries(zip: JSZip) {
   const entries = Object.values(zip.files).filter((entry) => {
     if (entry.dir) return false;
@@ -130,6 +147,9 @@ async function readSplatSequenceFps(zip: JSZip) {
   return SPLAT_SEQUENCE_DEFAULT_FPS;
 }
 
+// Unpacks a 4D splat sequence: frames are extracted into a staging directory
+// under a cumulative inflation budget, atomically renamed into place, and
+// described by a generated sequence manifest that the viewport consumes.
 async function storeSplatSequenceAsset(bytes: Buffer, fileName: string, directory: string, directoryId: string) {
   const zip = await JSZip.loadAsync(bytes).catch(() => {
     throw new BlenderNativeSessionError("Splat sequence archive is not a readable ZIP file.", 400);
@@ -189,6 +209,10 @@ async function storeSplatSequenceAsset(bytes: Buffer, fileName: string, director
   };
 }
 
+// Stores one uploaded model under a per-asset directory. Compressed GLBs
+// (meshopt/Draco) are decompressed via prepareGltfForBlender because
+// Blender's importer cannot read them; writes go through temp names + rename
+// so a crashed upload never leaves a partial file at the public path.
 async function storeNativeModelAsset(request: IncomingMessage, url: URL, assetRoot: string) {
   const requestedName = url.searchParams.get("fileName")?.trim() ?? "";
   const assetId = url.searchParams.get("assetId")?.trim() ?? "";
@@ -244,6 +268,7 @@ async function storeNativeModelAsset(request: IncomingMessage, url: URL, assetRo
   };
 }
 
+/** Maps a session error onto its own HTTP status/code; anything else is a 500. */
 function writeSessionError(response: ServerResponse, json: JsonWriter, error: unknown) {
   if (error instanceof BlenderNativeSessionError) {
     json(response, error.status, {
@@ -261,6 +286,7 @@ function writeSessionError(response: ServerResponse, json: JsonWriter, error: un
   });
 }
 
+/** Cached-or-shared GLB preview export for the current scene revision. */
 async function binaryScenePreview(session: BlenderNativeSession): Promise<CachedScenePreview> {
   const status = await session.status();
   if (!status.available) {

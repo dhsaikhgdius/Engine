@@ -1,3 +1,23 @@
+/**
+ * Orchestrates multi-agent film production runs: a durable graph of role
+ * nodes (showrunner → screenwriter → … → editor) where each node runs one
+ * hosted agent session and produces one immutable artifact consumed by its
+ * dependents.
+ *
+ * Execution model and invariants:
+ * - The run record in {@link MultiAgentRunStore} is the single source of
+ *   truth; every state transition is persisted before the next step, so a
+ *   gateway restart can resume from the last durable node boundary.
+ * - Scheduling is wave-based: all nodes whose dependencies have succeeded
+ *   run concurrently. Serial-list runs (and legacy snapshots without
+ *   `dependsOn`) degrade to one node per wave via the implicit linear chain.
+ * - Artifacts are append-only. A checkpoint resume resets the chosen node
+ *   plus every transitive dependent and drops their artifacts, so downstream
+ *   roles never consume a stale mix of old and re-produced work.
+ * - Artifact kinds are evidence-based: a node only earns a receipt-kind
+ *   artifact when its tool receipts actually prove a Director mutation or a
+ *   submitted generation job, never on the model's say-so.
+ */
 import {
   FILM_ROLE_ARTIFACT_KIND,
   FILM_ROLE_CONTEXT,
@@ -46,8 +66,12 @@ export type ProductionAgentRunner = {
   store: { listEvents(sessionId: string): readonly AgentEvent[] };
 };
 
+/** Default serial role sequence used when a run supplies no explicit graph. */
 export const DEFAULT_FILM_GRAPH: FilmRoleId[] = [...FULL_FILM_ROLE_SEQUENCE];
 
+// Per-role working instructions injected into each node's prompt. Roles
+// marked "Observe only" must not mutate the project; authoring roles must
+// return real mutation receipts.
 const ROLE_INSTRUCTIONS: Record<FilmRoleId, string> = {
   showrunner:
     "Define the film's dramatic promise, theme, audience, tone, emotional arc, duration budget and non-negotiable creative rules. Resolve ambiguity into a production-ready creative brief. Observe only.",
@@ -75,23 +99,29 @@ const ROLE_INSTRUCTIONS: Record<FilmRoleId, string> = {
     "Assemble verified picture and sound into an editorial decision list with shot IDs, source media, in/out points, transitions, pacing and delivery settings. Use the Video Editor tools when verified media exists; never fabricate media.",
 };
 
+// The trailing-JSON contract every role must satisfy; the artifact parser
+// (parseFilmRoleDeliverable) extracts this object from the node's final text.
 const ROLE_OUTPUT_CONTRACT = [
   "Finish with exactly one JSON object and no markdown fence:",
   '{"title":"short artifact title","summary":"decisions and remaining constraints","deliverable":{}}',
   "The deliverable must contain the role's actual production document, keyed by stable scene, beat, shot, character, location or cue IDs where relevant.",
 ].join("\n");
 
+/** One tool call outcome kept in the node artifact as evidence. */
 type DurableToolReceipt = {
   title: string;
   status: string;
   result: unknown;
 };
 
+/** What a completed node session yields: final text plus its tool receipts. */
 type ProductionNodeOutput = {
   text: string;
   receipts: DurableToolReceipt[];
 };
 
+// Receipts are persisted into run JSON, so oversized or non-serializable
+// results are replaced with small markers instead of bloating the store.
 function boundedReceiptResult(value: unknown) {
   if (value === undefined) return null;
   try {
@@ -102,6 +132,7 @@ function boundedReceiptResult(value: unknown) {
   }
 }
 
+/** Depth-bounded recursive search for a field name in an untyped receipt result. */
 function containsField(value: unknown, field: string, depth = 0): boolean {
   if (depth > 6 || !value || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some((entry) => containsField(entry, field, depth + 1));
@@ -110,6 +141,7 @@ function containsField(value: unknown, field: string, depth = 0): boolean {
   return Object.values(record).some((entry) => containsField(entry, field, depth + 1));
 }
 
+/** Legacy input inheritance: artifacts from the role's declared upstream roles. */
 function relevantArtifactsForRole(artifacts: ProductionArtifact[], roleId: FilmRoleId) {
   const upstreamRoles = new Set(FILM_ROLE_CONTEXT[roleId]);
   if (!upstreamRoles.size) return [];
@@ -158,8 +190,11 @@ export function checkpointResetIds(nodes: readonly ProductionRunNode[], fromNode
   return reset;
 }
 
+/** Drives production runs end to end; one instance owns all in-flight executions. */
 export class ProductionRunOrchestrator {
+  /** Abort handles for in-flight runs, keyed by run id. */
   private readonly controllers = new Map<string, AbortController>();
+  /** Settled-state tracking so resume/cancel can await a run that is winding down. */
   private readonly executions = new Map<string, Promise<void>>();
 
   constructor(
@@ -278,6 +313,7 @@ export class ProductionRunOrchestrator {
     return (await this.store.get(id)) ?? queued;
   }
 
+  /** Aborts the in-flight execution and marks unfinished nodes cancelled. */
   async cancel(id: string) {
     const execution = this.executions.get(id);
     this.controllers.get(id)?.abort(new DOMException("Production run cancelled", "AbortError"));
@@ -293,6 +329,8 @@ export class ProductionRunOrchestrator {
     return (await this.store.get(id)) ?? cancelled;
   }
 
+  // Launches the execution on a macrotask so create/resume return the queued
+  // run before any node work begins.
   private start(id: string, project?: DirectorProject) {
     const controller = new AbortController();
     this.controllers.set(id, controller);
@@ -425,6 +463,9 @@ export class ProductionRunOrchestrator {
     }));
   }
 
+  // Runs one agent turn and settles on its turn.completed event: the node's
+  // durable output is assembled from the session event log (assistant text +
+  // the last 24 tool receipts), and an abort interrupts the remote session.
   private runNode(
     sessionId: string,
     prompt: string,
@@ -496,6 +537,10 @@ export class ProductionRunOrchestrator {
     });
   }
 
+  // Materializes the node output into an immutable artifact. The kind is
+  // upgraded to a receipt kind only when the receipts prove real work (a
+  // stage_video job id, or a Director/Blender mutation with revision
+  // evidence) — a role claiming success in prose stays at its document kind.
   private artifact(roleId: FilmRoleId, output: ProductionNodeOutput): ProductionArtifact {
     const completedReceipts = output.receipts.filter((receipt) => receipt.status === "completed");
     const verifiedGeneration = completedReceipts.some(

@@ -1,3 +1,21 @@
+/**
+ * In-memory hub for the Godot live-link preview transport. Godot never opens
+ * a listening port: the connector calls Director's token-guarded HTTP routes
+ * outbound (hello → frame* → bye), and Director piggybacks pending workshop
+ * commands onto frame acknowledgements — the frame stream doubles as the
+ * command delivery channel.
+ *
+ * Invariants:
+ * - Preview-only by construction: the hub holds ephemeral frames in memory,
+ *   has no reference to the Director project or any authoring path, and
+ *   drops all session state on `bye` or idle timeout.
+ * - Frames are strictly ordered per session; a stale or replayed sequence
+ *   number can never overwrite newer preview state.
+ * - Workshop commands (capture_frame, execute_code, sync_scene) are opt-in
+ *   per session: execute_code requires allow_code, and sync_scene requires
+ *   engine authority. sync_scene is answered locally from accumulated frames
+ *   rather than round-tripping to the editor.
+ */
 import { randomUUID } from "node:crypto";
 import {
   DIRECTOR_GODOT_LIVE_LINK_CONTRACT,
@@ -51,6 +69,7 @@ export class DirectorGodotLiveLinkError extends Error {
   }
 }
 
+/** All in-memory state of one connector session; discarded on bye/expiry. */
 interface LiveLinkSessionState {
   sessionId: string;
   connectorVersion: string;
@@ -69,6 +88,7 @@ interface LiveLinkSessionState {
   commands: Map<string, GodotCommandRecord>;
 }
 
+/** One queued workshop command: delivered via a frame ack, completed by the connector. */
 interface GodotCommandRecord {
   commandId: string;
   command: DirectorEngineSessionCommandName;
@@ -247,6 +267,8 @@ export function createGodotLiveLinkHub(options: CreateGodotLiveLinkHubOptions = 
     session.lastSequence = message.sequence;
     session.lastSeenAtMs = atMs;
     session.frameCount += 1;
+    // Deliver at most one pending command per frame ack; the connector
+    // executes it and posts the result through the command-result route.
     const commands = [...session.commands.values()]
       .filter((command) => command.result === null && !command.delivered && command.payload)
       .slice(0, 1);
@@ -294,6 +316,7 @@ export function createGodotLiveLinkHub(options: CreateGodotLiveLinkHubOptions = 
     });
   }
 
+  /** Resolves a session that has workshop mode enabled, else a typed 404. */
   function requireWorkshop(sessionId: string): LiveLinkSessionState {
     sweepIdleSessions();
     const session = sessions.get(sessionId);
@@ -307,6 +330,7 @@ export function createGodotLiveLinkHub(options: CreateGodotLiveLinkHubOptions = 
     return session;
   }
 
+  /** Projects a command record into the public status shape, per result kind. */
   function readCommandStatus(session: LiveLinkSessionState, commandId: string): GodotEngineSessionCommandStatus {
     const command = session.commands.get(commandId);
     if (!command) {
@@ -341,6 +365,8 @@ export function createGodotLiveLinkHub(options: CreateGodotLiveLinkHubOptions = 
     };
   }
 
+  // Adopts the most recently active preview session as the workshop session;
+  // there is no way to start one without a human-enabled preview stream.
   function startEngineSession(
     options: { label?: string; allowCode?: boolean; authority?: DirectorEngineSessionAuthority } = {},
   ) {
@@ -467,6 +493,7 @@ export function createGodotLiveLinkHub(options: CreateGodotLiveLinkHubOptions = 
         409,
       );
     }
+    // First result wins; a duplicate submission replays the recorded status.
     if (!command.result) {
       command.result = result;
       command.completedAtMs = now();
