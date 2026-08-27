@@ -3,6 +3,9 @@ import { filmRunProgress } from "../../../../../../packages/protocol/src/filmPip
 import type { DirectorMonitoredProductionRun } from "../../../../src/comprehensive/app/tasks/productionRunTaskClient";
 import {
   formatProductionRunUsageLine,
+  formatProductionRunAbsentArtifactWarnings,
+  productionRunAbsentArtifactWarnings,
+  productionRunArtifactPresencePending,
   productionRunCountsAsActive,
   productionRunDisplayName,
   productionRunIntraPhaseDetail,
@@ -155,5 +158,127 @@ describe("production run task presentation", () => {
     expect(formatProductionRunUsageLine(lines[1]!)).toBe("视频生成 3 次 · 91s · 失败 1");
     expect(formatProductionRunUsageLine(lines[2]!)).toBe("语音合成 5 次 · 6s");
     expect(productionRunUsageLines(entry({ source: "film", run: { ...run.run, usage: undefined } }))).toEqual([]);
+  });
+
+  it("formats absent artifact warnings from live storagePresence", () => {
+    expect(
+      formatProductionRunAbsentArtifactWarnings({
+        finalVideo: "absent",
+        timeline: "present",
+        sceneVideos: [
+          { sceneIdx: 0, presence: "absent" },
+          { sceneIdx: 2, presence: "present" },
+        ],
+      }),
+    ).toEqual([
+      { key: "finalVideo", message: "成片文件已不在存储中" },
+      { key: "scene-0", message: "场景 1 渲染视频已不在存储中" },
+    ]);
+
+    const withReceipt = entry({
+      source: "film",
+      run: {
+        id: "film-artifacts",
+        workflow: "idea-to-film",
+        status: "completed",
+        phase: "completed",
+        finalVideoPath: "/runs/final.mp4",
+        timelinePath: "/runs/timeline.otio",
+        input: { idea: "雨夜电车" },
+        createdAt: "2026-08-13T12:00:00.000Z",
+        updatedAt: "2026-08-13T12:00:00.000Z",
+        error: null,
+      },
+      receipt: {
+        contract: "director-film-run-receipt-v1",
+        runId: "film-artifacts",
+        workflow: "idea-to-film",
+        status: "completed",
+        phase: "completed",
+        terminal: true,
+        progress: 1,
+        sceneCount: 1,
+        renderedSceneCount: 1,
+        clipCount: 1,
+        portraitsReady: false,
+        awaitingApproval: false,
+        phaseReceipts: [],
+        capabilityOmissions: [],
+        artifacts: {
+          finalVideoPath: "/runs/final.mp4",
+          timelinePath: "/runs/timeline.otio",
+          timelineExport: null,
+          storagePresence: {
+            finalVideo: "absent",
+            timeline: "absent",
+            sceneVideos: [{ sceneIdx: 0, presence: "absent" }],
+          },
+        },
+        timestamps: {
+          createdAt: "2026-08-13T12:00:00.000Z",
+          updatedAt: "2026-08-13T12:00:00.000Z",
+        },
+        usage: {
+          "film-llm": {
+            sample_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            total_duration_ms: 0,
+            retries: 0,
+            failure_count: 0,
+          },
+          "film-image": {
+            sample_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            total_duration_ms: 0,
+            retries: 0,
+            failure_count: 0,
+          },
+          "film-video": {
+            sample_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            total_duration_ms: 0,
+            retries: 0,
+            failure_count: 0,
+          },
+          "film-tts": {
+            sample_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            total_duration_ms: 0,
+            retries: 0,
+            failure_count: 0,
+          },
+        },
+      },
+    });
+    expect(productionRunAbsentArtifactWarnings(withReceipt).map((warning) => warning.message)).toEqual([
+      "成片文件已不在存储中",
+      "时间线文件已不在存储中",
+      "场景 1 渲染视频已不在存储中",
+    ]);
+    expect(productionRunArtifactPresencePending(withReceipt)).toBe(false);
+    expect(productionRunArtifactPresencePending(entry({ source: "film", run: withReceipt.run }))).toBe(true);
+    expect(
+      productionRunArtifactPresencePending(
+        entry({
+          source: "film",
+          run: {
+            ...withReceipt.run,
+            status: "running",
+            phase: "develop-story",
+            finalVideoPath: null,
+            timelinePath: null,
+            scenes: [],
+          },
+        }),
+      ),
+    ).toBe(false);
   });
 });

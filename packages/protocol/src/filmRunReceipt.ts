@@ -74,6 +74,9 @@ export const filmRunArtifactsStoragePresenceSchema = z.strictObject({
   sceneVideos: z.array(filmRunSceneVideoStoragePresenceSchema).max(FILM_RUN_SCENE_VIDEO_PRESENCE_LIMIT),
 });
 
+/** Live byte presence block stamped on film run receipt artifacts. */
+export type FilmRunArtifactsStoragePresence = z.infer<typeof filmRunArtifactsStoragePresenceSchema>;
+
 /** Options for {@link projectFilmRunReceipt}. */
 export type ProjectFilmRunReceiptOptions = {
   /**
