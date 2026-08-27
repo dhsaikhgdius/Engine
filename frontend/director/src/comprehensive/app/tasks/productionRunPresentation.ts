@@ -2,7 +2,11 @@ import type { AgentUsageSummary } from "../../../../../../packages/protocol/src/
 import {
   filmRunIntraPhaseSceneProgress,
   filmRunProgress,
+  type FilmRunCapabilityOmission,
+  type FilmRunCapabilityOmissionCode,
   type FilmRunPhase,
+  type FilmTimelineOmittedShot,
+  type FilmTimelineOmittedShotCode,
 } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
 import {
   FILM_RUN_USAGE_SCOPES,
@@ -16,6 +20,28 @@ import type { DirectorMonitoredProductionRun } from "./productionRunTaskClient";
 export type ProductionRunAbsentArtifactWarning = {
   key: string;
   message: string;
+};
+
+/** One typed capability-omission or timeline omitted-shot line for the tray. */
+export type ProductionRunReceiptOmissionWarning = {
+  key: string;
+  message: string;
+};
+
+/** zh-CN source lines for stable film-run capability omission codes. */
+const CAPABILITY_OMISSION_MESSAGES: Record<FilmRunCapabilityOmissionCode, (sceneIdx: number | null) => string> = {
+  tts_unconfigured: () => "对白配音已跳过：未配置 TTS",
+  anchor_hook_unavailable: () => "舞台锚点已跳过：无工作台执行通道",
+  anchor_resolution_failed: (sceneIdx) =>
+    sceneIdx === null ? "舞台锚点解析失败，已跳过白盒锚定" : `场景 ${sceneIdx + 1} 舞台锚点解析失败，已跳过白盒锚定`,
+};
+
+/** zh-CN source lines for stable timeline-export omitted-shot codes. */
+const TIMELINE_OMITTED_SHOT_MESSAGES: Record<
+  FilmTimelineOmittedShotCode,
+  (sceneIdx: number, shotIdx: number) => string
+> = {
+  clip_missing: (sceneIdx, shotIdx) => `时间线省略：场景 ${sceneIdx + 1} 镜头 ${shotIdx + 1} 缺少成片片段`,
 };
 
 /** zh-CN source labels for durable film-run usage scopes (receipt / tray). */
@@ -320,4 +346,56 @@ export function formatProductionRunAbsentArtifactWarnings(
 export function productionRunAbsentArtifactWarnings(entry: DirectorMonitoredProductionRun) {
   const presence = entry.receipt?.artifacts.storagePresence;
   return presence ? formatProductionRunAbsentArtifactWarnings(presence) : [];
+}
+
+/**
+ * Formats zh-CN warning lines for typed capability omissions on a live receipt.
+ *
+ * @param omissions - Live `capabilityOmissions` from a film run receipt.
+ */
+export function formatProductionRunCapabilityOmissionWarnings(
+  omissions: readonly FilmRunCapabilityOmission[],
+): ProductionRunReceiptOmissionWarning[] {
+  return omissions.map((omission, index) => ({
+    key: `capability-${omission.code}-${omission.sceneIdx ?? "run"}-${index}`,
+    message: CAPABILITY_OMISSION_MESSAGES[omission.code](omission.sceneIdx),
+  }));
+}
+
+/**
+ * Returns capability-omission warnings for a monitored production run.
+ * Empty when the live receipt has not loaded yet (same honesty as
+ * {@link productionRunAbsentArtifactWarnings}) or when nothing was skipped.
+ *
+ * @param entry - The monitored production run.
+ */
+export function productionRunCapabilityOmissionWarnings(entry: DirectorMonitoredProductionRun) {
+  const omissions = entry.receipt?.capabilityOmissions;
+  return omissions ? formatProductionRunCapabilityOmissionWarnings(omissions) : [];
+}
+
+/**
+ * Formats zh-CN warning lines for typed timeline-export omitted shots.
+ *
+ * @param omittedShots - Live `artifacts.timelineExport.omittedShots` records.
+ */
+export function formatProductionRunTimelineOmittedShotWarnings(
+  omittedShots: readonly FilmTimelineOmittedShot[],
+): ProductionRunReceiptOmissionWarning[] {
+  return omittedShots.map((shot, index) => ({
+    key: `timeline-omit-${shot.sceneIdx}-${shot.shotIdx}-${shot.code}-${index}`,
+    message: TIMELINE_OMITTED_SHOT_MESSAGES[shot.code](shot.sceneIdx, shot.shotIdx),
+  }));
+}
+
+/**
+ * Returns timeline omitted-shot warnings for a monitored production run.
+ * Empty when the receipt is pending, timeline export is null/legacy, or every
+ * planned shot became a clip.
+ *
+ * @param entry - The monitored production run.
+ */
+export function productionRunTimelineOmittedShotWarnings(entry: DirectorMonitoredProductionRun) {
+  const omittedShots = entry.receipt?.artifacts.timelineExport?.omittedShots;
+  return omittedShots ? formatProductionRunTimelineOmittedShotWarnings(omittedShots) : [];
 }
