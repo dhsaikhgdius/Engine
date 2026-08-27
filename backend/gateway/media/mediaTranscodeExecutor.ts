@@ -12,6 +12,7 @@ import {
   type ProductionJobSpec,
 } from "../../../packages/protocol/src/productionJobProtocol";
 import type { ProductionJobStore } from "../jobs/productionJobStore";
+import { createLimiter } from "../promiseLimiter";
 import { runMediaProcess, type MediaProcessRunner } from "./mediaProcessRunner";
 import {
   MediaInputIntegrityError,
@@ -43,6 +44,8 @@ export type MediaTranscodeJobSpec = Extract<ProductionJobSpec, { kind: MediaTran
 export const MEDIA_TRANSCODE_MAX_HEIGHT_BOUNDS = { min: 360, max: 2160, fallback: 720 } as const;
 /** Timeout bounds for media transcode jobs. */
 export const MEDIA_TRANSCODE_TIMEOUT_BOUNDS_MS = { min: 30_000, max: 4 * 60 * 60_000, fallback: 15 * 60_000 } as const;
+/** Default bound on ffmpeg pipelines running at once (each is CPU-heavy). */
+export const MEDIA_TRANSCODE_DEFAULT_MAX_CONCURRENT_JOBS = 2;
 
 /** Editorial-proxy preset shared by both kinds. */
 const PROXY_VIDEO_CRF = 23;
@@ -368,6 +371,12 @@ export interface MediaTranscodeExecutorConfig {
   ffprobePath: string;
   /** Whole-job budget; clamped to MEDIA_TRANSCODE_TIMEOUT_BOUNDS_MS. */
   timeoutMs: number;
+  /**
+   * Bound on transcode pipelines running at once; excess jobs wait in a
+   * semaphore and stay `queued` until a slot frees. Defaults to
+   * MEDIA_TRANSCODE_DEFAULT_MAX_CONCURRENT_JOBS.
+   */
+  maxConcurrentJobs?: number;
 }
 
 /** Dependencies for the media transcode executor. */
@@ -391,6 +400,7 @@ export class MediaTranscodeExecutor {
   private readonly runProcess: MediaProcessRunner;
   private readonly now: () => Date;
   private readonly defaultTimeoutMs: number;
+  private readonly limitConcurrentJob: <T>(task: () => Promise<T>) => Promise<T>;
 
   constructor(private readonly options: MediaTranscodeExecutorOptions) {
     this.runProcess = options.runProcess ?? runMediaProcess;
@@ -399,6 +409,9 @@ export class MediaTranscodeExecutor {
       options.config.timeoutMs,
       MEDIA_TRANSCODE_TIMEOUT_BOUNDS_MS.min,
       MEDIA_TRANSCODE_TIMEOUT_BOUNDS_MS.max,
+    );
+    this.limitConcurrentJob = createLimiter(
+      Math.max(1, Math.floor(options.config.maxConcurrentJobs ?? MEDIA_TRANSCODE_DEFAULT_MAX_CONCURRENT_JOBS)),
     );
   }
 
@@ -417,6 +430,17 @@ export class MediaTranscodeExecutor {
     }
     if (this.running.has(jobInput.id)) return this.options.store.get(jobInput.id);
     this.running.add(jobInput.id);
+    try {
+      // Bounded concurrency: excess jobs wait here and stay `queued` (the
+      // running transition happens inside the slot) instead of launching an
+      // unbounded number of parallel ffmpeg pipelines.
+      return await this.limitConcurrentJob(() => this.executePipeline(jobInput));
+    } finally {
+      this.running.delete(jobInput.id);
+    }
+  }
+
+  private async executePipeline(jobInput: ProductionJobRecord) {
     let workingDirectory: string | null = null;
     try {
       const queued = await this.options.store.get(jobInput.id);
@@ -510,7 +534,6 @@ export class MediaTranscodeExecutor {
       }
     } finally {
       if (workingDirectory) await rm(workingDirectory, { recursive: true, force: true });
-      this.running.delete(jobInput.id);
     }
   }
 

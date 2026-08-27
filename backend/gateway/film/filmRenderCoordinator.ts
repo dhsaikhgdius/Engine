@@ -10,6 +10,7 @@ import {
   type StageReference,
 } from "../../../packages/protocol/src/filmPipelineProtocol";
 import { writeJsonAtomic } from "../atomicJsonFile";
+import { createLimiter } from "../promiseLimiter";
 import { concatVideos, extractFrameAfterFirstCut } from "./filmFfmpeg";
 import type { FilmPlanningAgents, ReferenceCandidate } from "./filmPlanningAgents";
 import type { FilmImageGenerator, FilmVideoGenerator } from "./filmMediaProviders";
@@ -52,25 +53,6 @@ class Deferred<T = void> {
       this.reject = rejectPromise;
     });
   }
-}
-
-/** Minimal promise-concurrency limiter (p-limit shape, no dependency). */
-function createLimiter(concurrency: number) {
-  let active = 0;
-  const queue: (() => void)[] = [];
-  const next = () => {
-    active -= 1;
-    queue.shift()?.();
-  };
-  return async function limit<T>(task: () => Promise<T>): Promise<T> {
-    if (active >= concurrency) await new Promise<void>((resolveWait) => queue.push(resolveWait));
-    active += 1;
-    try {
-      return await task();
-    } finally {
-      next();
-    }
-  };
 }
 
 const PORTRAIT_PROMPTS = {

@@ -68,6 +68,7 @@ async function fixture(options: {
   kind: "media.transcode" | "media.proxy";
   input: Record<string, unknown>;
   runner: MediaProcessRunner;
+  maxConcurrentJobs?: number;
 }) {
   const directory = await mkdtemp(join(tmpdir(), "director-media-transcode-test-"));
   directories.push(directory);
@@ -83,7 +84,12 @@ async function fixture(options: {
   const executor = new MediaTranscodeExecutor({
     store,
     inputs,
-    config: { ffmpegPath: "/fake/ffmpeg", ffprobePath: "/fake/ffprobe", timeoutMs: 60_000 },
+    config: {
+      ffmpegPath: "/fake/ffmpeg",
+      ffprobePath: "/fake/ffprobe",
+      timeoutMs: 60_000,
+      maxConcurrentJobs: options.maxConcurrentJobs,
+    },
     runProcess: options.runner,
     now: () => new Date("2026-08-13T00:00:00.000Z"),
   });
@@ -368,6 +374,67 @@ describe("MediaTranscodeExecutor", () => {
 
     expect(failed?.attempts.at(-1)?.error).toMatchObject({ code: "staged_input_missing", retryable: false });
     expect(failed?.attempts.at(-1)?.error?.message).toContain("/api/production-jobs/media-inputs");
+  });
+
+  it("bounds concurrent pipelines and keeps waiting jobs queued until a slot frees", async () => {
+    let active = 0;
+    let peakActive = 0;
+    let releaseFirstProbe = () => {};
+    const firstProbeGate = new Promise<void>((resolveGate) => {
+      releaseFirstProbe = resolveGate;
+    });
+    let notifyFirstProbeStarted = () => {};
+    const firstProbeStarted = new Promise<void>((resolveStarted) => {
+      notifyFirstProbeStarted = resolveStarted;
+    });
+    let probeCalls = 0;
+    const runner: MediaProcessRunner = async (command, args) => {
+      active += 1;
+      peakActive = Math.max(peakActive, active);
+      try {
+        if (command === "/fake/ffprobe") {
+          probeCalls += 1;
+          if (probeCalls === 1) {
+            notifyFirstProbeStarted();
+            await firstProbeGate;
+          }
+          return ok(JSON.stringify(probePayload()));
+        }
+        const outputPath = args.at(-1)!;
+        await writeFile(outputPath, args.includes("-frames:v") ? POSTER_BYTES : PROXY_BYTES);
+        return ok("");
+      } finally {
+        active -= 1;
+      }
+    };
+    const { executor, job, store } = await fixture({
+      kind: "media.proxy",
+      input: stagedInput(),
+      runner,
+      maxConcurrentJobs: 1,
+    });
+    const waitingJob = await store.enqueue({
+      kind: "media.proxy",
+      input: stagedInput(),
+      idempotencyKey: "media-test-waiting",
+      createId: () => "media-job-waiting",
+    } as Parameters<ProductionJobStore["enqueue"]>[0]);
+
+    const firstTask = executor.execute(job);
+    await firstProbeStarted;
+    const waitingTask = executor.execute(waitingJob);
+    // Give the second job a chance to (incorrectly) start while the first
+    // holds the only transcode slot on its blocked probe.
+    await new Promise((resolveTick) => setTimeout(resolveTick, 25));
+    expect(await store.get(waitingJob.id)).toMatchObject({ status: "queued" });
+    expect(probeCalls).toBe(1);
+
+    releaseFirstProbe();
+    const [first, second] = await Promise.all([firstTask, waitingTask]);
+
+    expect(first).toMatchObject({ status: "succeeded" });
+    expect(second).toMatchObject({ status: "succeeded" });
+    expect(peakActive).toBe(1);
   });
 
   it("executes a fresh attempt after reconciliation re-queues an interrupted job", async () => {
