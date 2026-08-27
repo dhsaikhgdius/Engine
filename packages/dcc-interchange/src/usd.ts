@@ -19,6 +19,32 @@ import {
   directorCameraTargetFromEuler,
 } from "./cameraOrientation";
 
+/**
+ * Director ↔ USD (ASCII USDA + USDZ) bridge.
+ *
+ * Scope mirrors the glTF bridge: transforms, camera intrinsics, and the full
+ * Director project embedded as a base64 manifest in `customLayerData`. Mesh,
+ * material, skinning, and animation channels are intentionally omitted —
+ * real geometry follows `assetRefId` bindings on the receiving DCC. Binary
+ * USDC is out of scope; producing/consuming it is the job of an OpenUSD host
+ * bridge (this package must run in the browser without native USD).
+ *
+ * Coordinate system: layers declare `metersPerUnit = 1` and `upAxis = "Y"`
+ * per the USD spec, plus a `directorHandedness = "right"` stamp (USD has no
+ * first-class handedness metadata). Import hard-fails on any mismatch —
+ * reinterpreting axes silently would corrupt every transform.
+ *
+ * Rotation encoding: prims store `xformOp:rotateXYZ` in DEGREES (USD
+ * convention) while Director uses XYZ Euler radians; conversion happens at
+ * this boundary only. Cameras additionally write a `directorFov` customData
+ * value because USD derives FOV from aperture+focalLength, which Director
+ * does not model.
+ *
+ * The importer is a regex-based reader of this bridge's own USDA subset (see
+ * parseDirectorPrims), not a general USD parser: only top-level Xform/Camera
+ * prims stamped with the Director adapter/contract are recognized.
+ */
+
 /** Adapter identifier for the Director USD bridge. */
 export const DIRECTOR_USD_ADAPTER = "director-usd-v1" as const;
 
@@ -34,7 +60,12 @@ export const DIRECTOR_USDZ_ROOT_PATH = "scene.usda";
 /** Canonical path for the Director manifest inside a USDZ archive. */
 export const DIRECTOR_USDZ_MANIFEST_PATH = "director-manifest.json";
 
-/** Size and entry limits for USD interchange documents. */
+/**
+ * Size and entry limits for USD interchange documents, enforced before any
+ * parsing so untrusted uploads fail fast. Text layers are capped tighter
+ * (16 MiB) than archives (128 MiB) because the USDA importer regex-scans the
+ * whole string; the entry cap bounds zip-bomb style archives.
+ */
 export const DIRECTOR_USD_LIMITS = Object.freeze({
   maxTextBytes: 16 * 1024 * 1024,
   maxArchiveBytes: 128 * 1024 * 1024,
@@ -72,10 +103,14 @@ export interface DirectorUsdOmitted {
   reason: string;
 }
 
+// JSON string quoting is a valid USDA string literal encoding and gets
+// escaping right for free.
 function quoted(value: string) {
   return JSON.stringify(value);
 }
 
+// Clamp to 9 decimal places for stable, diff-friendly output; non-finite
+// values would render as "NaN"/"Infinity" and break USDA parsing.
 function finite(value: number, fallback = 0) {
   return Number.isFinite(value) ? Number(value.toFixed(9)) : fallback;
 }
@@ -84,6 +119,10 @@ function tuple(values: readonly number[]) {
   return `(${values.map((value) => finite(value)).join(", ")})`;
 }
 
+// USD prim names must be C-style identifiers and unique among siblings.
+// Display names are sanitized and suffixed with a stable content hash so two
+// entities named "椅子" get distinct prims while re-exports stay byte-stable;
+// the human-readable name survives in directorDisplayName customData.
 function usdPrimName(id: string, fallback: string) {
   const base = (id || fallback)
     .normalize("NFKD")
@@ -98,6 +137,8 @@ function customDataLines(entries: Array<[string, string | undefined]>, indentati
     .map(([key, value]) => `${indentation}string ${key} = ${quoted(value)}`);
 }
 
+// Emits the canonical TRS xformOp stack. Note the radians→degrees conversion
+// for rotateXYZ: USD expects degrees, Director stores radians.
 function transformLines(transform: DirectorTransform, indentation = "        ") {
   return [
     `${indentation}double3 xformOp:translate = ${tuple(transform.position)}`,
@@ -211,6 +252,9 @@ export function exportDirectorProjectToUsda(project: DirectorProject, options: E
 /** `.usd` ASCII alias; binary USDC remains the responsibility of an OpenUSD host bridge. */
 export const exportDirectorProjectToUsd = exportDirectorProjectToUsda;
 
+// Three-way result: null = no manifest present (fine), {project} = parsed,
+// {error} = manifest present but invalid — the caller downgrades that to a
+// typed warn-and-omit instead of failing the whole import.
 function tryParseEmbeddedManifest(source: string):
   | {
       project: DirectorProject;
@@ -255,6 +299,11 @@ function parseNumber(block: string, key: string) {
   return Number.isFinite(value) ? value : null;
 }
 
+// Splits the layer into per-prim text blocks by matching the exact 4-space
+// indentation this bridge's exporter emits. This is intentionally NOT a
+// general USD parser: nested or differently-indented prims from other tools
+// are invisible to it, which is safe because only Director-stamped prims are
+// imported anyway.
 function parseDirectorPrims(source: string) {
   const matches = [...source.matchAll(/^ {4}def\s+(Xform|Camera)\s+"([^"]+)"/gm)];
   return matches.map((match, index) => ({
@@ -418,6 +467,8 @@ export function importDirectorProjectFromUsda(
 
 export const importDirectorProjectFromUsd = importDirectorProjectFromUsda;
 
+// Zip-slip guard: reject absolute paths, backslashes, and ".." segments so a
+// hostile archive cannot address files outside its own namespace.
 function assertSafeZipEntry(path: string) {
   if (path.startsWith("/") || path.includes("\\") || path.split("/").includes("..")) {
     throw new Error(`Unsafe USDZ entry path: ${path}`);
@@ -498,6 +549,9 @@ function createAlignedStoredZip(entries: readonly DirectorStoredZipEntry[]) {
 
   entries.forEach((entry) => {
     const nameBytes = encoder.encode(entry.name);
+    // USDZ requires each payload to start on a 64-byte boundary; the gap is
+    // filled with a ZIP "extra" field, which itself needs a 4-byte header —
+    // hence padding of 1–3 bytes is bumped by a full 64-byte stride.
     const unalignedDataOffset = offset + 30 + nameBytes.byteLength;
     let extraByteLength = (64 - (unalignedDataOffset % 64)) % 64;
     if (extraByteLength > 0 && extraByteLength < 4) extraByteLength += 64;
