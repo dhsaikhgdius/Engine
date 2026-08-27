@@ -17,19 +17,19 @@ npm run dev
 
 ## 工具
 
-| 工具                 | 用途                                                                      |
-| -------------------- | ------------------------------------------------------------------------- |
-| `director_workbench` | 完整编辑器观察、创作、审计、捕获、Shot IR、多通道 Shot Package 和 UI 控制 |
-| `director_creative`  | Canvas/Video 观察、原子编辑、审计和绑定指纹的 clean PNG 预览              |
-| `director_dcc`       | DCC/引擎交接：提供方发现、Blender `.blend` 往返、Unreal/Unity/Godot 无头发送与受保护回传、引擎场景导入 |
-| `stage_read`         | 紧凑观察、检查、批评、完整状态和相机捕获                                  |
-| `stage_scene`        | 重置、场景设置、校验和场景级 mutation                                     |
-| `stage_object`       | 创建、变换、放置、父子绑定、动画和移除白模对象                            |
-| `stage_camera`       | 创建、取景、瞄准、移动和配置相机                                          |
-| `stage_show`         | 时间线、轨道、动作、播放和录制控制                                        |
-| `stage_video`        | 白模到视频任务的准备、提交和检查                                          |
+| 工具                  | 用途                                                                      |
+| --------------------- | ------------------------------------------------------------------------- |
+| `director_workbench`  | 完整编辑器观察、创作、审计、捕获、Shot IR、多通道 Shot Package 和 UI 控制 |
+| `director_creative`   | Canvas/Video 观察、原子编辑、审计和绑定指纹的 clean PNG 预览              |
+| `blender_native`      | Blender 原生建模与绑定表面：类型化 apply、blockout 外壳与开洞、CC0 资产导入、原生捕获 |
+| `director_dcc`        | DCC/引擎交接：提供方发现、Blender `.blend` 往返、Unreal/Unity/Godot 无头发送与受保护回传、引擎场景导入 |
+| `director_game`       | 实验性类型化游戏切片：规划、绑定 Stage 对象、脚本化试玩、可玩性评估；引擎导出经 `director_dcc` 路由 |
+| `director_film`       | 实验性持久化创意/剧本到成片管线：规划、可选审批关卡、渲染、配音、组装、OTIO 交接 |
+| `director_production` | 不可变制作 artifact 版本、审批与受保护晋升                                |
+| `stage_video`         | 白模到视频任务的准备、提交和检查                                          |
 
-`stage_*` 是紧凑的 `StageScene` 协议。新工作应使用 `director_workbench`。尤其
+旧版紧凑工具 `stage_read` / `stage_scene` / `stage_object` / `stage_camera` / `stage_show`
+仍是 HTTP 兼容路由（`POST /api/tools/<name>`），不再通过 MCP 公布。新工作应使用 `director_workbench`。尤其
 `kind:"cube"` 只对 `stage_object` 有效。公开的 `director_workbench` `author` 批次应实例化
 catalog / `project_assets` 网格（`asset_id`）；独特建筑用 `blender_native`，独特生成网格用
 `generated_3d`。该 Agent 线路会拒绝 Stage `geometry_type` 简单几何体。见[快速上手](/zh/getting-started/quick-start/)和

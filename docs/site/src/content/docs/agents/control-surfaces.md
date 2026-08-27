@@ -15,6 +15,7 @@ npm run stage -- director_workbench '{"op":"observe"}'
 npm run stage -- director_workbench '{"op":"describe","target":"author.add_object"}'
 npm run stage -- director_creative '{"op":"observe"}'
 npm run stage -- director_dcc '{"op":"status"}'
+npm run stage -- director_game '{"op":"capabilities"}'
 ```
 
 `stage_read`, `stage_scene`, `stage_object`, `stage_camera`, and `stage_show` are a legacy
