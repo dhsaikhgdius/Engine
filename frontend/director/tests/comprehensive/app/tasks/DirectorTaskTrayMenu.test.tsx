@@ -4,7 +4,7 @@ import {
   productionJobRecordSchema,
   type ProductionJobRecord,
 } from "../../../../../../packages/protocol/src/productionJobProtocol";
-import { filmRunSchema } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
+import { filmRunSchema, type FilmRun } from "../../../../../../packages/protocol/src/filmPipelineProtocol";
 import { projectProductionJobReceipt } from "../../../../../../packages/protocol/src/productionJobReceipt";
 import { LanguageProvider } from "../../../../src/comprehensive/i18n/language";
 import { DirectorTaskTrayMenu } from "../../../../src/comprehensive/app/tasks/DirectorTaskTrayMenu";
@@ -90,6 +90,33 @@ function makeFailedJob(
     createdAt,
     updatedAt: createdAt,
     artifacts: [],
+  });
+}
+
+function makeFailedFilmRun(
+  id: string,
+  error: string,
+  errorCode: string,
+): FilmRun {
+  return filmRunSchema.parse({
+    version: 1,
+    id,
+    workflow: "idea-to-film",
+    status: "failed",
+    phase: "render",
+    input: { idea: "雨夜电车" },
+    story: null,
+    characters: null,
+    scenes: [],
+    portraitsReady: false,
+    finalVideoPath: null,
+    timelinePath: null,
+    approvedAt: null,
+    error,
+    errorCode,
+    events: [],
+    createdAt: "2026-08-13T10:00:00.000Z",
+    updatedAt: "2026-08-13T10:00:00.000Z",
   });
 }
 
@@ -267,17 +294,11 @@ describe("DirectorTaskTrayMenu", () => {
     setTrayProductionRuns([
       {
         source: "film",
-        run: filmRunSchema.parse({
-          id: "film-run-failed",
-          workflow: "idea-to-film",
-          status: "failed",
-          phase: "render",
-          input: { idea: "雨夜电车" },
-          error: "gateway restarted during render",
-          errorCode: "film_run_interrupted",
-          createdAt: "2026-08-13T10:00:00.000Z",
-          updatedAt: "2026-08-13T10:00:00.000Z",
-        }),
+        run: makeFailedFilmRun(
+          "film-run-failed",
+          "gateway restarted during render",
+          "film_run_interrupted",
+        ),
       },
     ]);
 
