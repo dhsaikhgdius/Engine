@@ -13,6 +13,8 @@ export type DirectorObjectQuery = {
   spatial?: DirectorObjectSpatialQuery;
   namePattern?: string;
   kind?: DirectorObject["kind"];
+  /** Exact Stage object-list id (objectListId); same sets create_object_list writes. */
+  objectListId?: string;
 };
 import {
   getDirectorSpatialBounds,
@@ -154,11 +156,14 @@ export function queryDirectorObjects(project: DirectorProject, query: DirectorOb
           : frustum!.origin
     : null;
 
+  const objectListId = query.objectListId?.trim() || undefined;
+
   const matches = project.objects
     .filter((object) => options.includeHidden || object.visible)
     .filter((object) => spatial?.mode !== "nearby" || object.id !== spatial.object_id)
     .filter((object) => !query.kind || object.kind === query.kind)
     .filter((object) => !query.namePattern || matchesNamePattern(object, query.namePattern))
+    .filter((object) => !objectListId || object.objectListId === objectListId)
     .flatMap((object) => {
       const bounds = getDirectorSpatialBounds(object, project);
       if (spatial && !bounds) return [];
@@ -179,6 +184,9 @@ export function queryDirectorObjects(project: DirectorProject, query: DirectorOb
           visible: object.visible,
           distance_m: queryCenter ? rounded(distance(effectiveBounds.center, queryCenter)) : 0,
           bounds: roundedBounds(effectiveBounds),
+          ...(object.objectListId ? { object_list_id: object.objectListId } : {}),
+          ...(object.objectListLabel ? { object_list_label: object.objectListLabel } : {}),
+          ...(object.objectListDetached ? { object_list_detached: true } : {}),
         },
       ];
     })
@@ -194,6 +202,7 @@ export function queryDirectorObjects(project: DirectorProject, query: DirectorOb
     ...(spatial?.mode === "nearby" ? { object_id: spatial.object_id } : {}),
     ...(query.namePattern ? { name_pattern: query.namePattern } : {}),
     ...(query.kind ? { kind: query.kind } : {}),
+    ...(objectListId ? { object_list_id: objectListId } : {}),
     ...(queryCenter ? { reference_point: roundedVec3(queryCenter) } : {}),
     match_count: matches.length,
     returned_count: Math.min(matches.length, options.maxResults),

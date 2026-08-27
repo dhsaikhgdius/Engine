@@ -95,6 +95,9 @@ function observeDirectorObjects(project: DirectorProject) {
     ...(object.interaction ? { interaction: structuredClone(object.interaction) } : {}),
     ...(object.crowdId ? { crowd_id: object.crowdId } : {}),
     ...(object.parentObjectId ? { parent_id: object.parentObjectId } : {}),
+    ...(object.objectListId ? { object_list_id: object.objectListId } : {}),
+    ...(object.objectListLabel ? { object_list_label: object.objectListLabel } : {}),
+    ...(object.objectListDetached ? { object_list_detached: true } : {}),
     ...(object.lookTargetObjectId ? { look_target_object_id: object.lookTargetObjectId } : {}),
     ...(object.linkedCameraId ? { camera_id: object.linkedCameraId } : {}),
   }));

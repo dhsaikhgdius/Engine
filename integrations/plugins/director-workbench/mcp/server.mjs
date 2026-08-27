@@ -41158,6 +41158,9 @@ var canvasNodeRemoveSchema = strictOperation("canvas.node.remove", { node_id: cr
 var canvasNodeBringToFrontSchema = strictOperation("canvas.node.bring_to_front", {
   node_id: creativeWorkspaceIdSchema
 });
+var canvasNodeSendToBackSchema = strictOperation("canvas.node.send_to_back", {
+  node_id: creativeWorkspaceIdSchema
+});
 var canvasNodeAssignSectionSchema = strictOperation("canvas.node.assign_section", {
   node_id: creativeWorkspaceIdSchema,
   section_id: creativeWorkspaceIdSchema.nullable()
@@ -41488,6 +41491,7 @@ var creativeWorkspaceAgentOperationSchema = external_exports.discriminatedUnion(
   canvasNodeUpdateSchema,
   canvasNodeRemoveSchema,
   canvasNodeBringToFrontSchema,
+  canvasNodeSendToBackSchema,
   canvasNodeAssignSectionSchema,
   canvasSectionAddSchema,
   canvasSectionUpdateSchema,
@@ -121237,7 +121241,7 @@ var directorObjectSpatialQuerySchema = external_exports.discriminatedUnion("mode
     radius_m: external_exports.number().positive().max(1e6)
   })
 ]);
-var QUERY_OBJECTS_SHAPE_HINT = 'query_objects requires spatial, name_pattern, or kind. Example {"op":"query_objects","name_pattern":"door"} or {"op":"query_objects","spatial":{"mode":"frustum"}}. Name filter may also be {"op":"query_objects","filter":{"name_pattern":"door"}}';
+var QUERY_OBJECTS_SHAPE_HINT = 'query_objects requires spatial, name_pattern, kind, or object_list_id. Example {"op":"query_objects","name_pattern":"door"} or {"op":"query_objects","object_list_id":"object_list_1"} or {"op":"query_objects","spatial":{"mode":"frustum"}}. Name filter may also be {"op":"query_objects","filter":{"name_pattern":"door"}}';
 var DIFF_SHAPE_HINT = 'diff requires exactly one of since_turn or since_audit. Example {"op":"diff","since_turn":"<turn-id>"} or {"op":"diff","since_audit":"<audit-token>"}. Copy those values from the last successful observe, author, or audit result; do not guess numbers or send {"op":"diff"} alone.';
 var INSPECT_ENTITY_NAMES = "object, light, camera, asset, catalog_asset, storyboard_shot, performance_take, coverage_sequence, coverage_shot";
 var INSPECT_SHAPE_HINT = `inspect requires entity and id. entity is one of ${INSPECT_ENTITY_NAMES}. Example {"op":"inspect","entity":"object","id":"door-1"} or {"op":"inspect","entity":"camera","id":"cam-main"}. Do not treat a spill locator, name, or object_id as entity.`;
@@ -121363,10 +121367,11 @@ var directorWorkbenchOperationSchema = external_exports.discriminatedUnion("op",
     spatial: directorObjectSpatialQuerySchema.optional(),
     name_pattern: nonEmptyText4(120).optional(),
     kind: directorObjectKindSchema.optional(),
+    object_list_id: nonEmptyText4(200).optional(),
     include_hidden: external_exports.boolean().default(false),
     max_results: external_exports.number().int().min(1).max(200).default(50)
   }).superRefine((value, context) => {
-    if (!value.spatial && !value.name_pattern && !value.kind) {
+    if (!value.spatial && !value.name_pattern && !value.kind && !value.object_list_id) {
       context.addIssue({ code: "custom", message: QUERY_OBJECTS_SHAPE_HINT });
     }
   }),
@@ -121758,6 +121763,7 @@ var projectedBoardNodeSchema = external_exports.strictObject({
   body: external_exports.string(),
   media_id: external_exports.string().nullable(),
   section_id: external_exports.string().nullable(),
+  z_index: external_exports.number().int().nonnegative(),
   x: creativeWorkspaceFiniteNumberSchema,
   y: creativeWorkspaceFiniteNumberSchema,
   width: creativeWorkspaceFiniteNumberSchema.positive(),
@@ -122008,7 +122014,11 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
     layout_operation: external_exports.literal("canvas.dag.layout"),
     layout_directions: external_exports.tuple([external_exports.literal("horizontal"), external_exports.literal("vertical")]),
     layout_contract: external_exports.string(),
-    bring_to_front_operation: external_exports.literal("canvas.node.bring_to_front"),
+    z_order_operations: external_exports.tuple([
+      external_exports.literal("canvas.node.bring_to_front"),
+      external_exports.literal("canvas.node.send_to_back")
+    ]),
+    z_order_observe_field: external_exports.literal("board.nodes[].z_index"),
     z_order_contract: external_exports.string(),
     section_operations: external_exports.tuple([
       external_exports.literal("canvas.section.add"),
@@ -140375,6 +140385,9 @@ var directorWorkbenchWireSchema = compactWireSchema(
     'Top-level selector for op="query_objects": case-insensitive substring of the object name or id (Chinese ok, e.g. "\u95E8" matches "\u6728\u95E8").'
   ),
   kind: external_exports.enum(["character", "scene", "prop", "camera", "panorama"]).optional().describe('Top-level object-kind selector for op="query_objects"; also the asset-kind filter for op="catalog".'),
+  object_list_id: external_exports.string().optional().describe(
+    'Top-level selector for op="query_objects": exact Stage object-list id (objectListId) from create_object_list / the tree panel.'
+  ),
   max_results: external_exports.number().int().min(1).max(200).optional().describe('Result bound for op="query_objects".'),
   actions: external_exports.array(external_exports.looseObject({ action: external_exports.string().min(1) })).optional().describe('Required for op="author". Deletion is delete_objects with object_ids (remove_object + id is accepted).'),
   evidence: external_exports.looseObject({}).optional().describe(

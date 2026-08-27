@@ -137,6 +137,7 @@ describe("Director DSH workbench plugin catalog", () => {
       { op: "describe", target: "author.evidence" },
       { op: "query_objects", name_pattern: "door", kind: "prop" },
       { op: "query_objects", name_pattern: "门" },
+      { op: "query_objects", object_list_id: "object_list_1" },
       { op: "inspect", entity: "object", id: "door-1" },
       { op: "inspect", entity: "camera", id: "cam-main" },
       { op: "observe", fields: ["objects"], object_mode: "hierarchy", max_objects: 200 },
