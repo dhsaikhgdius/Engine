@@ -1,5 +1,14 @@
-// Gateway bootstrap — creates and wires all services.
-// Extracted from agent-gateway.ts to keep the entry point thin.
+/**
+ * Gateway bootstrap: constructs every service and wires them into the single
+ * {@link GatewayContext} object the transports (HTTP routes, WebSocket hub,
+ * MCP server) share. Extracted from agent-gateway.ts so the entry point stays
+ * a thin transport shell while all dependency assembly lives here.
+ *
+ * Two services (film pipeline, video capture callback) genuinely depend on
+ * the browser command channel that only exists after the WebSocket layer is
+ * up, so they are created as placeholders here and injected later by the
+ * entry point — see the inline notes below.
+ */
 
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -313,8 +322,11 @@ export async function createGatewayContext(): Promise<GatewayContext> {
   const host = controlPlaneConfig.http.host;
   const gatewaySecret = createDirectorGatewaySecret();
   const previewSecret = createDirectorPreviewSecret();
+  // A fresh epoch per process lets clients detect a restarted gateway and
+  // drop connections/state that assumed the previous process.
   const gatewayEpoch = crypto.randomUUID();
 
+  // Child processes (planner CLIs, stage CLI) authenticate back through env.
   process.env.DIRECTOR_GATEWAY_TOKEN = gatewaySecret;
 
   // ---- Services ----
@@ -358,13 +370,16 @@ export async function createGatewayContext(): Promise<GatewayContext> {
   const agentProfileRegistry = new AgentProfileRegistry(controlPlaneConfig, probeLocalAgentCliAvailability());
   const referenceSceneAnalyzer = createReferenceSceneAnalyzer({ profiles: agentProfileRegistry });
 
-  // filmPipeline needs workbenchExecute which requires requestWorkbenchCommand — inject later
+  // filmPipeline needs workbenchExecute which requires requestWorkbenchCommand
+  // (a WebSocket-layer capability); the entry point replaces this placeholder
+  // once that channel exists.
   const filmPipeline = null as unknown as ReturnType<typeof createFilmPipeline>;
 
   const videoGenerationService = createVideoGenerationService(
     controlPlaneConfig,
     dataDirectory,
-    () => Promise.resolve(null), // capture function injected later
+    // Stage capture also rides the browser command channel; injected later.
+    () => Promise.resolve(null),
   );
 
   const ardyMotionService = new ArdyMotionService({
