@@ -1,3 +1,33 @@
+/**
+ * Blender live protocol: the full wire vocabulary between the gateway and
+ * the in-process Blender live kernel (`integrations/blender`).
+ *
+ * Three surfaces share this file so they can never drift apart:
+ * - the typed agent operation union (`blenderAgentOperationSchema`) — every
+ *   scene mutation an agent may request, validated field-by-field before it
+ *   reaches Blender;
+ * - the `blender_native` tool request surface (reads plus a guarded `apply`
+ *   batch), which is what MCP/DSH agents actually call;
+ * - the kernel's replies: scene snapshots, deep object inspections, and
+ *   per-batch effect receipts.
+ *
+ * Concurrency model: the kernel names each loaded scene with a UUID
+ * `sceneEpoch` and counts a monotonic `revision`. Public batches that write
+ * the scene must pin `expectedSceneEpoch` (enforced by the superRefine using
+ * the shared operation manifest), so an agent editing a scene that was
+ * reloaded or switched under it gets a structured rejection instead of
+ * corrupting the wrong scene. Read operations may pin the epoch optionally.
+ *
+ * Evidence model: apply never returns "ok" alone. The effect receipt lists
+ * created/changed/deleted/dirty object ids per operation plus before/after
+ * scene metrics, and focused evidence carries the full records of only the
+ * affected objects — enough for an agent to verify its own edit without
+ * re-fetching the whole scene.
+ *
+ * All positions are metres in Director's canonical right-handed Y-up frame
+ * (the kernel converts to Blender's Z-up internally); rotations are XYZ
+ * Euler radians unless a field says otherwise.
+ */
 import { z } from "zod";
 import { assertBlenderOperationManifestCoverage, blenderOperationRequiresSceneGuard } from "./blenderOperationManifest";
 
@@ -156,6 +186,13 @@ const operatorContextSchema = z.strictObject({
   activeId: identifier.optional(),
   mode: blenderMode.default("OBJECT"),
 });
+/**
+ * Addressable owners for `set_rna_property`: instead of a free-form Python
+ * path, the caller names a typed anchor (object, its data block, a named
+ * modifier/constraint/material/collection, the scene, or the world) and a
+ * property path relative to it. This keeps generic RNA writes enumerable and
+ * auditable while still covering most of Blender's property surface.
+ */
 const rnaTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.enum(["object", "object_data"]),
@@ -179,6 +216,12 @@ const rnaTargetSchema = z.discriminatedUnion("kind", [
 ]);
 
 const spatialQueryExcludeIds = z.array(identifier).max(64);
+/**
+ * Read-only spatial probes evaluated against the live scene: RAYCAST (hit
+ * test), CLOSEST_POINT (surface proximity), OVERLAP (pairwise AABB),
+ * GROUND (drop height under an object), and NAME (pattern lookup). Agents
+ * use these to reason about placement without downloading geometry.
+ */
 const spatialQuerySchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("RAYCAST"),
@@ -213,6 +256,16 @@ const spatialQuerySchema = z.discriminatedUnion("kind", [
 ]);
 const spatialQueriesSchema = z.array(spatialQuerySchema).min(1).max(32);
 
+/**
+ * Every typed scene mutation an agent may request, one strict object per op.
+ * The list must stay in lockstep with the shared operation manifest —
+ * `assertBlenderOperationManifestCoverage` below throws at module load if an
+ * op is added here without a manifest entry (or vice versa), because the
+ * manifest is what decides which ops need the scene-epoch write guard.
+ * Prefer adding a typed op over extending the `invoke_operator` /
+ * `set_rna_property` / `execute_code` escape hatches: typed ops get
+ * field-level validation, per-op effect records, and describe() docs.
+ */
 const agentOperationSchemas = [
   z.strictObject({
     op: z.literal("import_asset"),
@@ -815,7 +868,14 @@ export const blenderLiveOperationSchema = z.discriminatedUnion("op", [
   bindDirectorProjectOperationSchema,
 ]);
 
-/** A batch of live operations with contract, request id, and optional epoch guarding against concurrent edits. */
+/**
+ * A batch of live operations with contract, request id, and optional epoch
+ * guarding against concurrent edits. Batches are atomic units of intent:
+ * `requestId` deduplicates retries, and any operation that writes the scene
+ * (per the shared manifest) forces the batch to pin `expectedSceneEpoch` so
+ * a stale agent cannot mutate a scene that was reloaded underneath it.
+ * `expectedRevision` optionally tightens the guard to an exact edit count.
+ */
 export const blenderLiveCommandBatchSchema = z
   .strictObject({
     contract: z.literal(BLENDER_LIVE_CONTRACT).default(BLENDER_LIVE_CONTRACT),

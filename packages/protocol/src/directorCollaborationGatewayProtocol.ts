@@ -1,3 +1,16 @@
+/**
+ * Collaboration gateway wire contract: a thin, room-scoped relay for Yjs
+ * document and awareness updates.
+ *
+ * The gateway never interprets collaboration payloads — they are opaque Yjs
+ * binary updates carried as base64 (`payload`), so document semantics live
+ * entirely in the clients and the CRDT. The gateway's responsibilities are
+ * only routing (room names), admission (invite tokens and editor/viewer
+ * roles), and hygiene (payload size caps, canonical base64, strict message
+ * shapes). Base64 rather than binary frames keeps the protocol usable over
+ * JSON-only transports at the cost of ~33% overhead, which the 16 MiB cap
+ * already accounts for.
+ */
 import { z } from "zod";
 
 /** Maximum payload size in bytes for collaboration messages (16 MiB). */

@@ -1,3 +1,21 @@
+/**
+ * Reference scene reconstruction: turn one reference image into a reviewable
+ * plan of primitive objects and lights that approximate the pictured scene.
+ *
+ * The flow is deliberately two-phase. Analysis produces a *plan* (status
+ * `draft`) whose objects and lights each carry an `enabled` flag, a
+ * `confidence` score, and a human-readable `rationale`; a human or agent can
+ * toggle entries before the plan is applied to the Stage (status `applied`,
+ * guarded by `expectedProjectRevision` so a stale plan cannot clobber
+ * concurrent edits). Vision-model output is parsed with the strict
+ * `referenceSceneVisionOutputSchema` — ids, provenance, and target revisions
+ * are server-owned and never accepted from the model.
+ *
+ * Numeric bounds are protocol policy, not physics: positions clamp to ±100 m
+ * and object/light counts are capped so a hallucinating model cannot explode
+ * the scene. Rotations are degrees in vision output (what models produce) but
+ * radians in the plan transform (what the Stage consumes).
+ */
 import { z } from "zod";
 
 /** Protocol version for the reference scene reconstruction format. */

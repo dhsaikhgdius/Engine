@@ -77,6 +77,13 @@ const BLOCKOUT_ALIAS_NOTE =
 const OPENING_ALIAS_NOTE =
   '"{requested}" is not a typed op. Door and window holes use create_opening on an existing mesh wall (width/height/sillHeight/offset in metres); custom cutters use add_modifier with modifierType "BOOLEAN" then set_modifier properties {operation:"DIFFERENCE", object:"<cutter id>"}.';
 
+/**
+ * Redirect table for names agents commonly invent (`boolean_difference`,
+ * `create_room`, `add_camera`, …). Instead of a bare "unknown target" error,
+ * describe answers with the canonical op's schema plus a note explaining the
+ * correct call — turning the most frequent hallucinations into one-round
+ * corrections rather than trial-and-error loops.
+ */
 const APPLY_TARGET_ALIASES: Record<string, ApplyTargetAlias> = {
   query: {
     op: "query_spatial",

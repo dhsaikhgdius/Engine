@@ -1,3 +1,12 @@
+/**
+ * Factory helpers for discriminated-union variants across Director protocols.
+ *
+ * Every variant built here is a `strictObject`, so unknown keys are rejected
+ * rather than silently dropped — an agent that misspells a parameter gets a
+ * validation error instead of a no-op. Using one shared set of factories keeps
+ * the discriminator vocabulary consistent (`action`, `op`, `kind`, `mode`,
+ * `success`, `type`) and preserves literal types for exhaustive matching.
+ */
 import { z } from "zod";
 
 /**

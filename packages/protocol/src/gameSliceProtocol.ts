@@ -107,6 +107,13 @@ export const GAME_SLICE_PLAYABILITY_CHECKS = [
 export const gameSlicePlayabilityCheckSchema = z.enum(GAME_SLICE_PLAYABILITY_CHECKS);
 export type GameSlicePlayabilityCheck = (typeof GAME_SLICE_PLAYABILITY_CHECKS)[number];
 
+/**
+ * Slice lifecycle. Transitions are owned by the machine reducer
+ * (`directorGameMachine.ts`): `draft` → `bound` (all roles have object ids) →
+ * `playtested` (a tape was scored) → `playable` (score passed) → `exported`.
+ * Status can regress (e.g. re-binding after a failed playtest) but only
+ * through machine transitions, never by direct document edits.
+ */
 export const GAME_SLICE_STATUSES = ["draft", "bound", "playtested", "playable", "exported"] as const;
 export const gameSliceStatusSchema = z.enum(GAME_SLICE_STATUSES);
 export type GameSliceStatus = (typeof GAME_SLICE_STATUSES)[number];
@@ -199,6 +206,11 @@ export const gameSliceAssetBindingSchema = z.strictObject({
 });
 export type GameSliceAssetBinding = z.infer<typeof gameSliceAssetBindingSchema>;
 
+/**
+ * What "done" means for the slice: the verbs a passing tape must exercise and
+ * the structured checks it must satisfy. `style` stays free text because
+ * visual acceptance is a human capture review, not a machine check.
+ */
 export const gameSliceAcceptanceSchema = z.strictObject({
   operations: z.array(gameSliceVerbSchema).min(1).max(GAME_SLICE_VERBS.length),
   playability_checks: z.array(gameSlicePlayabilityCheckSchema).min(1).max(GAME_SLICE_PLAYABILITY_CHECKS.length),
@@ -302,6 +314,13 @@ export const GAME_PLAYTEST_TRACE_SOURCES = ["live_stage", "host_free", "inline"]
 export const gamePlaytestTraceSourceSchema = z.enum(GAME_PLAYTEST_TRACE_SOURCES);
 export type GamePlaytestTraceSource = z.infer<typeof gamePlaytestTraceSourceSchema>;
 
+/**
+ * A complete recorded tape: per-frame samples plus the verbs the run actually
+ * exercised. The sample cap (1,048,576) bounds worst-case memory for a replay
+ * while still allowing ~9.7 hours at 30 Hz. `project_revision` pins which
+ * scene state the tape was recorded against so a stale tape cannot vouch for
+ * an edited scene.
+ */
 export const gamePlaytestTraceSchema = z.strictObject({
   contract: z.literal("director-game-playtest-trace-v1"),
   slice_id: gameSliceIdSchema,
@@ -314,6 +333,13 @@ export const gamePlaytestTraceSchema = z.strictObject({
 export type GamePlaytestTrace = z.infer<typeof gamePlaytestTraceSchema>;
 export type GamePlaytestTraceInput = z.input<typeof gamePlaytestTraceSchema>;
 
+/**
+ * One structured playability finding. `code` is a closed machine vocabulary so
+ * agents can branch on failure modes; `corrective_call` carries a ready-to-send
+ * follow-up operation (the rejection-teaches-the-fix pattern used across
+ * Director protocols). `sample_frame` points at the first offending tape frame
+ * for replay debugging.
+ */
 export const gameSliceIssueSchema = z.strictObject({
   code: z.enum([
     "fell_through_floor",
@@ -340,6 +366,12 @@ export const gameSliceIssueSchema = z.strictObject({
 });
 export type GameSliceIssue = z.infer<typeof gameSliceIssueSchema>;
 
+/**
+ * Scored verdict for one tape against the slice's acceptance criteria.
+ * `playable` is the single boolean the machine consults when promoting a
+ * slice; `checks` lists every acceptance check with its pass/fail so agents
+ * see partial progress instead of a bare rejection.
+ */
 export const gameEvaluationReportSchema = z.strictObject({
   contract: z.literal("director-game-evaluation-v1"),
   slice_id: gameSliceIdSchema,
@@ -538,6 +570,11 @@ export function playerUnboundIssue(slice: GameSlice): GameSliceIssue {
   };
 }
 
+/**
+ * One binding update sent to the `bind` operation: attaches a Stage object
+ * (and optionally asset provenance) to a named role. Partial — omitted fields
+ * leave the existing binding untouched, so agents can bind roles one at a time.
+ */
 export const gameSliceBindPatchSchema = z.strictObject({
   role_id: nonEmptyText(80),
   object_id: objectId.optional(),

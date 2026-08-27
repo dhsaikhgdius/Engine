@@ -1,3 +1,16 @@
+/**
+ * Video generation operations and provider capability contract.
+ *
+ * `prepare` and `render` take identical input: `prepare` validates and
+ * normalizes a request into a job (returning what would run) without
+ * consuming GPU time, while `render` submits immediately — the two-phase
+ * split lets agents review normalized dimensions/frame counts before paying
+ * for a generation. Providers advertise their constraints via
+ * `videoProviderCapabilitySchema` (`dimensionMultiple`, `frameCountRule`)
+ * instead of silently rounding, and `videoRuntimeSourceSchema` pins the exact
+ * upstream repository/commit a provider runtime was built from so generations
+ * are reproducible.
+ */
 import { z } from "zod";
 import { strictKind, strictOperation } from "./strictProtocolVariant";
 

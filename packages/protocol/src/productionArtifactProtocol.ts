@@ -1,3 +1,21 @@
+/**
+ * Production artifact protocol: immutable, self-verifying evidence records
+ * for every generated or imported deliverable.
+ *
+ * The model is append-only. An *artifact* is a named lineage; each *version*
+ * is one immutable snapshot of its bytes (content-addressed by SHA-256) plus
+ * provenance describing exactly how it was produced (job attempt, stage
+ * capture, import receipt, DCC return, or upload). *Promotions* and
+ * *approvals* are further immutable records layered on top — nothing is ever
+ * edited in place, so the audit trail cannot be rewritten.
+ *
+ * Every record carries a `recordFingerprint` computed over the canonical
+ * lexical-JSON form of its own fields, which makes tampering detectable
+ * without an external ledger: a consumer can recompute the fingerprint and
+ * reject records whose contents drifted. Determinism rules (sorted
+ * `sourceVersionIds`, `stableLexicalJson`) exist so the same logical record
+ * always fingerprints identically across environments.
+ */
 import { z } from "zod";
 import { stableLexicalJson } from "./stableJson";
 

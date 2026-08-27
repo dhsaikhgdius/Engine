@@ -1,3 +1,15 @@
+/**
+ * Multi-agent film production vocabulary: the brief, the twelve film-role
+ * agents, their department grouping, and the dependency order in which they
+ * run and consume each other's artifacts.
+ *
+ * The role tables are data, not code, so the pipeline runner, the UI, and
+ * role prompts all derive from one source: `FILM_ROLE_CONTEXT` declares which
+ * upstream artifacts feed each role (the DAG that lets independent roles run
+ * concurrently), and `FILM_ROLE_ARTIFACT_KIND` names each role's durable
+ * deliverable for storage/retrieval routing. Labels are Simplified Chinese
+ * because UI copy is authored in zh-CN as the source language.
+ */
 import { z } from "zod";
 import { FILM_ROLE_IDS, type FilmRoleId } from "./filmRoles";
 

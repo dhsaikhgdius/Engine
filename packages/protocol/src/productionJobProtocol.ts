@@ -1,3 +1,29 @@
+/**
+ * Production job protocol: the durable record shape and state machine for
+ * every long-running generation/processing job (image, video, audio, 3D,
+ * transcription, reconstruction, media proxy/transcode, DCC export/import,
+ * episode packaging).
+ *
+ * The model is attempt-based. A job freezes its logical identity once — the
+ * kind/input fingerprint and idempotency key — and every retry is a new
+ * attempt that must carry the same frozen identity, so a retried job can
+ * never silently execute different work. Artifacts are immutable and belong
+ * to the attempt that produced them; the job-level `artifacts` array is a
+ * validated ordered projection of attempt artifacts, never an independent
+ * mutable list.
+ *
+ * The lifecycle explicitly models provider uncertainty: `running` may go to
+ * `outcome_unknown` (the provider stopped answering mid-flight), which must
+ * pass through `reconciling` before resolving to succeeded/failed/queued.
+ * That forces callers to confirm what actually happened with the provider
+ * instead of guessing, which is what makes retries safe for paid
+ * generation APIs. `productionJobRecordSchema.superRefine` re-validates all
+ * of these invariants on every parse, so a corrupt record is rejected at
+ * load rather than trusted.
+ *
+ * Job kinds live in `productionJobKinds.json` so the vocabulary is shared
+ * with non-TypeScript consumers.
+ */
 import { z } from "zod";
 import productionJobKinds from "./productionJobKinds.json";
 import { protocolKeys } from "./primitives";
@@ -464,6 +490,11 @@ export function isTerminalProductionJobStatus(status: ProductionJobStatus) {
 
 /**
  * Validates whether a job status transition is allowed by the state machine.
+ *
+ * The graph is deliberately narrow: `outcome_unknown` can only move to
+ * `reconciling` (never straight back to running or a terminal state), and
+ * only `reconciling` may re-queue — the record must show that uncertainty
+ * was resolved with the provider before any retry.
  *
  * @param from - The current status.
  * @param to - The desired status.

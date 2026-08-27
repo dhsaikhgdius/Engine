@@ -1,3 +1,15 @@
+/**
+ * Media transcription wire contract: the persisted transcript document, the
+ * transcription job input, and the provider capability advertisement.
+ *
+ * Timing is expressed in seconds (float) rather than frames because
+ * transcripts are keyed to source media playback time, not to a project
+ * timeline; the Video Editor converts to frames when it needs to. The
+ * transcript pins `sourceSha256` so a transcript can never be silently
+ * re-attached to different media bytes, and `serializeDirectorMediaTranscriptVtt`
+ * re-validates before serializing so the VTT projection can only be produced
+ * from a well-formed document.
+ */
 import { z } from "zod";
 
 const boundedText = (maximum: number) => z.string().trim().min(1).max(maximum);

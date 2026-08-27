@@ -80,11 +80,19 @@ export const directorGameOperationNames = directorGameOperationSchema.options.ma
 
 export const DIRECTOR_GAME_TOOL_NAME = "director_game" as const;
 
+/** Success envelope: `result` stays untyped here because each op documents its own result shape via describe. */
 export const directorGameSuccessEnvelopeSchema = z.strictObject({
   success: z.literal(true),
   result: z.unknown(),
 });
 
+/**
+ * Rejection envelope. `code` is machine-stable, `error` is the human/agent
+ * message, and `corrective_call` is a ready-to-send request that would fix
+ * the rejection — the machine treats rejections as a teaching channel, so
+ * most rejections include one. `result` may carry partial evidence (for
+ * example the typed issues that caused a playtest rejection).
+ */
 export const directorGameRejectionEnvelopeSchema = z.strictObject({
   success: z.literal(false),
   code: z.string().min(1).max(80),
