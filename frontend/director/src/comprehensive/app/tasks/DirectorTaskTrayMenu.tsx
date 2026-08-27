@@ -34,6 +34,7 @@ import {
   productionRunAbsentArtifactWarnings,
   productionRunArtifactPresencePending,
   productionRunCanCancel,
+  productionRunCapabilityOmissionWarnings,
   productionRunDisplayName,
   productionRunFailureReason,
   productionRunIntraPhaseDetail,
@@ -44,6 +45,7 @@ import {
   productionRunStage,
   productionRunStatus,
   productionRunStatusLabel,
+  productionRunTimelineOmittedShotWarnings,
   productionRunTypeLabel,
   productionRunUsageLines,
 } from "./productionRunPresentation";
@@ -149,6 +151,8 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
   const usageLines = productionRunUsageLines(entry);
   const artifactPresencePending = productionRunArtifactPresencePending(entry);
   const absentArtifactWarnings = productionRunAbsentArtifactWarnings(entry);
+  const capabilityOmissionWarnings = productionRunCapabilityOmissionWarnings(entry);
+  const timelineOmittedShotWarnings = productionRunTimelineOmittedShotWarnings(entry);
 
   return (
     <li className={`task-tray-item is-${status}`}>
@@ -188,6 +192,20 @@ function ProductionRunTrayItem({ entry, pending }: { entry: DirectorMonitoredPro
       {absentArtifactWarnings.length > 0 ? (
         <ul aria-label={t("产物存储警告")} className="task-tray-item-warning">
           {absentArtifactWarnings.map((warning) => (
+            <li key={warning.key}>{t(warning.message)}</li>
+          ))}
+        </ul>
+      ) : null}
+      {capabilityOmissionWarnings.length > 0 ? (
+        <ul aria-label={t("能力省略警告")} className="task-tray-item-warning">
+          {capabilityOmissionWarnings.map((warning) => (
+            <li key={warning.key}>{t(warning.message)}</li>
+          ))}
+        </ul>
+      ) : null}
+      {timelineOmittedShotWarnings.length > 0 ? (
+        <ul aria-label={t("时间线省略镜头")} className="task-tray-item-warning">
+          {timelineOmittedShotWarnings.map((warning) => (
             <li key={warning.key}>{t(warning.message)}</li>
           ))}
         </ul>
