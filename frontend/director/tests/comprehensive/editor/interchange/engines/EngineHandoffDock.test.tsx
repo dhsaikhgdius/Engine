@@ -570,21 +570,22 @@ it("shows the Godot AnimationPlayer/shot-cut receipt with WorldEnvironment ambie
   const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
   expect(within(omittedMaterials).getByText("prop-glass")).toBeInTheDocument();
   expect(omittedMaterials).toHaveTextContent("不支持的材质通道");
+  const omittedLights = screen.getByRole("list", { name: "结构化省略灯光" });
+  expect(within(omittedLights).getByText("light-panel")).toBeInTheDocument();
+  expect(within(omittedLights).getByText("light-panel-2")).toBeInTheDocument();
+  expect(omittedLights).toHaveTextContent("面光源不支持");
   // Gateway bake channels render as per-entity structured rows (not free-text).
   const omittedChannels = screen.getByRole("list", { name: "省略的动画通道" });
   expect(within(omittedChannels).getByText("hero")).toBeInTheDocument();
   expect(omittedChannels).toHaveTextContent("姿态控制");
   expect(omittedChannels).toHaveTextContent("动作片段");
-  // Connector-side light+material+shot omits keep entities (dedup is per code+entity).
+  // Connector-side material+shot omits keep entities in the generic list (lights have a dedicated list).
   const omissions = screen.getByRole("list", { name: "结构化省略" });
-  expect(within(omissions).getAllByText("light_rect_area_unsupported")).toHaveLength(2);
-  expect(omissions).toHaveTextContent("面光源不支持");
-  expect(omissions).toHaveTextContent("light-panel");
   expect(omissions).toHaveTextContent("unsupported_channels");
   expect(omissions).toHaveTextContent("不支持的材质通道");
-  expect(omissions).toHaveTextContent("light-panel-2");
   expect(omissions).toHaveTextContent("shot_no_camera_binding");
   expect(omissions).toHaveTextContent("镜头缺少相机绑定");
+  expect(within(omissions).queryByText("light-panel")).not.toBeInTheDocument();
 });
 
 it("previews an engine return as a dry run and guards apply behind an explicit review confirmation", async () => {
