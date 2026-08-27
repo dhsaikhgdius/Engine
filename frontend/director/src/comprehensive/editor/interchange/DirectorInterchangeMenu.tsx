@@ -41,6 +41,10 @@ import { DirectorTemplateDialog } from "../templates/DirectorTemplateDialog";
 import { useDirectorMediaLibrary } from "../workspaces/directorMediaLibrary";
 import { useDirectorCreativeWorkspaceStore, type DirectorWorkspaceMode } from "../workspaces/directorWorkspaceStore";
 import { DccProviderBrowser } from "./DccProviderBrowser";
+import {
+  DccReturnOmittedLists,
+  filterDccReturnWarningsWithoutTypedEchoes,
+} from "./dccReturnOmittedUi";
 import { EngineHandoffDock } from "./engines/EngineHandoffDock";
 import { EngineHostStatusDots } from "./engines/EngineHostStatusDots";
 import type { DirectorInterchangeImportResult } from "./contract";
@@ -173,6 +177,8 @@ function uniqueBlendSceneWarnings(
 /**
  * 按操作类型汇总 DCC 回传计划；资产、变换与提示始终显示，
  * 富回传条目（相机光学、灯光、角色姿态、新增对象）仅在非零时显示。
+ * 类型化省略（omittedOptics / omittedAdditions）单独计数；自由文本提示
+ * 已剔除与 typed reason 相同的回声，避免与结构化列表重复。
  */
 function dccReturnPlanSegments(plan: DirectorDccImportPlanV1, t: (source: string) => string): string[] {
   const countOf = (op: DirectorDccImportPlanV1["operations"][number]["op"]) =>
@@ -186,7 +192,12 @@ function dccReturnPlanSegments(plan: DirectorDccImportPlanV1, t: (source: string
   if (poseCount) segments.push(`${poseCount} ${t("个角色姿态")}`);
   const additionCount = countOf("create_prop");
   if (additionCount) segments.push(`${additionCount} ${t("个新增对象")}`);
-  segments.push(`${plan.warnings.length} ${t("条提示")}`);
+  const omittedOpticsCount = plan.omittedOptics?.length ?? 0;
+  if (omittedOpticsCount) segments.push(`${omittedOpticsCount} ${t("项省略光学")}`);
+  const omittedAdditionsCount = plan.omittedAdditions?.length ?? 0;
+  if (omittedAdditionsCount) segments.push(`${omittedAdditionsCount} ${t("项省略新增")}`);
+  const warningCount = filterDccReturnWarningsWithoutTypedEchoes(plan.warnings, plan).length;
+  segments.push(`${warningCount} ${t("条提示")}`);
   return segments;
 }
 
@@ -628,6 +639,7 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
   }
 
   const blendWarnings = blendManifest && blendPlan ? uniqueBlendSceneWarnings(blendManifest, blendPlan) : [];
+  const dccWarnings = dccPlan ? filterDccReturnWarningsWithoutTypedEchoes(dccPlan.warnings, dccPlan) : [];
 
   return (
     <div className="director-interchange-entry" ref={entryRef}>
@@ -1074,13 +1086,19 @@ export function DirectorInterchangeMenu({ workspace = "stage" }: { workspace?: D
                             ) : null}
                           </ul>
                         ) : null}
-                        {dccPlan.warnings.length ? (
+                        <DccReturnOmittedLists
+                          listClassName="director-interchange-list is-warning"
+                          moreClassName="director-interchange-more"
+                          plan={dccPlan}
+                          t={t}
+                        />
+                        {dccWarnings.length ? (
                           <ul aria-label={t("DCC 回传提示")} className="director-interchange-list is-warning">
-                            {dccPlan.warnings.slice(0, 6).map((warning) => (
+                            {dccWarnings.slice(0, 6).map((warning) => (
                               <li key={warning}>{warning}</li>
                             ))}
-                            {dccPlan.warnings.length > 6 ? (
-                              <li className="director-interchange-more">+{dccPlan.warnings.length - 6}</li>
+                            {dccWarnings.length > 6 ? (
+                              <li className="director-interchange-more">+{dccWarnings.length - 6}</li>
                             ) : null}
                           </ul>
                         ) : null}
