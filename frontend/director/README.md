@@ -45,12 +45,11 @@ The Director frontend connects to the **Gateway** (`backend/gateway/`, default `
 | Path | Purpose |
 |---|---|
 | `index.html` | App entry HTML, theme switching, viewport setup |
-| `src/main.tsx` | App bootstrap entry, route dispatch (Research Portal / App) |
+| `src/main.tsx` | App bootstrap entry |
 | `src/index.css` | Tailwind base layer injection |
 | `src/agent/` | Browser Agent runtime: PTY terminal, gateway bridge, workbench executor |
 | `src/comprehensive/` | Main application body: App shell, all workspaces, editor features, i18n, styles |
 | `src/dcc/` | DCC interop contracts: Blender import/export, exchange formats, capability discovery |
-| `src/research/` | Research Portal standalone page: product docs, research direction showcase |
 | `tsconfig.json` | Thin `extends` of `tools/tsconfig.json` so the IDE type-checks this tree |
 | `tests/` | Vitest suites mirroring `src/` (`*.test.ts(x)`). Runner config is `tools/vitest.config.ts` |
 
@@ -63,7 +62,7 @@ The Director frontend connects to the **Gateway** (`backend/gateway/`, default `
 | Path | Purpose |
 |---|---|
 | `index.html` | App HTML entry with inline theme script (`data-theme`), dark/light mode |
-| `src/main.tsx` | App bootstrap: routes to ResearchPortal or App, lazy-loads Agent bridge |
+| `src/main.tsx` | App bootstrap: mounts the Director App, lazy-loads Agent bridge |
 | `src/index.css` | Tailwind CSS directives |
 
 ---
@@ -96,22 +95,6 @@ The DCC layer defines typed contracts between Director and external DCC tools (e
 | `dcc/directorDccReturnContract.ts` | DCC return contract: Blender return data import plan |
 | `dcc/directorBlendSceneImportContract.ts` | Blender scene import selection contract |
 | Various `*.test.ts` files | Unit tests for each contract |
-
----
-
-### `src/research/` — Research Portal Standalone
-
-The Research Portal is a standalone page (at `/research` or `/research/docs`) showcasing product research directions, documentation, and protocol steps.
-
-| Path | Purpose |
-|---|---|
-| `research/ResearchPortal.tsx` | Research Portal main component (679 lines): home/docs pages, zh/en toggle, protocol steps |
-| `research/researchContent.ts` | Content loader: reads multilingual copy from JSON |
-| `research/researchContent.json` | Research Portal multilingual content data |
-| `research/researchLocale.ts` | Locale preference persistence (localStorage) |
-| `research/researchPortal.css` | Research Portal styles |
-| `tests/research/ResearchPortal.test.tsx` | Research Portal component tests |
-| `tests/research/researchLocale.test.ts` | Locale preference tests |
 
 ---
 
@@ -743,7 +726,6 @@ Starts Gateway (`:8787`) and Vite UI (`:5175`) together.
 | `http://127.0.0.1:5175/?workspace=gallery` | Gallery (redirects to Stage) |
 | `http://127.0.0.1:5175/?theme=light` | Light mode |
 | `http://127.0.0.1:5175/?theme=dark` | Dark mode |
-| `http://127.0.0.1:5175/research` | Research Portal |
 
 ### Build
 
