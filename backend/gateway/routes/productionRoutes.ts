@@ -13,8 +13,19 @@ import {
 } from "../production/productionMutationCoordinator";
 import { ProductionStateStoreError, type ProductionSceneProjectRecord } from "../production/productionStateStore";
 
+/**
+ * HTTP routes for the production record and its scene project documents
+ * (`/te-man/director/productions/...` and `/te-man/director/scenes/...`).
+ * All mutations flow through the mutation coordinator (revision-guarded,
+ * idempotency-key aware) and typed store errors are mapped onto their HTTP
+ * status + machine code; only unexpected errors propagate to the caller's
+ * generic handler. Returns false when the URL is not a production route so
+ * the gateway can try the next route domain.
+ */
+
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
+/** Injected collaborators; the route touches stores only through these. */
 export type ProductionRouteDependencies = {
   readBody: (request: IncomingMessage) => Promise<unknown>;
   json: JsonWriter;
@@ -40,12 +51,15 @@ function productionMissing(response: ServerResponse, json: JsonWriter) {
   json(response, 404, { message: "制作项目不存在" });
 }
 
+/** Writes a typed store failure; returns false for errors it does not own. */
 function sceneStoreFailure(response: ServerResponse, json: JsonWriter, error: unknown) {
   if (!(error instanceof ProductionStateStoreError)) return false;
   json(response, error.status, { message: error.message, code: error.code });
   return true;
 }
 
+// Shared mutation path: coordinator errors carry their own HTTP status, and
+// the response reports whether the idempotency key replayed a prior result.
 async function applyMutation(
   response: ServerResponse,
   json: JsonWriter,
@@ -118,6 +132,8 @@ export async function handleProductionRoute(
       return true;
     }
     const payload = parsedPayload.data;
+    // A new scene needs a seed project: either supplied inline or duplicated
+    // from an existing scene's persisted document. No seed, no scene.
     const sourceProject = payload.sourceSceneId ? dependencies.getSceneProject(payload.sourceSceneId)?.project : null;
     const project = payload.project ?? sourceProject ?? undefined;
     if (!project) {
@@ -152,6 +168,9 @@ export async function handleProductionRoute(
         json(response, 200, record);
         return true;
       }
+      // Scenes without a production document (e.g. the default local stage)
+      // fall back to the last agent-persisted workbench project at revision
+      // 0, so the UI can still boot-restore something meaningful.
       const fallbackProject = await dependencies.readWorkbenchProjectFallback?.();
       if (fallbackProject) {
         json(response, 200, {
@@ -187,6 +206,8 @@ export async function handleProductionRoute(
     }
   }
 
+  // Lightweight scene summary: prefers the persisted project document and
+  // falls back to a projection of the live stage scene for unsaved scenes.
   const directorSceneMatch = url.pathname.match(/^\/te-man\/director\/scenes\/([^/]+)$/);
   if (request.method === "GET" && directorSceneMatch) {
     const sceneId = decodeURIComponent(directorSceneMatch[1]);

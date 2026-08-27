@@ -6,8 +6,16 @@ import {
   type AssistantPlanRequest,
 } from "../gatewaySchemas";
 
+/**
+ * Thin HTTP shell for the assistant planner: validates `/api/assistant/plan`
+ * and `/api/assistant/apply` payloads at the boundary, then hands the typed
+ * request plus the raw response object to the injected handlers (they stream
+ * planner output themselves). Returns false for non-assistant URLs.
+ */
+
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 
+/** Injected body reader, JSON writer, and the plan/apply implementations. */
 export type AssistantRouteDependencies = {
   readBody: (request: IncomingMessage) => Promise<unknown>;
   json: JsonWriter;

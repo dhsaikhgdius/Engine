@@ -16,9 +16,21 @@ import type { Generated3DSourceStore } from "../generation/generated3dSourceStor
 import type { AssetSizeEstimator } from "../promptExpansion/assetSizeEstimator";
 import { ProductionJobIdempotencyConflictError, type ProductionJobStore } from "../jobs/productionJobStore";
 
+/**
+ * HTTP routes for generated-3D jobs (`/api/generation/3d/...`): provider
+ * capabilities, submission, status, cancel, reconcile, promote, and retry.
+ * Submissions are idempotent through the production job store (a reused key
+ * with different content is a 409 carrying the existing job id), execution
+ * is fire-and-forget — the response is a 202 with the queued job record and
+ * progress is observed via the job endpoints — and retries enqueue a fresh
+ * job linked to its source through `sourceRevisions.retryOf` rather than
+ * mutating the failed record.
+ */
+
 type JsonWriter = (response: ServerResponse, status: number, body: unknown) => void;
 const retryRequestSchema = z.strictObject({ idempotencyKey: z.string().trim().min(8).max(180).optional() });
 
+/** Injected stores, providers, and executor used by the route handlers. */
 export type Generated3DRouteDependencies = {
   readBody: (request: IncomingMessage) => Promise<unknown>;
   json: JsonWriter;
@@ -32,23 +44,29 @@ export type Generated3DRouteDependencies = {
   createJobId?: () => string;
 };
 
+/** Extracts the job id from `/api/generation/3d/jobs/<id><suffix>` paths. */
 function routeId(pathname: string, suffix = "") {
   const escapedSuffix = suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = pathname.match(new RegExp(`^/api/generation/3d/jobs/([^/]+)${escapedSuffix}$`));
   return match ? decodeURIComponent(match[1]!) : null;
 }
 
+// The job store is shared across kinds; these routes only own model.generate
+// jobs, so any other kind is answered as "does not exist".
 function isGenerated3DJob(job: ProductionJobRecord | null | undefined): job is ProductionJobRecord & {
   kind: "model.generate";
 } {
   return job?.kind === "model.generate";
 }
 
+// Fire-and-forget: the executor persists progress and failures onto the job
+// record, so route handlers never await (or surface) execution here.
 async function startJob(dependencies: Generated3DRouteDependencies, job: ProductionJobRecord) {
   if (job.status !== "queued") return;
   void dependencies.executor.execute(job).catch(() => undefined);
 }
 
+/** Routes one request; returns false when the URL is not a generated-3D path. */
 export async function handleGenerated3DRoute(
   request: IncomingMessage,
   response: ServerResponse,
@@ -187,6 +205,8 @@ export async function handleGenerated3DRoute(
       return true;
     }
     try {
+      // The retry is a new job that inherits the source's input and provider
+      // lineage; retryOf keeps the audit chain back to the failed attempt.
       const retry = await store.enqueue({
         kind: "model.generate",
         input,

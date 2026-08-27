@@ -3,6 +3,17 @@ import { createReadStream } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 
+/**
+ * Static file serving for generated assets (`/dcc-import/`, `/generated-3d/`,
+ * `/native-models/`). These paths are browser-reachable, so the handler is
+ * written as a hardened boundary: every path must match a strict per-prefix
+ * shape allowlist (no free-form traversal), resolved paths are checked to
+ * stay inside their storage root both lexically and after symlink
+ * resolution, sizes are capped per content class, and responses are served
+ * immutable with `nosniff` because generated asset content is
+ * content-addressed and never rewritten in place.
+ */
+
 const DCC_IMPORT_PREFIX = "/dcc-import/";
 const GENERATED_3D_PREFIX = "/generated-3d/";
 const NATIVE_MODEL_PREFIX = "/native-models/";
@@ -13,6 +24,7 @@ const NATIVE_SPLAT_EXTENSIONS = [".ply", ".splat", ".ksplat", ".spz", ".sog"];
 /** Unpacked 4DGS frame sequences live in one `frames/` directory beside their manifest. */
 const SPLAT_SEQUENCE_MANIFEST_SUFFIX = ".4dgs.json";
 
+/** True when `child` resolves inside `parent` (no `..` escape, no absolute jump). */
 function isInside(parent: string, child: string): boolean {
   const path = relative(parent, child);
   return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
@@ -49,6 +61,9 @@ export async function handleGeneratedAssetRoute(
     jsonError(response, 400, "Generated asset path is not valid URL encoding.");
     return true;
   }
+  // Allowlist per prefix: DCC imports are single GLBs, generated-3D assets
+  // are content-addressed (sha256 directory + fixed filenames), and native
+  // models allow meshes, splats, or a 4DGS manifest with its frames/ dir.
   const extension = extname(decoded).toLowerCase();
   const validDccPath = dccImport && extension === ".glb";
   const validGenerated3DPath =
@@ -84,6 +99,8 @@ export async function handleGeneratedAssetRoute(
   }
 
   try {
+    // Re-check containment after realpath: a symlink placed inside the root
+    // must not be able to serve bytes from outside it.
     const canonicalRoot = await realpath(routeRoot);
     const canonical = await realpath(candidate);
     if (!isInside(canonicalRoot, canonical)) {
