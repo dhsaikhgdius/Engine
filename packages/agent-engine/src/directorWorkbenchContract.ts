@@ -1,3 +1,46 @@
+/**
+ * The `director_workbench` request contract: every operation an agent can
+ * send to the Stage workbench, validated as one strict discriminated union.
+ *
+ * This file is the single wire grammar shared by the MCP server, the tool
+ * HTTP endpoint, the DSH plugin, and the browser executor. The
+ * `capabilities` and `describe` operations reflect over these exact schemas,
+ * so the vocabulary agents are taught is definitionally the vocabulary that
+ * parses — there is no second parameter reference to keep in sync.
+ *
+ * File layout:
+ * 1. Shared field schemas — revision guards, idempotency keys, raster
+ *    budgets, and their pairing refinements.
+ * 2. Vocabulary enums — observe fields, catalog ids, asset sources.
+ * 3. Command sub-schemas — production, audit inputs, JSON patches,
+ *    generated-3D, generation, transcription, reconstruction, and
+ *    storyboard-artifact command unions.
+ * 4. Author delivery/evidence profiles and compare sources.
+ * 5. Spatial queries plus the actionable shape hints used in rejections.
+ * 6. Macro and memory command unions.
+ * 7. {@link directorWorkbenchOperationSchema} — the full operation union.
+ * 8. Inferred types, including the executable-operation split.
+ * 9. Operation names and the structural contract fingerprint.
+ * 10. Input normalization — tolerated aliases lifted to canonical fields
+ *     before validation.
+ * 11. Corrective rejection messages — every rejection names the exact fix.
+ * 12. {@link parseDirectorWorkbenchInput} /
+ *     {@link parseDirectorWorkbenchExecutableInput} — the two parse
+ *     boundaries.
+ *
+ * Invariants:
+ * - Every schema is strict; unknown fields are rejected by name.
+ * - Project mutations must carry `expected_revision` (or explicit
+ *   `unconditional`) by the time they reach the browser execution core; the
+ *   public gateway boundary injects the guard for agents that omit it.
+ * - Durable job submits/retries and promotion-style writes additionally
+ *   require an `idempotency_key` at the execution boundary.
+ * - Author calls that set `geometry_type` are rejected: Stage instances
+ *   catalog/Blender/generated meshes, it does not assemble primitives.
+ *
+ * @module directorWorkbenchContract
+ */
+
 import { z } from "zod";
 import {
   directorAssetKindSchema,
@@ -30,7 +73,12 @@ import {
 import { directorAuthoringActionSchema } from "./directorAuthoring";
 import { directorMacroDraftSchema, directorMacroScalarSchema } from "./directorAutomation";
 
+// ---------------------------------------------------------------------------
+// 1. Shared field schemas: revision guards, idempotency keys, raster budgets.
+// ---------------------------------------------------------------------------
+
 const nonEmptyText = (max: number) => z.string().trim().min(1).max(max);
+// Patches may only touch the project document or the transient UI state.
 const jsonPointer = z
   .string()
   .min(1)
@@ -87,6 +135,12 @@ const revisionGuardRefinement = {
   path: ["expected_revision"],
 };
 
+// ---------------------------------------------------------------------------
+// 2. Vocabulary enums. These names are the shared language across observe
+// results, revision diffs, and capabilities.
+// ---------------------------------------------------------------------------
+
+/** Fields an observe/diff call may request; must match observe result keys. */
 export const directorWorkbenchObserveFieldSchema = z.enum([
   "scene",
   "ui",
@@ -104,6 +158,7 @@ export const directorWorkbenchObserveFieldSchema = z.enum([
   "production_graph",
 ]);
 
+/** Browsable catalogs: library assets, character assets/motions, and the live project's own assets. */
 export const directorWorkbenchCatalogIdSchema = z.enum([
   "assets",
   "character_assets",
@@ -114,6 +169,13 @@ export const directorWorkbenchCatalogIdSchema = z.enum([
 /** Agent-facing origin of a live project asset for project_assets filtering. */
 export const directorWorkbenchProjectAssetSourceSchema = z.enum(["uploaded", "generated", "library"]);
 
+// ---------------------------------------------------------------------------
+// 3. Command sub-schemas. Each `op` that carries a `command` field gets its
+// own action union here; mutations embed the revision/idempotency guard
+// fields declared above.
+// ---------------------------------------------------------------------------
+
+/** Multi-scene production commands (scene CRUD guarded by the production revision). */
 export const directorProductionCommandSchema = z.discriminatedUnion("action", [
   strictAction("observe", {}),
   strictAction("rename_production", {
@@ -160,11 +222,13 @@ export const directorProductionCommandSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
+/** A machine-applicable fix attached to an audit issue: plain author actions. */
 export const directorAuditSuggestedFixSchema = z.strictObject({
   kind: z.literal("author_actions"),
   actions: z.array(directorAuthoringActionSchema).min(1).max(32),
 });
 
+/** One agent-reported audit issue (severity defaults are applied downstream). */
 export const directorAuditIssueInputSchema = z.strictObject({
   severity: z.enum(["error", "warning", "info"]).optional(),
   code: nonEmptyText(160),
@@ -173,6 +237,7 @@ export const directorAuditIssueInputSchema = z.strictObject({
   suggested_fix: directorAuditSuggestedFixSchema.optional(),
 });
 
+/** RFC 6902-style patch trio applied by {@link applyDirectorJsonPatches}. */
 export const directorWorkbenchPatchSchema = z.discriminatedUnion("op", [
   strictOperation("add", { path: jsonPointer, value: z.unknown() }),
   strictOperation("replace", { path: jsonPointer, value: z.unknown() }),
@@ -411,6 +476,11 @@ export const directorStoryboardArtifactCommandSchema = z.discriminatedUnion("act
   }),
 ]);
 
+// ---------------------------------------------------------------------------
+// 4. Author delivery/evidence profiles and compare sources.
+// ---------------------------------------------------------------------------
+
+/** Optional render delivery attached to an author call (quality profile + paired raster). */
 export const directorAuthorDeliveryProfileSchema = z
   .strictObject({
     quality_profile: z.enum(["blocking", "cinematic", "video-gen"]).optional(),
@@ -424,6 +494,7 @@ export const directorAuthorDeliveryProfileSchema = z
     message: "author delivery raster cannot exceed 2073600 pixels over the Agent wire",
   });
 
+/** Visual evidence capture profile for author calls (camera frame, bounded raster). */
 export const directorAuthorEvidenceProfileSchema = z
   .strictObject({
     kind: z.literal("camera_frame").default("camera_frame"),
@@ -476,7 +547,12 @@ export const directorCompareSourceKinds = directorCompareSourceSchema.options.ma
   (option) => option.shape.kind.value,
 );
 
+// ---------------------------------------------------------------------------
+// 5. Spatial queries and the shape hints used in corrective rejections.
+// ---------------------------------------------------------------------------
+
 const directorSpatialVec3Schema = directorTransformSchema.shape.position;
+/** Spatial selector for query_objects; executed by {@link queryDirectorObjects}. */
 export const directorObjectSpatialQuerySchema = z.discriminatedUnion("mode", [
   z.strictObject({
     mode: z.literal("frustum"),
@@ -516,6 +592,11 @@ const INSPECT_ENTITY_NAMES =
 
 const INSPECT_SHAPE_HINT = `inspect requires entity and id. entity is one of ${INSPECT_ENTITY_NAMES}. Example {"op":"inspect","entity":"object","id":"door-1"} or {"op":"inspect","entity":"camera","id":"cam-main"}. Do not treat a spill locator, name, or object_id as entity.`;
 
+// ---------------------------------------------------------------------------
+// 6. Macro and memory commands (automation library, agent memory facts).
+// ---------------------------------------------------------------------------
+
+/** Macro library commands; drafts are validated by {@link directorMacroDraftSchema}. */
 export const directorMacroCommandSchema = z.discriminatedUnion("action", [
   strictAction("list", {
     query: z.string().trim().max(200).optional(),
@@ -527,6 +608,7 @@ export const directorMacroCommandSchema = z.discriminatedUnion("action", [
   strictAction("export", { include_content: z.boolean().default(false) }),
 ]);
 
+/** Memory-fact commands; scene-scoped entries must carry a scene_id. */
 export const directorMemoryCommandSchema = z.discriminatedUnion("action", [
   strictAction("recall", {
     query: z.string().trim().max(500).optional(),
@@ -554,6 +636,14 @@ export const directorMemoryCommandSchema = z.discriminatedUnion("action", [
   strictAction("export", { include_content: z.boolean().default(false) }),
 ]);
 
+// ---------------------------------------------------------------------------
+// 7. The full operation union. Order groups reads (capabilities/describe/
+// observe/inspect/query/diff/catalog), mutations (patch/author/correct/
+// macro/replace_project/undo), durable jobs (generation/transcription/
+// generated_3d/reconstruction), and evidence (capture/compare/deliver).
+// ---------------------------------------------------------------------------
+
+/** Every `director_workbench` operation, strict-validated and discriminated on `op`. */
 export const directorWorkbenchOperationSchema = z.discriminatedUnion("op", [
   strictOperation("capabilities", {}),
   /**
@@ -873,6 +963,12 @@ export const directorWorkbenchOperationSchema = z.discriminatedUnion("op", [
   }),
 ]);
 
+// ---------------------------------------------------------------------------
+// 8. Inferred types. The executable split encodes the guard invariant in the
+// type system: a project mutation type-checks at the browser boundary only
+// with a revision guard attached.
+// ---------------------------------------------------------------------------
+
 export type DirectorWorkbenchOperation = z.infer<typeof directorWorkbenchOperationSchema>;
 type DirectorWorkbenchMutationOperation = Extract<
   DirectorWorkbenchOperation,
@@ -908,6 +1004,11 @@ export type DirectorAuditIssueInput = z.infer<typeof directorAuditIssueInputSche
 export type DirectorAuditSuggestedFix = z.infer<typeof directorAuditSuggestedFixSchema>;
 export type DirectorWorkbenchObserveField = z.infer<typeof directorWorkbenchObserveFieldSchema>;
 
+// ---------------------------------------------------------------------------
+// 9. Operation names and the structural contract fingerprint.
+// ---------------------------------------------------------------------------
+
+/** Public operation names, derived from the union so they can never drift. */
 export const directorWorkbenchOperationNames = directorWorkbenchOperationSchema.options
   .map((option) => option.shape.op.value)
   // Internal Gateway→browser transport for director_game; not Agent vocabulary.
@@ -946,8 +1047,19 @@ export const DIRECTOR_WORKBENCH_CONTRACT_FINGERPRINT = (() => {
   }
 })();
 
+// ---------------------------------------------------------------------------
+// 10. Input normalization. Models reliably produce a handful of near-miss
+// shapes (filter wrappers, flattened spatial fields, alias field names);
+// each lift below maps one such family onto the canonical shape *before*
+// strict validation, so agents get acceptance instead of a rejection loop.
+// Lifts only fill absent canonical fields — they never overwrite explicit
+// canonical input.
+// ---------------------------------------------------------------------------
+
 const QUERY_OBJECT_SPATIAL_MODES = new Set(["frustum", "aabb", "radius", "nearby"]);
 
+// query_objects: accept filter-wrapped name/kind filters, max_objects/limit
+// as max_results, flattened spatial fields, and mode-keyed spatial nesting.
 function liftQueryObjectsAliases(input: unknown): unknown {
   if (!input || typeof input !== "object" || Array.isArray(input)) return input;
   const record = input as Record<string, unknown>;
@@ -1112,6 +1224,7 @@ function liftDeleteIds(next: Record<string, unknown>, canonical: string, aliases
   for (const alias of aliases) delete next[alias];
 }
 
+/** Apply every tolerated-alias lift; the parse boundary calls this first. */
 export function normalizeDirectorWorkbenchInput(input: unknown): unknown {
   return liftWorldAuthoringAliases(liftInspectAliases(liftCatalogAliases(liftQueryObjectsAliases(input))));
 }
@@ -1152,6 +1265,12 @@ function liftWorldAuthoringAliases(input: unknown): unknown {
     }),
   };
 }
+
+// ---------------------------------------------------------------------------
+// 11. Corrective rejection messages. Rejections are a teaching channel: each
+// helper below recognizes one predictable failure family and returns a
+// message carrying the exact corrective call instead of a generic Zod issue.
+// ---------------------------------------------------------------------------
 
 function queryObjectsFieldMessage(input: unknown, issue: { code: string; path: PropertyKey[] }): string | null {
   const operation = asRecord(input);
@@ -1301,6 +1420,16 @@ function unknownAuthoringActionMessage(input: unknown, issue: { code: string; pa
   return `actions.${issue.path[1]}.action "${name}" is not a valid author action. Deletion uses delete_objects with object_ids (remove_object + id is also accepted). List actions with {"op":"describe","target":"author"}.`;
 }
 
+// ---------------------------------------------------------------------------
+// 12. Parse boundaries.
+// ---------------------------------------------------------------------------
+
+/**
+ * Public parse boundary: normalize aliases, reject Blender-native misroutes
+ * and Stage-primitive assembly, then validate against the operation union.
+ * On failure, the most specific corrective message wins over the raw Zod
+ * issue. This is the parse used by the gateway and the plan validator.
+ */
 export function parseDirectorWorkbenchInput(
   input: unknown,
 ): { success: true; operation: DirectorWorkbenchOperation } | { success: false; error: string } {
@@ -1338,6 +1467,15 @@ export function parseDirectorWorkbenchInput(
   return { success: false, error: `director_workbench input invalid: ${path} ${explanation}` };
 }
 
+/**
+ * Browser execution-core parse boundary: everything the public parse checks,
+ * plus the guard invariants — project mutations need `expected_revision` (or
+ * `unconditional`), and durable-job submits/retries, promotions, applies,
+ * storyboard artifacts, and production mutations need their idempotency
+ * keys. Public Agent callers may omit these because the gateway's
+ * exact-target boundary injects them before dispatch; direct executable
+ * callers must supply them.
+ */
 export function parseDirectorWorkbenchExecutableInput(
   input: unknown,
 ): { success: true; operation: DirectorWorkbenchExecutableOperation } | { success: false; error: string } {

@@ -1,3 +1,20 @@
+/**
+ * Film-language framing: the `frame_shot` / `mark_camera_move` author
+ * actions and the shared shot-language report.
+ *
+ * `frame_shot` turns a shot description (size, level, side, view — the
+ * vocabulary of `DIRECTOR_SHOT_*` in project-schema) into concrete camera
+ * transforms via the shared framing solver, and `mark_camera_move` compiles
+ * a described camera move into keyframed camera animation; both expand into
+ * ordinary authoring actions inside the atomic author batch.
+ * {@link directorCameraShotLanguageReport} is the inverse reading: it
+ * derives the film-language description of a camera against its subject,
+ * and is attached to every observed camera so agents and the Stage
+ * viewfinder can never disagree on what the framing currently is.
+ *
+ * @module directorFraming
+ */
+
 import { z } from "zod";
 import type { DirectorObject, DirectorProject } from "@director/project-schema";
 import {

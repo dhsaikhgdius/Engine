@@ -1,3 +1,24 @@
+/**
+ * The Agent-facing asset catalog served by `director_workbench`
+ * `op:"catalog"`.
+ *
+ * Merges the packaged asset libraries (Flick stage props, the model-library
+ * v2 catalog, and Mixamo characters) into one queryable list where every
+ * item carries ready-made authoring actions: an `upsert_asset` +
+ * `add_object` pair whose ids are refined to match the catalog identity, so
+ * an agent can instance any browsable asset without hand-assembling the
+ * asset reference. Catalog JSON is validated at module load; identity
+ * mismatches between an item and its authoring actions fail the import
+ * rather than producing an asset that cannot be placed.
+ *
+ * Claim-based lookup ({@link findDirectorAgentCatalogAssetsByClaim}) is the
+ * reverse direction: given an agent's free-text asset claim it returns the
+ * catalog items that actually satisfy it, which the authoring executor uses
+ * to verify `asset_id` claims.
+ *
+ * @module directorAgentAssetCatalog
+ */
+
 import { z } from "zod";
 import flickStageCatalogJson from "../../../assets/library/flick-stage-props/catalog.json";
 import modelLibraryCatalogV2Json from "../../../assets/library/model-library/catalog.v2.json";

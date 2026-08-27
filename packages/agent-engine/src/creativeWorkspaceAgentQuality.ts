@@ -1,3 +1,18 @@
+/**
+ * Quality audit for `director_creative` snapshots (`op:"audit"`).
+ *
+ * Runs pure structural checks over the projected workspace snapshot —
+ * Canvas DAG integrity, editorial timeline consistency, media availability,
+ * gallery hygiene — and produces a typed receipt whose `ready` flag means
+ * zero error-severity issues. Like the Stage audit, this is not a visual
+ * judgment: every issue carries a machine-readable code, the affected
+ * entity ids, and a `suggested_next` corrective operation so agents can
+ * repair rather than guess. The receipt embeds the snapshot fingerprint it
+ * was computed from, tying the verdict to one exact state.
+ *
+ * @module creativeWorkspaceAgentQuality
+ */
+
 import { z } from "zod";
 import {
   creativeWorkspaceAuditScopeSchema,

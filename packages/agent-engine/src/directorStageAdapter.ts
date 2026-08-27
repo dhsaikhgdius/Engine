@@ -1,3 +1,27 @@
+/**
+ * Bidirectional adapter between the legacy Stage scene model and the
+ * persisted Director project.
+ *
+ * The legacy `stage_*` tools (see commandEngine) operate on the compact
+ * {@link StageScene}; the Director product persists the richer
+ * {@link DirectorProject}. This module converts both ways so those tools can
+ * keep working against a live project:
+ * {@link stageSceneToDirectorProject} merges a Stage scene back into the
+ * current project (only previously Stage-managed objects are replaceable;
+ * unrelated Director objects survive), and
+ * {@link directorProjectToStageScene} projects a Director project into a
+ * Stage scene, synthesizing timeline tracks from Director animations and
+ * camera actions.
+ *
+ * Both directions run the result through the target schema parser, so an
+ * adapter bug surfaces as a validation error rather than a corrupt document.
+ * Camera conversion is lossy-aware: Stage cameras store view position +
+ * target, while Director cameras store the rig pivot, so positions are
+ * recomputed through the shared view-snapshot math on each crossing.
+ *
+ * @module directorStageAdapter
+ */
+
 import type {
   DirectorAnimationKeyframe,
   DirectorCameraAction,
