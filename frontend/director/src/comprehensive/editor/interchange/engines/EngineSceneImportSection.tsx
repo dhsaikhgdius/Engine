@@ -23,6 +23,7 @@ import {
   previewDirectorEngineSceneImport,
   uploadDirectorEngineScenePackage,
 } from "../../api/dccEngineSceneClient";
+import { EngineSceneOmittedList, filterEngineSceneWarningsWithoutTypedEchoes } from "./engineSceneOmittedUi";
 
 /** In-engine exporter每引擎的获取提示(zh-CN source strings)。 */
 const EXPORTER_HINTS: Record<DirectorDccEngineId, string> = {
@@ -121,6 +122,11 @@ export function EngineSceneImportSection({ engine }: { engine: DirectorDccEngine
   }
 
   const working = busy || applying;
+  const omitted = plan?.omitted ?? [];
+  const omittedCount = plan?.omittedCount ?? omitted.length;
+  const filteredPlanWarnings = plan ? filterEngineSceneWarningsWithoutTypedEchoes(plan.warnings, plan) : [];
+  const manifestWarningSet = new Set((manifest?.warnings ?? []).map((warning) => warning.trim()).filter(Boolean));
+  const planOnlyWarnings = filteredPlanWarnings.filter((warning) => !manifestWarningSet.has(warning.trim()));
 
   return (
     <section aria-label={t("引擎场景导入")} className="director-engine-handoff-block">
@@ -153,7 +159,9 @@ export function EngineSceneImportSection({ engine }: { engine: DirectorDccEngine
             <span className="is-ready">
               <PackageOpen aria-hidden size={11} /> {t("包已校验")}
             </span>
-            <small data-i18n-user-content>{`${manifest.source.projectName} · ${manifest.source.sceneName} · ${manifest.engineVersion}`}</small>
+            <small
+              data-i18n-user-content
+            >{`${manifest.source.projectName} · ${manifest.source.sceneName} · ${manifest.engineVersion}`}</small>
           </div>
           <dl aria-label={t("场景包摘要")} className="director-engine-handoff-facts">
             <div>
@@ -250,7 +258,14 @@ export function EngineSceneImportSection({ engine }: { engine: DirectorDccEngine
       {plan ? (
         <div className="director-engine-handoff-plan">
           <span data-ready={plan.ready}>{plan.ready ? t("可导入") : t("有冲突")}</span>
-          <p>{`${plan.operations.length} ${t("项操作")} · ${plan.conflicts.length} ${t("项冲突")} · ${plan.warnings.length} ${t("条提示")}`}</p>
+          <p>
+            {[
+              `${plan.operations.length} ${t("项操作")}`,
+              `${plan.conflicts.length} ${t("项冲突")}`,
+              ...(omittedCount ? [`${omittedCount} ${t("项省略")}`] : []),
+              `${filteredPlanWarnings.length} ${t("条提示")}`,
+            ].join(" · ")}
+          </p>
           {plan.conflicts.length ? (
             <ul className="director-engine-handoff-list is-danger">
               {plan.conflicts.slice(0, 6).map((conflict) => (
@@ -260,6 +275,24 @@ export function EngineSceneImportSection({ engine }: { engine: DirectorDccEngine
               ))}
               {plan.conflicts.length > 6 ? (
                 <li className="director-engine-handoff-more">+{plan.conflicts.length - 6}</li>
+              ) : null}
+            </ul>
+          ) : null}
+          <EngineSceneOmittedList
+            listClassName="director-engine-handoff-list is-warning"
+            moreClassName="director-engine-handoff-more"
+            omitted={omitted}
+            t={t}
+          />
+          {planOnlyWarnings.length ? (
+            <ul aria-label={t("引擎场景导入提示")} className="director-engine-handoff-list is-warning">
+              {planOnlyWarnings.slice(0, 6).map((warning) => (
+                <li data-i18n-user-content key={warning}>
+                  {warning}
+                </li>
+              ))}
+              {planOnlyWarnings.length > 6 ? (
+                <li className="director-engine-handoff-more">+{planOnlyWarnings.length - 6}</li>
               ) : null}
             </ul>
           ) : null}

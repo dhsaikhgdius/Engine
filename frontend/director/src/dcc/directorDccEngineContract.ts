@@ -86,13 +86,28 @@ export const directorDccUnityOmittedChannelSchema = z.strictObject({
 export type DirectorDccUnityOmittedChannel = z.infer<typeof directorDccUnityOmittedChannelSchema>;
 
 /**
+ * Structured warn-and-omit codes the Unity light importer stamps into reports.
+ * `light_ambient_render_settings` / `light_hemisphere_render_settings` still
+ * apply scene ambient RenderSettings (look is mapped) but record that no
+ * GameObject was spawned — matching Unreal/Godot ambient honesty. Unknown
+ * vocabulary types omit without a RenderSettings side effect.
+ */
+export const directorUnityOmittedLightCodeSchema = z.enum([
+  "light_type_unknown",
+  "light_ambient_render_settings",
+  "light_hemisphere_render_settings",
+]);
+
+/**
  * One structured warn-and-omit record for a Director light the Unity connector
- * declined to spawn as a GameObject. Ambient/hemisphere map to RenderSettings
- * (not omitted); unknown vocabulary types are reported here with a stable code.
+ * declined to spawn as a GameObject. Ambient/hemisphere still map onto
+ * RenderSettings and are reported here with stable codes so agents do not
+ * scrape free-text warnings; unknown vocabulary types use
+ * `light_type_unknown`.
  */
 export const directorUnityOmittedLightSchema = z.strictObject({
   directorId: z.string().trim().min(1).max(200),
-  code: z.enum(["light_type_unknown"]),
+  code: directorUnityOmittedLightCodeSchema,
   lightType: z.string().trim().min(1).max(80),
   reason: z.string().trim().min(1).max(600),
 });
@@ -176,9 +191,9 @@ export const directorDccUnityEngineReportDetailsSchema = z
      */
     omittedLightCount: z.number().int().nonnegative().max(100_000).optional(),
     /**
-     * Typed warn-and-omit records for lights Unity cannot spawn (unknown type
-     * today). Optional for older connectors; when present, length must equal
-     * omittedLightCount.
+     * Typed warn-and-omit records for lights Unity cannot spawn as GameObjects
+     * (unknown type; ambient/hemisphere after RenderSettings apply). Optional
+     * for older connectors; when present, length must equal omittedLightCount.
      */
     omittedLights: z.array(directorUnityOmittedLightSchema).max(1_024).optional(),
     /** AnimationClips baked from Director keyframe/trajectory channels. */

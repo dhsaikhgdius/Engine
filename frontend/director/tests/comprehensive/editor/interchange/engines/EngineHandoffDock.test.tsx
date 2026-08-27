@@ -419,6 +419,23 @@ it("renders the Unity bake summary with structured omitted channels and never of
           humanoidAvatarCount: 1,
           genericAvatarCount: 1,
           materialFallbackCount: 3,
+          omittedLightCount: 2,
+          omittedLights: [
+            {
+              directorId: "light_ambient_1",
+              code: "light_ambient_render_settings",
+              lightType: "ambient",
+              reason:
+                "Light light_ambient_1: ambient light has no scene GameObject equivalent; mapped onto RenderSettings.ambientLight (flat mode) and recorded as an omitted GameObject spawn (warn-and-omit code: light_ambient_render_settings).",
+            },
+            {
+              directorId: "light_hemi_1",
+              code: "light_hemisphere_render_settings",
+              lightType: "hemisphere",
+              reason:
+                "Light light_hemi_1: hemisphere light has no scene GameObject equivalent; mapped onto RenderSettings trilight ambient (sky/ground) and recorded as an omitted GameObject spawn (warn-and-omit code: light_hemisphere_render_settings).",
+            },
+          ],
           omittedMaterialCount: 2,
           omittedMaterials: [
             {
@@ -473,6 +490,12 @@ it("renders the Unity bake summary with structured omitted channels and never of
   expect(factOf("映射镜头")).toHaveTextContent("3");
   expect(factOf("省略镜头")).toHaveTextContent("1");
   expect(factOf("省略材质")).toHaveTextContent("2");
+  expect(factOf("省略灯光")).toHaveTextContent("2");
+  const omittedLights = screen.getByRole("list", { name: "结构化省略灯光" });
+  expect(within(omittedLights).getByText("light_ambient_1")).toBeInTheDocument();
+  expect(omittedLights).toHaveTextContent("环境光写入 RenderSettings");
+  expect(within(omittedLights).getByText("light_hemi_1")).toBeInTheDocument();
+  expect(omittedLights).toHaveTextContent("半球光写入 RenderSettings");
   const omittedMaterials = screen.getByRole("list", { name: "结构化省略材质" });
   expect(within(omittedMaterials).getByText("prop-hdrp")).toBeInTheDocument();
   expect(omittedMaterials).toHaveTextContent("管线不支持材质回退");
@@ -892,6 +915,137 @@ it("imports an uploaded Godot scene package after review with a rebuilt selectio
   await user.click(importButton);
   await waitFor(() => expect(sceneClient.apply).toHaveBeenCalledTimes(1));
   expect(within(panel).getByRole("button", { name: "已导入当前场景" })).toBeDisabled();
+});
+
+it("lists typed engine-scene omitted records without echoing them as free-text plan warnings", async () => {
+  const rollReason = "Engine camera roll on MainCamera is not represented by Director's target-based camera model.";
+  const hierarchyReason =
+    "The 6 engine scene nodes import as one flattened Director scene object; per-node editing requires the planned engine round trip.";
+  const clampWarning = "Camera MainCamera focal length was clamped to Director's 12–200 mm range.";
+  const manifest = {
+    schemaVersion: 1,
+    contract: "director-engine-scene-v1",
+    packageId: "godot-scene-omitted",
+    provider: "godot",
+    exportedAt: "2026-08-26T00:00:00Z",
+    engineVersion: "Godot 4.7.2",
+    exporter: { name: "director-godot-scene-export", version: "1.0.0" },
+    source: { projectName: "OmitFixture", sceneName: "main" },
+    coordinateSystem: {
+      source: "right-handed-y-up-negative-z-forward-meter",
+      destination: "right-handed-y-up-negative-z-forward",
+      unit: "meter",
+      linearMap: "(x,y,z)->(x,y,z)",
+    },
+    timeline: { frameStart: 0, frameEnd: 0, currentFrame: 0, fps: 30 },
+    scene: {
+      name: "main",
+      bundleFile: "assets/scene.glb",
+      nodeCount: 6,
+      meshCount: 1,
+      skinnedMeshCount: 1,
+      materialCount: 0,
+      animationClipCount: 2,
+    },
+    nodes: [],
+    cameras: [
+      {
+        sourceId: "MainCamera",
+        name: "MainCamera",
+        position: [0, 1.7, 5],
+        lookTarget: [0, 1.7, -5],
+        verticalFovDegrees: 40,
+        nearClipM: 0.05,
+        farClipM: 4000,
+        renderAspectRatio: 16 / 9,
+      },
+    ],
+    lights: [],
+    animationClips: [{ name: "Idle" }, { name: "Walk" }],
+    unsupported: [{ kind: "light", name: "AreaLamp", reason: "Rect-area lights are not mapped." }],
+    warnings: ["package note"],
+    fileHashes: { "assets/scene.glb": hash },
+  };
+  const omitted = [
+    {
+      sourceId: "AreaLamp",
+      kind: "light",
+      code: "unsupported_object" as const,
+      reason: "Rect-area lights are not mapped.",
+    },
+    { sourceId: "scene", code: "hierarchy_flattened" as const, reason: hierarchyReason },
+    { sourceId: "MainCamera", code: "camera_roll" as const, reason: rollReason },
+    {
+      sourceId: "scene",
+      code: "animation_clips" as const,
+      reason:
+        "2 animation clip(s) remain embedded in the GLB; Director v1 imports the scene at the exported frame and does not map them onto its editable timeline.",
+    },
+    {
+      sourceId: "scene",
+      code: "skinned_mesh_rigs" as const,
+      reason:
+        "1 skinned mesh(es) keep their skeletons inside the GLB bundle; Director does not rebind them to its character rig system on import.",
+    },
+  ];
+  const plan = {
+    contract: "director-engine-scene-import-plan-v1",
+    planId: "godot-job/plans/omitted.json",
+    ready: true,
+    provider: "godot",
+    packageId: "godot-scene-omitted",
+    packageDir: "godot-job/package",
+    manifestHash: hash,
+    targetRevision: revision,
+    selection: { includeScene: true, cameraSourceIds: ["MainCamera"], lightSourceIds: [] },
+    operations: [{ op: "create_scene_asset" }, { op: "create_camera" }],
+    conflicts: [],
+    warnings: [
+      "package note",
+      "light AreaLamp: Rect-area lights are not mapped.",
+      hierarchyReason,
+      rollReason,
+      omitted[3]!.reason,
+      omitted[4]!.reason,
+      clampWarning,
+    ],
+    omittedCount: omitted.length,
+    omitted,
+  };
+  sceneClient.upload.mockResolvedValue({
+    jobId: "godot-job",
+    provider: "godot",
+    packagePath: "godot-job/package",
+    manifest,
+    plan,
+  });
+  renderDock();
+  const user = await openTab("Godot");
+  const panel = screen.getByRole("tabpanel");
+
+  await user.upload(
+    within(panel).getByLabelText("选择引擎场景包"),
+    new File(["zip-bytes"], "director-engine-scene.zip", { type: "application/zip" }),
+  );
+  await within(panel).findByText("包已校验");
+
+  expect(within(panel).getByText(/2 项操作 · 0 项冲突 · 5 项省略 · 3 条提示/)).toBeInTheDocument();
+
+  const omittedList = within(panel).getByRole("list", { name: "引擎场景导入省略" });
+  expect(within(omittedList).getByText("AreaLamp")).toBeInTheDocument();
+  expect(omittedList).toHaveTextContent("不支持对象未导入");
+  expect(within(omittedList).getByText("MainCamera")).toBeInTheDocument();
+  expect(omittedList).toHaveTextContent("相机滚转未导入");
+  expect(omittedList).toHaveTextContent("层级合并为单一场景对象");
+  expect(omittedList).toHaveTextContent("动画剪辑未映射时间线");
+  expect(omittedList).toHaveTextContent("蒙皮骨骼未绑定角色系统");
+
+  const planNotices = within(panel).getByRole("list", { name: "引擎场景导入提示" });
+  expect(planNotices).toHaveTextContent(clampWarning);
+  expect(planNotices).toHaveTextContent("light AreaLamp: Rect-area lights are not mapped.");
+  expect(planNotices).not.toHaveTextContent("camera roll");
+  expect(planNotices).not.toHaveTextContent("flattened Director scene object");
+  expect(planNotices).not.toHaveTextContent("package note");
 });
 
 it("opens an Unreal live preview session against the entered port and closes it with bye", async () => {

@@ -36,8 +36,10 @@ Gateway 也绝不解析它。
     `Camera.usePhysicalProperties`、传感器尺寸与 FOV；look-at 目标按场景实体
     解析；正交比例正确换算。变形宽银幕挤压（anamorphic squeeze）警告并省略。
   - **灯光**（点光 / 聚光 / 平行光 / 面光）成为带独立 `DirectorId` 的 Unity
-    `Light` GameObject；环境光与半球光映射到 `RenderSettings` 并写入警告。灯光
-    不参与往返（返回契约没有灯光实体类型）。
+    `Light` GameObject；环境光与半球光映射到 `RenderSettings`，并以结构化
+    `omittedLights[]`（`light_ambient_render_settings` /
+    `light_hemisphere_render_settings`）记录「未生成 GameObject」
+    （连接器 ≥0.3.5；警告并文档化）。灯光不参与往返（返回契约没有灯光实体类型）。
   - **Timeline**：在 `Assets/Director/Timelines/` 下生成一个 `TimelineAsset`，
     由单个 `PlayableDirector` 承载。分镜成为覆盖其相机的 `ActivationTrack`
     片段；Director 关键帧 / 轨迹动画通过 Director 缓动与轨迹求值器的 C# 移植
@@ -51,7 +53,9 @@ Gateway 也绝不解析它。
     回执，其 `unity` 块报告渲染管线、glTF 导入器可用性、导入灯光数 /
     烘焙片段数 / Avatar 数 / 材质回退数 / 已应用姿势角色数等计数、映射 /
     省略分镜计数与结构化 `omittedShots`，以及
-    结构化的 `omittedChannels` 列表（通道 ID、实体、原因），未知灯光类型另以结构化 `omittedLights[]`（`directorId` / `code` / `lightType` / `reason`）呈现，涵盖所有连接器
+    结构化的 `omittedChannels` 列表（通道 ID、实体、原因），未知灯光类型与环境光/半球光
+    RenderSettings 映射另以结构化 `omittedLights[]`（`directorId` / `code` /
+    `lightType` / `reason`）呈现，涵盖所有连接器
     无法烘焙的通道。
 - **导出**（`...DirectorBridgeCli.Export`）：重新打开 Director 场景，在提供方边界
   把所有 `DirectorId` 实体的变换转换回 Director 规范空间，仅导出相对交换包基线
