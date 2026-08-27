@@ -39,12 +39,26 @@ description: 创建、构图、制作动画并验证你的第一个 Director 场
 ```jsonc
 {
   "op": "observe", // 读取当前绑定目标的状态
-  "fields": ["scene", "objects", "cameras", "selection", "timeline"] // 只要这些切片
+  "fields": ["scene", "objects", "cameras", "ui", "timeline"] // 只要这些切片；"ui" 携带选中项与活动相机
 }
 ```
 
 **检查点。** observe 会返回已绑定的目标和 `project_revision`。保存这个修订号——下面每个
-mutation 都要携带它作为守卫。
+mutation 都要携带它作为守卫。（`selection` 不是合法的 observe 字段;`ui` 切片会返回当前
+选中项、活动相机和变换模式。）
+
+创作之前先检索真实的打包资产——不要凭空编造 id：
+
+```jsonc
+{
+  "op": "catalog", // 搜索打包资产目录
+  "catalog": "character_assets", // 打包的绑骨角色模型
+  "query": "X Bot", // 搜索文本（中文同样可用）
+  "limit": 5 // 限定结果数量
+}
+```
+
+**检查点。** 结果会给出精确的目录 id `mixamo:x-bot`。把返回的 id 原样复制进创作动作。
 
 把一个意图作为一个原子批次提交:
 
@@ -61,15 +75,15 @@ mutation 都要携带它作为守卫。
     },
     {
       "action": "add_object", // 添加物体
-      "id": "hero-block", // 物体稳定 ID，后续引用用它
-      "name": "Hero Block", // 编辑器里显示的名称
-      "kind": "prop", // 物体类别；基本体用 prop
-      "geometry_type": "box", // 基本体形状
+      "id": "hero-actor", // 物体稳定 ID，后续引用用它
+      "name": "Hero Actor", // 编辑器里显示的名称
+      "kind": "character", // 物体类别：绑骨的目录角色
+      "asset_id": "mixamo:x-bot", // 来自 catalog 步骤的精确目录 id
       "placement_mode": "grounded", // 按地面锚点放置，不要悬空
       "transform": { // 世界变换，单位米
         "position": [0, 0, 0], // 地面枢轴（底部中心），不是几何中心
         "rotation": [0, 0, 0], // 旋转：弧度
-        "scale": [1.2, 1.8, 1.2] // 缩放：各轴实际尺寸（宽/高/深）
+        "scale": [1, 1, 1] // 保持目录的真实世界比例
       }
     },
     {
@@ -78,8 +92,8 @@ mutation 都要携带它作为守卫。
       "object_id": "main-camera-rig", // 相机绑定的场景物体 ID
       "name": "Main Camera", // 编辑器里显示的名称
       "position": [4.5, 2.4, 6.5], // 相机位置（米）
-      "target": [0, 0.9, 0], // 瞄准点
-      "target_object_id": "hero-block", // 跟随/对准的物体
+      "target": [0, 1.2, 0], // 瞄准点
+      "target_object_id": "hero-actor", // 跟随/对准的物体
       "focal_length_mm": 50, // 焦距（毫米）
       "aspect_ratio": "16:9" // 画幅比例
     }
@@ -87,20 +101,27 @@ mutation 都要携带它作为守卫。
 }
 ```
 
-这是完整编辑器契约:`kind:"prop"` 加 `geometry_type:"box"`。紧凑 `stage_*` 示例里的
-`kind:"cube"` 属于 `StageScene`,不要复制到这里。
+公开的 `director_workbench` author 调用只实例化真实网格:通过 `asset_id` 使用目录或项目
+资产,通过 `blender_native` 建模（`create_blockout` 建筑外壳、`create_opening` 门窗）,或
+使用已 promote 的 `generated_3d` 产物。在这条线路上,设置 Stage `geometry_type` 基本体
+（box、sphere 等）的请求会被拒绝;紧凑 `stage_*` 示例里的 `kind:"cube"` 属于 `StageScene`,
+不要复制到这里。
 
 **检查点。** 批次会原子提交并返回新的 `project_revision`。在打开的浏览器标签页里,
-方块和相机会立即出现。
+角色和相机会立即出现。
 
-再次观察取得新修订号,然后在交付边界结束:
+再次观察取得新修订号,然后在交付边界结束。`deliver` 是发布类操作:在所有非 UI 接口上都
+需要一枚由 `POST /api/agent/confirm-token` 签发的一次性确认 token（请求体为
+`{"tool":"director_workbench","operation":"deliver"}` 加上调用方 `session_id`）。缺少 token
+时 gateway 返回 `403 confirm_required` 且不会执行调用:
 
 ```jsonc
 {
   "op": "deliver", // 按相机交付干净画面与通道
+  "confirm_token": "<POST /api/agent/confirm-token 签发的一次性 token>", // 发布确认，本次调用即消耗
   "expected_revision": "<最新 project_revision>", // 守卫：必须等于最新项目修订号
   "camera_id": "main-camera", // 用哪台相机拍
-  "subject_id": "hero-block", // 构图主体
+  "subject_id": "hero-actor", // 构图主体
   "quality_profile": "video-gen", // 交付质量档
   "render_passes": ["clean", "depth", "normal", "object-id"] // 要输出的通道
 }

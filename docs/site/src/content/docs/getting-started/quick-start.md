@@ -40,12 +40,27 @@ Start with capabilities and a selective observation:
 ```jsonc
 {
   "op": "observe", // read the bound target's current state
-  "fields": ["scene", "objects", "cameras", "selection", "timeline"] // only these slices
+  "fields": ["scene", "objects", "cameras", "ui", "timeline"] // only these slices; "ui" carries selection and the active camera
 }
 ```
 
 **Checkpoint.** The observation returns the bound target and a `project_revision`. Save that
-revision — every mutation below carries it as a guard.
+revision — every mutation below carries it as a guard. (`selection` is not an observe field;
+the `ui` slice returns the current selection, active camera, and transform mode.)
+
+Discover a real packaged asset before authoring — never invent an id:
+
+```jsonc
+{
+  "op": "catalog", // search the packaged asset catalogs
+  "catalog": "character_assets", // packaged rigged character models
+  "query": "X Bot", // search text (Chinese also works)
+  "limit": 5 // bounded result list
+}
+```
+
+**Checkpoint.** The result names the exact catalog id `mixamo:x-bot`. Copy returned ids
+unchanged into authoring actions.
 
 Author one intent as one atomic batch:
 
@@ -62,15 +77,15 @@ Author one intent as one atomic batch:
     },
     {
       "action": "add_object", // add an object
-      "id": "hero-block", // stable object id for later references
-      "name": "Hero Block", // display name in the editor
-      "kind": "prop", // object class; primitives use prop
-      "geometry_type": "box", // primitive shape
+      "id": "hero-actor", // stable object id for later references
+      "name": "Hero Actor", // display name in the editor
+      "kind": "character", // object class: a rigged catalog character
+      "asset_id": "mixamo:x-bot", // exact catalog id from the catalog step
       "placement_mode": "grounded", // place on the floor pivot, not floating
       "transform": { // world transform in metres
         "position": [0, 0, 0], // floor pivot (bottom centre), not geometric centre
         "rotation": [0, 0, 0], // rotation in radians
-        "scale": [1.2, 1.8, 1.2] // exact width / height / depth
+        "scale": [1, 1, 1] // keep the catalog's real-world scale
       }
     },
     {
@@ -79,8 +94,8 @@ Author one intent as one atomic batch:
       "object_id": "main-camera-rig", // scene object the camera is bound to
       "name": "Main Camera", // display name in the editor
       "position": [4.5, 2.4, 6.5], // camera position in metres
-      "target": [0, 0.9, 0], // look-at point
-      "target_object_id": "hero-block", // object the camera aims at
+      "target": [0, 1.2, 0], // look-at point
+      "target_object_id": "hero-actor", // object the camera aims at
       "focal_length_mm": 50, // focal length in millimetres
       "aspect_ratio": "16:9" // frame aspect
     }
@@ -88,20 +103,28 @@ Author one intent as one atomic batch:
 }
 ```
 
-This is the full-editor contract: `kind:"prop"` plus `geometry_type:"box"`. Compact `stage_*`
-examples that use `kind:"cube"` belong to `StageScene` and must not be copied here.
+Public `director_workbench` author calls instance real meshes: catalog or project assets by
+`asset_id`, Blender-modeled geometry through `blender_native` (`create_blockout` shells,
+`create_opening` doors and windows), or promoted `generated_3d` output. Requests that set a
+Stage `geometry_type` primitive (box, sphere, …) are rejected on this wire, and compact
+`stage_*` examples that use `kind:"cube"` belong to `StageScene` and must not be copied here.
 
 **Checkpoint.** The batch commits atomically and returns a new `project_revision`. In the open
-browser tab, the box and camera appear immediately.
+browser tab, the character and camera appear immediately.
 
-Observe again to obtain the new revision, then finish at the delivery boundary:
+Observe again to obtain the new revision, then finish at the delivery boundary. `deliver` is a
+publish operation: on every non-UI surface it requires a single-use confirm token issued by
+`POST /api/agent/confirm-token` (body `{"tool":"director_workbench","operation":"deliver"}`
+plus the calling `session_id`). Without it the gateway answers `403 confirm_required` and does
+not execute the call:
 
 ```jsonc
 {
   "op": "deliver", // deliver a clean frame and extra passes from a camera
+  "confirm_token": "<single-use token from POST /api/agent/confirm-token>", // publish confirmation, consumed by this call
   "expected_revision": "<latest project_revision>", // guard: must match the latest project revision
   "camera_id": "main-camera", // which camera to render
-  "subject_id": "hero-block", // the framed subject
+  "subject_id": "hero-actor", // the framed subject
   "quality_profile": "video-gen", // delivery quality profile
   "render_passes": ["clean", "depth", "normal", "object-id"] // output passes
 }
