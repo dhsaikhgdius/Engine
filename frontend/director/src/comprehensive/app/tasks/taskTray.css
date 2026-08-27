@@ -310,6 +310,7 @@
 }
 
 .task-tray-storage,
+.task-tray-collab-health,
 .task-tray-collab-rooms {
   padding-top: 6px;
   border-top: 1px solid rgb(var(--border-rgb) / 0.1);
