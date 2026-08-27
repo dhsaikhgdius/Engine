@@ -1,3 +1,27 @@
+/**
+ * Core `director_workbench` operation executor.
+ *
+ * This is the single synchronous engine behind every Stage tool call: it
+ * parses raw agent input against the shared contract, executes the operation
+ * against the live Zustand store (observe / describe / query / patch /
+ * author / audit / correct / diff / undo / macros / memory / catalog), and
+ * records the outcome into bounded trace, turn, and audit ring buffers.
+ *
+ * Correctness invariants owned here:
+ * - Every mutation is revision-guarded: a stale `expected_revision` is
+ *   rejected with a typed code before anything is applied.
+ * - Every mutation carries an `idempotency_key`; a retry with the same key
+ *   and intent replays the stored receipt instead of re-executing, and the
+ *   same key with a different intent is a hard conflict.
+ * - `correct` may only apply machine-actionable fixes minted by a prior
+ *   `audit` (audit-token bound), never free-form edits.
+ * - History is bounded ({@link WORKBENCH_HISTORY_LIMIT}) so long-lived tabs
+ *   cannot grow memory without limit.
+ *
+ * Async session operations (Player Mode, Camera Pilot) and evidence captures
+ * are layered on top by gatewayClient / the session command bus; this module
+ * stays synchronous and side-effect free beyond the store itself.
+ */
 import {
   DIRECTOR_CAMERA_MOVE_IDS,
   DIRECTOR_CHARACTER_MOTION_LOOPS,
@@ -1990,6 +2014,15 @@ export async function executeDirectorSessionWorkbenchOperation(
     : { success: false, error: receipt.error ?? "pilot session command failed" };
 }
 
+/**
+ * Execute one already-typed workbench operation against the live store.
+ *
+ * The pipeline is: validate → replay idempotent retries → reject stale
+ * revisions → snapshot the document → run the operation → diff, record the
+ * turn in the ring buffers, store the retry receipt, and notify observers.
+ * Failures return a typed {@link DirectorWorkbenchExecution} (never throw),
+ * and a failed mutation leaves the store at its pre-operation revision.
+ */
 export function executeDirectorWorkbenchOperation(
   getStore: () => DirectorStore,
   input: DirectorWorkbenchOperation,
