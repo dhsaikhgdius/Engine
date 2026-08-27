@@ -1,4 +1,5 @@
 import type {
+  ProductionJobError,
   ProductionJobKind,
   ProductionJobRecord,
   ProductionJobStatus,
@@ -116,6 +117,94 @@ export function taskFailureReason(job: ProductionJobRecord): string | null {
   const attemptError = job.attempts.at(-1)?.error?.message;
   const reason = attemptError ?? job.error ?? null;
   return reason?.trim() ? reason.trim() : null;
+}
+
+/**
+ * zh-CN labels for the structured `attempts[-1].error.code` values the gateway
+ * stamps on production job attempts. Only existing gateway codes are labelled;
+ * unknown codes must still surface as the raw machine code — never invent a
+ * sixth taxonomy in the UI.
+ */
+export const TASK_ERROR_CODE_LABELS: Record<string, string> = {
+  // Media transcode / proxy executor (backend/gateway/media).
+  ffmpeg_not_configured: "FFmpeg 未配置",
+  ffprobe_not_configured: "ffprobe 未配置",
+  ffmpeg_failed: "FFmpeg 执行失败",
+  ffprobe_failed: "ffprobe 探测失败",
+  unsupported_target: "目标格式不支持",
+  unsupported_job_input: "任务输入不支持",
+  unsupported_source: "源媒体不支持",
+  media_transcode_timeout: "媒体转码超时",
+  media_transcode_failed: "媒体转码失败",
+  staged_input_missing: "暂存输入缺失",
+  staged_input_invalid: "暂存输入校验失败",
+  // Transcription executor (backend/gateway/transcription).
+  provider_timeout: "提供方超时",
+  transcription_failed: "转写失败",
+  cancelled_by_user: "用户已取消",
+  // Generation executors (backend/gateway/generation).
+  comfy_generation_failed: "ComfyUI 生成失败",
+  comfy_reconciled_failure: "核对确认生成失败",
+  generated_3d_failed: "3D 生成失败",
+  generated_3d_outcome_unknown: "3D 生成结果未知",
+  // Reconstruction and episode packaging executors.
+  scene_reconstruct_failed: "场景重建失败",
+  episode_package_failed: "Episode 封装失败",
+  episode_integrity_failed: "Episode 完整性校验失败",
+  // Store, routes, and state-machine reconcile codes.
+  outcome_unknown: "结果未知",
+  executor_restart_outcome_unknown: "网关重启后结果未知",
+  job_failed: "任务失败",
+  legacy_job_error: "历史任务错误",
+  reconciled_not_accepted: "核对确认未被提供方接受",
+  local_executor_failed: "本地执行器失败",
+};
+
+/**
+ * Returns the zh-CN label for a structured attempt error code.
+ *
+ * @param code - The machine error code from `attempts[-1].error.code`.
+ * @returns The label, or null when the code has no known label (the UI then
+ *          shows the raw machine code alone).
+ */
+export function taskErrorCodeLabel(code: string): string | null {
+  return TASK_ERROR_CODE_LABELS[code] ?? null;
+}
+
+/** Structured failure detail projected from the latest attempt error. */
+export type TaskFailureDetail = {
+  /** Machine error code, or null when only a legacy string error exists. */
+  code: string | null;
+  /** zh-CN label for a known code; null for unknown codes (show the raw code). */
+  codeLabel: string | null;
+  /** Whether the gateway marked the failure retryable; null without a structured error. */
+  retryable: boolean | null;
+  /** Human error message (structured message or the legacy top-level error). */
+  message: string | null;
+};
+
+/**
+ * Returns the structured failure detail for a job's most recent attempt.
+ * The structured attempt error (code, retryable, message) takes priority;
+ * the legacy top-level string error is the message-only fallback.
+ *
+ * @param job - The production job record.
+ * @returns The failure detail, or null when the job carries no error at all.
+ */
+export function taskFailureDetail(job: ProductionJobRecord): TaskFailureDetail | null {
+  const attemptError: ProductionJobError | undefined = job.attempts.at(-1)?.error;
+  if (attemptError) {
+    const code = attemptError.code.trim();
+    return {
+      code: code || null,
+      codeLabel: code ? taskErrorCodeLabel(code) : null,
+      retryable: attemptError.retryable,
+      message: attemptError.message.trim() || null,
+    };
+  }
+  const legacyMessage = job.error?.trim();
+  if (!legacyMessage) return null;
+  return { code: null, codeLabel: null, retryable: null, message: legacyMessage };
 }
 
 /**

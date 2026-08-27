@@ -3,9 +3,12 @@ import type { ProductionJobRecord } from "../../../../../../packages/protocol/sr
 import {
   formatTaskRelativeTime,
   formatTaskAbsentArtifactLine,
+  TASK_ERROR_CODE_LABELS,
   taskAbsentArtifactAriaLabel,
   taskAbsentArtifactSummaries,
   taskDisplayName,
+  taskErrorCodeLabel,
+  taskFailureDetail,
   taskFailureReason,
   taskKindLabel,
   taskProgressPercent,
@@ -52,6 +55,80 @@ describe("taskFailureReason", () => {
   it("falls back to the legacy string error and returns null when both are missing", () => {
     expect(taskFailureReason(stubJob({ error: "legacy text", attempts: [{}] }))).toBe("legacy text");
     expect(taskFailureReason(stubJob({ attempts: [{}] }))).toBeNull();
+  });
+});
+
+describe("taskErrorCodeLabel", () => {
+  it("labels the media transcode/proxy executor codes in Chinese", () => {
+    expect(taskErrorCodeLabel("ffmpeg_not_configured")).toBe("FFmpeg 未配置");
+    expect(taskErrorCodeLabel("ffprobe_not_configured")).toBe("ffprobe 未配置");
+    expect(taskErrorCodeLabel("ffmpeg_failed")).toBe("FFmpeg 执行失败");
+    expect(taskErrorCodeLabel("ffprobe_failed")).toBe("ffprobe 探测失败");
+    expect(taskErrorCodeLabel("unsupported_target")).toBe("目标格式不支持");
+    expect(taskErrorCodeLabel("unsupported_job_input")).toBe("任务输入不支持");
+    expect(taskErrorCodeLabel("unsupported_source")).toBe("源媒体不支持");
+    expect(taskErrorCodeLabel("media_transcode_timeout")).toBe("媒体转码超时");
+    expect(taskErrorCodeLabel("media_transcode_failed")).toBe("媒体转码失败");
+    expect(taskErrorCodeLabel("staged_input_missing")).toBe("暂存输入缺失");
+    expect(taskErrorCodeLabel("staged_input_invalid")).toBe("暂存输入校验失败");
+  });
+
+  it("labels the store and reconcile codes in Chinese", () => {
+    expect(taskErrorCodeLabel("outcome_unknown")).toBe("结果未知");
+    expect(taskErrorCodeLabel("executor_restart_outcome_unknown")).toBe("网关重启后结果未知");
+    expect(taskErrorCodeLabel("job_failed")).toBe("任务失败");
+    expect(taskErrorCodeLabel("provider_timeout")).toBe("提供方超时");
+    expect(taskErrorCodeLabel("reconciled_not_accepted")).toBe("核对确认未被提供方接受");
+    expect(taskErrorCodeLabel("local_executor_failed")).toBe("本地执行器失败");
+  });
+
+  it("returns null for unknown machine codes instead of inventing a label", () => {
+    expect(taskErrorCodeLabel("provider_http_500")).toBeNull();
+    expect(taskErrorCodeLabel("")).toBeNull();
+  });
+
+  it("keeps every label a non-empty zh-CN string", () => {
+    for (const [code, label] of Object.entries(TASK_ERROR_CODE_LABELS)) {
+      expect(code).toMatch(/^[a-z0-9_]+$/);
+      expect(label.trim()).not.toBe("");
+    }
+  });
+});
+
+describe("taskFailureDetail", () => {
+  it("projects the structured attempt error with code, label, and retryable", () => {
+    const job = stubJob({
+      error: "legacy text",
+      attempts: [{ error: { code: "media_transcode_timeout", message: "The transcode timed out", retryable: true } }],
+    });
+    expect(taskFailureDetail(job)).toEqual({
+      code: "media_transcode_timeout",
+      codeLabel: "媒体转码超时",
+      retryable: true,
+      message: "The transcode timed out",
+    });
+  });
+
+  it("keeps unknown machine codes raw without a label", () => {
+    const job = stubJob({
+      attempts: [{ error: { code: "provider_http_500", message: "provider unreachable", retryable: false } }],
+    });
+    expect(taskFailureDetail(job)).toEqual({
+      code: "provider_http_500",
+      codeLabel: null,
+      retryable: false,
+      message: "provider unreachable",
+    });
+  });
+
+  it("falls back to a message-only detail for legacy string errors", () => {
+    expect(taskFailureDetail(stubJob({ error: " legacy text ", attempts: [{}] }))).toEqual({
+      code: null,
+      codeLabel: null,
+      retryable: null,
+      message: "legacy text",
+    });
+    expect(taskFailureDetail(stubJob({ attempts: [{}] }))).toBeNull();
   });
 });
 
