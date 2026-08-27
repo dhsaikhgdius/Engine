@@ -41,7 +41,7 @@
 
 | Component | Responsibility | File |
 |-----------|----------------|------|
-| Browser bootstrap | Chooses the research portal or Director application, initializes theme, then loads the Agent gateway bridge after first paint | `src/main.tsx` |
+| Browser bootstrap | Mounts the Director application, initializes theme, then loads the Agent gateway bridge after first paint | `src/main.tsx` |
 | Director application | Selects Canvas, Stage, or Video workspaces and scopes creative state to the active production scene | `src/comprehensive/App.tsx` |
 | Stage editor state | Owns the editable `DirectorProject`, UI state, selection, undo, import, cameras, characters, and scene mutations | `src/comprehensive/editor/store/directorStore.ts` |
 | Creative workspace state | Owns Canvas graph, Video timeline, snapshot history, and scene-scoped persistence | `src/comprehensive/editor/workspaces/directorWorkspaceStore.ts` |
