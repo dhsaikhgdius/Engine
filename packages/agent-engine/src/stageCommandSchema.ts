@@ -1,3 +1,20 @@
+/**
+ * Zod schemas for the legacy `stage_*` command tools (read, scene, object,
+ * camera, show).
+ *
+ * These are the HTTP-compatible predecessors of `director_workbench`: the
+ * gateway still validates `stage_*` requests here, and the agent plan
+ * validator ({@link validateDirectorAgentPlan}) dry-runs plan steps against
+ * the same schemas. Every tool is a strict discriminated union on `op` —
+ * unknown ops and stray fields are rejected — with cross-field refinements
+ * (e.g. `transform` needs at least one of position/rotation/scale/pose;
+ * `prop` creation requires `prop_key`). The optional `ref` field lets a
+ * later batch operation reference an object created earlier in the same
+ * batch.
+ *
+ * @module stageCommandSchema
+ */
+
 import { z } from "zod";
 import type { StageCommandToolName } from "@director/stage-protocol";
 import { directorCameraAspectRatioSchema as stageAspectSchema } from "@director/protocol/directorCameraProtocol";
@@ -14,6 +31,8 @@ type JsonObject = Record<string, unknown>;
 const finiteNumber = z.number().finite();
 const vec3Schema = z.tuple([finiteNumber, finiteNumber, finiteNumber]);
 const idSchema = z.string().trim().min(1);
+// `ref` names the result of an earlier operation in the same batch so later
+// operations can target objects that do not exist yet.
 const referenceSchema = { ref: idSchema.optional() };
 const operation = <const Operation extends string, const Shape extends z.ZodRawShape>(op: Operation, shape: Shape) =>
   z.strictObject({ ...referenceSchema, op: z.literal(op), ...shape });

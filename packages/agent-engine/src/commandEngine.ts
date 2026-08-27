@@ -1,3 +1,34 @@
+/**
+ * Pure execution engine for the legacy `stage_*` command tools.
+ *
+ * Given a {@link StageScene} and a validated operation (schemas in
+ * {@link stageCommandSchema}), this module computes the next scene plus a
+ * structured result — with no I/O, no store access, and no globals — so the
+ * gateway, the browser, and the plan validator
+ * ({@link validateDirectorAgentPlan}) can all run the exact same semantics.
+ *
+ * File layout:
+ * 1. Helpers — result constructors, localized naming, symbolic-ref
+ *    resolution, object/track lookup.
+ * 2. Read projections — `scene_state`, compact `observe`, per-object
+ *    `inspect`.
+ * 3. Framing critique — frustum projection, safe-frame classification, and
+ *    bounding-rect occlusion for `stage_read critique`.
+ * 4. Validation — {@link validateStageScene} render-readiness report.
+ * 5. Per-tool sub-engines — `stage_scene`, `stage_read`, `stage_object`,
+ *    `stage_camera`, `stage_show` operation switches.
+ * 6. Batch execution — {@link executeStageTool}: ref capture and the atomic
+ *    batch contract.
+ *
+ * Invariants: the caller's scene is never mutated (a clone is edited and
+ * returned); every failure names the missing id and, where useful, the
+ * corrective read call; a batch (`{ ops: [...] }`) is atomic — the first
+ * failing operation rolls the scene and the ref map back to the input state
+ * and reports the failing index.
+ *
+ * @module commandEngine
+ */
+
 import { cloneScene, createStageId } from "@director/stage-protocol";
 import { isRecord as isObject } from "@director/protocol/primitives";
 import { PROP_CATALOG } from "@director/stage-protocol";
@@ -28,6 +59,10 @@ export const STAGE_HELP = stageCommandPresentation.helpTemplate.replace(
   "{{OPERATION_CONTRACT}}",
   stageOperationContract,
 );
+
+// ---------------------------------------------------------------------------
+// 1. Helpers.
+// ---------------------------------------------------------------------------
 
 function ok(scene: StageScene, result: unknown, events?: ToolExecution["events"]): ToolExecution {
   return { scene, success: true, result, events };
@@ -70,6 +105,11 @@ function addVec3(left: Vec3, right: Vec3): Vec3 {
 function itemDuration(item: StageItem): number {
   return item.durationS;
 }
+
+// ---------------------------------------------------------------------------
+// 2. Read projections: full scene state, compact observation, and per-object
+// inspection (details, relationships, tracks, five nearest neighbours).
+// ---------------------------------------------------------------------------
 
 function sceneState(scene: StageScene) {
   return {
@@ -216,6 +256,12 @@ function inspectObject(scene: StageScene, id: string) {
     nearby,
   };
 }
+
+// ---------------------------------------------------------------------------
+// 3. Framing critique: normalized-frame projection ([-1,1] is the visible
+// frame), inside/edge/outside/behind classification against the safe frame,
+// visible-fraction estimation, and bounding-rect occlusion hints.
+// ---------------------------------------------------------------------------
 
 function critiqueCamera(scene: StageScene, cameraId?: string, subjectId?: string) {
   // Project all scene objects into the camera's frustum and classify
@@ -463,9 +509,17 @@ function objectBounds(scene: StageScene) {
   return { center, radius: Math.max(1, Math.hypot(max[0] - center[0], max[1] - center[1], max[2] - center[2])) };
 }
 
+// ---------------------------------------------------------------------------
+// 4. Validation.
+// ---------------------------------------------------------------------------
+
 /**
  * Validates the scene for rendering readiness, reporting missing cameras,
  * empty timelines, and invalid object scales.
+ *
+ * Errors (empty scene, no camera, invalid scale, dangling camera target)
+ * block `ready`/`video_ready`; warnings (empty timeline) do not. Issue
+ * messages are user-facing UI copy (Simplified Chinese).
  *
  * @param scene - The stage scene to validate.
  * @returns A readiness report with error/warning issues and summary counts.
@@ -507,6 +561,12 @@ export function validateStageScene(scene: StageScene) {
     issues,
   };
 }
+
+// ---------------------------------------------------------------------------
+// 5. Per-tool sub-engines. Each switch handles exactly the ops its schema
+// admits; the default arm is unreachable for validated input but keeps the
+// engine total.
+// ---------------------------------------------------------------------------
 
 function executeScene(scene: StageScene, operation: StageCommandOperation): ToolExecution {
   switch (operation.op) {
@@ -698,6 +758,8 @@ function executeObject(scene: StageScene, operation: StageCommandOperation): Too
       const ids = operation.object_ids;
       const missing = ids.filter((id) => !scene.objects[id]);
       if (missing.length) return fail(scene, `No object(s) with id: ${missing.join(", ")}`);
+      // Deletion cascades: a camera takes its aim target, a parent takes its
+      // children, and tracks bound to any deleted object are dropped too.
       const deleted = new Set<string>();
       for (const id of ids) {
         const object = scene.objects[id];
@@ -987,6 +1049,10 @@ function executeShow(scene: StageScene, operation: StageCommandOperation): ToolE
   }
 }
 
+// ---------------------------------------------------------------------------
+// 6. Batch execution and cross-operation refs.
+// ---------------------------------------------------------------------------
+
 function executeSingle(scene: StageScene, tool: StageCommandToolName, operation: StageCommandOperation): ToolExecution {
   // Route to the correct sub-engine based on the tool name.
   if (tool === "stage_read") return executeRead(scene, operation);
@@ -996,6 +1062,8 @@ function executeSingle(scene: StageScene, tool: StageCommandToolName, operation:
   return executeShow(scene, operation);
 }
 
+// Which result field carries the id a `ref` alias should capture, per
+// creating operation. Ops absent here cannot bind a ref.
 const REF_RESULT_KEYS: Partial<Record<StageCommandToolName, Record<string, string>>> = {
   stage_object: { create: "object_id", group: "group_id" },
   stage_camera: { add: "camera_id" },

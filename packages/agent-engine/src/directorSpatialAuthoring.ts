@@ -1,3 +1,21 @@
+/**
+ * Relational spatial authoring: `place_relative`, `orient_toward`,
+ * `arrange_facing_pair`, and `arrange_group`.
+ *
+ * These high-level author actions let an agent express placement in
+ * relations ("in front of the desk", "facing the door", "arc facing the
+ * camera") instead of raw coordinates. Each action is expanded by
+ * {@link buildDirectorSpatialAuthoringActions} into plain `update_object`
+ * transforms computed from the canonical spatial bounds
+ * (directorSpatialGeometry) — footprint radii keep clearance-based spacing
+ * from interpenetrating — so the output flows through the same atomic
+ * executor, validation, and possession scope as any other author action.
+ * Camera-referenced relations (foreground/background) resolve against the
+ * named or active camera's view snapshot and are rejected without one.
+ *
+ * @module directorSpatialAuthoring
+ */
+
 import { z } from "zod";
 import type {
   DirectorCameraShot,

@@ -1,5 +1,23 @@
+/**
+ * Last-mile shaping of gateway envelopes for the DSH runner.
+ *
+ * DSH `code` blocks read tool results as plain JSON and reject `undefined`
+ * values as non-lossless. This module lifts the commonly-read fields
+ * (`counts`, `dimensions`, `receipt`, …) from the nested gateway result to
+ * the top level, unwraps job/inspection double-nesting, and round-trips
+ * through JSON so the runner sees only defined, serializable data. It runs
+ * after size projection (`toolResultProjection.ts`), so lifted fields may
+ * already be slimmed.
+ *
+ * @module flattenToolResult
+ */
 import { asRecord } from "@director/protocol/primitives";
 
+/**
+ * Result fields promoted to the top level of the flattened envelope, in the
+ * shape DSH code and renderers expect to read without descending into
+ * `result`. Absent keys are simply omitted (never set to `undefined`).
+ */
 const LIFTED_RESULT_KEYS = [
   "id",
   "name",
@@ -50,6 +68,8 @@ function jsonSafe(value: Record<string, unknown>): Record<string, unknown> {
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 }
 
+// Job and inspection responses wrap the useful payload one level deeper
+// (result.result); unwrap so lifting sees the real fields.
 function unwrapNestedToolResult(result: Record<string, unknown> | null): Record<string, unknown> | null {
   if (!result) return null;
   const inner = asRecord(result.result);
@@ -57,6 +77,8 @@ function unwrapNestedToolResult(result: Record<string, unknown> | null): Record<
   return result;
 }
 
+// Copy the known keys up, then promote receipt.warnings / receipt.metrics
+// when the result did not surface them directly.
 function liftKnownFields(core: Record<string, unknown>): Record<string, unknown> {
   const lifted: Record<string, unknown> = {};
   for (const key of LIFTED_RESULT_KEYS) {

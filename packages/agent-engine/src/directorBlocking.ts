@@ -1,3 +1,18 @@
+/**
+ * `compose_blocking`: semantic scene blocking compiled to atomic authoring
+ * actions.
+ *
+ * An agent describes a staging intent in film language — characters with
+ * layout/facing, a camera with angle/height/shot size — and this module
+ * compiles it into the ordinary `add_object` / `add_camera` authoring
+ * vocabulary. No parallel scene model is introduced: the output actions run
+ * through the same validation, possession scoping, and audit as hand-written
+ * ones. Camera distance is solved from the shot-size fill fractions and the
+ * lens FOV so the subjects actually occupy the intended frame.
+ *
+ * @module directorBlocking
+ */
+
 import { z } from "zod";
 import type { DirectorCameraAspectRatio, DirectorTransform } from "@director/project-schema";
 import {
@@ -147,6 +162,9 @@ function aspectValue(aspect: DirectorCameraAspectRatio) {
   return getDirectorCameraAspectValue(aspect);
 }
 
+// Solve the camera placement: distance is the larger of what the vertical
+// and horizontal FOV need for the subjects to fill the frame at the shot's
+// fill fraction, pushed back by half the character-cluster radius.
 function buildCamera(
   action: DirectorComposeBlockingAction,
   points: Point[],

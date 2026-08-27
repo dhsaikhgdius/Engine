@@ -1,3 +1,40 @@
+/**
+ * The `author` operation: the atomic mutation vocabulary of
+ * `director_workbench` and its pure executor.
+ *
+ * An author call carries an ordered list of actions (~80 verbs across scene
+ * settings, assets, objects, characters, cameras, lights, storyboard,
+ * production coverage, world systems, vehicles, timeline audio, annotations,
+ * and layers). {@link directorAuthoringActionSchema} is the single grammar —
+ * `describe {"target":"author.<action>"}` reflects over it — and
+ * {@link applyDirectorAuthoringActions} is the single executor shared by the
+ * gateway and the browser store.
+ *
+ * File layout:
+ * 1. Shared field schemas (ids, enums, optics, pose controls, world blocks,
+ *    vehicle patches).
+ * 2. {@link directorAuthoringActionSchema} — the action union.
+ * 3. Result types ({@link DirectorAuthoringResult}, changed-id ledger).
+ * 4. Lookup/validation helpers — `require*`/`ensure*` throw the corrective
+ *    message that becomes the tool rejection.
+ * 5. Delete/duplicate set helpers with cascade semantics.
+ * 6. {@link applyDirectorAuthoringActions} — the executor.
+ *
+ * Invariants:
+ * - Atomicity: the executor deep-clones the project and applies actions in
+ *   order; any throw abandons the clone, so a failed batch changes nothing.
+ * - High-level actions (compose_blocking, frame_shot, mark_camera_move,
+ *   spatial and procedural authoring) are expanded in place into this same
+ *   atomic vocabulary — no parallel scene model exists.
+ * - Every mutation is recorded in the created/updated/deleted ledgers so
+ *   feedback and possession receipts can name exactly what changed.
+ * - `geometry_type` is schema-visible but rejected on the public agent wire
+ *   (see directorWorkbenchContract); Stage instances catalog, Blender, or
+ *   generated meshes rather than assembling primitives.
+ *
+ * @module directorAuthoring
+ */
+
 import { z } from "zod";
 import type {
   DirectorAssetRef,
@@ -157,6 +194,10 @@ import {
 } from "./directorProceduralAuthoring";
 import { compileDirectorAnimationRecipe, directorAnimationRecipeInputSchema } from "@director/project-schema";
 import { DIRECTOR_NATIVE_STAGE_PATCH_FIELDS } from "./directorKernelOwnership";
+
+// ---------------------------------------------------------------------------
+// 1. Shared field schemas reused across many actions.
+// ---------------------------------------------------------------------------
 
 const id = z.string().trim().min(1).max(200);
 const name = z.string().trim().min(1).max(240);
@@ -574,6 +615,12 @@ const vehicleProfilePatchSchema = z.strictObject({
   camera: vehicleCameraPatchSchema.optional(),
 });
 
+// ---------------------------------------------------------------------------
+// 2. The action union. Every arm is a strictAction: unknown fields are
+// rejected by name, and `describe` serves each arm's JSON Schema on demand.
+// ---------------------------------------------------------------------------
+
+/** Every atomic (or expandable high-level) author action, discriminated on `action`. */
 export const directorAuthoringActionSchema = z
   .discriminatedUnion("action", [
     strictAction("start_scene", {
@@ -1074,6 +1121,12 @@ export const directorAuthoringActionSchema = z
 
 export type DirectorAuthoringAction = z.infer<typeof directorAuthoringActionSchema>;
 
+// ---------------------------------------------------------------------------
+// 3. Result types: the mutated project plus per-collection changed-id
+// ledgers that downstream feedback, diffs, and possession receipts consume.
+// ---------------------------------------------------------------------------
+
+/** Outcome of one atomic author batch against a cloned project. */
 export interface DirectorAuthoringResult {
   project: DirectorProject;
   created: DirectorAuthoringChangedIds;
@@ -1194,6 +1247,13 @@ function applyTimelineAudioClipPatch(
   if (patch.muted !== undefined) next.muted = patch.muted;
   return next;
 }
+
+// ---------------------------------------------------------------------------
+// 4. Lookup and validation helpers. `require*` resolve an id or throw the
+// exact corrective message that surfaces as the tool rejection; `ensure*`
+// create optional blocks (world, production, timeline) on demand and note
+// the side effect in the result.
+// ---------------------------------------------------------------------------
 
 function ensureAvailableId(project: DirectorProject, value: string, label: string) {
   const exists =
@@ -1630,6 +1690,18 @@ function referencedChildren(project: DirectorProject, ids: Set<string>) {
   return project.objects.filter((object) => object.parentObjectId && ids.has(object.parentObjectId));
 }
 
+// ---------------------------------------------------------------------------
+// 5. Delete/duplicate set helpers with cascade semantics.
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete a set of objects with explicit consent gates: locked targets need
+ * `force`, and parents with descendants need `cascade` (which then removes
+ * the whole subtree). Also removes linked camera shots and object-anchored
+ * annotations/measurements, and nulls back-references (parents, look
+ * targets, camera targets/follow/path, storyboard camera links) so the
+ * project graph stays consistent without dangling ids.
+ */
 function deleteObjectSet(project: DirectorProject, requestedIds: string[], cascade: boolean, force: boolean) {
   const ids = new Set(requestedIds);
   requestedIds.forEach((objectId) => {
@@ -1910,6 +1982,22 @@ function duplicateObjectSet(project: DirectorProject, requestedIds: string[], of
   return { objectIds: duplicatedObjectIds, cameraIds: duplicatedCameraIds };
 }
 
+// ---------------------------------------------------------------------------
+// 6. The executor.
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply an ordered author batch to a deep clone of the project.
+ *
+ * High-level actions are expanded in place first (compose_blocking,
+ * frame_shot, mark_camera_move, spatial/procedural authoring,
+ * batch_update_objects, reset_transforms), then each atomic action mutates
+ * the clone and records its ids in the created/updated/deleted ledgers.
+ * Any thrown error abandons the clone entirely — a failed batch changes
+ * nothing (the caller still holds `source`). `start_scene` may appear at
+ * most once and only as the first action. Production coverage is
+ * reconciled at the end when any action invalidated it.
+ */
 export function applyDirectorAuthoringActions(
   source: DirectorProject,
   actions: DirectorAuthoringAction[],

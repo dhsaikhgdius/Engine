@@ -1,3 +1,17 @@
+/**
+ * Canonical world-space bounds for Director objects.
+ *
+ * Single geometry source for the spatial subsystems: spatial queries
+ * (directorSpatialQuery), the placement audit (directorAudit), and
+ * relational authoring (directorSpatialAuthoring) all measure objects
+ * through {@link getDirectorSpatialBounds}, so "near", "supported", and
+ * "clearance" mean the same thing everywhere. Bounds are computed from
+ * primitive metrics, catalog spatial facts, or character height, oriented
+ * by the object's transform, and reduced to an axis-aligned box.
+ *
+ * @module directorSpatialGeometry
+ */
+
 import type { DirectorObject, DirectorProject } from "@director/project-schema";
 import { getDirectorPrimitiveMetrics, getGroundedLabelY } from "@director/project-schema";
 

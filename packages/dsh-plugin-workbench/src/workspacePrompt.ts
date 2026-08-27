@@ -1,3 +1,15 @@
+/**
+ * DB-backed agent workspace prompt as a live DSH system-prompt section.
+ *
+ * The gateway merges organization/user instruction layers (plus an optional
+ * per-session override from `DIRECTOR_SESSION_INSTRUCTIONS`) into one
+ * redacted prompt; this module fetches it, registers it as the section right
+ * after the static guidance, and refreshes it periodically so instruction
+ * edits reach new harness sessions without a repo change or DSH restart.
+ * Repo skills are not part of this prompt — DSH loads those itself.
+ *
+ * @module workspacePrompt
+ */
 import { z } from "zod";
 import { fetchDirectorGatewayJson, type DirectorWorkbenchGatewayConfig } from "./gatewayClient";
 

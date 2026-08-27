@@ -1,3 +1,19 @@
+/**
+ * Builds the `director_workbench` observe payload from a persisted project.
+ *
+ * Observe is the read anchor of the agent loop (observe → author →
+ * observe/diff): every field name emitted here — `objects`, `cameras`,
+ * `counts`, `graph_issues`, `production`, `timeline`, … — is the same
+ * vocabulary `capabilities` advertises and {@link buildDirectorRevisionDiff}
+ * diffs, so an agent can request exactly the fields it needs. Objects and
+ * cameras are projected into snake_case agent-facing shapes (never the raw
+ * store objects), cameras carry the shared film-language framing report,
+ * and the live Stage `ui` snapshot is optional: observing without a
+ * connected tab reports `ui: null` rather than failing.
+ *
+ * @module directorWorkbenchObserve
+ */
+
 import type { DirectorProject } from "@director/project-schema";
 import { getCameraViewSnapshotFromShot, normalizeDirectorCameraOptics } from "@director/project-schema";
 import { directorCameraShotLanguageReport } from "./directorFraming";
@@ -18,6 +34,7 @@ export interface DirectorProjectObservationCounts {
   coverage_shots: number;
 }
 
+/** Presentation options for one observe call. */
 export type DirectorWorkbenchObserveOptions = {
   objectMode?: "flat" | "hierarchy";
   maxObjects?: number;
@@ -45,6 +62,9 @@ export function directorProjectObservationCounts(project: DirectorProject): Dire
   };
 }
 
+// Project each store object into the agent-facing snake_case shape.
+// Optional fields are included only when present so payloads stay compact;
+// nested structures are cloned so observers can never mutate the project.
 function observeDirectorObjects(project: DirectorProject) {
   return project.objects.map((object) => ({
     id: object.id,

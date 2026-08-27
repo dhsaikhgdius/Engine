@@ -1,3 +1,23 @@
+/**
+ * The `audit` operation: structural, spatial, timeline, storyboard, and
+ * camera-framing validation with machine-applicable fixes.
+ *
+ * Audit is the checking step of the workbench loop (author → observe/diff →
+ * audit). It runs only the passes named in {@link DIRECTOR_AUDIT_SCOPE};
+ * `ready` means zero error-severity structural issues and is explicitly not
+ * a visual judgment ({@link DIRECTOR_AUDIT_VISUAL_JUDGMENT}) — visual
+ * acceptance is a 35–65 mm capture. Where possible an issue carries a
+ * `suggested_fix` expressed as ordinary author actions, so an agent can
+ * apply the fix through the same atomic vocabulary it already uses.
+ *
+ * The spatial pass classifies every object's placement (grounded, supported,
+ * attached, suspended, or unresolved) against computed bounds with small
+ * epsilon tolerances, and validates each declared `placementMode` against
+ * the resolved reality.
+ *
+ * @module directorAudit
+ */
+
 import type {
   DirectorEntityAnimation,
   DirectorObject,

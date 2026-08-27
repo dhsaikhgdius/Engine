@@ -1,3 +1,20 @@
+/**
+ * Procedural authoring: deterministic recipe expansion for `apply_procedural`.
+ *
+ * A procedural recipe (scatter, grid, ring, … — grammar in
+ * `@director/protocol/directorProceduralProtocol`) is compiled by
+ * {@link previewDirectorProceduralRecipe} into plain low-level add/delete
+ * authoring actions before execution, and the recipe itself is persisted on
+ * the project so the expansion can be re-derived. Expansion is deterministic
+ * for a given recipe + seed, output counts are capped at
+ * `DIRECTOR_PROCEDURAL_MAX_OUTPUTS`, and generated ids are derived from the
+ * recipe id so re-applying a recipe replaces its own outputs instead of
+ * accumulating duplicates. No parallel scene model: the results are ordinary
+ * project objects.
+ *
+ * @module directorProceduralAuthoring
+ */
+
 import { z } from "zod";
 import type {
   DirectorObject,

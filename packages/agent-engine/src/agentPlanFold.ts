@@ -1,3 +1,17 @@
+/**
+ * Folds the durable agent event stream into the latest structured plan.
+ *
+ * Director plans travel as `plan.updated` events on the same event log that
+ * drives session status ({@link applyAgentSessionEvent} in
+ * agentSessionProjection). This module is the read side: given a session's
+ * events it recovers the most recent plan and its lifecycle status, and the
+ * write side: it builds the `plan.updated` payload for a status transition.
+ * Gateway and browser both fold from the same events, so plan state cannot
+ * drift between processes.
+ *
+ * @module agentPlanFold
+ */
+
 import type { AgentEvent } from "./agentSessionSchema";
 import type { DirectorAgentPlan } from "./agentPlan";
 import { isRecord as isObject } from "@director/protocol/primitives";

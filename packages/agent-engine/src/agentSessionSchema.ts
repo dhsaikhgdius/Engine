@@ -1,3 +1,22 @@
+/**
+ * Durable Agent Session wire schemas plus origin/sidebar helpers.
+ *
+ * Sessions, their ordered event streams, checkpoints, queued messages, and
+ * every session HTTP request body are defined here once and shared by the
+ * gateway (SQLite persistence + route validation) and the browser session
+ * UI. Statuses and event types are not free-form: they are derived from
+ * `agentSessionProtocol.json`, so adding a lifecycle state is a protocol
+ * change, not a string edit. The reducer that folds events into the session
+ * snapshot lives in {@link applyAgentSessionEvent} (agentSessionProjection).
+ *
+ * The helper block at the bottom encodes the sidebar policy: subagent
+ * sessions (delegated children) never appear as sidebar rows, and legacy
+ * rows that predate the `origin` column are classified from their parent id
+ * or `Subagent ·` title prefix.
+ *
+ * @module agentSessionSchema
+ */
+
 import { z } from "zod";
 import { directorAgentTargetWireSchema } from "@director/protocol/agentGatewayProtocol";
 import { protocolKeys } from "@director/protocol/primitives";

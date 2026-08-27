@@ -1,3 +1,27 @@
+/**
+ * The Director tool catalog mounted onto agent surfaces (DSH plugin, MCP
+ * server, portable Agent plugin): tool names, routing descriptions, and the
+ * compact model-facing wire schemas.
+ *
+ * Two-layer validation contract:
+ *
+ * - The **wire schemas** here ({@link DIRECTOR_AGENT_WIRE_SCHEMAS}) are
+ *   deliberately loose: they pin `op` to the exact discriminated-union
+ *   vocabulary of each domain schema and annotate only the fields the model
+ *   most often gets wrong. Their job is early, cheap rejection with a
+ *   corrective message — not completeness.
+ * - The **Gateway** re-validates every call against the complete strict
+ *   operation schema (`directorWorkbenchOperationSchema`,
+ *   `creativeWorkspaceAgentRequestSchema`, …). Fields that ride alongside
+ *   `op` pass through the loose envelope and are strictly checked there.
+ *
+ * Per the ranked teaching channels, `capabilities`/`describe` remain the only
+ * canonical vocabulary source; the tool descriptions in
+ * {@link DIRECTOR_WORKBENCH_PLUGIN_TOOLS} stay short routing envelopes and
+ * must not grow into a second parameter reference.
+ *
+ * @module catalog
+ */
 import { z } from "zod";
 import {
   directorObjectSpatialQuerySchema,
@@ -11,6 +35,7 @@ import { videoModelOperationSchema, videoProviderIdSchema } from "@director/prot
 import { directorGameOperationSchema } from "@director/protocol/director-game";
 import { gameSliceGenreSchema, gameSliceIdSchema } from "@director/protocol/game-slice";
 
+/** Structural view of a Zod discriminated union keyed on a literal `op`. */
 type OperationUnionSchema = {
   options: ReadonlyArray<{ shape: { op: { value: string } } }>;
 };
@@ -21,6 +46,10 @@ function jsonSchemaRecord(value: unknown): JsonSchemaRecord | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonSchemaRecord) : undefined;
 }
 
+// Recursively project one JSON Schema node onto the DSH-accepted subset:
+// annotations, oneOf, scalar type + enum/const, object properties/required,
+// and single-item arrays. Unsupported constructs are dropped rather than
+// forwarded, so DSH never sees keywords its validator rejects.
 function dshSchemaNode(value: unknown): JsonSchemaRecord {
   const source = jsonSchemaRecord(value);
   if (!source) return {};
@@ -72,6 +101,9 @@ export function compactWireSchema(schema: OperationUnionSchema, description: str
   return z.looseObject({ op: z.enum(operationNames(schema)).describe(description) });
 }
 
+// The workbench envelope annotates the fields agents most often misuse
+// (catalog vs target, top-level query_objects selectors, observe bounds).
+// Everything else rides through and is strictly validated by the Gateway.
 const directorWorkbenchWireSchema = compactWireSchema(
   directorWorkbenchOperationSchema,
   'Operation. Use {"op":"describe","target":"<op>"}, target "author.<action>", or target "author.evidence" when exact fields are unknown. Other fields ride alongside op and are strictly validated by the Gateway.',
@@ -178,6 +210,13 @@ const directorCreativeWireSchema = compactWireSchema(
     ),
 });
 
+/**
+ * Model-facing wire schema per Director tool. These run in the agent surface
+ * before any network hop; the `superRefine` blocks add the two rejections
+ * whose corrective message must arrive instantly (`catalog` without a catalog
+ * id, `describe` without a target). The Gateway remains the strict authority
+ * for every other field.
+ */
 export const DIRECTOR_AGENT_WIRE_SCHEMAS = {
   director_workbench: directorWorkbenchWireSchema.superRefine((value, context) => {
     if (value.op === "catalog" && value.catalog === undefined) {
@@ -403,8 +442,10 @@ export const DIRECTOR_WORKBENCH_PLUGIN_TOOLS = [
 
 export type DirectorWorkbenchPluginToolName = (typeof DIRECTOR_WORKBENCH_PLUGIN_TOOLS)[number]["name"];
 
+/** Names of the Director domain tools (excludes `director_model_routes`). */
 export const DIRECTOR_WORKBENCH_PLUGIN_TOOL_NAMES = DIRECTOR_WORKBENCH_PLUGIN_TOOLS.map((tool) => tool.name);
 
+/** Type guard used by routers to decide whether a tool call belongs to Director. */
 export function isDirectorWorkbenchPluginTool(tool: string): tool is DirectorWorkbenchPluginToolName {
   return (DIRECTOR_WORKBENCH_PLUGIN_TOOL_NAMES as readonly string[]).includes(tool);
 }

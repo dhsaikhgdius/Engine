@@ -1,3 +1,22 @@
+/**
+ * Durable schemas for multi-agent film production runs.
+ *
+ * A production run is a DAG of film-role nodes (screenwriter, director,
+ * cinematographer, …) executed by delegated Agent sessions; nodes exchange
+ * typed artifacts and the whole run is persisted as a versioned snapshot.
+ * These schemas are the single contract for the gateway scheduler, the HTTP
+ * run API, and the browser run view.
+ *
+ * Invariants enforced here rather than in the scheduler: run and node ids
+ * are path-safe because they double as snapshot/checkpoint file names;
+ * explicit graphs must be acyclic with unique ids and known edges (Kahn's
+ * algorithm in the schema refinement) so the scheduler can always make
+ * progress; and v1 single-profile snapshots are migrated to the v2 per-role
+ * routing shape at parse time, so consumers only ever see v2.
+ *
+ * @module multiAgentRunSchema
+ */
+
 import { z } from "zod";
 import { agentProviderSchema } from "./agentSessionSchema";
 import {

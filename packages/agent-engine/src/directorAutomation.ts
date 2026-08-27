@@ -1,3 +1,18 @@
+/**
+ * The Director automation library: reusable macros and durable memory facts.
+ *
+ * A macro is a named, parameterized bundle of author actions (validated
+ * against the real authoring grammar at save time); a memory fact is a
+ * pinned piece of agent knowledge scoped globally or to one scene. The
+ * library is persisted in browser localStorage under a versioned key, with
+ * a change event so concurrent tabs stay coherent. `director_workbench`
+ * `op:"macro"` / `op:"memory"` and the Automation panel share these schemas,
+ * limits, and (de)serialization helpers, so an agent-saved macro is exactly
+ * what the UI shows and runs.
+ *
+ * @module directorAutomation
+ */
+
 import { z } from "zod";
 import { stableLexicalJson } from "@director/protocol/stableJson";
 import { directorAuthoringActionSchema, type DirectorAuthoringAction } from "./directorAuthoring";

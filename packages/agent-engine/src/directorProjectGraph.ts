@@ -1,3 +1,14 @@
+/**
+ * Whole-project referential integrity checker.
+ *
+ * Every `director_workbench` mutation is validated against this graph check
+ * before persistence, and `op:"audit"` re-runs it on demand: a project that
+ * introduces dangling ids, duplicates, or parent cycles is rejected with the
+ * exact issue strings returned here rather than saved in a broken state.
+ *
+ * @module directorProjectGraph
+ */
+
 import type { DirectorProject } from "@director/project-schema";
 import { getDirectorProductionIssues } from "@director/project-schema";
 import { getDirectorCharacterAssetBindingIssues } from "@director/dcc-interchange";

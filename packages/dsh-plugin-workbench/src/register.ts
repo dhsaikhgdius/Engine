@@ -1,3 +1,31 @@
+/**
+ * Registration of Director's domain tools onto a DeepSeek Harness process.
+ *
+ * `registerDirectorWorkbenchPlugin` is the plugin's real body (the Cordis
+ * `apply` in `cordis.ts` just forwards here). For each catalog tool it
+ * registers a DSH tool definition whose `execute` performs the full plugin
+ * pipeline:
+ *
+ *   1. Validate the call against the compact wire schema
+ *      ({@link DIRECTOR_AGENT_WIRE_SCHEMAS}); invalid calls throw with the
+ *      exact Zod issue paths so the model can self-correct.
+ *   2. Dispatch to the Gateway `/api/tools/:name` route
+ *      (`dispatchDirectorWorkbenchTool`), tagging the call with the DSH
+ *      session id so possession and audit trails line up.
+ *   3. Re-home any base64 capture into DSH attachment storage (or a summary
+ *      when the routed model has no image input), project oversize results
+ *      (`finalizeDirectorAgentToolEnvelope`), and flatten the envelope for
+ *      the DSH runner (`flattenDirectorToolResult`).
+ *
+ * Beyond the domain tools it also registers the `director_model_routes`
+ * read tool, the static guidance system-prompt section, the DB-backed
+ * workspace prompt, and the `/director/health` identity route. All DSH
+ * services (tools, llm, systemPrompt, attachments, webServer) are consumed
+ * through the narrow structural types below so the package never imports
+ * DSH internals.
+ *
+ * @module register
+ */
 import {
   DIRECTOR_AGENT_WIRE_SCHEMAS,
   DIRECTOR_WORKBENCH_PLUGIN_TOOL_NAMES,
@@ -85,8 +113,17 @@ type DirectorWebServer = {
   }): () => void;
 };
 
+/**
+ * Adapter that wraps a plain tool definition into whatever the host harness
+ * registers (DSH passes its `defineTool`; tests use the identity default).
+ */
 export type DirectorWorkbenchDefineTool = (options: DirectorWorkbenchToolDefinition) => unknown;
 
+/**
+ * Structural view of the Cordis context the plugin receives. Every service
+ * access is optional so the plugin degrades gracefully in minimal harness
+ * builds (e.g. no attachments store → captures become text summaries).
+ */
 export type DirectorWorkbenchPluginContext = {
   tools: { register: (tool: unknown) => void };
   get?: (service: string) => unknown;
@@ -98,12 +135,15 @@ export type DirectorWorkbenchPluginContext = {
   webServer?: DirectorWebServer;
 };
 
+/** Identity endpoint path; the Director UI probes it before embedding DSH. */
 export const DIRECTOR_DSH_HEALTH_PATH = "/director/health";
 export const DIRECTOR_MODEL_ROUTES_TOOL_NAME = "director_model_routes";
+/** Every tool this plugin mounts: the domain tools plus the model-routes read. */
 export const DIRECTOR_DSH_TOOL_NAMES = [
   ...DIRECTOR_WORKBENCH_PLUGIN_TOOL_NAMES,
   DIRECTOR_MODEL_ROUTES_TOOL_NAME,
 ] as const;
+/** Health payload proving this DSH instance carries the Director plugin. */
 export const DIRECTOR_DSH_HEALTH = {
   service: "director-deepseek-harness",
   version: 1,
@@ -121,6 +161,8 @@ function presentDirectorCall(name: string, args: unknown): DirectorToolCallView 
   return { card: "generic", title, kind: safe ? "read" : "execute" };
 }
 
+// Deliberately permissive: gateway envelopes vary per op, so the DSH output
+// schema only names the common fields and lets the rest pass through.
 const DIRECTOR_TOOL_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: true,
@@ -176,6 +218,8 @@ function renderDirectorResult(value: unknown): DirectorContentBlock[] {
   return content;
 }
 
+// True only when the session's routed model declares image input; captures
+// are downgraded to text summaries otherwise so bytes are never wasted.
 async function routeAcceptsImages(context: DirectorWorkbenchPluginContext, exec?: DirectorToolExecution) {
   const routed = exec?.agent?.session?.requestHeader?.()?.config;
   const provider = routed?.provider ?? exec?.agent?.options?.provider;
@@ -186,6 +230,11 @@ async function routeAcceptsImages(context: DirectorWorkbenchPluginContext, exec?
   return info.inputModalities?.includes("image") === true;
 }
 
+// Post-process one gateway response for the model: strip inline base64, move
+// a valid capture into DSH attachment storage (falling back to a summary with
+// an explicit reason on unsupported media type / missing store / text-only
+// model / storage failure), then apply the shared size projection and the
+// DSH-runner flattening.
 async function prepareDirectorResult(
   context: DirectorWorkbenchPluginContext,
   tool: string,
@@ -254,6 +303,9 @@ function modelView(model: DirectorLlmModelInfo) {
   };
 }
 
+// `director_model_routes`: a read-only tool listing the exact provider/model
+// routes registered in this DSH process, so agents never guess route ids when
+// overriding workflow or subagent models.
 function registerDirectorModelRoutes(context: DirectorWorkbenchPluginContext, defineTool: DirectorWorkbenchDefineTool) {
   context.tools.register(
     defineTool({
@@ -297,6 +349,8 @@ function registerDirectorModelRoutes(context: DirectorWorkbenchPluginContext, de
   );
 }
 
+// Static principles section (order 113); the DB-backed workspace prompt from
+// workspacePrompt.ts follows at order 114.
 function registerDirectorAgentGuidance(context: DirectorWorkbenchPluginContext) {
   const systemPrompt = context.get?.("systemPrompt") as DirectorSystemPrompt | undefined;
   systemPrompt?.section({
@@ -347,6 +401,8 @@ export function registerDirectorWorkbenchPlugin(
         name: tool.name,
         description: tool.description,
         parameters: tool.dshParameters,
+        // DSH takes one static timeout per tool, so size it for each tool's
+        // slowest op (pipeline await, DCC host job, plain observe otherwise).
         timeoutMs: dynamicToolTimeoutMs(
           tool.name,
           tool.name === "director_creative"

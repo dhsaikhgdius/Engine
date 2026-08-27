@@ -1,4 +1,12 @@
-/** System-prompt section injected into DeepSeek Harness for Director sessions. */
+/**
+ * System-prompt section injected into DeepSeek Harness for Director sessions.
+ *
+ * This is one of the ranked teaching channels (see "Canonical source order"
+ * in the workbench skill): it teaches principles and pointers only —
+ * `capabilities`/`describe` remain the sole canonical vocabulary, and
+ * rejection messages carry per-failure corrections. Keep it prose-shaped
+ * and short; do not grow it into a second parameter reference.
+ */
 export const DIRECTOR_AGENT_GUIDANCE = `Use Director's typed tools for Stage, Canvas, Video Editor, generation, and Blender work. Load the project skill first.
 
 Canonical source order: capabilities and describe are the only canonical vocabulary for operations, parameters, and enums; when any channel disagrees with a live describe result, describe wins. This guidance and the director-workbench skill teach principles and pointers, tool descriptions are short routing envelopes, and a rejection message carries the corrective call for that exact failure. Fetch exact fields with describe — director_workbench {"op":"describe","target":"author.add_object"} or "author.evidence", blender_native {"op":"describe","target":"create_blockout"} or {"op":"describe","operator":"mesh.bevel"}, director_creative {"op":"describe","target":"interchange"} — instead of guessing a field or discovering it with a failing mutation.
