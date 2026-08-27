@@ -73,7 +73,8 @@ modifier、armature、action 或 NLA 时使用 `npm run blender`。它们是同�
 
 ## Stage 工具族
 
-具体的每工具 schema 请使用工具帮助或 MCP capabilities。工具族包括：
+这些是遗留的紧凑 `StageScene` 接口：仅 HTTP 兼容路由（`POST /api/tools/stage_*`），MCP 不再
+对模型公布。具体的每工具 schema 请使用工具帮助。工具族包括：
 
 - `stage_read`：观察、检查、批评、状态和渲染审阅；
 - `stage_scene`：重置、配置、校验和制作级场景动作；

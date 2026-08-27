@@ -82,7 +82,9 @@ create a production scene.
 
 ## Stage tool families
 
-Use tool help or MCP capabilities for the exact current per-tool schemas. The families are:
+These are the legacy compact `StageScene` surface: HTTP-only compatibility routes
+(`POST /api/tools/stage_*`), no longer advertised over MCP. Use tool help for the exact current
+per-tool schemas. The families are:
 
 - `stage_read` — observe, inspect, critique, state, and rendered review;
 - `stage_scene` — reset, configure, validate, and production-level scene actions;
