@@ -41158,6 +41158,9 @@ var canvasNodeRemoveSchema = strictOperation("canvas.node.remove", { node_id: cr
 var canvasNodeBringToFrontSchema = strictOperation("canvas.node.bring_to_front", {
   node_id: creativeWorkspaceIdSchema
 });
+var canvasNodeSendToBackSchema = strictOperation("canvas.node.send_to_back", {
+  node_id: creativeWorkspaceIdSchema
+});
 var canvasNodeAssignSectionSchema = strictOperation("canvas.node.assign_section", {
   node_id: creativeWorkspaceIdSchema,
   section_id: creativeWorkspaceIdSchema.nullable()
@@ -41488,6 +41491,7 @@ var creativeWorkspaceAgentOperationSchema = external_exports.discriminatedUnion(
   canvasNodeUpdateSchema,
   canvasNodeRemoveSchema,
   canvasNodeBringToFrontSchema,
+  canvasNodeSendToBackSchema,
   canvasNodeAssignSectionSchema,
   canvasSectionAddSchema,
   canvasSectionUpdateSchema,
@@ -121753,6 +121757,7 @@ var projectedBoardNodeSchema = external_exports.strictObject({
   body: external_exports.string(),
   media_id: external_exports.string().nullable(),
   section_id: external_exports.string().nullable(),
+  z_index: external_exports.number().int().nonnegative(),
   x: creativeWorkspaceFiniteNumberSchema,
   y: creativeWorkspaceFiniteNumberSchema,
   width: creativeWorkspaceFiniteNumberSchema.positive(),
@@ -122003,7 +122008,11 @@ var creativeWorkspaceAgentCapabilitiesSchema = external_exports.strictObject({
     layout_operation: external_exports.literal("canvas.dag.layout"),
     layout_directions: external_exports.tuple([external_exports.literal("horizontal"), external_exports.literal("vertical")]),
     layout_contract: external_exports.string(),
-    bring_to_front_operation: external_exports.literal("canvas.node.bring_to_front"),
+    z_order_operations: external_exports.tuple([
+      external_exports.literal("canvas.node.bring_to_front"),
+      external_exports.literal("canvas.node.send_to_back")
+    ]),
+    z_order_observe_field: external_exports.literal("board.nodes[].z_index"),
     z_order_contract: external_exports.string(),
     section_operations: external_exports.tuple([
       external_exports.literal("canvas.section.add"),
@@ -123205,7 +123214,9 @@ var mcpToolStructuredOutputSchema = external_exports.strictObject({
   /** The Director target the operation was executed against, or null. */
   target: directorAgentTargetWireSchema.nullable(),
   /** Agent boundary receipt, or null when the call was not accepted. */
-  agent_boundary: agentBoundaryReceiptSchema.nullable()
+  agent_boundary: agentBoundaryReceiptSchema.nullable(),
+  /** Sole-possession auto-fill receipt or scope rejection detail, when present. */
+  possession: external_exports.unknown().nullable()
 });
 function nestedString(value, key) {
   const root = asRecord(value);
@@ -123217,7 +123228,7 @@ function nestedString(value, key) {
   }
   return null;
 }
-function recoverySuggestion(code) {
+function recoverySuggestion(code, possession) {
   switch (code) {
     case "target_required":
       return "Call observe first, retain its exact target token, then retry against that same target.";
@@ -123244,8 +123255,32 @@ function recoverySuggestion(code) {
     case "workbench_unavailable":
     case "creative_workspace_unavailable":
       return "Open the intended Director workspace and retry. Durable observe/audit can use the last persisted project or live Blender kernel; mutations and capture still need a visible tab. Use blender_native scene/inspect for native geometry.";
+    case "possession_scope_violation":
+      return possessionScopeRecoverySuggestion(possession);
+    case "possession_target_ambiguous":
+      return "The session possesses several characters, so omitted character targets cannot be auto-filled. Read possession.omitted_targets and name one possessed id explicitly in each action.";
     default:
       return null;
+  }
+}
+function possessionScopeRecoverySuggestion(possession) {
+  const detail = asRecord(possession);
+  const reason = detail?.reason;
+  switch (reason) {
+    case "live_actor_conflict":
+      return 'Observe fields=["ui"] until player_mode is false or player_actor_id is a possessed character, then retry player.enter/set_actor with an explicit possessed actor_id.';
+    case "live_player_inactive":
+      return 'Call player.enter with actor_id naming a possessed character, then observe fields=["ui"] to confirm player_mode/player_actor_id before the remaining player verbs.';
+    case "actor_id_omitted":
+      return "Name one possessed character id explicitly in actor_id for player.enter, player.set_actor, player.teleport, or player.walk_to.";
+    case "target_not_possessed":
+      return "Retarget the mutation to a possessed character id listed in possession.possessed_object_ids, or unbind_character_agent to lift the restriction.";
+    case "unscoped_author_action":
+      return "Use a character-scoped author action whose every mutated target id is a possessed character, or unbind_character_agent to lift the restriction.";
+    case "stage_wide_mutation":
+      return "Stage-wide writes are rejected under possession. Run the intent from an unpossessed session, or unbind_character_agent first.";
+    default:
+      return "Read the typed possession block (possessed ids, operation, reason) and retarget to a possessed character, or unbind_character_agent.";
   }
 }
 function stripEncodedMediaFromSerializedView(value) {
@@ -123270,7 +123305,7 @@ function createMcpToolResponse(execution, tool = "director_workbench") {
   };
   const feedback = execution.feedback ?? fallbackFeedback;
   const code = execution.code ?? nestedString(execution.result, "code");
-  const suggestedNext = nestedString(execution.result, "suggested_next") ?? recoverySuggestion(code ?? null);
+  const suggestedNext = nestedString(execution.result, "suggested_next") ?? recoverySuggestion(code ?? null, execution.possession);
   const serializedResult = execution.result === void 0 || execution.result === null ? execution.result : stripEncodedMediaFromSerializedView(execution.result);
   const modelEnvelope = directorAgentModelEnvelope({
     success: execution.success,
@@ -123300,7 +123335,8 @@ function createMcpToolResponse(execution, tool = "director_workbench") {
     context: context.success ? context.data : feedback.context,
     available_refs: availableRefs.success ? availableRefs.data : feedback.available_refs,
     target: execution.target ?? null,
-    agent_boundary: execution.agent_boundary ?? null
+    agent_boundary: execution.agent_boundary ?? null,
+    possession: execution.possession ?? null
   };
   const content = [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }];
   if (execution.capture) {

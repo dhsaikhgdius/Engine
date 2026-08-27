@@ -391,6 +391,11 @@ const canvasNodeBringToFrontSchema = strictOperation("canvas.node.bring_to_front
   node_id: creativeWorkspaceIdSchema,
 });
 
+/** Lower a Canvas board node to the bottom of the paint/z-order (array head). Idempotent when already back. */
+const canvasNodeSendToBackSchema = strictOperation("canvas.node.send_to_back", {
+  node_id: creativeWorkspaceIdSchema,
+});
+
 const canvasNodeAssignSectionSchema = strictOperation("canvas.node.assign_section", {
   node_id: creativeWorkspaceIdSchema,
   section_id: creativeWorkspaceIdSchema.nullable(),
@@ -866,6 +871,7 @@ export const creativeWorkspaceAgentOperationSchema = z.discriminatedUnion("op", 
   canvasNodeUpdateSchema,
   canvasNodeRemoveSchema,
   canvasNodeBringToFrontSchema,
+  canvasNodeSendToBackSchema,
   canvasNodeAssignSectionSchema,
   canvasSectionAddSchema,
   canvasSectionUpdateSchema,
