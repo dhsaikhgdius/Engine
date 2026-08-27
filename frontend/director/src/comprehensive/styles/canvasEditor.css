@@ -287,6 +287,12 @@
   background: rgb(var(--panel-rgb) / 0.98);
 }
 
+.creative-canvas-workspace .creative-board-import-status.is-detailed {
+  align-items: flex-start;
+  border-radius: 14px;
+  max-width: min(520px, calc(100% - 40px));
+}
+
 .creative-board-status-content {
   display: grid;
   flex: 1;
@@ -295,6 +301,30 @@
 }
 
 .creative-board-status-content > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creative-canvas-workspace .creative-board-import-status.is-detailed .creative-board-status-content > span:first-child {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+.creative-board-status-omit-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  color: rgb(var(--text-muted-rgb));
+  font-size: 9px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.creative-board-status-omit-list li {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
