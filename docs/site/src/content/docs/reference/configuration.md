@@ -36,8 +36,9 @@ In local trust mode (default) every upgrade-authenticated socket joins as an edi
 pre-auth behavior. With `DIRECTOR_COLLAB_ROOM_AUTH=required`, operators mint invites through
 `POST /api/collab/invites` (`{room, role, ttl_seconds}` — `role` is `editor` or `viewer`, and `room`
 may be a prefix capability such as `project-a/*`; the response includes a unique `jti` invite id).
-`GET /api/collab/auth` reports the active mode. Viewer invites receive documents and share awareness
-but cannot write.
+`GET /api/collab/auth` reports the active mode and the configured `invite_rate_limit_per_minute`
+(0 = off), matching the rooms ops and `/health` collaboration stanza. Viewer invites receive
+documents and share awareness but cannot write.
 
 Invites can be revoked through `POST /api/collab/invites/revoke` with exactly one of `token`
 (revokes that invite by its `jti`) or `room` (a scope cutoff: every invite for that scope minted

@@ -1,0 +1,102 @@
+{
+  "name": "game-harness-vs-codegen-honesty",
+  "description": "Mechanical proof for the harness-vs-codegen comparison (docs/site research/game-harness-vs-codegen): director_game capabilities must report the Stage runtime as the default, and export_slice must reject code generation at every stage — game_export_not_playable before a playable receipt exists, game_export_via_dcc (routing to director_dcc) after one does. A compile is never playability evidence and no engine source is ever emitted.",
+  "steps": [
+    {
+      "label": "capabilities report Stage as default runtime",
+      "tool": "director_game",
+      "input": { "op": "capabilities" },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.tool", "result.runtime.note", "result.working_order.0"],
+        "result_equals": { "result.runtime.default": "stage" }
+      }
+    },
+    {
+      "label": "plan an exploration slice",
+      "tool": "director_game",
+      "input": {
+        "op": "plan",
+        "slice_id": "game-eval-honesty-01",
+        "brief": {
+          "requirement": "Cross the courtyard to the stele and interact with it.",
+          "genre": "exploration"
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.slice.id", "result.slice.status"]
+      }
+    },
+    {
+      "label": "export before a playable receipt rejects codegen",
+      "tool": "director_game",
+      "input": {
+        "op": "export_slice",
+        "slice_id": "game-eval-honesty-01",
+        "provider": "unity"
+      },
+      "expect": {
+        "success": false,
+        "code": "game_export_not_playable",
+        "error_includes": "A compile is not evidence"
+      }
+    },
+    {
+      "label": "bind stage objects to slice roles",
+      "tool": "director_game",
+      "input": {
+        "op": "bind",
+        "slice_id": "game-eval-honesty-01",
+        "bindings": [
+          { "role_id": "player", "object_id": "hero-1" },
+          { "role_id": "spawn", "object_id": "spawn-1" },
+          { "role_id": "objective-1", "object_id": "stele-1" }
+        ]
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.bind_complete"]
+      }
+    },
+    {
+      "label": "host-free playtest scores the tape to playable",
+      "tool": "director_game",
+      "input": {
+        "op": "playtest",
+        "slice_id": "game-eval-honesty-01",
+        "script": {
+          "steps": [
+            { "frames": 16, "input": { "forward": true }, "expect": { "verb": "move" } },
+            { "frames": 10, "input": { "look_right": true }, "expect": { "verb": "look" } },
+            { "frames": 8, "input": { "jump": true }, "expect": { "verb": "jump" } },
+            { "frames": 6, "input": { "interact": true }, "expect": { "verb": "interact" } }
+          ]
+        }
+      },
+      "expect": {
+        "success": true,
+        "result_paths": ["result.trace.contract", "result.evaluation.checks.0"],
+        "result_equals": {
+          "result.evaluation.playable": true,
+          "result.slice.status": "playable"
+        }
+      }
+    },
+    {
+      "label": "export after playable routes to director_dcc, never engine source",
+      "tool": "director_game",
+      "input": {
+        "op": "export_slice",
+        "slice_id": "game-eval-honesty-01",
+        "provider": "unity"
+      },
+      "expect": {
+        "success": false,
+        "code": "game_export_via_dcc",
+        "error_includes": "not generated engine source",
+        "result_equals": { "result.next.0.tool": "director_dcc" }
+      }
+    }
+  ]
+}

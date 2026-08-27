@@ -203,15 +203,10 @@ function checkExpectations(expect, body) {
   for (const path of expect.result_paths ?? []) {
     if (resolvePath(body, path) == null) failures.push(`expected response path "${path}" to resolve to a value`);
   }
-  // Exact-value assertions (deep JSON equality), e.g. the playtest trace
-  // source must be "live_stage" — a non-null host-free fallback would still
-  // satisfy result_paths, so liveness needs equality, not presence.
   for (const [path, expected] of Object.entries(expect.result_equals ?? {})) {
     const actual = resolvePath(body, path);
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      failures.push(
-        `expected response path "${path}" to equal ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
-      );
+      failures.push(`expected response path "${path}" to equal ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
     }
   }
   if (failures.length) {

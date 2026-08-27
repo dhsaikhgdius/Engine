@@ -59,6 +59,8 @@ export type CollaborationInviteRouteDependencies = {
    * local trust mode stays unbounded.
    */
   rateLimiter?: CollaborationInviteRateLimiter;
+  /** Configured invite mint/revoke limit per minute (0 = unlimited / off). */
+  inviteRateLimitPerMinute: number;
 };
 
 function rejectIfRateLimited(
@@ -89,7 +91,8 @@ function rejectIfRateLimited(
  * no-store/no-referrer hardening because they transport capability tokens.
  *
  * Routes:
- * - `GET /api/collab/auth` — report the room authorization mode.
+ * - `GET /api/collab/auth` — report the room authorization mode and invite
+ *   mint/revoke rate-limit policy (`invite_rate_limit_per_minute`, 0 = off).
  * - `POST /api/collab/invites` — mint a signed invite capability token.
  * - `POST /api/collab/invites/revoke` — revoke one invite by token, or every
  *   invite for a room scope that was minted before now. Successful responses
@@ -110,10 +113,11 @@ export async function handleCollaborationInviteRoute(
   url: URL,
   dependencies: CollaborationInviteRouteDependencies,
 ) {
-  const { readBody, json, authorizer, inviteSecret, revocations, hub, rateLimiter } = dependencies;
+  const { readBody, json, authorizer, inviteSecret, revocations, hub, rateLimiter, inviteRateLimitPerMinute } =
+    dependencies;
   if (request.method === "GET" && url.pathname === "/api/collab/auth") {
     applyCollaborationResponseHardening(response);
-    json(response, 200, { mode: authorizer.mode });
+    json(response, 200, { mode: authorizer.mode, invite_rate_limit_per_minute: inviteRateLimitPerMinute });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/collab/invites") {

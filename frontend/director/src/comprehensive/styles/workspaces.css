@@ -1623,6 +1623,41 @@
   background: rgb(var(--panel-rgb) / 0.78);
   box-shadow: 0 4px 14px rgb(var(--overlay-rgb) / 0.08);
   backdrop-filter: blur(10px) saturate(1.05);
+  pointer-events: auto;
+}
+
+.creative-board-section-action {
+  display: grid;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.72;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.creative-board-section-header:hover .creative-board-section-action,
+.creative-board-section-action:focus-visible {
+  opacity: 1;
+}
+
+.creative-board-section-action:hover {
+  color: rgb(var(--text-rgb));
+  background: rgb(var(--surface-hover-rgb) / 0.65);
+}
+
+.creative-board-section-action.is-danger:hover {
+  color: rgb(var(--danger-rgb));
+  background: rgb(var(--danger-rgb) / 0.12);
 }
 
 .creative-board-section-icon {

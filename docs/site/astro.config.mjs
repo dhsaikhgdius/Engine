@@ -137,6 +137,11 @@ export default defineConfig({
             page("Evaluation Protocol", "research", "评测协议"),
             page("Competitive Union", "research/competitive-union", "竞品能力并集"),
             page(
+              "Harness Game vs Skill-based Codegen",
+              "research/game-harness-vs-codegen",
+              "Harness 游戏 vs 技能式代码生成",
+            ),
+            page(
               "Agent-Native Architecture Assessment",
               "research/agent-native-architecture-assessment",
               "Agent-Native 架构符合性评估",

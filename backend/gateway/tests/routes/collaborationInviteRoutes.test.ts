@@ -66,6 +66,7 @@ function dependencies(overrides: Partial<CollaborationInviteRouteDependencies> =
     inviteSecret: SECRET,
     revocations,
     hub,
+    inviteRateLimitPerMinute: 0,
     ...overrides,
   };
   return { deps, json, revocations, hub };
@@ -77,8 +78,8 @@ function lastJsonCall(json: ReturnType<typeof vi.fn>) {
 }
 
 describe("handleCollaborationInviteRoute", () => {
-  it("reports the auth mode with capability-hardening headers", async () => {
-    const { deps, json } = dependencies();
+  it("reports the auth mode and invite rate-limit policy with capability-hardening headers", async () => {
+    const { deps, json } = dependencies({ inviteRateLimitPerMinute: 30 });
     const res = response();
     const handled = await handleCollaborationInviteRoute(
       request("GET"),
@@ -87,7 +88,10 @@ describe("handleCollaborationInviteRoute", () => {
       deps,
     );
     expect(handled).toBe(true);
-    expect(lastJsonCall(json)).toMatchObject({ status: 200, body: { mode: "invite-required" } });
+    expect(lastJsonCall(json)).toMatchObject({
+      status: 200,
+      body: { mode: "invite-required", invite_rate_limit_per_minute: 30 },
+    });
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
